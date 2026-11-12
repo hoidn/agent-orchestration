@@ -1,0 +1,4 @@
+#!/bin/sh
+# Thread M guard: no provider calls. Log the attempt and fail.
+echo "$(date -u +%FT%TZ) $(basename "$0") $*" >> "$(dirname "$0")/../no-provider.log"
+exit 97

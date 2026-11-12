@@ -1,0 +1,138 @@
+diff --git a/orchestrator/state.py b/orchestrator/state.py
+index c6b5a5e..be1b446 100644
+--- a/orchestrator/state.py
++++ b/orchestrator/state.py
+@@ -411,8 +411,9 @@ class StateManager:
+         context: Optional[Dict[str, Any]] = None,
+         bound_inputs: Optional[Dict[str, Any]] = None,
+         observability: Optional[Dict[str, Any]] = None,
++        result_persistence_profile: Optional[str] = None,
+     ) -> RunState:
+-        """Initialize a new run state.
++        """Initialize a new run state (first cut: the persistence profile is ignored).
+ 
+         Args:
+             workflow_file: Path to the workflow source file
+@@ -593,6 +594,19 @@ class StateManager:
+             self._write_json_atomic(path, payload)
+             return payload
+ 
++    def begin_eligible_pure_visit(self, *, step_name: str, step_index: int, step_id: str) -> Any:
++        """First cut: eligible pure visits are not recorded."""
++        raise NotImplementedError("begin_eligible_pure_visit")
++
++    def reuse_interrupted_eligible_pure_visit(self, witness: Any) -> Any:
++        raise NotImplementedError("reuse_interrupted_eligible_pure_visit")
++
++    def settle_eligible_pure_success(self, witness: Any) -> Any:
++        raise NotImplementedError("settle_eligible_pure_success")
++
++    def settle_eligible_pure_failure(self, witness: Any, result: Any) -> Any:
++        raise NotImplementedError("settle_eligible_pure_failure")
++
+     def fail_run(
+         self,
+         error: Dict[str, Any],
+diff --git a/orchestrator/workflow/call_frame_state.py b/orchestrator/workflow/call_frame_state.py
+index df32636..9ef06c1 100644
+--- a/orchestrator/workflow/call_frame_state.py
++++ b/orchestrator/workflow/call_frame_state.py
+@@ -23,6 +23,11 @@ from .loaded_bundle import (
+ from .resume_projection_integrity import ResumeScopePath
+ 
+ 
++def load_existing_call_frame_read_only(existing_frame: Any) -> Any:
++    """First cut: read-only frame loading is not implemented."""
++    raise NotImplementedError("load_existing_call_frame_read_only")
++
++
+ def _path_safe_frame_scope_token(frame_id: str) -> str:
+     """Return one bounded path-safe token for nested call-frame storage."""
+ 
+diff --git a/orchestrator/workflow/outcomes.py b/orchestrator/workflow/outcomes.py
+index 7626c1f..ba11cf9 100644
+--- a/orchestrator/workflow/outcomes.py
++++ b/orchestrator/workflow/outcomes.py
+@@ -44,6 +44,7 @@ class OutcomeRecorder:
+         phase_hint: Optional[str] = None,
+         class_hint: Optional[str] = None,
+         retryable_hint: Optional[bool] = None,
++        eligible_pure_settlement: Any = None,
+     ) -> Dict[str, Any]:
+         if "steps" not in state:
+             state["steps"] = {}
+diff --git a/orchestrator/workflow/pure_result_replay.py b/orchestrator/workflow/pure_result_replay.py
+new file mode 100644
+index 0000000..3a8087d
+--- /dev/null
++++ b/orchestrator/workflow/pure_result_replay.py
+@@ -0,0 +1,49 @@
++"""Pure-result replay (first cut: entry points only, nothing is derived or replayed)."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Mapping
++
++PURE_RESULT_REPLAY_DIAGNOSTIC = "pure_result_replay_unavailable"
++DEPENDENCY_INDEX_INVALID = "dependency_index_invalid"
++REACHABILITY_AMBIGUOUS = "reachability_ambiguous"
++MULTIPLE_VISIT_REGION = "multiple_visit_region"
++DERIVED_PURE_REPLAY_PROFILE = "derived_pure_replay.v1"
++
++
++class PureResultReplayIndexError(ValueError):
++    """Replay index derivation failed (first cut: never raised)."""
++
++    def __init__(self, code: str, message: str = "") -> None:
++        super().__init__(message or code)
++        self.code = code
++
++
++@dataclass(frozen=True)
++class PureReplayVisitWitness:
++    """One eligible pure visit (first cut: carries nothing)."""
++
++
++class PureReplayRuntime:
++    """Replay runtime (first cut: replays nothing)."""
++
++
++def build_pure_completion_shell(*args: Any, **kwargs: Any) -> Any:
++    raise NotImplementedError("build_pure_completion_shell")
++
++
++def validate_pure_completion_shell(*args: Any, **kwargs: Any) -> Any:
++    raise NotImplementedError("validate_pure_completion_shell")
++
++
++def classify_pure_replay_progress(*args: Any, **kwargs: Any) -> Any:
++    raise NotImplementedError("classify_pure_replay_progress")
++
++
++def derive_pure_result_replay_index(*args: Any, **kwargs: Any) -> Any:
++    raise NotImplementedError("derive_pure_result_replay_index")
++
++
++def _propagate_pure_ineligibility(**kwargs: Any) -> Any:
++    raise NotImplementedError("_propagate_pure_ineligibility")
+diff --git a/orchestrator/workflow/resume_planner.py b/orchestrator/workflow/resume_planner.py
+index 01ed725..ee87fe9 100644
+--- a/orchestrator/workflow/resume_planner.py
++++ b/orchestrator/workflow/resume_planner.py
+@@ -190,13 +190,14 @@ class ResumePlanner:
+         self,
+         state: Dict[str, Any],
+         *,
++        restart_node_id: Any = None,
+         runtime_plan: Any,
+         state_manager: Any,
+         executable_workflow: Any | None = None,
+         loaded_workflow: Any | None = None,
+         projection: Optional[WorkflowStateProjection] = None,
+     ) -> Dict[str, Any]:
+-        """Return one R6 default-resume decision for the current resume point."""
++        """Return one R6 default-resume decision (first cut: the restart node is ignored)."""
+         if not isinstance(projection, WorkflowStateProjection):
+             raise TypeError("ResumePlanner requires a WorkflowStateProjection")
+ 

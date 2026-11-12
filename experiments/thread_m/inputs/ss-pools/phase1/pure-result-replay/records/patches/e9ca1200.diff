@@ -1,0 +1,3069 @@
+diff --git a/orchestrator/cli/commands/resume.py b/orchestrator/cli/commands/resume.py
+index 740638a..f8faa2f 100644
+--- a/orchestrator/cli/commands/resume.py
++++ b/orchestrator/cli/commands/resume.py
+@@ -9,7 +9,7 @@ from typing import Optional, Dict, Any
+ import sys
+ from dataclasses import dataclass
+ 
+-from orchestrator.state import StateManager
++from orchestrator.state import DERIVED_PURE_REPLAY_PROFILE, StateManager
+ from orchestrator.run_lock import RunAlreadyActiveError, run_writer_lock
+ from orchestrator.workflow.executor import WorkflowExecutor
+ from orchestrator.workflow.loaded_bundle import (
+@@ -445,12 +445,7 @@ def _resume_workflow_with_writer_lock_held(
+             live_agent_note_timeout_sec=live_agent_note_timeout_sec,
+             live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
+         )
+-        if observability is not None:
+-            # Preserve the existing force-restart override lifecycle.
+-            with state_manager.state_transaction() as transaction_state:
+-                transaction_state.observability = observability
+-            state = state_manager.state
+-            assert state is not None
++        # The overrides belong to the new root only; the source run stays untouched.
+ 
+     # Validate checksum unless force restart
+     if not force_restart:
+@@ -533,6 +528,7 @@ def _resume_workflow_with_writer_lock_held(
+                 ),
+             bound_inputs=bound_inputs,
+             observability=observability,
++            result_persistence_profile=DERIVED_PURE_REPLAY_PROFILE,
+         )
+     else:
+         # Find the next step to execute
+diff --git a/orchestrator/cli/commands/run.py b/orchestrator/cli/commands/run.py
+index 73891c8..c667608 100644
+--- a/orchestrator/cli/commands/run.py
++++ b/orchestrator/cli/commands/run.py
+@@ -12,7 +12,7 @@ from pathlib import Path
+ from typing import Dict, Any, Optional
+ from argparse import Namespace
+ 
+-from orchestrator.state import StateManager
++from orchestrator.state import DERIVED_PURE_REPLAY_PROFILE, StateManager
+ from orchestrator.run_lock import RunAlreadyActiveError, run_writer_lock
+ from orchestrator.workflow.executor import WorkflowExecutor
+ from orchestrator.workflow.loaded_bundle import (
+@@ -438,6 +438,9 @@ def run_workflow(args: Namespace) -> int:
+             context,
+             bound_inputs=bound_inputs,
+             observability=observability,
++            result_persistence_profile=(
++                DERIVED_PURE_REPLAY_PROFILE if frontend_build is not None else None
++            ),
+         )
+         if frontend_build is not None:
+             with state_manager.state_transaction() as transaction_state:
+diff --git a/orchestrator/state.py b/orchestrator/state.py
+index c6b5a5e..53306c6 100644
+--- a/orchestrator/state.py
++++ b/orchestrator/state.py
+@@ -72,6 +72,16 @@ class ForEachState:
+         return asdict(self)
+ 
+ 
++DERIVED_PURE_REPLAY_PROFILE = "derived_pure_replay.v1"
++
++
++def validate_result_persistence_profile(profile: Any) -> Optional[str]:
++    """Fail closed on any result_persistence_profile other than the supported one."""
++    if profile is not None and profile != DERIVED_PURE_REPLAY_PROFILE:
++        raise ValueError(f"unsupported result_persistence_profile: {profile!r}")
++    return profile
++
++
+ @dataclass
+ class RunState:
+     """Complete run state matching specs/state.md schema."""
+@@ -102,6 +112,10 @@ class RunState:
+     transition_count: int = 0
+     step_visits: Dict[str, int] = field(default_factory=dict)
+     provider_attempt_allocations: Dict[str, Any] = field(default_factory=dict)
++    result_persistence_profile: Optional[str] = None
++
++    def __post_init__(self) -> None:
++        validate_result_persistence_profile(self.result_persistence_profile)
+ 
+     def to_dict(self) -> Dict[str, Any]:
+         """Convert to dict for JSON serialization."""
+@@ -142,6 +156,8 @@ class RunState:
+             result["current_step"] = self.current_step
+         if self.provider_attempt_allocations:
+             result["provider_attempt_allocations"] = self.provider_attempt_allocations
++        if self.result_persistence_profile is not None:
++            result["result_persistence_profile"] = self.result_persistence_profile
+ 
+         # Convert step results - type assert for type checker
+         steps_dict: Dict[str, Any] = result["steps"]
+@@ -216,6 +232,7 @@ class RunState:
+             transition_count=data.get("transition_count", 0),
+             step_visits=data.get("step_visits", {}),
+             provider_attempt_allocations=provider_attempt_allocations,
++            result_persistence_profile=data.get("result_persistence_profile"),
+         )
+ 
+ 
+@@ -411,6 +428,7 @@ class StateManager:
+         context: Optional[Dict[str, Any]] = None,
+         bound_inputs: Optional[Dict[str, Any]] = None,
+         observability: Optional[Dict[str, Any]] = None,
++        result_persistence_profile: Optional[str] = None,
+     ) -> RunState:
+         """Initialize a new run state.
+ 
+@@ -421,6 +439,7 @@ class StateManager:
+         Returns:
+             Initialized RunState
+         """
++        validate_result_persistence_profile(result_persistence_profile)
+         with self._state_mutation():
+             # Create run directory structure
+             self.run_root.mkdir(parents=True, exist_ok=True)
+@@ -447,6 +466,7 @@ class StateManager:
+                 context=context or {},
+                 bound_inputs=bound_inputs or {},
+                 observability=observability,
++                result_persistence_profile=result_persistence_profile,
+             )
+ 
+             # Write initial state
+@@ -1255,6 +1275,49 @@ class StateManager:
+             self.state.current_step = current_step
+             self._write_state()
+ 
++    def begin_eligible_pure_visit(self, *, step_name: str, step_index: int, step_id: str) -> int:
++        """Atomically count the single visit of an eligible pure step and publish its cursor."""
++        from .workflow.pure_visit_transitions import begin_eligible_pure_visit_state
++
++        with self._state_mutation():
++            if not self.state:
++                raise RuntimeError("State not initialized")
++            visit = begin_eligible_pure_visit_state(
++                self.state, step_name=step_name, step_index=step_index, step_id=step_id
++            )
++            self._write_state()
++            return visit
++
++    def reuse_interrupted_eligible_pure_visit(self, witness: Any) -> int:
++        """Validate an interrupted eligible pure visit and its cursor without writing."""
++        from .workflow.pure_visit_transitions import reuse_interrupted_eligible_pure_visit_state
++
++        with self._state_mutation():
++            if not self.state:
++                raise RuntimeError("State not initialized")
++            return reuse_interrupted_eligible_pure_visit_state(self.state, witness)
++
++    def settle_eligible_pure_success(self, witness: Any) -> Dict[str, Any]:
++        """Atomically persist the exact completion shell and clear the cursor."""
++        from .workflow.pure_visit_transitions import settle_eligible_pure_success_state
++
++        with self._state_mutation():
++            if not self.state:
++                raise RuntimeError("State not initialized")
++            shell = settle_eligible_pure_success_state(self.state, witness)
++            self._write_state()
++            return shell
++
++    def settle_eligible_pure_failure(self, witness: Any, result: Any) -> None:
++        """Atomically persist a full failed or skipped row and clear the cursor."""
++        from .workflow.pure_visit_transitions import settle_eligible_pure_failure_state
++
++        with self._state_mutation():
++            if not self.state:
++                raise RuntimeError("State not initialized")
++            settle_eligible_pure_failure_state(self.state, witness, result)
++            self._write_state()
++
+     def get_step_result(self, step_name: str) -> Optional[StepResult]:
+         """Get result of a specific step.
+ 
+diff --git a/orchestrator/workflow/call_frame_state.py b/orchestrator/workflow/call_frame_state.py
+index df32636..f824a19 100644
+--- a/orchestrator/workflow/call_frame_state.py
++++ b/orchestrator/workflow/call_frame_state.py
+@@ -12,7 +12,7 @@ from hashlib import sha256
+ from pathlib import Path
+ from typing import Any, Callable, Dict, List, Mapping, Optional
+ 
+-from ..state import ForEachState, RunState, StateManager, StepResult
++from ..state import ForEachState, RunState, StateManager, StepResult, validate_result_persistence_profile
+ from .executable_ir import ManagedJobsConfig, ManagedJobsRoutes
+ from .executor_runtime import ParentCallStateManager
+ from .loaded_bundle import (
+@@ -23,6 +23,14 @@ from .loaded_bundle import (
+ from .resume_projection_integrity import ResumeScopePath
+ 
+ 
++def load_existing_call_frame_read_only(existing_frame: Any) -> Dict[str, Any]:
++    """Return an existing frame's state as a detached copy, writing nothing."""
++    state = existing_frame.get("state") if isinstance(existing_frame, Mapping) else None
++    if not isinstance(state, Mapping):
++        raise ValueError("existing call-frame state must be a mapping")
++    return deepcopy(dict(state))
++
++
+ def _path_safe_frame_scope_token(frame_id: str) -> str:
+     """Return one bounded path-safe token for nested call-frame storage."""
+ 
+@@ -99,7 +107,14 @@ class _CallFrameStateManager:
+         existing_frame: Optional[Dict[str, Any]] = None,
+         observability: Optional[Dict[str, Any]] = None,
+         resume_scope_path: Optional[ResumeScopePath] = None,
++        result_persistence_profile: Optional[str] = None,
+     ) -> None:
++        existing_state = (
++            load_existing_call_frame_read_only(existing_frame)
++            if existing_frame is not None
++            else None
++        )
++        validate_result_persistence_profile(result_persistence_profile)
+         self.parent_manager = parent_manager
+         self.workspace = parent_manager.workspace
+         self.workflow = workflow
+@@ -127,8 +142,7 @@ class _CallFrameStateManager:
+                 "diagnostics": [],
+             }
+ 
+-        existing_state = existing_frame.get("state") if isinstance(existing_frame, dict) else None
+-        if isinstance(existing_state, dict):
++        if existing_state is not None:
+             self.state = RunState.from_dict(existing_state)
+         else:
+             provenance = workflow_provenance(workflow)
+@@ -149,8 +163,15 @@ class _CallFrameStateManager:
+                 context=dict(workflow_context(workflow)),
+                 bound_inputs=dict(bound_inputs),
+                 observability=observability,
++                result_persistence_profile=result_persistence_profile,
+             )
+-        self._persist()
++        # A profiled existing frame stays read-only until its conflict audit has run in execute();
++        # its first state write then carries the in-memory bound-input validation.
++        self._read_only_until_audit = (
++            existing_state is not None and self.state.result_persistence_profile is not None
++        )
++        if not self._read_only_until_audit:
++            self._persist()
+ 
+     def _snapshot(self) -> Dict[str, Any]:
+         """Build the persisted call-frame metadata snapshot."""
+@@ -203,7 +224,8 @@ class _CallFrameStateManager:
+             "status": status,
+             "diagnostics": list(diagnostics or []),
+         }
+-        self._persist()
++        if not self._read_only_until_audit:
++            self._persist()
+ 
+     def load(self) -> RunState:
+         return self.state
+@@ -252,6 +274,33 @@ class _CallFrameStateManager:
+             self.state.current_step = None
+         self._persist()
+ 
++    def begin_eligible_pure_visit(self, *, step_name: str, step_index: int, step_id: str) -> int:
++        from .pure_visit_transitions import begin_eligible_pure_visit_state
++
++        visit = begin_eligible_pure_visit_state(
++            self.state, step_name=step_name, step_index=step_index, step_id=step_id
++        )
++        self._persist()
++        return visit
++
++    def reuse_interrupted_eligible_pure_visit(self, witness: Any) -> int:
++        from .pure_visit_transitions import reuse_interrupted_eligible_pure_visit_state
++
++        return reuse_interrupted_eligible_pure_visit_state(self.state, witness)
++
++    def settle_eligible_pure_success(self, witness: Any) -> Dict[str, Any]:
++        from .pure_visit_transitions import settle_eligible_pure_success_state
++
++        shell = settle_eligible_pure_success_state(self.state, witness)
++        self._persist()
++        return shell
++
++    def settle_eligible_pure_failure(self, witness: Any, result: Any) -> None:
++        from .pure_visit_transitions import settle_eligible_pure_failure_state
++
++        settle_eligible_pure_failure_state(self.state, witness, result)
++        self._persist()
++
+     def _refresh_state_chain_from_root(self) -> None:
+         """Refresh every live call-frame manager after one root-owned commit."""
+ 
+diff --git a/orchestrator/workflow/calls.py b/orchestrator/workflow/calls.py
+index 1e79f43..7d157de 100644
+--- a/orchestrator/workflow/calls.py
++++ b/orchestrator/workflow/calls.py
+@@ -7,6 +7,7 @@ from pathlib import Path
+ from typing import Any, Dict, Mapping, Optional
+ 
+ from ..contracts.output_contract import OutputContractError, validate_contract_value
++from ..state import DERIVED_PURE_REPLAY_PROFILE
+ from .executable_ir import (
+     BlockOutputAddress,
+     CallOutputAddress,
+@@ -908,6 +909,7 @@ class CallExecutor:
+         scope: Optional[Dict[str, Dict[str, Any]]] = None,
+         runtime_step_id: Optional[str] = None,
+         step_name_override: Optional[str] = None,
++        iteration_owned: bool = False,
+     ) -> Dict[str, Any]:
+         """Execute an imported workflow inline and persist call-frame state."""
+         from .call_frame_state import _CallFrameStateManager
+@@ -1212,6 +1214,14 @@ class CallExecutor:
+             existing_frame=child_existing_frame,
+             observability=self.executor.observability,
+             resume_scope_path=self._resume_scope_path().child(frame_id),
++            # Selected only from the callee's typed provenance, only for a new frame.
++            result_persistence_profile=(
++                DERIVED_PURE_REPLAY_PROFILE
++                if child_existing_frame is None
++                and workflow_lisp_target
++                and not iteration_owned
++                else None
++            ),
+         )
+         child_state_manager.update_bound_input_resume_validation(
+             status=str(resume_validation.get("status", "fresh")),
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index 03fd568..3d71323 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -115,6 +115,14 @@ from .state_layout import (
+ from . import step_results
+ from .loops import LoopExecutor
+ from .outcomes import OutcomeRecorder
++from .pure_result_replay import (
++    DERIVED_PURE_REPLAY_PROFILE,
++    PROFILE_CONFLICT,
++    PURE_RESULT_REPLAY_UNAVAILABLE,
++    PureReplayRuntime,
++    PureResultReplayIndexError,
++    classify_pure_replay_progress,
++)
+ from .predicates import (
+     AllOfPredicateNode,
+     AnyOfPredicateNode,
+@@ -227,6 +235,12 @@ class WorkflowExecutor:
+     Handles sequential execution, for-each loops, and control flow.
+     """
+ 
++    # Immutable defaults so partially constructed executors stay usable.
++    pure_replay_runtime: Optional[PureReplayRuntime] = None
++    _resume_restart_node_id: Optional[str] = None
++    _resume_restart_error: Optional[ResumeStateIntegrityError] = None
++    _resume_restart_determined: bool = False
++
+     def __init__(
+         self,
+         workflow: Any,
+@@ -412,6 +426,11 @@ class WorkflowExecutor:
+         self._active_provider_sessions: Dict[str, Dict[str, Any]] = {}
+         self._lexical_restore_overlay: Optional[Dict[str, Any]] = None
+         self.resume_mode = False
++        self.pure_replay_runtime: Optional[PureReplayRuntime] = None
++        self._pending_pure_settlements: Dict[str, Any] = {}
++        self._resume_restart_node_id: Optional[str] = None
++        self._resume_restart_error: Optional[ResumeStateIntegrityError] = None
++        self._resume_restart_determined = False
+         self._adjudication_runner = AdjudicationRunner(
+             AdjudicationBindings(
+                 workspace=lambda: self.workspace,
+@@ -482,10 +501,17 @@ class WorkflowExecutor:
+                 ),
+             )
+         )
+-        self._initialize_provider_observation_manager()
++        self.provider_executor.observation_manager = (
++            self.provider_observation_manager
++        )
+ 
+     def _initialize_provider_observation_manager(self) -> None:
+-        """Acquire the owned run manager after fallible executor initialization."""
++        """Acquire the owned run manager when execution starts."""
++        if self._owns_provider_observation_manager and self._provider_observation_manager_closed:
++            # A previous execute() closed the owned manager; each run gets its own.
++            self.provider_observation_manager = None
++            self._owns_provider_observation_manager = False
++            self._provider_observation_manager_closed = False
+         if (
+             self.provider_observation_enabled
+             and self.provider_observation_manager is None
+@@ -1497,9 +1523,10 @@ class WorkflowExecutor:
+         )
+ 
+     def _determine_resume_default_resume_decision(self, state: Dict[str, Any]) -> Dict[str, Any]:
+-        """Determine the R6 default-resume mode for one resumed run."""
++        """Determine the R6 default-resume mode for the already determined restart node."""
+         return self.resume_planner.determine_default_resume_decision(
+             state,
++            restart_node_id=self._resume_restart_node_id,
+             runtime_plan=self.runtime_plan,
+             state_manager=self.state_manager,
+             executable_workflow=self.executable_ir,
+@@ -3706,6 +3733,7 @@ class WorkflowExecutor:
+             Final execution state
+         """
+         try:
++            self._initialize_provider_observation_manager()
+             # Override retry config if provided
+             if max_retries is not None:
+                 self.max_retries = max_retries
+@@ -3713,11 +3741,16 @@ class WorkflowExecutor:
+                 self.retry_delay_ms = retry_delay_ms
+ 
+             run_state = self.state_manager.load()
++            self._activate_pure_replay_profile(run_state)
+             if resume and _is_structurally_root_state_manager(self.state_manager):
+                 root_guard_result = self._revalidate_root_resume(run_state)
+                 if root_guard_result is not None:
+                     return root_guard_result
+             state = run_state.to_dict()
++            if resume and self.pure_replay_runtime is not None:
++                preflight_failure = self._pure_replay_preflight(state)
++                if preflight_failure is not None:
++                    return preflight_failure
+             completed_phased_resume_boundary = None
+             completed_resume_candidate = (
+                 resume
+@@ -3734,13 +3767,18 @@ class WorkflowExecutor:
+                 if early_result is not None:
+                     return early_result
+ 
++            self._resume_restart_node_id = None
++            self._resume_restart_error = None
++            self._resume_restart_determined = resume
+             if resume:
+                 try:
+                     resume_restart = (
+                         self._determine_resume_restart_node_id(state)
+                     )
+-                except ResumeStateIntegrityError:
++                    self._resume_restart_node_id = resume_restart
++                except ResumeStateIntegrityError as exc:
+                     resume_restart = False
++                    self._resume_restart_error = exc
+                 if resume_restart is None:
+                     completed_phased_resume_boundary = (
+                         self._completed_phased_provider_resume_boundary(
+@@ -3787,6 +3825,129 @@ class WorkflowExecutor:
+         finally:
+             self._wait_for_provider_observation_dependents()
+             self._close_owned_provider_observation_manager()
++            self._resume_restart_determined = False
++
++    # -- derived pure replay profile -------------------------------------
++    def _activate_pure_replay_profile(self, run_state: Any) -> None:
++        """Build the replay runtime only for a run that recorded the profile."""
++        self._pending_pure_settlements = {}
++        profiled = (
++            getattr(run_state, "result_persistence_profile", None)
++            == DERIVED_PURE_REPLAY_PROFILE
++        )
++        self.pure_replay_runtime = (
++            PureReplayRuntime(bundle=self.loaded_bundle, scope_path=self.resume_scope_path)
++            if profiled
++            else None
++        )
++
++    def pure_replay_eligible_step_ids(self) -> frozenset[str]:
++        """Durable step ids whose pure results are derived rather than persisted."""
++        runtime = self.pure_replay_runtime
++        return frozenset(n.step_id for n in runtime.index.nodes.values()) if runtime else frozenset()
++
++    def _eligible_pure_node_id(self, node_id: Optional[str]) -> Optional[str]:
++        runtime = self.pure_replay_runtime
++        return node_id if runtime is not None and node_id in runtime.index.nodes else None
++
++    def _eligible_pure_node_id_for_step(self, step: RuntimeStepInput) -> Optional[str]:
++        runtime = self.pure_replay_runtime
++        if runtime is None:
++            return None
++        return runtime.node_id_for_step_id(self._step_id(step))
++
++    def _begin_eligible_pure_visit(self, state: Dict[str, Any], node_id: str) -> int:
++        """Start (or re-enter after an interruption) the single visit of an eligible node."""
++        runtime = self.pure_replay_runtime
++        witness = runtime.witness(node_id)
++        durable = self.state_manager.state
++        progress = classify_pure_replay_progress(
++            {
++                "steps": durable.steps,
++                "step_visits": durable.step_visits,
++                "current_step": durable.current_step,
++            },
++            witness=witness,
++        )
++        if progress == "interrupted":
++            visit_count = self.state_manager.reuse_interrupted_eligible_pure_visit(witness)
++        else:
++            visit_count = self.state_manager.begin_eligible_pure_visit(
++                step_name=witness.presentation_key,
++                step_index=witness.step_index,
++                step_id=witness.step_id,
++            )
++        state.setdefault("step_visits", {})[witness.presentation_key] = visit_count
++        self._pending_pure_settlements[witness.presentation_key] = witness
++        return visit_count
++
++    def _fail_pure_replay(self, exc: PureResultReplayIndexError) -> Dict[str, Any]:
++        """Fail a resumed run closed, before any effect, with the replay reason."""
++        return self._fail_resume_state_integrity(
++            PURE_RESULT_REPLAY_UNAVAILABLE,
++            str(exc),
++            {"reason": exc.reason, **exc.context},
++        )
++
++    def _resolve_pure_bundle_path(self, template: str, state: Dict[str, Any]) -> Optional[Path]:
++        resolved, error = self._substitute_path_template(
++            template, state, step_name="pure_replay", field_name="output_bundle.path"
++        )
++        path = self._resolve_workspace_path(resolved) if error is None and resolved else None
++        return (
++            self._bounded_private_runtime_bundle_path(path, namespace="pure_projection")
++            if path is not None
++            else None
++        )
++
++    def _pure_replay_preflight(self, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
++        """Reject conflicting surfaces and invalid progress before the prologue."""
++        runtime = self.pure_replay_runtime
++        try:
++            runtime.audit_persisted_surfaces(
++                state=state,
++                state_manager=self.state_manager,
++                resolve_bundle_path=lambda template: self._resolve_pure_bundle_path(template, state),
++            )
++            for node_id in runtime.index.nodes:
++                witness = runtime.witness_from_state(node_id, state)
++                if classify_pure_replay_progress(state, witness=witness) == "progress_witness_invalid":
++                    raise PureResultReplayIndexError(
++                        "progress_witness_invalid",
++                        "pure progress is not a valid single visit",
++                        context={"node_id": node_id},
++                    )
++        except PureResultReplayIndexError as exc:
++            if exc.reason == PROFILE_CONFLICT:
++                raise
++            return self._fail_pure_replay(exc)
++        return None
++
++    def _evaluate_pure_node_for_replay(self, node: Any, state: Dict[str, Any]) -> Dict[str, Any]:
++        step = self._typed_execution_step(self._runtime_step_for_node_id(node.node_id))
++        return self._execute_pure_projection(step, state)
++
++    def _replay_pure_overlay(
++        self,
++        state: Dict[str, Any],
++        restart_node_id: Optional[str],
++    ) -> Optional[Dict[str, Any]]:
++        """Re-derive the needed pure values in memory; never writes durable state."""
++        runtime = self.pure_replay_runtime
++        try:
++            runtime.audit_boundary_leaves(restart_node_id, state=state)
++            for node_id in runtime.required_node_ids_for_boundary(restart_node_id, state=state):
++                row = runtime.replay_node(
++                    node_id,
++                    state=state,
++                    evaluate_node=self._evaluate_pure_node_for_replay,
++                )
++                witness = runtime.witness(node_id)
++                state["steps"][witness.presentation_key] = row
++                runtime.record_full_result(node_id, witness=witness, result=row)
++        except PureResultReplayIndexError as exc:
++            return self._fail_pure_replay(exc)
++        return None
+ 
+     def _wait_for_provider_observation_dependents(self) -> None:
+         """Settle async provider users before their shared manager closes."""
+@@ -4045,7 +4206,11 @@ class WorkflowExecutor:
+             active_step_context: Dict[str, Any] = {}
+             # Execute steps with control flow support
+             try:
+-                resume_restart_node_id = self._determine_resume_restart_node_id(state) if resume else None
++                if resume and not self._resume_restart_determined:
++                    self._resume_restart_node_id = self._determine_resume_restart_node_id(state)
++                elif resume and self._resume_restart_error is not None:
++                    raise self._resume_restart_error
++                resume_restart_node_id = self._resume_restart_node_id if resume else None
+             except ResumeStateIntegrityError as exc:
+                 return _ExecuteStepLoopResult(
+                     terminal_status,
+@@ -4100,10 +4265,15 @@ class WorkflowExecutor:
+                     self._lexical_restore_overlay = None
+             else:
+                 self._lexical_restore_overlay = None
++            if resume and self.pure_replay_runtime is not None:
++                replay_failure = self._replay_pure_overlay(state, resume_restart_node_id)
++                if replay_failure is not None:
++                    return _ExecuteStepLoopResult(terminal_status, replay_failure)
+             step_index = 0
+             current_node_id = resume_restart_node_id
+             if (
+                 current_node_id is None
++                and not (resume and self.pure_replay_runtime is not None)
+                 and not (
+                     resume
+                     and completed_phased_resume_boundary is not None
+@@ -4398,7 +4568,11 @@ class WorkflowExecutor:
+                     self.state_manager.backup_state(step_name)
+ 
+                 consume_error = self._enforce_consumes_contract(step, step_name, state)
+-                visit_count = self._increment_step_visit(state, step_name)
++                pure_node_id = self._eligible_pure_node_id(current_node_id)
++                if pure_node_id is not None:
++                    visit_count = self._begin_eligible_pure_visit(state, pure_node_id)
++                else:
++                    visit_count = self._increment_step_visit(state, step_name)
+                 if isinstance(visit_count, int):
+                     active_step_context["visit_count"] = visit_count
+                 max_visits = step.get('max_visits')
+@@ -4528,13 +4702,14 @@ class WorkflowExecutor:
+                         visit_count=visit_count,
+                     )
+ 
+-                self.state_manager.start_step(
+-                    identity.name,
+-                    identity.step_index if identity.step_index is not None else step_index,
+-                    self._resolve_step_type(step),
+-                    step_id=identity.step_id,
+-                    visit_count=visit_count,
+-                )
++                if pure_node_id is None:
++                    self.state_manager.start_step(
++                        identity.name,
++                        identity.step_index if identity.step_index is not None else step_index,
++                        self._resolve_step_type(step),
++                        step_id=identity.step_id,
++                        visit_count=visit_count,
++                    )
+                 self._arm_interrupted_provider_rerun(
+                     interrupted_rerun_context
+                 )
+@@ -5905,6 +6080,7 @@ class WorkflowExecutor:
+                 scope=scope,
+                 runtime_step_id=runtime_step_id,
+                 step_name_override=step_name_override,
++                iteration_owned=True,
+             )
+         elif execution_kind is ExecutableNodeKind.PROVIDER_SUPERVISION:
+             result = {
+@@ -8794,6 +8970,7 @@ class WorkflowExecutor:
+         scope: Optional[Dict[str, Dict[str, Any]]] = None,
+         runtime_step_id: Optional[str] = None,
+         step_name_override: Optional[str] = None,
++        iteration_owned: bool = False,
+     ) -> Dict[str, Any]:
+         """Execute an imported workflow inline and persist call-frame state."""
+         return self.call_executor.execute_call(
+@@ -8802,6 +8979,7 @@ class WorkflowExecutor:
+             scope=scope,
+             runtime_step_id=runtime_step_id,
+             step_name_override=step_name_override,
++            iteration_owned=iteration_owned,
+         )
+ 
+     def _execute_provider_invocation(
+@@ -10610,7 +10788,8 @@ class WorkflowExecutor:
+     ) -> Dict[str, Any]:
+         from .steps.pure_projection import execute_pure_projection
+ 
+-        return execute_pure_projection(self, step, state, scope=scope)
++        derived = self._eligible_pure_node_id_for_step(step) is not None
++        return execute_pure_projection(self, step, state, scope=scope, derived=derived)
+ 
+     def _execute_materialize_view(
+         self,
+@@ -11635,7 +11814,15 @@ class WorkflowExecutor:
+         class_hint: Optional[str] = None,
+         retryable_hint: Optional[bool] = None,
+     ) -> Dict[str, Any]:
+-        return self.outcome_recorder.persist_step_result(
++        node_id = self._eligible_pure_node_id_for_step(step)
++        witness = None
++        if node_id is not None:
++            witness = self._pending_pure_settlements.pop(step_name, None)
++            if witness is None:
++                # Pre-visit skip or failure: count the single visit, then settle the full row.
++                self._begin_eligible_pure_visit(state, node_id)
++                witness = self._pending_pure_settlements.pop(step_name)
++        finalized = self.outcome_recorder.persist_step_result(
+             state,
+             step_name,
+             step,
+@@ -11643,7 +11830,11 @@ class WorkflowExecutor:
+             phase_hint=phase_hint,
+             class_hint=class_hint,
+             retryable_hint=retryable_hint,
++            eligible_pure_settlement=witness,
+         )
++        if witness is not None and finalized.get("status") == "completed":
++            self.pure_replay_runtime.record_full_result(node_id, witness=witness, result=finalized)
++        return finalized
+ 
+     def _emit_lexical_checkpoint_shadow_after_step_commit(
+         self,
+diff --git a/orchestrator/workflow/outcomes.py b/orchestrator/workflow/outcomes.py
+index 7626c1f..52c7ca7 100644
+--- a/orchestrator/workflow/outcomes.py
++++ b/orchestrator/workflow/outcomes.py
+@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, Optional
+ from ..state import StateManager, StepResult
+ from . import step_results
+ from .executor_runtime import RuntimeStepInput
++from .pure_result_replay import PureReplayVisitWitness
+ from .resume_projection_integrity import (
+     TerminalResultClass,
+     classify_terminal_result,
+@@ -44,6 +45,7 @@ class OutcomeRecorder:
+         phase_hint: Optional[str] = None,
+         class_hint: Optional[str] = None,
+         retryable_hint: Optional[bool] = None,
++        eligible_pure_settlement: Optional[PureReplayVisitWitness] = None,
+     ) -> Dict[str, Any]:
+         if "steps" not in state:
+             state["steps"] = {}
+@@ -57,7 +59,17 @@ class OutcomeRecorder:
+             finalized.setdefault("visit_count", visit_count)
+         state["steps"][step_name] = finalized
+ 
+-        self.state_manager.update_step(step_name, self.to_step_result(finalized, finalized.get("name", step_name)))
++        durable_row = finalized
++        if eligible_pure_settlement is None:
++            self.state_manager.update_step(step_name, self.to_step_result(finalized, finalized.get("name", step_name)))
++        elif finalized.get("status") == "completed":
++            # The full result stays in memory; durable state holds only the exact shell.
++            durable_row = self.state_manager.settle_eligible_pure_success(eligible_pure_settlement)
++        else:
++            self.state_manager.settle_eligible_pure_failure(
++                eligible_pure_settlement,
++                self.to_step_result(finalized, finalized.get("name", step_name)),
++            )
+         if (
+             classify_terminal_result(finalized)
+             is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
+@@ -72,7 +84,7 @@ class OutcomeRecorder:
+                 self.state_manager.update_run_error(error)
+         if self.post_persist_hook is not None:
+             self.post_persist_hook(state, step_name, step, finalized)
+-        self.summary_emitter(step_name, step, finalized)
++        self.summary_emitter(step_name, step, durable_row)
+         return finalized
+ 
+     def attach_outcome(
+diff --git a/orchestrator/workflow/pure_result_replay.py b/orchestrator/workflow/pure_result_replay.py
+new file mode 100644
+index 0000000..42256c3
+--- /dev/null
++++ b/orchestrator/workflow/pure_result_replay.py
+@@ -0,0 +1,515 @@
++"""Derived pure-result replay: value-free completion shells and in-memory replay.
++
++Type signatures: see the individual classes. Dependencies: the replay index
++(static, from the bundle), and the run-state mapping handed in by the caller
++(``steps``, ``step_visits``, ``current_step``, ``bound_inputs``). Behavior:
++under profile ``derived_pure_replay.v1`` an eligible pure projection persists
++only an exact value-free completion shell; resume re-derives the values into a
++process-local overlay. Nothing here dispatches an effect, increments a visit,
++settles a result or writes durable state.
++"""
++
++from __future__ import annotations
++
++import copy
++import json
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any, Callable, Iterable, Mapping, Optional
++
++from .executable_ir import NodeResultAddress, WorkflowInputAddress
++from .pure_expr import PureExprEvaluationError, _coerce_value
++from .pure_result_replay_index import (
++    DEPENDENCY_INDEX_INVALID,
++    DERIVED_PURE_REPLAY_PROFILE,
++    MULTIPLE_VISIT_REGION,
++    PROFILE_CONFLICT,
++    PROGRESS_WITNESS_INVALID,
++    PURE_RESULT_REPLAY_UNAVAILABLE,
++    REACHABILITY_AMBIGUOUS,
++    PureBinding,
++    PureReplayNode,
++    PureResultReplayIndex,
++    PureResultReplayIndexError,
++    _propagate_pure_ineligibility,
++    _reachable_successors,
++    derive_pure_result_replay_index,
++)
++from .resume_projection_integrity import ResumeScopePath
++
++__all__ = [
++    "DERIVED_PURE_REPLAY_PROFILE",
++    "DEPENDENCY_INDEX_INVALID",
++    "MULTIPLE_VISIT_REGION",
++    "PROFILE_CONFLICT",
++    "PROGRESS_WITNESS_INVALID",
++    "PURE_RESULT_REPLAY_UNAVAILABLE",
++    "REACHABILITY_AMBIGUOUS",
++    "PureBinding",
++    "PureReplayNode",
++    "PureReplayRuntime",
++    "PureReplayVisitWitness",
++    "PureResultReplayIndex",
++    "PureResultReplayIndexError",
++    "_propagate_pure_ineligibility",
++    "build_pure_completion_shell",
++    "classify_pure_replay_progress",
++    "derive_pure_result_replay_index",
++    "validate_pure_completion_shell",
++]
++
++PURE_STEP_TYPE = "pure_projection"
++_OUTCOME_FIELDS = {"status": str, "phase": str, "class": str, "retryable": bool}
++
++
++@dataclass(frozen=True)
++class PureReplayVisitWitness:
++    """Identity of one single-visit pure execution."""
++
++    presentation_key: str
++    step_index: int
++    step_id: str
++    visit_count: int
++
++
++def _progress_invalid(message: str, **context: Any) -> PureResultReplayIndexError:
++    return PureResultReplayIndexError(PROGRESS_WITNESS_INVALID, message, context=context)
++
++
++def _canonical(value: Any) -> str:
++    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=repr)
++
++
++def build_pure_completion_shell(witness: PureReplayVisitWitness) -> dict[str, Any]:
++    """Build the exact value-free completion row for ``witness``."""
++    if witness.visit_count != 1 or type(witness.visit_count) is not int:
++        raise _progress_invalid("a value-free completion requires visit one", visit_count=witness.visit_count)
++    return {
++        "name": witness.presentation_key,
++        "step_id": witness.step_id,
++        "visit_count": 1,
++        "status": "completed",
++        "exit_code": 0,
++        "outcome": {"status": "completed", "phase": "execution", "class": "completed", "retryable": False},
++        "result_storage": DERIVED_PURE_REPLAY_PROFILE,
++    }
++
++
++def _is_shell(row: Any, witness: PureReplayVisitWitness) -> bool:
++    if not isinstance(row, Mapping) or witness.visit_count != 1:
++        return False
++    return _canonical(dict(row)) == _canonical(build_pure_completion_shell(witness))
++
++
++def validate_pure_completion_shell(row: Any, *, witness: PureReplayVisitWitness) -> None:
++    """Raise ``ValueError`` unless ``row`` is exactly the completion shell."""
++    if not _is_shell(row, witness):
++        raise ValueError("row is not the exact derived-pure completion shell")
++
++
++def _cursor_is_related(cursor: Any, witness: PureReplayVisitWitness) -> bool:
++    return isinstance(cursor, Mapping) and (
++        cursor.get("name") == witness.presentation_key or cursor.get("step_id") == witness.step_id
++    )
++
++
++def _cursor_matches(cursor: Mapping[str, Any], witness: PureReplayVisitWitness) -> bool:
++    return (
++        cursor.get("name") == witness.presentation_key
++        and cursor.get("step_id") == witness.step_id
++        and cursor.get("index") == witness.step_index
++        and cursor.get("type") == PURE_STEP_TYPE
++        and cursor.get("status") == "running"
++        and cursor.get("visit_count") == witness.visit_count
++        and type(cursor.get("visit_count")) is int
++    )
++
++
++def _is_failure_or_skip(row: Any, witness: PureReplayVisitWitness) -> bool:
++    return (
++        isinstance(row, Mapping)
++        and row.get("status") in {"failed", "skipped"}
++        and row.get("name", witness.presentation_key) == witness.presentation_key
++        and row.get("step_id", witness.step_id) == witness.step_id
++        and row.get("visit_count", witness.visit_count) == witness.visit_count
++    )
++
++
++def classify_pure_replay_progress(state: Mapping[str, Any], *, witness: PureReplayVisitWitness) -> str:
++    """Classify the recorded visit, cursor and row for ``witness``."""
++    key = witness.presentation_key
++    steps = state.get("steps")
++    row = steps.get(key) if isinstance(steps, Mapping) else None
++    if hasattr(row, "to_dict"):
++        row = row.to_dict()
++    visits = state.get("step_visits")
++    visit = visits.get(key) if isinstance(visits, Mapping) else None
++    cursor = state.get("current_step")
++    related = _cursor_is_related(cursor, witness)
++    if visit is None and not related and row is None:
++        return "unstarted"
++    if type(visit) is not int or visit != witness.visit_count or witness.visit_count != 1:
++        return PROGRESS_WITNESS_INVALID
++    if related:
++        return "interrupted" if row is None and _cursor_matches(cursor, witness) else PROGRESS_WITNESS_INVALID
++    if _is_shell(row, witness):
++        return "derived_complete"
++    if _is_failure_or_skip(row, witness):
++        return "durable_failure_skip"
++    return PROGRESS_WITNESS_INVALID
++
++
++def _active_artifact_names(contracts: Mapping[str, Any], artifacts: Mapping[str, Any]) -> set[str]:
++    """Names of the outputs that a row holding ``artifacts`` must carry."""
++    names: set[str] = set()
++    for name, contract in contracts.items():
++        projection = contract.get("projection") if isinstance(contract, Mapping) else None
++        if not isinstance(projection, Mapping) or projection.get("projection_class") != "union_workflow_boundary":
++            names.add(name)
++        elif projection.get("field_role") != "variant":
++            names.add(name)
++        else:
++            discriminant = artifacts.get(projection.get("discriminant_output"))
++            if discriminant in (projection.get("active_variants") or ()):
++                names.add(name)
++    return names
++
++
++def _validate_artifacts(node: PureReplayNode, artifacts: Any) -> dict[str, Any]:
++    if not isinstance(artifacts, Mapping):
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID, "pure result carries no artifacts", context={"node_id": node.node_id}
++        )
++    expected = _active_artifact_names(node.output_contracts, artifacts)
++    actual = set(artifacts)
++    if actual != expected:
++        raise PureResultReplayIndexError(
++            DEPENDENCY_INDEX_INVALID,
++            "pure result members do not match the active variant",
++            context={
++                "node_id": node.node_id,
++                "missing": sorted(expected - actual),
++                "extra": sorted(actual - expected),
++            },
++        )
++    return dict(artifacts)
++
++
++def _evaluation_error(node_id: str, result: Mapping[str, Any]) -> PureResultReplayIndexError:
++    error = result.get("error") if isinstance(result.get("error"), Mapping) else {}
++    context = error.get("context") if isinstance(error.get("context"), Mapping) else {}
++    if error.get("type") == "materialize_ref_unresolved":
++        reason, cause = "binding_unresolved", "materialize_ref_unresolved"
++    elif context.get("reason") == "pure_projection_contract_invalid":
++        reason, cause = "output_contract_invalid", "pure_projection_contract_invalid"
++    else:
++        reason, cause = "evaluation_failed", "pure_evaluation_failed"
++    return PureResultReplayIndexError(
++        reason, f"pure node '{node_id}' could not be re-derived", context={"node_id": node_id, "cause": {"type": cause}}
++    )
++
++
++class PureReplayRuntime:
++    """Process-local replay cache over one workflow scope."""
++
++    def __init__(self, *, bundle: Any, scope_path: ResumeScopePath) -> None:
++        self.bundle = bundle
++        self.scope_path = scope_path
++        self.index = derive_pure_result_replay_index(bundle)
++        self._plan_nodes = bundle.runtime_plan.nodes
++        self._node_id_by_step_id = {node.step_id: node.node_id for node in self.index.nodes.values()}
++        self._active: dict[str, tuple[PureReplayVisitWitness, dict[str, Any]]] = {}
++        self._overlay: dict[str, tuple[PureReplayVisitWitness, dict[str, Any]]] = {}
++
++    # -- identity -----------------------------------------------------
++    @staticmethod
++    def classify(state: Mapping[str, Any], witness: PureReplayVisitWitness) -> str:
++        return classify_pure_replay_progress(state, witness=witness)
++
++    def _node(self, node_id: str) -> PureReplayNode:
++        node = self.index.nodes.get(node_id)
++        if node is None:
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID, f"'{node_id}' is not a replay-eligible pure node", context={"node_id": node_id}
++            )
++        return node
++
++    def node_id_for_step_id(self, step_id: str) -> Optional[str]:
++        return self._node_id_by_step_id.get(step_id)
++
++    def witness(self, node_id: str, *, visit_count: int = 1) -> PureReplayVisitWitness:
++        node = self._node(node_id)
++        index = self._plan_nodes[node_id].execution_index
++        return PureReplayVisitWitness(node.presentation_key, index if index is not None else 0, node.step_id, visit_count)
++
++    def witness_from_state(self, node_id: str, state: Mapping[str, Any]) -> PureReplayVisitWitness:
++        node = self._node(node_id)
++        visits = state.get("step_visits")
++        visit = visits.get(node.presentation_key) if isinstance(visits, Mapping) else None
++        return self.witness(node_id, visit_count=visit if type(visit) is int else 1)
++
++    # -- cache --------------------------------------------------------
++    def _row_for(self, node_id: str, state: Mapping[str, Any]) -> dict[str, Any]:
++        """Return the validated full row for ``node_id`` or raise."""
++        node = self._node(node_id)
++        witness = self.witness(node_id)
++        visits = state.get("step_visits")
++        visit = visits.get(node.presentation_key) if isinstance(visits, Mapping) else None
++        if type(visit) is not int or visit != 1:
++            raise _progress_invalid("pure replay requires exactly one visit", node_id=node_id, visit_count=visit)
++        if _cursor_is_related(state.get("current_step"), witness):
++            raise _progress_invalid("a running cursor targets a completed pure node", node_id=node_id)
++        steps = state.get("steps")
++        row = steps.get(node.presentation_key) if isinstance(steps, Mapping) else None
++        active = self._active.get(node_id)
++        if active is not None and active[0] == witness and row is not None and _canonical(row) == _canonical(active[1]):
++            return active[1]
++        overlay = self._overlay.get(node_id)
++        if overlay is not None and row is not None and _canonical(row) == _canonical(overlay[1]):
++            return overlay[1]  # the overlay view of a state whose durable row is the shell
++        if not _is_shell(row, witness):
++            raise _progress_invalid("pure row is neither the durable shell nor the active result", node_id=node_id)
++        if overlay is None:
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID, "pure value has not been re-derived", context={"node_id": node_id}
++            )
++        return overlay[1]
++
++    def record_full_result(self, node_id: str, *, witness: PureReplayVisitWitness, result: Mapping[str, Any]) -> None:
++        node = self._node(node_id)
++        if witness != self.witness(node_id) or result.get("status") != "completed":
++            raise _progress_invalid("active result does not match the single-visit witness", node_id=node_id)
++        _validate_artifacts(node, result.get("artifacts"))
++        self._active[node_id] = (witness, copy.deepcopy(dict(result)))
++
++    def replay_node(
++        self,
++        node_id: str,
++        *,
++        state: Mapping[str, Any],
++        evaluate_node: Callable[[PureReplayNode, dict[str, Any]], Mapping[str, Any]],
++    ) -> dict[str, Any]:
++        node = self._node(node_id)
++        witness = self.witness_from_state(node_id, state)
++        if witness.visit_count != 1:
++            raise _progress_invalid("pure replay requires exactly one visit", node_id=node_id)
++        if classify_pure_replay_progress(state, witness=witness) != "derived_complete":
++            raise _progress_invalid("pure node has no durable completion shell", node_id=node_id)
++        try:
++            result = evaluate_node(node, self.overlay_active_state(state))
++        except PureResultReplayIndexError:
++            raise
++        except Exception as exc:
++            raise PureResultReplayIndexError(
++                "evaluation_failed",
++                f"pure node '{node_id}' could not be re-derived",
++                context={"node_id": node_id, "cause": {"type": "pure_evaluation_failed"}},
++            ) from exc
++        if not isinstance(result, Mapping) or result.get("status") != "completed":
++            raise _evaluation_error(node_id, result if isinstance(result, Mapping) else {})
++        artifacts = _validate_artifacts(node, result.get("artifacts"))
++        row = {**build_pure_completion_shell(witness), "artifacts": copy.deepcopy(artifacts)}
++        self._overlay[node_id] = (witness, row)
++        return row
++
++    # -- address resolution ------------------------------------------
++    def resolve_state_address(self, address: Any, state: Mapping[str, Any]) -> tuple[bool, Any]:
++        if isinstance(address, WorkflowInputAddress):
++            inputs = state.get("bound_inputs")
++            if isinstance(inputs, Mapping) and address.input_name in inputs:
++                return True, inputs[address.input_name]
++            return False, None
++        if not isinstance(address, NodeResultAddress):
++            return False, None
++        if address.node_id in self.index.nodes:
++            row = self._row_for(address.node_id, state)
++        else:
++            plan_node = self._plan_nodes.get(address.node_id)
++            steps = state.get("steps")
++            row = steps.get(plan_node.presentation_key) if plan_node and isinstance(steps, Mapping) else None
++        if not isinstance(row, Mapping):
++            return False, None
++        container = row if address.field == "exit_code" else row.get(address.field)
++        if address.field == "exit_code":
++            return "exit_code" in row, row.get("exit_code")
++        if isinstance(container, Mapping) and address.member in container:
++            return True, container[address.member]
++        return False, None
++
++    def value_for_state_address(self, address: Any, state: Mapping[str, Any]) -> Any:
++        found, value = self.resolve_state_address(address, state)
++        if not found:
++            raise PureResultReplayIndexError(
++                "durable_input_missing", "address has no value in state", context={"address": repr(address)}
++            )
++        return value
++
++    # -- boundary -----------------------------------------------------
++    def _boundary_seed_addresses(self, restart_node_id: Optional[str]) -> list[NodeResultAddress]:
++        nodes = self.bundle.ir.nodes
++        successors = _reachable_successors(self.bundle)
++        region: set[str] = set(nodes)
++        if restart_node_id is not None:
++            region, stack = set(), [restart_node_id]
++            while stack:
++                current = stack.pop()
++                if current in region or current not in nodes:
++                    continue
++                region.add(current)
++                stack.extend(successors[current])
++        found: list[Any] = []
++        for node_id in region:
++            _collect_addresses(nodes[node_id], found, depth=0)
++        for contract in self.bundle.ir.outputs.values():
++            _collect_addresses(contract.source_address, found, depth=0)
++        by_ref_prefix = {f".steps.{n.presentation_key}.": n.node_id for n in self.index.nodes.values()}
++        seeds: list[NodeResultAddress] = []
++        for item in found:
++            if isinstance(item, NodeResultAddress):
++                seeds.append(item)
++                continue
++            for prefix, node_id in by_ref_prefix.items():
++                if prefix in item:
++                    seeds.append(NodeResultAddress(node_id, "artifacts"))
++        return seeds
++
++    def _reached_pure_node_ids(self, state: Mapping[str, Any]) -> set[str]:
++        reached = set()
++        for node_id in self.index.nodes:
++            witness = self.witness_from_state(node_id, state)
++            if classify_pure_replay_progress(state, witness=witness) == "derived_complete":
++                reached.add(node_id)
++        return reached
++
++    def required_node_ids_for_boundary(self, restart_node_id: Optional[str], *, state: Mapping[str, Any]) -> tuple[str, ...]:
++        reached = self._reached_pure_node_ids(state)
++        seeds = [s for s in self._boundary_seed_addresses(restart_node_id) if s.node_id in reached]
++        return self.index.required_pure_node_ids(seeds, reached_node_ids=reached)
++
++    def audit_boundary_leaves(self, restart_node_id: Optional[str], *, state: Mapping[str, Any]) -> None:
++        """Validate the durable leaves the required pure nodes derive from."""
++        node_ids = list(self.required_node_ids_for_boundary(restart_node_id, state=state))
++        if restart_node_id in self.index.nodes and restart_node_id not in node_ids:
++            node_ids.append(restart_node_id)  # an unstarted eligible restart node derives from the same leaves
++        for node_id in node_ids:
++            node = self._node(node_id)
++            for binding in node.bindings:
++                self._audit_leaf(node, binding, state)
++
++    def _audit_leaf(self, node: PureReplayNode, binding: PureBinding, state: Mapping[str, Any]) -> None:
++        address = binding.address
++        if isinstance(address, NodeResultAddress) and address.node_id in self.index.nodes:
++            return
++        context = {"node_id": node.node_id, "address": repr(address)}
++        found, value = self.resolve_state_address(address, state)
++        if not found:
++            raise PureResultReplayIndexError("durable_input_missing", "durable input is missing", context=context)
++        if isinstance(address, NodeResultAddress) and address.field == "exit_code":
++            valid = type(value) is int
++        elif isinstance(address, NodeResultAddress) and address.field == "outcome":
++            expected = _OUTCOME_FIELDS.get(str(address.member))
++            valid = expected is None or type(value) is expected
++        elif isinstance(address, WorkflowInputAddress) and len(binding.path) == 1:
++            valid = self._input_matches_type(node, binding.path[0], value)
++        else:
++            valid = True
++        if not valid:
++            raise PureResultReplayIndexError("durable_input_invalid", "durable input has the wrong type", context=context)
++
++    def _input_matches_type(self, node: PureReplayNode, binding_name: Any, value: Any) -> bool:
++        spec = self.bundle.ir.nodes[node.node_id].execution_config.pure_projection["payload"]["bindings"][binding_name]
++        try:
++            _coerce_value(value, spec["type"], context="bound input")
++        except PureExprEvaluationError:
++            return False
++        return True
++
++    def overlay_active_state(self, state: Mapping[str, Any]) -> dict[str, Any]:
++        """Return a copy of ``state`` whose completed pure rows carry replayed values."""
++        merged = dict(state)
++        steps = dict(state.get("steps") or {})
++        for node_id, (_, row) in self._overlay.items():
++            steps[self._node(node_id).presentation_key] = self._row_for(node_id, state)
++        merged["steps"] = steps
++        return merged
++
++    # -- persisted surfaces ------------------------------------------
++    def audit_persisted_surfaces(
++        self,
++        *,
++        state: Mapping[str, Any],
++        state_manager: Any,
++        resolve_bundle_path: Callable[[str], Optional[Path]],
++    ) -> None:
++        """Reject any persisted value-bearing surface of an eligible node."""
++        lineage = state.get("private_artifact_versions") or {}
++        if not isinstance(lineage, Mapping):
++            raise PureResultReplayIndexError(
++                DEPENDENCY_INDEX_INVALID,
++                "private_artifact_versions must be a mapping",
++                context={"surface": "private_artifact_versions"},
++            )
++        for key, entries in lineage.items():
++            if not isinstance(entries, (list, tuple)):
++                raise PureResultReplayIndexError(
++                    DEPENDENCY_INDEX_INVALID,
++                    f"private_artifact_versions['{key}'] must be a list of entries",
++                    context={"surface": "private_artifact_versions"},
++                )
++        for node_id, node in self.index.nodes.items():
++            witness = self.witness(node_id)
++            row = (state.get("steps") or {}).get(node.presentation_key)
++            if (
++                isinstance(row, Mapping)
++                and row.get("status") == "completed"
++                and row.get("visit_count", 1) == 1
++                and not _is_shell(row, witness)
++            ):
++                self._conflict("steps", node_id)  # a visit-two row is an invalid witness instead
++            template = self.bundle.ir.nodes[node_id].execution_config.common.output_bundle
++            path = resolve_bundle_path(template["path"]) if template and template.get("path") else None
++            if path is not None and Path(path).exists():
++                self._conflict("pure_bundle", node_id)
++            for entries in lineage.values():
++                if any(_lineage_entry_belongs(entry, node) for entry in entries):
++                    self._conflict("private_artifact_versions", node_id)
++        from ..workflow_lisp.lexical_checkpoint_pure_audit import audit_checkpoint_surfaces
++
++        audit_checkpoint_surfaces(self, state=state, state_manager=state_manager)
++
++    @staticmethod
++    def _conflict(surface: str, node_id: str) -> None:
++        raise PureResultReplayIndexError(
++            PROFILE_CONFLICT,
++            f"persisted {surface} surface exists for eligible pure node '{node_id}'",
++            context={"surface": surface, "node_id": node_id},
++        )
++
++
++def _lineage_entry_belongs(entry: Any, node: PureReplayNode) -> bool:
++    return isinstance(entry, Mapping) and (
++        entry.get("producer") in {node.presentation_key, node.step_id}
++        or entry.get("producer_step_id") == node.step_id
++        or entry.get("producer_name") == node.presentation_key
++        or entry.get("step_id") == node.step_id
++    )
++
++
++def _collect_addresses(value: Any, out: list[Any], *, depth: int) -> None:
++    """Gather every node-result address reachable from ``value`` (over-approximate)."""
++    if depth > 12 or value is None or isinstance(value, (int, float, bool)):
++        return
++    if isinstance(value, str):
++        if ".steps." in value:
++            out.append(value)  # a textual ref; resolved to a node by the caller
++    elif isinstance(value, NodeResultAddress):
++        out.append(value)
++    elif isinstance(value, Mapping):
++        for item in value.values():
++            _collect_addresses(item, out, depth=depth + 1)
++    elif isinstance(value, (list, tuple)):
++        for item in value:
++            _collect_addresses(item, out, depth=depth + 1)
++    elif hasattr(value, "__dataclass_fields__"):
++        for name in value.__dataclass_fields__:
++            _collect_addresses(getattr(value, name), out, depth=depth + 1)
+diff --git a/orchestrator/workflow/pure_result_replay_index.py b/orchestrator/workflow/pure_result_replay_index.py
+new file mode 100644
+index 0000000..da5d4ea
+--- /dev/null
++++ b/orchestrator/workflow/pure_result_replay_index.py
+@@ -0,0 +1,459 @@
++"""Static replay-eligibility index for compiler-generated pure projections.
++
++Type signature: ``derive_pure_result_replay_index(bundle, *, scope_kind) ->
++PureResultReplayIndex``. Dependencies: the bundle's executable IR, runtime plan
++and state projection (read only). Behavior: classifies each ``pure_projection``
++node as replay-eligible (acyclic, visited at most once per scope) or not, and
++records the typed bindings, output addresses and dependency edges of eligible
++nodes. It never mutates or serializes the bundle.
++"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++from typing import Any, Iterable, Mapping, Optional
++
++from .executable_ir import (
++    BoundAddress,
++    ExecutableNodeKind,
++    ForEachNode,
++    NodeResultAddress,
++    RepeatUntilFrameNode,
++    WorkflowInputAddress,
++)
++from .loaded_bundle import workflow_bundle
++from .pure_expr import PureExprEvaluationError, _coerce_value
++from .references import ReferenceResolutionError, parse_structured_ref
++from ..state import DERIVED_PURE_REPLAY_PROFILE
++
++PURE_RESULT_REPLAY_UNAVAILABLE = "pure_result_replay_unavailable"
++DEPENDENCY_INDEX_INVALID = "dependency_index_invalid"
++REACHABILITY_AMBIGUOUS = "reachability_ambiguous"
++MULTIPLE_VISIT_REGION = "multiple_visit_region"
++PROGRESS_WITNESS_INVALID = "progress_witness_invalid"
++PROFILE_CONFLICT = "profile_conflict"
++ROOT_SCOPE = "root"
++
++__all__ = [
++    "DERIVED_PURE_REPLAY_PROFILE",
++    "PURE_RESULT_REPLAY_UNAVAILABLE",
++    "DEPENDENCY_INDEX_INVALID",
++    "REACHABILITY_AMBIGUOUS",
++    "MULTIPLE_VISIT_REGION",
++    "PROGRESS_WITNESS_INVALID",
++    "PROFILE_CONFLICT",
++    "PureResultReplayIndexError",
++    "PureBinding",
++    "PureReplayNode",
++    "PureResultReplayIndex",
++    "derive_pure_result_replay_index",
++]
++
++
++class PureResultReplayIndexError(ValueError):
++    """Fail-closed replay error carrying a stable reason and context."""
++
++    code = PURE_RESULT_REPLAY_UNAVAILABLE
++
++    def __init__(self, reason: str, message: str, *, context: Optional[Mapping[str, Any]] = None) -> None:
++        super().__init__(message)
++        self.reason = reason
++        self.message = message
++        self.context = dict(context or {})
++
++
++def _invalid(message: str, **context: Any) -> PureResultReplayIndexError:
++    return PureResultReplayIndexError(DEPENDENCY_INDEX_INVALID, message, context=context)
++
++
++@dataclass(frozen=True)
++class PureBinding:
++    """One exact ref leaf of a binding value document."""
++
++    path: tuple[str | int, ...]
++    address: BoundAddress
++
++
++@dataclass(frozen=True)
++class PureReplayNode:
++    """Replay metadata for one eligible pure projection."""
++
++    node_id: str
++    step_id: str
++    presentation_key: str
++    bindings: tuple[PureBinding, ...]
++    output_addresses: tuple[NodeResultAddress, ...]
++    output_contracts: Mapping[str, Any]
++    pure_dependency_node_ids: tuple[str, ...]
++    durable_dependency_node_ids: tuple[str, ...]
++
++
++@dataclass(frozen=True)
++class PureResultReplayIndex:
++    """Eligible pure nodes of one workflow scope plus why others are not."""
++
++    scope_kind: str
++    nodes: Mapping[str, PureReplayNode]
++    topological_node_ids: tuple[str, ...]
++    ineligible_pure_reasons: Mapping[str, str] = field(default_factory=dict)
++
++    def required_pure_node_ids(
++        self,
++        seed_addresses: Iterable[BoundAddress],
++        *,
++        reached_node_ids: Iterable[str],
++    ) -> tuple[str, ...]:
++        """Return the pure nodes (topologically ordered) needed to rebuild the seeds."""
++        reached = set(reached_node_ids)
++        needed: set[str] = set()
++        stack = [
++            address.node_id
++            for address in seed_addresses
++            if isinstance(address, NodeResultAddress) and address.node_id in self.nodes
++        ]
++        while stack:
++            node_id = stack.pop()
++            if node_id in needed:
++                continue
++            if node_id not in reached:
++                raise PureResultReplayIndexError(
++                    REACHABILITY_AMBIGUOUS,
++                    f"pure node '{node_id}' is required but not known to be reached",
++                    context={"node_id": node_id},
++                )
++            needed.add(node_id)
++            stack.extend(self.nodes[node_id].pure_dependency_node_ids)
++        return tuple(node_id for node_id in self.topological_node_ids if node_id in needed)
++
++
++def _is_exact_ref(doc: Any) -> bool:
++    return isinstance(doc, Mapping) and "ref" in doc and len(doc) == 1
++
++
++def _walk_doc(
++    doc: Any,
++    descriptor: Mapping[str, Any],
++    path: tuple[str | int, ...],
++    leaves: list[tuple[tuple[str | int, ...], str]],
++) -> None:
++    """Validate literal leaves against ``descriptor`` and collect exact refs."""
++    if _is_exact_ref(doc):
++        ref = doc["ref"]
++        if not isinstance(ref, str) or not ref:
++            raise _invalid("malformed ref object", path=list(path))
++        leaves.append((path, ref))
++        return
++    if isinstance(doc, Mapping) and "ref" in doc:
++        raise _invalid("malformed ref object", path=list(path))
++    kind = descriptor.get("kind")
++    if kind == "optional":
++        if doc is not None:
++            _walk_doc(doc, descriptor["item"], path, leaves)
++    elif kind == "list":
++        if not isinstance(doc, (list, tuple)):
++            raise _invalid("literal must be a list", path=list(path))
++        for index, item in enumerate(doc):
++            _walk_doc(item, descriptor["item"], (*path, index), leaves)
++    elif kind == "map":
++        if not isinstance(doc, Mapping):
++            raise _invalid("literal must be a map", path=list(path))
++        for key, item in doc.items():
++            _walk_doc(item, descriptor["value"], (*path, key), leaves)
++    elif kind == "record":
++        _walk_fields(doc, descriptor["fields"], path, leaves, extra_allowed=())
++    elif kind in {"union", "variant_case"}:
++        _walk_union(doc, descriptor, path, leaves)
++    else:
++        try:
++            _coerce_value(doc, descriptor, context="binding literal")
++        except PureExprEvaluationError as exc:
++            raise _invalid(f"wrong-typed literal: {exc}", path=list(path)) from exc
++
++
++def _walk_fields(
++    doc: Any,
++    fields: Iterable[Mapping[str, Any]],
++    path: tuple[str | int, ...],
++    leaves: list[tuple[tuple[str | int, ...], str]],
++    *,
++    extra_allowed: Iterable[Mapping[str, Any]],
++) -> None:
++    if not isinstance(doc, Mapping):
++        raise _invalid("literal must be a record", path=list(path))
++    declared = {field_["name"]: field_["type"] for field_ in fields}
++    for name, field_type in declared.items():
++        if name not in doc:
++            raise _invalid(f"literal is missing field '{name}'", path=list(path))
++        _walk_doc(doc[name], field_type, (*path, name), leaves)
++    others = {field_["name"]: field_["type"] for field_ in extra_allowed}
++    for name in doc:
++        if name in declared or name == "variant":
++            continue
++        if name not in others:
++            raise _invalid(f"literal has unexpected field '{name}'", path=list(path))
++        _walk_doc(doc[name], others[name], (*path, name), leaves)
++
++
++def _walk_union(
++    doc: Any,
++    descriptor: Mapping[str, Any],
++    path: tuple[str | int, ...],
++    leaves: list[tuple[tuple[str | int, ...], str]],
++) -> None:
++    """Union literal: the active variant is required, inactive members must still type-check.
++
++    The discriminant may itself be an exact ref; the active variant is then unknown
++    statically, so no field is required but every present member is still checked.
++    """
++    if not isinstance(doc, Mapping) or "variant" not in doc:
++        raise _invalid("union literal must declare a variant", path=list(path))
++    variants = (
++        list(descriptor.get("variants", ()))
++        if descriptor["kind"] == "union"
++        else [{"name": descriptor["variant"], "fields": descriptor["fields"]}]
++    )
++    discriminant = doc["variant"]
++    if _is_exact_ref(discriminant):
++        _walk_doc(discriminant, {"kind": "primitive", "name": "String"}, (*path, "variant"), leaves)
++        active = None
++    elif isinstance(discriminant, str):
++        active = next((v for v in variants if v["name"] == discriminant), None)
++        if active is None:
++            raise _invalid("union literal names an unknown variant", path=list(path))
++    else:
++        raise _invalid("union literal variant must be a string or ref", path=list(path))
++    declared: dict[str, Mapping[str, Any]] = {}
++    for variant in ([active] if active else []) + variants:
++        for field_ in variant.get("fields", ()):
++            declared.setdefault(field_["name"], field_["type"])
++    for field_ in (active or {}).get("fields", ()):
++        if field_["name"] not in doc:
++            raise _invalid(f"literal is missing field '{field_['name']}'", path=list(path))
++    for name, item in doc.items():
++        if name == "variant":
++            continue
++        if name not in declared:
++            raise _invalid(f"literal has unexpected field '{name}'", path=list(path))
++        _walk_doc(item, declared[name], (*path, name), leaves)
++
++
++def _reachable_successors(bundle: Any) -> dict[str, set[str]]:
++    nodes = bundle.ir.nodes
++    successors: dict[str, set[str]] = {node_id: set() for node_id in nodes}
++    for node_id, node in nodes.items():
++        targets = successors[node_id]
++        if node.fallthrough_node_id:
++            targets.add(node.fallthrough_node_id)
++        for transfer in node.routed_transfers.values():
++            if transfer.target_node_id:
++                targets.add(transfer.target_node_id)
++        if isinstance(node, (ForEachNode, RepeatUntilFrameNode)) and node.body_entry_node_id:
++            targets.add(node.body_entry_node_id)
++    return {k: {t for t in v if t in nodes} for k, v in successors.items()}
++
++
++def _cyclic_node_ids(successors: Mapping[str, set[str]]) -> set[str]:
++    """Return node ids on a cycle (iterative Tarjan SCC)."""
++    index: dict[str, int] = {}
++    low: dict[str, int] = {}
++    on_stack: set[str] = set()
++    stack: list[str] = []
++    cyclic: set[str] = set()
++    counter = 0
++    for root in successors:
++        if root in index:
++            continue
++        work = [(root, iter(sorted(successors[root])))]
++        index[root] = low[root] = counter
++        counter += 1
++        stack.append(root)
++        on_stack.add(root)
++        while work:
++            node, children = work[-1]
++            advanced = False
++            for child in children:
++                if child not in index:
++                    index[child] = low[child] = counter
++                    counter += 1
++                    stack.append(child)
++                    on_stack.add(child)
++                    work.append((child, iter(sorted(successors[child]))))
++                    advanced = True
++                    break
++                if child in on_stack:
++                    low[node] = min(low[node], index[child])
++            if advanced:
++                continue
++            work.pop()
++            if work:
++                parent = work[-1][0]
++                low[parent] = min(low[parent], low[node])
++            if low[node] == index[node]:
++                component = []
++                while True:
++                    member = stack.pop()
++                    on_stack.discard(member)
++                    component.append(member)
++                    if member == node:
++                        break
++                if len(component) > 1 or node in successors[node]:
++                    cyclic.update(component)
++    return cyclic
++
++
++def _multi_visit_node_ids(bundle: Any) -> set[str]:
++    """Nodes that can be visited more than once per scope: loop-owned or on a cycle."""
++    multi = _cyclic_node_ids(_reachable_successors(bundle))
++    for node in bundle.ir.nodes.values():
++        if isinstance(node, (ForEachNode, RepeatUntilFrameNode)):
++            multi.update(node.body_node_ids)
++            multi.add(node.node_id)
++    return multi
++
++
++def _propagate_pure_ineligibility(
++    dependencies: Mapping[str, Iterable[str]],
++    reasons: dict[str, str],
++) -> None:
++    """Make every pure node that consumes a multiply visited pure node ineligible too."""
++    changed = True
++    while changed:
++        changed = False
++        for node_id, deps in dependencies.items():
++            if node_id in reasons:
++                continue
++            if any(reasons.get(dep) == MULTIPLE_VISIT_REGION for dep in deps):
++                reasons[node_id] = MULTIPLE_VISIT_REGION
++                changed = True
++
++
++def _address_for_ref(ref: str, by_presentation: Mapping[str, str]) -> BoundAddress:
++    if ref.startswith("inputs."):
++        name = ref[len("inputs."):]
++        if not name:
++            raise _invalid("unbound input ref", ref=ref)
++        return WorkflowInputAddress(name)
++    if ref.startswith("parent.steps."):
++        raise _invalid("cross-frame ref", ref=ref)
++    try:
++        target = parse_structured_ref(ref, by_presentation)
++    except ReferenceResolutionError as exc:
++        raise _invalid(f"unbound ref text: {exc}", ref=ref) from exc
++    node_id = by_presentation.get(target.step_name)
++    if node_id is None:
++        # Nested projections may be named by a dotted suffix of the step key.
++        suffixed = {
++            by_presentation[key] for key in by_presentation if key.endswith(f".{target.step_name}")
++        }
++        if len(suffixed) != 1:
++            raise _invalid("ref names an unknown or ambiguous step", ref=ref)
++        (node_id,) = suffixed
++    return NodeResultAddress(node_id, target.field, target.member)
++
++
++def _binding_leaves(config: Mapping[str, Any], node_id: str) -> list[tuple[tuple[str | int, ...], str]]:
++    payload = config.get("payload")
++    refs = config.get("binding_refs")
++    if not isinstance(payload, Mapping) or not isinstance(refs, Mapping):
++        raise _invalid("pure projection config is malformed", node_id=node_id)
++    declared = payload.get("bindings", {})
++    unbound = [name for name in refs if name not in declared]
++    if unbound:
++        raise _invalid("binding refs name undeclared bindings", node_id=node_id, bindings=sorted(map(str, unbound)))
++    leaves: list[tuple[tuple[str | int, ...], str]] = []
++    for name, spec in declared.items():
++        if name not in refs:
++            if "value" in spec:
++                continue
++            raise _invalid("declared binding has no value document", node_id=node_id, binding=name)
++        _walk_doc(refs[name], spec["type"], (name,), leaves)
++    return leaves
++
++
++def _topological(nodes: Mapping[str, PureReplayNode], order: Mapping[str, int]) -> tuple[str, ...]:
++    state: dict[str, int] = {}
++    result: list[str] = []
++
++    def visit(node_id: str) -> None:
++        if state.get(node_id) == 2:
++            return
++        if state.get(node_id) == 1:
++            raise _invalid("pure dependency cycle", node_id=node_id)
++        state[node_id] = 1
++        for dep in sorted(nodes[node_id].pure_dependency_node_ids, key=order.__getitem__):
++            visit(dep)
++        state[node_id] = 2
++        result.append(node_id)
++
++    for node_id in sorted(nodes, key=order.__getitem__):
++        visit(node_id)
++    return tuple(result)
++
++
++def derive_pure_result_replay_index(bundle: Any, *, scope_kind: str = ROOT_SCOPE) -> PureResultReplayIndex:
++    """Derive the replay index for one bundle's own nodes."""
++    loaded = workflow_bundle(bundle)
++    if loaded is None:
++        raise TypeError("LoadedWorkflowBundle required")
++    if scope_kind != ROOT_SCOPE:
++        raise _invalid("scope kind does not match the bundle scope", expected_scope=scope_kind, actual_scope=ROOT_SCOPE)
++    plan_nodes = loaded.runtime_plan.nodes
++    by_presentation: dict[str, str] = {}
++    for node_id, plan_node in plan_nodes.items():
++        if by_presentation.setdefault(plan_node.presentation_key, node_id) != node_id:
++            raise _invalid("duplicate projection authority", presentation_key=plan_node.presentation_key)
++    for node_id, entry in loaded.projection.entries_by_node_id.items():
++        plan_node = plan_nodes.get(node_id)
++        if plan_node is not None and (
++            entry.step_id != plan_node.step_id or entry.presentation_key != plan_node.presentation_key
++        ):
++            raise _invalid("projection identity mismatch", node_id=node_id)
++    step_ids = [plan_node.step_id for plan_node in plan_nodes.values()]
++    if len(set(step_ids)) != len(step_ids):
++        raise _invalid("duplicate projection authority", reason="step_id")
++
++    multi = _multi_visit_node_ids(loaded)
++    pure_ids = [
++        node_id
++        for node_id, node in loaded.ir.nodes.items()
++        if node.kind is ExecutableNodeKind.PURE_PROJECTION and node_id in plan_nodes
++    ]
++    reasons: dict[str, str] = {node_id: MULTIPLE_VISIT_REGION for node_id in pure_ids if node_id in multi}
++    parsed: dict[str, tuple[list[PureBinding], set[str]]] = {}
++    for node_id in pure_ids:
++        if node_id in reasons:
++            continue
++        config = loaded.ir.nodes[node_id].execution_config.pure_projection
++        bindings = [
++            PureBinding(path, _address_for_ref(ref, by_presentation))
++            for path, ref in _binding_leaves(config, node_id)
++        ]
++        parsed[node_id] = (
++            bindings,
++            {b.address.node_id for b in bindings if isinstance(b.address, NodeResultAddress)},
++        )
++    _propagate_pure_ineligibility({n: deps for n, (_, deps) in parsed.items()}, reasons)
++
++    eligible = [node_id for node_id in pure_ids if node_id not in reasons]
++    order = {node_id: i for i, node_id in enumerate(loaded.ir.nodes)}
++    nodes: dict[str, PureReplayNode] = {}
++    for node_id in eligible:
++        bindings, dep_ids = parsed[node_id]
++        plan_node = plan_nodes[node_id]
++        contracts = loaded.ir.nodes[node_id].execution_config.pure_projection.get("output_contracts") or {}
++        nodes[node_id] = PureReplayNode(
++            node_id=node_id,
++            step_id=plan_node.step_id,
++            presentation_key=plan_node.presentation_key,
++            bindings=tuple(bindings),
++            output_addresses=tuple(NodeResultAddress(node_id, "artifacts", name) for name in contracts),
++            output_contracts=contracts,
++            pure_dependency_node_ids=tuple(sorted((d for d in dep_ids if d in eligible), key=order.__getitem__)),
++            durable_dependency_node_ids=tuple(sorted((d for d in dep_ids if d not in eligible), key=order.__getitem__)),
++        )
++    return PureResultReplayIndex(
++        scope_kind=scope_kind,
++        nodes=nodes,
++        topological_node_ids=_topological(nodes, order),
++        ineligible_pure_reasons=reasons,
++    )
+diff --git a/orchestrator/workflow/pure_visit_transitions.py b/orchestrator/workflow/pure_visit_transitions.py
+new file mode 100644
+index 0000000..dd0d7d7
+--- /dev/null
++++ b/orchestrator/workflow/pure_visit_transitions.py
+@@ -0,0 +1,79 @@
++"""Atomic visit transitions for eligible pure projections over a ``RunState``.
++
++Type signatures: each helper takes a ``RunState`` (and a ``PureReplayVisitWitness``)
++and returns the visit count / shell / None. Dependencies: the progress classifier
++and shell builder of ``pure_result_replay``. Behavior: every helper validates
++before it mutates, so a caller persists exactly one consistent state or none.
++"""
++
++from __future__ import annotations
++
++import copy
++from datetime import datetime, timezone
++from typing import Any
++
++from .pure_result_replay import (
++    DERIVED_PURE_REPLAY_PROFILE,
++    PURE_STEP_TYPE,
++    PureReplayVisitWitness,
++    _is_failure_or_skip,
++    _progress_invalid,
++    build_pure_completion_shell,
++    classify_pure_replay_progress,
++)
++
++def _progress_view(run_state: Any) -> dict[str, Any]:
++    return {
++        "steps": run_state.steps,
++        "step_visits": run_state.step_visits,
++        "current_step": run_state.current_step,
++    }
++
++
++def _require_profile(run_state: Any) -> None:
++    if run_state.result_persistence_profile != DERIVED_PURE_REPLAY_PROFILE:
++        raise ValueError("eligible pure visits require result_persistence_profile derived_pure_replay.v1")
++
++
++def begin_eligible_pure_visit_state(run_state: Any, *, step_name: str, step_index: int, step_id: str) -> int:
++    _require_profile(run_state)
++    witness = PureReplayVisitWitness(step_name, step_index, step_id, 1)
++    if classify_pure_replay_progress(_progress_view(run_state), witness=witness) != "unstarted":
++        raise _progress_invalid("eligible pure node was already visited", step_name=step_name)
++    now = datetime.now(timezone.utc).isoformat()
++    run_state.step_visits[step_name] = 1
++    run_state.current_step = {
++        "name": step_name,
++        "index": step_index,
++        "type": PURE_STEP_TYPE,
++        "step_id": step_id,
++        "visit_count": 1,
++        "status": "running",
++        "started_at": now,
++        "last_heartbeat_at": now,
++    }
++    return 1
++
++
++def reuse_interrupted_eligible_pure_visit_state(run_state: Any, witness: PureReplayVisitWitness) -> int:
++    _require_profile(run_state)
++    if classify_pure_replay_progress(_progress_view(run_state), witness=witness) != "interrupted":
++        raise _progress_invalid("no interrupted eligible pure visit", step_name=witness.presentation_key)
++    return witness.visit_count
++
++
++def settle_eligible_pure_success_state(run_state: Any, witness: PureReplayVisitWitness) -> dict[str, Any]:
++    reuse_interrupted_eligible_pure_visit_state(run_state, witness)
++    shell = build_pure_completion_shell(witness)
++    run_state.steps[witness.presentation_key] = shell
++    run_state.current_step = None
++    return copy.deepcopy(shell)
++
++
++def settle_eligible_pure_failure_state(run_state: Any, witness: PureReplayVisitWitness, result: Any) -> None:
++    reuse_interrupted_eligible_pure_visit_state(run_state, witness)
++    row = result.to_dict() if hasattr(result, "to_dict") else dict(result)
++    if not _is_failure_or_skip(row, witness):
++        raise _progress_invalid("settled failure must be a full failed or skipped row", step_name=witness.presentation_key)
++    run_state.steps[witness.presentation_key] = result
++    run_state.current_step = None
+diff --git a/orchestrator/workflow/resume_planner.py b/orchestrator/workflow/resume_planner.py
+index 01ed725..9452e34 100644
+--- a/orchestrator/workflow/resume_planner.py
++++ b/orchestrator/workflow/resume_planner.py
+@@ -23,6 +23,9 @@ class _ProjectedCurrentStep:
+     execution_index: int
+ 
+ 
++_RESTART_UNSET: Any = object()
++
++
+ class ResumePlanner:
+     """Determine where a resumed run should re-enter top-level execution."""
+ 
+@@ -195,12 +198,18 @@ class ResumePlanner:
+         executable_workflow: Any | None = None,
+         loaded_workflow: Any | None = None,
+         projection: Optional[WorkflowStateProjection] = None,
++        restart_node_id: Any = _RESTART_UNSET,
+     ) -> Dict[str, Any]:
+-        """Return one R6 default-resume decision for the current resume point."""
++        """Return one R6 default-resume decision for the current resume point.
++
++        Callers that already determined the restart boundary pass it through
++        ``restart_node_id`` so the boundary is determined exactly once.
++        """
+         if not isinstance(projection, WorkflowStateProjection):
+             raise TypeError("ResumePlanner requires a WorkflowStateProjection")
+ 
+-        restart_node_id = self.determine_restart_node_id(state, projection=projection)
++        if restart_node_id is _RESTART_UNSET:
++            restart_node_id = self.determine_restart_node_id(state, projection=projection)
+         from orchestrator.workflow_lisp.lexical_checkpoint_default_resume import (
+             determine_runtime_default_resume_decision,
+         )
+diff --git a/orchestrator/workflow/steps/pure_projection.py b/orchestrator/workflow/steps/pure_projection.py
+index 047cd56..831a3b7 100644
+--- a/orchestrator/workflow/steps/pure_projection.py
++++ b/orchestrator/workflow/steps/pure_projection.py
+@@ -21,8 +21,12 @@ def execute_pure_projection(
+     state: Dict[str, Any],
+     *,
+     scope: Optional[Dict[str, Dict[str, Any]]] = None,
++    derived: bool = False,
+ ) -> Dict[str, Any]:
+-    """Resolve, evaluate, and report one runtime-native pure projection."""
++    """Resolve, evaluate, and report one runtime-native pure projection.
++
++    ``derived`` evaluates in memory only: no bundle is read or written.
++    """
+     config = step.get("pure_projection")
+     if not isinstance(config, dict):
+         return runtime._contract_violation_result(
+@@ -38,13 +42,15 @@ def execute_pure_projection(
+             "Pure projection execution failed",
+             {"reason": "invalid_pure_projection_config"},
+         )
+-    resolved_expected_outputs, resolved_output_bundle, path_error = runtime._resolve_output_contract_paths(
+-        step,
+-        state,
+-        context=scope,
+-    )
+-    if path_error is not None:
+-        return path_error
++    resolved_output_bundle = None
++    if not derived:
++        _, resolved_output_bundle, path_error = runtime._resolve_output_contract_paths(
++            step,
++            state,
++            context=scope,
++        )
++        if path_error is not None:
++            return path_error
+     bundle_path = None
+     if isinstance(resolved_output_bundle, dict):
+         raw_path = resolved_output_bundle.get("path")
+diff --git a/orchestrator/workflow_lisp/lexical_checkpoint_default_resume.py b/orchestrator/workflow_lisp/lexical_checkpoint_default_resume.py
+index 4eda14e..54a6bd9 100644
+--- a/orchestrator/workflow_lisp/lexical_checkpoint_default_resume.py
++++ b/orchestrator/workflow_lisp/lexical_checkpoint_default_resume.py
+@@ -375,6 +375,127 @@ def build_default_resume_policy(
+     }
+ 
+ 
++MODE_FRAME_ENTRY_REPLAY = "VALIDATED_FRAME_ENTRY_REPLAY"
++FRAME_ENTRY_REPLAY_REASON = "validated_frame_entry_replay"
++
++
++class _FilteredRuntimePlan:
++    """Runtime plan view whose checkpoint points exclude derivable pure points."""
++
++    def __init__(self, plan: Any, points: Sequence[Any]) -> None:
++        self._plan = plan
++        self.lexical_checkpoint_points = tuple(points)
++
++    def __getattr__(self, name: str) -> Any:
++        return getattr(self._plan, name)
++
++
++def _pure_replay_runtime(state: Mapping[str, Any], loaded_workflow: Any) -> Any | None:
++    """Return the replay runtime when this run recorded the derived-pure profile."""
++    from orchestrator.state import DERIVED_PURE_REPLAY_PROFILE
++    from orchestrator.workflow.loaded_bundle import workflow_bundle
++    from orchestrator.workflow.pure_result_replay import PureReplayRuntime
++    from orchestrator.workflow.resume_projection_integrity import ResumeScopePath
++
++    bundle = workflow_bundle(loaded_workflow)
++    if bundle is None or state.get("result_persistence_profile") != DERIVED_PURE_REPLAY_PROFILE:
++        return None
++    return PureReplayRuntime(
++        bundle=bundle,
++        scope_path=ResumeScopePath.root(str(state.get("workflow_file") or "root")),
++    )
++
++
++def _without_derivable_pure_points(
++    runtime_plan: Any,
++    pure_runtime: Any,
++    state: Mapping[str, Any],
++    restart_node_id: str | None,
++) -> Any:
++    """Drop eligible pure points before nearest-boundary selection.
++
++    An unstarted eligible restart node keeps its node-local checkpoint authority.
++    """
++    from orchestrator.workflow.pure_result_replay import classify_pure_replay_progress
++
++    eligible = {node.step_id: node for node in pure_runtime.index.nodes.values()}
++    kept = []
++    for point in getattr(runtime_plan, "lexical_checkpoint_points", ()) or ():
++        node = eligible.get(getattr(point, "step_id", None))
++        if node is not None:
++            witness = pure_runtime.witness_from_state(node.node_id, state)
++            unstarted_restart = (
++                node.node_id == restart_node_id
++                and classify_pure_replay_progress(state, witness=witness) == "unstarted"
++            )
++            if not unstarted_restart:
++                continue
++        kept.append(point)
++    return _FilteredRuntimePlan(runtime_plan, kept)
++
++
++def _frame_entry_replay_validated(pure_runtime: Any, state: Mapping[str, Any], restart_node_id: str) -> bool:
++    """Exact profile and progress witnesses plus validated bound-input leaves."""
++    from orchestrator.workflow.pure_result_replay_index import PureResultReplayIndexError
++
++    try:
++        pure_runtime.audit_boundary_leaves(restart_node_id, state=state)
++        for node_id in pure_runtime.index.nodes:
++            witness = pure_runtime.witness_from_state(node_id, state)
++            if pure_runtime.classify(state, witness) == "progress_witness_invalid":
++                return False
++    except PureResultReplayIndexError:
++        return False
++    return True
++
++
++_EFFECT_NODE_KINDS = frozenset(
++    {
++        "command",
++        "provider",
++        "provider_supervision",
++        "provider_peer_group",
++        "adjudicated_provider",
++        "wait_for",
++        "resource_transition",
++        "call_boundary",
++    }
++)
++
++
++def _has_effect_nodes(pure_runtime: Any) -> bool:
++    return any(
++        node.kind.value in _EFFECT_NODE_KINDS
++        for node in pure_runtime.bundle.ir.nodes.values()
++    )
++
++
++def _frame_entry_replay_payload(payload: dict[str, Any]) -> dict[str, Any]:
++    payload.update(
++        {
++            "mode": MODE_LEXICAL_CHECKPOINT_DEFAULT,
++            "restore_decision": MODE_FRAME_ENTRY_REPLAY,
++            "restore_candidate": {
++                "kind": MODE_FRAME_ENTRY_REPLAY,
++                "checkpoint_id": None,
++                "record_id": None,
++                "source_map_origin_key": None,
++                "restore_payload": None,
++                "policy_decision": None,
++                "diagnostics": [],
++                "transition_resume": None,
++                "selection_observation": None,
++                "selection_reason": FRAME_ENTRY_REPLAY_REASON,
++            },
++            "checkpoint_id": None,
++            "record_id": None,
++            "source_map_origin_key": None,
++            "selection_reason": FRAME_ENTRY_REPLAY_REASON,
++        }
++    )
++    return payload
++
++
+ def determine_runtime_default_resume_decision(
+     *,
+     state: Mapping[str, Any],
+@@ -399,6 +520,15 @@ def determine_runtime_default_resume_decision(
+         historical_compatibility=historical_compatibility,
+     )
+     points = tuple(getattr(runtime_plan, "lexical_checkpoint_points", ()) or ())
++    pure_runtime = _pure_replay_runtime(state, loaded_workflow)
++    # Boundary selection scans the filtered view; restore validation and program
++    # identity keep the full plan, whose point set is part of the record identity.
++    selection_plan = runtime_plan
++    if pure_runtime is not None:
++        selection_plan = _without_derivable_pure_points(
++            runtime_plan, pure_runtime, state, restart_node_id
++        )
++        points = tuple(selection_plan.lexical_checkpoint_points)
+     payload = {
+         "schema_version": DEFAULT_RESUME_POLICY_SCHEMA_VERSION,
+         "workflow_name": workflow_name,
+@@ -423,6 +553,13 @@ def determine_runtime_default_resume_decision(
+         payload["compatibility_reason"] = "historical_compatibility"
+         return payload
+     if payload["mode"] == MODE_FAIL_CLOSED and not points:
++        if pure_runtime is None or not pure_runtime.index.nodes or _has_effect_nodes(pure_runtime):
++            return payload
++        # A pure-only program has no effect boundary to checkpoint: the only admitted
++        # zero-record resume replays from the frame entry over validated leaves.
++        if _frame_entry_replay_validated(pure_runtime, state, restart_node_id):
++            return _frame_entry_replay_payload(payload)
++        payload["diagnostics"] = ["lexical_default_resume_prior_boundary_not_restorable"]
+         return payload
+     if restart_node_id is None:
+         payload["compatibility_reason"] = "no_restart_node"
+@@ -441,7 +578,7 @@ def determine_runtime_default_resume_decision(
+         required_frame_identity,
+         required_effect_diagnostic,
+     ) = _current_committed_nested_effect_boundary(
+-        runtime_plan=runtime_plan,
++        runtime_plan=selection_plan,
+         state=state,
+         restart_node_id=restart_node_id,
+     )
+@@ -536,9 +673,20 @@ def determine_runtime_default_resume_decision(
+                 == "record_absent"
+             ):
+                 prior_point, prior_diagnostic = _nearest_prior_effect_boundary(
+-                    runtime_plan=runtime_plan,
++                    runtime_plan=selection_plan,
+                     restart_node_id=restart_node_id,
+                 )
++                if (
++                    pure_runtime is not None
++                    and prior_diagnostic == "lexical_default_resume_prior_boundary_missing"
++                ):
++                    if _frame_entry_replay_validated(pure_runtime, state, restart_node_id):
++                        return _frame_entry_replay_payload(payload)
++                    payload["mode"] = MODE_FAIL_CLOSED
++                    payload["diagnostics"] = [
++                        "lexical_default_resume_prior_boundary_not_restorable"
++                    ]
++                    return payload
+                 if prior_diagnostic is not None:
+                     payload["mode"] = MODE_FAIL_CLOSED
+                     payload["diagnostics"] = [prior_diagnostic]
+diff --git a/orchestrator/workflow_lisp/lexical_checkpoint_pure_audit.py b/orchestrator/workflow_lisp/lexical_checkpoint_pure_audit.py
+new file mode 100644
+index 0000000..33da826
+--- /dev/null
++++ b/orchestrator/workflow_lisp/lexical_checkpoint_pure_audit.py
+@@ -0,0 +1,53 @@
++"""Audit lexical-checkpoint sidecars for records of replay-eligible pure nodes.
++
++Type signature: ``audit_checkpoint_surfaces(runtime, *, state, state_manager)``.
++Dependencies: checkpoint index/record sidecar files under the run root, the
++bundle's runtime-plan checkpoint points, the replay runtime's eligible nodes.
++Behavior: raises ``PureResultReplayIndexError`` (``profile_conflict``) when this
++scope holds a checkpoint record for, or a restore binding sourced from, an
++eligible pure step. Records of other frames and noneligible nodes are allowed.
++"""
++
++from __future__ import annotations
++
++from typing import Any, Mapping
++
++from orchestrator.workflow.pure_result_replay_index import PROFILE_CONFLICT, PureResultReplayIndexError
++
++from .lexical_checkpoints import _load_json_object, _point_field, resolve_checkpoint_index_path
++
++
++def _conflict(surface: str, step_id: str, checkpoint_id: str) -> PureResultReplayIndexError:
++    return PureResultReplayIndexError(
++        PROFILE_CONFLICT,
++        f"{surface} exists for eligible pure step '{step_id}'",
++        context={"surface": surface, "step_id": step_id, "checkpoint_id": checkpoint_id},
++    )
++
++
++def audit_checkpoint_surfaces(runtime: Any, *, state: Mapping[str, Any], state_manager: Any) -> None:
++    eligible_step_ids = {node.step_id for node in runtime.index.nodes.values()}
++    frame_ids = runtime.scope_path.call_frame_ids
++    scope_frame_id = frame_ids[-1] if frame_ids else None
++    plan = runtime.bundle.runtime_plan
++    for point in getattr(plan, "lexical_checkpoint_points", ()):
++        checkpoint_id = str(_point_field(point, "checkpoint_id") or "")
++        point_step_id = _point_field(point, "step_id")
++        index = _load_json_object(
++            state_manager,
++            resolve_checkpoint_index_path(
++                state_manager=state_manager,
++                workflow_name=str(_point_field(point, "workflow_name") or plan.workflow_name),
++                checkpoint_id=checkpoint_id,
++            ),
++        )
++        for entry in (index or {}).get("records", ()):
++            identity = entry.get("frame_identity") or {}
++            if identity.get("call_frame_id") != scope_frame_id:
++                continue
++            if point_step_id in eligible_step_ids:
++                raise _conflict("checkpoint_record", point_step_id, checkpoint_id)
++            record = _load_json_object(state_manager, state_manager.workspace / str(entry.get("record_path")))
++            for binding in ((record or {}).get("restore_payload") or {}).get("bindings", ()):
++                if binding.get("source_step_id") in eligible_step_ids:
++                    raise _conflict("restore_payload", binding["source_step_id"], checkpoint_id)
+diff --git a/orchestrator/workflow_lisp/lexical_checkpoint_restore.py b/orchestrator/workflow_lisp/lexical_checkpoint_restore.py
+index cb8e5bf..6c12c80 100644
+--- a/orchestrator/workflow_lisp/lexical_checkpoint_restore.py
++++ b/orchestrator/workflow_lisp/lexical_checkpoint_restore.py
+@@ -446,7 +446,11 @@ def capture_restore_payload(
+         if isinstance(descriptor, Mapping)
+     ]
+ 
++    eligible_pure_step_ids = getattr(executor, "pure_replay_eligible_step_ids", None)
++    derivable_step_ids = eligible_pure_step_ids() if callable(eligible_pure_step_ids) else frozenset()
+     for descriptor in binding_descriptors:
++        if descriptor.get("source_step_id") in derivable_step_ids:
++            continue  # rebuilt from durable inputs on resume, never stored
+         step_name = descriptor.get("source_step_name")
+         value_document = descriptor.get("value_document")
+         value = None
+diff --git a/orchestrator/workflow_lisp/lexical_checkpoints.py b/orchestrator/workflow_lisp/lexical_checkpoints.py
+index 56573b0..41328a4 100644
+--- a/orchestrator/workflow_lisp/lexical_checkpoints.py
++++ b/orchestrator/workflow_lisp/lexical_checkpoints.py
+@@ -1763,6 +1763,10 @@ def emit_runtime_shadow_record(
+     runtime_plan = getattr(executor, "runtime_plan", None)
+     if runtime_plan is None:
+         return None
++    eligible_pure_step_ids = getattr(executor, "pure_replay_eligible_step_ids", None)
++    if callable(eligible_pure_step_ids) and step_id in eligible_pure_step_ids():
++        # Derived pure results are rebuilt on resume; they own no checkpoint record.
++        return None
+     point = _runtime_plan_points_by_step_id(runtime_plan).get(step_id)
+     if point is None:
+         return None
+diff --git a/specs/state.md b/specs/state.md
+index 26bd108..2202366 100644
+--- a/specs/state.md
++++ b/specs/state.md
+@@ -577,6 +577,57 @@
+   Root/callee checksums, lexical checkpoint validation, and
+   projection-integrity guards remain unchanged.
+ 
++## Derived Pure-Result Persistence Profile (`derived_pure_replay.v1`)
++
++`RunState.result_persistence_profile` is an optional, additive field (schema stays `2.1`).
++Absent means the historical bundle-backed persistence: `to_dict()` omits the key and
++`from_dict()` of a payload without it yields `None`. The only supported value is
++`derived_pure_replay.v1`; any other value fails closed with a `ValueError` naming the
++profile at `RunState` construction, at `StateManager.initialize(...)` and on load (a failed
++load leaves the state file byte-for-byte unchanged). Loads never infer, backfill or upgrade
++the field.
++
++**Selection.** `StateManager.initialize(..., result_persistence_profile=None)` writes the
++field with the initial state. A typed public `.orc` run and a new root created by
++`resume --force-restart` select the profile (the force-restart source run is not modified; the
++new root carries the requested observability settings). A fresh, non-iterative child call frame
++selects it when the callee bundle's validated provenance has `frontend_kind == "workflow_lisp"`;
++selection never reads the parent's profile, a path suffix, an alias or a step identity. Existing
++roots and frames, non-Workflow-Lisp callees and iteration-owned frames keep the historical
++profile. An existing frame whose `state` is absent or not a mapping is rejected with a
++`ValueError` ("existing call-frame state") before anything is written;
++`load_existing_call_frame_read_only(frame)` returns a detached copy of that state.
++
++**Eligibility.** A compiler-generated `pure_projection` that is acyclic and visited at most
++once per scope is replay-eligible. Recurrent, loop-owned or otherwise multiply visited pure nodes
++keep full rows, bundles and checkpoints. `derive_pure_result_replay_index(bundle)` computes the
++eligible nodes, their typed binding addresses and dependency edges without mutating the bundle.
++
++**Durable shape.** An eligible success is persisted only as the exact completion shell
++`{"name", "step_id", "visit_count": 1, "status": "completed", "exit_code": 0,
++"outcome": {"status": "completed", "phase": "execution", "class": "completed",
++"retryable": false}, "result_storage": "derived_pure_replay.v1"}`. Failed and skipped rows stay
++full rows. Eligible nodes own no result bundle, no `private_artifact_versions` entry, no
++checkpoint record (their points are filtered before unique-nearest selection) and no restore
++binding. A persisted value row, bundle, lineage entry, checkpoint record or restore binding for an
++eligible node is a `profile_conflict` (`context.surface` is one of `steps`, `pure_bundle`,
++`private_artifact_versions`, `checkpoint_record`, `restore_payload`) raised before the prologue.
++
++**Visits.** Each state transition is one atomic write: `begin_eligible_pure_visit` (visit count and
++`pure_projection` cursor), `settle_eligible_pure_success` (shell, cursor cleared) and
++`settle_eligible_pure_failure` (full row, cursor cleared). Progress classifies as `unstarted`,
++`interrupted`, `derived_complete`, `durable_failure_skip` or `progress_witness_invalid`; a
++second visit is never valid.
++
++**Resume.** Resume re-derives the needed pure values in memory from validated durable leaves
++(bound inputs and durable dependency rows) and never dispatches an effect, increments a visit or
++writes state while doing so. Failures end the run with `error.type = pure_result_replay_unavailable`
++and `error.context.reason` one of `durable_input_missing`, `durable_input_invalid`,
++`binding_unresolved`, `evaluation_failed`, `output_contract_invalid` or `progress_witness_invalid`.
++Default resume admits exactly one zero-record case, `VALIDATED_FRAME_ENTRY_REPLAY` (mode
++`LEXICAL_CHECKPOINT_DEFAULT`, no checkpoint id, `selection_reason = validated_frame_entry_replay`),
++and otherwise fails closed with `lexical_default_resume_prior_boundary_not_restorable`.
++
+ ## Reusable-Call State Contract (v2.5)
+ 
+ - Caller-visible exports
+diff --git a/tests/test_at68_resume_force_restart.py b/tests/test_at68_resume_force_restart.py
+index 20f596b..04b1587 100644
+--- a/tests/test_at68_resume_force_restart.py
++++ b/tests/test_at68_resume_force_restart.py
+@@ -278,3 +278,28 @@ def test_at68_force_restart_crosses_provider_supervision_quarantine(
+     )
+     mock_executor.execute.assert_called_once()
+     assert mock_executor.execute.call_args.kwargs["resume"] is False
++
++
++def test_force_restart_selects_derived_profile_and_leaves_source_unchanged(
++    temp_workspace, existing_run_state
++):
++    """The new root carries the derived-pure profile; the source run is not modified."""
++    old_run_id, old_state_dir = existing_run_state
++    source_before = (old_state_dir / "state.json").read_bytes()
++    with patch('uuid.uuid4', return_value=MagicMock(hex="new-run-profile")):
++        with patch('orchestrator.cli.commands.resume.WorkflowExecutor') as MockExecutor:
++            MockExecutor.return_value.execute.return_value = {'status': 'completed', 'steps': {}}
++            with patch('os.getcwd', return_value=str(temp_workspace)):
++                result = resume_workflow(
++                    run_id=old_run_id,
++                    repair=False,
++                    force_restart=True,
++                    summary_mode="async",
++                )
++    assert result == 0
++    new_state = json.loads(
++        (temp_workspace / ".orchestrate" / "runs" / "new-run-profile" / "state.json").read_text()
++    )
++    assert new_state["result_persistence_profile"] == "derived_pure_replay.v1"
++    assert new_state["observability"]["step_summaries"]["mode"] == "async"
++    assert (old_state_dir / "state.json").read_bytes() == source_before
+diff --git a/tests/test_provider_observation_workflow.py b/tests/test_provider_observation_workflow.py
+index e8172d5..a9c37af 100644
+--- a/tests/test_provider_observation_workflow.py
++++ b/tests/test_provider_observation_workflow.py
+@@ -113,10 +113,14 @@ def test_root_provider_observation_is_enabled_by_default(
+     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+ 
+     assert executor.provider_observation_enabled is True
+-    assert len(managers) == 1
++    assert managers == []  # created when execution starts, not at construction
+     assert _RecordingProviderExecutor.constructions == [
+         (True, None)
+     ]
++
++    executor.execute()
++
++    assert len(managers) == 1
+     assert _RecordingProviderExecutor.instances[0].observation_manager is (
+         managers[0]
+     )
+@@ -153,21 +157,22 @@ def test_root_provider_observation_manager_is_run_scoped_and_best_effort_closed(
+         provider_observation_enabled=provider_observation_enabled,
+     )
+ 
+-    assert len(managers) == int(provider_observation_enabled)
+-    expected_manager = managers[0] if managers else None
++    assert managers == []  # created when execution starts, not at construction
+     assert len(_RecordingProviderExecutor.instances) == 1
+     provider_executor = _RecordingProviderExecutor.instances[0]
+     assert (
+         provider_executor.provider_observation_enabled
+         is provider_observation_enabled
+     )
+-    assert provider_executor.observation_manager is expected_manager
+-    if expected_manager is not None:
+-        assert expected_manager.run_root == state_manager.run_root
+ 
+     state = executor.execute()
+ 
+     assert state["status"] == "completed"
++    assert len(managers) == int(provider_observation_enabled)
++    expected_manager = managers[0] if managers else None
++    assert provider_executor.observation_manager is expected_manager
++    if expected_manager is not None:
++        assert expected_manager.run_root == state_manager.run_root
+     if expected_manager is not None:
+         assert expected_manager.close_calls == 1
+ 
+diff --git a/tests/test_pure_result_replay_profile.py b/tests/test_pure_result_replay_profile.py
+new file mode 100644
+index 0000000..b561f6a
+--- /dev/null
++++ b/tests/test_pure_result_replay_profile.py
+@@ -0,0 +1,734 @@
++"""Behavioral tests for the derived pure-result persistence profile."""
++
++from __future__ import annotations
++
++import json
++from dataclasses import replace
++from pathlib import Path
++from typing import Any
++
++import pytest
++
++from orchestrator.state import RunState, StateManager, StepResult
++from orchestrator.workflow.call_frame_state import load_existing_call_frame_read_only
++from orchestrator.workflow.executor import WorkflowExecutor
++from orchestrator.workflow.outcomes import OutcomeRecorder
++from orchestrator.workflow.pure_result_replay import (
++    DEPENDENCY_INDEX_INVALID,
++    DERIVED_PURE_REPLAY_PROFILE,
++    MULTIPLE_VISIT_REGION,
++    PureReplayRuntime,
++    PureReplayVisitWitness,
++    PureResultReplayIndexError,
++    build_pure_completion_shell,
++    classify_pure_replay_progress,
++    derive_pure_result_replay_index,
++    validate_pure_completion_shell,
++)
++from orchestrator.workflow.resume_projection_integrity import ResumeScopePath
++from orchestrator.workflow_lisp.wcc.route import workflow_lisp_context_with_lowering_schema
++from tests.test_workflow_lisp_lexical_checkpoint_restore import FIXTURE, _compile_fixture
++from tests.test_workflow_lisp_pure_projection_runtime import (
++    PURE_EXPR_SELECTOR_PROJECTION,
++    _compile_pure_projection_bundle,
++)
++from tests.workflow_bundle_helpers import bundle_context_dict
++
++PROFILE = DERIVED_PURE_REPLAY_PROFILE
++WITNESS = PureReplayVisitWitness("pure", 3, "root.pure", 1)
++
++
++def _run_state(**overrides: Any) -> RunState:
++    return RunState(
++        schema_version="2.1", run_id="r", workflow_file="w.orc", workflow_checksum="sha256:x",
++        started_at="t", updated_at="t", status="running", **overrides,
++    )
++
++
++def _manager(tmp_path: Path, **kwargs: Any) -> StateManager:
++    (tmp_path / "w.orc").write_text("x", encoding="utf-8")
++    manager = StateManager(tmp_path, run_id="r")
++    manager.initialize("w.orc", **kwargs)
++    return manager
++
++
++# -- selector -----------------------------------------------------------------
++
++def test_absent_profile_is_omitted_and_round_trips() -> None:
++    payload = _run_state().to_dict()
++    assert "result_persistence_profile" not in payload
++    assert RunState.from_dict(payload).result_persistence_profile is None
++
++
++def test_present_profile_round_trips() -> None:
++    payload = _run_state(result_persistence_profile=PROFILE).to_dict()
++    assert RunState.from_dict(payload).result_persistence_profile == PROFILE
++
++
++def test_unsupported_profile_fails_closed_at_construction() -> None:
++    with pytest.raises(ValueError, match="profile"):
++        _run_state(result_persistence_profile="other.v1")
++
++
++def test_unsupported_profile_fails_closed_at_initialize(tmp_path: Path) -> None:
++    (tmp_path / "w.orc").write_text("x", encoding="utf-8")
++    with pytest.raises(ValueError, match="profile"):
++        StateManager(tmp_path, run_id="r").initialize("w.orc", result_persistence_profile="other.v1")
++
++
++def test_unsupported_profile_load_leaves_file_unchanged(tmp_path: Path) -> None:
++    manager = _manager(tmp_path)
++    payload = json.loads(manager.state_file.read_text(encoding="utf-8"))
++    payload["result_persistence_profile"] = "other.v1"
++    manager.state_file.write_text(json.dumps(payload), encoding="utf-8")
++    before = manager.state_file.read_bytes()
++    with pytest.raises(ValueError, match="profile"):
++        StateManager(tmp_path, run_id="r").load()
++    assert manager.state_file.read_bytes() == before
++
++
++def test_initialize_writes_profile_and_plain_load_never_backfills(tmp_path: Path) -> None:
++    manager = _manager(tmp_path, result_persistence_profile=PROFILE)
++    assert json.loads(manager.state_file.read_text())["result_persistence_profile"] == PROFILE
++    (tmp_path / "plain").mkdir()
++    plain = _manager(tmp_path / "plain")
++    assert "result_persistence_profile" not in json.loads(plain.state_file.read_text())
++
++
++def test_read_only_frame_loader_returns_detached_copy() -> None:
++    frame = {"state": {"steps": {"a": 1}}}
++    loaded = load_existing_call_frame_read_only(frame)
++    loaded["steps"]["a"] = 2
++    assert frame["state"]["steps"]["a"] == 1
++
++
++@pytest.mark.parametrize("frame", [{}, {"state": None}, {"state": []}])
++def test_malformed_existing_frame_is_rejected(frame: dict[str, Any]) -> None:
++    with pytest.raises(ValueError, match="existing call-frame state"):
++        load_existing_call_frame_read_only(frame)
++
++
++# -- shell and classification --------------------------------------------------
++
++def test_shell_is_exact() -> None:
++    assert build_pure_completion_shell(WITNESS) == {
++        "name": "pure", "step_id": "root.pure", "visit_count": 1, "status": "completed", "exit_code": 0,
++        "outcome": {"status": "completed", "phase": "execution", "class": "completed", "retryable": False},
++        "result_storage": PROFILE,
++    }
++
++
++@pytest.mark.parametrize("key", ["value", "output", "text", "json", "artifacts", "debug", "duration_ms", "output_bundle"])
++def test_shell_rejects_extra_keys(key: str) -> None:
++    row = {**build_pure_completion_shell(WITNESS), key: 1}
++    with pytest.raises(ValueError):
++        validate_pure_completion_shell(row, witness=WITNESS)
++
++
++def test_shell_rejects_wrong_scalar_types() -> None:
++    row = {**build_pure_completion_shell(WITNESS), "exit_code": False}
++    with pytest.raises(ValueError):
++        validate_pure_completion_shell(row, witness=WITNESS)
++
++
++def _view(*, visit=1, cursor=None, row=None) -> dict[str, Any]:
++    state: dict[str, Any] = {"steps": {}, "step_visits": {}, "current_step": cursor}
++    if visit is not None:
++        state["step_visits"]["pure"] = visit
++    if row is not None:
++        state["steps"]["pure"] = row
++    return state
++
++
++def _cursor(**overrides: Any) -> dict[str, Any]:
++    return {"name": "pure", "index": 3, "type": "pure_projection", "step_id": "root.pure",
++            "visit_count": 1, "status": "running", **overrides}
++
++
++def test_classification_of_valid_progress() -> None:
++    shell = build_pure_completion_shell(WITNESS)
++    failed = {"name": "pure", "step_id": "root.pure", "visit_count": 1, "status": "failed"}
++    other = {"name": "other", "step_id": "root.other", "index": 0, "status": "running"}
++    assert classify_pure_replay_progress(_view(visit=None), witness=WITNESS) == "unstarted"
++    assert classify_pure_replay_progress(_view(visit=None, cursor=other), witness=WITNESS) == "unstarted"
++    assert classify_pure_replay_progress(_view(cursor=_cursor()), witness=WITNESS) == "interrupted"
++    assert classify_pure_replay_progress(_view(row=shell), witness=WITNESS) == "derived_complete"
++    assert classify_pure_replay_progress(_view(row=shell, cursor=other), witness=WITNESS) == "derived_complete"
++    assert classify_pure_replay_progress(_view(row=failed), witness=WITNESS) == "durable_failure_skip"
++
++
++@pytest.mark.parametrize(
++    "state",
++    [
++        _view(),  # visit without cursor or row
++        _view(visit=None, cursor=_cursor()),  # cursor without a visit
++        _view(visit=None, row=build_pure_completion_shell(WITNESS)),  # shell without a visit
++        _view(cursor=_cursor(), row=build_pure_completion_shell(WITNESS)),  # cursor plus row
++        _view(cursor=_cursor(visit_count=2)),
++        _view(cursor=_cursor(type="command")),
++        _view(cursor=_cursor(index=9)),
++        _view(row={"name": "pure", "step_id": "root.pure", "visit_count": 1, "status": "completed", "value": 1}),
++        _view(row={"name": "pure", "step_id": "root.pure", "visit_count": 2, "status": "failed"}),
++        _view(row={"name": "pure", "step_id": "root.pure", "visit_count": 1, "status": "running"}),
++        _view(cursor=_cursor(), row={"name": "pure", "step_id": "root.pure", "visit_count": 1, "status": "failed"}),
++        _view(visit=2, cursor=_cursor(visit_count=2)),
++    ],
++)
++def test_classification_rejects_invalid_progress(state: dict[str, Any]) -> None:
++    assert classify_pure_replay_progress(state, witness=WITNESS) == "progress_witness_invalid"
++
++
++# -- state transactions ----------------------------------------------------------
++
++def test_visit_lifecycle_is_atomic_and_single_visit(tmp_path: Path) -> None:
++    manager = _manager(tmp_path, result_persistence_profile=PROFILE)
++    assert manager.begin_eligible_pure_visit(step_name="pure", step_index=3, step_id="root.pure") == 1
++    assert manager.reuse_interrupted_eligible_pure_visit(WITNESS) == 1
++    on_disk = json.loads(manager.state_file.read_text())
++    assert on_disk["current_step"]["type"] == "pure_projection"
++    shell = manager.settle_eligible_pure_success(WITNESS)
++    on_disk = json.loads(manager.state_file.read_text())
++    assert on_disk["steps"]["pure"] == shell and "current_step" not in on_disk
++    with pytest.raises(PureResultReplayIndexError) as excinfo:
++        manager.begin_eligible_pure_visit(step_name="pure", step_index=3, step_id="root.pure")
++    assert excinfo.value.reason == "progress_witness_invalid"
++
++
++def test_failure_settlement_keeps_full_row(tmp_path: Path) -> None:
++    manager = _manager(tmp_path, result_persistence_profile=PROFILE)
++    manager.begin_eligible_pure_visit(step_name="pure", step_index=3, step_id="root.pure")
++    failed = StepResult(status="failed", name="pure", step_id="root.pure", visit_count=1, exit_code=2, error={"type": "x"})
++    assert manager.settle_eligible_pure_failure(WITNESS, failed) is None
++    assert json.loads(manager.state_file.read_text())["steps"]["pure"]["error"] == {"type": "x"}
++
++
++def test_recorder_keeps_full_result_in_memory_and_persists_only_the_shell(tmp_path: Path) -> None:
++    manager = _manager(tmp_path, result_persistence_profile=PROFILE)
++    manager.begin_eligible_pure_visit(step_name="pure", step_index=3, step_id="root.pure")
++    emitted: list[Any] = []
++    recorder = OutcomeRecorder(
++        state_manager=manager,
++        step_id_resolver=lambda step: "root.pure",
++        step_type_resolver=lambda step: "pure_projection",
++        summary_emitter=lambda name, step, row: emitted.append(row),
++    )
++    state: dict[str, Any] = {"steps": {}, "step_visits": {"pure": 1}}
++    result = recorder.persist_step_result(
++        state, "pure", {}, {"status": "completed", "exit_code": 0, "artifacts": {"a": 1}},
++        eligible_pure_settlement=WITNESS,
++    )
++    assert result["artifacts"] == {"a": 1} and state["steps"]["pure"]["artifacts"] == {"a": 1}
++    assert json.loads(manager.state_file.read_text())["steps"]["pure"] == build_pure_completion_shell(WITNESS)
++    assert emitted == [build_pure_completion_shell(WITNESS)]
++
++
++# -- index -----------------------------------------------------------------------
++
++def test_index_lists_eligible_pure_node(tmp_path: Path) -> None:
++    index = derive_pure_result_replay_index(_compile_pure_projection_bundle(tmp_path))
++    (node,) = index.nodes.values()
++    assert index.scope_kind == "root" and index.topological_node_ids == (node.node_id,)
++    assert [b.path for b in node.bindings] == [("status",), ("approved",)]
++    assert node.pure_dependency_node_ids == () and node.durable_dependency_node_ids == ()
++
++
++def test_index_scope_mismatch_names_both_scopes(tmp_path: Path) -> None:
++    with pytest.raises(PureResultReplayIndexError) as excinfo:
++        derive_pure_result_replay_index(_compile_pure_projection_bundle(tmp_path), scope_kind="loop")
++    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
++    assert excinfo.value.context["expected_scope"] == "loop" and excinfo.value.context["actual_scope"] == "root"
++    assert excinfo.value.code == "pure_result_replay_unavailable"
++
++
++def _with_binding_refs(bundle: Any, binding_refs: dict[str, Any]) -> Any:
++    node_id, node = next(iter(bundle.ir.nodes.items()))
++    config = replace(node.execution_config, pure_projection={**node.execution_config.pure_projection, "binding_refs": binding_refs})
++    ir = replace(bundle.ir, nodes={node_id: replace(node, execution_config=config)})
++    return replace(bundle, ir=ir)
++
++
++@pytest.mark.parametrize(
++    "binding_refs",
++    [
++        {"approved": "yes", "status": {"ref": "inputs.status"}},  # wrong-typed literal
++        {"approved": {"ref": 5}, "status": {"ref": "inputs.status"}},  # malformed ref object
++        {"approved": {"ref": "parent.steps.x.artifacts.y"}, "status": {"ref": "inputs.status"}},  # cross-frame
++        {"approved": {"ref": "nonsense"}, "status": {"ref": "inputs.status"}},  # unbound text
++        {"approved": {"ref": "inputs.approved"}},  # declared binding without a value
++    ],
++)
++def test_index_rejects_invalid_binding_documents(tmp_path: Path, binding_refs: dict[str, Any]) -> None:
++    bundle = _with_binding_refs(_compile_pure_projection_bundle(tmp_path), binding_refs)
++    with pytest.raises(PureResultReplayIndexError) as excinfo:
++        derive_pure_result_replay_index(bundle)
++    assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
++
++
++def test_index_accepts_literal_binding(tmp_path: Path) -> None:
++    bundle = _with_binding_refs(
++        _compile_pure_projection_bundle(tmp_path), {"approved": True, "status": {"ref": "inputs.status"}}
++    )
++    (node,) = derive_pure_result_replay_index(bundle).nodes.values()
++    assert [b.path for b in node.bindings] == [("status",)]
++
++
++def test_loop_owned_pure_nodes_are_not_eligible(tmp_path: Path) -> None:
++    index = derive_pure_result_replay_index(_compile_fixture(tmp_path))
++    assert index.nodes and index.ineligible_pure_reasons
++    assert set(index.ineligible_pure_reasons.values()) == {MULTIPLE_VISIT_REGION}
++    assert not set(index.nodes) & set(index.ineligible_pure_reasons)
++
++
++# -- runtime ----------------------------------------------------------------------
++
++def test_runtime_maps_durable_step_id_not_raw_node_id(tmp_path: Path) -> None:
++    bundle = _compile_pure_projection_bundle(tmp_path)
++    runtime = PureReplayRuntime(bundle=bundle, scope_path=ResumeScopePath.root("w.orc"))
++    (node_id,) = runtime.index.nodes
++    node = runtime.index.nodes[node_id]
++    assert runtime.node_id_for_step_id(node.step_id) == node_id
++    assert runtime.node_id_for_step_id("missing") is None
++
++
++# -- end to end -----------------------------------------------------------------
++
++def _profiled_run(tmp_path: Path, *, profile: str | None = PROFILE):
++    bundle = _compile_fixture(tmp_path)
++    (tmp_path / "artifacts/work").mkdir(parents=True)
++    (tmp_path / "artifacts/work/r.md").write_text("x", encoding="utf-8")
++    manager = StateManager(workspace=tmp_path, run_id="r")
++    manager.initialize(
++        str(tmp_path / FIXTURE.name),
++        context=workflow_lisp_context_with_lowering_schema(bundle_context_dict(bundle), 2),
++        bound_inputs={"report_path": "artifacts/work/r.md", "summary_target": "artifacts/work/s.json"},
++        result_persistence_profile=profile,
++    )
++    return bundle, manager, WorkflowExecutor(bundle, tmp_path, manager).execute()
++
++
++def _drop_checkpoint_records(bundle: Any, manager: StateManager, *, step_suffix: str) -> None:
++    """Simulate a crash before the effect's checkpoint record was committed."""
++    from orchestrator.workflow_lisp.lexical_checkpoints import resolve_checkpoint_index_path
++
++    for point in bundle.runtime_plan.lexical_checkpoint_points:
++        if point.step_id.endswith(step_suffix):
++            index_path = resolve_checkpoint_index_path(
++                state_manager=manager, workflow_name=point.workflow_name, checkpoint_id=point.checkpoint_id
++            )
++            for entry in json.loads(index_path.read_text())["records"]:
++                (manager.workspace / entry["record_path"]).unlink()
++            index_path.unlink()
++
++
++def test_profiled_run_leaves_eligible_results_value_free(tmp_path: Path) -> None:
++    bundle, manager, final = _profiled_run(tmp_path)
++    plain_dir = tmp_path / "plain"
++    plain_dir.mkdir()
++    _, _, plain = _profiled_run(plain_dir, profile=None)
++    runtime = PureReplayRuntime(bundle=bundle, scope_path=ResumeScopePath.root("w.orc"))
++    durable = json.loads(manager.state_file.read_text())
++    for node in runtime.index.nodes.values():
++        assert durable["steps"][node.presentation_key] == build_pure_completion_shell(runtime.witness(node.node_id))
++    assert final["workflow_outputs"] == plain["workflow_outputs"]
++    assert durable["call_frames"] and all(
++        frame["state"]["result_persistence_profile"] == PROFILE for frame in durable["call_frames"].values()
++    )
++
++
++def test_resume_rederives_pure_values_without_persisted_results(tmp_path: Path) -> None:
++    bundle, manager, first = _profiled_run(tmp_path)
++    view = "lexical_checkpoint_restore_regions::orchestrate__materialize-view__runtime-summary"
++    manager.load()
++    manager.state.steps.pop(view)
++    manager.state.status = "running"
++    manager.state.workflow_outputs = {}
++    manager._write_state()
++    (tmp_path / "artifacts/work/s.json").unlink()
++    _drop_checkpoint_records(bundle, manager, step_suffix="materialize_view__runtime_summary")
++    resumed = WorkflowExecutor(bundle, tmp_path, StateManager(workspace=tmp_path, run_id="r")).execute(resume=True)
++    assert resumed["status"] == "completed", resumed.get("error")
++    assert resumed["workflow_outputs"] == first["workflow_outputs"]
++    assert json.loads((tmp_path / "artifacts/work/s.json").read_text())["status"] == "ready-summary"
++
++
++def test_resume_rejects_visit_two_shell_before_any_effect(tmp_path: Path) -> None:
++    bundle, manager, _ = _profiled_run(tmp_path)
++    runtime = PureReplayRuntime(bundle=bundle, scope_path=ResumeScopePath.root("w.orc"))
++    key = next(iter(runtime.index.nodes.values())).presentation_key
++    manager.load()
++    manager.state.step_visits[key] = 2
++    manager.state.status = "running"
++    manager._write_state()
++    resumed = WorkflowExecutor(bundle, tmp_path, StateManager(workspace=tmp_path, run_id="r")).execute(resume=True)
++    assert resumed["error"]["type"] == "pure_result_replay_unavailable"
++    assert resumed["error"]["context"]["reason"] == "progress_witness_invalid"
++
++
++def test_resume_reports_missing_durable_input(tmp_path: Path) -> None:
++    bundle = _compile_pure_projection_bundle(tmp_path)
++    manager = StateManager(workspace=tmp_path, run_id="r")
++    manager.initialize(
++        str(PURE_EXPR_SELECTOR_PROJECTION), bound_inputs={"approved": False, "status": "WAIT"},
++        result_persistence_profile=PROFILE,
++    )
++    WorkflowExecutor(bundle, tmp_path, manager).execute()
++    runtime = PureReplayRuntime(bundle=bundle, scope_path=ResumeScopePath.root("w.orc"))
++    state = json.loads(manager.state_file.read_text())
++    state["bound_inputs"].pop("status")
++    with pytest.raises(PureResultReplayIndexError) as excinfo:
++        runtime.audit_boundary_leaves(None, state=state)
++    assert excinfo.value.reason == "durable_input_missing"
++    state["bound_inputs"]["status"] = 7
++    with pytest.raises(PureResultReplayIndexError) as excinfo:
++        runtime.audit_boundary_leaves(None, state=state)
++    assert excinfo.value.reason == "durable_input_invalid"
++
++
++def test_persisted_value_row_for_eligible_node_is_a_profile_conflict(tmp_path: Path) -> None:
++    bundle, manager, _ = _profiled_run(tmp_path)
++    runtime = PureReplayRuntime(bundle=bundle, scope_path=ResumeScopePath.root("w.orc"))
++    key = next(iter(runtime.index.nodes.values())).presentation_key
++    manager.load()
++    manager.state.steps[key]["artifacts"] = {"__result__": "ready-summary"}
++    manager.state.status = "running"
++    manager._write_state()
++    before = manager.state_file.read_bytes()
++    with pytest.raises(PureResultReplayIndexError) as excinfo:
++        WorkflowExecutor(bundle, tmp_path, StateManager(workspace=tmp_path, run_id="r")).execute(resume=True)
++    assert excinfo.value.reason == "profile_conflict" and excinfo.value.context["surface"] == "steps"
++    assert manager.state_file.read_bytes() == before
++
++
++def test_observation_manager_is_not_created_at_construction(tmp_path: Path) -> None:
++    bundle = _compile_pure_projection_bundle(tmp_path)
++    manager = StateManager(workspace=tmp_path, run_id="r")
++    manager.initialize(str(PURE_EXPR_SELECTOR_PROJECTION), bound_inputs={"approved": False, "status": "WAIT"})
++    executor = WorkflowExecutor(bundle, tmp_path, manager, provider_observation_enabled=False)
++    executor.execute()
++    assert executor.provider_observation_manager is None
++
++
++
++def _unstarted_profiled_pure_run(tmp_path: Path, bound_inputs: dict[str, Any]):
++    bundle = _compile_pure_projection_bundle(tmp_path)
++    manager = StateManager(workspace=tmp_path, run_id="r")
++    manager.initialize(
++        str(PURE_EXPR_SELECTOR_PROJECTION),
++        context=workflow_lisp_context_with_lowering_schema(bundle_context_dict(bundle), 2),
++        bound_inputs=bound_inputs,
++        result_persistence_profile=PROFILE,
++    )
++    resumed = WorkflowExecutor(bundle, tmp_path, StateManager(workspace=tmp_path, run_id="r")).execute(resume=True)
++    report = json.loads(manager.workflow_lisp_checkpoint_default_resume_report_path().read_text())
++    return resumed, report["default_modes"][0]
++
++
++def test_default_resume_admits_validated_frame_entry_replay(tmp_path: Path) -> None:
++    resumed, mode = _unstarted_profiled_pure_run(tmp_path, {"approved": False, "status": "WAIT"})
++    assert resumed["status"] == "completed"
++    assert resumed["workflow_outputs"] == {"return__status": "WAIT", "return__ready": False}
++    assert (mode["mode"], mode["restore_decision"], mode["checkpoint_id"]) == (
++        "LEXICAL_CHECKPOINT_DEFAULT", "VALIDATED_FRAME_ENTRY_REPLAY", None,
++    )
++
++
++def test_default_resume_fails_closed_without_validated_leaves(tmp_path: Path) -> None:
++    resumed, mode = _unstarted_profiled_pure_run(tmp_path, {"approved": False})
++    assert resumed["status"] == "failed"
++    assert mode["mode"] == "FAIL_CLOSED"
++    assert [d["code"] if isinstance(d, dict) else d for d in mode["diagnostics"]] == [
++        "lexical_default_resume_prior_boundary_not_restorable"
++    ]
++
++
++def test_public_orc_run_selects_the_profile(tmp_path: Path, monkeypatch) -> None:
++    from orchestrator.cli.commands.run import run_workflow
++    from tests.test_workflow_lisp_cli import _orc_run_args
++
++    monkeypatch.chdir(tmp_path)
++    module = tmp_path / "chain.orc"
++    module.write_text(PURE_ORC, encoding="utf-8")
++    args = _orc_run_args(workflow=module, source_root=tmp_path, dry_run=False, input_values=["x=2"])
++    args.imported_workflow_bundles_file = None
++    args.provider_externs_file = args.prompt_externs_file = args.command_boundaries_file = None
++    assert run_workflow(args) == 0
++    (state_file,) = (tmp_path / ".orchestrate" / "runs").glob("*/state.json")
++    state = json.loads(state_file.read_text())
++    assert state["result_persistence_profile"] == PROFILE
++    assert state["workflow_outputs"] == {"__result__": 9}
++
++
++PURE_ORC = """(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "2.18")
++  (defmodule chain)
++  (export orchestrate)
++  (defworkflow orchestrate ((x Int)) -> Int
++    (let* ((a (+ x 1))
++           (b (* a 2)))
++      (+ b a))))
++"""
++
++
++def test_resume_reuses_interrupted_eligible_visit_without_a_second_visit(tmp_path: Path) -> None:
++    bundle = _compile_pure_projection_bundle(tmp_path)
++    manager = StateManager(workspace=tmp_path, run_id="r")
++    manager.initialize(
++        str(PURE_EXPR_SELECTOR_PROJECTION),
++        context=workflow_lisp_context_with_lowering_schema(bundle_context_dict(bundle), 2),
++        bound_inputs={"approved": False, "status": "WAIT"},
++        result_persistence_profile=PROFILE,
++    )
++    runtime = PureReplayRuntime(bundle=bundle, scope_path=ResumeScopePath.root("w.orc"))
++    (node_id,) = runtime.index.nodes
++    witness = runtime.witness(node_id)
++    manager.begin_eligible_pure_visit(
++        step_name=witness.presentation_key, step_index=witness.step_index, step_id=witness.step_id
++    )
++    resumed = WorkflowExecutor(bundle, tmp_path, StateManager(workspace=tmp_path, run_id="r")).execute(resume=True)
++    assert resumed["status"] == "completed", resumed.get("error")
++    assert resumed["step_visits"][witness.presentation_key] == 1
++    assert resumed["steps"][witness.presentation_key] == build_pure_completion_shell(witness)
++
++
++def _union_runtime(tmp_path: Path):
++    from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
++    from tests.test_workflow_lisp_pure_projection_runtime import VALID_FIXTURES
++
++    result = compile_stage3_entrypoint(
++        VALID_FIXTURES / "design_delta_projection_runtime.orc",
++        source_roots=(VALID_FIXTURES,), provider_externs={}, prompt_externs={}, command_boundaries={},
++        validate_shared=True, workspace_root=tmp_path,
++    )
++    for bundle in result.validated_bundles_by_name.values():
++        runtime = PureReplayRuntime(bundle=bundle, scope_path=ResumeScopePath.root("w.orc"))
++        for node in runtime.index.nodes.values():
++            if "return__blocked_reason" in node.output_contracts:
++                return runtime, node
++    raise AssertionError("no union pure node in fixture")
++
++
++def test_union_row_holds_exactly_the_discriminant_and_active_members(tmp_path: Path) -> None:
++    runtime, node = _union_runtime(tmp_path)
++    witness = runtime.witness(node.node_id)
++    assert len(node.output_addresses) == len(node.output_contracts)  # static catalog keeps every member
++    good = {"status": "completed", "artifacts": {"return__variant": "BLOCKED", "return__blocked_reason": "why"}}
++    runtime.record_full_result(node.node_id, witness=witness, result=good)
++    missing = {"status": "completed", "artifacts": {"return__variant": "BLOCKED"}}
++    extra = {"status": "completed", "artifacts": {**good["artifacts"], "return__exhausted_reason": "no"}}
++    for bad in (missing, extra):
++        with pytest.raises(PureResultReplayIndexError) as excinfo:
++            runtime.record_full_result(node.node_id, witness=witness, result=bad)
++        assert excinfo.value.reason == DEPENDENCY_INDEX_INVALID
++
++
++def _replay_fixture(tmp_path: Path):
++    bundle = _compile_pure_projection_bundle(tmp_path)
++    runtime = PureReplayRuntime(bundle=bundle, scope_path=ResumeScopePath.root("w.orc"))
++    (node_id,) = runtime.index.nodes
++    witness = runtime.witness(node_id)
++    state = {
++        "bound_inputs": {"approved": False, "status": "WAIT"},
++        "step_visits": {witness.presentation_key: 1},
++        "steps": {witness.presentation_key: build_pure_completion_shell(witness)},
++        "current_step": None,
++    }
++    return runtime, node_id, witness, state
++
++
++GOOD = {"status": "completed", "artifacts": {"return__status": "WAIT", "return__ready": False}}
++
++
++def test_replay_node_builds_the_overlay_without_touching_state(tmp_path: Path) -> None:
++    runtime, node_id, witness, state = _replay_fixture(tmp_path)
++    before = json.dumps(state, sort_keys=True)
++    row = runtime.replay_node(node_id, state=state, evaluate_node=lambda node, st: GOOD)
++    assert row["artifacts"] == GOOD["artifacts"]
++    assert json.dumps(state, sort_keys=True) == before
++    overlay = runtime.overlay_active_state(state)
++    assert overlay["steps"][witness.presentation_key]["artifacts"] == GOOD["artifacts"]
++    from orchestrator.workflow.executable_ir import NodeResultAddress
++
++    address = NodeResultAddress(node_id, "artifacts", "return__status")
++    assert runtime.resolve_state_address(address, overlay) == (True, "WAIT")
++
++
++@pytest.mark.parametrize(
++    "failure, reason, cause",
++    [
++        ({"error": {"type": "materialize_ref_unresolved"}}, "binding_unresolved", "materialize_ref_unresolved"),
++        ({"error": {"type": "pure_expr_failed"}}, "evaluation_failed", "pure_evaluation_failed"),
++        (
++            {"error": {"type": "contract_violation", "context": {"reason": "pure_projection_contract_invalid"}}},
++            "output_contract_invalid",
++            "pure_projection_contract_invalid",
++        ),
++    ],
++)
++def test_replay_failures_name_reason_and_cause(tmp_path: Path, failure: dict, reason: str, cause: str) -> None:
++    runtime, node_id, _, state = _replay_fixture(tmp_path)
++    with pytest.raises(PureResultReplayIndexError) as excinfo:
++        runtime.replay_node(node_id, state=state, evaluate_node=lambda node, st: {"status": "failed", **failure})
++    assert excinfo.value.reason == reason and excinfo.value.context["cause"] == {"type": cause}
++
++
++def test_cache_hit_revalidates_cursor_and_visit(tmp_path: Path) -> None:
++    runtime, node_id, witness, state = _replay_fixture(tmp_path)
++    runtime.replay_node(node_id, state=state, evaluate_node=lambda node, st: GOOD)
++    runtime.overlay_active_state(state)
++    related = {**state, "current_step": {"name": witness.presentation_key, "step_id": witness.step_id}}
++    visit_two = {**state, "step_visits": {witness.presentation_key: 2}}
++    for stale in (related, visit_two):
++        with pytest.raises(PureResultReplayIndexError) as excinfo:
++            runtime.overlay_active_state(stale)
++        assert excinfo.value.reason == "progress_witness_invalid"
++
++
++def test_active_result_is_valid_only_while_exactly_held(tmp_path: Path) -> None:
++    runtime, node_id, witness, state = _replay_fixture(tmp_path)
++    full = {**build_pure_completion_shell(witness), "artifacts": GOOD["artifacts"]}
++    runtime.record_full_result(node_id, witness=witness, result=full)
++    active = {**state, "steps": {witness.presentation_key: full}}
++    from orchestrator.workflow.executable_ir import NodeResultAddress
++
++    address = NodeResultAddress(node_id, "artifacts", "return__ready")
++    assert runtime.resolve_state_address(address, active) == (True, False)
++    tampered = {**state, "steps": {witness.presentation_key: {**full, "artifacts": {"return__ready": True}}}}
++    with pytest.raises(PureResultReplayIndexError):
++        runtime.resolve_state_address(address, tampered)
++
++
++def _all_checkpoint_records(manager: StateManager) -> list[dict[str, Any]]:
++    return [json.loads(p.read_text()) for p in manager.run_root.rglob("record:*.json")]
++
++
++def test_profiled_run_emits_no_checkpoint_authority_for_pure_steps(tmp_path: Path) -> None:
++    bundle, manager, _ = _profiled_run(tmp_path)
++    runtime = PureReplayRuntime(bundle=bundle, scope_path=ResumeScopePath.root("w.orc"))
++    eligible = {node.step_id for node in runtime.index.nodes.values()}
++    records = _all_checkpoint_records(manager)
++    assert records
++    assert all(r["pending_effect_policy"]["effect_kind"] != "pure_projection" for r in records)
++    bindings = [b for r in records for b in (r.get("restore_payload") or {}).get("bindings", ())]
++    assert not {b.get("source_step_id") for b in bindings} & eligible
++
++
++def test_historical_run_surfaces_conflict_with_the_profile(tmp_path: Path) -> None:
++    bundle, manager, _ = _profiled_run(tmp_path, profile=None)
++    runtime = PureReplayRuntime(bundle=bundle, scope_path=ResumeScopePath.root("w.orc"))
++    state = json.loads(manager.state_file.read_text())
++    audit = lambda s: runtime.audit_persisted_surfaces(  # noqa: E731
++        state=s, state_manager=manager, resolve_bundle_path=lambda template: None
++    )
++    with pytest.raises(PureResultReplayIndexError) as excinfo:
++        audit(state)
++    assert excinfo.value.context["surface"] == "steps"
++    eligible_keys = {node.presentation_key for node in runtime.index.nodes.values()}
++    state["steps"] = {k: v for k, v in state["steps"].items() if k not in eligible_keys}
++    with pytest.raises(PureResultReplayIndexError) as excinfo:
++        audit(state)
++    assert excinfo.value.context["surface"] == "checkpoint_record"
++    assert excinfo.value.reason == "profile_conflict"
++
++
++def test_private_lineage_and_bundle_files_are_conflicts(tmp_path: Path) -> None:
++    bundle, manager, _ = _profiled_run(tmp_path)
++    runtime = PureReplayRuntime(bundle=bundle, scope_path=ResumeScopePath.root("w.orc"))
++    node = next(iter(runtime.index.nodes.values()))
++    state = json.loads(manager.state_file.read_text())
++    leftover = tmp_path / "pure-bundle.json"
++    leftover.write_text("{}", encoding="utf-8")
++    cases = {
++        "pure_bundle": ({}, lambda template: leftover),
++        "private_artifact_versions": (
++            {"private_artifact_versions": {"x": [{"producer": node.step_id, "producer_name": node.presentation_key}]}},
++            lambda template: None,
++        ),
++    }
++    for surface, (extra, resolver) in cases.items():
++        with pytest.raises(PureResultReplayIndexError) as excinfo:
++            runtime.audit_persisted_surfaces(state={**state, **extra}, state_manager=manager, resolve_bundle_path=resolver)
++        assert excinfo.value.context["surface"] == surface
++
++
++def _completed_pure_only_run(tmp_path: Path):
++    bundle = _compile_pure_projection_bundle(tmp_path)
++    manager = StateManager(workspace=tmp_path, run_id="r")
++    manager.initialize(
++        str(PURE_EXPR_SELECTOR_PROJECTION),
++        context=workflow_lisp_context_with_lowering_schema(bundle_context_dict(bundle), 2),
++        bound_inputs={"approved": False, "status": "WAIT"},
++        result_persistence_profile=PROFILE,
++    )
++    first = WorkflowExecutor(bundle, tmp_path, manager).execute()
++    return bundle, first
++
++
++def test_resume_of_completed_pure_only_run_reuses_the_boundary(tmp_path: Path) -> None:
++    bundle, first = _completed_pure_only_run(tmp_path)
++    assert first["status"] == "completed", first.get("error")
++    resumed = WorkflowExecutor(bundle, tmp_path, StateManager(workspace=tmp_path, run_id="r")).execute(resume=True)
++    assert resumed["status"] == "completed", resumed.get("error")
++    assert resumed["workflow_outputs"] == first["workflow_outputs"]
++
++
++def test_non_mapping_private_lineage_is_reported_not_raised(tmp_path: Path) -> None:
++    bundle, _ = _completed_pure_only_run(tmp_path)
++    manager = StateManager(workspace=tmp_path, run_id="r")
++    manager.load()
++    manager.state.private_artifact_versions = [{"x": 1}]
++    manager.state.status = "running"
++    manager._write_state()
++    resumed = WorkflowExecutor(bundle, tmp_path, StateManager(workspace=tmp_path, run_id="r")).execute(resume=True)
++    assert resumed["error"]["type"] == "pure_result_replay_unavailable"
++
++
++def test_scalar_private_lineage_entries_are_reported_not_raised(tmp_path: Path) -> None:
++    bundle, _ = _completed_pure_only_run(tmp_path)
++    manager = StateManager(workspace=tmp_path, run_id="r")
++    manager.load()
++    manager.state.private_artifact_versions = {"x": 1}
++    manager.state.status = "running"
++    manager._write_state()
++    resumed = WorkflowExecutor(bundle, tmp_path, StateManager(workspace=tmp_path, run_id="r")).execute(resume=True)
++    assert resumed["error"]["type"] == "pure_result_replay_unavailable"
++    assert resumed["error"]["context"]["reason"] == DEPENDENCY_INDEX_INVALID
++
++
++def test_constructing_a_manager_over_a_profiled_existing_frame_writes_nothing(tmp_path: Path) -> None:
++    from orchestrator.workflow.call_frame_state import _CallFrameStateManager
++
++    bundle = _compile_pure_projection_bundle(tmp_path)
++    parent = StateManager(workspace=tmp_path, run_id="r")
++    parent.initialize(str(PURE_EXPR_SELECTOR_PROJECTION))
++    kwargs = dict(
++        parent_manager=parent, workflow=bundle, frame_id="root.call::visit::1",
++        call_step_name="Call", call_step_id="root.call", import_alias="c", bound_inputs={},
++    )
++    frame = _CallFrameStateManager(**kwargs, result_persistence_profile=PROFILE)
++    existing = parent.load().to_dict()["call_frames"]["root.call::visit::1"]
++    before = parent.state_file.read_bytes()
++    reopened = _CallFrameStateManager(**kwargs, existing_frame=existing)
++    reopened.update_bound_input_resume_validation(status="validated", diagnostics=[])
++    assert parent.state_file.read_bytes() == before
++
++
++def test_effectful_plan_without_checkpoint_points_stays_fail_closed(tmp_path: Path) -> None:
++    from orchestrator.workflow_lisp.lexical_checkpoint_default_resume import (
++        determine_runtime_default_resume_decision,
++    )
++    from orchestrator.workflow_lisp.lexical_checkpoint_default_resume import _FilteredRuntimePlan
++
++    bundle, manager, _ = _profiled_run(tmp_path)
++    state = json.loads(manager.state_file.read_text())
++    decision = determine_runtime_default_resume_decision(
++        state=state,
++        runtime_plan=_FilteredRuntimePlan(bundle.runtime_plan, ()),
++        restart_node_id=next(iter(bundle.ir.nodes)),
++        state_manager=manager,
++        loaded_workflow=bundle,
++        executable_workflow=bundle,
++        is_workflow_lisp=True,
++    )
++    assert decision["mode"] == "FAIL_CLOSED"
++    assert decision["diagnostics"] == ["lexical_default_resume_checkpoint_points_missing"]

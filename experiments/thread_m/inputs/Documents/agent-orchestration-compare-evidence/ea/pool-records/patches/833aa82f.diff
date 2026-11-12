@@ -1,0 +1,249 @@
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index 999488b..02ee668 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -1723,7 +1723,21 @@ class WorkflowExecutor:
+                 raise ReferenceResolutionError(
+                     f"Bound step output '{address.node_id}.artifacts.{output_name}' is unavailable"
+                 )
+-            return artifacts[output_name]
++            value = artifacts[output_name]
++            exhausted = (
++                result.get("debug", {}).get("structured_repeat_until", {}).get("exhausted")
++                if isinstance(address, LoopOutputAddress)
++                else False
++            )
++            if exhausted and isinstance(value, dict) and set(value) == {"ref"}:
++                # on_exhausted overrides persist as compiler-generated refs; read through them.
++                resolved, error = self._resolve_ref_value(str(value["ref"]), state, scope=scope)
++                if error is not None:
++                    raise ReferenceResolutionError(
++                        f"Exhaustion override ref '{value['ref']}' is unresolved"
++                    )
++                return resolved
++            return value
+ 
+         raise ReferenceResolutionError(f"Unsupported bound address type '{type(address).__name__}'")
+ 
+diff --git a/orchestrator/workflow/validation.py b/orchestrator/workflow/validation.py
+index 42661f2..ebed13e 100644
+--- a/orchestrator/workflow/validation.py
++++ b/orchestrator/workflow/validation.py
+@@ -2793,15 +2793,15 @@ class _WorkflowMappingValidator:
+ 
+             spec = output_specs[output_name]
+             output_type = spec.get('type')
+-            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
+-                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
+-                continue
+             if self._is_generated_repeat_until_on_exhausted_ref(
+                 value,
+                 step_name=step_name,
+                 output_name=output_name,
+             ):
+                 continue
++            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
++                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
++                continue
+             if isinstance(value, (dict, list)):
+                 self._add_error(f"{value_context} must be a scalar literal")
+                 continue
+diff --git a/tests/test_workflow_lisp_loop_result_path_variants.py b/tests/test_workflow_lisp_loop_result_path_variants.py
+new file mode 100644
+index 0000000..4f4ff00
+--- /dev/null
++++ b/tests/test_workflow_lisp_loop_result_path_variants.py
+@@ -0,0 +1,193 @@
++"""Loop results with path fields in non-exhausted variants compile and run at 2.29+."""
++
++from __future__ import annotations
++
++import json
++import sys
++from argparse import Namespace
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import patch
++
++import pytest
++
++from orchestrator.cli.commands.run import run_workflow
++from orchestrator.providers.executor import ProviderExecutor
++from orchestrator.providers.types import PreparedProviderPolicy
++
++_SOURCE = r'''
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "__TARGET__")
++  (defmodule reviewed_change)
++  (export reviewed-change)
++
++  (defpath ReviewReport
++    :kind relpath
++    :under "artifacts/review"
++    :must-exist true)
++
++  (defrecord Change
++    (summary String))
++
++  (defunion Review
++    (APPROVE (report ReviewReport))
++    (REQUEST_CHANGES (report ReviewReport) (findings List[String]))
++    (WRONG_APPROACH (report ReviewReport) (reason String))
++    (NEEDS_HUMAN (question String)))
++
++  (defunion Outcome
++    (READY (report ReviewReport) (rounds Int))
++    (ESCALATED (question String))
++    (UNRESOLVED (rounds Int)))
++
++  (defprompt implement-prompt
++    (:fills (task :text))
++    -> Change
++    "Implement this change in the repository:\n\n{task}")
++
++  (defprompt review-prompt
++    (:fills (task :text))
++    -> Review
++    "Review the uncommitted changes in this repository against the task below. Write your review to a report file.\n\n{task}\n\nAPPROVE only if you would merge it as is. REQUEST_CHANGES for defects a fix can address. WRONG_APPROACH if the design itself must change. NEEDS_HUMAN if a decision is not yours to make.")
++
++  (defprompt fix-prompt
++    (:fills (task :text) (findings :value List[String]))
++    -> Change
++    "Address every review finding below without changing the approach.\n\nTask: {task}\n\nFindings:\n{findings}")
++
++  (defprompt redo-prompt
++    (:fills (task :text) (reason :text))
++    -> Change
++    "The reviewer rejected the approach. Discard the current changes and implement the task differently.\n\nTask: {task}\n\nWhy the approach was rejected: {reason}")
++
++  (defworkflow reviewed-change
++    ((task String))
++    -> Outcome
++    (let* ((change (provider-result providers.coder
++                     :prompt (implement-prompt :task task))))
++      (loop/recur :max 3
++        :state (loop-state (round Int 1))
++        :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++        (fn (state)
++          (let* ((review (provider-result providers.reviewer
++                           :prompt (review-prompt :task task))))
++            (match review
++              ((APPROVE a)
++               (done (variant Outcome READY :report a.report :rounds state.round)))
++              ((REQUEST_CHANGES r)
++               (let* ((fix (provider-result providers.coder
++                             :prompt (fix-prompt :task task :findings r.findings))))
++                 (continue (loop-state :like state :round (+ state.round 1)))))
++              ((WRONG_APPROACH w)
++               (let* ((redo (provider-result providers.coder
++                              :prompt (redo-prompt :task task :reason w.reason))))
++                 (continue (loop-state :like state :round (+ state.round 1)))))
++              ((NEEDS_HUMAN h)
++               (done (variant Outcome ESCALATED :question h.question)))))))))
++)
++'''
++
++_TARGETS = ["2.28", "2.29", "2.32"]
++
++
++def _write(workspace: Path, target: str) -> Path:
++    source = workspace / "reviewed_change.orc"
++    source.write_text(_SOURCE.replace("__TARGET__", target), encoding="utf-8")
++    (workspace / "providers.json").write_text(
++        json.dumps({"providers.coder": "coder", "providers.reviewer": "reviewer"}),
++        encoding="utf-8",
++    )
++    (workspace / "inputs.json").write_text(json.dumps({"task": "do it"}), encoding="utf-8")
++    return source
++
++
++def _args(workspace: Path, source: Path) -> Namespace:
++    return Namespace(
++        workflow=str(source), context=None, context_file=None, input=[],
++        input_file=str(workspace / "inputs.json"), clean_processed=False,
++        archive_processed=None, debug=False, stream_output=False, dry_run=False,
++        backup_state=False, state_dir=None, on_error="stop", max_retries=0,
++        retry_delay=0, quiet=True, verbose=False, log_level="error",
++        step_summaries=False, summary_mode=None, summary_provider="claude_sonnet_summary",
++        summary_timeout_sec=120, summary_max_input_chars=12000, summary_profile=None,
++        live_agent_notes=False, live_agent_note_provider=None,
++        live_agent_note_interval_sec=15.0, live_agent_note_timeout_sec=30,
++        live_agent_note_max_tail_chars=6000,
++        entry_workflow="reviewed_change::reviewed-change", source_root=[str(workspace)],
++        provider_externs_file=str(workspace / "providers.json"), prompt_externs_file=None,
++        imported_workflow_bundles_file=None, command_boundaries_file=None,
++        emit_debug_yaml=False,
++    )
++
++
++def _run(workspace: Path, monkeypatch, target: str, review: dict):
++    source = _write(workspace, target)
++
++    def prepare(_self, provider_name, *_args, **kwargs):
++        prompt = str(kwargs.get("prompt_content", ""))
++        return SimpleNamespace(
++            provider_name=provider_name, prompt=prompt, prepared_prompt=prompt,
++            prepared_provider_policy=PreparedProviderPolicy(
++                provider_name=provider_name, model=None, effort=None,
++                timeout_sec=kwargs.get("timeout_sec"), input_mode="stdin",
++            ),
++            env=dict(kwargs.get("env") or {}), input_mode="stdin",
++        ), None
++
++    def execute(_self, invocation, **_kwargs):
++        output = Path(invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
++        if not output.is_absolute():
++            output = workspace / output
++        output.parent.mkdir(parents=True, exist_ok=True)
++        if invocation.provider_name == "reviewer":
++            (workspace / "artifacts" / "review").mkdir(parents=True, exist_ok=True)
++            (workspace / "artifacts" / "review" / "r.md").write_text("ok\n", encoding="utf-8")
++            payload = review
++        else:
++            payload = {"summary": "changed"}
++        output.write_text(json.dumps(payload) + "\n", encoding="utf-8")
++        return SimpleNamespace(
++            exit_code=0, stdout=b"", stderr=b"", duration_ms=1, error=None,
++            missing_placeholders=None, invalid_prompt_placeholder=False, raw_stdout=None,
++            normalized_stdout=None, provider_session=None,
++        )
++
++    monkeypatch.chdir(workspace)
++    argv = [
++        "orchestrator", "run", str(source), "--source-root", str(workspace),
++        "--entry-workflow", "reviewed_change::reviewed-change",
++        "--provider-externs-file", str(workspace / "providers.json"),
++    ]
++    with patch.object(ProviderExecutor, "prepare_invocation", prepare), patch.object(
++        ProviderExecutor, "execute", execute
++    ), patch.object(sys, "argv", argv):
++        return run_workflow(_args(workspace, source))
++
++
++@pytest.mark.parametrize("target", _TARGETS)
++def test_exhausted_loop_with_path_field_in_other_variant(tmp_path, monkeypatch, target):
++    result = _run(
++        tmp_path, monkeypatch, target,
++        {"variant": "REQUEST_CHANGES", "report": "artifacts/review/r.md", "findings": ["x"]},
++    )
++    assert result.exit_code == 0
++    assert result.workflow_outputs["return__variant"] == "UNRESOLVED"
++    assert result.workflow_outputs["return__rounds"] == 3
++
++
++@pytest.mark.parametrize("target", _TARGETS)
++def test_done_loop_returns_path_variant(tmp_path, monkeypatch, target):
++    result = _run(
++        tmp_path, monkeypatch, target,
++        {"variant": "APPROVE", "report": "artifacts/review/r.md"},
++    )
++    assert result.exit_code == 0
++    assert result.workflow_outputs["return__variant"] == "READY"
++    assert result.workflow_outputs["return__report"] == "artifacts/review/r.md"
++
++
++@pytest.mark.parametrize("target", _TARGETS)
++def test_malformed_provider_output_still_fails(tmp_path, monkeypatch, target):
++    result = _run(tmp_path, monkeypatch, target, {"variant": "BOGUS"})
++    assert result.exit_code != 0

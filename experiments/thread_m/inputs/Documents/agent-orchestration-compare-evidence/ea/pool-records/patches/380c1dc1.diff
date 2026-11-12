@@ -1,0 +1,177 @@
+diff --git a/orchestrator/workflow/validation.py b/orchestrator/workflow/validation.py
+index 42661f2..7015d28 100644
+--- a/orchestrator/workflow/validation.py
++++ b/orchestrator/workflow/validation.py
+@@ -2792,16 +2792,16 @@ class _WorkflowMappingValidator:
+                 continue
+ 
+             spec = output_specs[output_name]
+-            output_type = spec.get('type')
+-            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
+-                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
+-                continue
+             if self._is_generated_repeat_until_on_exhausted_ref(
+                 value,
+                 step_name=step_name,
+                 output_name=output_name,
+             ):
+                 continue
++            output_type = spec.get('type')
++            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
++                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
++                continue
+             if isinstance(value, (dict, list)):
+                 self._add_error(f"{value_context} must be a scalar literal")
+                 continue
+diff --git a/orchestrator/workflow_lisp/lowering/control_loops.py b/orchestrator/workflow_lisp/lowering/control_loops.py
+index f8286f4..ba7cb0c 100644
+--- a/orchestrator/workflow_lisp/lowering/control_loops.py
++++ b/orchestrator/workflow_lisp/lowering/control_loops.py
+@@ -652,10 +652,13 @@ def _emit_repeat_until_from_emitter_input(
+                             plan=plan,
+                             variant_name=variant.name,
+                             field_path=field.source_path[1:],
+-                            allow_exhaustion_state_ref=(
+-                                not target_dsl_supports_rich_loop_values(
+-                                    context.type_env.target_dsl_version
+-                                )
++                        )
++                        or _exhausted_variant_placeholder_ref(
++                            expr.on_exhausted_result_expr,
++                            exhausted_placeholder_refs,
++                            variant_name=variant.name,
++                            field_name=_loop_projection_field_name(
++                                plan.result_projection, field.source_path[1:]
+                             ),
+                         )
+                         or f"root.steps.{plan.repeat_step_name}.artifacts.{_loop_projection_field_name(plan.result_projection, field.source_path[1:])}"
+@@ -2712,10 +2715,7 @@ def _loop_result_case_output_ref(
+     plan: LoopLoweringPlan,
+     variant_name: str,
+     field_path: tuple[str, ...],
+-    allow_exhaustion_state_ref: bool,
+ ) -> str | None:
+-    if not allow_exhaustion_state_ref:
+-        return None
+     on_exhausted = loop_expr.on_exhausted_result_expr
+     if not isinstance(on_exhausted, UnionVariantExpr) or on_exhausted.variant_name != variant_name:
+         return None
+@@ -2724,10 +2724,27 @@ def _loop_result_case_output_ref(
+         return None
+     if not isinstance(field_value.base, NameExpr) or field_value.base.name != loop_expr.binding_name:
+         return None
+-    return (
+-        f"root.steps.{plan.repeat_step_name}.artifacts."
+-        f"{_loop_projection_field_name(plan.state_projection, tuple(field_value.fields))}"
+-    )
++    state_field = _loop_projection_field_name(plan.state_projection, tuple(field_value.fields))
++    # Rich (2.29+) record/list state fields flatten into several outputs and have no single artifact.
++    if state_field not in {f.generated_name for f in plan.state_projection.flattened_fields}:
++        return None
++    return f"root.steps.{plan.repeat_step_name}.artifacts.{state_field}"
++
++
++def _exhausted_variant_placeholder_ref(
++    on_exhausted: Any,
++    exhausted_placeholder_refs: Mapping[str, str],
++    *,
++    variant_name: str,
++    field_name: str,
++) -> str | None:
++    """Read inactive-variant fields of the exhausted variant's case from the placeholder step.
++
++    Exhaustion overrides carry them as unresolved ``{"ref": ...}`` loop artifacts.
++    """
++    if not isinstance(on_exhausted, UnionVariantExpr) or on_exhausted.variant_name != variant_name:
++        return None
++    return exhausted_placeholder_refs.get(field_name)
+ 
+ 
+ def _loop_case_ref(ref: str) -> str:
+diff --git a/tests/test_workflow_lisp_loop_recur.py b/tests/test_workflow_lisp_loop_recur.py
+index 618764b..3ef83ee 100644
+--- a/tests/test_workflow_lisp_loop_recur.py
++++ b/tests/test_workflow_lisp_loop_recur.py
+@@ -1810,3 +1810,82 @@ def test_loop_recur_exhaustion_projection_relaxes_variant_relpath_at_result_boun
+         "ref": "root.steps.loop-recur-exhaustion-missing-projection__loop.artifacts.result__last_report"
+     }
+     assert authored["outputs"]["return__last_report"]["must_exist_target"] is False
++
++
++_PATH_VARIANT_LOOP_SOURCE = "\n".join(
++    [
++        "(workflow-lisp",
++        '  (:language "0.1")',
++        '  (:target-dsl "{target}")',
++        "  (defpath Report",
++        "    :kind relpath",
++        '    :under "artifacts/review"',
++        "    :must-exist false)",
++        "  (defrecord LoopState (round Int))",
++        "  (defunion Outcome",
++        "    (READY (report Report) (rounds Int))",
++        "    (UNRESOLVED (rounds Int)))",
++        "  (defworkflow path-variant-loop",
++        "    ((report_path Report))",
++        "    -> Outcome",
++        "    (loop/recur",
++        "      :max 2",
++        "      :state (record LoopState :round 0)",
++        "      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)",
++        "      (fn (state)",
++        "        (if (= state.round 99)",
++        "          (done (variant Outcome READY :report report_path :rounds state.round))",
++        "          (continue (record LoopState :round (+ state.round 1))))))))",
++    ]
++)
++
++
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.30", "2.31", "2.32"])
++def test_loop_result_path_in_non_exhausted_variant_compiles_and_exhausts(
++    tmp_path: Path, target: str
++) -> None:
++    workflow_path = _write_module(
++        tmp_path / "path_variant_loop.orc",
++        _PATH_VARIANT_LOOP_SOURCE.replace("{target}", target),
++    )
++    result = _compile(workflow_path, tmp_path=tmp_path, validate_shared=True)
++    bundle = result.validated_bundles["path-variant-loop"]
++    state_manager = StateManager(workspace=tmp_path, run_id=f"path-variant-loop-{target}")
++    state_manager.initialize(workflow_path.as_posix())
++
++    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(
++        {"report_path": "artifacts/review/r.md"}, on_error="stop"
++    )
++
++    assert state["status"] == "completed", json.dumps({k: v for k, v in state["steps"].items() if "__result" in k} | {"error": state.get("error")}, default=str)
++    assert state["workflow_outputs"]["return__variant"] == "UNRESOLVED"
++    assert state["workflow_outputs"]["return__rounds"] == 1
++
++
++def test_hand_authored_relpath_on_exhausted_override_stays_rejected(tmp_path: Path) -> None:
++    workflow_path = _write_module(
++        tmp_path / "path_variant_loop.orc",
++        _PATH_VARIANT_LOOP_SOURCE.replace("{target}", "2.29"),
++    )
++    result = _compile(workflow_path, tmp_path=tmp_path, validate_shared=True)
++    mapping = json.loads(json.dumps(result.lowered_workflows[0].authored_mapping))
++    repeat = next(s["repeat_until"] for s in mapping["steps"] if "repeat_until" in s)
++    repeat["on_exhausted"]["outputs"]["result__report"] = "artifacts/review/x.md"
++    lowered = replace(
++        result.lowered_workflows[0],
++        authored_mapping=mapping,
++        compiler_owned_repeat_until_metadata=(
++            lowering_core._capture_compiler_owned_repeat_until_metadata(mapping)
++        ),
++    )
++
++    with pytest.raises(LispFrontendCompileError) as exc:
++        lowering_core._validate_one_lowered_workflow(
++            lowered,
++            workspace_root=tmp_path,
++            imported_bundles={},
++            workflow_is_imported=False,
++            boundary_validation_policy=WorkflowBoundaryValidationPolicy.PUBLIC_CALLABLE,
++        )
++
++    assert "may only override scalar repeat_until outputs" in exc.value.diagnostics[0].message

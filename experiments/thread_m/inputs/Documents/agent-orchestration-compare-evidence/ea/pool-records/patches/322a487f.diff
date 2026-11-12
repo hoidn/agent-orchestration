@@ -1,0 +1,182 @@
+diff --git a/orchestrator/workflow/executor_runtime.py b/orchestrator/workflow/executor_runtime.py
+index 8732bc1..5ceac71 100644
+--- a/orchestrator/workflow/executor_runtime.py
++++ b/orchestrator/workflow/executor_runtime.py
+@@ -224,6 +224,16 @@ class LoopRuntime(Protocol):
+         step: RuntimeStepInput,
+     ) -> Mapping[str, Any]: ...
+ 
++    def _resolve_ref_value(
++        self,
++        ref: str,
++        state: Dict[str, Any],
++        *,
++        scope: Optional[Dict[str, Dict[str, Any]]] = None,
++    ) -> tuple[Any, Optional[Dict[str, Any]]]: ...
++
++    def _workflow_version_at_least(self, minimum: str) -> bool: ...
++
+     def _resolve_structured_output_artifacts(
+         self,
+         outputs: Mapping[str, Any],
+diff --git a/orchestrator/workflow/loops.py b/orchestrator/workflow/loops.py
+index 66300d2..45820aa 100644
+--- a/orchestrator/workflow/loops.py
++++ b/orchestrator/workflow/loops.py
+@@ -703,8 +703,11 @@ class LoopExecutor:
+         self,
+         block: Any,
+         frame_artifacts: Mapping[str, Any],
++        *,
++        step_name: str,
++        state: Dict[str, Any],
+     ) -> Optional[Dict[str, Any]]:
+-        """Return loop-frame artifacts for an authored on_exhausted policy."""
++        """Return loop-frame artifacts for an on_exhausted policy."""
+         on_exhausted = block.get("on_exhausted") if isinstance(block, Mapping) else None
+         if not isinstance(on_exhausted, Mapping):
+             return None
+@@ -712,7 +715,26 @@ class LoopExecutor:
+         if not isinstance(overrides, Mapping) or not overrides:
+             return None
+         artifacts = dict(frame_artifacts)
+-        artifacts.update(dict(overrides))
++        for name, value in overrides.items():
++            # Newer compiler refs must read the final state snapshot, before the loop step is persisted.
++            if (
++                self.executor._workflow_version_at_least("2.29")
++                and isinstance(value, Mapping)
++                and set(value) == {"ref"}
++                and isinstance(value["ref"], str)
++            ):
++                ref = value["ref"]
++                frame_prefix = f"root.steps.{step_name}.artifacts."
++                if ref.startswith(frame_prefix):
++                    member = ref[len(frame_prefix):]
++                    if member not in frame_artifacts:
++                        raise LoopStateIntegrityError(f"repeat_until exhaustion ref is missing: {ref}")
++                    value = frame_artifacts[member]
++                else:
++                    value, error = self.executor._resolve_ref_value(ref, state)
++                    if error is not None:
++                        raise LoopStateIntegrityError(f"repeat_until exhaustion ref is unresolved: {ref}")
++            artifacts[name] = value
+         return artifacts
+ 
+     def _exhaustion_frame_artifacts(
+@@ -1417,7 +1439,9 @@ class LoopExecutor:
+                     "condition_evaluated_for_iteration": current_iteration,
+                     "last_condition_result": False,
+                 }
+-                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, exhaustion_frame_artifacts)
++                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(
++                    block, exhaustion_frame_artifacts, step_name=step_name, state=state
++                )
+                 if exhausted_artifacts is not None:
+                     progress["exhausted"] = True
+                     completed = self.executor._attach_outcome(
+diff --git a/orchestrator/workflow_lisp/lowering/control_loops.py b/orchestrator/workflow_lisp/lowering/control_loops.py
+index f8286f4..81c5ba1 100644
+--- a/orchestrator/workflow_lisp/lowering/control_loops.py
++++ b/orchestrator/workflow_lisp/lowering/control_loops.py
+@@ -2390,7 +2390,9 @@ def _exhausted_inactive_placeholder_values(
+             projection,
+             allow_missing_target_fields=_loop_result_optional_relpath_fields(projection),
+         )
++        # Inactive relpaths already live in the loop frame and cannot be exhaustion overrides.
+         if value["contract"].get("kind") != "scalar"
++        and value["contract"].get("type") != "relpath"
+     }
+     required: list[dict[str, Any]] = []
+     for name, activity in projection.nested_union_activity.items():
+diff --git a/tests/test_workflow_lisp_loop_recur.py b/tests/test_workflow_lisp_loop_recur.py
+index 618764b..95035df 100644
+--- a/tests/test_workflow_lisp_loop_recur.py
++++ b/tests/test_workflow_lisp_loop_recur.py
+@@ -14,6 +14,8 @@ from orchestrator.workflow.executable_ir import (
+     workflow_executable_ir_to_json,
+ )
+ from orchestrator.workflow.executor import WorkflowExecutor
++from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
++from orchestrator.workflow.signatures import bind_workflow_inputs
+ from orchestrator.workflow.runtime_step import RuntimeStep
+ from orchestrator.workflow_lisp import build_artifacts
+ from orchestrator.workflow_lisp.compiler import (
+@@ -34,6 +36,7 @@ from orchestrator.workflow.validation import (
+     WorkflowMappingValidationOptions,
+     _WorkflowMappingValidator,
+ )
++from tests.workflow_bundle_helpers import bundle_context_dict
+ 
+ 
+ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+@@ -1810,3 +1813,69 @@ def test_loop_recur_exhaustion_projection_relaxes_variant_relpath_at_result_boun
+         "ref": "root.steps.loop-recur-exhaustion-missing-projection__loop.artifacts.result__last_report"
+     }
+     assert authored["outputs"]["return__last_report"]["must_exist_target"] is False
++
++
++@pytest.mark.parametrize("target_dsl", ["2.28", "2.29", "2.30", "2.31", "2.32"])
++@pytest.mark.parametrize("finish", [True, False])
++def test_loop_recur_inactive_result_path_preserves_done_and_exhaustion(
++    tmp_path: Path, target_dsl: str, finish: bool
++) -> None:
++    workflow_path = _write_module(
++        tmp_path / "inactive_result_path.orc",
++        "\n".join(
++            [
++                "(workflow-lisp",
++                '  (:language "0.1")',
++                f'  (:target-dsl "{target_dsl}")',
++                "  (defpath Receipt :kind relpath :under \"artifacts/review\" :must-exist true)",
++                "  (defunion Decision",
++                "    (ACCEPT (receipt Receipt))",
++                "    (EXHAUSTED (attempts Int)))",
++                "  (defworkflow decide ((receipt Receipt) (finish Bool)) -> Decision",
++                "    (loop/recur :max 1 :state (loop-state (round Int 0))",
++                "      :on-exhausted (variant Decision EXHAUSTED :attempts state.round)",
++                "      (fn (state)",
++                "        (if finish",
++                "          (done (variant Decision ACCEPT :receipt receipt))",
++                "          (continue (loop-state :like state :round (+ state.round 1))))))))",
++            ]
++        ),
++    )
++    report = tmp_path / "artifacts/review/receipt.json"
++    report.parent.mkdir(parents=True)
++    report.write_text("{}", encoding="utf-8")
++    result = _compile(workflow_path, tmp_path=tmp_path, validate_shared=True)
++    bundle = result.validated_bundles["decide"]
++    repeat = next(step for step in result.lowered_workflows[0].authored_mapping["steps"] if "repeat_until" in step)
++    assert "result__receipt" not in repeat["repeat_until"]["on_exhausted"]["outputs"]
++
++    contracts = {
++        name: contract
++        for name, contract in workflow_runtime_input_contracts(bundle).items()
++        if not name.startswith("__write_root__")
++    }
++    manager = StateManager(workspace=tmp_path, run_id=f"decision-{target_dsl}-{finish}")
++    manager.initialize(
++        workflow_path.as_posix(),
++        context=bundle_context_dict(bundle),
++        bound_inputs=bind_workflow_inputs(
++            contracts, {"receipt": "artifacts/review/receipt.json", "finish": finish}, tmp_path
++        ),
++    )
++    state = WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0).execute(on_error="stop")
++    assert state["status"] == "completed", state.get("error")
++    if finish:
++        assert state["workflow_outputs"] == {
++            "return__variant": "ACCEPT",
++            "return__receipt": "artifacts/review/receipt.json",
++        }
++    else:
++        assert state["workflow_outputs"] == {
++            "return__variant": "EXHAUSTED",
++            "return__attempts": 1,
++        }
++        loop_value = state["steps"]["decide__loop"]["artifacts"]["result__attempts"]
++        if target_dsl == "2.28":
++            assert loop_value == {"ref": "root.steps.decide__loop.artifacts.state__round"}
++        else:
++            assert loop_value == 1

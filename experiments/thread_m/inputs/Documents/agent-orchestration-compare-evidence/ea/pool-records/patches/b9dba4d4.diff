@@ -1,0 +1,191 @@
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index 999488b..66234e2 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -14896,6 +14896,7 @@ class WorkflowExecutor:
+                 )
+             try:
+                 raw_value = self._resolve_runtime_value(source, state, scope=scope)
++                raw_value = self._follow_loop_exhaustion_ref(raw_value, state, scope=scope)
+             except (PredicateEvaluationError, ReferenceResolutionError) as exc:
+                 return self._contract_violation_result(
+                     failure_message,
+@@ -14926,6 +14927,31 @@ class WorkflowExecutor:
+                 )
+         return artifacts
+ 
++    def _follow_loop_exhaustion_ref(
++        self,
++        value: Any,
++        state: Dict[str, Any],
++        *,
++        scope: Optional[Dict[str, Dict[str, Any]]] = None,
++    ) -> Any:
++        """Dereference a compiler-emitted loop-frame ref stored by repeat_until on_exhausted.
++
++        Exhaustion overrides persist as ``{"ref": "root.steps...."}`` in the
++        loop frame; the value they name is validated against the output
++        contract as usual.
++        """
++        if not (
++            isinstance(value, dict)
++            and set(value) == {"ref"}
++            and isinstance(value["ref"], str)
++            and value["ref"].startswith("root.steps.")
++        ):
++            return value
++        resolved, error = self._resolve_ref_value(value["ref"], state, scope=scope)
++        if error is not None:
++            raise ReferenceResolutionError(f"Loop exhaustion ref '{value['ref']}' is unresolved")
++        return resolved
++
+     def _resolve_structured_output_discriminants(
+         self,
+         outputs: Mapping[str, Any],
+diff --git a/orchestrator/workflow/validation.py b/orchestrator/workflow/validation.py
+index 42661f2..7015d28 100644
+--- a/orchestrator/workflow/validation.py
++++ b/orchestrator/workflow/validation.py
+@@ -2792,16 +2792,16 @@ class _WorkflowMappingValidator:
+                 continue
+ 
+             spec = output_specs[output_name]
+-            output_type = spec.get('type')
+-            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
+-                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
+-                continue
+             if self._is_generated_repeat_until_on_exhausted_ref(
+                 value,
+                 step_name=step_name,
+                 output_name=output_name,
+             ):
+                 continue
++            output_type = spec.get('type')
++            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
++                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
++                continue
+             if isinstance(value, (dict, list)):
+                 self._add_error(f"{value_context} must be a scalar literal")
+                 continue
+diff --git a/tests/test_workflow_lisp_loop_result_paths.py b/tests/test_workflow_lisp_loop_result_paths.py
+new file mode 100644
+index 0000000..1bf7e03
+--- /dev/null
++++ b/tests/test_workflow_lisp_loop_result_paths.py
+@@ -0,0 +1,116 @@
++"""A loop/recur union result with a path field in a non-exhausted variant.
++
++The program must compile and behave identically at every target from 2.28
++through 2.32, including on exhaustion, where the path field belongs to an
++inactive variant.
++"""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import patch
++
++import pytest
++
++from orchestrator.providers.executor import ProviderExecutor
++from orchestrator.state import StateManager
++from orchestrator.workflow.executor import WorkflowExecutor
++from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
++from orchestrator.workflow.signatures import bind_workflow_inputs
++from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
++from tests.workflow_bundle_helpers import bundle_context_dict
++
++SOURCE = """
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "{target}")
++  (defmodule loopres)
++  (export run)
++  (defpath Report :kind relpath :under "artifacts/review" :must-exist true)
++  (defunion Review
++    (APPROVE (report Report))
++    (REVISE (note String))
++    (HUMAN (question String)))
++  (defunion Outcome
++    (READY (report Report) (rounds Int))
++    (ESCALATED (question String))
++    (UNRESOLVED (rounds Int)))
++  (defprompt review-prompt (:fills (task :text)) -> Review "Review {{task}}")
++  (defworkflow run ((task String)) -> Outcome
++    (loop/recur :max 2
++      :state (loop-state (round Int 1))
++      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++      (fn (state)
++        (let* ((review (provider-result providers.reviewer
++                         :prompt (review-prompt :task task))))
++          (match review
++            ((APPROVE a)
++             (done (variant Outcome READY :report a.report :rounds state.round)))
++            ((REVISE r)
++             (continue (loop-state :like state :round (+ state.round 1))))
++            ((HUMAN h)
++             (done (variant Outcome ESCALATED :question h.question)))))))))
++"""
++
++REVIEWS = {
++    "exhausted": [{"variant": "REVISE", "note": "again"}] * 2,
++    "approved": [{"variant": "APPROVE", "report": "artifacts/review/r.md"}],
++    "escalated": [{"variant": "HUMAN", "question": "q?"}],
++}
++
++
++def _run(workspace: Path, target: str, reviews: list[dict]) -> dict:
++    module = workspace / "loopres.orc"
++    module.write_text(SOURCE.format(target=target), encoding="utf-8")
++    (workspace / "artifacts" / "review").mkdir(parents=True, exist_ok=True)
++    (workspace / "artifacts" / "review" / "r.md").write_text("ok", encoding="utf-8")
++    result = compile_stage3_entrypoint(
++        module,
++        source_roots=(workspace,),
++        provider_externs={"providers.reviewer": "claude"},
++        validate_shared=True,
++        workspace_root=workspace,
++    )
++    bundle = next(iter(result.validated_bundles_by_name.values()))
++    contracts = {
++        name: contract
++        for name, contract in workflow_runtime_input_contracts(bundle).items()
++        if not name.startswith("__write_root__")
++    }
++    state_manager = StateManager(workspace=workspace, run_id=f"run-{target}")
++    state_manager.initialize(
++        module.as_posix(),
++        context=bundle_context_dict(bundle),
++        bound_inputs=bind_workflow_inputs(contracts, {"task": "t"}, workspace),
++    )
++    queue = list(reviews)
++
++    def _execute(_self, invocation, **_kwargs):
++        path = workspace / invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]
++        path.parent.mkdir(parents=True, exist_ok=True)
++        path.write_text(json.dumps(queue.pop(0)), encoding="utf-8")
++        return SimpleNamespace(
++            exit_code=0, stdout=b"", stderr=b"", duration_ms=1, error=None,
++            missing_placeholders=None, invalid_prompt_placeholder=False,
++            raw_stdout=None, normalized_stdout=None, provider_session=None,
++        )
++
++    with patch.object(ProviderExecutor, "execute", _execute):
++        state = WorkflowExecutor(bundle, workspace, state_manager, retry_delay_ms=0).execute(
++            on_error="stop"
++        )
++    assert state["status"] == "completed", json.dumps(state["steps"], default=str)[:12000]
++    return state["workflow_outputs"]
++
++
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.30", "2.31", "2.32"])
++@pytest.mark.parametrize("scenario", sorted(REVIEWS))
++def test_loop_union_result_with_path_field_matches_target_228(
++    tmp_path: Path, target: str, scenario: str
++) -> None:
++    (tmp_path / "base").mkdir()
++    (tmp_path / "t").mkdir()
++    baseline = _run(tmp_path / "base", "2.28", REVIEWS[scenario])
++    assert _run(tmp_path / "t", target, REVIEWS[scenario]) == baseline

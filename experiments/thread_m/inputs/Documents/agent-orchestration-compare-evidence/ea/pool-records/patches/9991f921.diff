@@ -1,0 +1,140 @@
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index 999488b..58c2df8 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -14907,6 +14907,27 @@ class WorkflowExecutor:
+                         "error": str(exc),
+                     },
+                 )
++            if (
++                self._workflow_version_at_least("2.29")
++                and isinstance(validation_spec, Mapping)
++                and validation_spec.get("type")
++                in {"string", "integer", "float", "bool", "enum", "relpath"}
++                and isinstance(raw_value, dict)
++                and set(raw_value) == {"ref"}
++                and isinstance(raw_value["ref"], str)
++            ):
++                raw_value, resolve_error = self._resolve_ref_value(raw_value["ref"], state, scope=scope)
++                if resolve_error is not None:
++                    return self._contract_violation_result(
++                        failure_message,
++                        {
++                            "reason": "unresolved_output_ref",
++                            "output": output_name,
++                            selection_key: selection_value,
++                            "ref": self._json_safe_runtime_value(source),
++                            "error": resolve_error,
++                        },
++                    )
+             try:
+                 artifacts[output_name] = validate_contract_value(
+                     raw_value,
+diff --git a/orchestrator/workflow_lisp/lowering/control_loops.py b/orchestrator/workflow_lisp/lowering/control_loops.py
+index f8286f4..cdcc2e0 100644
+--- a/orchestrator/workflow_lisp/lowering/control_loops.py
++++ b/orchestrator/workflow_lisp/lowering/control_loops.py
+@@ -2390,7 +2390,8 @@ def _exhausted_inactive_placeholder_values(
+             projection,
+             allow_missing_target_fields=_loop_result_optional_relpath_fields(projection),
+         )
+-        if value["contract"].get("kind") != "scalar"
++        # Continue frames already hold typed relpath placeholders for inactive arms.
++        if value["contract"].get("kind") not in {"scalar", "relpath"}
+     }
+     required: list[dict[str, Any]] = []
+     for name, activity in projection.nested_union_activity.items():
+diff --git a/tests/test_workflow_lisp_loop_recur.py b/tests/test_workflow_lisp_loop_recur.py
+index 618764b..574927e 100644
+--- a/tests/test_workflow_lisp_loop_recur.py
++++ b/tests/test_workflow_lisp_loop_recur.py
+@@ -14,7 +14,9 @@ from orchestrator.workflow.executable_ir import (
+     workflow_executable_ir_to_json,
+ )
+ from orchestrator.workflow.executor import WorkflowExecutor
++from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
+ from orchestrator.workflow.runtime_step import RuntimeStep
++from orchestrator.workflow.signatures import bind_workflow_inputs
+ from orchestrator.workflow_lisp import build_artifacts
+ from orchestrator.workflow_lisp.compiler import (
+     compile_stage1_module,
+@@ -34,6 +36,7 @@ from orchestrator.workflow.validation import (
+     WorkflowMappingValidationOptions,
+     _WorkflowMappingValidator,
+ )
++from tests.workflow_bundle_helpers import bundle_context_dict
+ 
+ 
+ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+@@ -425,6 +428,71 @@ def test_typecheck_loop_recur_rich_list_target_228_reports_descriptor_blocker(
+     _assert_diagnostic_code(excinfo, "list_collection_contract_unsupported")
+ 
+ 
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.30", "2.31", "2.32"])
++@pytest.mark.parametrize(
++    ("terminal", "expected"),
++    [
++        (
++            "(done (variant Outcome READY :report report_path))",
++            {"return__variant": "READY", "return__report": "artifacts/review/report.md"},
++        ),
++        (
++            '(done (variant Outcome ESCALATED :question "ask"))',
++            {"return__variant": "ESCALATED", "return__question": "ask"},
++        ),
++        (
++            "(if (< state.round 0) (done (variant Outcome READY :report report_path)) (continue state))",
++            {"return__variant": "UNRESOLVED", "return__rounds": 1},
++        ),
++    ],
++)
++def test_loop_union_result_inactive_path_matches_target_228(
++    tmp_path: Path, target: str, terminal: str, expected: dict[str, object]
++) -> None:
++    source = _write_module(
++        tmp_path / "inactive_path.orc",
++        f'''(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "{target}")
++  (defpath ReviewReport :kind relpath :under "artifacts/review" :must-exist true)
++  (defunion Outcome
++    (READY (report ReviewReport))
++    (ESCALATED (question String))
++    (UNRESOLVED (rounds Int)))
++  (defworkflow choose ((report_path ReviewReport)) -> Outcome
++    (loop/recur :max 1 :state (loop-state (round Int 1))
++      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++      (fn (state) {terminal}))))
++''',
++    )
++    report = tmp_path / "artifacts/review/report.md"
++    report.parent.mkdir(parents=True)
++    report.write_text("review", encoding="utf-8")
++    result = _compile(source, tmp_path=tmp_path, validate_shared=True)
++    bundle = result.validated_bundles["choose"]
++    contracts = {
++        name: contract
++        for name, contract in workflow_runtime_input_contracts(bundle).items()
++        if not name.startswith("__write_root__")
++    }
++    bound_inputs = bind_workflow_inputs(
++        contracts, {"report_path": "artifacts/review/report.md"}, tmp_path
++    )
++    manager = StateManager(
++        workspace=tmp_path, run_id=f"inactive-path-{target}-{expected['return__variant']}"
++    )
++    manager.initialize(
++        source.as_posix(), context=bundle_context_dict(bundle), bound_inputs=bound_inputs
++    )
++    state = WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0).execute(on_error="stop")
++
++    assert state["status"] == "completed", (
++        state.get("error"),
++        {name: (step.get("status"), step.get("error")) for name, step in state["steps"].items()},
++    )
++    assert state["workflow_outputs"] == expected
++
++
+ def test_lowering_loop_recur_supports_union_return_fixture(tmp_path: Path) -> None:
+     result = _compile(VALID_UNION_FIXTURE, tmp_path=tmp_path)
+ 

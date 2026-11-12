@@ -1,0 +1,184 @@
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index 999488b..3ad5658 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -1723,10 +1723,30 @@ class WorkflowExecutor:
+                 raise ReferenceResolutionError(
+                     f"Bound step output '{address.node_id}.artifacts.{output_name}' is unavailable"
+                 )
+-            return artifacts[output_name]
++            value = artifacts[output_name]
++            if isinstance(address, LoopOutputAddress) and self._is_exhaustion_override_ref(
++                address, value
++            ):
++                value, error = self._resolve_ref_value(value["ref"], state, scope=scope)
++                if error is not None:
++                    raise ReferenceResolutionError(str(error))
++            return value
+ 
+         raise ReferenceResolutionError(f"Unsupported bound address type '{type(address).__name__}'")
+ 
++    def _is_exhaustion_override_ref(self, address: LoopOutputAddress, value: Any) -> bool:
++        """True when `value` is the compiler-authored on_exhausted ref for this loop output."""
++        node = self.executable_ir.nodes.get(address.node_id)
++        if not isinstance(node, RepeatUntilFrameNode):
++            return False
++        override = node.on_exhausted_outputs.get(address.output_name)
++        return (
++            isinstance(value, dict)
++            and set(value) == {"ref"}
++            and isinstance(override, Mapping)
++            and dict(override) == value
++        )
++
+     def _resolve_runtime_value(
+         self,
+         value: Any,
+diff --git a/orchestrator/workflow/validation.py b/orchestrator/workflow/validation.py
+index 42661f2..ebed13e 100644
+--- a/orchestrator/workflow/validation.py
++++ b/orchestrator/workflow/validation.py
+@@ -2793,15 +2793,15 @@ class _WorkflowMappingValidator:
+ 
+             spec = output_specs[output_name]
+             output_type = spec.get('type')
+-            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
+-                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
+-                continue
+             if self._is_generated_repeat_until_on_exhausted_ref(
+                 value,
+                 step_name=step_name,
+                 output_name=output_name,
+             ):
+                 continue
++            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
++                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
++                continue
+             if isinstance(value, (dict, list)):
+                 self._add_error(f"{value_context} must be a scalar literal")
+                 continue
+diff --git a/tests/fixtures/workflow_lisp/valid/loop_recur_on_exhausted_union_path_variant.orc b/tests/fixtures/workflow_lisp/valid/loop_recur_on_exhausted_union_path_variant.orc
+new file mode 100644
+index 0000000..6c3619b
+--- /dev/null
++++ b/tests/fixtures/workflow_lisp/valid/loop_recur_on_exhausted_union_path_variant.orc
+@@ -0,0 +1,21 @@
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "2.32")
++  (defpath Report
++    :kind relpath
++    :under "artifacts/review"
++    :must-exist true)
++  (defunion Outcome
++    (READY (report Report) (rounds Int))
++    (UNRESOLVED (rounds Int)))
++  (defworkflow loop-recur-on-exhausted-union-path-variant
++    ((report_path Report))
++    -> Outcome
++    (loop/recur
++      :max 2
++      :state (loop-state (round Int 1))
++      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++      (fn (state)
++        (if (= state.round 99)
++            (done (variant Outcome READY :report report_path :rounds state.round))
++            (continue (loop-state :like state :round (+ state.round 1))))))))
+diff --git a/tests/test_loader_validation.py b/tests/test_loader_validation.py
+index daf842a..910e508 100644
+--- a/tests/test_loader_validation.py
++++ b/tests/test_loader_validation.py
+@@ -2192,6 +2192,49 @@ class TestLoaderValidation:
+             for err in exc_info.value.errors
+         )
+ 
++    def test_repeat_until_on_exhausted_rejects_authored_ref_relpath_output_override(self):
++        """on_exhausted currently supports scalar loop outputs only."""
++        workflow = self._repeat_until_on_exhausted_workflow()
++        workflow["steps"][0]["repeat_until"]["outputs"]["report_path"] = {
++            "kind": "relpath",
++            "type": "relpath",
++            "from": {
++                "ref": "self.steps.WriteReport.artifacts.report_path",
++            },
++        }
++        workflow["steps"][0]["repeat_until"]["on_exhausted"]["outputs"]["report_path"] = {
++            "ref": "root.steps.ExhaustedPlaceholders.artifacts.report_path"
++        }
++        workflow["steps"][0]["repeat_until"]["steps"].append(
++            {
++                "name": "WriteReport",
++                "id": "write_report",
++                "command": [
++                    "bash",
++                    "-lc",
++                    "mkdir -p state && printf 'state/report.md\\n' > state/report_path.txt && printf report > state/report.md",
++                ],
++                "expected_outputs": [
++                    {
++                        "name": "report_path",
++                        "path": "state/report_path.txt",
++                        "type": "relpath",
++                        "must_exist_target": True,
++                    }
++                ],
++            }
++        )
++        path = self.write_workflow(workflow)
++
++        with pytest.raises(WorkflowValidationError) as exc_info:
++            self.loader.load(path)
++
++        assert any(
++            "repeat_until.on_exhausted.outputs.report_path may only override scalar repeat_until outputs"
++            in str(err.message)
++            for err in exc_info.value.errors
++        )
++
+     def test_repeat_until_on_exhausted_must_be_mapping(self):
+         """repeat_until.on_exhausted must be an object when present."""
+         workflow = self._repeat_until_on_exhausted_workflow(on_exhausted="ESCALATE")
+diff --git a/tests/test_workflow_lisp_loop_recur.py b/tests/test_workflow_lisp_loop_recur.py
+index 618764b..999776a 100644
+--- a/tests/test_workflow_lisp_loop_recur.py
++++ b/tests/test_workflow_lisp_loop_recur.py
+@@ -44,6 +44,9 @@ VALID_ON_EXHAUSTED_UNION_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted
+ VALID_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE = (
+     FIXTURES / "valid" / "loop_recur_on_exhausted_scalar_frame_carriage.orc"
+ )
++VALID_ON_EXHAUSTED_UNION_PATH_VARIANT_FIXTURE = (
++    FIXTURES / "valid" / "loop_recur_on_exhausted_union_path_variant.orc"
++)
+ INVALID_MISSING_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_missing_done.orc"
+ INVALID_CONTINUE_FIXTURE = FIXTURES / "invalid" / "loop_recur_continue_type_mismatch.orc"
+ INVALID_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_done_type_mismatch.orc"
+@@ -499,6 +502,29 @@ def test_loop_recur_on_exhausted_scalar_frame_carriage_executes_through_shared_r
+     }
+ 
+ 
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.32"])
++def test_loop_recur_on_exhausted_union_path_in_inactive_variant_executes(
++    tmp_path: Path, target: str
++) -> None:
++    source = VALID_ON_EXHAUSTED_UNION_PATH_VARIANT_FIXTURE.read_text().replace(
++        '(:target-dsl "2.32")', f'(:target-dsl "{target}")'
++    )
++    workflow_path = tmp_path / "loop_recur_on_exhausted_union_path_variant.orc"
++    workflow_path.write_text(source)
++    name = "loop-recur-on-exhausted-union-path-variant"
++
++    result = _compile(workflow_path, tmp_path=tmp_path, validate_shared=True)
++    state_manager = StateManager(workspace=tmp_path, run_id=name)
++    state_manager.initialize(workflow_path.as_posix())
++    state = WorkflowExecutor(
++        result.validated_bundles[name], tmp_path, state_manager, retry_delay_ms=0
++    ).execute(on_error="stop")
++
++    assert state["status"] == "completed", state.get("error")
++    assert state["workflow_outputs"]["return__variant"] == "UNRESOLVED"
++    assert state["workflow_outputs"]["return__rounds"] == 2
++
++
+ def test_lowering_loop_recur_supports_literal_initial_state(tmp_path: Path) -> None:
+     workflow_path = _write_module(
+         tmp_path / "loop_recur_literal_state.orc",

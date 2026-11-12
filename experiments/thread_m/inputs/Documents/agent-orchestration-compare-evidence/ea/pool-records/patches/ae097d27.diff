@@ -1,0 +1,260 @@
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index 999488b..bb0fe38 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -12496,6 +12496,7 @@ class WorkflowExecutor:
+         state: Dict[str, Any],
+         *,
+         scope: Optional[Dict[str, Dict[str, Any]]] = None,
++        follow_refs: bool = True,
+     ) -> tuple[Any, Optional[Dict[str, Any]]]:
+         seen_refs: set[str] = set()
+         current_ref = ref
+@@ -12595,6 +12596,8 @@ class WorkflowExecutor:
+             value, error = _resolve_once(current_ref)
+             if error is not None:
+                 return None, error
++            if not follow_refs:
++                return value, None
+             if isinstance(value, dict) and set(value) == {"ref"} and isinstance(value.get("ref"), str):
+                 current_ref = value["ref"]
+                 continue
+diff --git a/orchestrator/workflow/executor_runtime.py b/orchestrator/workflow/executor_runtime.py
+index 8732bc1..2411958 100644
+--- a/orchestrator/workflow/executor_runtime.py
++++ b/orchestrator/workflow/executor_runtime.py
+@@ -224,6 +224,15 @@ class LoopRuntime(Protocol):
+         step: RuntimeStepInput,
+     ) -> Mapping[str, Any]: ...
+ 
++    def _resolve_ref_value(
++        self,
++        ref: str,
++        state: Dict[str, Any],
++        *,
++        scope: Optional[Dict[str, Dict[str, Any]]] = None,
++        follow_refs: bool = True,
++    ) -> tuple[Any, Optional[Dict[str, Any]]]: ...
++
+     def _resolve_structured_output_artifacts(
+         self,
+         outputs: Mapping[str, Any],
+diff --git a/orchestrator/workflow/loops.py b/orchestrator/workflow/loops.py
+index 66300d2..2ad003a 100644
+--- a/orchestrator/workflow/loops.py
++++ b/orchestrator/workflow/loops.py
+@@ -703,17 +703,32 @@ class LoopExecutor:
+         self,
+         block: Any,
+         frame_artifacts: Mapping[str, Any],
+-    ) -> Optional[Dict[str, Any]]:
+-        """Return loop-frame artifacts for an authored on_exhausted policy."""
++        state: Dict[str, Any],
++    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
++        """Return loop-frame artifacts for an on_exhausted policy."""
+         on_exhausted = block.get("on_exhausted") if isinstance(block, Mapping) else None
+         if not isinstance(on_exhausted, Mapping):
+-            return None
++            return None, None
+         overrides = on_exhausted.get("outputs")
+         if not isinstance(overrides, Mapping) or not overrides:
+-            return None
++            return None, None
+         artifacts = dict(frame_artifacts)
+         artifacts.update(dict(overrides))
+-        return artifacts
++        if tuple(int(part) for part in self.executor.executable_ir.version.split(".")) >= (2, 29):
++            # Rich-loop compiler refs must become values before typed result joins.
++            for name, value in overrides.items():
++                if (
++                    isinstance(value, Mapping)
++                    and set(value) == {"ref"}
++                    and isinstance(value["ref"], str)
++                ):
++                    resolved, error = self.executor._resolve_ref_value(
++                        value["ref"], state, follow_refs=False
++                    )
++                    if error is not None:
++                        return None, error.get("error") or error
++                    artifacts[name] = resolved
++        return artifacts, None
+ 
+     def _exhaustion_frame_artifacts(
+         self,
+@@ -1417,7 +1432,29 @@ class LoopExecutor:
+                     "condition_evaluated_for_iteration": current_iteration,
+                     "last_condition_result": False,
+                 }
+-                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, exhaustion_frame_artifacts)
++                exhausted_artifacts, resolution_error = self.repeat_until_exhaustion_artifacts(
++                    block, exhaustion_frame_artifacts, state
++                )
++                if resolution_error is not None:
++                    failure = self.executor._attach_outcome(
++                        step,
++                        self.build_repeat_until_frame_result(
++                            step,
++                            status="failed",
++                            exit_code=2,
++                            artifacts=exhaustion_frame_artifacts,
++                            progress=progress,
++                            error=resolution_error,
++                        ),
++                        phase_hint="post_execution",
++                        class_hint="contract_violation",
++                        retryable_hint=False,
++                    )
++                    self.persist_repeat_until_progress(
++                        state, step, frame_key, progress, failure,
++                        emit_checkpoint_shadow=emit_checkpoint_shadow,
++                    )
++                    return state
+                 if exhausted_artifacts is not None:
+                     progress["exhausted"] = True
+                     completed = self.executor._attach_outcome(
+diff --git a/orchestrator/workflow/validation.py b/orchestrator/workflow/validation.py
+index 42661f2..3fdf056 100644
+--- a/orchestrator/workflow/validation.py
++++ b/orchestrator/workflow/validation.py
+@@ -2793,15 +2793,22 @@ class _WorkflowMappingValidator:
+ 
+             spec = output_specs[output_name]
+             output_type = spec.get('type')
+-            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
+-                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
+-                continue
+-            if self._is_generated_repeat_until_on_exhausted_ref(
+-                value,
+-                step_name=step_name,
+-                output_name=output_name,
++            is_relpath = (
++                output_type == 'relpath'
++                or spec.get('kind', 'scalar') == 'relpath'
++            )
++            if (
++                (not is_relpath or self._version_at_least(self._workflow_version, '2.29'))
++                and self._is_generated_repeat_until_on_exhausted_ref(
++                    value,
++                    step_name=step_name,
++                    output_name=output_name,
++                )
+             ):
+                 continue
++            if is_relpath:
++                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
++                continue
+             if isinstance(value, (dict, list)):
+                 self._add_error(f"{value_context} must be a scalar literal")
+                 continue
+diff --git a/tests/test_loader_validation.py b/tests/test_loader_validation.py
+index daf842a..614d9a0 100644
+--- a/tests/test_loader_validation.py
++++ b/tests/test_loader_validation.py
+@@ -2151,9 +2151,12 @@ class TestLoaderValidation:
+             for err in exc_info.value.errors
+         )
+ 
+-    def test_repeat_until_on_exhausted_rejects_relpath_output_override(self):
++    @pytest.mark.parametrize("override", ("state/report.txt", {"ref": "self.outputs.report_path"}))
++    @pytest.mark.parametrize("version", ("2.12", "2.28", "2.29", "2.32"))
++    def test_repeat_until_on_exhausted_rejects_relpath_output_override(self, override, version):
+         """on_exhausted currently supports scalar loop outputs only."""
+         workflow = self._repeat_until_on_exhausted_workflow()
++        workflow["version"] = version
+         workflow["steps"][0]["repeat_until"]["outputs"]["report_path"] = {
+             "kind": "relpath",
+             "type": "relpath",
+@@ -2161,7 +2164,7 @@ class TestLoaderValidation:
+                 "ref": "self.steps.WriteReport.artifacts.report_path",
+             },
+         }
+-        workflow["steps"][0]["repeat_until"]["on_exhausted"]["outputs"]["report_path"] = "state/report.txt"
++        workflow["steps"][0]["repeat_until"]["on_exhausted"]["outputs"]["report_path"] = override
+         workflow["steps"][0]["repeat_until"]["steps"].append(
+             {
+                 "name": "WriteReport",
+diff --git a/tests/test_workflow_lisp_loop_recur.py b/tests/test_workflow_lisp_loop_recur.py
+index 618764b..108033a 100644
+--- a/tests/test_workflow_lisp_loop_recur.py
++++ b/tests/test_workflow_lisp_loop_recur.py
+@@ -14,7 +14,9 @@ from orchestrator.workflow.executable_ir import (
+     workflow_executable_ir_to_json,
+ )
+ from orchestrator.workflow.executor import WorkflowExecutor
++from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
+ from orchestrator.workflow.runtime_step import RuntimeStep
++from orchestrator.workflow.signatures import bind_workflow_inputs
+ from orchestrator.workflow_lisp import build_artifacts
+ from orchestrator.workflow_lisp.compiler import (
+     compile_stage1_module,
+@@ -34,6 +36,7 @@ from orchestrator.workflow.validation import (
+     WorkflowMappingValidationOptions,
+     _WorkflowMappingValidator,
+ )
++from tests.workflow_bundle_helpers import bundle_context_dict
+ 
+ 
+ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+@@ -1810,3 +1813,62 @@ def test_loop_recur_exhaustion_projection_relaxes_variant_relpath_at_result_boun
+         "ref": "root.steps.loop-recur-exhaustion-missing-projection__loop.artifacts.result__last_report"
+     }
+     assert authored["outputs"]["return__last_report"]["must_exist_target"] is False
++
++
++@pytest.mark.parametrize("target", ("2.28", "2.29", "2.30", "2.31", "2.32"))
++@pytest.mark.parametrize("finish", (False, True))
++def test_loop_recur_union_path_result_executes_or_exhausts(
++    tmp_path: Path, target: str, finish: bool
++) -> None:
++    workflow_path = _write_module(
++        tmp_path / "evidence_loop.orc",
++        "\n".join(
++            [
++                "(workflow-lisp",
++                '  (:language "0.1")',
++                f'  (:target-dsl "{target}")',
++                "  (defmodule evidence_loop)",
++                "  (export decide)",
++                '  (defpath Evidence :kind relpath :under "artifacts/evidence" :must-exist true)',
++                "  (defunion Decision",
++                "    (FOUND (evidence Evidence))",
++                "    (TIMED_OUT (attempts Int)))",
++                "  (defworkflow decide ((evidence Evidence) (finish Bool)) -> Decision",
++                "    (loop/recur :max 2 :state (loop-state (attempt Int 0))",
++                "      :on-exhausted (variant Decision TIMED_OUT :attempts state.attempt)",
++                "      (fn (state)",
++                "        (if finish",
++                "          (done (variant Decision FOUND :evidence evidence))",
++                "          (continue (loop-state :like state :attempt (+ state.attempt 1))))))))",
++            ]
++        ),
++    )
++    report = tmp_path / "artifacts/evidence/report.md"
++    report.parent.mkdir(parents=True)
++    report.write_text("valid report", encoding="utf-8")
++
++    result = _compile_entrypoint(
++        workflow_path, source_root=tmp_path, tmp_path=tmp_path, validate_shared=True
++    )
++    bundle = result.validated_bundles_by_name["evidence_loop::decide"]
++    contracts = dict(workflow_runtime_input_contracts(bundle))
++    bound_inputs = bind_workflow_inputs(
++        {name: contract for name, contract in contracts.items() if not name.startswith("__write_root__")},
++        {"evidence": "artifacts/evidence/report.md", "finish": finish},
++        tmp_path,
++    )
++    state_manager = StateManager(workspace=tmp_path, run_id=f"evidence-loop-{target}-{finish}")
++    state_manager.initialize(
++        workflow_path.as_posix(),
++        context=bundle_context_dict(bundle),
++        bound_inputs=bound_inputs,
++    )
++
++    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
++
++    assert state["status"] == "completed", state
++    assert state["workflow_outputs"] == (
++        {"return__variant": "FOUND", "return__evidence": "artifacts/evidence/report.md"}
++        if finish
++        else {"return__variant": "TIMED_OUT", "return__attempts": 1 if target == "2.28" else 2}
++    )

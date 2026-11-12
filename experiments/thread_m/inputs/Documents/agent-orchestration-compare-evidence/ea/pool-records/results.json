@@ -1,0 +1,2107 @@
+{
+  "criterion_sha256": "0030e44a3b765de43dafff280f00600f52e7698afb9e002dec4a543da512f7c9",
+  "judges": [
+    "claude-opus-5-5",
+    "gpt-6.1-sol"
+  ],
+  "excluded_judges": {},
+  "runs": [
+    {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-7",
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 5,
+      "wall_clock_sec": 1183.419778585434,
+      "selected": "cand-1",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "cand-1": 4.5,
+        "cand-2": 5.5,
+        "cand-3": 4.5,
+        "cand-4": 4.5
+      },
+      "hidden": {},
+      "value": 4.5,
+      "hidden_value": null,
+      "paired_gain": 0.0,
+      "group_gain": -0.25
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-8",
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 5,
+      "wall_clock_sec": 1323.9610888957977,
+      "selected": "cand-2",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "cand-1": 4,
+        "cand-2": 6.5,
+        "cand-3": 6,
+        "cand-4": 3
+      },
+      "hidden": {},
+      "value": 6.5,
+      "hidden_value": null,
+      "paired_gain": 2.5,
+      "group_gain": 1.625
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-9",
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 1155.9101450443268,
+      "selected": "cand-2",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "cand-1": 3.5,
+        "cand-2": 8,
+        "cand-3": 5.5,
+        "cand-4": 6.5
+      },
+      "hidden": {},
+      "value": 8,
+      "hidden_value": null,
+      "paired_gain": 4.5,
+      "group_gain": 2.125
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-11",
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 5,
+      "wall_clock_sec": 1298.9274382591248,
+      "selected": "cand-3",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "cand-1": 4.5,
+        "cand-2": 7,
+        "cand-3": 3.5,
+        "cand-4": 3.5
+      },
+      "hidden": {},
+      "value": 3.5,
+      "hidden_value": null,
+      "paired_gain": -1.0,
+      "group_gain": -1.125
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-12",
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 5,
+      "wall_clock_sec": 1872.4122819900513,
+      "selected": "cand-4",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "cand-1": 4,
+        "cand-2": 4,
+        "cand-3": 6,
+        "cand-4": 7
+      },
+      "hidden": {},
+      "value": 7,
+      "hidden_value": null,
+      "paired_gain": 3,
+      "group_gain": 1.75
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-13",
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 5,
+      "wall_clock_sec": 1104.743578195572,
+      "selected": "cand-2",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "cand-1": 3,
+        "cand-2": 7,
+        "cand-3": 6.5,
+        "cand-4": 3.5
+      },
+      "hidden": {},
+      "value": 7,
+      "hidden_value": null,
+      "paired_gain": 4,
+      "group_gain": 2.0
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-1",
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 1078.1772723197937,
+      "selected": null,
+      "variant": "UNRESOLVED",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 7,
+        "first": 4.5
+      },
+      "hidden": {},
+      "value": 7,
+      "hidden_value": null,
+      "paired_gain": 2.5
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-1",
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 340.48071694374084,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 6.5
+      },
+      "hidden": {},
+      "value": 6.5,
+      "hidden_value": null
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-2",
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 2,
+      "wall_clock_sec": 381.9873538017273,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "first": 5.5,
+        "final": 5.5
+      },
+      "hidden": {},
+      "value": 5.5,
+      "hidden_value": null,
+      "paired_gain": 0.0
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-2",
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 470.6559228897095,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 7.5
+      },
+      "hidden": {},
+      "value": 7.5,
+      "hidden_value": null
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-3",
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 2,
+      "wall_clock_sec": 356.37315702438354,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "first": 8,
+        "final": 8
+      },
+      "hidden": {},
+      "value": 8,
+      "hidden_value": null,
+      "paired_gain": 0
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-3",
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 409.0337679386139,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 6
+      },
+      "hidden": {},
+      "value": 6,
+      "hidden_value": null
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-4",
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 2,
+      "wall_clock_sec": 553.1834247112274,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 2,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "both hits are the tmux skill's own text (default socket directory) printed while the reviewer read the skill; no socket or other session's file was opened, and /tmp is private in the sandbox",
+        "hits": 2
+      },
+      "excluded": null,
+      "scores": {
+        "first": 3,
+        "final": 3
+      },
+      "hidden": {},
+      "value": 3,
+      "hidden_value": null,
+      "paired_gain": 0
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-4",
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 750.7038559913635,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 4.5
+      },
+      "hidden": {},
+      "value": 4.5,
+      "hidden_value": null
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-5",
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 688.8109610080719,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 7,
+        "first": 5.5
+      },
+      "hidden": {},
+      "value": 7,
+      "hidden_value": null,
+      "paired_gain": 1.5
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-5",
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 516.0338854789734,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 6
+      },
+      "hidden": {},
+      "value": 6,
+      "hidden_value": null
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-6",
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 2,
+      "wall_clock_sec": 1465.5628085136414,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "first": 6.5,
+        "final": 6.5
+      },
+      "hidden": {},
+      "value": 6.5,
+      "hidden_value": null,
+      "paired_gain": 0.0
+    },
+    {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-6",
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 497.1505117416382,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 4
+      },
+      "hidden": {},
+      "value": 4,
+      "hidden_value": null
+    }
+  ],
+  "measures": {
+    "best_of_n.runs": 6,
+    "best_of_n.mean": 6.083333333333333,
+    "best_of_n.calls_mean": 5.166666666666667,
+    "best_of_n.wall_clock_mean": 1323.2290518283844,
+    "best_of_n.paired_gain_mean": 2.1666666666666665,
+    "best_of_n.paired_gain_runs_positive": 4,
+    "best_of_n.paired_gain_runs_negative": 1,
+    "best_of_n.group_gain_mean": 1.0208333333333333,
+    "best_of_n.group_gain_runs_positive": 4,
+    "best_of_n.group_gain_runs_negative": 2,
+    "direct_task.runs": 6,
+    "direct_task.mean": 5.75,
+    "direct_task.calls_mean": 1,
+    "direct_task.wall_clock_mean": 497.34311016400653,
+    "reviewed_change.runs": 6,
+    "reviewed_change.mean": 6.166666666666667,
+    "reviewed_change.calls_mean": 3,
+    "reviewed_change.wall_clock_mean": 754.0158295631409,
+    "reviewed_change.paired_gain_mean": 0.6666666666666666,
+    "reviewed_change.paired_gain_runs_positive": 2,
+    "reviewed_change.paired_gain_runs_negative": 0,
+    "best_of_n.minus_control": 0.33333333333333304,
+    "reviewed_change.minus_control": 0.41666666666666696
+  },
+  "verdict": {
+    "primary": [
+      {
+        "measure": "best_of_n.group_gain_runs_positive",
+        "op": ">=",
+        "value": 5,
+        "observed": 4,
+        "met": false
+      },
+      {
+        "measure": "best_of_n.group_gain_mean",
+        "op": ">=",
+        "value": 0.75,
+        "observed": 1.0208333333333333,
+        "met": true
+      },
+      {
+        "measure": "best_of_n.minus_control",
+        "op": ">=",
+        "value": 0,
+        "observed": 0.33333333333333304,
+        "met": true
+      },
+      {
+        "measure": "reviewed_change.paired_gain_runs_negative",
+        "op": "<=",
+        "value": 0,
+        "observed": 0,
+        "met": true
+      },
+      {
+        "measure": "reviewed_change.paired_gain_mean",
+        "op": ">=",
+        "value": 0.5,
+        "observed": 0.6666666666666666,
+        "met": true
+      },
+      {
+        "measure": "reviewed_change.runs",
+        "op": ">=",
+        "value": 5,
+        "observed": 6,
+        "met": true
+      },
+      {
+        "measure": "direct_task.runs",
+        "op": ">=",
+        "value": 5,
+        "observed": 6,
+        "met": true
+      }
+    ],
+    "secondary": [
+      {
+        "measure": "best_of_n.paired_gain_mean",
+        "op": ">=",
+        "value": 0,
+        "observed": 2.1666666666666665,
+        "met": true
+      }
+    ]
+  },
+  "agreement": {
+    "root_cause": {
+      "agree": 37,
+      "of": 54
+    },
+    "scope": {
+      "agree": 26,
+      "of": 54
+    },
+    "generality": {
+      "agree": 35,
+      "of": 54
+    },
+    "layering": {
+      "agree": 34,
+      "of": 54
+    }
+  },
+  "anchors": [
+    {
+      "batch": 0,
+      "anchor": "silence-relpath-check",
+      "judge": "claude-opus-5-5",
+      "total": 1
+    },
+    {
+      "batch": 0,
+      "anchor": "silence-relpath-check",
+      "judge": "gpt-6.1-sol",
+      "total": 0
+    },
+    {
+      "batch": 0,
+      "anchor": "sonnet-single-call",
+      "judge": "claude-opus-5-5",
+      "total": 5
+    },
+    {
+      "batch": 0,
+      "anchor": "sonnet-single-call",
+      "judge": "gpt-6.1-sol",
+      "total": 3
+    },
+    {
+      "batch": 1,
+      "anchor": "silence-relpath-check",
+      "judge": "claude-opus-5-5",
+      "total": 1
+    },
+    {
+      "batch": 1,
+      "anchor": "silence-relpath-check",
+      "judge": "gpt-6.1-sol",
+      "total": 0
+    },
+    {
+      "batch": 1,
+      "anchor": "sonnet-single-call",
+      "judge": "claude-opus-5-5",
+      "total": 6
+    },
+    {
+      "batch": 1,
+      "anchor": "sonnet-single-call",
+      "judge": "gpt-6.1-sol",
+      "total": 8
+    },
+    {
+      "batch": 2,
+      "anchor": "silence-relpath-check",
+      "judge": "claude-opus-5-5",
+      "total": 1
+    },
+    {
+      "batch": 2,
+      "anchor": "silence-relpath-check",
+      "judge": "gpt-6.1-sol",
+      "total": 1
+    },
+    {
+      "batch": 2,
+      "anchor": "sonnet-single-call",
+      "judge": "claude-opus-5-5",
+      "total": 7
+    },
+    {
+      "batch": 2,
+      "anchor": "sonnet-single-call",
+      "judge": "gpt-6.1-sol",
+      "total": 6
+    },
+    {
+      "batch": 3,
+      "anchor": "silence-relpath-check",
+      "judge": "claude-opus-5-5",
+      "total": 2
+    },
+    {
+      "batch": 3,
+      "anchor": "silence-relpath-check",
+      "judge": "gpt-6.1-sol",
+      "total": 1
+    },
+    {
+      "batch": 3,
+      "anchor": "sonnet-single-call",
+      "judge": "claude-opus-5-5",
+      "total": 8
+    },
+    {
+      "batch": 3,
+      "anchor": "sonnet-single-call",
+      "judge": "gpt-6.1-sol",
+      "total": 6
+    },
+    {
+      "batch": 4,
+      "anchor": "silence-relpath-check",
+      "judge": "claude-opus-5-5",
+      "total": 1
+    },
+    {
+      "batch": 4,
+      "anchor": "silence-relpath-check",
+      "judge": "gpt-6.1-sol",
+      "total": 0
+    },
+    {
+      "batch": 4,
+      "anchor": "sonnet-single-call",
+      "judge": "claude-opus-5-5",
+      "total": 5
+    },
+    {
+      "batch": 4,
+      "anchor": "sonnet-single-call",
+      "judge": "gpt-6.1-sol",
+      "total": 8
+    },
+    {
+      "batch": 5,
+      "anchor": "silence-relpath-check",
+      "judge": "claude-opus-5-5",
+      "total": 1
+    },
+    {
+      "batch": 5,
+      "anchor": "silence-relpath-check",
+      "judge": "gpt-6.1-sol",
+      "total": 0
+    },
+    {
+      "batch": 5,
+      "anchor": "sonnet-single-call",
+      "judge": "claude-opus-5-5",
+      "total": 7
+    },
+    {
+      "batch": 5,
+      "anchor": "sonnet-single-call",
+      "judge": "gpt-6.1-sol",
+      "total": 6
+    },
+    {
+      "batch": 6,
+      "anchor": "silence-relpath-check",
+      "judge": "claude-opus-5-5",
+      "total": 0
+    },
+    {
+      "batch": 6,
+      "anchor": "silence-relpath-check",
+      "judge": "gpt-6.1-sol",
+      "total": 0
+    },
+    {
+      "batch": 6,
+      "anchor": "sonnet-single-call",
+      "judge": "claude-opus-5-5",
+      "total": 5
+    },
+    {
+      "batch": 6,
+      "anchor": "sonnet-single-call",
+      "judge": "gpt-6.1-sol",
+      "total": 1
+    },
+    {
+      "batch": 7,
+      "anchor": "silence-relpath-check",
+      "judge": "claude-opus-5-5",
+      "total": 1
+    },
+    {
+      "batch": 7,
+      "anchor": "silence-relpath-check",
+      "judge": "gpt-6.1-sol",
+      "total": 0
+    },
+    {
+      "batch": 7,
+      "anchor": "sonnet-single-call",
+      "judge": "claude-opus-5-5",
+      "total": 8
+    },
+    {
+      "batch": 7,
+      "anchor": "sonnet-single-call",
+      "judge": "gpt-6.1-sol",
+      "total": 8
+    }
+  ],
+  "clones": {
+    "00296692": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-7",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Instead of the compiler stopping its relpath override, the validator is reordered so compiler-generated refs skip the 'only scalar outputs' rule for relpath outputs. That relaxes the guard (authored literals are still rejected) and differs from 2.28, which uses the frame placeholder. The runtime fix is tight: it dereferences only values equal to the node's declared on_exhausted override, reuses _resolve_ref_value, and fails loudly."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Like 43c7c82d, it retains redundant compiler-emitted path overrides and weakens the path prohibition by checking the generated-reference exemption first. Its IR-matched override check is narrower and reuses existing resolution, but remains unversioned, changes older-target exhaustion reads, and recursively interprets ref-shaped map payloads as references."
+        }
+      }
+    },
+    "367a5e03": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-7",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": [],
+      "score": 5.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "The compiler stops emitting the relpath override, so the validator stays as it was, and loop-output reads follow on_exhausted refs through the existing _resolve_ref_value. However, the read-time dereference fires for any {\"ref\"} dict on any LoopOutputAddress, not just declared overrides, and the unused relpath placeholder is still materialized because the filter sits in _loop_on_exhausted_outputs and not in _exhausted_inactive_placeholder_values."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 0,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Corrects inactive path emission and reuses the existing reference resolver for both frame and sibling-step exhaustion values. However, the unversioned LoopOutputAddress change interprets every single-key ref dictionary as an instruction, so legitimate map payloads can fail or change value during normal completion, including at earlier targets."
+        }
+      }
+    },
+    "a88501d0": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-7",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Same correct compiler filter as 25dff791, and the runtime change is gated to 2.29+. But exhaustion refs are resolved by a custom string parser of root.steps.*.artifacts.* refs instead of the existing _resolve_ref_value, and any other ref is left unresolved without an error."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 0,
+          "generality": 1,
+          "layering": 0,
+          "reason": "Corrects inactive path emission and resolves both frame and sibling-step overrides, but its exhaustion-time scan also rewrites ordinary ref-shaped map data in carried artifacts. The new root.steps parser duplicates reference resolution, bypasses its guards, and does not support scoped references or reference chains."
+        }
+      }
+    },
+    "eb05683f": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-7",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Excluding relpath from the exhaustion placeholders is the right compiler fix. But instead of fixing ref resolution, it turns 2.28's direct state-ref case outputs back on for every union loop at 2.29+. That carries 2.28's same-variant quirk into programs that have no path field, and it only covers direct state field accesses."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Removes redundant inactive path placeholders in the owning compiler layer, but bypasses unresolved exhaustion outputs by restoring the existing state-reference shortcut. A normal done using the exhaustion variant can consequently return state values instead of its own payload, and inactive collection placeholders still remain unresolved."
+        }
+      }
+    },
+    "25dff791": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-3",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 6,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The relpath filter is in the right place, in _exhausted_inactive_placeholder_values, so validation is untouched and the frame keeps its placeholder as at 2.28, and the runtime change is gated to 2.29+. The exhaustion-time resolution only covers refs to the loop's own frame, using a hand-built ref map; other override refs (placeholder steps, inputs) stay unresolved without any error."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Stops emitting redundant inactive path overrides without relaxing validation, and gates runtime changes to 2.29+. However, its separate frame-only reference lookup cannot resolve sibling-step placeholders, so adding an inactive List[String] payload alongside the path still leaves an unresolved reference instead of a typed value."
+        }
+      }
+    },
+    "d467f6f7": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": [],
+      "score": 0.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 1,
+          "layering": 0,
+          "reason": "It deletes the validator's relpath override rejection outright, which silences the error for authored overrides too and weakens validation. It also does nothing about how the generated override refs are resolved at runtime on the exhaustion path."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Deletes the path-output prohibition, admitting authored path overrides at older targets as well as compiler-generated ones. The compiler still emits the redundant override and bound loop reads still return unresolved reference dictionaries, so removing validation neither repairs runtime behavior nor addresses the responsible compiler/runtime layers."
+        }
+      }
+    },
+    "43c7c82d": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": [],
+      "score": 4,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "Same validator reorder as 00296692, so the relpath guard is relaxed for generated refs instead of the compiler not emitting the override. The 2.29+ exhaustion-time resolution reuses _resolve_ref_value but keeps the raw ref when resolution fails, without any error, and gives the new parameters optional defaults."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Leaves redundant path overrides in compiler output and moves the generated-reference exemption ahead of the path prohibition, making previously forbidden overrides pass validation instead of correcting their emission. Exhaustion handling appropriately reuses the existing resolver, but its recursive reference chasing also misinterprets legitimate ref-shaped map payloads."
+        }
+      }
+    },
+    "380c1dc1": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-8",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": [],
+      "score": 4,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It rewires the exhausted variant's join case to read loop state and placeholder steps directly, reusing the 2.28 _loop_result_case_output_ref mechanism. The loop frame still keeps the raw {ref} overrides, any non-state ref stays unresolved, and the validator reorder loosens the relpath rule for compiler output."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The exact-reference validation exception preserves authored restrictions, but the compiler routes normalization around unresolved exhaustion artifacts instead of making those artifacts concrete. Removing the rich-target guard from _loop_result_case_output_ref makes a normal done using the exhaustion variant read state fields instead of its own payload, violating the existing 2.29+ guarantee and limiting generality."
+        }
+      }
+    },
+    "7cf4ea11": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-8",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": [],
+      "score": 6.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "The compiler no longer emits relpath placeholder overrides, matching 2.28 where continue frames already hold typed relpath placeholders, and validation is untouched. The 2.29-gated resolution in the loop executor only follows refs to the loop's own frame (falling back silently), so on_exhausted refs to other steps still reach the join unresolved."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It removes unnecessary relpath placeholder references and resolves current-frame overrides in the loop owner only from 2.29 onward, preserving authored validation, older behavior and normal done payloads. Resolution stops at that loop's own frame, however, so adding an inactive List[String] field leaves its external exhausted-placeholder reference stored as a dictionary and normalization still fails."
+        }
+      }
+    },
+    "ab542f09": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-8",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": [],
+      "score": 6,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 2,
+          "reason": "The loop executor resolves every exhaustion ref override at 2.29+ before the frame is stored, and fails fast if one cannot be resolved; this is the right owner. Moving the relpath rejection below the generated-ref exemption still rejects hand-authored overrides but loosens the scalar-only rule for compiler-emitted relpath overrides."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 0,
+          "generality": 1,
+          "layering": 2,
+          "reason": "The exact compiler-reference exception and version-gated resolution at exhaustion address the validation and stored-value causes, including collection placeholders, using the loop owner and existing resolver. However, _resolve_exhaustion_override_refs scans every frame artifact rather than only overrides, so legitimate map data shaped as {\"ref\": \"text\"} in a carried field is reinterpreted or raises an integrity error even when that field was not overridden."
+        }
+      }
+    },
+    "b9dba4d4": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-8",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": [],
+      "score": 3,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "It makes the same validator reorder (loosening relpath overrides from the compiler) and dereferences any {ref: root.steps.*} value in every structured-output join. There is no version gate and no type gate, so behaviour changes at 2.28 and earlier and ref-shaped JSON data gets rewritten; the fix also sits in the generic join rather than in the loop that stores the overrides."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 0,
+          "reason": "The exact compiler-reference exception preserves authored restrictions and the reader workaround follows collection references too, but exhaustion still persists reference dictionaries rather than concrete artifacts. The unversioned helper runs for every structured output without exhaustion provenance or contract-kind checks, so valid map data shaped as {\"ref\": \"root.steps.x.artifacts.y\"} is reinterpreted, changing unrelated joins and behavior at 2.28 and earlier."
+        }
+      }
+    },
+    "9991f921": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-6",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 4,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "It stops the compiler from emitting a redundant relpath placeholder override, so the scalar-only on_exhausted check stays intact, and it dereferences stored ref overrides at targets 2.29 and later. That dereference lives in the generic structured-output join, so ref-shaped values are followed in every match/if output, not only in the loop executor that stores them."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 0,
+          "reason": "Skipping redundant relpath placeholders fixes the compilation trigger, but the reader-side dereference only handles scalar/path contracts: an inactive List[String] field alongside the path still receives an unresolved external placeholder reference and fails normalization. Applying reference interpretation to every structured output at 2.29+, without proving exhaustion provenance, also accepts malformed scalar artifact payloads that previously failed validation and places exhaustion handling in unrelated joins."
+        }
+      }
+    },
+    "7534918a": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": [],
+      "score": 0.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 1,
+          "reason": "It deletes the relpath on_exhausted rejection outright, at every target, so hand-authored relpath overrides are now accepted at 2.28 and earlier too. Nothing resolves the raw {ref} overrides left in the loop frame, so the union join still sees dicts at runtime and exhaustion still fails."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Deleting the relpath restriction suppresses the compiler error but leaves generated exhaustion references unresolved, so exhaustion can still fail when normalization validates dictionaries as paths or scalars. It also admits previously forbidden authored literal relpath overrides at older targets, weakening validation in place of fixing the generated-value flow."
+        }
+      }
+    },
+    "3104a106": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": [],
+      "score": 7,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 2,
+          "layering": 2,
+          "reason": "The loop executor resolves every exhaustion ref override at 2.29+, like ab542f09, but silently keeps the raw ref when resolution fails. That defers the failure to a less clear join contract violation. The same validator reorder loosens the relpath override rule for compiler-emitted refs."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "The validator admits only the existing exact compiler-authorized references, while exhaustion resolves both current-frame references and external placeholder references before persisting values. This handles scalar, path and collection fields at the loop owner using the existing resolver, preserves normal done payloads and authored path validation, and gates runtime changes to 2.29+."
+        }
+      }
+    },
+    "699d5061": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-9",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": [],
+      "score": 3.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "The validation reorder is correct, but the runtime fix is a consumer-side workaround: the generic structured-output resolver now follows any {ref}-shaped value, while the loop frame still stores unresolved refs. The change has no version gate, so it affects every if/match output at every version, including 2.28, and any genuine map value shaped like {ref: ...}."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 0,
+          "reason": "Corrects compiler-reference admission but leaves unresolved references in completed loop artifacts and compensates only in structured-output consumers. That consumer-wide dereference is ungated, changes behavior at 2.28 and earlier, and can reinterpret legitimate Map/Value data shaped like {\"ref\":...}, while other artifact consumers retain the original problem."
+        }
+      }
+    },
+    "bbd23439": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-9",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": [],
+      "score": 8,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Narrow validation reorder that keeps rejecting authored relpath overrides, plus version-gated resolution of compiler-emitted override refs inside repeat_until_exhaustion_artifacts. It reads the loop's own frame snapshot first, otherwise uses the existing _resolve_ref_value, and fails fast on unresolved refs."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Admits only provenance-matched compiler references before applying the existing scalar-only restriction, and resolves exhaustion overrides against the final loop snapshot or the shared resolver before committing them. Resolution failures fail closed, the fix covers other generated fields and variants, and runtime behavior through 2.28 remains gated off."
+        }
+      }
+    },
+    "20c63119": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-9",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": [],
+      "score": 5.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Moves the relpath rejection after the exact compiler-generated-ref check and resolves refs at loop exhaustion only from 2.29 on, so it fixes both the compile and runtime failure without touching 2.28. But it parses refs with its own regex and direct state lookups instead of the executor's _resolve_ref_value, and when a lookup misses it quietly keeps the raw ref rather than failing fast."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Fixes generated-reference admission and materializes exhaustion overrides in the loop owner while preserving the older-target gate and authored path restriction. However, its parallel regex/direct-state lookup omits the shared resolver's guards, reference chaining and restore fallbacks, and silently commits unresolved reference payloads when lookup fails."
+        }
+      }
+    },
+    "9fc65c84": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-9",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": [],
+      "score": 6.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Reorders validation so only the exact compiler-emitted refs skip the relpath rule, so authored relpath overrides are still rejected. From 2.29 on, a helper in the loop executor resolves exhaustion refs: refs into the loop's own frame read the final snapshot, others go through the existing _resolve_ref_value, and an unresolved ref fails fast."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 0,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Correctly admits trusted generated references and uses the loop owner and shared resolver with a 2.29 gate. However, it scans every merged frame artifact rather than only exhaustion overrides, so an ordinary carried Map/Value payload shaped like {\"ref\":\"literal\"} is interpreted as executable reference syntax and can fail or change unrelated repeat_until programs."
+        }
+      }
+    },
+    "322a487f": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-1",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 6.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Runtime ref resolution in the loop executor is version-gated and fails fast. However, it avoids the validator's ordering bug by no longer emitting relpath placeholders instead of fixing it, so an exhausted-variant path field taken from loop state still emits a relpath ref that validation rejects at 2.29+, although it compiles at 2.28."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Removes unnecessary inactive relpath overrides in compiler lowering and resolves newer-target exhaustion references in the loop owner with the shared resolver, retaining existing validation and older-target behavior. However, a union with one path outside the exhausted variant and another state-projected path inside it still emits an active relpath override that the unchanged validator rejects."
+        }
+      }
+    },
+    "94e67af9": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": [],
+      "score": 1,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 1,
+          "reason": "Deletes the relpath check outright. That silences the compile error but also lets authored relpath on_exhausted overrides through, a weaker check that applies at every version. It adds no runtime resolution, so exhausted-variant fields taken from loop state remain {ref} payloads that the union-result match rejects at 2.29+."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 1,
+          "reason": "Deletes the path-override restriction for authored workflows at every version, weakening an existing guarantee instead of narrowly admitting compiler-generated references. Although the edit is in the validator, it leaves exhaustion reference payloads unresolved and supplies no fix in the runtime layer that owns completed loop artifacts."
+        }
+      }
+    },
+    "a66d877e": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": [],
+      "score": 6.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Correct narrow validation reorder and version-gated resolution of override refs in the loop executor, using the frame snapshot and then the existing _resolve_ref_value. However, a resolution error is silently ignored and the raw ref kept, so unresolvable refs fail later with an unclear contract error instead of failing fast."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Fixes generated-reference admission and resolves only exhaustion overrides in the loop executor using the final snapshot and existing resolver, with the older-target gate intact. However, it discards resolver errors and can complete the frame with unresolved reference payloads, leaving correctness and failure detection dependent on which outputs downstream consumers read."
+        }
+      }
+    },
+    "572cc050": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-11",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The validator now checks for the exact compiler-emitted ref before the relpath guard, and the exhaustion refs are resolved at the loop frame from 2.29 on, which fixes both the compile and runtime failures without loosening authored validation. However, it adds its own small resolver (parse_structured_ref plus direct state['steps'] lookups) instead of reusing executor._resolve_ref_value, so scoped, nested or chained refs are not handled."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 0,
+          "generality": 1,
+          "layering": 0,
+          "reason": "The compiler-reference exemption and target-gated exhaustion resolution address the reported failure, but the new artifact-only resolver bypasses existing variant guards, reference-chain resolution, and replay handling, and cannot resolve input references. It also scans every carried artifact rather than only override instructions, so a valid map or record whose sole key is ref can be interpreted as an instruction and fail or change value."
+        }
+      }
+    },
+    "169a0981": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-11",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": [],
+      "score": 7,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "This is effectively the same as 4d6871ee: the validator checks for the exact generated ref first, and from 2.29 on the loop frame resolves compiler-emitted overrides using the snapshot and _resolve_ref_value. Authored relpath overrides are still rejected and 2.28 behaviour is unchanged."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It admits only allowlisted compiler references and resolves exhaustion overrides at the loop owner, using the current state snapshot and existing resolver while preserving targets through 2.28. However, missing snapshot members and resolver errors silently retain reference objects and still permit a completed loop frame, so correctness and failure detection depend on downstream consumers reading and rejecting those fields."
+        }
+      }
+    },
+    "e7a09352": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-11",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": [],
+      "score": 3.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The validator reorder is correct, but the runtime fix chases {ref} payloads inside the shared _resolve_structured_output_artifacts at every target version, even though the typed runtime deliberately rejects legacy ref payloads; this can change behaviour at 2.28 and earlier. It also helps only structured-output consumers instead of producing concrete values at the loop frame."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The exact compiler-reference exemption preserves authored path validation, but reference resolution is patched into all structured-output consumers without a target gate, leaving the loop frame symbolic and changing rejection of malformed scalar/path values even at 2.28 and earlier. Its scalar/path type whitelist also leaves exhaustion references for inactive list or other collection fields unresolved when the same result union contains them."
+        }
+      }
+    },
+    "f8d726a5": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-11",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": [],
+      "score": 3.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The validator reorder is correct and it adds a test that authored relpath refs are still rejected. However, it chases {ref} payloads in the shared structured-output resolver for every type and every version, including map values that could legitimately be {\"ref\": ...}. That weakens the typed runtime's refusal of legacy refs and fixes a consumer instead of the loop frame."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "It preserves the exact compiler-reference allowlist and handles more reference-backed output types than e7a09352, but still repairs symbolic loop artifacts at a general consumer rather than their producer. The unguarded dereference applies to every target and contract, so valid map/record data such as a sole ref string field is treated as an instruction, changing existing behavior and potentially replacing the value or rejecting it."
+        }
+      }
+    },
+    "2f35130c": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-5",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 6,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Validation is left untouched and runtime resolution fails fast using _resolve_ref_value, but the compiler problem is avoided by not emitting placeholder refs when a field's top-level kind is relpath, not fixed. That bypasses the 2.29 inactive-variant placeholder mechanism with a special case that covers only that one kind."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It reuses already-validated inactive path values instead of emitting redundant path overrides, keeps the validator intact, and resolves newer-target exhaustion references through the existing resolver against the latest snapshot, failing on resolution errors. Generality remains limited: a union with a path outside the exhausted variant and another active/shared path supplied from loop state still emits an exhaustion path reference that the unchanged validator rejects at 2.29\u20132.32."
+        }
+      }
+    },
+    "5fd4376d": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": [],
+      "score": 1.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "It deletes the relpath-override guard entirely, which silences the compile error, and authored literal relpath on_exhausted overrides are now accepted at every version, so validation is weaker. It also leaves the raw {ref} placeholder in the frame at runtime, which the other attempts found they needed to resolve."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 1,
+          "reason": "Deleting the path-output restriction permits authored literal path exhaustion overrides at every supported target, weakening an existing validation guarantee rather than using the compiler-only exemption. It also leaves reference objects persisted by exhaustion untouched, so structured joins still receive reference mappings instead of typed path/scalar values; changing only the validator does not repair the runtime behavior."
+        }
+      }
+    },
+    "4d6871ee": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": [],
+      "score": 7,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "The validator checks for the exact generated ref before the relpath guard, so authored relpath overrides are still rejected. From 2.29 on, the loop frame resolves compiler-emitted overrides by reading the exhaustion snapshot for self refs and the existing _resolve_ref_value for everything else, and 2.28 is unchanged. If resolution fails, the raw ref is kept, which is the old behaviour."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Like 169a0981, it preserves authored validation through the exact compiler-reference allowlist and resolves newer-target overrides at the loop owner using the exhaustion snapshot and existing resolver. It likewise ignores resolver errors and can persist unresolved references in a completed loop frame, leaving failure detection and correctness dependent on later consumers; its fallback for missing snapshot members does not remove that concern."
+        }
+      }
+    },
+    "cbea4680": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-12",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": [],
+      "score": 4,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Compiles by moving the relpath check after the generated-ref exemption, which weakens the scalar-only override guarantee for compiler refs. Exhaustion refs are then followed lazily in the executor's generic bound-address reader, at every version and for any {ref: str} loop value, rather than in the loop runtime that owns on_exhausted."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The exact compiler-ref allowlist retains public validation, and resolving stored overrides lets the reported union join work. However, the generic loop-output reader now dereferences every ref-shaped dictionary at every target, including ordinary done results: valid map data such as {\"ref\": \"text\"} becomes a failing reference, changing older-target behavior and spreading exhaustion handling into general value reads."
+        }
+      }
+    },
+    "0ddd5f21": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-12",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": [],
+      "score": 4,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Same approach as cbea4680: the validator is reordered so generated refs bypass the relpath-override rejection, which weakens validation. An unversioned, shape-based {ref} follow is added in the executor's generic LoopOutputAddress read instead of resolving overrides where on_exhausted is applied."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The exact compiler-ref allowlist retains public validation, and resolving stored overrides lets the reported union join work. However, the generic loop-output reader now dereferences every ref-shaped dictionary at every target, including ordinary done results: valid map data such as {\"ref\": \"text\"} becomes a failing reference, changing older-target behavior and spreading exhaustion handling into general value reads."
+        }
+      }
+    },
+    "a58dcdcf": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-12",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": [],
+      "score": 6,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Fixes the producer: lowering no longer emits placeholder overrides for relpath fields (as at 2.28), so the shared validator stays intact, and overrides are resolved at exhaustion time only from 2.29. However, refs are parsed by hand from state['steps'] instead of reusing _resolve_ref_value, which ignores scope, and unresolved refs silently persist raw."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "It avoids inactive path overrides and resolves loop-state overrides against the exhaustion snapshot while preserving validation and older targets. An additional path in the exhausted arm still triggers the unchanged scalar-only rejection, and its hand-written root-step reference parser duplicates the existing resolver while omitting its other supported reference forms."
+        }
+      }
+    },
+    "bf08e905": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-12",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": [],
+      "score": 7,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Lowering keeps the frame's own placeholder for relpath fields (as at 2.28), so the shared validator is untouched, and from 2.29 overrides are resolved in the loop runtime (own-frame refs from the exhaustion snapshot, others via the existing _resolve_ref_value). The one concern is that unresolvable refs are silently kept as written instead of failing fast."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It fixes inactive-path placeholder generation and resolves exhaustion overrides against the exhaustion snapshot using the shared resolver, preserving validation and older-target behavior. A union with an additional path field in the exhausted arm still fails compilation because that active path override remains a ref rejected by the scalar-only validator."
+        }
+      }
+    },
+    "ae097d27": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-4",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Version-gates the validator relaxation, which still lets generated refs override relpath outputs at 2.29+, and resolves overrides in loops.py, failing fast on errors. However, own-frame refs are resolved against the stale persisted frame instead of the exhaustion snapshot, so exhausted state values differ from 2.28; its own test pins attempts 1 at 2.28 vs 2 at 2.29+."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It uses the compiler-ref allowlist, gates the new behavior, and reuses the shared resolver in exhaustion handling. But overrides resolve from persisted state before the exhaustion snapshot is applied, so an incrementing two-iteration loop starting at zero returns 2 at newer targets instead of the 2.28 exhaustion value of 1, violating behavioral parity."
+        }
+      }
+    },
+    "a3d7811c": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": [],
+      "score": 0.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 1,
+          "reason": "Just deletes the relpath-override rejection, so hand-authored YAML can now override relpath outputs with literals too, and spec/output_type are left unused. Raw ref overrides at 2.29+ are never resolved, so the exhaustion path still does not behave as at 2.28."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Removing the path-output guard accepts previously forbidden authored path overrides at all targets. It suppresses the compilation error but leaves generated scalar reference wrappers unresolved at typed union joins during exhaustion, so neither runtime parity nor the underlying compiler/runtime mismatch is fixed."
+        }
+      }
+    },
+    "0f098229": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": [],
+      "score": 6.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Runtime resolution sits correctly in the loop executor (version-gated, own-frame refs from the snapshot, others via _resolve_ref_value), but it silently swallows resolution errors. Compilation is fixed by reordering the validator so generated refs bypass the relpath-override rejection, instead of not emitting those refs, which weakens validation."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "It admits only exact compiler-allowlisted path references while retaining rejection and contract validation for authored overrides. From 2.29 onward it materializes overrides before publishing the exhausted result, reads self-references from the exhaustion snapshot, and reuses the shared resolver for other references, covering additional path-bearing arms without changing older-target execution."
+        }
+      }
+    },
+    "33a2b799": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-13",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": [],
+      "score": 3,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Uses the safe validator reordering, but follows any {ref}-shaped value from any source in every structured if/match output, at every DSL version. That reinterprets legitimate data as references well outside loop exhaustion. Like c3ecbeba, it also leaves discriminant resolution and other frame readers on raw refs."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Like c3ecbeba, it admits trusted generated references but repairs only structured payload copying, leaving discriminant and other bound-address consumers unchanged instead of fixing the shared reader. Its unconditional expansion additionally reinterprets ref-shaped data from any structured source at any target, and a legitimate non-string ref member can reach the string reference resolver unchecked."
+        }
+      }
+    },
+    "833aa82f": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-13",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": [],
+      "score": 7,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Moves the relpath rejection after the exact compiler-ref check, so authored relpath overrides are still rejected. It also follows on_exhausted refs in shared bound-address resolution, which fixes both the compile error and the raw-ref read in the 2.29+ union match, including discriminants. The runtime change is not gated on version and does not check that the value equals the compiler's override, so 2.28 reads of exhausted frames, and any {ref}-shaped data in them, are now dereferenced too."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 2,
+          "reason": "The exact generated-reference validation exception preserves authored restrictions, and reference expansion in the shared loop-output reader serves payloads, discriminants, and predicates through the existing resolver. Unlike e8993cd6, it has no target gate or check that the value matches an actual exhaustion override, so older exhausted frames and ordinary ref-shaped frame data can also be reinterpreted."
+        }
+      }
+    },
+    "fcf77670": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-13",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": [],
+      "score": 6.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Makes the same lowering change as e8993cd6, so validation is untouched and 2.29+ matches 2.28 for inactive path fields. It resolves compiler-emitted override refs at exhaustion time in LoopExecutor, gated at 2.29+, reading own-frame refs from the exhaustion snapshot and failing fast with LoopStateIntegrityError when a ref does not resolve."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Excluding inactive relpath placeholders fixes the lowering error without relaxing validation, and exhaustion references resolve against the final snapshot; however, the new writer scans every frame artifact rather than only overrides, changes persisted representations, and adds manual reference-prefix handling. A union with a path in another arm and an additional state-derived path in the exhausted arm still emits a forbidden relpath override."
+        }
+      }
+    },
+    "c3ecbeba": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-13",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": [],
+      "score": 3.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Uses the same safe validator reordering, but follows refs only in the value loop of _resolve_structured_output_artifacts, for LoopOutputAddress sources. Discriminant resolution and other readers of the exhausted frame still see raw {ref} dicts, so nested unions fed from loop state stay broken. The patch sits in one consumer, not where exhaustion refs originate or are resolved, and it is not version-gated."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The trusted-reference validation exception and payload-copy fix address the example, but reference expansion belongs in the shared loop-output reader: discriminant and predicate reads still receive unresolved dictionaries. Expansion is neither version- nor exhaustion-gated, so an ordinary ref-shaped map returned by a successfully completed loop is reinterpreted as a reference, including at older targets."
+        }
+      }
+    },
+    "e8993cd6": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-2",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 7.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Stops lowering from emitting relpath exhaustion placeholders; the loop frame already carries a validated placeholder, as at 2.28, so the validator stays unchanged. It follows on_exhausted refs in shared bound-address resolution only when target is 2.29+, the node is a repeat_until frame, the loop exhausted, and the value equals the node's compiler override, which covers every reader without touching 2.28."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It removes unnecessary inactive path overrides while preserving validation, and resolves references through the shared bound-address reader only for new-target exhausted repeat frames whose values exactly match declared overrides, reusing the existing resolver. It still rejects a union that has a path in another arm and also projects a state-derived path in the exhausted arm, because that active relpath override remains prohibited."
+        }
+      }
+    },
+    "feba053e": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": [],
+      "score": 0.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 1,
+          "reason": "Just deletes the relpath rejection, so authored on_exhausted can now override path outputs; the spec allows scalar overrides only. It does nothing about the raw {ref} values that the 2.29+ union match reads on exhaustion, so the exhaustion path (e.g. rounds from state.round) still fails at runtime."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Deleting the relpath prohibition merely suppresses the compilation error and permits authored path overrides at older targets, weakening the scalar-only exhaustion contract. Exhaustion still stores reference dictionaries that typed output readers do not resolve, so state-derived exhausted results remain broken and neither lowering nor runtime ownership is repaired."
+        }
+      }
+    },
+    "85d979bd": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": [],
+      "score": 6.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Uses the safe validator reordering and resolves compiler-emitted override refs at exhaustion time in LoopExecutor, gated at 2.29+. Every consumer then reads concrete values and 2.28 is untouched. However, resolution errors are silently ignored and the raw ref is left in place, which hides the cause behind a later, confusing contract failure."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "The exact compiler-reference exception preserves rejection of authored path overrides, while resolving overrides against the exhaustion snapshot handles both inactive placeholders and state-derived values beyond the reported example. The writer nevertheless silently retains references when resolution fails, rewrites persisted frames for other new-target exhaustion cases, and adds manual frame-prefix resolution alongside the existing resolver."
+        }
+      }
+    },
+    "5f72b72b": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-1",
+      "arm": "reviewed_change",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 7,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Excludes relpath from inactive exhaustion placeholders where they are selected, keeping validation unchanged. At 2.29+ it resolves every compiler-generated {ref} override in one hop (from the loop frame or the existing reference_resolver) and raises LoopStateIntegrityError on failure, leaving pre-2.29 behaviour intact."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It removes inactive path-reference placeholders and materializes exhaustion references with the existing one-hop resolver, preserving payload values, validation, and pre-2.29 behavior in the appropriate compiler/runtime layers. However, variants sharing a record field name with different shapes still make the structured-ancestor branch emit an inactive nested path as a literal override, which validation rejects."
+        }
+      }
+    },
+    "a804bc47": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-2",
+      "arm": "reviewed_change",
+      "labels": [
+        "first",
+        "final"
+      ],
+      "stripped": [],
+      "score": 5.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "Skips the relpath override in the consumer (_loop_on_exhausted_outputs) while _exhausted_inactive_placeholder_values still emits relpath placeholders, which can leave an unused __exhausted_placeholders step. The runtime resolves every ref but swallows resolution errors and indexes frame_artifacts without checking the key exists."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It suppresses inactive path-reference overrides at emission and resolves frame and sibling-placeholder references in the runtime using existing mechanisms, without relaxing validation or changing older-target execution. Like the other compiler-side fixes, it misses variants sharing a record field name with different shapes: the structured-ancestor branch still emits an inactive nested path as a literal exhaustion override."
+        }
+      }
+    },
+    "334b6332": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-5",
+      "arm": "reviewed_change",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 7,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Stops emitting relpath inactive-variant placeholders where they are selected, so no relpath override is generated and the scalar-only validator stays intact. At 2.29+ the runtime resolves every compiler-emitted {ref} override (loop frame and placeholder step) through the existing _resolve_ref_value and fails fast if one cannot be resolved, leaving 2.28 unchanged."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It fixes inactive path-reference generation and materializes both frame and sibling-placeholder references in the runtime, reusing the resolver while preserving validation and pre-2.29 behavior. However, READY(info ReportRecord) | UNRESOLVED(info CountRecord), with exhaustion constructing CountRecord from state, still emits the inactive info.report path as a literal override through the structured-ancestor branch and is rejected."
+        }
+      }
+    },
+    "15db3969": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-6",
+      "arm": "reviewed_change",
+      "labels": [
+        "first",
+        "final"
+      ],
+      "stripped": [],
+      "score": 6.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "Same lowering fix as 334b6332 plus a version-gated runtime projection, with validation intact. The runtime only replaces refs to the loop's own frame, so placeholder-step refs for other non-scalar inactive fields (e.g. lists) stay as raw {ref} payloads, and unmatched refs are silently left as they are."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It preserves validation and older-target behavior and fixes path emission plus self-frame references in their owning layers. However, an inactive List[String] field alongside the path leaves a sibling-placeholder reference object for the join to reject, and the shared structured-ancestor case can still emit an inactive nested path override."
+        }
+      }
+    },
+    "1a2ddd7e": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": [],
+      "score": 0,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Only deletes the validator's scalar-only on_exhausted check, which silences the error and lets authored relpath overrides through at every version. The 2.29+ runtime is left as is, so {ref} overrides such as state.round still reach the join unresolved and the program does not behave as at 2.28."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Deleting the scalar-only override restriction suppresses the compiler's invalid path override by weakening shared validation, including for older targets. It leaves exhaustion references unmaterialized, so the 2.29+ bound-address join still receives reference objects instead of scalar/path values and cannot preserve exhaustion behavior."
+        }
+      }
+    },
+    "4f7f3902": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": [],
+      "score": 3,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "Instead of not emitting relpath placeholder overrides, it reorders the validator so compiler-generated refs can override relpath outputs, a narrow but real relaxation of the scalar-only rule. The runtime resolves every ref but silently keeps the raw {ref} payload when resolution fails."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 1,
+          "layering": 0,
+          "reason": "It materializes exhaustion references but leaves the invalid compiler emission intact and instead exempts generated references from the path-override prohibition in shared validation. That weakens an existing guarantee at the wrong layer and still rejects inactive nested path literals emitted through the structured-ancestor branch when variants reuse a record field name."
+        }
+      }
+    },
+    "2c2b6111": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-1",
+      "arm": "reviewed_change",
+      "labels": [
+        "first"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The compiler stops emitting relpath exhaustion placeholders, which works around the validator's ordering bug instead of fixing it, so the program compiles. Nothing resolves the {ref} state overrides that 2.29+ normalization reads from the loop frame, so exhaustion still fails at runtime; the test only compares compiled output."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 0,
+          "layering": 2,
+          "reason": "Excluding inactive path placeholders fixes the compiler emission in its owning, already version-gated layer without weakening validation. However, exhaustion still stores state-derived scalar outputs as reference dictionaries, so the 2.29+ normalization reads result__rounds through LoopOutputAddress and fails integer validation instead of behaving like the 2.28 state-field projection."
+        }
+      }
+    },
+    "8199a41b": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-3",
+      "arm": "reviewed_change",
+      "labels": [
+        "first",
+        "final"
+      ],
+      "stripped": [],
+      "score": 8,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "The validator now accepts only the exact compiler-emitted ref before the relpath restriction runs, so authored relpath overrides are still rejected. At 2.29+ the loop runtime resolves on_exhausted ref overrides when it builds the frame: self-refs come from the exhaustion snapshot and placeholder refs go through _resolve_ref_value. That fixes both the compile failure and the unresolved frame values for every consumer, and 2.28 is unchanged."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "The validator admits only exact compiler-recorded references while retaining the rejection of authored path overrides, and the loop executor resolves exhaustion references before publishing its artifacts. Using the exhaustion snapshot for self-references and the existing resolver for external placeholders handles more than the reported path field, with runtime changes gated to 2.29 and later."
+        }
+      }
+    },
+    "146e3a2e": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-4",
+      "arm": "reviewed_change",
+      "labels": [
+        "first",
+        "final"
+      ],
+      "stripped": [],
+      "score": 3,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The validator reorder is correct and keeps the authored relpath restriction. But the frame still persists unresolved {ref} payloads; instead, one consumer (_resolve_structured_output_artifacts) follows LoopOutputAddress refs one level, with no version gate. That is a parallel mechanism at one read site, and because it is ungated it can also change behaviour at 2.28 and earlier."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 0,
+          "reason": "The exact compiler-reference exception preserves authored path validation, but resolving reference-shaped values inside structured-output copying repairs one consumer while leaving loop artifacts and other readers, including bound predicates and match selectors, unresolved. The consumer-side chase has no version gate or exhaustion provenance check, so it also changes older targets and can reinterpret ordinary single-key ref map/value payloads as references."
+        }
+      }
+    },
+    "1a7531bb": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-5",
+      "arm": "reviewed_change",
+      "labels": [
+        "first"
+      ],
+      "stripped": [],
+      "score": 5.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "It adds a runtime fix in the loop executor, gated at 2.29, that resolves loop-frame self-refs, and leaves 2.28 and validation untouched. However, compiling is fixed by excluding relpath placeholders in the compiler, which works around the validator's ordering bug instead of fixing it, and placeholder (non-self) refs are left as raw {ref} payloads."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "The compiler avoids illegal inactive-path overrides and the loop executor resolves state self-references only at 2.29+, preserving validation and older-target behavior in the appropriate owners. Resolution is incomplete: an inactive List[String] field still produces a reference to a separate exhausted-placeholder step, which remains a dictionary and fails collection validation in result normalization."
+        }
+      }
+    },
+    "5f92ecb1": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": [],
+      "score": 0.5,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 1,
+          "reason": "It deletes the 'may only override scalar outputs' check, so authored relpath on_exhausted overrides now pass validation (validation is weakened at every version). The runtime still leaves {ref} payloads unresolved in the loop frame at 2.29+, so exhausted programs still misbehave."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Deleting the scalar-only restriction permits previously forbidden literal path overrides at every target, rather than limiting acceptance to trusted compiler-generated references. It also leaves exhaustion references unresolved, so state-derived result fields still fail during normalization; this suppresses validation at the wrong layer without restoring execution semantics."
+        }
+      }
+    },
+    "44976270": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": [],
+      "score": 8,
+      "hidden": null,
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Same approach as 8199a41b: the validator reorder lets only exact compiler-generated refs bypass the relpath restriction. Ref overrides are resolved in the loop executor at 2.29+, with self-refs taken from the exhaustion snapshot and other refs from _resolve_ref_value. Both the compile and runtime failures are fixed at their owning layers, and 2.28 is unchanged."
+        },
+        "gpt-6.1-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Like 8199a41b, this preserves the authored path-override prohibition while admitting exact compiler-recorded references, then resolves exhaustion values in the loop executor before consumers read them. Snapshot lookup handles self-references and the existing resolver handles external placeholders, with the behavior change gated to 2.29 and later."
+        }
+      }
+    }
+  }
+}

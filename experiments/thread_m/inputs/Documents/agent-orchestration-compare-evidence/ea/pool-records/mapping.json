@@ -1,0 +1,750 @@
+{
+  "task": "/home/ollie/compare-runtime/experiments/compare/tasks/ea-loop-result-paths",
+  "criterion_sha256": "0030e44a3b765de43dafff280f00600f52e7698afb9e002dec4a543da512f7c9",
+  "compare_base": "a3858e9fd4ecee5f125c2e7e8a9e62d7121fd72b",
+  "main": "/home/ollie/Documents/agent-orchestration",
+  "runtime": "/home/ollie/compare-runtime",
+  "created_at": 1792019229.100213,
+  "judges": {
+    "claude-opus-5-5": {
+      "dir": "52124b18e2ef5808",
+      "providers": "/home/ollie/compare-runtime/experiments/compare/score.providers.json"
+    },
+    "gpt-6.1-sol": {
+      "dir": "f3b115b3e71772a8",
+      "providers": "/home/ollie/compare-runtime/experiments/compare/providers/score_codex.json"
+    }
+  },
+  "runs": {
+    "/home/ollie/compare-work2/records/best_of_n/run-7": {
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 5,
+      "wall_clock_sec": 1183.419778585434,
+      "selected": "cand-1",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/best_of_n/run-8": {
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 5,
+      "wall_clock_sec": 1323.9610888957977,
+      "selected": "cand-2",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/best_of_n/run-9": {
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 1155.9101450443268,
+      "selected": "cand-2",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/best_of_n/run-11": {
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 5,
+      "wall_clock_sec": 1298.9274382591248,
+      "selected": "cand-3",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/best_of_n/run-12": {
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 5,
+      "wall_clock_sec": 1872.4122819900513,
+      "selected": "cand-4",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/best_of_n/run-13": {
+      "arm": "best_of_n",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 5,
+      "wall_clock_sec": 1104.743578195572,
+      "selected": "cand-2",
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/reviewed_change/run-1": {
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 1078.1772723197937,
+      "selected": null,
+      "variant": "UNRESOLVED",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/direct_task/run-1": {
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 340.48071694374084,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/reviewed_change/run-2": {
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 2,
+      "wall_clock_sec": 381.9873538017273,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/direct_task/run-2": {
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 470.6559228897095,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/reviewed_change/run-3": {
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 2,
+      "wall_clock_sec": 356.37315702438354,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/direct_task/run-3": {
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 409.0337679386139,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/reviewed_change/run-4": {
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 2,
+      "wall_clock_sec": 553.1834247112274,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 2,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "both hits are the tmux skill's own text (default socket directory) printed while the reviewer read the skill; no socket or other session's file was opened, and /tmp is private in the sandbox",
+        "hits": 2
+      },
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/direct_task/run-4": {
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 750.7038559913635,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/reviewed_change/run-5": {
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 688.8109610080719,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/direct_task/run-5": {
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 516.0338854789734,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/reviewed_change/run-6": {
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 2,
+      "wall_clock_sec": 1465.5628085136414,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work2/records/direct_task/run-6": {
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 497.1505117416382,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    }
+  },
+  "clones": {
+    "00296692": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-7",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": []
+    },
+    "367a5e03": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-7",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": []
+    },
+    "a88501d0": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-7",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": []
+    },
+    "eb05683f": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-7",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": []
+    },
+    "25dff791": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-3",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "d467f6f7": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": []
+    },
+    "43c7c82d": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": []
+    },
+    "380c1dc1": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-8",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": []
+    },
+    "7cf4ea11": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-8",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": []
+    },
+    "ab542f09": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-8",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": []
+    },
+    "b9dba4d4": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-8",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": []
+    },
+    "9991f921": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-6",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "7534918a": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": []
+    },
+    "3104a106": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": []
+    },
+    "699d5061": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-9",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": []
+    },
+    "bbd23439": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-9",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": []
+    },
+    "20c63119": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-9",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": []
+    },
+    "9fc65c84": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-9",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": []
+    },
+    "322a487f": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-1",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "94e67af9": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": []
+    },
+    "a66d877e": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": []
+    },
+    "572cc050": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-11",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": []
+    },
+    "169a0981": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-11",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": []
+    },
+    "e7a09352": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-11",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": []
+    },
+    "f8d726a5": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-11",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": []
+    },
+    "2f35130c": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-5",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "5fd4376d": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": []
+    },
+    "4d6871ee": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": []
+    },
+    "cbea4680": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-12",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": []
+    },
+    "0ddd5f21": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-12",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": []
+    },
+    "a58dcdcf": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-12",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": []
+    },
+    "bf08e905": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-12",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": []
+    },
+    "ae097d27": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-4",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "a3d7811c": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": []
+    },
+    "0f098229": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": []
+    },
+    "33a2b799": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-13",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-1"
+      ],
+      "stripped": []
+    },
+    "833aa82f": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-13",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-2"
+      ],
+      "stripped": []
+    },
+    "fcf77670": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-13",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-3"
+      ],
+      "stripped": []
+    },
+    "c3ecbeba": {
+      "run": "/home/ollie/compare-work2/records/best_of_n/run-13",
+      "arm": "best_of_n",
+      "labels": [
+        "cand-4"
+      ],
+      "stripped": []
+    },
+    "e8993cd6": {
+      "run": "/home/ollie/compare-work2/records/direct_task/run-2",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "feba053e": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": []
+    },
+    "85d979bd": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": []
+    },
+    "5f72b72b": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-1",
+      "arm": "reviewed_change",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "a804bc47": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-2",
+      "arm": "reviewed_change",
+      "labels": [
+        "first",
+        "final"
+      ],
+      "stripped": []
+    },
+    "334b6332": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-5",
+      "arm": "reviewed_change",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "15db3969": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-6",
+      "arm": "reviewed_change",
+      "labels": [
+        "first",
+        "final"
+      ],
+      "stripped": []
+    },
+    "1a2ddd7e": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": []
+    },
+    "4f7f3902": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": []
+    },
+    "2c2b6111": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-1",
+      "arm": "reviewed_change",
+      "labels": [
+        "first"
+      ],
+      "stripped": []
+    },
+    "8199a41b": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-3",
+      "arm": "reviewed_change",
+      "labels": [
+        "first",
+        "final"
+      ],
+      "stripped": []
+    },
+    "146e3a2e": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-4",
+      "arm": "reviewed_change",
+      "labels": [
+        "first",
+        "final"
+      ],
+      "stripped": []
+    },
+    "1a7531bb": {
+      "run": "/home/ollie/compare-work2/records/reviewed_change/run-5",
+      "arm": "reviewed_change",
+      "labels": [
+        "first"
+      ],
+      "stripped": []
+    },
+    "5f92ecb1": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "silence-relpath-check"
+      ],
+      "stripped": []
+    },
+    "44976270": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "sonnet-single-call"
+      ],
+      "stripped": []
+    }
+  },
+  "batches": [
+    [
+      "00296692",
+      "367a5e03",
+      "a88501d0",
+      "eb05683f",
+      "25dff791",
+      "d467f6f7",
+      "43c7c82d"
+    ],
+    [
+      "380c1dc1",
+      "7cf4ea11",
+      "ab542f09",
+      "b9dba4d4",
+      "9991f921",
+      "7534918a",
+      "3104a106"
+    ],
+    [
+      "699d5061",
+      "bbd23439",
+      "20c63119",
+      "9fc65c84",
+      "322a487f",
+      "94e67af9",
+      "a66d877e"
+    ],
+    [
+      "572cc050",
+      "169a0981",
+      "e7a09352",
+      "f8d726a5",
+      "2f35130c",
+      "5fd4376d",
+      "4d6871ee"
+    ],
+    [
+      "cbea4680",
+      "0ddd5f21",
+      "a58dcdcf",
+      "bf08e905",
+      "ae097d27",
+      "a3d7811c",
+      "0f098229"
+    ],
+    [
+      "33a2b799",
+      "833aa82f",
+      "fcf77670",
+      "c3ecbeba",
+      "e8993cd6",
+      "feba053e",
+      "85d979bd"
+    ],
+    [
+      "5f72b72b",
+      "a804bc47",
+      "334b6332",
+      "15db3969",
+      "1a2ddd7e",
+      "4f7f3902"
+    ],
+    [
+      "2c2b6111",
+      "8199a41b",
+      "146e3a2e",
+      "1a7531bb",
+      "5f92ecb1",
+      "44976270"
+    ]
+  ]
+}

@@ -1,0 +1,385 @@
+{
+  "collapse_threshold": 0.75,
+  "excluded_children": [
+    "sha256:093512dc4d4b8251820b0ff09d612dc885b36311f7626f8576cc0c8fc3bfa90f",
+    "sha256:66543358195b700da5ce41aed05d13bd5083e3c7879669e3087dc77c31e10cf8",
+    "sha256:72c852ef1464ebeb445074fe3fd8d98dd6ca8312bc3ef2ebb5f6e6c2f913ce25",
+    "sha256:7a7eb157bc731d41b453f0d11fa44b5522df5bd4c4aee6f27c4ebe9a7cb4f580"
+  ],
+  "phase2_selected": false,
+  "rule": "anchors_inverted",
+  "separated_tasks": [],
+  "separation": {
+    "anchor_spread_limit": 2.0,
+    "arms": "catalog policies and the pooled unguided arm with two or more primary values (completed with a value, or failed) on the task; a single child is reported only",
+    "min_tasks": 2,
+    "min_tolerance": 0.5,
+    "rule": "a task is separated when the largest difference between two compared arms' means exceeds the threshold max(tolerance_sd times the pooled within-arm SD, min_tolerance rubric points) and its anchor spread is within anchor_spread_limit for every judge; the pooled SD is sqrt(sum((n-1) s^2) / sum(n-1)) over the compared arms; with none it is unavailable and the task is not separated",
+    "tolerance_sd": 2.0
+  },
+  "tasks": {
+    "pure-result-replay": {
+      "agreement": {
+        "generality": {
+          "agree": 11,
+          "of": 17
+        },
+        "layering": {
+          "agree": 12,
+          "of": 17
+        },
+        "root_cause": {
+          "agree": 16,
+          "of": 17
+        },
+        "scope": {
+          "agree": 5,
+          "of": 17
+        }
+      },
+      "anchor_spread": {
+        "claude-opus-5-5": 0,
+        "gpt-6-sol": 2
+      },
+      "anchors_ok": false,
+      "children": {
+        "unguided:sha256:32729314e71e79a24a3b3d7d85262fc644c246fe4b9a40d8180d098d995ecb3f": {
+          "calls_mean": 1,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.6567164179104478,
+          "incidents": 0,
+          "mean": 3.0,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 0.7071067811865476,
+          "timeouts": 0,
+          "valued_mean": 3.0,
+          "valued_runs": 2,
+          "wall_clock_mean": 1788.3610682487488
+        },
+        "unguided:sha256:42724572547e49a2944ab4deadcaac0ff3d6d5d08d34a44b88147653fb7f95db": {
+          "calls_mean": 1,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.75,
+          "incidents": 0,
+          "mean": 2.75,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 1.0606601717798212,
+          "timeouts": 0,
+          "valued_mean": 2.75,
+          "valued_runs": 2,
+          "wall_clock_mean": 2833.5214450359344
+        }
+      },
+      "compared": [
+        "best_of_n",
+        "direct",
+        "implement_check_diagnose_repair",
+        "implement_review_revise",
+        "plan_then_implement",
+        "unguided"
+      ],
+      "direct_rank": 3,
+      "direct_sole_winner": false,
+      "excluded_judges": {},
+      "gap_separated": false,
+      "max_gap": 2.0,
+      "no_pool": false,
+      "policies": {
+        "best_of_n": {
+          "calls_mean": 4,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.5895522388059702,
+          "incidents": 0,
+          "mean": 3.25,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 1.0606601717798212,
+          "timeouts": 0,
+          "valued_mean": 3.25,
+          "valued_runs": 2,
+          "wall_clock_mean": 2904.7170499563217
+        },
+        "direct": {
+          "calls_mean": 1,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.835820895522388,
+          "incidents": 0,
+          "mean": 3.25,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 0.3535533905932738,
+          "timeouts": 0,
+          "valued_mean": 3.25,
+          "valued_runs": 2,
+          "wall_clock_mean": 2947.3355011940002
+        },
+        "implement_check_diagnose_repair": {
+          "calls_mean": 1,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.7201492537313433,
+          "incidents": 0,
+          "mean": 3.5,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 0.0,
+          "timeouts": 0,
+          "valued_mean": 3.5,
+          "valued_runs": 2,
+          "wall_clock_mean": 2353.1108543872833
+        },
+        "implement_review_revise": {
+          "calls_mean": 6,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.7388059701492538,
+          "incidents": 0,
+          "mean": 4.0,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 0.7071067811865476,
+          "timeouts": 0,
+          "valued_mean": 4.0,
+          "valued_runs": 2,
+          "wall_clock_mean": 4199.102391123772
+        },
+        "plan_then_implement": {
+          "calls_mean": 4,
+          "excluded": 0,
+          "failed": 1,
+          "failure_rate": 0.5,
+          "hidden_mean": 0.5970149253731343,
+          "incidents": 0,
+          "mean": 2.0,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 2.8284271247461903,
+          "timeouts": 0,
+          "valued_mean": 4,
+          "valued_runs": 1,
+          "wall_clock_mean": 4718.1392380914185
+        }
+      },
+      "pooled_sd": 1.195695404356812,
+      "separated": false,
+      "spread_ok": true,
+      "threshold": 2.391390808713624,
+      "unguided": {
+        "calls_mean": 1,
+        "excluded": 0,
+        "failed": 0,
+        "failure_rate": 0.0,
+        "hidden_mean": 0.7033582089552239,
+        "incidents": 0,
+        "mean": 2.875,
+        "quota_incidents": 0,
+        "runs": 4,
+        "sd": 0.75,
+        "timeouts": 0,
+        "valued_mean": 2.875,
+        "valued_runs": 4,
+        "wall_clock_mean": 2310.9412566423416
+      },
+      "unpooled": []
+    },
+    "resume-projection-integrity": {
+      "agreement": {
+        "generality": {
+          "agree": 10,
+          "of": 18
+        },
+        "layering": {
+          "agree": 5,
+          "of": 18
+        },
+        "root_cause": {
+          "agree": 15,
+          "of": 18
+        },
+        "scope": {
+          "agree": 8,
+          "of": 18
+        }
+      },
+      "anchor_spread": {
+        "claude-opus-5-5": 2,
+        "gpt-6-sol": 1
+      },
+      "anchors_ok": true,
+      "children": {
+        "unguided:sha256:32729314e71e79a24a3b3d7d85262fc644c246fe4b9a40d8180d098d995ecb3f": {
+          "calls_mean": 1,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.7899159663865546,
+          "incidents": 0,
+          "mean": 4.25,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 1.0606601717798212,
+          "timeouts": 0,
+          "valued_mean": 4.25,
+          "valued_runs": 2,
+          "wall_clock_mean": 2036.064112663269
+        },
+        "unguided:sha256:42724572547e49a2944ab4deadcaac0ff3d6d5d08d34a44b88147653fb7f95db": {
+          "calls_mean": 1,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.7563025210084033,
+          "incidents": 0,
+          "mean": 4.0,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 0.7071067811865476,
+          "timeouts": 0,
+          "valued_mean": 4.0,
+          "valued_runs": 2,
+          "wall_clock_mean": 1753.9242466688156
+        }
+      },
+      "compared": [
+        "best_of_n",
+        "direct",
+        "implement_check_diagnose_repair",
+        "implement_review_revise",
+        "plan_then_implement",
+        "unguided"
+      ],
+      "direct_rank": 5,
+      "direct_sole_winner": false,
+      "excluded_judges": {},
+      "gap_separated": false,
+      "max_gap": 1.125,
+      "no_pool": false,
+      "policies": {
+        "best_of_n": {
+          "calls_mean": 4,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.76890756302521,
+          "incidents": 0,
+          "mean": 5.25,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 1.0606601717798212,
+          "timeouts": 0,
+          "valued_mean": 5.25,
+          "valued_runs": 2,
+          "wall_clock_mean": 2578.09266769886
+        },
+        "direct": {
+          "calls_mean": 1,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.7773109243697479,
+          "incidents": 0,
+          "mean": 4.5,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 0.7071067811865476,
+          "timeouts": 0,
+          "valued_mean": 4.5,
+          "valued_runs": 2,
+          "wall_clock_mean": 1775.6822545528412
+        },
+        "implement_check_diagnose_repair": {
+          "calls_mean": 1,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.7815126050420168,
+          "incidents": 0,
+          "mean": 5.0,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 0.7071067811865476,
+          "timeouts": 0,
+          "valued_mean": 5.0,
+          "valued_runs": 2,
+          "wall_clock_mean": 2229.4651424884796
+        },
+        "implement_review_revise": {
+          "calls_mean": 6,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.8025210084033614,
+          "incidents": 0,
+          "mean": 5,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 0.0,
+          "timeouts": 0,
+          "valued_mean": 5,
+          "valued_runs": 2,
+          "wall_clock_mean": 3379.153681874275
+        },
+        "plan_then_implement": {
+          "calls_mean": 4,
+          "excluded": 0,
+          "failed": 0,
+          "failure_rate": 0.0,
+          "hidden_mean": 0.7605042016806722,
+          "incidents": 0,
+          "mean": 4.75,
+          "quota_incidents": 0,
+          "runs": 2,
+          "sd": 1.7677669529663689,
+          "timeouts": 0,
+          "valued_mean": 4.75,
+          "valued_runs": 2,
+          "wall_clock_mean": 3127.846243619919
+        }
+      },
+      "pooled_sd": 0.9312290266094587,
+      "separated": false,
+      "spread_ok": true,
+      "threshold": 1.8624580532189174,
+      "unguided": {
+        "calls_mean": 1,
+        "excluded": 0,
+        "failed": 0,
+        "failure_rate": 0.0,
+        "hidden_mean": 0.7731092436974789,
+        "incidents": 0,
+        "mean": 4.125,
+        "quota_incidents": 0,
+        "runs": 4,
+        "sd": 0.75,
+        "timeouts": 0,
+        "valued_mean": 4.125,
+        "valued_runs": 4,
+        "wall_clock_mean": 1894.9941796660423
+      },
+      "unpooled": []
+    }
+  },
+  "unguided": {
+    "allocation_distinct": 0,
+    "collapsed": false,
+    "distinct_skeletons": 2,
+    "episodes": {
+      "accepted": 6,
+      "quota_incident": 6
+    },
+    "revisit_rate": 0.0,
+    "terminal_only_share": 0.0
+  }
+}

@@ -1,0 +1,1720 @@
+{
+  "criterion_sha256": "84ee6307ab39e74710154654133585e53aaa9b329e5c7f9918dc9ee2f055cc80",
+  "judges": [
+    "claude-opus-5-5",
+    "gpt-6-sol"
+  ],
+  "excluded_judges": {},
+  "runs": [
+    {
+      "run": "/home/ollie/ss-work2/records/41d7cb6ae8dc72fef6a3de0025ec076f88ad3ada3bb3871531d38350790e1fbc/run-1",
+      "arm": "41d7cb6ae8dc72fef6a3de0025ec076f88ad3ada3bb3871531d38350790e1fbc",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1552.3080759048462,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 5
+      },
+      "hidden": {
+        "final": 0.773109243697479
+      },
+      "value": 5,
+      "hidden_value": 0.773109243697479
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/bd4f5609f55a4c82c55ab26feaf3175bcf75de82d027135d380a7028adc61529/run-1",
+      "arm": "bd4f5609f55a4c82c55ab26feaf3175bcf75de82d027135d380a7028adc61529",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1999.0564332008362,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 4
+      },
+      "hidden": {
+        "final": 0.7815126050420168
+      },
+      "value": 4,
+      "hidden_value": 0.7815126050420168
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/c644b3764d754407a5f264c08185a41dd7a5c898126528e3132722ada3726279/run-1",
+      "arm": "c644b3764d754407a5f264c08185a41dd7a5c898126528e3132722ada3726279",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 2681.003800868988,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 3.5
+      },
+      "hidden": {
+        "final": 0.7394957983193278
+      },
+      "value": 3.5,
+      "hidden_value": 0.7394957983193278
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/7266fb18e0b60c88d8c5a923d6df704c21802b7eb590dd0e85eac8ae7050c048/run-1",
+      "arm": "7266fb18e0b60c88d8c5a923d6df704c21802b7eb590dd0e85eac8ae7050c048",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 3574.6886863708496,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 6
+      },
+      "hidden": {
+        "final": 0.7815126050420168
+      },
+      "value": 6,
+      "hidden_value": 0.7815126050420168
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/47664b076403e0700197e7e4d561d955fb95784e44eed3af440e4604ed811714/run-1",
+      "arm": "47664b076403e0700197e7e4d561d955fb95784e44eed3af440e4604ed811714",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 2689.563066482544,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 4.5
+      },
+      "hidden": {
+        "final": 0.7563025210084033
+      },
+      "value": 4.5,
+      "hidden_value": 0.7563025210084033
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/2e2b4b7508f8d1f74a7f945ef0e15f0ff8764a12506dac42e6264385f06737fd/run-1",
+      "arm": "2e2b4b7508f8d1f74a7f945ef0e15f0ff8764a12506dac42e6264385f06737fd",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 2466.6222689151764,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 1,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "the agent read its own session's persisted tool output, subagent transcripts or memory under its own tree's project directory (the agents-<tree>-cand-1 slug of this run); no other session's, run's or tree's files",
+        "hits": 1
+      },
+      "excluded": null,
+      "scores": {
+        "final": 6
+      },
+      "hidden": {
+        "final": 0.7815126050420168
+      },
+      "value": 6,
+      "hidden_value": 0.7815126050420168
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/7e3ecee8f3cfaee55b26caf749f7d97ad7a792b64f28cd83666f112eb0a4f5b0/run-1",
+      "arm": "7e3ecee8f3cfaee55b26caf749f7d97ad7a792b64f28cd83666f112eb0a4f5b0",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2332.039002895355,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 5.5
+      },
+      "hidden": {
+        "final": 0.773109243697479
+      },
+      "value": 5.5,
+      "hidden_value": 0.773109243697479
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/662cdcedce056c012770f289551f9592bf0376d5cd1a864af464b05c6fbbc919/run-1",
+      "arm": "662cdcedce056c012770f289551f9592bf0376d5cd1a864af464b05c6fbbc919",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2126.891282081604,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 4.5
+      },
+      "hidden": {
+        "final": 0.7899159663865546
+      },
+      "value": 4.5,
+      "hidden_value": 0.7899159663865546
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/8431d13932104d4fcc496a6abbcd04e881b2d8cc31028017513f0c24d36fd6b6/run-1",
+      "arm": "8431d13932104d4fcc496a6abbcd04e881b2d8cc31028017513f0c24d36fd6b6",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1669.2376656532288,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 5
+      },
+      "hidden": {
+        "final": 0.7647058823529411
+      },
+      "value": 5,
+      "hidden_value": 0.7647058823529411
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/3a90edeafb0400a6d1ea0167cab8b2a75acfff4fea142b2d0ff95da92dcd7eeb/run-1",
+      "arm": "3a90edeafb0400a6d1ea0167cab8b2a75acfff4fea142b2d0ff95da92dcd7eeb",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2402.8905596733093,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 3.5
+      },
+      "hidden": {
+        "final": 0.8151260504201681
+      },
+      "value": 3.5,
+      "hidden_value": 0.8151260504201681
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/f0d3241c91bf0e865cf0e497db8907c104874e4a2b22f750745212511f12719f/run-1",
+      "arm": "f0d3241c91bf0e865cf0e497db8907c104874e4a2b22f750745212511f12719f",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2012.027172088623,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 7, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 0
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 7, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+      "scores": {},
+      "hidden": {},
+      "value": null
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/f6e14f35d6e8e8bed6402621dcccb2a758e3eb6bb4615514bb6e14c86e00e291/run-1",
+      "arm": "f6e14f35d6e8e8bed6402621dcccb2a758e3eb6bb4615514bb6e14c86e00e291",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2070.5721056461334,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 7, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 0
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 7, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+      "scores": {},
+      "hidden": {},
+      "value": null
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/de5cfbe1aeede215bb5485e29af79b6a05b04e2668c50035d7c0b00611558804/run-1",
+      "arm": "de5cfbe1aeede215bb5485e29af79b6a05b04e2668c50035d7c0b00611558804",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 2,
+      "wall_clock_sec": 2003.4493155479431,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 8, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 0
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 8, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+      "scores": {},
+      "hidden": {},
+      "value": null
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/9de4f7cfc80900feba32601c856419639d6f6b530643b35e3d172bfd769a4610/run-1",
+      "arm": "9de4f7cfc80900feba32601c856419639d6f6b530643b35e3d172bfd769a4610",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 2,
+      "wall_clock_sec": 2405.65030002594,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 8, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 0
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 8, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+      "scores": {},
+      "hidden": {},
+      "value": null
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/264ee0bf00a129a20eb049010245c5d390588053a175fd3e7ade920105e86110/run-1",
+      "arm": "264ee0bf00a129a20eb049010245c5d390588053a175fd3e7ade920105e86110",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1496.0918533802032,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 9, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 0
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 9, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+      "scores": {},
+      "hidden": {},
+      "value": null
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/16a1e701ed9ae1c96c43d9e17f606a2dbaf0825e972112cd94d47c87e9b54688/run-1",
+      "arm": "16a1e701ed9ae1c96c43d9e17f606a2dbaf0825e972112cd94d47c87e9b54688",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1853.2850205898285,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 9, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 0
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 9, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+      "scores": {},
+      "hidden": {},
+      "value": null
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/a614dfbdf599c51c773fb324729fec0334fd3535695195ecb19bc50577979d44/run-1",
+      "arm": "a614dfbdf599c51c773fb324729fec0334fd3535695195ecb19bc50577979d44",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1542.0994789600372,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 4.5
+      },
+      "hidden": {
+        "final": 0.7563025210084033
+      },
+      "value": 4.5,
+      "hidden_value": 0.7563025210084033
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/c99f9cc1923d4f36c235a798344775416d676ed44796bd809cea955afa079123/run-1",
+      "arm": "c99f9cc1923d4f36c235a798344775416d676ed44796bd809cea955afa079123",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1965.749014377594,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 2,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "the agent read its own session's persisted tool output, subagent transcripts or memory under its own tree's project directory (the agents-<tree>-cand-1 slug of this run); no other session's, run's or tree's files",
+        "hits": 2
+      },
+      "excluded": null,
+      "scores": {
+        "final": 3.5
+      },
+      "hidden": {
+        "final": 0.7563025210084033
+      },
+      "value": 3.5,
+      "hidden_value": 0.7563025210084033
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/883ec0d0045b449c4ad9e87f301f6b4148c4c8eaba79d418202128fc70363773/run-1",
+      "arm": "883ec0d0045b449c4ad9e87f301f6b4148c4c8eaba79d418202128fc70363773",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2080.647262573242,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 1,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 11, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 1
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 11, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+      "scores": {},
+      "hidden": {},
+      "value": null
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/436ba6f997fc12e09f6eced75a21f5eab7c20b1fb6807a676e18c09d13e910fb/run-1",
+      "arm": "436ba6f997fc12e09f6eced75a21f5eab7c20b1fb6807a676e18c09d13e910fb",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 3308.023057937622,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 5
+      },
+      "hidden": {
+        "final": 0.7899159663865546
+      },
+      "value": 5,
+      "hidden_value": 0.7899159663865546
+    },
+    {
+      "run": "/home/ollie/ss-work2/records/e88f9feabac457bcf6e88d9706b384ccf7732932c659bde942d5462f19a5a22a/run-1",
+      "arm": "e88f9feabac457bcf6e88d9706b384ccf7732932c659bde942d5462f19a5a22a",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 3450.2843058109283,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 2,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "the Codex reviewer read its own installed skill /home/ollie/.codex/skills/tmux/SKILL.md, whose text names the default claude-tmux-sockets directory; no other session's files were read",
+        "hits": 2
+      },
+      "excluded": null,
+      "scores": {
+        "final": 5
+      },
+      "hidden": {
+        "final": 0.8151260504201681
+      },
+      "value": 5,
+      "hidden_value": 0.8151260504201681
+    }
+  ],
+  "measures": {
+    "2e2b4b7508f8d1f74a7f945ef0e15f0ff8764a12506dac42e6264385f06737fd.runs": 1,
+    "2e2b4b7508f8d1f74a7f945ef0e15f0ff8764a12506dac42e6264385f06737fd.mean": 6,
+    "2e2b4b7508f8d1f74a7f945ef0e15f0ff8764a12506dac42e6264385f06737fd.calls_mean": 4,
+    "2e2b4b7508f8d1f74a7f945ef0e15f0ff8764a12506dac42e6264385f06737fd.wall_clock_mean": 2466.6222689151764,
+    "2e2b4b7508f8d1f74a7f945ef0e15f0ff8764a12506dac42e6264385f06737fd.hidden_mean": 0.7815126050420168,
+    "3a90edeafb0400a6d1ea0167cab8b2a75acfff4fea142b2d0ff95da92dcd7eeb.runs": 1,
+    "3a90edeafb0400a6d1ea0167cab8b2a75acfff4fea142b2d0ff95da92dcd7eeb.mean": 3.5,
+    "3a90edeafb0400a6d1ea0167cab8b2a75acfff4fea142b2d0ff95da92dcd7eeb.calls_mean": 1,
+    "3a90edeafb0400a6d1ea0167cab8b2a75acfff4fea142b2d0ff95da92dcd7eeb.wall_clock_mean": 2402.8905596733093,
+    "3a90edeafb0400a6d1ea0167cab8b2a75acfff4fea142b2d0ff95da92dcd7eeb.hidden_mean": 0.8151260504201681,
+    "41d7cb6ae8dc72fef6a3de0025ec076f88ad3ada3bb3871531d38350790e1fbc.runs": 1,
+    "41d7cb6ae8dc72fef6a3de0025ec076f88ad3ada3bb3871531d38350790e1fbc.mean": 5,
+    "41d7cb6ae8dc72fef6a3de0025ec076f88ad3ada3bb3871531d38350790e1fbc.calls_mean": 1,
+    "41d7cb6ae8dc72fef6a3de0025ec076f88ad3ada3bb3871531d38350790e1fbc.wall_clock_mean": 1552.3080759048462,
+    "41d7cb6ae8dc72fef6a3de0025ec076f88ad3ada3bb3871531d38350790e1fbc.hidden_mean": 0.773109243697479,
+    "436ba6f997fc12e09f6eced75a21f5eab7c20b1fb6807a676e18c09d13e910fb.runs": 1,
+    "436ba6f997fc12e09f6eced75a21f5eab7c20b1fb6807a676e18c09d13e910fb.mean": 5,
+    "436ba6f997fc12e09f6eced75a21f5eab7c20b1fb6807a676e18c09d13e910fb.calls_mean": 6,
+    "436ba6f997fc12e09f6eced75a21f5eab7c20b1fb6807a676e18c09d13e910fb.wall_clock_mean": 3308.023057937622,
+    "436ba6f997fc12e09f6eced75a21f5eab7c20b1fb6807a676e18c09d13e910fb.hidden_mean": 0.7899159663865546,
+    "47664b076403e0700197e7e4d561d955fb95784e44eed3af440e4604ed811714.runs": 1,
+    "47664b076403e0700197e7e4d561d955fb95784e44eed3af440e4604ed811714.mean": 4.5,
+    "47664b076403e0700197e7e4d561d955fb95784e44eed3af440e4604ed811714.calls_mean": 4,
+    "47664b076403e0700197e7e4d561d955fb95784e44eed3af440e4604ed811714.wall_clock_mean": 2689.563066482544,
+    "47664b076403e0700197e7e4d561d955fb95784e44eed3af440e4604ed811714.hidden_mean": 0.7563025210084033,
+    "662cdcedce056c012770f289551f9592bf0376d5cd1a864af464b05c6fbbc919.runs": 1,
+    "662cdcedce056c012770f289551f9592bf0376d5cd1a864af464b05c6fbbc919.mean": 4.5,
+    "662cdcedce056c012770f289551f9592bf0376d5cd1a864af464b05c6fbbc919.calls_mean": 1,
+    "662cdcedce056c012770f289551f9592bf0376d5cd1a864af464b05c6fbbc919.wall_clock_mean": 2126.891282081604,
+    "662cdcedce056c012770f289551f9592bf0376d5cd1a864af464b05c6fbbc919.hidden_mean": 0.7899159663865546,
+    "7266fb18e0b60c88d8c5a923d6df704c21802b7eb590dd0e85eac8ae7050c048.runs": 1,
+    "7266fb18e0b60c88d8c5a923d6df704c21802b7eb590dd0e85eac8ae7050c048.mean": 6,
+    "7266fb18e0b60c88d8c5a923d6df704c21802b7eb590dd0e85eac8ae7050c048.calls_mean": 4,
+    "7266fb18e0b60c88d8c5a923d6df704c21802b7eb590dd0e85eac8ae7050c048.wall_clock_mean": 3574.6886863708496,
+    "7266fb18e0b60c88d8c5a923d6df704c21802b7eb590dd0e85eac8ae7050c048.hidden_mean": 0.7815126050420168,
+    "7e3ecee8f3cfaee55b26caf749f7d97ad7a792b64f28cd83666f112eb0a4f5b0.runs": 1,
+    "7e3ecee8f3cfaee55b26caf749f7d97ad7a792b64f28cd83666f112eb0a4f5b0.mean": 5.5,
+    "7e3ecee8f3cfaee55b26caf749f7d97ad7a792b64f28cd83666f112eb0a4f5b0.calls_mean": 1,
+    "7e3ecee8f3cfaee55b26caf749f7d97ad7a792b64f28cd83666f112eb0a4f5b0.wall_clock_mean": 2332.039002895355,
+    "7e3ecee8f3cfaee55b26caf749f7d97ad7a792b64f28cd83666f112eb0a4f5b0.hidden_mean": 0.773109243697479,
+    "8431d13932104d4fcc496a6abbcd04e881b2d8cc31028017513f0c24d36fd6b6.runs": 1,
+    "8431d13932104d4fcc496a6abbcd04e881b2d8cc31028017513f0c24d36fd6b6.mean": 5,
+    "8431d13932104d4fcc496a6abbcd04e881b2d8cc31028017513f0c24d36fd6b6.calls_mean": 1,
+    "8431d13932104d4fcc496a6abbcd04e881b2d8cc31028017513f0c24d36fd6b6.wall_clock_mean": 1669.2376656532288,
+    "8431d13932104d4fcc496a6abbcd04e881b2d8cc31028017513f0c24d36fd6b6.hidden_mean": 0.7647058823529411,
+    "a614dfbdf599c51c773fb324729fec0334fd3535695195ecb19bc50577979d44.runs": 1,
+    "a614dfbdf599c51c773fb324729fec0334fd3535695195ecb19bc50577979d44.mean": 4.5,
+    "a614dfbdf599c51c773fb324729fec0334fd3535695195ecb19bc50577979d44.calls_mean": 1,
+    "a614dfbdf599c51c773fb324729fec0334fd3535695195ecb19bc50577979d44.wall_clock_mean": 1542.0994789600372,
+    "a614dfbdf599c51c773fb324729fec0334fd3535695195ecb19bc50577979d44.hidden_mean": 0.7563025210084033,
+    "bd4f5609f55a4c82c55ab26feaf3175bcf75de82d027135d380a7028adc61529.runs": 1,
+    "bd4f5609f55a4c82c55ab26feaf3175bcf75de82d027135d380a7028adc61529.mean": 4,
+    "bd4f5609f55a4c82c55ab26feaf3175bcf75de82d027135d380a7028adc61529.calls_mean": 1,
+    "bd4f5609f55a4c82c55ab26feaf3175bcf75de82d027135d380a7028adc61529.wall_clock_mean": 1999.0564332008362,
+    "bd4f5609f55a4c82c55ab26feaf3175bcf75de82d027135d380a7028adc61529.hidden_mean": 0.7815126050420168,
+    "c644b3764d754407a5f264c08185a41dd7a5c898126528e3132722ada3726279.runs": 1,
+    "c644b3764d754407a5f264c08185a41dd7a5c898126528e3132722ada3726279.mean": 3.5,
+    "c644b3764d754407a5f264c08185a41dd7a5c898126528e3132722ada3726279.calls_mean": 4,
+    "c644b3764d754407a5f264c08185a41dd7a5c898126528e3132722ada3726279.wall_clock_mean": 2681.003800868988,
+    "c644b3764d754407a5f264c08185a41dd7a5c898126528e3132722ada3726279.hidden_mean": 0.7394957983193278,
+    "c99f9cc1923d4f36c235a798344775416d676ed44796bd809cea955afa079123.runs": 1,
+    "c99f9cc1923d4f36c235a798344775416d676ed44796bd809cea955afa079123.mean": 3.5,
+    "c99f9cc1923d4f36c235a798344775416d676ed44796bd809cea955afa079123.calls_mean": 1,
+    "c99f9cc1923d4f36c235a798344775416d676ed44796bd809cea955afa079123.wall_clock_mean": 1965.749014377594,
+    "c99f9cc1923d4f36c235a798344775416d676ed44796bd809cea955afa079123.hidden_mean": 0.7563025210084033,
+    "e88f9feabac457bcf6e88d9706b384ccf7732932c659bde942d5462f19a5a22a.runs": 1,
+    "e88f9feabac457bcf6e88d9706b384ccf7732932c659bde942d5462f19a5a22a.mean": 5,
+    "e88f9feabac457bcf6e88d9706b384ccf7732932c659bde942d5462f19a5a22a.calls_mean": 6,
+    "e88f9feabac457bcf6e88d9706b384ccf7732932c659bde942d5462f19a5a22a.wall_clock_mean": 3450.2843058109283,
+    "e88f9feabac457bcf6e88d9706b384ccf7732932c659bde942d5462f19a5a22a.hidden_mean": 0.8151260504201681
+  },
+  "verdict": {
+    "primary": [],
+    "secondary": []
+  },
+  "agreement": {
+    "root_cause": {
+      "agree": 15,
+      "of": 18
+    },
+    "scope": {
+      "agree": 8,
+      "of": 18
+    },
+    "generality": {
+      "agree": 10,
+      "of": 18
+    },
+    "layering": {
+      "agree": 5,
+      "of": 18
+    }
+  },
+  "anchors": [
+    {
+      "batch": 0,
+      "anchor": "resume-projection-integrity-stub",
+      "judge": "claude-opus-5-5",
+      "total": 2
+    },
+    {
+      "batch": 0,
+      "anchor": "resume-projection-integrity-stub",
+      "judge": "gpt-6-sol",
+      "total": 2
+    },
+    {
+      "batch": 0,
+      "anchor": "resume-projection-integrity-upstream",
+      "judge": "claude-opus-5-5",
+      "total": 3
+    },
+    {
+      "batch": 0,
+      "anchor": "resume-projection-integrity-upstream",
+      "judge": "gpt-6-sol",
+      "total": 3
+    },
+    {
+      "batch": 1,
+      "anchor": "resume-projection-integrity-stub",
+      "judge": "claude-opus-5-5",
+      "total": 0
+    },
+    {
+      "batch": 1,
+      "anchor": "resume-projection-integrity-stub",
+      "judge": "gpt-6-sol",
+      "total": 2
+    },
+    {
+      "batch": 1,
+      "anchor": "resume-projection-integrity-upstream",
+      "judge": "claude-opus-5-5",
+      "total": 2
+    },
+    {
+      "batch": 1,
+      "anchor": "resume-projection-integrity-upstream",
+      "judge": "gpt-6-sol",
+      "total": 4
+    }
+  ],
+  "clones": {
+    "ff95e084": {
+      "run": "/home/ollie/ss-work2/records/2e2b4b7508f8d1f74a7f945ef0e15f0ff8764a12506dac42e6264385f06737fd/run-1",
+      "arm": "2e2b4b7508f8d1f74a7f945ef0e15f0ff8764a12506dac42e6264385f06737fd",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 6,
+      "hidden": 0.7815126050420168,
+      "hidden_failed": [
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_loop_contained_call_uses_exact_boundary_candidate",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_condition_result_conflict]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_current_completed_conflict]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_failed_exhaustion_wrong_error]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_successful_exhaustion_wrong_status]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_terminal_success_without_history]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[unclaimed_explicit_step_row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "Complete and well-ordered audit with a three-field envelope, node-level duplicate-alias check, and a shared sticky helper applied to routing, for_each, repeat_until, finalization and calls. However, the typed frontend_kind check was deleted from _is_workflow_lisp_route, which risks regressing root WL routing, and the step-alias bundle is used before the boundary's current alias is swapped in. Stickiness is still checked separately at each consumer, and parallel or dead code is left behind."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "The guards, import audit and typed provenance are placed appropriately, but the scope audit skips for_each list results and dereferences frame fields before checking that each frame is a mapping. Malformed persisted state can therefore escape the single stable integrity diagnostic."
+        }
+      }
+    },
+    "a325a057": {
+      "run": "/home/ollie/ss-work2/records/41d7cb6ae8dc72fef6a3de0025ec076f88ad3ada3bb3871531d38350790e1fbc/run-1",
+      "arm": "41d7cb6ae8dc72fef6a3de0025ec076f88ad3ada3bb3871531d38350790e1fbc",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 5,
+      "hidden": 0.773109243697479,
+      "hidden_failed": [
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_workflow_path-sha256:0000000000000000000000000000000000000000000000000000000000000000-missing]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[for_each]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[repeat_until]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_allows_one_running_member_with_failed_history",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_resolves_body_finalization_and_optional_omission",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The audit, CLI/root guards, reached-call selection and duplicate-alias check are well wired, but inside a for_each iteration later sibling steps keep running and causing effects after a projection error, and repeat_until still wraps the step-level error. Stickiness depends on walking the error chain at scattered sites, repeat_until candidates are bounded by the declared maximum rather than actual progress, and a test bypasses the checksum guard by monkeypatch."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It handles malformed for_each bookkeeping, call lineage and error propagation through the relevant layers, but skips explicit identities inside for_each result lists. A malformed steps container can also fail in RunState.to_dict before the root audit can record its stable error."
+        }
+      }
+    },
+    "0d59d35e": {
+      "run": "/home/ollie/ss-work2/records/7e3ecee8f3cfaee55b26caf749f7d97ad7a792b64f28cd83666f112eb0a4f5b0/run-1",
+      "arm": "7e3ecee8f3cfaee55b26caf749f7d97ad7a792b64f28cd83666f112eb0a4f5b0",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 5.5,
+      "hidden": 0.773109243697479,
+      "hidden_failed": [
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[for_each]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[repeat_until]",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_out_of_range]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_resolves_body_finalization_and_optional_omission",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 0,
+          "generality": 2,
+          "layering": 1,
+          "reason": "Every identity kind is audited at all three points, with sticky stopping in both loop types and unwrapped promotion. However, existing Workflow Lisp runtime tests were made to pass by injecting historical_compatibility context, which masks a routing change, and call_resume_state_invalid assertions were dropped. Stickiness is a mutable executor flag, and the finalization protection is patched in the executor rather than in finalization.py."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It adds the intended root, call, alias and provenance checks in their owning layers, but ignores identities in for_each result lists. State loading also still constructs malformed for_each entries before the audit, so those cases miss the required stable error."
+        }
+      }
+    },
+    "5b19c24d": {
+      "run": "/home/ollie/ss-work2/records/436ba6f997fc12e09f6eced75a21f5eab7c20b1fb6807a676e18c09d13e910fb/run-1",
+      "arm": "436ba6f997fc12e09f6eced75a21f5eab7c20b1fb6807a676e18c09d13e910fb",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 5,
+      "hidden": 0.7899159663865546,
+      "hidden_failed": [
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[resume_projection_integrity_error]",
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[workflow_checksum_mismatch]",
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[for_each]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_finalization_sticky_failure_is_supplemental",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The audit, envelopes, reached-call selection and duplicate-alias detection are sound, and the WL route is gated to keep its prior behaviour. But for_each bodies keep executing later nested steps (with effects) after a projection error, loop bookkeeping keys no loop owns pass the audit, and the error field is parsed from message text. It also leaves dead and duplicate code: frame_id_with_overrides and the coexisting ResumeStateIntegrityError path."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It audits nested result identities and malformed loop state through projection-owned slots, preserves the root envelope, and uses typed callee provenance. A previously recorded projection failure is not sticky across a later resume, so a repaired state can downgrade the run's diagnostic."
+        }
+      }
+    },
+    "95a923cf": {
+      "run": "/home/ollie/ss-work2/records/7266fb18e0b60c88d8c5a923d6df704c21802b7eb590dd0e85eac8ae7050c048/run-1",
+      "arm": "7266fb18e0b60c88d8c5a923d6df704c21802b7eb590dd0e85eac8ae7050c048",
+      "labels": [
+        "final"
+      ],
+      "stripped": [
+        "docs/design/README.md",
+        "docs/design/resume_projection_integrity_hardening.md"
+      ],
+      "score": 6,
+      "hidden": 0.7815126050420168,
+      "hidden_failed": [
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_workflow_path-sha256:0000000000000000000000000000000000000000000000000000000000000000-missing]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_allows_one_running_member_with_failed_history",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_reached_call_checksum_precedes_local_projection_failure",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_out_of_range]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[ambiguous_call_boundary]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[ambiguous_resumable_call_frame]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Complete audit with a correct three-field envelope, current-alias callee selection, ordered predecessor audits, and stickiness that stops for_each and repeat_until without wrapping. But three runtime tests set frontend_kind back to None to hide the lexical-resume routing change caused by typing every lowered bundle, and the out-of-scope doc edits cite a non-existent design doc and commits and break an index sentence. The root guard also audits completed runs, and diagnostic fields are recovered by parsing message text."
+        },
+        "gpt-6-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "It audits the raw persisted tree, including nested for_each results and call-frame identities, before writes; root and reached-call failures retain one sticky diagnostic. Duplicate imports and Workflow Lisp provenance are handled at load and frontend construction, while projection, state and call layers own their respective checks."
+        }
+      }
+    },
+    "da40a5b4": {
+      "run": "/home/ollie/ss-work2/records/8431d13932104d4fcc496a6abbcd04e881b2d8cc31028017513f0c24d36fd6b6/run-1",
+      "arm": "8431d13932104d4fcc496a6abbcd04e881b2d8cc31028017513f0c24d36fd6b6",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 5,
+      "hidden": 0.7647058823529411,
+      "hidden_failed": [
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[resume_projection_integrity_error]",
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[workflow_checksum_mismatch]",
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_workflow_path-sha256:0000000000000000000000000000000000000000000000000000000000000000-missing]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[repeat_until]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_finalization_sticky_failure_is_supplemental",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Audits all five identity kinds through projection-owned candidates, with correct CLI, root-executor and reached-call placement, a three-field envelope and a node-level duplicate-alias check. However, repeat_until still wraps the projection error as repeat_until_body_step_failed, and the control-flow check only looks at the top-level error type, so the wrapped error stays routable; stickiness is ad-hoc per-site checks, and one test module disables the audit wholesale."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It places projection checks at the requested boundaries and keeps the failure envelope narrow, but it skips identities inside for_each result lists and a malformed for_each entry can fail during state loading before the audit. The new checks otherwise use the projection, loader and call execution layers that own them."
+        }
+      }
+    },
+    "045657ab": {
+      "run": "/home/ollie/ss-work2/records/a614dfbdf599c51c773fb324729fec0334fd3535695195ecb19bc50577979d44/run-1",
+      "arm": "a614dfbdf599c51c773fb324729fec0334fd3535695195ecb19bc50577979d44",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": 0.7563025210084033,
+      "hidden_failed": [
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[for_each]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[repeat_until]",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_out_of_range]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_resolves_body_finalization_and_optional_omission",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[ambiguous_call_boundary]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[missing_imported_bundle]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The guards, reached-call selection, centralized control-flow stop and duplicate-alias check are well wired. However, stale or renamed for_each/repeat_until keys are never matched against the projection, the CLI audit runs before the completed early return and can flip completed runs to failed, and WL bundles without schema evidence now default to lowering schema 1 (an unrequested policy change). A string-split retry-family helper also remains beside the new lineage parser."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The main guards and typed call classification are present, but list-valued for_each results are skipped and malformed loop entries can fail in RunState.from_dict before the stable audit error. Its separate pending_projection_error channel duplicates normal result and run-error propagation."
+        }
+      }
+    },
+    "73d9c0a6": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "resume-projection-integrity-stub"
+      ],
+      "stripped": [],
+      "score": 2,
+      "hidden": 0.0,
+      "hidden_failed": [
+        "tests/test_adjudicated_provider_resume.py::test_resume_source_mutation_reports_root_checksum_mismatch_before_adjudication",
+        "tests/test_adjudicated_provider_runtime.py::test_resume_source_mutation_reports_root_checksum_mismatch_before_adjudication",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_duplicate_import_alias_keys_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_merge_induced_duplicate_import_alias_is_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_repeated_import_sections_with_distinct_aliases_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_repeated_import_sections_with_duplicate_alias_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_top_level_merge_sources_with_duplicate_alias_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_top_level_merged_and_explicit_import_sections_are_rejected_before_bundle_construction",
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[resume_projection_integrity_error]",
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[workflow_checksum_mismatch]",
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_post_cli_identity_race_uses_three_field_delta_and_closes_session",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_direct_executor_rechecks_checksum_and_audit_before_prologue",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_workflow_path-sha256:0000000000000000000000000000000000000000000000000000000000000000-missing]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_resume_command.py::test_resume_fails_closed_on_projection_current_step_integrity_mismatch",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[for_each]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[repeat_until]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_finalization_failure_is_supplemental",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_finalization_sticky_failure_is_supplemental",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_in_finalization_promotes_without_prior_sticky_error",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[missing_recorded_checksum-workflows/root.yaml-None-sha256:current]",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[missing_workflow_path-None-sha256:persisted-None]",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[workflow_modified-workflows/root.yaml-sha256:persisted-sha256:current]",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[workflow_unavailable-workflows/missing.yaml-sha256:persisted-None]",
+        "tests/test_state_manager.py::TestStateManager::test_projection_failure_recorder_changes_exactly_three_root_fields",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_allows_one_running_member_with_failed_history",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_indexes_failed_history_and_next_id",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[alias-mismatch]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[caller-mismatch]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[duplicate-ordinal]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[malformed-ordinal]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[missing-ordinal]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[mixed-bases]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[multiple-running]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[nested-retry-marker]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[non-workflow-lisp-multiple-noncompleted]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[unknown-status]",
+        "tests/test_subworkflow_calls.py::test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_occupied_completed_call_frame_collision_rejects_before_lineage_grouping[matching-caller]",
+        "tests/test_subworkflow_calls.py::test_occupied_completed_call_frame_collision_rejects_before_lineage_grouping[missing-caller]",
+        "tests/test_subworkflow_calls.py::test_occupied_completed_call_frame_collision_rejects_before_lineage_grouping[stale-caller]",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_loop_contained_call_uses_exact_boundary_candidate",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_mutation_order_callee_local_corruption_preserves_selected_child",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_mutation_order_stale_caller_id_fails_at_root_audit",
+        "tests/test_subworkflow_calls.py::test_reached_call_checksum_precedes_local_projection_failure",
+        "tests/test_subworkflow_calls.py::test_reached_call_projection_failure_does_not_mutate_selected_callee",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_subworkflow_calls.py::test_reached_call_running_workflow_lisp_guards_precede_failed_history_audit",
+        "tests/test_subworkflow_calls.py::test_resume_projection_auditor_rejects_stale_caller_and_alias_without_mutation",
+        "tests/test_subworkflow_calls.py::test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwrite[corrupt_call_frames1-call_frame_not_mapping]",
+        "tests/test_subworkflow_calls.py::test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwrite[malformed-container-call_frames_not_mapping]",
+        "tests/test_subworkflow_calls.py::test_workflow_lisp_retry_classification_uses_typed_frontend_kind_not_suffix",
+        "tests/test_workflow_lisp_build_artifacts.py::test_build_frontend_bundle_preserves_compiler_owned_frontend_kind",
+        "tests/test_workflow_lisp_key_migrations.py::test_review_loop_parity_fixture_compiles_to_resume_safe_repeat_until_via_imported_stdlib_route",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_lisp_modules.py::test_compile_stage3_entrypoint_does_not_relabel_explicit_classic_yaml_bundle",
+        "tests/test_workflow_lisp_modules.py::test_compile_stage3_entrypoint_registers_canonical_callable_keys",
+        "tests/test_workflow_state_projection.py::test_call_boundary_projection_exposes_current_import_alias",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress0-repeat_frame0]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress1-repeat_frame1]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress2-repeat_frame2]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress3-repeat_frame3]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_boolean_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_container]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_current_completed_conflict]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_duplicate_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_items]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_out_of_range]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_progress]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_boolean_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_condition_result_conflict]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_container]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_current_completed_conflict]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_duplicate_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_exhausted_type]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_failed_exhaustion_wrong_error]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_out_of_range]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_progress]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_successful_exhaustion_wrong_status]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_terminal_success_without_history]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_resolves_body_finalization_and_optional_omission",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[ambiguous_call_boundary]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[ambiguous_resumable_call_frame]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[invalid_loop_progress]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[missing_call_boundary]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[missing_imported_bundle]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[missing_required_identity]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[out_of_scope_step_id]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[persisted_import_alias_mismatch]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[presentation_slot_mismatch]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[unclaimed_explicit_step_row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[unknown_explicit_step_id]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[unsupported_shape]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[call-frame]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[call-frames]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[current-step]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_secret_list_identity_contents",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[scalar-row]",
+        "tests/test_workflow_state_projection.py::test_resume_scope_path_snapshots_mutable_call_frame_input"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 1,
+          "generality": 0,
+          "layering": 1,
+          "reason": "Adds only stub entry points: audit_scope accepts everything, and the projection/state methods raise NotImplementedError and are never wired into the CLI, executor or calls. Nothing is audited, made sticky, de-duplicated or reclassified, and it leaves dead API behind."
+        },
+        "gpt-6-sol": {
+          "root_cause": 0,
+          "scope": 2,
+          "generality": 0,
+          "layering": 0,
+          "reason": "This is only an API stub: audit_scope accepts every state, the slot methods and retry lineage raise NotImplementedError, and no CLI or executor guard is wired. Its limited edits do not weaken an existing validation path, but they implement none of the required behavior."
+        }
+      }
+    },
+    "2154be2f": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "resume-projection-integrity-upstream"
+      ],
+      "stripped": [],
+      "score": 3,
+      "hidden": 1.0,
+      "hidden_failed": [],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The core audit, envelopes and current-alias callee selection are implemented, but missing/ambiguous boundaries are diagnosed by auditing a fake __reached_call__ frame ending in AssertionError, and the boundary lookup also runs on fresh runs. It changes no tests, leaves existing characterization tests to break, and the acceptance spec invents a proof commit and test counts; the audit module is 877 lines and stickiness is spread over six ad-hoc checks."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "It has broad projection and lineage checks, but malformed loop state can fail during loading before the audit. Moving the existing provider-session quarantine gate behind workflow loading and the new audit weakens that earlier stop guarantee, while reached-call failures are synthesized through extra state and repeated audit paths."
+        }
+      }
+    },
+    "4e2cf594": {
+      "run": "/home/ollie/ss-work2/records/47664b076403e0700197e7e4d561d955fb95784e44eed3af440e4604ed811714/run-1",
+      "arm": "47664b076403e0700197e7e4d561d955fb95784e44eed3af440e4604ed811714",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": 0.7563025210084033,
+      "hidden_failed": [
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[for_each]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[repeat_until]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_finalization_failure_is_supplemental",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_finalization_sticky_failure_is_supplemental",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[missing-ordinal]",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_projection_failure_does_not_mutate_selected_callee",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Good CLI and root ordering, a single boundary resolution per call, finalization correctly exempted from the sticky stop, and typed frontend_kind, sharing string lineage and the wider reached-call envelope. Later for_each body steps still run after the failure, routable binding or checksum errors can mask the projection error, and stale loop names are accepted unchecked."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It checks nested step rows and uses projection-owned resolution, but repeat-until progress with missing prior iterations and unowned loop-progress names can pass. The repeat-until failure path can still wrap the projection error, and a broad session-close catch hides unrelated close failures."
+        }
+      }
+    },
+    "feb1c7a0": {
+      "run": "/home/ollie/ss-work2/records/bd4f5609f55a4c82c55ab26feaf3175bcf75de82d027135d380a7028adc61529/run-1",
+      "arm": "bd4f5609f55a4c82c55ab26feaf3175bcf75de82d027135d380a7028adc61529",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 4,
+      "hidden": 0.7815126050420168,
+      "hidden_failed": [
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_workflow_path-sha256:0000000000000000000000000000000000000000000000000000000000000000-missing]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[for_each]",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[call-frame]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[scalar-row]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Audits before mutation at the CLI and root with frontend_kind threaded through elaboration and a sticky, unwrapped error, sharing string retry lineage and the wider reached-call envelope. Stale loop progress is only shape-checked, the callee checksum is checked against the alias-selected bundle rather than the boundary-selected one, and the import scan flags a legal explicit key overriding a YAML merge key."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 0,
+          "layering": 2,
+          "reason": "The CLI, root, and call guards use the projection and typed provenance, but the auditor skips every explicit identity inside for_each result lists and accepts unowned loop-progress names. Reached-call lineage selection can also return its new error before the existing checksum validation runs."
+        }
+      }
+    },
+    "585cd19c": {
+      "run": "/home/ollie/ss-work2/records/662cdcedce056c012770f289551f9592bf0376d5cd1a864af464b05c6fbbc919/run-1",
+      "arm": "662cdcedce056c012770f289551f9592bf0376d5cd1a864af464b05c6fbbc919",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": 0.7899159663865546,
+      "hidden_failed": [
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_workflow_path-sha256:0000000000000000000000000000000000000000000000000000000000000000-missing]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[for_each]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[missing-ordinal]",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "A sound three-level audit before mutation, with exact projection resolution and a sticky error that is never wrapped, but it shares string-parsed retry lineage (duplicated in calls.py), a reached-call envelope wider than the three root fields, and an executor checksum recheck. It also swallows an exception in loop snapshots and leaves nested loops uncovered."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It checks nested result IDs and places call selection beside projection resolution, but accepts gaps and unowned names in loop progress. Reached-call projection errors can preempt existing input or checksum checks, and the direct root guard hashes bundle provenance rather than the recorded workflow file."
+        }
+      }
+    },
+    "4be13a5a": {
+      "run": "/home/ollie/ss-work2/records/e88f9feabac457bcf6e88d9706b384ccf7732932c659bde942d5462f19a5a22a/run-1",
+      "arm": "e88f9feabac457bcf6e88d9706b384ccf7732932c659bde942d5462f19a5a22a",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 5,
+      "hidden": 0.8151260504201681,
+      "hidden_failed": [
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_workflow_path-sha256:0000000000000000000000000000000000000000000000000000000000000000-missing]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[repeat_until]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[missing-ordinal]",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The same sound three-level audit, typed frontend_kind and duplicate-alias check before construction, sharing string lineage and the wider reached-call envelope. Retagging every lowered bundle changes default-resume routing, which nine tests now mock away; a completed-frame collision stays routable; and dead audit code is left behind."
+        },
+        "gpt-6-sol": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It audits list rows and loop owners at the CLI, root, and reached call, with loader-level alias checks and typed provenance. Its retry index still accepts missing ordinals, valid terminal exhaustion without a loop row is rejected, and the root checksum guard catches only FileNotFoundError."
+        }
+      }
+    },
+    "66f1f1c5": {
+      "run": "/home/ollie/ss-work2/records/c644b3764d754407a5f264c08185a41dd7a5c898126528e3132722ada3726279/run-1",
+      "arm": "c644b3764d754407a5f264c08185a41dd7a5c898126528e3132722ada3726279",
+      "labels": [
+        "final"
+      ],
+      "stripped": [
+        "docs/design/README.md",
+        "docs/design/resume_projection_integrity_hardening.md"
+      ],
+      "score": 3.5,
+      "hidden": 0.7394957983193278,
+      "hidden_failed": [
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[resume_projection_integrity_error]",
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[workflow_checksum_mismatch]",
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_workflow_path-sha256:0000000000000000000000000000000000000000000000000000000000000000-missing]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_state_manager.py::TestStateManager::test_projection_failure_recorder_changes_exactly_three_root_fields",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[duplicate-ordinal]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[mixed-bases]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[multiple-running]",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_resolves_body_finalization_and_optional_omission",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 0,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Audits the raw state before any write with typed frontend_kind and a generic alias scan, but its sticky _stop also applies to finalization steps, so only the first cleanup step runs, a regression the other clones avoid. Every resume is moved onto a new raw _patch_persisted_state write path, and frame-lineage logic is duplicated across two modules."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 0,
+          "layering": 2,
+          "reason": "The raw-state root guard and failure envelope sit at the right boundaries, but explicit IDs inside for_each result lists are never audited and separate failed Workflow Lisp frame families can pass as one boundary. The CLI also audits a completed run before its prior no-op return."
+        }
+      }
+    },
+    "6aac07aa": {
+      "run": "/home/ollie/ss-work2/records/3a90edeafb0400a6d1ea0167cab8b2a75acfff4fea142b2d0ff95da92dcd7eeb/run-1",
+      "arm": "3a90edeafb0400a6d1ea0167cab8b2a75acfff4fea142b2d0ff95da92dcd7eeb",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 3.5,
+      "hidden": 0.8151260504201681,
+      "hidden_failed": [
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_allows_one_running_member_with_failed_history",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_resolves_body_finalization_and_optional_omission",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "A clean three-level audit with the callee selected through the parent boundary, a sticky non-routable error and frontend_kind classification, sharing string retry lineage, the wider reached-call envelope and a duplicated checksum recheck. Loop progress for a loop the projection doesn't own is not rejected, current_step.index is not audited, and max_iterations is attached with object.__setattr__ on a frozen dataclass."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 0,
+          "layering": 1,
+          "reason": "The new guards and typed provenance cover many paths, but list-contained step IDs and unowned loop-progress names pass unaudited. The direct root guard hashes the bundle's provenance path rather than the persisted workflow file, and the broad session-close catch masks unrelated failures."
+        }
+      }
+    },
+    "85b0ca16": {
+      "run": "/home/ollie/ss-work2/records/c99f9cc1923d4f36c235a798344775416d676ed44796bd809cea955afa079123/run-1",
+      "arm": "c99f9cc1923d4f36c235a798344775416d676ed44796bd809cea955afa079123",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 3.5,
+      "hidden": 0.7563025210084033,
+      "hidden_failed": [
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_workflow_path-sha256:0000000000000000000000000000000000000000000000000000000000000000-missing]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[repeat_until]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[missing-ordinal]",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_out_of_range]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_resolves_body_finalization_and_optional_omission",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[ambiguous_call_boundary]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[call-frame]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[current-step]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[scalar-row]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Audits at the CLI, the root executor and reached calls before mutation, writes only status/error/updated_at at the root, and classifies by typed frontend_kind, but like its peers it keeps '::retry::' string lineage and lets reached-call failures write parent rows and run finalization. It also lets later for_each body steps run after the failure and lets deferred plan failures come back routable."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 0,
+          "layering": 1,
+          "reason": "The entry guards and typed target selection are present, but list-contained IDs and missing Workflow Lisp retry ordinals pass. Repeat-until can still wrap the supposedly unwrappable diagnostic, and the separate sticky helper only discovers that wrapper afterward."
+        }
+      }
+    },
+    "ace64041": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "resume-projection-integrity-stub"
+      ],
+      "stripped": [],
+      "score": 1,
+      "hidden": 0.0,
+      "hidden_failed": [
+        "tests/test_adjudicated_provider_resume.py::test_resume_source_mutation_reports_root_checksum_mismatch_before_adjudication",
+        "tests/test_adjudicated_provider_runtime.py::test_resume_source_mutation_reports_root_checksum_mismatch_before_adjudication",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_duplicate_import_alias_keys_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_merge_induced_duplicate_import_alias_is_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_repeated_import_sections_with_distinct_aliases_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_repeated_import_sections_with_duplicate_alias_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_top_level_merge_sources_with_duplicate_alias_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_top_level_merged_and_explicit_import_sections_are_rejected_before_bundle_construction",
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[resume_projection_integrity_error]",
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[workflow_checksum_mismatch]",
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_post_cli_identity_race_uses_three_field_delta_and_closes_session",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_direct_executor_rechecks_checksum_and_audit_before_prologue",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_workflow_path-sha256:0000000000000000000000000000000000000000000000000000000000000000-missing]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_resume_command.py::test_resume_fails_closed_on_projection_current_step_integrity_mismatch",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[for_each]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[repeat_until]",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_finalization_failure_is_supplemental",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_finalization_sticky_failure_is_supplemental",
+        "tests/test_runtime_step_lifecycle.py::test_projection_error_in_finalization_promotes_without_prior_sticky_error",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[missing_recorded_checksum-workflows/root.yaml-None-sha256:current]",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[missing_workflow_path-None-sha256:persisted-None]",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[workflow_modified-workflows/root.yaml-sha256:persisted-sha256:current]",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[workflow_unavailable-workflows/missing.yaml-sha256:persisted-None]",
+        "tests/test_state_manager.py::TestStateManager::test_projection_failure_recorder_changes_exactly_three_root_fields",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_allows_one_running_member_with_failed_history",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_indexes_failed_history_and_next_id",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[alias-mismatch]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[caller-mismatch]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[duplicate-ordinal]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[malformed-ordinal]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[missing-ordinal]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[mixed-bases]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[multiple-running]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[nested-retry-marker]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[non-workflow-lisp-multiple-noncompleted]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[unknown-status]",
+        "tests/test_subworkflow_calls.py::test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_occupied_completed_call_frame_collision_rejects_before_lineage_grouping[matching-caller]",
+        "tests/test_subworkflow_calls.py::test_occupied_completed_call_frame_collision_rejects_before_lineage_grouping[missing-caller]",
+        "tests/test_subworkflow_calls.py::test_occupied_completed_call_frame_collision_rejects_before_lineage_grouping[stale-caller]",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_loop_contained_call_uses_exact_boundary_candidate",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_mutation_order_callee_local_corruption_preserves_selected_child",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_mutation_order_stale_caller_id_fails_at_root_audit",
+        "tests/test_subworkflow_calls.py::test_reached_call_checksum_precedes_local_projection_failure",
+        "tests/test_subworkflow_calls.py::test_reached_call_projection_failure_does_not_mutate_selected_callee",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_subworkflow_calls.py::test_reached_call_running_workflow_lisp_guards_precede_failed_history_audit",
+        "tests/test_subworkflow_calls.py::test_resume_projection_auditor_rejects_stale_caller_and_alias_without_mutation",
+        "tests/test_subworkflow_calls.py::test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwrite[corrupt_call_frames1-call_frame_not_mapping]",
+        "tests/test_subworkflow_calls.py::test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwrite[malformed-container-call_frames_not_mapping]",
+        "tests/test_subworkflow_calls.py::test_workflow_lisp_retry_classification_uses_typed_frontend_kind_not_suffix",
+        "tests/test_workflow_lisp_build_artifacts.py::test_build_frontend_bundle_preserves_compiler_owned_frontend_kind",
+        "tests/test_workflow_lisp_key_migrations.py::test_review_loop_parity_fixture_compiles_to_resume_safe_repeat_until_via_imported_stdlib_route",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_lisp_modules.py::test_compile_stage3_entrypoint_does_not_relabel_explicit_classic_yaml_bundle",
+        "tests/test_workflow_lisp_modules.py::test_compile_stage3_entrypoint_registers_canonical_callable_keys",
+        "tests/test_workflow_state_projection.py::test_call_boundary_projection_exposes_current_import_alias",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress0-repeat_frame0]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress1-repeat_frame1]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress2-repeat_frame2]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress3-repeat_frame3]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_boolean_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_container]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_current_completed_conflict]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_duplicate_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_items]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_out_of_range]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_progress]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_boolean_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_condition_result_conflict]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_container]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_current_completed_conflict]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_duplicate_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_exhausted_type]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_failed_exhaustion_wrong_error]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_out_of_range]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_progress]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_successful_exhaustion_wrong_status]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_terminal_success_without_history]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_resolves_body_finalization_and_optional_omission",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[ambiguous_call_boundary]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[ambiguous_resumable_call_frame]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[invalid_loop_progress]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[missing_call_boundary]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[missing_imported_bundle]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[missing_required_identity]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[out_of_scope_step_id]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[persisted_import_alias_mismatch]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[presentation_slot_mismatch]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[unclaimed_explicit_step_row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[unknown_explicit_step_id]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[unsupported_shape]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[call-frame]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[call-frames]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[current-step]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_secret_list_identity_contents",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[scalar-row]",
+        "tests/test_workflow_state_projection.py::test_resume_scope_path_snapshots_mutable_call_frame_input"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Only stubs: audit_scope accepts every scope and the projection and StateManager methods raise NotImplementedError, with nothing wired into the CLI, the executor, calls or the loader. None of the audit, alias rejection or provenance classification is implemented."
+        },
+        "gpt-6-sol": {
+          "root_cause": 0,
+          "scope": 2,
+          "generality": 0,
+          "layering": 0,
+          "reason": "The added auditor accepts every scope, and the new projection, retry, and state-envelope methods are unimplemented stubs. Existing behavior is largely untouched, but none of the required guards or import and provenance fixes is present."
+        }
+      }
+    },
+    "043f3452": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "resume-projection-integrity-upstream"
+      ],
+      "stripped": [],
+      "score": 3,
+      "hidden": 1.0,
+      "hidden_failed": [],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Has the same three-level audit and frontend_kind check but no tests, runs the boundary audit on fresh runs, and keys retry lineage per call step instead of per visit, so valid revisit and retry states are rejected as ambiguous. Layering is poor: an 877-line module, duplicated row helpers, and a fake '__reached_call__' frame plus AssertionError used as a second way to raise the error."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "The audit covers ordinary step and call identities, but ignores unowned loop-progress keys and now audits completed CLI runs instead of leaving them alone. Reached-call boundary resolution also runs on fresh calls, while retry-lineage logic is folded into the audit module."
+        }
+      }
+    }
+  }
+}

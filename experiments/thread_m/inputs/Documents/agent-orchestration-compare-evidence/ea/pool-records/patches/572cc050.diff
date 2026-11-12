@@ -1,0 +1,180 @@
+diff --git a/orchestrator/workflow/loops.py b/orchestrator/workflow/loops.py
+index 66300d2..e2a115b 100644
+--- a/orchestrator/workflow/loops.py
++++ b/orchestrator/workflow/loops.py
+@@ -10,6 +10,7 @@ from ..state import ForEachState, StepResult
+ from .executable_ir import ExecutableNodeKind
+ from .executor_runtime import LoopRuntime, RuntimeStepInput
+ from .pointers import PointerResolver
++from .references import ReferenceResolutionError, parse_structured_ref
+ from .runtime_context import RuntimeContext
+ from .identity import iteration_step_id
+ from .resume_projection_integrity import (
+@@ -703,6 +704,8 @@ class LoopExecutor:
+         self,
+         block: Any,
+         frame_artifacts: Mapping[str, Any],
++        step_name: str,
++        steps: Mapping[str, Any],
+     ) -> Optional[Dict[str, Any]]:
+         """Return loop-frame artifacts for an authored on_exhausted policy."""
+         on_exhausted = block.get("on_exhausted") if isinstance(block, Mapping) else None
+@@ -713,8 +716,37 @@ class LoopExecutor:
+             return None
+         artifacts = dict(frame_artifacts)
+         artifacts.update(dict(overrides))
++        if self.executor._workflow_version_at_least("2.29"):
++            self._resolve_exhaustion_refs(artifacts, step_name, frame_artifacts, steps)
+         return artifacts
+ 
++    @staticmethod
++    def _resolve_exhaustion_refs(
++        artifacts: Dict[str, Any],
++        step_name: str,
++        frame_artifacts: Mapping[str, Any],
++        steps: Mapping[str, Any],
++    ) -> None:
++        """Replace compiler-emitted `{ref}` overrides with the values they name.
++
++        Refs to the loop's own outputs read the exhaustion snapshot (the loop
++        frame is not persisted yet); other refs read persisted step artifacts.
++        """
++        for name, value in artifacts.items():
++            if not (isinstance(value, Mapping) and set(value) == {"ref"}):
++                continue
++            target = parse_structured_ref(value["ref"], [*steps, step_name])
++            if target.field != "artifacts" or not isinstance(target.member, str):
++                raise ReferenceResolutionError(f"on_exhausted ref '{value['ref']}' is not an artifact ref")
++            source = (
++                frame_artifacts
++                if target.step_name == step_name
++                else (steps.get(target.step_name) or {}).get("artifacts") or {}
++            )
++            if target.member not in source:
++                raise ReferenceResolutionError(f"on_exhausted ref '{value['ref']}' is unavailable")
++            artifacts[name] = source[target.member]
++
+     def _exhaustion_frame_artifacts(
+         self,
+         *,
+@@ -1417,7 +1449,9 @@ class LoopExecutor:
+                     "condition_evaluated_for_iteration": current_iteration,
+                     "last_condition_result": False,
+                 }
+-                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, exhaustion_frame_artifacts)
++                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(
++                    block, exhaustion_frame_artifacts, step_name, state.get("steps", {})
++                )
+                 if exhausted_artifacts is not None:
+                     progress["exhausted"] = True
+                     completed = self.executor._attach_outcome(
+diff --git a/orchestrator/workflow/validation.py b/orchestrator/workflow/validation.py
+index 42661f2..ebed13e 100644
+--- a/orchestrator/workflow/validation.py
++++ b/orchestrator/workflow/validation.py
+@@ -2793,15 +2793,15 @@ class _WorkflowMappingValidator:
+ 
+             spec = output_specs[output_name]
+             output_type = spec.get('type')
+-            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
+-                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
+-                continue
+             if self._is_generated_repeat_until_on_exhausted_ref(
+                 value,
+                 step_name=step_name,
+                 output_name=output_name,
+             ):
+                 continue
++            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
++                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
++                continue
+             if isinstance(value, (dict, list)):
+                 self._add_error(f"{value_context} must be a scalar literal")
+                 continue
+diff --git a/tests/test_workflow_lisp_loop_result_paths_e2e.py b/tests/test_workflow_lisp_loop_result_paths_e2e.py
+new file mode 100644
+index 0000000..fc96264
+--- /dev/null
++++ b/tests/test_workflow_lisp_loop_result_paths_e2e.py
+@@ -0,0 +1,81 @@
++"""A loop result union with a path field in a non-exhausted variant behaves the
++same at every target from 2.28 through 2.32, including on exhaustion."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++import pytest
++
++from orchestrator.workflow.executor import WorkflowExecutor
++from tests.test_workflow_lisp_strict_boolean_control_flow_e2e import (
++    _compile_and_bind,
++    _provider_patches,
++)
++
++SOURCE = """
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "{target}")
++  (defmodule loop_paths)
++  (export run)
++  (defpath Report :kind relpath :under "artifacts/review" :must-exist true)
++  (defunion Review
++    (APPROVE (report Report))
++    (RETRY (note String)))
++  (defunion Outcome
++    (READY (report Report) (rounds Int))
++    (UNRESOLVED (rounds Int)))
++  (defworkflow run () -> Outcome
++    (loop/recur :max 2
++      :state (loop-state (round Int 1))
++      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++      (fn (state)
++        (match (provider-result providers.reviewer :prompt prompts.review :inputs () :returns Review)
++          ((APPROVE a) (done (variant Outcome READY :report a.report :rounds state.round)))
++          ((RETRY r) (continue (loop-state :like state :round (+ state.round 1))))))))
++)
++"""
++
++
++def _run(tmp_path: Path, target: str, document: dict):
++    module = tmp_path / "loop_paths.orc"
++    module.write_text(SOURCE.format(target=target), encoding="utf-8")
++    (tmp_path / "artifacts/review").mkdir(parents=True)
++    (tmp_path / "review.md").write_text("Review.\n", encoding="utf-8")
++    (tmp_path / "artifacts/review/r.md").write_text("ok\n", encoding="utf-8")
++    bundle, sm = _compile_and_bind(
++        tmp_path, module, run_id="r", command_boundaries={},
++        provider_externs={"providers.reviewer": "fake"}, prompt_externs={"prompts.review": {"input_file": "review.md"}},
++    )
++    p1, p2 = _provider_patches(tmp_path, json.dumps(document), [])
++    with p1, p2:
++        return WorkflowExecutor(bundle, tmp_path, sm, retry_delay_ms=0).execute(on_error="stop")
++
++
++TARGETS = ["2.28", "2.29", "2.30", "2.31", "2.32"]
++
++
++def _outputs(state: dict) -> dict:
++    assert state["status"] == "completed", state.get("error")
++    return {k: v for k, v in state["workflow_outputs"].items() if k != "return__report"}
++
++
++@pytest.mark.parametrize("target", TARGETS)
++def test_exhaustion_matches_2_28(tmp_path: Path, target: str) -> None:
++    state = _run(tmp_path, target, {"variant": "RETRY", "note": "again"})
++    assert _outputs(state) == {"return__variant": "UNRESOLVED", "return__rounds": 2}
++
++
++@pytest.mark.parametrize("target", TARGETS)
++def test_done_path_matches(tmp_path: Path, target: str) -> None:
++    state = _run(tmp_path, target, {"variant": "APPROVE", "report": "artifacts/review/r.md"})
++    assert _outputs(state) == {"return__variant": "READY", "return__rounds": 1}
++    assert state["workflow_outputs"]["return__report"] == "artifacts/review/r.md"
++
++
++@pytest.mark.parametrize("target", TARGETS)
++def test_malformed_provider_path_still_fails(tmp_path: Path, target: str) -> None:
++    state = _run(tmp_path, target, {"variant": "APPROVE", "report": "artifacts/review/missing.md"})
++    assert state["status"] == "failed"

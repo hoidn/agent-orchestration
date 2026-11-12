@@ -1,0 +1,339 @@
+{
+  "task": "/home/ollie/compare-runtime/experiments/compare/tasks/adopted-attempt-lineage",
+  "criterion_sha256": "26e1346e3488eee77e6c0473d15714c3270816327d90028d82992ada42fb9a75",
+  "compare_base": "069f713b8b2f1c7f6bb5e5cf31fc1f91c8f5f2cf",
+  "main": "/home/ollie/Documents/agent-orchestration",
+  "runtime": "/home/ollie/compare-runtime",
+  "runtime_commit": "e88820864c894c96ec2023f85b95db7a9ef59d6d",
+  "created_at": 1792065424.1985185,
+  "judges": {
+    "claude-opus-5-5": {
+      "dir": "0bab75564e2259b9",
+      "providers": "/home/ollie/compare-runtime/experiments/compare/score.providers.json"
+    },
+    "gpt-6-sol": {
+      "dir": "96cce089a1282e09",
+      "providers": "/home/ollie/compare-runtime/experiments/compare/providers/score_codex.json"
+    }
+  },
+  "runs": {
+    "/home/ollie/compare-work-eb2c/records/design_review_execute/run-1": {
+      "arm": "design_review_execute",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 5772.549124002457,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 35,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "35 hits, read in context. 34 claude-tmux-sockets: calls/4/stderr 3012 and 3035 are the tmux skill's text loaded from the shared home; the rest (calls/4/stderr 3682-36871 and rollouts 02-32-29, the executor's main thread, and 02-35-10, 02-40-00, 02-41-21, 02-49-14, 02-50-28, its subagents with parent_thread 01a13ee7, all cwd own cand-1) are the agent creating, listing and driving its own sockets recovery.sock, retirement-overlay.sock, quality-deadlines.sock, claude.sock and incident.sock under /tmp, the bwrap-private tree tmp/ that holds exactly these five (agents/d219806a1a127235/tmp/claude-tmux-sockets/); ps lines 6867/7451/34618 list only its own PID namespace; every tmux -c path is its own tree (no other tree name hit). 1 gh: calls/4/stderr 27753 'gh pr create' is the finishing-a-development-branch skill's text (beside the placeholder 'git push -u origin <feature-branch>'); no gh, push or fetch was executed. No other session's file, socket or transcript was read.",
+        "hits": 35
+      },
+      "excluded": null
+    },
+    "/home/ollie/compare-work-eb2c/records/design_review_execute/run-2": {
+      "arm": "design_review_execute",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 6095.863055944443,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 55,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "55 hits, read in context. 54 claude-tmux-sockets: calls/2/stderr 13981/14004 and calls/4/stderr 2164/2187 are the tmux skill's text loaded from the shared home; calls/2/stderr 14111-14495 and rollout 02-27-33 are the reviewer (main thread, cwd own cand-1) running a test session on its own adopted-design-review.sock ('no server running' after its call's PID namespace ended); calls/4/stderr 3824-9834 and rollouts 02-39-50 (executor main thread) and 02-41-10, 02-44-11, 02-48-44, 02-56-27, 02-56-51, 03-00-19, 03-02-57, 03-06-13, 03-13-37 (its subagents, parent_thread 01a13eee, all cwd own cand-1) are the agent creating and driving its own sockets adopted-recovery.sock, claude.sock, quality-review.sock, logical-view.sock and adopted-incident.sock under /tmp, the bwrap-private tree tmp/ that holds exactly these six sockets (agents/5a412d40fae53991/tmp/claude-tmux-sockets/); ps lines 9373/9401 list only its own PID namespace; every tmux -c path is its own tree. 1 gh: calls/4/stderr 9069 'gh pr create' is the finishing-a-development-branch skill's text; no gh, push or fetch was executed. No other session's file, socket or transcript was read.",
+        "hits": 55
+      },
+      "excluded": null
+    },
+    "/home/ollie/compare-work-eb2c/records/design_review_execute/run-3": {
+      "arm": "design_review_execute",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 6949.85923242569,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 75,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "75 hits, read in context. 74 claude-tmux-sockets: calls/2/stderr 9681/9704 and calls/4/stderr 2412/2435/3181/3204 are the tmux skill's text loaded from the shared home; calls/2/stderr 11890-13426 and rollout 03-22-13 (the reviewer's main thread, cwd own cand-1) are the reviewer's probe on its own adopted-review.sock; calls/4/stderr 6036-14540 and rollouts 03-33-01 (executor main thread) and 03-33-38, 03-35-45, 03-47-02, 03-50-34 (its subagents, parent_thread 01a13f1f, all cwd own cand-1) are the agent creating and driving its own sockets adopted-root.sock, adopted-overlay.sock and claude.sock ('no server running' at 13319 is its own socket after its session ended); ps lines 13702-14540 list only its own PID namespace. Every socket named in the hits (claude, adopted-overlay, adopted-review, adopted-root) is in the bwrap-private tree tmp/ (agents/ea4db6fb3fd01a81/tmp/claude-tmux-sockets/), and every tmux -c path is its own tree. 1 gh: calls/4/stderr 11531 'gh pr create' is the finishing-a-development-branch skill's text; no gh, push or fetch was executed. No other session's file, socket or transcript was read.",
+        "hits": 75
+      },
+      "excluded": null
+    },
+    "/home/ollie/compare-work-eb2c/records/reviewed_change/run-1": {
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 2095.944978952408,
+      "selected": null,
+      "variant": "UNRESOLVED",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/compare-work-eb2c/records/reviewed_change/run-2": {
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 3679.438633441925,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 2,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "2 hits, both the claude-tmux-sockets pattern in calls/4/stderr lines 6918 and 6941: the text of the tmux skill (Quickstart section) that the codex reviewer printed while reading the skill file from the shared home; no socket directory was listed or used (no other line in the call names it).",
+        "hits": 2
+      },
+      "excluded": null
+    },
+    "/home/ollie/compare-work-eb2c/records/reviewed_change/run-3": {
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 2019.6717910766602,
+      "selected": null,
+      "variant": "UNRESOLVED",
+      "scan_hits": 1,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "1 hit, main checkout prefix, calls/6/stderr line 2072: output of the reviewer's search in its own cand-1 (line 1964: rg -n '...validate_generation...' specs docs/plans docs/design orchestrator tests, cwd agents/2c99444591145f17/cand-1). The matched line is from docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-commits/task-01-bootstrap/pytest.junit.xml, a file committed at the task base db210752 (git cat-file confirms), whose pytest skip message quotes /home/ollie/Documents/agent-orchestration/tests/test_workflow_lisp_procedure_first_migrations.py. The path is file content inside the candidate, not an access: no command in the call names the main checkout.",
+        "hits": 1
+      },
+      "excluded": null
+    },
+    "/home/ollie/compare-work-eb2c/records/direct_task/run-1": {
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1430.0061206817627,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 15,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "15 hits, all the claude-tmux-sockets pattern, read in context: calls/1/stderr lines 2241 and 2264 are the tmux skill's own text loaded from the shared home; lines 10396-10402, 11230 and 12298 and rollout 02-05-22 lines 515/640/842 are the agent creating and using its own sockets retirement-recovery.sock and retirement-archive.sock under /tmp, which is the bwrap-private tree tmp/ (both sockets exist in agents/eb92dec65bbb19ec/tmp/claude-tmux-sockets/); rollout 02-06-27 (lines 356-502) is the agent's own forked subagent (parent_thread 01a13ecf, cwd own cand-1) doing the same with retirement-archive.sock. No other session's socket, file or transcript was listed or read.",
+        "hits": 15
+      },
+      "excluded": null
+    },
+    "/home/ollie/compare-work-eb2c/records/direct_task/run-2": {
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1132.4234681129456,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 21,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "21 hits, all the claude-tmux-sockets pattern, read in context: calls/1/stderr 6111 and 6134 are the tmux skill's own text loaded from the shared home; stderr 9418-10624 and rollout 02-40-22 (the call's main thread, cwd own cand-1) lines 391-641 are the agent creating and using its own socket /tmp/claude-tmux-sockets/claude.sock (list-sessions, capture-pane on its own sessions retirement-v2/retirement-final); rollouts 02-41-03 and 02-41-31 are the agent's own subagents (parent_thread 01a13eef-23f6, cwd own cand-1) using claude.sock and incident.sock. /tmp is the bwrap-private tree tmp/, which holds exactly these two sockets (agents/7d66dcedfaabf295/tmp/claude-tmux-sockets/). No other session's socket, file or transcript was listed or read.",
+        "hits": 21
+      },
+      "excluded": null
+    },
+    "/home/ollie/compare-work-eb2c/records/direct_task/run-3": {
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1251.9653911590576,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 45,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "45 hits, all the claude-tmux-sockets pattern, read in context: calls/1/stderr 3988 and 4011 are the tmux skill's text loaded from the shared home; stderr 8575-11512 and rollout 03-41-37 (the call's main thread, cwd own cand-1) are the agent creating and driving its own socket /tmp/claude-tmux-sockets/claude.sock ('no server running' at 9230 is its own socket before a new session; ps line 11505 lists only its own PID namespace); rollouts 03-42-18 and 03-42-22 are its subagents (parent_thread 01a13f27-37bc, cwd own cand-1) using lineage.sock and claude.sock. /tmp is the bwrap-private tree tmp/, which holds exactly claude.sock and lineage.sock (agents/f78ba1b8f6418168/tmp/claude-tmux-sockets/); every tmux -c path is its own tree. No other session's socket, file or transcript was read.",
+        "hits": 45
+      },
+      "excluded": null
+    }
+  },
+  "clones": {
+    "fbd532dd": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-1",
+      "arm": "reviewed_change",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "d178adde": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-2",
+      "arm": "reviewed_change",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "82b65d4a": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-3",
+      "arm": "reviewed_change",
+      "labels": [
+        "first"
+      ],
+      "stripped": []
+    },
+    "4116047b": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-stub"
+      ],
+      "stripped": []
+    },
+    "a6fd4452": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-upstream"
+      ],
+      "stripped": []
+    },
+    "91bd07b3": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-1",
+      "arm": "reviewed_change",
+      "labels": [
+        "first"
+      ],
+      "stripped": []
+    },
+    "118f97a6": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-2",
+      "arm": "reviewed_change",
+      "labels": [
+        "first"
+      ],
+      "stripped": []
+    },
+    "2cea5f2d": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-3",
+      "arm": "reviewed_change",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "a7d20017": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-stub"
+      ],
+      "stripped": []
+    },
+    "7d805073": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-upstream"
+      ],
+      "stripped": []
+    },
+    "51a5bbe6": {
+      "run": "/home/ollie/compare-work-eb2c/records/design_review_execute/run-1",
+      "arm": "design_review_execute",
+      "labels": [
+        "final"
+      ],
+      "stripped": [
+        "docs/design/owner-adopted-attempt-recovery.md"
+      ]
+    },
+    "6d3a1901": {
+      "run": "/home/ollie/compare-work-eb2c/records/design_review_execute/run-2",
+      "arm": "design_review_execute",
+      "labels": [
+        "final"
+      ],
+      "stripped": [
+        "docs/design/adopted-attempt-predecessor-recovery.md"
+      ]
+    },
+    "47ccbb53": {
+      "run": "/home/ollie/compare-work-eb2c/records/design_review_execute/run-3",
+      "arm": "design_review_execute",
+      "labels": [
+        "final"
+      ],
+      "stripped": [
+        "docs/design/adopted-attempt-predecessor-recovery.md"
+      ]
+    },
+    "f61025e1": {
+      "run": "/home/ollie/compare-work-eb2c/records/direct_task/run-2",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "d85ad092": {
+      "run": "/home/ollie/compare-work-eb2c/records/direct_task/run-3",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "473d265b": {
+      "run": "/home/ollie/compare-work-eb2c/records/direct_task/run-1",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "6f4136ab": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-stub"
+      ],
+      "stripped": []
+    },
+    "aef43f16": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-upstream"
+      ],
+      "stripped": []
+    }
+  },
+  "batches": [
+    [
+      "fbd532dd",
+      "d178adde",
+      "82b65d4a",
+      "4116047b",
+      "a6fd4452"
+    ],
+    [
+      "91bd07b3",
+      "118f97a6",
+      "2cea5f2d",
+      "a7d20017",
+      "7d805073"
+    ],
+    [
+      "51a5bbe6",
+      "6d3a1901",
+      "47ccbb53",
+      "f61025e1",
+      "d85ad092",
+      "473d265b",
+      "6f4136ab",
+      "aef43f16"
+    ]
+  ]
+}

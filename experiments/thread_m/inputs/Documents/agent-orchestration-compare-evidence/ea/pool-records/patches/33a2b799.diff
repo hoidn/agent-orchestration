@@ -1,0 +1,108 @@
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index 999488b..d7c6eaa 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -14896,6 +14896,11 @@ class WorkflowExecutor:
+                 )
+             try:
+                 raw_value = self._resolve_runtime_value(source, state, scope=scope)
++                if isinstance(raw_value, dict) and set(raw_value) == {"ref"}:
++                    # Exhausted loop frames carry compiler-emitted refs; follow them.
++                    raw_value, ref_error = self._resolve_ref_value(raw_value["ref"], state, scope=scope)
++                    if ref_error is not None:
++                        raise ReferenceResolutionError(str(ref_error))
+             except (PredicateEvaluationError, ReferenceResolutionError) as exc:
+                 return self._contract_violation_result(
+                     failure_message,
+diff --git a/orchestrator/workflow/validation.py b/orchestrator/workflow/validation.py
+index 42661f2..ebed13e 100644
+--- a/orchestrator/workflow/validation.py
++++ b/orchestrator/workflow/validation.py
+@@ -2793,15 +2793,15 @@ class _WorkflowMappingValidator:
+ 
+             spec = output_specs[output_name]
+             output_type = spec.get('type')
+-            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
+-                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
+-                continue
+             if self._is_generated_repeat_until_on_exhausted_ref(
+                 value,
+                 step_name=step_name,
+                 output_name=output_name,
+             ):
+                 continue
++            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
++                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
++                continue
+             if isinstance(value, (dict, list)):
+                 self._add_error(f"{value_context} must be a scalar literal")
+                 continue
+diff --git a/tests/test_workflow_lisp_loop_result_inactive_paths.py b/tests/test_workflow_lisp_loop_result_inactive_paths.py
+new file mode 100644
+index 0000000..f902bd0
+--- /dev/null
++++ b/tests/test_workflow_lisp_loop_result_inactive_paths.py
+@@ -0,0 +1,63 @@
++"""Loop results whose inactive variants carry path fields compile and run at 2.28 and 2.29+."""
++from __future__ import annotations
++
++from pathlib import Path
++
++import pytest
++
++from orchestrator.state import StateManager
++from orchestrator.workflow.executor import WorkflowExecutor
++from orchestrator.workflow_lisp.compiler import compile_stage3_module
++
++SOURCE = """
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "{target}")
++  (defpath Report :kind relpath :under "artifacts/review" :must-exist true)
++  (defunion Outcome
++    (READY (report Report) (rounds Int))
++    (ESCALATED (question String))
++    (UNRESOLVED (rounds Int)))
++  (defworkflow loop-paths
++    ((report Report) (approved Bool))
++    -> Outcome
++    (loop/recur :max 2
++      :state (loop-state (round Int 1))
++      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++      (fn (state)
++        (if approved
++          (done (variant Outcome READY :report report :rounds state.round))
++          (continue (loop-state :like state :round (+ state.round 1))))))))
++"""
++
++
++def _run(tmp_path: Path, target: str, approved: bool) -> dict:
++    src = tmp_path / "loop_paths.orc"
++    src.write_text(SOURCE.format(target=target), encoding="utf-8")
++    report = tmp_path / "artifacts" / "review" / "r.md"
++    report.parent.mkdir(parents=True)
++    report.write_text("ok", encoding="utf-8")
++    result = compile_stage3_module(src, validate_shared=True, workspace_root=tmp_path)
++    bundle = result.validated_bundles["loop-paths"]
++    manager = StateManager(workspace=tmp_path, run_id=f"r-{target}-{approved}")
++    manager.initialize(
++        src.as_posix(),
++        bound_inputs={"report": "artifacts/review/r.md", "approved": approved},
++    )
++    state = WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0).execute(on_error="stop")
++    assert state["status"] == "completed", {k: (v.get("status"), v.get("error")) for k, v in state["steps"].items() if v.get("status") not in ("completed", "skipped")} | {"top": state.get("error")}
++    return state["workflow_outputs"]
++
++
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.30", "2.31", "2.32"])
++def test_exhaustion_with_inactive_path_variant(tmp_path: Path, target: str) -> None:
++    out = _run(tmp_path, target, approved=False)
++    assert out["return__variant"] == "UNRESOLVED"
++    assert out["return__rounds"] == 2
++
++
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.32"])
++def test_done_with_path_variant(tmp_path: Path, target: str) -> None:
++    out = _run(tmp_path, target, approved=True)
++    assert out["return__variant"] == "READY"
++    assert out["return__report"] == "artifacts/review/r.md"

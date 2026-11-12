@@ -1,0 +1,102 @@
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index 999488b..02592e9 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -1723,7 +1723,22 @@ class WorkflowExecutor:
+                 raise ReferenceResolutionError(
+                     f"Bound step output '{address.node_id}.artifacts.{output_name}' is unavailable"
+                 )
+-            return artifacts[output_name]
++            value = artifacts[output_name]
++            node = self.executable_ir.nodes.get(address.node_id) if self.executable_ir else None
++            if (
++                isinstance(address, LoopOutputAddress)
++                and self._workflow_version_at_least("2.29")
++                and isinstance(node, RepeatUntilFrameNode)
++                and result.get("debug", {}).get("structured_repeat_until", {}).get("exhausted")
++                and isinstance(value, dict)
++                and set(value) == {"ref"}
++                and node.on_exhausted_outputs.get(output_name) == value
++            ):
++                resolved, error = self._resolve_ref_value(value["ref"], state, scope=scope)
++                if error is not None:
++                    raise ReferenceResolutionError(str(error.get("error", error)))
++                return resolved
++            return value
+ 
+         raise ReferenceResolutionError(f"Unsupported bound address type '{type(address).__name__}'")
+ 
+diff --git a/orchestrator/workflow_lisp/lowering/control_loops.py b/orchestrator/workflow_lisp/lowering/control_loops.py
+index f8286f4..d0ba0c1 100644
+--- a/orchestrator/workflow_lisp/lowering/control_loops.py
++++ b/orchestrator/workflow_lisp/lowering/control_loops.py
+@@ -2384,13 +2384,14 @@ def _exhausted_inactive_placeholder_values(
+     fields_by_name = {
+         field.generated_name: field for field in projection.flattened_fields
+     }
++    # Relpath placeholders already travel through the loop frame as validated strings.
+     placeholders = {
+         value["name"]: value
+         for value in _loop_placeholder_values(
+             projection,
+             allow_missing_target_fields=_loop_result_optional_relpath_fields(projection),
+         )
+-        if value["contract"].get("kind") != "scalar"
++        if value["contract"].get("kind") not in {"scalar", "relpath"}
+     }
+     required: list[dict[str, Any]] = []
+     for name, activity in projection.nested_union_activity.items():
+diff --git a/tests/test_workflow_lisp_loop_recur.py b/tests/test_workflow_lisp_loop_recur.py
+index 618764b..f47f767 100644
+--- a/tests/test_workflow_lisp_loop_recur.py
++++ b/tests/test_workflow_lisp_loop_recur.py
+@@ -1810,3 +1810,49 @@ def test_loop_recur_exhaustion_projection_relaxes_variant_relpath_at_result_boun
+         "ref": "root.steps.loop-recur-exhaustion-missing-projection__loop.artifacts.result__last_report"
+     }
+     assert authored["outputs"]["return__last_report"]["must_exist_target"] is False
++
++
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.30", "2.31", "2.32"])
++@pytest.mark.parametrize(
++    ("choice", "expected"),
++    [
++        ("pass", {"return__variant": "PASS", "return__proof": "artifacts/proofs/ok.txt"}),
++        ("retry", {"return__variant": "TIMEOUT", "return__attempts": 1}),
++    ],
++)
++def test_loop_result_inactive_path_matches_target_228(
++    tmp_path: Path, target: str, choice: str, expected: dict[str, object]
++) -> None:
++    source = _write_module(
++        tmp_path / "loop_result_inactive_path.orc",
++        "\n".join(
++            [
++                "(workflow-lisp",
++                '  (:language "0.1")',
++                f'  (:target-dsl "{target}")',
++                "  (defpath Proof :kind relpath :under \"artifacts/proofs\" :must-exist true)",
++                "  (defunion Verdict",
++                "    (PASS (proof Proof))",
++                "    (TIMEOUT (attempts Int)))",
++                "  (defworkflow choose ((proof Proof) (choice String)) -> Verdict",
++                "    (loop/recur :max 1 :state (loop-state (attempts Int 0))",
++                "      :on-exhausted (variant Verdict TIMEOUT :attempts state.attempts)",
++                "      (fn (state)",
++                '        (if (= choice "pass")',
++                "          (done (variant Verdict PASS :proof proof))",
++                "          (continue (loop-state :like state :attempts (+ state.attempts 1))))))))",
++            ]
++        ),
++    )
++    report = tmp_path / "artifacts" / "proofs" / "ok.txt"
++    report.parent.mkdir(parents=True)
++    report.write_text("ok", encoding="utf-8")
++
++    result = compile_stage3_module(source, validate_shared=True, workspace_root=tmp_path)
++    bundle = result.validated_bundles["choose"]
++    state_manager = StateManager(workspace=tmp_path, run_id="inactive-path")
++    state_manager.initialize(source.as_posix(), bound_inputs={"proof": "artifacts/proofs/ok.txt", "choice": choice})
++    state = WorkflowExecutor(bundle, tmp_path, state_manager, retry_delay_ms=0).execute(on_error="stop")
++
++    assert state["status"] == "completed"
++    assert state["workflow_outputs"] == expected

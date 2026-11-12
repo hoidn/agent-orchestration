@@ -1,0 +1,1462 @@
+{
+  "criterion_sha256": "26e1346e3488eee77e6c0473d15714c3270816327d90028d82992ada42fb9a75",
+  "judges": [
+    "claude-opus-5-5",
+    "gpt-6-sol"
+  ],
+  "excluded_judges": {},
+  "runs": [
+    {
+      "run": "/home/ollie/compare-work-eb2c/records/design_review_execute/run-1",
+      "arm": "design_review_execute",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 5772.549124002457,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 35,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "35 hits, read in context. 34 claude-tmux-sockets: calls/4/stderr 3012 and 3035 are the tmux skill's text loaded from the shared home; the rest (calls/4/stderr 3682-36871 and rollouts 02-32-29, the executor's main thread, and 02-35-10, 02-40-00, 02-41-21, 02-49-14, 02-50-28, its subagents with parent_thread 01a13ee7, all cwd own cand-1) are the agent creating, listing and driving its own sockets recovery.sock, retirement-overlay.sock, quality-deadlines.sock, claude.sock and incident.sock under /tmp, the bwrap-private tree tmp/ that holds exactly these five (agents/d219806a1a127235/tmp/claude-tmux-sockets/); ps lines 6867/7451/34618 list only its own PID namespace; every tmux -c path is its own tree (no other tree name hit). 1 gh: calls/4/stderr 27753 'gh pr create' is the finishing-a-development-branch skill's text (beside the placeholder 'git push -u origin <feature-branch>'); no gh, push or fetch was executed. No other session's file, socket or transcript was read.",
+        "hits": 35
+      },
+      "excluded": null,
+      "scores": {
+        "final": 5.5
+      },
+      "hidden": {
+        "final": 0.5769230769230769
+      },
+      "value": 5.5,
+      "hidden_value": 0.5769230769230769
+    },
+    {
+      "run": "/home/ollie/compare-work-eb2c/records/design_review_execute/run-2",
+      "arm": "design_review_execute",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 6095.863055944443,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 55,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "55 hits, read in context. 54 claude-tmux-sockets: calls/2/stderr 13981/14004 and calls/4/stderr 2164/2187 are the tmux skill's text loaded from the shared home; calls/2/stderr 14111-14495 and rollout 02-27-33 are the reviewer (main thread, cwd own cand-1) running a test session on its own adopted-design-review.sock ('no server running' after its call's PID namespace ended); calls/4/stderr 3824-9834 and rollouts 02-39-50 (executor main thread) and 02-41-10, 02-44-11, 02-48-44, 02-56-27, 02-56-51, 03-00-19, 03-02-57, 03-06-13, 03-13-37 (its subagents, parent_thread 01a13eee, all cwd own cand-1) are the agent creating and driving its own sockets adopted-recovery.sock, claude.sock, quality-review.sock, logical-view.sock and adopted-incident.sock under /tmp, the bwrap-private tree tmp/ that holds exactly these six sockets (agents/5a412d40fae53991/tmp/claude-tmux-sockets/); ps lines 9373/9401 list only its own PID namespace; every tmux -c path is its own tree. 1 gh: calls/4/stderr 9069 'gh pr create' is the finishing-a-development-branch skill's text; no gh, push or fetch was executed. No other session's file, socket or transcript was read.",
+        "hits": 55
+      },
+      "excluded": null,
+      "scores": {
+        "final": 5.5
+      },
+      "hidden": {
+        "final": 0.5769230769230769
+      },
+      "value": 5.5,
+      "hidden_value": 0.5769230769230769
+    },
+    {
+      "run": "/home/ollie/compare-work-eb2c/records/design_review_execute/run-3",
+      "arm": "design_review_execute",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 6949.85923242569,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 75,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "75 hits, read in context. 74 claude-tmux-sockets: calls/2/stderr 9681/9704 and calls/4/stderr 2412/2435/3181/3204 are the tmux skill's text loaded from the shared home; calls/2/stderr 11890-13426 and rollout 03-22-13 (the reviewer's main thread, cwd own cand-1) are the reviewer's probe on its own adopted-review.sock; calls/4/stderr 6036-14540 and rollouts 03-33-01 (executor main thread) and 03-33-38, 03-35-45, 03-47-02, 03-50-34 (its subagents, parent_thread 01a13f1f, all cwd own cand-1) are the agent creating and driving its own sockets adopted-root.sock, adopted-overlay.sock and claude.sock ('no server running' at 13319 is its own socket after its session ended); ps lines 13702-14540 list only its own PID namespace. Every socket named in the hits (claude, adopted-overlay, adopted-review, adopted-root) is in the bwrap-private tree tmp/ (agents/ea4db6fb3fd01a81/tmp/claude-tmux-sockets/), and every tmux -c path is its own tree. 1 gh: calls/4/stderr 11531 'gh pr create' is the finishing-a-development-branch skill's text; no gh, push or fetch was executed. No other session's file, socket or transcript was read.",
+        "hits": 75
+      },
+      "excluded": null,
+      "scores": {
+        "final": 6
+      },
+      "hidden": {
+        "final": 0.3076923076923077
+      },
+      "value": 6,
+      "hidden_value": 0.3076923076923077
+    },
+    {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-1",
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 2095.944978952408,
+      "selected": null,
+      "variant": "UNRESOLVED",
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null,
+      "scores": {
+        "final": 4.5,
+        "first": 3
+      },
+      "hidden": {
+        "final": 0.3076923076923077,
+        "first": 0.3076923076923077
+      },
+      "value": 4.5,
+      "hidden_value": 0.3076923076923077,
+      "paired_gain": 1.5,
+      "hidden_paired_gain": 0.0
+    },
+    {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-2",
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 3679.438633441925,
+      "selected": null,
+      "variant": "READY",
+      "scan_hits": 2,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "2 hits, both the claude-tmux-sockets pattern in calls/4/stderr lines 6918 and 6941: the text of the tmux skill (Quickstart section) that the codex reviewer printed while reading the skill file from the shared home; no socket directory was listed or used (no other line in the call names it).",
+        "hits": 2
+      },
+      "excluded": null,
+      "scores": {
+        "final": 5,
+        "first": 5.5
+      },
+      "hidden": {
+        "final": 0.40384615384615385,
+        "first": 0.40384615384615385
+      },
+      "value": 5,
+      "hidden_value": 0.40384615384615385,
+      "paired_gain": -0.5,
+      "hidden_paired_gain": 0.0
+    },
+    {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-3",
+      "arm": "reviewed_change",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 2019.6717910766602,
+      "selected": null,
+      "variant": "UNRESOLVED",
+      "scan_hits": 1,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "1 hit, main checkout prefix, calls/6/stderr line 2072: output of the reviewer's search in its own cand-1 (line 1964: rg -n '...validate_generation...' specs docs/plans docs/design orchestrator tests, cwd agents/2c99444591145f17/cand-1). The matched line is from docs/plans/evidence/yaml-retirement/delete-non-survivor-estate/implementation-commits/task-01-bootstrap/pytest.junit.xml, a file committed at the task base db210752 (git cat-file confirms), whose pytest skip message quotes /home/ollie/Documents/agent-orchestration/tests/test_workflow_lisp_procedure_first_migrations.py. The path is file content inside the candidate, not an access: no command in the call names the main checkout.",
+        "hits": 1
+      },
+      "excluded": null,
+      "scores": {
+        "first": 4,
+        "final": 4
+      },
+      "hidden": {
+        "first": 0.3076923076923077,
+        "final": 0.3076923076923077
+      },
+      "value": 4,
+      "hidden_value": 0.3076923076923077,
+      "paired_gain": 0,
+      "hidden_paired_gain": 0.0
+    },
+    {
+      "run": "/home/ollie/compare-work-eb2c/records/direct_task/run-1",
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1430.0061206817627,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 15,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "15 hits, all the claude-tmux-sockets pattern, read in context: calls/1/stderr lines 2241 and 2264 are the tmux skill's own text loaded from the shared home; lines 10396-10402, 11230 and 12298 and rollout 02-05-22 lines 515/640/842 are the agent creating and using its own sockets retirement-recovery.sock and retirement-archive.sock under /tmp, which is the bwrap-private tree tmp/ (both sockets exist in agents/eb92dec65bbb19ec/tmp/claude-tmux-sockets/); rollout 02-06-27 (lines 356-502) is the agent's own forked subagent (parent_thread 01a13ecf, cwd own cand-1) doing the same with retirement-archive.sock. No other session's socket, file or transcript was listed or read.",
+        "hits": 15
+      },
+      "excluded": null,
+      "scores": {
+        "final": 4.5
+      },
+      "hidden": {
+        "final": 0.5769230769230769
+      },
+      "value": 4.5,
+      "hidden_value": 0.5769230769230769
+    },
+    {
+      "run": "/home/ollie/compare-work-eb2c/records/direct_task/run-2",
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1132.4234681129456,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 21,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "21 hits, all the claude-tmux-sockets pattern, read in context: calls/1/stderr 6111 and 6134 are the tmux skill's own text loaded from the shared home; stderr 9418-10624 and rollout 02-40-22 (the call's main thread, cwd own cand-1) lines 391-641 are the agent creating and using its own socket /tmp/claude-tmux-sockets/claude.sock (list-sessions, capture-pane on its own sessions retirement-v2/retirement-final); rollouts 02-41-03 and 02-41-31 are the agent's own subagents (parent_thread 01a13eef-23f6, cwd own cand-1) using claude.sock and incident.sock. /tmp is the bwrap-private tree tmp/, which holds exactly these two sockets (agents/7d66dcedfaabf295/tmp/claude-tmux-sockets/). No other session's socket, file or transcript was listed or read.",
+        "hits": 21
+      },
+      "excluded": null,
+      "scores": {
+        "final": 5
+      },
+      "hidden": {
+        "final": 0.5769230769230769
+      },
+      "value": 5,
+      "hidden_value": 0.5769230769230769
+    },
+    {
+      "run": "/home/ollie/compare-work-eb2c/records/direct_task/run-3",
+      "arm": "direct_task",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1251.9653911590576,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 45,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "45 hits, all the claude-tmux-sockets pattern, read in context: calls/1/stderr 3988 and 4011 are the tmux skill's text loaded from the shared home; stderr 8575-11512 and rollout 03-41-37 (the call's main thread, cwd own cand-1) are the agent creating and driving its own socket /tmp/claude-tmux-sockets/claude.sock ('no server running' at 9230 is its own socket before a new session; ps line 11505 lists only its own PID namespace); rollouts 03-42-18 and 03-42-22 are its subagents (parent_thread 01a13f27-37bc, cwd own cand-1) using lineage.sock and claude.sock. /tmp is the bwrap-private tree tmp/, which holds exactly claude.sock and lineage.sock (agents/f78ba1b8f6418168/tmp/claude-tmux-sockets/); every tmux -c path is its own tree. No other session's socket, file or transcript was read.",
+        "hits": 45
+      },
+      "excluded": null,
+      "scores": {
+        "final": 4.5
+      },
+      "hidden": {
+        "final": 0.3076923076923077
+      },
+      "value": 4.5,
+      "hidden_value": 0.3076923076923077
+    }
+  ],
+  "measures": {
+    "design_review_execute.runs": 3,
+    "design_review_execute.mean": 5.666666666666667,
+    "design_review_execute.calls_mean": 4,
+    "design_review_execute.wall_clock_mean": 6272.75713745753,
+    "design_review_execute.hidden_mean": 0.48717948717948717,
+    "direct_task.runs": 3,
+    "direct_task.mean": 4.666666666666667,
+    "direct_task.calls_mean": 1,
+    "direct_task.wall_clock_mean": 1271.4649933179219,
+    "direct_task.hidden_mean": 0.48717948717948717,
+    "reviewed_change.runs": 3,
+    "reviewed_change.mean": 4.5,
+    "reviewed_change.calls_mean": 5.333333333333333,
+    "reviewed_change.wall_clock_mean": 2598.3518011569977,
+    "reviewed_change.hidden_mean": 0.33974358974358976,
+    "reviewed_change.paired_gain_mean": 0.3333333333333333,
+    "reviewed_change.paired_gain_runs_positive": 1,
+    "reviewed_change.paired_gain_runs_negative": 1,
+    "reviewed_change.hidden_paired_gain_mean": 0.0,
+    "reviewed_change.hidden_paired_gain_runs_positive": 0,
+    "reviewed_change.hidden_paired_gain_runs_negative": 0,
+    "design_review_execute.minus_control": 1.0,
+    "design_review_execute.hidden_minus_control": 0.0,
+    "reviewed_change.minus_control": -0.16666666666666696,
+    "reviewed_change.hidden_minus_control": -0.1474358974358974
+  },
+  "verdict": {
+    "primary": [
+      {
+        "measure": "design_review_execute.hidden_minus_control",
+        "op": ">=",
+        "value": 0.3,
+        "observed": 0.0,
+        "met": false
+      },
+      {
+        "measure": "design_review_execute.runs",
+        "op": ">=",
+        "value": 3,
+        "observed": 3,
+        "met": true
+      },
+      {
+        "measure": "direct_task.runs",
+        "op": ">=",
+        "value": 3,
+        "observed": 3,
+        "met": true
+      },
+      {
+        "measure": "reviewed_change.hidden_paired_gain_mean",
+        "op": ">=",
+        "value": 0.1,
+        "observed": 0.0,
+        "met": false
+      },
+      {
+        "measure": "reviewed_change.hidden_paired_gain_runs_negative",
+        "op": "<=",
+        "value": 0,
+        "observed": 0,
+        "met": true
+      },
+      {
+        "measure": "reviewed_change.runs",
+        "op": ">=",
+        "value": 3,
+        "observed": 3,
+        "met": true
+      }
+    ],
+    "secondary": [
+      {
+        "measure": "design_review_execute.minus_control",
+        "op": ">=",
+        "value": 0,
+        "observed": 1.0,
+        "met": true
+      },
+      {
+        "measure": "reviewed_change.paired_gain_mean",
+        "op": ">=",
+        "value": 0,
+        "observed": 0.3333333333333333,
+        "met": true
+      },
+      {
+        "measure": "reviewed_change.hidden_minus_control",
+        "op": ">=",
+        "value": 0,
+        "observed": -0.1474358974358974,
+        "met": false
+      }
+    ]
+  },
+  "agreement": {
+    "root_cause": {
+      "agree": 7,
+      "of": 18
+    },
+    "scope": {
+      "agree": 14,
+      "of": 18
+    },
+    "generality": {
+      "agree": 6,
+      "of": 18
+    },
+    "layering": {
+      "agree": 11,
+      "of": 18
+    }
+  },
+  "anchors": [
+    {
+      "batch": 0,
+      "anchor": "adopted-attempt-lineage-stub",
+      "judge": "claude-opus-5-5",
+      "total": 1
+    },
+    {
+      "batch": 0,
+      "anchor": "adopted-attempt-lineage-stub",
+      "judge": "gpt-6-sol",
+      "total": 2
+    },
+    {
+      "batch": 0,
+      "anchor": "adopted-attempt-lineage-upstream",
+      "judge": "claude-opus-5-5",
+      "total": 8
+    },
+    {
+      "batch": 0,
+      "anchor": "adopted-attempt-lineage-upstream",
+      "judge": "gpt-6-sol",
+      "total": 6
+    },
+    {
+      "batch": 1,
+      "anchor": "adopted-attempt-lineage-stub",
+      "judge": "claude-opus-5-5",
+      "total": 1
+    },
+    {
+      "batch": 1,
+      "anchor": "adopted-attempt-lineage-stub",
+      "judge": "gpt-6-sol",
+      "total": 0
+    },
+    {
+      "batch": 1,
+      "anchor": "adopted-attempt-lineage-upstream",
+      "judge": "claude-opus-5-5",
+      "total": 5
+    },
+    {
+      "batch": 1,
+      "anchor": "adopted-attempt-lineage-upstream",
+      "judge": "gpt-6-sol",
+      "total": 6
+    },
+    {
+      "batch": 2,
+      "anchor": "adopted-attempt-lineage-stub",
+      "judge": "claude-opus-5-5",
+      "total": 1
+    },
+    {
+      "batch": 2,
+      "anchor": "adopted-attempt-lineage-stub",
+      "judge": "gpt-6-sol",
+      "total": 1
+    },
+    {
+      "batch": 2,
+      "anchor": "adopted-attempt-lineage-upstream",
+      "judge": "claude-opus-5-5",
+      "total": 4
+    },
+    {
+      "batch": 2,
+      "anchor": "adopted-attempt-lineage-upstream",
+      "judge": "gpt-6-sol",
+      "total": 2
+    }
+  ],
+  "clones": {
+    "fbd532dd": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-1",
+      "arm": "reviewed_change",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": 0.3076923076923077,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[changed_path_set]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[commit_coordinate]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[nested_binding_type]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[normalized_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[raw_message_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[manifest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[owner_attestation]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_a_one_byte_different_existing_incident",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[cross_boundary]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[rename]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[staged]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[tracked]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "This is a clean split into adopted_incident plus a byte_overlay module. Candidate checks are kept on live reads, git-identity drift is gated by an ancestry check, and replay and v2 dispatch are sound. However, the nested broad-outcome bound_record_invalid that a real drifted baseline produces is not tolerated, the attestation's review_pair_subject_invalid is accepted without any gate, and the overlay is implicit ContextVar state rather than the existing explicit bound_file_bytes path."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It uses the existing live-binding checks and a shared byte overlay, but never proves that the baseline candidate is the intended predecessor. Its historical candidate and path-drift exemptions can therefore accept an unrelated baseline, weakening the new incident's proof."
+        }
+      }
+    },
+    "d178adde": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-2",
+      "arm": "reviewed_change",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 5,
+      "hidden": 0.40384615384615385,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[changed_path_set]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[commit_coordinate]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[nested_binding_type]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[normalized_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[raw_message_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[manifest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[owner_attestation]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "This is a complete implementation. Git-object lineage, the canonical incident, v2 capture with exact replay, and a profile-based schema dispatch that keeps v1 behaviour are all there, and the archived generation, attestation and baseline are revalidated through validate_generation/validate_bound_record with a real built baseline. The concerns are that the overlay and a candidate-drift tolerance flag are implicit ContextVars inside broad_evidence, and the flag drops candidate identity/path-set codes for every nested record, not only the drift that was proved."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "It revalidates archived generation evidence through the shared validators, but never ties the baseline candidate to the intended predecessor and suppresses historical candidate drift for that unjoined record. Its separate generation-11 parser duplicates validation logic and leaves the new proof narrower than claimed."
+        }
+      }
+    },
+    "82b65d4a": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-3",
+      "arm": "reviewed_change",
+      "labels": [
+        "first"
+      ],
+      "stripped": [],
+      "score": 4,
+      "hidden": 0.3076923076923077,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[changed_path_set]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[commit_coordinate]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[nested_binding_type]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[normalized_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[raw_message_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[manifest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[owner_attestation]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_a_one_byte_different_existing_incident",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[cross_boundary]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[rename]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[staged]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[tracked]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Lineage, incident, v2 dispatch and replay are present, but only top-level drift codes are tolerated. A real known-failure baseline's nested broad outcome then yields bound_record_invalid, and _candidate_binding_live_issues now reads through the overlay instead of live state. The generation-11 request/snapshot semantics are hand-coded in _generation_semantics instead of going through the overlay-aware validate_generation, and the overlay is an implicit ContextVar."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "It captures and replays the v2 incident, but never ties the known-failure baseline's candidate to the claimed intended predecessor and broadly tolerates candidate drift. Its manual generation-11 check duplicates only part of the existing generation validator, leaving archived evidence validation incomplete."
+        }
+      }
+    },
+    "4116047b": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-stub"
+      ],
+      "stripped": [],
+      "score": 1.5,
+      "hidden": 0.0,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[changed_path_set]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[commit_coordinate]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[nested_binding_type]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[normalized_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[raw_message_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[manifest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[owner_attestation]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_a_one_byte_different_existing_incident",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[cross_boundary]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[rename]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[staged]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[tracked]",
+        "tests/test_retirement_broad_evidence.py::test_bound_file_overlay_strict_fallback_requires_head_equivalent_bytes",
+        "tests/test_retirement_broad_evidence.py::test_completed_ledger_generation_replays_review_handoff_from_bound_file_overlay",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_invalid_ancestor_lineage[noncontiguous-request_prior_generation_invalid]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_invalid_ancestor_lineage[wrong_request_parent-request_path_mismatch]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_invalid_ancestor_lineage[wrong_snapshot_parent-snapshot_path_mismatch]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_missing_or_swapped_ancestor[missing_request]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_missing_or_swapped_ancestor[missing_snapshot]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_missing_or_swapped_ancestor[swapped_request_and_snapshot]",
+        "tests/test_retirement_broad_evidence.py::test_generation_slot_union_rejects_mapped_duplicate_alongside_live_slot[request-generation_request_slot_extra]",
+        "tests/test_retirement_broad_evidence.py::test_generation_slot_union_rejects_mapped_duplicate_alongside_live_slot[snapshot-generation_snapshot_slot_extra]",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_projects_controlled_and_uncovered_paths",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_malformed_control_trailer",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_merge_ambiguity",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_missing_git_object",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_non_ancestor_heads",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_requires_uncovered_invalidating_gap"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 1,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Only stubs: lineage derivation, incident build/validate and capture-invalidated-adopted all raise 'not implemented', and validate_generation and validate_bound_record accept overlay/fallback parameters that they silently ignore. Nothing is fixed, and it adds a CLI mode that cannot work."
+        },
+        "gpt-6-sol": {
+          "root_cause": 0,
+          "scope": 2,
+          "generality": 0,
+          "layering": 0,
+          "reason": "The new capture and lineage entry points raise not-implemented errors, while the overlay arguments are ignored. Existing validation is left intact, but the requested recovery is absent."
+        }
+      }
+    },
+    "a6fd4452": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-upstream"
+      ],
+      "stripped": [],
+      "score": 7,
+      "hidden": 1.0,
+      "hidden_failed": [],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Complete implementation that extends the existing explicit bound_file_bytes parameter through the review, ledger and generation validators, with a committed-HEAD fallback, keeping candidate checks live. Incident drift tolerance is limited to exact issue coordinates and re-checks the nested broad outcome, and v1/v2 dispatch, exact-replay capture and post-relocation incident revalidation are all wired. Its one drawback is that it adds about 2,200 lines to the already oversized attempt_migration.py."
+        },
+        "gpt-6-sol": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 1,
+          "layering": 1,
+          "reason": "It joins the baseline candidate to the intended predecessor and dispatches the v2 lifecycle while retaining v1 defaults. Some nested subject-manifest reads omit the overlay and committed-fallback arguments, so archived evidence can be read from the live path and the parallel file-resolution path is incomplete."
+        }
+      }
+    },
+    "91bd07b3": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-1",
+      "arm": "reviewed_change",
+      "labels": [
+        "first"
+      ],
+      "stripped": [],
+      "score": 3,
+      "hidden": 0.3076923076923077,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[changed_path_set]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[commit_coordinate]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[nested_binding_type]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[normalized_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[raw_message_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[manifest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[owner_attestation]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_a_one_byte_different_existing_incident",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[cross_boundary]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[rename]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[staged]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[tracked]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Lineage, canonical incident, exact replay and schema dispatch are sound, but archived evidence is revalidated only through the incident's bound-record check: no production path re-runs validate_generation on the relocated generation files, and the new review-validator overlay parameters have no callers. Activating the overlay also swaps the immutable-review reader on the existing v1 ledger path, and the design is the same parallel ContextVar mechanism plus a 950-line module built on private helpers."
+        },
+        "gpt-6-sol": {
+          "root_cause": 0,
+          "scope": 1,
+          "generality": 0,
+          "layering": 1,
+          "reason": "Its historical baseline check filters candidate drift only at the outer level, while nested broad-outcome validation returns bound_record_invalid for that drift; normal invalidated evidence is therefore rejected. It also checks owner and pending attestation shape without reopening their full bound contracts, leaving the new adoption guarantee weaker even though v1 remains routed separately."
+        }
+      }
+    },
+    "118f97a6": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-2",
+      "arm": "reviewed_change",
+      "labels": [
+        "first"
+      ],
+      "stripped": [],
+      "score": 5.5,
+      "hidden": 0.40384615384615385,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[changed_path_set]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[commit_coordinate]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[nested_binding_type]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[normalized_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[raw_message_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[manifest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[owner_attestation]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "Complete: Git-derived lineage, a closed canonical incident re-derived on read, exact replay with ordered exclusive publishes, strict schema dispatch, and the overlay drives generation-11/attestation generation and baseline revalidation from v2 validate/apply/postvalidate. But an ambient overlay now also switches the existing ledger-materialization reads, including the immutable-review reader. The overlay is ContextVar state in broad_evidence that materialization reads through internals, the trailer helpers are re-implemented, and the hand-rolled generation-11 coordinate parse duplicates validate_generation."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It wires exact replay and archived generation and review validation through shared mechanisms while preserving the v1 defaults. The incident never checks that its caller-supplied intended predecessor equals the known-failure baseline's candidate HEAD and tree, so it can accept a lineage unrelated to the predecessor that actually invalidated the adopted attempt."
+        }
+      }
+    },
+    "2cea5f2d": {
+      "run": "/home/ollie/compare-work-eb2c/records/reviewed_change/run-3",
+      "arm": "reviewed_change",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 4,
+      "hidden": 0.3076923076923077,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[changed_path_set]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[commit_coordinate]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[nested_binding_type]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[normalized_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[raw_message_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[manifest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[owner_attestation]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_a_one_byte_different_existing_incident",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[cross_boundary]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[rename]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[staged]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[tracked]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "Complete and wired: lineage from Git objects, the incident fully re-derived and compared on read, crash-safe exact replay, schema dispatch with v1 defaults kept, and the overlay applied to both validate_generation and validate_bound_record from validate/apply/postvalidate, keeping the original immutable-review reader for paths not in the overlay. bound_file_bytes now overlays every read for the existing ledger caller, and there is an unrelated request.get edit. The overlay is a new parallel ContextVar module, attempt_incident.py runs to 1123 lines leaning on about 40 private helpers, and generation errors are reported with guessed codes instead of the real ones."
+        },
+        "gpt-6-sol": {
+          "root_cause": 0,
+          "scope": 1,
+          "generality": 0,
+          "layering": 1,
+          "reason": "Historical candidate drift inside a bound broad outcome becomes a nested bound_record_invalid issue, which its incident check does not tolerate, so the intended capture cannot validate ordinary historical evidence. When that drift occurs, it also skips bound validation of the owner attestation, weakening the new lifecycle proof despite its schema routing and overlay support."
+        }
+      }
+    },
+    "a7d20017": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-stub"
+      ],
+      "stripped": [],
+      "score": 0.5,
+      "hidden": 0.0,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[changed_path_set]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[commit_coordinate]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[nested_binding_type]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[normalized_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[raw_message_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[manifest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[owner_attestation]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_a_one_byte_different_existing_incident",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[cross_boundary]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[rename]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[staged]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[tracked]",
+        "tests/test_retirement_broad_evidence.py::test_bound_file_overlay_strict_fallback_requires_head_equivalent_bytes",
+        "tests/test_retirement_broad_evidence.py::test_completed_ledger_generation_replays_review_handoff_from_bound_file_overlay",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_invalid_ancestor_lineage[noncontiguous-request_prior_generation_invalid]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_invalid_ancestor_lineage[wrong_request_parent-request_path_mismatch]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_invalid_ancestor_lineage[wrong_snapshot_parent-snapshot_path_mismatch]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_missing_or_swapped_ancestor[missing_request]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_missing_or_swapped_ancestor[missing_snapshot]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_missing_or_swapped_ancestor[swapped_request_and_snapshot]",
+        "tests/test_retirement_broad_evidence.py::test_generation_slot_union_rejects_mapped_duplicate_alongside_live_slot[request-generation_request_slot_extra]",
+        "tests/test_retirement_broad_evidence.py::test_generation_slot_union_rejects_mapped_duplicate_alongside_live_slot[snapshot-generation_snapshot_slot_extra]",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_projects_controlled_and_uncovered_paths",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_malformed_control_trailer",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_merge_ambiguity",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_missing_git_object",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_non_ancestor_heads",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_requires_uncovered_invalidating_gap"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 1,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Only stubs: lineage derivation, incident build/validate and capture-invalidated-adopted all raise not-implemented, and the CLI is wired to a function that always fails. validate_generation silently accepts and ignores the overlay arguments, and validate_bound_record gains an unused require_committed_fallback flag, so callers are misled without any existing check being weakened."
+        },
+        "gpt-6-sol": {
+          "root_cause": 0,
+          "scope": 0,
+          "generality": 0,
+          "layering": 0,
+          "reason": "The new lineage, incident, and capture functions are stubs, with no v2 dispatch or replay. Validate-generation accepts overlay arguments but ignores them, making the new validation interface appear to verify relocated bytes when it only reads the live workspace."
+        }
+      }
+    },
+    "7d805073": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-upstream"
+      ],
+      "stripped": [],
+      "score": 5.5,
+      "hidden": 1.0,
+      "hidden_failed": [],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Complete and wired: lineage comes from Git objects with an explicit first-parent walk, the canonical incident is re-derived on read, replay is exact and crash-safe, and the overlay reuses bound_file_bytes and is applied for v2 validate/apply/postvalidate. But shared validators change for existing callers (a missing request directory now reports live_generation_unrelated instead of unreadable, and plan bytes are now threaded into nested reads), and the overlay misses subject-manifest row reads (the new parameter is dead). It is hand-threaded through about 25 signatures, v2 structure checks rewrite the record into v1 shape, and everything is packed into a 4000-line attempt_migration.py."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 2,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It derives and binds the predecessor lineage, dispatches the schemas, and reopens archived evidence through the existing validators. Apply and postvalidate omit the incident and disposition outputs from their outside-status comparison, so a valid migration is rejected when either output remains untracked after the reviews are committed."
+        }
+      }
+    },
+    "51a5bbe6": {
+      "run": "/home/ollie/compare-work-eb2c/records/design_review_execute/run-1",
+      "arm": "design_review_execute",
+      "labels": [
+        "final"
+      ],
+      "stripped": [
+        "docs/design/owner-adopted-attempt-recovery.md"
+      ],
+      "score": 5.5,
+      "hidden": 0.5769230769230769,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Complete and well layered: v1 capture and validation are split into shared helpers, the overlay lives in a scoped byte_overlay module (unmapped reads stay live, so the existing ledger builder behaves as before), and incident, v2 validation and capture are separate modules dispatched by schema. Concerns: the candidate-drift tolerance drops candidate_git_identity_mismatch with no ancestry or tree check, and the large v1 refactor is risky even though check order is kept."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "It implements the incident, v2 dispatch, row-exact replay, and validator overlay, but historical validation suppresses candidate Git identity and path-set failures without proving that the candidate belongs to the frozen workspace and predecessor lineage. The scoped overlay reuses validators, while its broad exception to their candidate checks and an ignored output path edge case leave real concerns."
+        }
+      }
+    },
+    "6d3a1901": {
+      "run": "/home/ollie/compare-work-eb2c/records/design_review_execute/run-2",
+      "arm": "design_review_execute",
+      "labels": [
+        "final"
+      ],
+      "stripped": [
+        "docs/design/adopted-attempt-predecessor-recovery.md"
+      ],
+      "score": 5.5,
+      "hidden": 0.5769230769230769,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 2,
+          "reason": "Complete: a BoundReadPolicy is passed explicitly through the broad-evidence and materialization validators, a logical AttemptView reads source or archive bytes, v1 helpers are extracted rather than copied, and the v2 modules run lineage, incident and generation-role validation. Concern: under historical_status_paths, candidate identity and path-set mismatches are dropped unconditionally (only landed path states are actually checked). The v1 helper extraction is broad."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "It supports partial row replay and routes the overlay into the established validators, but its historical candidate path suppresses Git identity failures wholesale and treats any clean landing at current HEAD as sufficient, even outside the frozen predecessor range. The separate read-policy and view machinery adds a parallel layer, and apply does not require the incident to be committed."
+        }
+      }
+    },
+    "47ccbb53": {
+      "run": "/home/ollie/compare-work-eb2c/records/design_review_execute/run-3",
+      "arm": "design_review_execute",
+      "labels": [
+        "final"
+      ],
+      "stripped": [
+        "docs/design/adopted-attempt-predecessor-recovery.md"
+      ],
+      "score": 6,
+      "hidden": 0.3076923076923077,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[changed_path_set]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[commit_coordinate]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[nested_binding_type]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[normalized_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[raw_message_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[manifest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[owner_attestation]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_a_one_byte_different_existing_incident",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[cross_boundary]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[rename]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[staged]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[tracked]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "Complete, with the most rigorous historical-candidate handling (checks ancestry and that each path has landed cleanly) and overlay-based generation revalidation. Concerns: an active scope changes the immutable-review read path even for the existing plan-only overlay caller, and the existing exact-export test is knowingly left contradicting the new exports. Capture and v2 structure validation re-implement v1 capture and coordinate logic inline instead of reusing it."
+        },
+        "gpt-6-sol": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 1,
+          "layering": 2,
+          "reason": "It derives the first-parent projection from Git, binds owner facts and attempt rows, and reopens partially relocated evidence through the existing validators for exact replay. Its historical candidate scope no longer checks the original index digest and permits extra observed dirty paths, while a lone malformed Retirement-Transaction-ID marker is classified as uncovered rather than rejected."
+        }
+      }
+    },
+    "f61025e1": {
+      "run": "/home/ollie/compare-work-eb2c/records/direct_task/run-2",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 5,
+      "hidden": 0.5769230769230769,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 2,
+          "generality": 2,
+          "layering": 1,
+          "reason": "Complete: bound_file_bytes and committed fallback are passed explicitly through the validators, the incident checks candidate identity only when it is an ancestor, and v2 validation reruns the generation validators on archived bytes; v1 behaviour is kept, and the only existing-validator change is a benign added schema check. Layering concerns: v2 is pushed into v1 capture through an _adopted_context flag, it adds a sys.modules hack, and the generation checks are duplicated between capture and validate."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 0,
+          "layering": 1,
+          "reason": "The incident and overlay cover the reported predecessor mismatch, but v2 rejects every partially moved state before apply can resume. Its historical evidence check also discards candidate path-set drift broadly, so the new path weakens a validation guarantee instead of proving each allowed change."
+        }
+      }
+    },
+    "d85ad092": {
+      "run": "/home/ollie/compare-work-eb2c/records/direct_task/run-3",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": 0.3076923076923077,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[changed_path_set]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[commit_coordinate]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[nested_binding_type]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[normalized_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[raw_message_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[manifest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[owner_attestation]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_a_one_byte_different_existing_incident",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[cross_boundary]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[rename]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[staged]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[tracked]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "Complete: strict lineage, incident, crash-safe replay, schema dispatch, careful historical-candidate landing checks, and validate_generation reruns on the archived bytes. Concerns: as in 473d265b, the decorator-based ContextVar view switches on for the existing plan-only ledger overlay and changes immutable-review, nofollow and slot-listing reads on that path. v2 is pushed into v1 capture and _publish_exclusive through flags, with a sys.modules hack and a hand-written generation-chain walk alongside validate_generation."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 0,
+          "layering": 1,
+          "reason": "It derives a Git-backed lineage and validates adopted evidence through the existing generation and review paths, but v2 accepts only complete pre-move or post-move states. A crash after one archive row is published makes the next apply reject the exact intermediate state, so the required crash-safe replay is absent."
+        }
+      }
+    },
+    "473d265b": {
+      "run": "/home/ollie/compare-work-eb2c/records/direct_task/run-1",
+      "arm": "direct_task",
+      "labels": [
+        "final"
+      ],
+      "stripped": [],
+      "score": 4.5,
+      "hidden": 0.5769230769230769,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 2,
+          "scope": 1,
+          "generality": 2,
+          "layering": 1,
+          "reason": "Complete: Git-derived first-parent lineage, a canonical incident, v2 capture with exact replay, schema dispatch, and overlay revalidation of the g11 and attestation generations. Concerns: the decorator-based ContextVar view also switches on for the existing ledger builder's plan-only bound_file_bytes call, which changes how immutable reviews and materialization captures are read on that v1 path. _build_adopted_disposition is a near copy of the v1 capture body rather than a shared helper."
+        },
+        "gpt-6-sol": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 0,
+          "layering": 1,
+          "reason": "The incident and v2 evidence path are present, but its adopted view demands either every source row or a complete archive; one hard-linked archive row after a crash prevents apply from resuming. The historical baseline path also drops candidate path-set mismatch checks broadly, leaving the established validation weaker in this recovery."
+        }
+      }
+    },
+    "6f4136ab": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-stub"
+      ],
+      "stripped": [],
+      "score": 1,
+      "hidden": 0.0,
+      "hidden_failed": [
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_completed_post_state_validates_replays_and_postvalidates",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_committed_duplicate_generation_slot",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_a_missing_materialization_row[snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_index_and_status_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_candidate_path_git_state_drift",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_nested_broad_evidence_tamper",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_new_outside_status_path",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_non_descendant_repository_ancestry",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[duplicated-generation11_snapshot]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[noncontiguous-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[swapped-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_request-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_post_archive_rejects_rebound_materialization_coordinate_drift[wrong_parent_snapshot-generation11_request]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[missing_lifecycle]",
+        "tests/test_retirement_attempt_migration.py::test_disposition_v2_rejects_each_v1_field_substitution_independently[v1_artifact_roles]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_allows_later_corrective_commit_but_not_attempt_drift",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[changed_path_set]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[commit_coordinate]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[nested_binding_type]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[normalized_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_rejects_canonical_and_nested_tamper[raw_message_digest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[manifest]",
+        "tests/test_retirement_attempt_migration.py::test_incident_v1_reopens_manifest_and_owner_attestation_bytes[owner_attestation]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_clean_capture_publishes_closed_incident_and_disposition_v2",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_cli_publishes_the_same_closed_pair",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_exact_full_replay_is_nonmutating",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_incident_v1_builds_from_owner_confirmed_attempt",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_a_one_byte_different_existing_incident",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_disposition]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[different_incident]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_every_other_partial_or_different_pair[disposition_only]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[cross_boundary]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[rename]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[staged]",
+        "tests/test_retirement_attempt_migration.py::test_invalidated_adopted_rejects_non_untracked_incident_output_classifications[tracked]",
+        "tests/test_retirement_broad_evidence.py::test_bound_file_overlay_strict_fallback_requires_head_equivalent_bytes",
+        "tests/test_retirement_broad_evidence.py::test_completed_ledger_generation_replays_review_handoff_from_bound_file_overlay",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_invalid_ancestor_lineage[noncontiguous-request_prior_generation_invalid]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_invalid_ancestor_lineage[wrong_request_parent-request_path_mismatch]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_invalid_ancestor_lineage[wrong_snapshot_parent-snapshot_path_mismatch]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_missing_or_swapped_ancestor[missing_request]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_missing_or_swapped_ancestor[missing_snapshot]",
+        "tests/test_retirement_broad_evidence.py::test_generation_archive_overlay_rejects_missing_or_swapped_ancestor[swapped_request_and_snapshot]",
+        "tests/test_retirement_broad_evidence.py::test_generation_slot_union_rejects_mapped_duplicate_alongside_live_slot[request-generation_request_slot_extra]",
+        "tests/test_retirement_broad_evidence.py::test_generation_slot_union_rejects_mapped_duplicate_alongside_live_slot[snapshot-generation_snapshot_slot_extra]",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_projects_controlled_and_uncovered_paths",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_malformed_control_trailer",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_merge_ambiguity",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_missing_git_object",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_rejects_non_ancestor_heads",
+        "tests/test_retirement_source_bindings.py::test_committed_predecessor_lineage_requires_uncovered_invalidating_gap"
+      ],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 0,
+          "scope": 1,
+          "generality": 0,
+          "layering": 0,
+          "reason": "Only stubs: derive_committed_predecessor_lineage, the incident builder and validator, and capture_invalidated_adopted all raise not-implemented errors. validate_generation and validate_bound_record accept overlay or fallback arguments and silently ignore them, so no recovery, dispatch or overlay exists."
+        },
+        "gpt-6-sol": {
+          "root_cause": 0,
+          "scope": 1,
+          "generality": 0,
+          "layering": 0,
+          "reason": "The incident, lineage, and capture functions only raise not-implemented errors, and the new generation overlay parameters are accepted but ignored. The CLI and exports advertise a recovery that cannot run; no schema-dispatched replay or archived evidence validation exists."
+        }
+      }
+    },
+    "aef43f16": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "adopted-attempt-lineage-upstream"
+      ],
+      "stripped": [],
+      "score": 3,
+      "hidden": 1.0,
+      "hidden_failed": [],
+      "ratings": {
+        "claude-opus-5-5": {
+          "root_cause": 1,
+          "scope": 1,
+          "generality": 1,
+          "layering": 1,
+          "reason": "Lineage, incident, v2 capture and dispatch exist, and the overlay is passed explicitly, but the archived g11 and attestation generation pairs are never revalidated with validate_generation on the overlay. After relocation the code also requires the baseline candidate head to equal the intended predecessor, which the pre-relocation path does not check. Candidate identity drift is accepted without an ancestry check, and everything is packed into a 4k-line attempt_migration.py that duplicates the v1 capture logic."
+        },
+        "gpt-6-sol": {
+          "root_cause": 0,
+          "scope": 1,
+          "generality": 0,
+          "layering": 1,
+          "reason": "The incident requires the known-failure candidate HEAD to equal the intended predecessor, although this recovery's candidate was captured at the older workspace-baseline HEAD; the intended case is therefore rejected. It adds the right schema and replay machinery in the migration layer, but its special historical validation also bypasses a ledger future-absence check."
+        }
+      }
+    }
+  }
+}

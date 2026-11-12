@@ -1,0 +1,262 @@
+diff --git a/orchestrator/workflow/loops.py b/orchestrator/workflow/loops.py
+index 66300d2..2cfc778 100644
+--- a/orchestrator/workflow/loops.py
++++ b/orchestrator/workflow/loops.py
+@@ -10,6 +10,7 @@ from ..state import ForEachState, StepResult
+ from .executable_ir import ExecutableNodeKind
+ from .executor_runtime import LoopRuntime, RuntimeStepInput
+ from .pointers import PointerResolver
++from .references import ReferenceResolutionError
+ from .runtime_context import RuntimeContext
+ from .identity import iteration_step_id
+ from .resume_projection_integrity import (
+@@ -703,16 +704,38 @@ class LoopExecutor:
+         self,
+         block: Any,
+         frame_artifacts: Mapping[str, Any],
++        *,
++        state: Mapping[str, Any],
++        step_name: str,
+     ) -> Optional[Dict[str, Any]]:
+-        """Return loop-frame artifacts for an authored on_exhausted policy."""
++        """Return loop-frame artifacts for an authored on_exhausted policy.
++
++        From 2.29 the join reads loop outputs by bound address and no longer
++        chases ref chains, so the compiler-generated `{"ref": ...}` overrides are
++        projected to their values here, one hop, where their origin is known.
++        """
+         on_exhausted = block.get("on_exhausted") if isinstance(block, Mapping) else None
+         if not isinstance(on_exhausted, Mapping):
+             return None
+         overrides = on_exhausted.get("outputs")
+         if not isinstance(overrides, Mapping) or not overrides:
+             return None
++        project = self.executor._workflow_version_at_least("2.29")
++        own_prefix = f"root.steps.{step_name}.artifacts."
+         artifacts = dict(frame_artifacts)
+-        artifacts.update(dict(overrides))
++        for name, value in overrides.items():
++            ref = value.get("ref") if isinstance(value, Mapping) and len(value) == 1 else None
++            if project and isinstance(ref, str):
++                try:
++                    if ref.startswith(own_prefix):
++                        value = frame_artifacts[ref[len(own_prefix):]]
++                    else:
++                        value = self.executor.reference_resolver.resolve(ref, dict(state)).value
++                except (KeyError, ReferenceResolutionError) as exc:
++                    raise LoopStateIntegrityError(
++                        f"repeat_until exhaustion output `{name}` ref `{ref}` is unresolved: {exc}"
++                    ) from exc
++            artifacts[name] = value
+         return artifacts
+ 
+     def _exhaustion_frame_artifacts(
+@@ -1417,7 +1440,9 @@ class LoopExecutor:
+                     "condition_evaluated_for_iteration": current_iteration,
+                     "last_condition_result": False,
+                 }
+-                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, exhaustion_frame_artifacts)
++                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(
++                    block, exhaustion_frame_artifacts, state=state, step_name=step_name
++                )
+                 if exhausted_artifacts is not None:
+                     progress["exhausted"] = True
+                     completed = self.executor._attach_outcome(
+diff --git a/orchestrator/workflow_lisp/lowering/control_loops.py b/orchestrator/workflow_lisp/lowering/control_loops.py
+index f8286f4..ad201db 100644
+--- a/orchestrator/workflow_lisp/lowering/control_loops.py
++++ b/orchestrator/workflow_lisp/lowering/control_loops.py
+@@ -2390,7 +2390,9 @@ def _exhausted_inactive_placeholder_values(
+             projection,
+             allow_missing_target_fields=_loop_result_optional_relpath_fields(projection),
+         )
+-        if value["contract"].get("kind") != "scalar"
++        # Path outputs cannot be overridden by on_exhausted (the runtime
++        # validator rejects it); an inactive path stays unset, as pre-2.29.
++        if value["contract"].get("kind") not in ("scalar", "relpath")
+     }
+     required: list[dict[str, Any]] = []
+     for name, activity in projection.nested_union_activity.items():
+diff --git a/tests/test_workflow_lisp_loop_result_path_exhaustion.py b/tests/test_workflow_lisp_loop_result_path_exhaustion.py
+new file mode 100644
+index 0000000..084d74e
+--- /dev/null
++++ b/tests/test_workflow_lisp_loop_result_path_exhaustion.py
+@@ -0,0 +1,177 @@
++"""Loop results with path fields in non-exhausted variants compile alike at 2.28 and 2.32."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++import pytest
++
++from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
++from orchestrator.workflow_lisp.compiler import compile_stage3_module
++from orchestrator.workflow_lisp.workflows import ExternalToolBinding
++from tests.test_workflow_lisp_generic_stdlib_composition import _execute_bundle
++
++_SOURCE = """\
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "{target}")
++  (defmodule path_loop)
++  (export run)
++  (defpath Report :kind relpath :under "artifacts/review" :must-exist true)
++  (defunion Review
++    (APPROVE (report Report))
++    (RETRY (note String)))
++  (defunion Outcome
++    (READY (report Report) (rounds Int))
++    (UNRESOLVED (rounds Int)))
++  (defprompt review-prompt (:fills (task :text)) -> Review "Review {{task}}")
++  (defworkflow run ((task String)) -> Outcome
++    (loop/recur :max 2
++      :state (loop-state (round Int 1))
++      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++      (fn (state)
++        (let* ((review (provider-result providers.reviewer
++                         :prompt (review-prompt :task task))))
++          (match review
++            ((APPROVE a)
++             (done (variant Outcome READY :report a.report :rounds state.round)))
++            ((RETRY r)
++             (continue (loop-state :like state :round (+ state.round 1)))))))))
++)
++"""
++
++
++def _exhaustion_outputs(tmp_path: Path, target: str) -> dict:
++    root = tmp_path / target
++    root.mkdir()
++    source = root / "path_loop.orc"
++    source.write_text(_SOURCE.format(target=target), encoding="utf-8")
++    providers = root / "providers.json"
++    providers.write_text(json.dumps({"providers.reviewer": "claude"}), encoding="utf-8")
++    bundle = build_frontend_bundle(
++        FrontendBuildRequest(
++            source_path=source,
++            source_roots=(root,),
++            entry_workflow="run",
++            provider_externs_path=providers,
++            workspace_root=root,
++        )
++    ).validated_bundle
++    loops = [s for s in bundle.surface.steps if s.repeat_until is not None]
++    assert len(loops) == 1
++    return dict(loops[0].repeat_until.on_exhausted_outputs)
++
++
++@pytest.mark.parametrize("target", ["2.29", "2.32"])
++def test_inactive_path_field_is_not_overridden_on_exhaustion(tmp_path: Path, target: str) -> None:
++    assert _exhaustion_outputs(tmp_path, target) == _exhaustion_outputs(tmp_path, "2.28")
++
++
++_PROBE = """import json, os
++from pathlib import Path
++payload = {"variant": "RETRY", "note": "again"}
++Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(payload))
++print(json.dumps(payload))
++"""
++
++_RUN_SOURCE = _SOURCE.replace(
++    "(provider-result providers.reviewer\n                         :prompt (review-prompt :task task))",
++    "(command-result probe_review :argv (\"python\" \"PROBE_PATH\") :returns Review)",
++).replace("((task String))", "()").replace(
++    "  (defprompt review-prompt (:fills (task :text)) -> Review \"Review {{task}}\")\n", ""
++)
++
++
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.32"])
++def test_exhausted_run_returns_unresolved_with_final_round(tmp_path: Path, target: str) -> None:
++    probe = tmp_path / "probe_review.py"
++    probe.write_text(_PROBE, encoding="utf-8")
++    source = tmp_path / "path_loop.orc"
++    source.write_text(
++        _RUN_SOURCE.format(target=target).replace("PROBE_PATH", probe.as_posix()),
++        encoding="utf-8",
++    )
++    workspace = tmp_path / "ws"
++    workspace.mkdir()
++    result = compile_stage3_module(
++        source,
++        provider_externs={},
++        prompt_externs={},
++        command_boundaries={
++            "probe_review": ExternalToolBinding(
++                name="probe_review", stable_command=("python", probe.as_posix())
++            )
++        },
++        validate_shared=True,
++        workspace_root=workspace,
++    )
++    state = _execute_bundle(
++        result.validated_bundles["run"], workflow_path=source, workspace=workspace, run_id="r"
++    )
++    assert state["status"] == "completed", state.get("error")
++    outputs = state["workflow_outputs"]
++    assert (outputs["return__variant"], outputs["return__rounds"]) == ("UNRESOLVED", 2)
++
++
++_MAP_SOURCE = """\
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "{target}")
++  (defmodule map_loop)
++  (export run)
++  (defunion Review
++    (APPROVE (metadata Map[String, String]))
++    (RETRY (note String)))
++  (defunion Outcome
++    (READY (metadata Map[String, String]) (rounds Int))
++    (UNRESOLVED (rounds Int)))
++  (defworkflow run () -> Outcome
++    (loop/recur :max 2
++      :state (loop-state (round Int 1))
++      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++      (fn (state)
++        (let* ((review (command-result probe_review :argv ("python" "PROBE_PATH") :returns Review)))
++          (match review
++            ((APPROVE a)
++             (done (variant Outcome READY :metadata a.metadata :rounds state.round)))
++            ((RETRY r)
++             (continue (loop-state :like state :round (+ state.round 1)))))))))
++)
++"""
++
++
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.32"])
++def test_map_field_shaped_like_a_ref_is_not_resolved(tmp_path: Path, target: str) -> None:
++    probe = tmp_path / "probe_review.py"
++    probe.write_text(
++        _PROBE.replace(
++            '{"variant": "RETRY", "note": "again"}',
++            '{"variant": "APPROVE", "metadata": {"ref": "hello"}}',
++        ),
++        encoding="utf-8",
++    )
++    source = tmp_path / "map_loop.orc"
++    source.write_text(
++        _MAP_SOURCE.format(target=target).replace("PROBE_PATH", probe.as_posix()),
++        encoding="utf-8",
++    )
++    workspace = tmp_path / "ws"
++    workspace.mkdir()
++    result = compile_stage3_module(
++        source,
++        provider_externs={},
++        prompt_externs={},
++        command_boundaries={
++            "probe_review": ExternalToolBinding(
++                name="probe_review", stable_command=("python", probe.as_posix())
++            )
++        },
++        validate_shared=True,
++        workspace_root=workspace,
++    )
++    state = _execute_bundle(
++        result.validated_bundles["run"], workflow_path=source, workspace=workspace, run_id="r"
++    )
++    assert state["status"] == "completed", state.get("error")
++    assert state["workflow_outputs"]["return__metadata"] == {"ref": "hello"}

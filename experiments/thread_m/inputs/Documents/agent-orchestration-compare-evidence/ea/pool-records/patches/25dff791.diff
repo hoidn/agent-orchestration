@@ -1,0 +1,176 @@
+diff --git a/orchestrator/workflow/loops.py b/orchestrator/workflow/loops.py
+index 66300d2..f9f1dbd 100644
+--- a/orchestrator/workflow/loops.py
++++ b/orchestrator/workflow/loops.py
+@@ -703,6 +703,7 @@ class LoopExecutor:
+         self,
+         block: Any,
+         frame_artifacts: Mapping[str, Any],
++        step_name: str,
+     ) -> Optional[Dict[str, Any]]:
+         """Return loop-frame artifacts for an authored on_exhausted policy."""
+         on_exhausted = block.get("on_exhausted") if isinstance(block, Mapping) else None
+@@ -712,7 +713,16 @@ class LoopExecutor:
+         if not isinstance(overrides, Mapping) or not overrides:
+             return None
+         artifacts = dict(frame_artifacts)
+-        artifacts.update(dict(overrides))
++        frame_refs = {
++            f"root.steps.{step_name}.artifacts.{name}": value
++            for name, value in frame_artifacts.items()
++        } if self.executor._workflow_version_at_least("2.29") else {}
++        artifacts.update({
++            name: frame_refs.get(value["ref"], value)
++            if isinstance(value, dict) and set(value) == {"ref"} and isinstance(value.get("ref"), str)
++            else value
++            for name, value in overrides.items()
++        })
+         return artifacts
+ 
+     def _exhaustion_frame_artifacts(
+@@ -1417,7 +1427,9 @@ class LoopExecutor:
+                     "condition_evaluated_for_iteration": current_iteration,
+                     "last_condition_result": False,
+                 }
+-                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, exhaustion_frame_artifacts)
++                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(
++                    block, exhaustion_frame_artifacts, step_name
++                )
+                 if exhausted_artifacts is not None:
+                     progress["exhausted"] = True
+                     completed = self.executor._attach_outcome(
+diff --git a/orchestrator/workflow_lisp/lowering/control_loops.py b/orchestrator/workflow_lisp/lowering/control_loops.py
+index f8286f4..a03860a 100644
+--- a/orchestrator/workflow_lisp/lowering/control_loops.py
++++ b/orchestrator/workflow_lisp/lowering/control_loops.py
+@@ -2390,7 +2390,7 @@ def _exhausted_inactive_placeholder_values(
+             projection,
+             allow_missing_target_fields=_loop_result_optional_relpath_fields(projection),
+         )
+-        if value["contract"].get("kind") != "scalar"
++        if value["contract"].get("kind") not in {"scalar", "relpath"}
+     }
+     required: list[dict[str, Any]] = []
+     for name, activity in projection.nested_union_activity.items():
+diff --git a/tests/test_workflow_lisp_loop_result_paths.py b/tests/test_workflow_lisp_loop_result_paths.py
+new file mode 100644
+index 0000000..f4208f8
+--- /dev/null
++++ b/tests/test_workflow_lisp_loop_result_paths.py
+@@ -0,0 +1,116 @@
++"""Path fields in inactive loop result variants remain valid at newer targets."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from unittest.mock import patch
++
++import pytest
++
++from orchestrator.providers.executor import ProviderExecutionResult, ProviderExecutor
++from orchestrator.providers.types import InputMode, PreparedProviderPolicy, ProviderInvocation
++from orchestrator.state import StateManager
++from orchestrator.workflow.executor import WorkflowExecutor
++from orchestrator.workflow_lisp.compiler import compile_stage3_module
++from tests.workflow_bundle_helpers import bundle_context_dict
++
++
++SOURCE = """\
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "{target}")
++  (defmodule path_loop)
++  (export run)
++  (defpath Artifact :kind relpath :under "artifacts" :must-exist true)
++  (defunion Choice
++    (FINISH (file Artifact))
++    (HALT (reason String))
++    (RETRY (reason String)))
++  (defunion Result
++    (FOUND (file Artifact))
++    (HALTED (reason String))
++    (EXHAUSTED (attempts Int)))
++  (defworkflow run () -> Result
++    (loop/recur :max 2
++      :state (loop-state (attempts Int 1))
++      :on-exhausted (variant Result EXHAUSTED :attempts state.attempts)
++      (fn (state)
++        (let* ((choice (provider-result providers.worker
++                         :prompt prompts.choice :inputs () :returns Choice)))
++          (match choice
++            ((FINISH selected) (done (variant Result FOUND :file selected.file)))
++            ((HALT selected) (done (variant Result HALTED :reason selected.reason)))
++            ((RETRY selected) (continue (loop-state :like state :attempts (+ state.attempts 1))))))))))
++"""
++
++
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.30", "2.31", "2.32"])
++@pytest.mark.parametrize(
++    ("choice", "expected"),
++    [
++        ("FINISH", {"return__variant": "FOUND", "return__file": "artifacts/report.txt"}),
++        ("HALT", {"return__variant": "HALTED", "return__reason": "stop"}),
++        ("RETRY", {"return__variant": "EXHAUSTED", "return__attempts": 2}),
++        ("BAD_PATH", None),
++    ],
++)
++def test_loop_result_inactive_path_variant_runs_like_228(
++    tmp_path: Path, target: str, choice: str, expected: dict[str, object] | None
++) -> None:
++    source = tmp_path / "path_loop.orc"
++    source.write_text(SOURCE.format(target=target), encoding="utf-8")
++    report = tmp_path / "artifacts" / "report.txt"
++    report.parent.mkdir()
++    report.write_text("report\n", encoding="utf-8")
++
++    (tmp_path / "choice.md").write_text("Choose.\n", encoding="utf-8")
++    compiled = compile_stage3_module(
++        source, provider_externs={"providers.worker": "codex"},
++        prompt_externs={"prompts.choice": "choice.md"}, validate_shared=True,
++        workspace_root=tmp_path,
++    )
++    bundle = next(iter(compiled.validated_bundles.values()))
++    manager = StateManager(tmp_path, run_id=f"path-loop-{target}-{choice}")
++    manager.initialize(str(source), context=bundle_context_dict(bundle))
++
++    provider_value = {
++        "FINISH": {"variant": "FINISH", "file": "artifacts/report.txt"},
++        "HALT": {"variant": "HALT", "reason": "stop"},
++        "RETRY": {"variant": "RETRY", "reason": "again"},
++        "BAD_PATH": {"variant": "FINISH", "file": "../outside.txt"},
++    }[choice]
++
++    def prepare(_self, provider_name, *_args, **kwargs):
++        prompt = kwargs.get("prompt_content", "")
++        return ProviderInvocation(
++            command=["fake-provider"], input_mode=InputMode.STDIN, prompt=prompt,
++            env=kwargs.get("env") or {}, prepared_prompt=prompt,
++            prepared_provider_policy=PreparedProviderPolicy(
++                provider_name=provider_name, model=None, effort=None,
++                timeout_sec=kwargs.get("timeout_sec"), input_mode="stdin",
++            ),
++        ), None
++
++    def execute(_self, invocation, **_kwargs):
++        output_path = Path(invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
++        if not output_path.is_absolute():
++            output_path = tmp_path / output_path
++        output_path.parent.mkdir(parents=True, exist_ok=True)
++        output_path.write_text(json.dumps(provider_value), encoding="utf-8")
++        return ProviderExecutionResult(exit_code=0, stdout=b"", stderr=b"", duration_ms=1)
++
++    with patch.object(ProviderExecutor, "prepare_invocation", prepare), patch.object(ProviderExecutor, "execute", execute):
++        state = WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0).execute(on_error="stop")
++
++    if expected is None:
++        assert state["status"] == "failed"
++        assert not state["workflow_outputs"]
++        provider_step = next(
++            result for name, result in state["steps"].items()
++            if name.endswith(".run__body__choice")
++        )
++        assert provider_step["error"]["context"]["violations"][0]["type"] == "variant_field_type_invalid"
++    else:
++        assert state["status"] == "completed"
++        assert all(state["workflow_outputs"][name] == value for name, value in expected.items())

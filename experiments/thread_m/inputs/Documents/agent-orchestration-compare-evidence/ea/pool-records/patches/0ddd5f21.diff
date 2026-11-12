@@ -1,0 +1,172 @@
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index 999488b..f43424a 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -1723,7 +1723,20 @@ class WorkflowExecutor:
+                 raise ReferenceResolutionError(
+                     f"Bound step output '{address.node_id}.artifacts.{output_name}' is unavailable"
+                 )
+-            return artifacts[output_name]
++            value = artifacts[output_name]
++            if (
++                isinstance(address, LoopOutputAddress)
++                and isinstance(value, dict)
++                and set(value) == {"ref"}
++                and isinstance(value["ref"], str)
++            ):
++                # repeat_until.on_exhausted overrides are stored as loop-frame refs.
++                value, error = self._resolve_ref_value(value["ref"], state, scope=scope)
++                if error is not None:
++                    raise ReferenceResolutionError(
++                        f"Bound loop output '{address.node_id}.artifacts.{output_name}' override ref is unresolved"
++                    )
++            return value
+ 
+         raise ReferenceResolutionError(f"Unsupported bound address type '{type(address).__name__}'")
+ 
+diff --git a/orchestrator/workflow/validation.py b/orchestrator/workflow/validation.py
+index 42661f2..ebed13e 100644
+--- a/orchestrator/workflow/validation.py
++++ b/orchestrator/workflow/validation.py
+@@ -2793,15 +2793,15 @@ class _WorkflowMappingValidator:
+ 
+             spec = output_specs[output_name]
+             output_type = spec.get('type')
+-            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
+-                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
+-                continue
+             if self._is_generated_repeat_until_on_exhausted_ref(
+                 value,
+                 step_name=step_name,
+                 output_name=output_name,
+             ):
+                 continue
++            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
++                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
++                continue
+             if isinstance(value, (dict, list)):
+                 self._add_error(f"{value_context} must be a scalar literal")
+                 continue
+diff --git a/tests/test_workflow_lisp_loop_result_path_variants.py b/tests/test_workflow_lisp_loop_result_path_variants.py
+new file mode 100644
+index 0000000..c8a61f5
+--- /dev/null
++++ b/tests/test_workflow_lisp_loop_result_path_variants.py
+@@ -0,0 +1,117 @@
++"""A loop result union with a path field in a non-exhausted variant is target-independent."""
++
++from __future__ import annotations
++
++import json
++import sys
++from argparse import Namespace
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import patch
++
++import pytest
++
++from orchestrator.cli.commands.run import run_workflow
++from orchestrator.providers.executor import ProviderExecutor
++from orchestrator.providers.types import PreparedProviderPolicy
++
++_SOURCE = """\
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "{target}")
++  (defmodule reviewed_change)
++  (export reviewed-change)
++  (defpath ReviewReport :kind relpath :under "artifacts/review" :must-exist true)
++  (defunion Review
++    (APPROVE (report ReviewReport))
++    (REQUEST_CHANGES (findings List[String])))
++  (defunion Outcome
++    (READY (report ReviewReport) (rounds Int))
++    (UNRESOLVED (rounds Int)))
++  (defprompt review-prompt (:fills (task :text)) -> Review "Review {{task}}")
++  (defworkflow reviewed-change ((task String)) -> Outcome
++    (loop/recur :max 2
++      :state (loop-state (round Int 1))
++      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++      (fn (state)
++        (let* ((review (provider-result providers.reviewer
++                         :prompt (review-prompt :task task))))
++          (match review
++            ((APPROVE a)
++             (done (variant Outcome READY :report a.report :rounds state.round)))
++            ((REQUEST_CHANGES r)
++             (continue (loop-state :like state :round (+ state.round 1))))))))))
++"""
++
++
++def _run(tmp_path: Path, monkeypatch, target: str, answer: dict):
++    src = tmp_path / "reviewed_change.orc"
++    src.write_text(_SOURCE.format(target=target), encoding="utf-8")
++    (tmp_path / "providers.json").write_text(json.dumps({"providers.reviewer": "claude"}))
++    (tmp_path / "inputs.json").write_text(json.dumps({"task": "t"}))
++    (tmp_path / "artifacts/review").mkdir(parents=True)
++    (tmp_path / "artifacts/review/r.md").write_text("ok\n")
++
++    def prepare(_self, provider_name, *_a, **kw):
++        prompt = str(kw.get("prompt_content", ""))
++        return SimpleNamespace(
++            provider_name=provider_name, prompt=prompt, prepared_prompt=prompt,
++            prepared_provider_policy=PreparedProviderPolicy(
++                provider_name=provider_name, model=None, effort=None,
++                timeout_sec=kw.get("timeout_sec"), input_mode="stdin"),
++            env=dict(kw.get("env") or {}), input_mode="stdin"), None
++
++    def execute(_self, invocation, **_kw):
++        out = Path(invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
++        if not out.is_absolute():
++            out = Path.cwd() / out
++        out.parent.mkdir(parents=True, exist_ok=True)
++        out.write_text(json.dumps(answer) + "\n", encoding="utf-8")
++        return SimpleNamespace(
++            exit_code=0, stdout=b"", stderr=b"", duration_ms=1, error=None,
++            missing_placeholders=None, invalid_prompt_placeholder=False, raw_stdout=None,
++            normalized_stdout=None, provider_session=None)
++
++    args = Namespace(
++        workflow=str(src), context=None, context_file=None, input=[], input_file=str(tmp_path / "inputs.json"),
++        clean_processed=False, archive_processed=None, debug=False, stream_output=False,
++        dry_run=False, backup_state=False, state_dir=None, on_error="stop", max_retries=0,
++        retry_delay=0, quiet=True, verbose=False, log_level="error", step_summaries=False,
++        summary_mode=None, summary_provider="claude_sonnet_summary", summary_timeout_sec=120,
++        summary_max_input_chars=12000, summary_profile=None, live_agent_notes=False,
++        live_agent_note_provider=None, live_agent_note_interval_sec=15.0,
++        live_agent_note_timeout_sec=30, live_agent_note_max_tail_chars=6000,
++        entry_workflow="reviewed_change::reviewed-change", source_root=[str(tmp_path)],
++        provider_externs_file=str(tmp_path / "providers.json"), prompt_externs_file=None,
++        imported_workflow_bundles_file=None, command_boundaries_file=None, emit_debug_yaml=False)
++    monkeypatch.chdir(tmp_path)
++    argv = ["orchestrator", "run", str(src), "--entry-workflow", args.entry_workflow]
++    with patch.object(ProviderExecutor, "prepare_invocation", prepare), patch.object(
++        ProviderExecutor, "execute", execute), patch.object(sys, "argv", argv):
++        return run_workflow(args)
++
++
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.32"])
++def test_exhaustion_yields_unresolved(tmp_path, monkeypatch, target) -> None:
++    result = _run(tmp_path, monkeypatch, target,
++                  {"variant": "REQUEST_CHANGES", "findings": ["x"]})
++    assert result.exit_code == 0
++    assert result.workflow_outputs["return__variant"] == "UNRESOLVED"
++    assert result.workflow_outputs["return__rounds"] == 2
++    assert "return__report" not in result.workflow_outputs
++
++
++@pytest.mark.parametrize("target", ["2.28", "2.29", "2.32"])
++def test_approval_yields_ready_with_report(tmp_path, monkeypatch, target) -> None:
++    result = _run(tmp_path, monkeypatch, target,
++                  {"variant": "APPROVE", "report": "artifacts/review/r.md"})
++    assert result.exit_code == 0
++    assert result.workflow_outputs["return__variant"] == "READY"
++    assert result.workflow_outputs["return__report"] == "artifacts/review/r.md"
++
++
++@pytest.mark.parametrize("target", ["2.28", "2.32"])
++def test_missing_report_file_still_fails(tmp_path, monkeypatch, target) -> None:
++    result = _run(tmp_path, monkeypatch, target,
++                  {"variant": "APPROVE", "report": "artifacts/review/missing.md"})
++    assert result.exit_code != 0

@@ -1,0 +1,210 @@
+diff --git a/orchestrator/workflow/loops.py b/orchestrator/workflow/loops.py
+index 66300d2..a9e3a33 100644
+--- a/orchestrator/workflow/loops.py
++++ b/orchestrator/workflow/loops.py
+@@ -703,16 +703,36 @@ class LoopExecutor:
+         self,
+         block: Any,
+         frame_artifacts: Mapping[str, Any],
++        *,
++        step_name: str,
++        state: Mapping[str, Any],
+     ) -> Optional[Dict[str, Any]]:
+-        """Return loop-frame artifacts for an authored on_exhausted policy."""
++        """Return loop-frame artifacts for an authored on_exhausted policy.
++
++        Compiler-emitted `{"ref": ...}` overrides are resolved here: the loop's own
++        artifacts come from the exhaustion snapshot (the frame is not persisted yet),
++        anything else from persisted step state. Unresolvable refs stay as written.
++        Targets before 2.29 keep their overrides verbatim.
++        """
+         on_exhausted = block.get("on_exhausted") if isinstance(block, Mapping) else None
+         if not isinstance(on_exhausted, Mapping):
+             return None
+         overrides = on_exhausted.get("outputs")
+         if not isinstance(overrides, Mapping) or not overrides:
+             return None
++        if not self.executor._workflow_version_at_least("2.29"):
++            return {**frame_artifacts, **overrides}
++        own_prefix = f"root.steps.{step_name}.artifacts."
+         artifacts = dict(frame_artifacts)
+-        artifacts.update(dict(overrides))
++        for name, value in overrides.items():
++            ref = value.get("ref") if isinstance(value, Mapping) and set(value) == {"ref"} else None
++            if isinstance(ref, str) and ref.startswith(own_prefix) and ref[len(own_prefix):] in frame_artifacts:
++                value = frame_artifacts[ref[len(own_prefix):]]
++            elif isinstance(ref, str):
++                resolved, error = self.executor._resolve_ref_value(ref, state)
++                if error is None:
++                    value = resolved
++            artifacts[name] = value
+         return artifacts
+ 
+     def _exhaustion_frame_artifacts(
+@@ -1417,7 +1437,9 @@ class LoopExecutor:
+                     "condition_evaluated_for_iteration": current_iteration,
+                     "last_condition_result": False,
+                 }
+-                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, exhaustion_frame_artifacts)
++                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(
++                    block, exhaustion_frame_artifacts, step_name=step_name, state=state
++                )
+                 if exhausted_artifacts is not None:
+                     progress["exhausted"] = True
+                     completed = self.executor._attach_outcome(
+diff --git a/orchestrator/workflow_lisp/lowering/control_loops.py b/orchestrator/workflow_lisp/lowering/control_loops.py
+index f8286f4..5d3523b 100644
+--- a/orchestrator/workflow_lisp/lowering/control_loops.py
++++ b/orchestrator/workflow_lisp/lowering/control_loops.py
+@@ -2390,7 +2390,8 @@ def _exhausted_inactive_placeholder_values(
+             projection,
+             allow_missing_target_fields=_loop_result_optional_relpath_fields(projection),
+         )
+-        if value["contract"].get("kind") != "scalar"
++        # relpath fields keep the loop-frame placeholder literal, as at 2.28
++        if value["contract"].get("kind") not in ("scalar", "relpath")
+     }
+     required: list[dict[str, Any]] = []
+     for name, activity in projection.nested_union_activity.items():
+diff --git a/tests/test_workflow_lisp_loop_result_paths.py b/tests/test_workflow_lisp_loop_result_paths.py
+new file mode 100644
+index 0000000..34f2b1d
+--- /dev/null
++++ b/tests/test_workflow_lisp_loop_result_paths.py
+@@ -0,0 +1,136 @@
++"""A loop result union with path fields in non-exhausted variants at targets 2.28-2.32."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import patch
++
++import pytest
++
++from orchestrator.providers.executor import ProviderExecutor
++from orchestrator.providers.types import PreparedProviderPolicy
++from orchestrator.state import StateManager
++from orchestrator.workflow.executor import WorkflowExecutor
++from orchestrator.workflow.loaded_bundle import workflow_runtime_input_contracts
++from orchestrator.workflow.signatures import bind_workflow_inputs
++from orchestrator.workflow_lisp.compiler import compile_stage3_module
++from tests.workflow_bundle_helpers import bundle_context_dict
++
++SOURCE = """\
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "{target}")
++  (defmodule loop_paths)
++  (export run)
++  (defpath Report :kind relpath :under "artifacts/review" :must-exist true)
++  (defunion Review
++    (APPROVE (report Report))
++    (CHANGES (findings List[String]))
++    (HUMAN (question String)))
++  (defunion Outcome
++    (READY (report Report) (rounds Int))
++    (ESCALATED (question String))
++    (UNRESOLVED (rounds Int)))
++  (defworkflow run () -> Outcome
++    (loop/recur :max 2
++      :state (loop-state (round Int 1))
++      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++      (fn (state)
++        (let* ((review (provider-result providers.reviewer
++                         :prompt prompts.review :inputs () :returns Review)))
++          (match review
++            ((APPROVE a)
++             (done (variant Outcome READY :report a.report :rounds state.round)))
++            ((CHANGES c)
++             (continue (loop-state :like state :round (+ state.round 1))))
++            ((HUMAN h)
++             (done (variant Outcome ESCALATED :question h.question)))))))))
++"""
++
++TARGETS = ["2.28", "2.29", "2.30", "2.31", "2.32"]
++
++
++def _run(tmp_path: Path, target: str, review_output: dict) -> dict:
++    module_path = tmp_path / "loop_paths.orc"
++    module_path.write_text(SOURCE.replace("{target}", target), encoding="utf-8")
++    (tmp_path / "prompts").mkdir()
++    (tmp_path / "prompts" / "review.md").write_text("review\n", encoding="utf-8")
++    (tmp_path / "artifacts" / "review").mkdir(parents=True)
++    (tmp_path / "artifacts" / "review" / "r.md").write_text("ok\n", encoding="utf-8")
++    bundle = next(iter(compile_stage3_module(
++        module_path,
++        validate_shared=True,
++        workspace_root=tmp_path,
++        provider_externs={"providers.reviewer": "reviewer"},
++        prompt_externs={"prompts.review": "prompts/review.md"},
++    ).validated_bundles.values()))
++    public_inputs = {
++        n: c for n, c in workflow_runtime_input_contracts(bundle).items()
++        if not n.startswith("__write_root__")
++    }
++    manager = StateManager(workspace=tmp_path, run_id=f"loop-paths-{target}")
++    manager.initialize(
++        str(module_path),
++        context=bundle_context_dict(bundle),
++        bound_inputs=bind_workflow_inputs(public_inputs, {}, tmp_path),
++    )
++
++    def prepare(_self, provider_name, *_args, **kwargs):
++        prompt = str(kwargs.get("prompt_content", ""))
++        return SimpleNamespace(
++            provider_name=provider_name, prompt=prompt, prepared_prompt=prompt,
++            prepared_provider_policy=PreparedProviderPolicy(
++                provider_name=provider_name, model=None, effort=None,
++                timeout_sec=kwargs.get("timeout_sec"), input_mode="stdin",
++            ),
++            env=dict(kwargs.get("env") or {}), input_mode="stdin",
++        ), None
++
++    def execute(_self, invocation, **_kwargs):
++        output = Path(invocation.env["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
++        if not output.is_absolute():
++            output = tmp_path / output
++        output.parent.mkdir(parents=True, exist_ok=True)
++        output.write_text(json.dumps(review_output), encoding="utf-8")
++        return SimpleNamespace(
++            exit_code=0, stdout=b"", stderr=b"", duration_ms=1, error=None,
++            missing_placeholders=None, invalid_prompt_placeholder=False,
++            raw_stdout=None, normalized_stdout=None, provider_session=None,
++        )
++
++    with patch.object(ProviderExecutor, "prepare_invocation", prepare), patch.object(
++        ProviderExecutor, "execute", execute
++    ):
++        return WorkflowExecutor(bundle, tmp_path, manager, retry_delay_ms=0).execute(
++            on_error="stop"
++        )
++
++
++@pytest.mark.parametrize("target", TARGETS)
++def test_exhaustion_returns_inactive_path_variant(tmp_path: Path, target: str) -> None:
++    state = _run(tmp_path, target, {"variant": "CHANGES", "findings": ["x"]})
++
++    assert state["status"] == "completed"
++    assert state["workflow_outputs"]["return__variant"] == "UNRESOLVED"
++    assert state["workflow_outputs"]["return__rounds"] == 2
++
++
++@pytest.mark.parametrize("target", TARGETS)
++def test_done_path_returns_the_path_field(tmp_path: Path, target: str) -> None:
++    state = _run(tmp_path, target, {"variant": "APPROVE", "report": "artifacts/review/r.md"})
++
++    assert state["status"] == "completed"
++    assert state["workflow_outputs"]["return__variant"] == "READY"
++    assert state["workflow_outputs"]["return__report"] == "artifacts/review/r.md"
++
++
++@pytest.mark.parametrize("target", TARGETS)
++def test_malformed_provider_path_still_fails(tmp_path: Path, target: str) -> None:
++    state = _run(tmp_path, target, {"variant": "APPROVE", "report": "../escape.md"})
++
++    assert state["status"] == "failed"
++
++
++

@@ -1,0 +1,713 @@
+{
+ "criterion_sha256": "0126dd13322516cd6f319fa623966d898176a807eaa28715f31cd2ff5fba3798",
+ "judges": [
+  "claude-opus-5-5",
+  "gpt-6-sol"
+ ],
+ "excluded_judges": {},
+ "runs": [
+  {
+   "run": "/home/ollie/eb3-work/records/design_review_execute/run-1",
+   "arm": "design_review_execute",
+   "outcome": "failed",
+   "failure": {
+    "code": "provider_timeout",
+    "message": "evaluated provider failed: {'type': 'timeout', 'message': 'Provider timed out after 14400 seconds', 'context': {'timeout_sec': 14400}}"
+   },
+   "calls": 4,
+   "wall_clock_sec": 16584.447254657745,
+   "selected": null,
+   "variant": null,
+   "scan_hits": 34,
+   "verdict": {
+    "verdict": "cleared",
+    "reason": "Cleared: own private-/tmp tmux socket/skill text (G4) and CLI ENOSPC message naming its own rollout (G6). Frozen bwrap binds only its tree/tmp; no foreign session access. E/run-contamination-review.md and exhaustive inventory,354hits total.",
+    "hits": 34
+   },
+   "excluded": null,
+   "scores": {},
+   "value": null
+  },
+  {
+   "run": "/home/ollie/eb3-work/records/direct_task/run-1",
+   "arm": "direct_task",
+   "outcome": "completed",
+   "failure": null,
+   "calls": 1,
+   "wall_clock_sec": 4014.5851435661316,
+   "selected": null,
+   "variant": null,
+   "scan_hits": 87,
+   "verdict": {
+    "verdict": "cleared",
+    "reason": "Cleared: all87hits are own private-/tmp tmux socket/skill text (G4), isolated by bwrap. Supplementary shared nvim LSP log read contains own tree only and no main/foreign-tree identifiers; review records this shared-home limit.",
+    "hits": 87
+   },
+   "excluded": null,
+   "scores": {
+    "final": 5.5
+   },
+   "value": 5.5
+  },
+  {
+   "run": "/home/ollie/eb3-work/records/reviewed_change/run-1",
+   "arm": "reviewed_change",
+   "outcome": "completed",
+   "failure": null,
+   "calls": 6,
+   "wall_clock_sec": 6039.647200345993,
+   "selected": null,
+   "variant": "UNRESOLVED",
+   "scan_hits": 22,
+   "verdict": {
+    "verdict": "cleared",
+    "reason": "Cleared:own private-/tmp tmux (G4) plus own earlier oversized tool output persisted under own project/session/tool-results (G5), not another session transcript.",
+    "hits": 22
+   },
+   "excluded": null,
+   "scores": {
+    "final": 7,
+    "first": 6.5
+   },
+   "value": 7,
+   "paired_gain": 0.5
+  },
+  {
+   "run": "/home/ollie/eb3-work/records/design_review_execute/run-2",
+   "arm": "design_review_execute",
+   "outcome": "completed",
+   "failure": null,
+   "calls": 4,
+   "wall_clock_sec": 14796.849997282028,
+   "selected": null,
+   "variant": null,
+   "scan_hits": 23,
+   "verdict": {
+    "verdict": "contaminated",
+    "reason": "Contaminated D5: executor native action actually executed sed on six main-checkout files including /home/ollie/Documents/agent-orchestration/docs/workflow_drafting_guide.md and specs/dsl.md. Rollout ...01a141e8-69cd-7e72-9b89-ffbaf1009587.jsonl:1684; successful content in matching output:1699 (G1). Other hits G4/G5/G6 benign. Excluded before pool or quality readout, no replacement.",
+    "hits": 23
+   },
+   "excluded": "contaminated: Contaminated D5: executor native action actually executed sed on six main-checkout files including /home/ollie/Documents/agent-orchestration/docs/workflow_drafting_guide.md and specs/dsl.md. Rollout ...01a141e8-69cd-7e72-9b89-ffbaf1009587.jsonl:1684; successful content in matching output:1699 (G1). Other hits G4/G5/G6 benign. Excluded before pool or quality readout, no replacement.",
+   "scores": {},
+   "value": null
+  },
+  {
+   "run": "/home/ollie/eb3-work/records/direct_task/run-2",
+   "arm": "direct_task",
+   "outcome": "completed",
+   "failure": null,
+   "calls": 1,
+   "wall_clock_sec": 2775.0937354564667,
+   "selected": null,
+   "variant": null,
+   "scan_hits": 38,
+   "verdict": {
+    "verdict": "cleared",
+    "reason": "Cleared:7main-checkout paths only printed by cat of workflow-authoring SKILL.md (G2), not accessed by executed actions (wider raw-action search checked). Other31hits own private-/tmp tmux (G4).",
+    "hits": 38
+   },
+   "excluded": null,
+   "scores": {
+    "final": 4
+   },
+   "value": 4
+  },
+  {
+   "run": "/home/ollie/eb3-work/records/reviewed_change/run-2",
+   "arm": "reviewed_change",
+   "outcome": "completed",
+   "failure": null,
+   "calls": 6,
+   "wall_clock_sec": 5555.348135232925,
+   "selected": null,
+   "variant": "UNRESOLVED",
+   "scan_hits": 16,
+   "verdict": {
+    "verdict": "cleared",
+    "reason": "Cleared:16hits own private-/tmp tmux socket/skill text (G4), isolated by bwrap. No foreign source access in reviewed actions. Known disk recording coverage loss separately disclosed, not silently repaired.",
+    "hits": 16
+   },
+   "excluded": null,
+   "scores": {
+    "first": 1.5,
+    "final": 4
+   },
+   "value": 4,
+   "paired_gain": 2.5
+  },
+  {
+   "run": "/home/ollie/eb3-work/records/design_review_execute/run-3",
+   "arm": "design_review_execute",
+   "outcome": "failed",
+   "failure": {
+    "code": "provider_timeout",
+    "message": "evaluated provider failed: {'type': 'timeout', 'message': 'Provider timed out after 14400 seconds', 'context': {'timeout_sec': 14400}}"
+   },
+   "calls": 4,
+   "wall_clock_sec": 16640.377923965454,
+   "selected": null,
+   "variant": null,
+   "scan_hits": 74,
+   "verdict": {
+    "verdict": "cleared",
+    "reason": "Cleared: own private-/tmp tmux (G4), CLI own-rollout ENOSPC message (G6), gh command only printed by finishing-branch SKILL.md, no executed gh/network action (G3). No foreign source access in reviewed actions.",
+    "hits": 74
+   },
+   "excluded": null,
+   "scores": {},
+   "value": null
+  },
+  {
+   "run": "/home/ollie/eb3-work/records/direct_task/run-3",
+   "arm": "direct_task",
+   "outcome": "completed",
+   "failure": null,
+   "calls": 1,
+   "wall_clock_sec": 6250.612704753876,
+   "selected": null,
+   "variant": null,
+   "scan_hits": 54,
+   "verdict": {
+    "verdict": "cleared",
+    "reason": "Cleared:54hits own private-/tmp tmux socket/skill text (G4), isolated by bwrap. Supplementary rg lists skill/Codex filenames only, no transcript contents read.",
+    "hits": 54
+   },
+   "excluded": null,
+   "scores": {
+    "final": 4.5
+   },
+   "value": 4.5
+  },
+  {
+   "run": "/home/ollie/eb3-work/records/reviewed_change/run-3",
+   "arm": "reviewed_change",
+   "outcome": "failed",
+   "failure": {
+    "code": "provider_timeout",
+    "message": "evaluated provider failed: {'type': 'timeout', 'message': 'Provider timed out after 5400 seconds', 'context': {'timeout_sec': 5400}}"
+   },
+   "calls": 1,
+   "wall_clock_sec": 5921.946665763855,
+   "selected": null,
+   "variant": null,
+   "scan_hits": 6,
+   "verdict": {
+    "verdict": "cleared",
+    "reason": "Cleared:own private-/tmp tmux (G4) and own earlier oversized tool output persisted under own project/session/tool-results (G5). Failed resource-pause attempt remains failed; partialcandidate nevergraded.",
+    "hits": 6
+   },
+   "excluded": null,
+   "scores": {},
+   "value": null
+  }
+ ],
+ "measures": {
+  "direct_task.runs": 3,
+  "direct_task.mean": 4.666666666666667,
+  "direct_task.calls_mean": 1,
+  "direct_task.wall_clock_mean": 4346.763861258824,
+  "reviewed_change.runs": 2,
+  "reviewed_change.mean": 5.5,
+  "reviewed_change.calls_mean": 6,
+  "reviewed_change.wall_clock_mean": 5797.497667789459,
+  "reviewed_change.paired_gain_mean": 1.5,
+  "reviewed_change.paired_gain_runs_positive": 2,
+  "reviewed_change.paired_gain_runs_negative": 0,
+  "reviewed_change.minus_control": 0.833333333333333
+ },
+ "verdict": {
+  "primary": [
+   {
+    "measure": "design_review_execute.minus_control",
+    "op": ">=",
+    "value": 0.9,
+    "observed": null,
+    "met": null
+   },
+   {
+    "measure": "design_review_execute.runs",
+    "op": ">=",
+    "value": 3,
+    "observed": null,
+    "met": null
+   },
+   {
+    "measure": "direct_task.runs",
+    "op": ">=",
+    "value": 3,
+    "observed": 3,
+    "met": true
+   },
+   {
+    "measure": "reviewed_change.paired_gain_mean",
+    "op": ">=",
+    "value": 0.5,
+    "observed": 1.5,
+    "met": true
+   },
+   {
+    "measure": "reviewed_change.paired_gain_runs_negative",
+    "op": "<=",
+    "value": 0,
+    "observed": 0,
+    "met": true
+   },
+   {
+    "measure": "reviewed_change.runs",
+    "op": ">=",
+    "value": 3,
+    "observed": 2,
+    "met": false
+   }
+  ],
+  "secondary": [
+   {
+    "measure": "reviewed_change.minus_control",
+    "op": ">=",
+    "value": 0,
+    "observed": 0.833333333333333,
+    "met": true
+   }
+  ]
+ },
+ "agreement": {
+  "root_cause": {
+   "agree": 7,
+   "of": 13
+  },
+  "scope": {
+   "agree": 5,
+   "of": 13
+  },
+  "generality": {
+   "agree": 10,
+   "of": 13
+  },
+  "layering": {
+   "agree": 11,
+   "of": 13
+  }
+ },
+ "anchors": [
+  {
+   "batch": 0,
+   "anchor": "cf1-generic-unions-stub",
+   "judge": "claude-opus-5-5",
+   "total": 1
+  },
+  {
+   "batch": 0,
+   "anchor": "cf1-generic-unions-stub",
+   "judge": "gpt-6-sol",
+   "total": 2
+  },
+  {
+   "batch": 0,
+   "anchor": "cf1-generic-unions-upstream",
+   "judge": "claude-opus-5-5",
+   "total": 4
+  },
+  {
+   "batch": 0,
+   "anchor": "cf1-generic-unions-upstream",
+   "judge": "gpt-6-sol",
+   "total": 1
+  },
+  {
+   "batch": 1,
+   "anchor": "cf1-generic-unions-stub",
+   "judge": "claude-opus-5-5",
+   "total": 0
+  },
+  {
+   "batch": 1,
+   "anchor": "cf1-generic-unions-stub",
+   "judge": "gpt-6-sol",
+   "total": 2
+  },
+  {
+   "batch": 1,
+   "anchor": "cf1-generic-unions-upstream",
+   "judge": "claude-opus-5-5",
+   "total": 4
+  },
+  {
+   "batch": 1,
+   "anchor": "cf1-generic-unions-upstream",
+   "judge": "gpt-6-sol",
+   "total": 2
+  },
+  {
+   "batch": 2,
+   "anchor": "cf1-generic-unions-stub",
+   "judge": "claude-opus-5-5",
+   "total": 0
+  },
+  {
+   "batch": 2,
+   "anchor": "cf1-generic-unions-stub",
+   "judge": "gpt-6-sol",
+   "total": 2
+  },
+  {
+   "batch": 2,
+   "anchor": "cf1-generic-unions-upstream",
+   "judge": "claude-opus-5-5",
+   "total": 2
+  },
+  {
+   "batch": 2,
+   "anchor": "cf1-generic-unions-upstream",
+   "judge": "gpt-6-sol",
+   "total": 1
+  }
+ ],
+ "clones": {
+  "051efedc": {
+   "run": "/home/ollie/eb3-work/records/reviewed_change/run-1",
+   "arm": "reviewed_change",
+   "labels": [
+    "final"
+   ],
+   "stripped": [],
+   "score": 7,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 2,
+     "scope": 1,
+     "generality": 2,
+     "layering": 2,
+     "reason": "Fixes exhaustion in the runtime loop layer for every target: refs to the loop's own frame resolve to committed values, a resume after the final continue now publishes exhaustion, and the suffix heuristic is removed. Restore source identity uses exact compiled ids in a dedicated module, and generic unions reuse the existing descriptor and contract paths. The scope concerns are that a match-join with no terminal contract is now accepted on restore, and pure-projection lowering changes for older targets."
+    },
+    "gpt-6-sol": {
+     "root_cause": 2,
+     "scope": 1,
+     "generality": 2,
+     "layering": 2,
+     "reason": "This attempt connects compile-time union instantiation and ProcRef binding to boundary lowering, committed loop state, and restore by exact compiled source identity. The scope concern is that flattened restored match bindings now pass when no terminal contract exists, while the prior ambiguity check for exhaustion state is removed for every target."
+    }
+   }
+  },
+  "dea046df": {
+   "run": "/home/ollie/eb3-work/records/reviewed_change/run-2",
+   "arm": "reviewed_change",
+   "labels": [
+    "first"
+   ],
+   "stripped": [],
+   "score": 1.5,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 1,
+     "scope": 1,
+     "generality": 1,
+     "layering": 0,
+     "reason": "Exhaustion is 'fixed' by adding a looser tier to the existing step-name-suffix heuristic, and the executor gains a name-pattern `/result` pointer override that applies to all workflows. Applied unions are looked up in a session-wide registry keyed by authored spelling before local resolution, a parallel mechanism that can confuse same-named generics from different modules; restore also skips the contract check when no source node resolves and keeps some suffix fallbacks."
+    },
+    "gpt-6-sol": {
+     "root_cause": 0,
+     "scope": 0,
+     "generality": 0,
+     "layering": 0,
+     "reason": "The loop runtime still has a malformed indentation block, so the added workflow cannot execute, and the record-valued exhaustion path lacks the corresponding lowering repair. Restore validation now accepts flattened match bindings without a terminal contract, while typechecking fabricates record expressions and pins descriptors in a side registry instead of using the existing lowering path."
+    }
+   }
+  },
+  "fd891d98": {
+   "run": null,
+   "arm": "anchor",
+   "labels": [
+    "cf1-generic-unions-stub"
+   ],
+   "stripped": [],
+   "score": 1.5,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 0,
+     "scope": 1,
+     "generality": 0,
+     "layering": 0,
+     "reason": "Only adds an unused version constant and a `resolve_restore_source_node` stub that always returns None. None of generic unions, the boundaries, std/improve, the loop/restore repairs or the example is implemented."
+    },
+    "gpt-6-sol": {
+     "root_cause": 0,
+     "scope": 2,
+     "generality": 0,
+     "layering": 0,
+     "reason": "It adds only a 2.33 constant and a restore-source resolver that always returns `None`; generic unions, boundary handling, improve, and exhaustion remain unimplemented. The additions are isolated but the resolver is unused and does not participate in checkpoint restoration."
+    }
+   }
+  },
+  "aa1fc98d": {
+   "run": null,
+   "arm": "anchor",
+   "labels": [
+    "cf1-generic-unions-upstream"
+   ],
+   "stripped": [],
+   "score": 2.5,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 1,
+     "scope": 1,
+     "generality": 1,
+     "layering": 1,
+     "reason": "Generic unions, the boundaries, std/improve and the restore repair (exact source_node_id instead of suffix matching) are sound. But the exhaustion repair deletes the runtime state-snapshot logic for every target and puts back only a 2.33 compile-time route, gated on scanning the body for literal `done` variants; it leaves tests/test_workflow_loops_exhaustion_state.py calling the removed method, and changes pure-projection lowering for older targets without a gate."
+    },
+    "gpt-6-sol": {
+     "root_cause": 0,
+     "scope": 0,
+     "generality": 0,
+     "layering": 1,
+     "reason": "Much of the DSL wiring is present, but the loop runtime still has a malformed indentation block, and ProcRef binding dereferences `.definition` when an applied-union parameter receives a non-union argument. It also removes the existing exhaustion snapshot and ambiguity guard for all targets and substitutes a special lowering route for resolving the committed frame at runtime."
+    }
+   }
+  },
+  "bebfecfd": {
+   "run": "/home/ollie/eb3-work/records/reviewed_change/run-1",
+   "arm": "reviewed_change",
+   "labels": [
+    "first"
+   ],
+   "stripped": [],
+   "score": 6.5,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 2,
+     "scope": 2,
+     "generality": 2,
+     "layering": 2,
+     "reason": "Fixes exhaustion where the runtime publishes it: on_exhausted refs to the loop's own frame now resolve to the committed values, and resume after the final continue is handled, for every target. It replaces the step-name-suffix exhaustion and restore heuristics with exact compiled-source-node identity in a dedicated restore-sources module and updates the tests that covered the removed helper. Generic-union instantiation, admission and the provider/command boundary checks sit in the type and lowering layers."
+    },
+    "gpt-6-sol": {
+     "root_cause": 1,
+     "scope": 1,
+     "generality": 1,
+     "layering": 2,
+     "reason": "It repairs exhaustion in the runtime, restores from compiled source identity, and checks applied provider and command returns in their owning layers. Its generic procedure type environment lets a 2.32 module bypass application admission, narrowed match values fail generic binding, and restore selection accepts an identified source that cannot be resolved."
+    }
+   }
+  },
+  "3940c9fb": {
+   "run": "/home/ollie/eb3-work/records/reviewed_change/run-2",
+   "arm": "reviewed_change",
+   "labels": [
+    "final"
+   ],
+   "stripped": [],
+   "score": 4,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 1,
+     "scope": 1,
+     "generality": 1,
+     "layering": 1,
+     "reason": "Keeps the step-name-suffix exhaustion heuristic and only adds another tier to it, and keeps the legacy name-substring restore lookup next to the new identity lookup. It also patches imported-procedure pointers in the executor with a name heuristic (`\"__\" in output_name`). It adds a session-global `%pinned-union`/`%pinned-record` name registry alongside the type environment, and commits a stray binary .tmp/omp-fake-launcher file."
+    },
+    "gpt-6-sol": {
+     "root_cause": 1,
+     "scope": 1,
+     "generality": 1,
+     "layering": 1,
+     "reason": "It implements generic unions and the review loop, but final-iteration resume misses exhaustion, restore retains suffix-based fallback, and the 2.33 admission check is skipped at provider and command return sites. Storing arbitrary inputs in durable loop state narrows the helper, while an unrelated executable binary falls outside the change."
+    }
+   }
+  },
+  "414e2ea8": {
+   "run": null,
+   "arm": "anchor",
+   "labels": [
+    "cf1-generic-unions-stub"
+   ],
+   "stripped": [],
+   "score": 1,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 0,
+     "scope": 0,
+     "generality": 0,
+     "layering": 0,
+     "reason": "Adds only an unused 2.33 version constant and a resolve_restore_source_node stub that always returns None. It adds no generic unions, no std/improve, no exhaustion or restore repair and no example, so none of the intended change exists."
+    },
+    "gpt-6-sol": {
+     "root_cause": 0,
+     "scope": 2,
+     "generality": 0,
+     "layering": 0,
+     "reason": "It only adds a version constant and an unused restore resolver that always returns None, so it delivers none of the requested behavior. The edits stay within relevant files and do not weaken existing guarantees, but the stub does not participate in the restore mechanism."
+    }
+   }
+  },
+  "e7e90dcc": {
+   "run": null,
+   "arm": "anchor",
+   "labels": [
+    "cf1-generic-unions-upstream"
+   ],
+   "stripped": [],
+   "score": 3,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 1,
+     "scope": 1,
+     "generality": 1,
+     "layering": 1,
+     "reason": "Generic unions, improve and source-node restore are implemented, but the runtime _exhaustion_frame_artifacts helper is deleted while tests/test_workflow_loops_exhaustion_state.py still calls it, and exhaustion state routing works only at 2.33 and only when no `done` builds the exhausted variant. A post-lowering pass (publish_known_variant_terminal_plainly) strips union-boundary projection metadata to avoid the proof check, and the restore ref-inversion logic is inlined into the already huge executor."
+    },
+    "gpt-6-sol": {
+     "root_cause": 0,
+     "scope": 0,
+     "generality": 1,
+     "layering": 1,
+     "reason": "Its compiler-side exhaustion routing removes the runtime's committed-state snapshot, so a final continue can return stale state or raw references, and resuming after that continue fails to publish exhaustion. Generic unions and source-based restore are partly implemented, but narrowed union values fail generic binding and the loop repair is in the wrong layer."
+    }
+   }
+  },
+  "c3c30d98": {
+   "run": "/home/ollie/eb3-work/records/direct_task/run-3",
+   "arm": "direct_task",
+   "labels": [
+    "final"
+   ],
+   "stripped": [
+    "docs/design/README.md",
+    "docs/design/workflow_lisp_frontend_specification.md",
+    "docs/design/workflow_lisp_parametric_type_system.md",
+    "docs/design/workflow_lisp_value_and_continuation_composition.md"
+   ],
+   "score": 4.5,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 2,
+     "scope": 1,
+     "generality": 1,
+     "layering": 1,
+     "reason": "Generic unions are built in the type environment on top of the existing UnionTypeRef machinery, with nominal and phantom identity. Exhaustion outputs are resolved and validated against the committed CONTINUE join, and restore matches exact compiled source identity and rebuilds flattened values. Concerns: it drops the existing non-empty source_step checks on proof descriptors, still picks loop state by a status/__body name heuristic, and accepts any producer output ending in __variant in defunctionalize."
+    },
+    "gpt-6-sol": {
+     "root_cause": 1,
+     "scope": 1,
+     "generality": 1,
+     "layering": 1,
+     "reason": "The compiler and loop changes cover the requested paths, but live exhaustion treats a compiled map reference as literal map data, publishing the reference instead of the committed payload. Restore repeats the same type-based decoding, weakening output validation and leaving the source-versus-literal distinction unresolved in two layers."
+    }
+   }
+  },
+  "e46179a4": {
+   "run": "/home/ollie/eb3-work/records/direct_task/run-2",
+   "arm": "direct_task",
+   "labels": [
+    "final"
+   ],
+   "stripped": [],
+   "score": 4,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 1,
+     "scope": 1,
+     "generality": 1,
+     "layering": 1,
+     "reason": "The loop repair is sound: the final-iteration resume path is fixed and the limit=1 case is covered. Restore now uses compiled source identity, and generic unions reuse the union machinery with nominal identity. However, restore now returns True when there is no contract, skipping the value check for exactly the flattened union joins. Lowering hard-codes target_dsl_version == \"2.33\" and admission compares version strings instead of the existing int-tuple helpers; command-result contract errors are swallowed and allow_bound_record is loosened for all targets."
+    },
+    "gpt-6-sol": {
+     "root_cause": 1,
+     "scope": 1,
+     "generality": 1,
+     "layering": 1,
+     "reason": "The main compiler and runtime paths are wired, but nested applied descriptors render raw argument names, and a fixed two-pass type fill can leave nested forward-declaration chains with empty payload fields. Restore now accepts match bindings without a terminal contract, while compiler-side AST name rewriting duplicates type resolution."
+    }
+   }
+  },
+  "5459c0bb": {
+   "run": "/home/ollie/eb3-work/records/direct_task/run-1",
+   "arm": "direct_task",
+   "labels": [
+    "final"
+   ],
+   "stripped": [],
+   "score": 5.5,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 2,
+     "scope": 1,
+     "generality": 1,
+     "layering": 2,
+     "reason": "Exhaustion state is read through the compiled output source addresses rather than generated-name suffixes, on_exhausted refs are resolved with tagged failures, and restore uses exact lexical identity and checks flattened union values field by field. Generic unions reuse UnionTypeRef in type_env. Concerns: the nested-collection ProcRef/WorkflowRef check is turned off inside every ProcRef signature at all targets, applied-union identity falls back on rendered-name splitting, and it keeps the current_iteration<=0 early return in the exhaustion snapshot."
+    },
+    "gpt-6-sol": {
+     "root_cause": 1,
+     "scope": 2,
+     "generality": 1,
+     "layering": 1,
+     "reason": "Generic instantiation, per-module admission, and compiled-source restore address the main paths without an identified unrelated validation change. Applied arguments still use broad record compatibility, and restore strips underscores from legal field names; its executor also reconstructs compiler-shaped sources during resume."
+    }
+   }
+  },
+  "d197bfad": {
+   "run": null,
+   "arm": "anchor",
+   "labels": [
+    "cf1-generic-unions-stub"
+   ],
+   "stripped": [],
+   "score": 1,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 0,
+     "scope": 0,
+     "generality": 0,
+     "layering": 0,
+     "reason": "Only a version constant and a resolve_restore_source_node stub that always returns None were added. There are no generic unions, no std/improve module, no exhaustion or restore repair and no example, so nothing in the intended change is implemented."
+    },
+    "gpt-6-sol": {
+     "root_cause": 0,
+     "scope": 2,
+     "generality": 0,
+     "layering": 0,
+     "reason": "The only changes are a 2.33 constant and an unused restore resolver that always returns None; none of the requested compiler, runtime, helper, or example behavior is implemented. The changes do not weaken existing validation, but the stub establishes no working behavior in its owning layer."
+    }
+   }
+  },
+  "fc4ff545": {
+   "run": null,
+   "arm": "anchor",
+   "labels": [
+    "cf1-generic-unions-upstream"
+   ],
+   "stripped": [],
+   "score": 1.5,
+   "ratings": {
+    "claude-opus-5-5": {
+     "root_cause": 0,
+     "scope": 0,
+     "generality": 1,
+     "layering": 1,
+     "reason": "The type-system half reuses the existing union machinery soundly. But the runtime exhaustion repair (_exhaustion_frame_artifacts and its LoopStateIntegrityError ambiguity check) is deleted for every target with no runtime replacement, only a compile-time ref rerouting for 2.33 that reads the same frame artifacts. That removes the existing latest-committed-state guarantee and leaves existing tests calling a missing method."
+    },
+    "gpt-6-sol": {
+     "root_cause": 0,
+     "scope": 0,
+     "generality": 1,
+     "layering": 0,
+     "reason": "Exhaustion routing works around verbatim runtime references only when the exhausted variant has no matching done path, while deleting the existing ambiguous-state integrity check. Applied phantom arguments can also collapse through broad record compatibility and unqualified nested descriptor names, so the lowering workaround does not generalize."
+    }
+   }
+  }
+ },
+ "readout_at": "2026-10-16T11:07:33.708593+00:00",
+ "canonical_results_sha256": "3c29fa7faa045e42833531b1cdc40465fd8f15d2afe15480751ee4389b657d4a",
+ "claim_dispositions": {
+  "design_review_execute": {
+   "status": "not evaluated",
+   "valued_runs": 0,
+   "required_runs": 3,
+   "reason": "insufficient retained valued runs; no replacement"
+  },
+  "reviewed_change": {
+   "status": "not evaluated",
+   "valued_runs": 2,
+   "required_runs": 3,
+   "reason": "insufficient retained valued runs; no replacement"
+  }
+ }
+}

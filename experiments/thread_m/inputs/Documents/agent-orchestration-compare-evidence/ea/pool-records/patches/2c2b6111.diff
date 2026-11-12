@@ -1,0 +1,86 @@
+diff --git a/orchestrator/workflow_lisp/lowering/control_loops.py b/orchestrator/workflow_lisp/lowering/control_loops.py
+index f8286f4..ad201db 100644
+--- a/orchestrator/workflow_lisp/lowering/control_loops.py
++++ b/orchestrator/workflow_lisp/lowering/control_loops.py
+@@ -2390,7 +2390,9 @@ def _exhausted_inactive_placeholder_values(
+             projection,
+             allow_missing_target_fields=_loop_result_optional_relpath_fields(projection),
+         )
+-        if value["contract"].get("kind") != "scalar"
++        # Path outputs cannot be overridden by on_exhausted (the runtime
++        # validator rejects it); an inactive path stays unset, as pre-2.29.
++        if value["contract"].get("kind") not in ("scalar", "relpath")
+     }
+     required: list[dict[str, Any]] = []
+     for name, activity in projection.nested_union_activity.items():
+diff --git a/tests/test_workflow_lisp_loop_result_path_exhaustion.py b/tests/test_workflow_lisp_loop_result_path_exhaustion.py
+new file mode 100644
+index 0000000..5754d72
+--- /dev/null
++++ b/tests/test_workflow_lisp_loop_result_path_exhaustion.py
+@@ -0,0 +1,65 @@
++"""Loop results with path fields in non-exhausted variants compile alike at 2.28 and 2.32."""
++
++from __future__ import annotations
++
++import json
++from pathlib import Path
++
++import pytest
++
++from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
++
++_SOURCE = """\
++(workflow-lisp
++  (:language "0.1")
++  (:target-dsl "{target}")
++  (defmodule path_loop)
++  (export run)
++  (defpath Report :kind relpath :under "artifacts/review" :must-exist true)
++  (defunion Review
++    (APPROVE (report Report))
++    (RETRY (note String)))
++  (defunion Outcome
++    (READY (report Report) (rounds Int))
++    (UNRESOLVED (rounds Int)))
++  (defprompt review-prompt (:fills (task :text)) -> Review "Review {{task}}")
++  (defworkflow run ((task String)) -> Outcome
++    (loop/recur :max 2
++      :state (loop-state (round Int 1))
++      :on-exhausted (variant Outcome UNRESOLVED :rounds state.round)
++      (fn (state)
++        (let* ((review (provider-result providers.reviewer
++                         :prompt (review-prompt :task task))))
++          (match review
++            ((APPROVE a)
++             (done (variant Outcome READY :report a.report :rounds state.round)))
++            ((RETRY r)
++             (continue (loop-state :like state :round (+ state.round 1)))))))))
++)
++"""
++
++
++def _exhaustion_outputs(tmp_path: Path, target: str) -> dict:
++    root = tmp_path / target
++    root.mkdir()
++    source = root / "path_loop.orc"
++    source.write_text(_SOURCE.format(target=target), encoding="utf-8")
++    providers = root / "providers.json"
++    providers.write_text(json.dumps({"providers.reviewer": "claude"}), encoding="utf-8")
++    bundle = build_frontend_bundle(
++        FrontendBuildRequest(
++            source_path=source,
++            source_roots=(root,),
++            entry_workflow="run",
++            provider_externs_path=providers,
++            workspace_root=root,
++        )
++    ).validated_bundle
++    loops = [s for s in bundle.surface.steps if s.repeat_until is not None]
++    assert len(loops) == 1
++    return dict(loops[0].repeat_until.on_exhausted_outputs)
++
++
++@pytest.mark.parametrize("target", ["2.29", "2.32"])
++def test_inactive_path_field_is_not_overridden_on_exhaustion(tmp_path: Path, target: str) -> None:
++    assert _exhaustion_outputs(tmp_path, target) == _exhaustion_outputs(tmp_path, "2.28")

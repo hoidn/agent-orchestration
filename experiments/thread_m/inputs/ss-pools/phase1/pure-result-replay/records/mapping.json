@@ -1,0 +1,448 @@
+{
+  "task": "/home/ollie/ss-runtime/experiments/compare/tasks/pure-result-replay",
+  "criterion_sha256": "84ee6307ab39e74710154654133585e53aaa9b329e5c7f9918dc9ee2f055cc80",
+  "compare_base": "31c5374ce6b57b063c7bb984a51e7f30b9fee349",
+  "main": "/home/ollie/Documents/agent-orchestration",
+  "runtime": "/home/ollie/ss-runtime",
+  "runtime_commit": "89a67713cbc7143942fa67bc75a048894d385fb3",
+  "created_at": 1792421704.3565834,
+  "judges": {
+    "claude-opus-5-5": {
+      "dir": "b0414b18f8a9a378",
+      "providers": "/home/ollie/ss-runtime/experiments/compare/score.providers.json"
+    },
+    "gpt-6-sol": {
+      "dir": "ff000cf2bd31349a",
+      "providers": "/home/ollie/ss-runtime/experiments/compare/providers/score_codex.json"
+    }
+  },
+  "runs": {
+    "/home/ollie/ss-work2/records/2b5837cfb151e745aa50e3a2227ddab0ff01ca74ada97b273f15e08f4392e92f/run-1": {
+      "arm": "2b5837cfb151e745aa50e3a2227ddab0ff01ca74ada97b273f15e08f4392e92f",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2034.8281304836273,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 2,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "the agent grepped a persisted tool output under its own session's project directory (session 74f22cbb of this run's tree), not another session's or run's files",
+        "hits": 2
+      },
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/9c5f04c6a6bb4d25068eb75f106c6a5dbfac59e642f308e9bac4c2233ef8df75/run-1": {
+      "arm": "9c5f04c6a6bb4d25068eb75f106c6a5dbfac59e642f308e9bac4c2233ef8df75",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 3859.842871904373,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/fe3e18cb7ff36b11886d75be251648140ece18624165f26a9c819a80f886a35f/run-1": {
+      "arm": "fe3e18cb7ff36b11886d75be251648140ece18624165f26a9c819a80f886a35f",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 3587.648581504822,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/8e34e931a349f8123dc62072d69f1ecb4a6773944c975a2e6a0ec2a1dd41bd99/run-1": {
+      "arm": "8e34e931a349f8123dc62072d69f1ecb4a6773944c975a2e6a0ec2a1dd41bd99",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 2420.918740749359,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/92b8d9a719fd69492c31d9e4cd098945d44a3d5ab1c27e87b4b0bf9e6ae56149/run-1": {
+      "arm": "92b8d9a719fd69492c31d9e4cd098945d44a3d5ab1c27e87b4b0bf9e6ae56149",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 4,
+      "wall_clock_sec": 3388.5153591632843,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/a439ba75a20bb1b2378456dbea28a8bc3cda1b57189e9534a9a4ba2a8ace5051/run-1": {
+      "arm": "a439ba75a20bb1b2378456dbea28a8bc3cda1b57189e9534a9a4ba2a8ace5051",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2321.641031742096,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/b4893ab3bec538a83775258394db2bb7cf745a2b3901b0c48402228a9fb1ebd2/run-1": {
+      "arm": "b4893ab3bec538a83775258394db2bb7cf745a2b3901b0c48402228a9fb1ebd2",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2384.5806770324707,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/f63fabed4e4ca356f5c91cc82db1fc0b972a6d680b29b059a4a235e5685c55ae/run-1": {
+      "arm": "f63fabed4e4ca356f5c91cc82db1fc0b972a6d680b29b059a4a235e5685c55ae",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 1514.7311234474182,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 2,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "the agent read its own session's persisted tool output, subagent transcripts or memory under its own tree's project directory (the agents-<tree>-cand-1 slug of this run); no other session's, run's or tree's files",
+        "hits": 2
+      },
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/af7f37d6f1767be0ad61db914ab7dea4bb3342608ff418cc23e0aa19111301c3/run-1": {
+      "arm": "af7f37d6f1767be0ad61db914ab7dea4bb3342608ff418cc23e0aa19111301c3",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2061.9910130500793,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/04c08f830978c7f870f80690426163fa6f3ab5f1a5c6206a672f7e94cb81c9b5/run-1": {
+      "arm": "04c08f830978c7f870f80690426163fa6f3ab5f1a5c6206a672f7e94cb81c9b5",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2378.2562997341156,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 7, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 0
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 7, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode"
+    },
+    "/home/ollie/ss-work2/records/944363a137ff2656134a6acecda2516bea58fa0dab1ce0257a318cb3c8d1eb62/run-1": {
+      "arm": "944363a137ff2656134a6acecda2516bea58fa0dab1ce0257a318cb3c8d1eb62",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 4539.711572647095,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 7, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 0
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 7, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode"
+    },
+    "/home/ollie/ss-work2/records/e56d54d5169cea8ffa90328a155a0bb25deed911275b96d21a93684cc8330072/run-1": {
+      "arm": "e56d54d5169cea8ffa90328a155a0bb25deed911275b96d21a93684cc8330072",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 2,
+      "wall_clock_sec": 3036.8652942180634,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 8, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 0
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 8, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode"
+    },
+    "/home/ollie/ss-work2/records/8f721e896942e773ee66834f7d84c79763cbd7a8cfc4d6c01075be5d77399576/run-1": {
+      "arm": "8f721e896942e773ee66834f7d84c79763cbd7a8cfc4d6c01075be5d77399576",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 3041.4980182647705,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 9, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 0
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 9, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode"
+    },
+    "/home/ollie/ss-work2/records/012e02c7a9700c8096c921d8d9f9433fa297da83f832d46f96543f4a03df8bcb/run-1": {
+      "arm": "012e02c7a9700c8096c921d8d9f9433fa297da83f832d46f96543f4a03df8bcb",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 3053.9042189121246,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 9, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 0
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 9, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode"
+    },
+    "/home/ollie/ss-work2/records/6758a0cb7132de040f2e8219a29447945c104ad8944be872124e20e5a90b61b6/run-1": {
+      "arm": "6758a0cb7132de040f2e8219a29447945c104ad8944be872124e20e5a90b61b6",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2545.755219936371,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 6,
+      "verdict": {
+        "verdict": "cleared",
+        "reason": "the main-checkout hits name the stale editable orchestrator install (.worktrees/omp-i1-prerequisites) that a python run outside the tree imported by accident: the agent's report, its memory note or a traceback path; no action read a file of that tree; every other hit is its own session's files",
+        "hits": 6
+      },
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/d7cbcf4e49d9504fe9aeb4ff969341b7d654dec83042ecf90fbdb09b51b6f570/run-1": {
+      "arm": "d7cbcf4e49d9504fe9aeb4ff969341b7d654dec83042ecf90fbdb09b51b6f570",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 3121.287670135498,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/359a7f4698cf90733c4d4c2ec0c298183348d3eea9b52615aeda951f89ca0ce1/run-1": {
+      "arm": "359a7f4698cf90733c4d4c2ec0c298183348d3eea9b52615aeda951f89ca0ce1",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 1,
+      "wall_clock_sec": 2250.2098207473755,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 1,
+      "verdict": {
+        "verdict": "contaminated",
+        "reason": "the candidate is the child of unguided episode 11, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode",
+        "hits": 1
+      },
+      "excluded": "contaminated: the candidate is the child of unguided episode 11, whose mutator's scan verdict is contaminated (it read sibling episodes' workflows or the evidence root): excluded with its episode"
+    },
+    "/home/ollie/ss-work2/records/54b32f1441fc323ea1a7da46716a7275ff70dc19b44fd93863c27f678de0b4f9/run-1": {
+      "arm": "54b32f1441fc323ea1a7da46716a7275ff70dc19b44fd93863c27f678de0b4f9",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 4186.895532608032,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    },
+    "/home/ollie/ss-work2/records/b6601f07fceb4658cd1d1cb762b777705eb173c7944ad1dc22a12e0937ff939b/run-1": {
+      "arm": "b6601f07fceb4658cd1d1cb762b777705eb173c7944ad1dc22a12e0937ff939b",
+      "outcome": "completed",
+      "failure": null,
+      "calls": 6,
+      "wall_clock_sec": 4211.309249639511,
+      "selected": null,
+      "variant": null,
+      "scan_hits": 0,
+      "verdict": null,
+      "excluded": null
+    }
+  },
+  "clones": {
+    "cb327a5f": {
+      "run": "/home/ollie/ss-work2/records/8e34e931a349f8123dc62072d69f1ecb4a6773944c975a2e6a0ec2a1dd41bd99/run-1",
+      "arm": "8e34e931a349f8123dc62072d69f1ecb4a6773944c975a2e6a0ec2a1dd41bd99",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "e9555106": {
+      "run": "/home/ollie/ss-work2/records/2b5837cfb151e745aa50e3a2227ddab0ff01ca74ada97b273f15e08f4392e92f/run-1",
+      "arm": "2b5837cfb151e745aa50e3a2227ddab0ff01ca74ada97b273f15e08f4392e92f",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "5257a1e0": {
+      "run": "/home/ollie/ss-work2/records/b4893ab3bec538a83775258394db2bb7cf745a2b3901b0c48402228a9fb1ebd2/run-1",
+      "arm": "b4893ab3bec538a83775258394db2bb7cf745a2b3901b0c48402228a9fb1ebd2",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "55cc9648": {
+      "run": "/home/ollie/ss-work2/records/b6601f07fceb4658cd1d1cb762b777705eb173c7944ad1dc22a12e0937ff939b/run-1",
+      "arm": "b6601f07fceb4658cd1d1cb762b777705eb173c7944ad1dc22a12e0937ff939b",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "f22258be": {
+      "run": "/home/ollie/ss-work2/records/fe3e18cb7ff36b11886d75be251648140ece18624165f26a9c819a80f886a35f/run-1",
+      "arm": "fe3e18cb7ff36b11886d75be251648140ece18624165f26a9c819a80f886a35f",
+      "labels": [
+        "final"
+      ],
+      "stripped": [
+        "docs/design/workflow_lisp_state_layout.md"
+      ]
+    },
+    "c2e92c79": {
+      "run": "/home/ollie/ss-work2/records/af7f37d6f1767be0ad61db914ab7dea4bb3342608ff418cc23e0aa19111301c3/run-1",
+      "arm": "af7f37d6f1767be0ad61db914ab7dea4bb3342608ff418cc23e0aa19111301c3",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "82f185b5": {
+      "run": "/home/ollie/ss-work2/records/6758a0cb7132de040f2e8219a29447945c104ad8944be872124e20e5a90b61b6/run-1",
+      "arm": "6758a0cb7132de040f2e8219a29447945c104ad8944be872124e20e5a90b61b6",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "fdbba4a8": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "pure-result-replay-stub"
+      ],
+      "stripped": []
+    },
+    "3fe938ce": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "pure-result-replay-upstream"
+      ],
+      "stripped": []
+    },
+    "61806671": {
+      "run": "/home/ollie/ss-work2/records/92b8d9a719fd69492c31d9e4cd098945d44a3d5ab1c27e87b4b0bf9e6ae56149/run-1",
+      "arm": "92b8d9a719fd69492c31d9e4cd098945d44a3d5ab1c27e87b4b0bf9e6ae56149",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "10b17a6c": {
+      "run": "/home/ollie/ss-work2/records/9c5f04c6a6bb4d25068eb75f106c6a5dbfac59e642f308e9bac4c2233ef8df75/run-1",
+      "arm": "9c5f04c6a6bb4d25068eb75f106c6a5dbfac59e642f308e9bac4c2233ef8df75",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "285d195f": {
+      "run": "/home/ollie/ss-work2/records/a439ba75a20bb1b2378456dbea28a8bc3cda1b57189e9534a9a4ba2a8ace5051/run-1",
+      "arm": "a439ba75a20bb1b2378456dbea28a8bc3cda1b57189e9534a9a4ba2a8ace5051",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "e9ca1200": {
+      "run": "/home/ollie/ss-work2/records/54b32f1441fc323ea1a7da46716a7275ff70dc19b44fd93863c27f678de0b4f9/run-1",
+      "arm": "54b32f1441fc323ea1a7da46716a7275ff70dc19b44fd93863c27f678de0b4f9",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "ed2a8bfe": {
+      "run": "/home/ollie/ss-work2/records/f63fabed4e4ca356f5c91cc82db1fc0b972a6d680b29b059a4a235e5685c55ae/run-1",
+      "arm": "f63fabed4e4ca356f5c91cc82db1fc0b972a6d680b29b059a4a235e5685c55ae",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "689bc0cc": {
+      "run": "/home/ollie/ss-work2/records/d7cbcf4e49d9504fe9aeb4ff969341b7d654dec83042ecf90fbdb09b51b6f570/run-1",
+      "arm": "d7cbcf4e49d9504fe9aeb4ff969341b7d654dec83042ecf90fbdb09b51b6f570",
+      "labels": [
+        "final"
+      ],
+      "stripped": []
+    },
+    "b5bd2e6d": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "pure-result-replay-stub"
+      ],
+      "stripped": []
+    },
+    "6a991337": {
+      "run": null,
+      "arm": "anchor",
+      "labels": [
+        "pure-result-replay-upstream"
+      ],
+      "stripped": []
+    }
+  },
+  "batches": [
+    [
+      "cb327a5f",
+      "e9555106",
+      "5257a1e0",
+      "55cc9648",
+      "f22258be",
+      "c2e92c79",
+      "82f185b5",
+      "fdbba4a8",
+      "3fe938ce"
+    ],
+    [
+      "61806671",
+      "10b17a6c",
+      "285d195f",
+      "e9ca1200",
+      "ed2a8bfe",
+      "689bc0cc",
+      "b5bd2e6d",
+      "6a991337"
+    ]
+  ]
+}
