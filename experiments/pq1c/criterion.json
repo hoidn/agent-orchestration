@@ -6,12 +6,24 @@
   "cells": ["variant-clean", "variant-resumed", "baseline-clean", "baseline-resumed"],
   "pairs": {"clean": ["variant-clean", "baseline-clean"], "resumed": ["variant-resumed", "baseline-resumed"]},
   "turns_per_run": 4,
+  "frozen_files": {
+    "cell_claude.sh": "6cc62dbf5714c6d3b87d0da333e12b7518f77af094b6e12285ea905d74bf1ac8",
+    "inputs.json": "bc614b9ac68a39f4155b6b3dc5994c996f681d629f069fca58b184e3af634dbd",
+    "providers.json": "d4ab6c49a91c6abd5c175ec0c6e0b2b28802d8d0727b9fb1aa597c2447699cbd",
+    "run_cell.sh": "b8ceff2efc6ad9ce3255434060b4e9ff0faea3071cbce5096cafa66ccdf3bcec"
+  },
+  "spend": {
+    "per_call_ceiling_usd": 0.5,
+    "per_run_cap_usd": 2,
+    "paid_calls_at_most": 20,
+    "retry": "one infrastructure retry in all (one cell, 4 calls), only of a first attempt that finished as an infrastructure failure or died without filing its record"
+  },
   "axes": {
     "completion": "report run.status is completed with four committed typed results (provider or agent_turn commits of four identities)",
     "no_repeated_paid_work": "every turn identity has one started row, and no log of the cell has an effect_rerun or agent_bootstrap_restarted line",
     "committed_turn_redispatched": "a turn identity has a started row after its committed row",
     "usage_recorded": "every provider attempt (an attempt directory holding prompt.txt) has a usage.json that is reported and complete",
-    "cost": "report run.usage.cost_usd, variant over baseline, per pair; a partial or unknown cost (cost_usd null, partial true or unknown_attempts above 0) or a zero baseline makes that pair's ratio undetermined, never a number",
+    "cost": "report run.usage.cost_usd, variant over baseline, per pair, computed only when both cells of the pair completed; a pair with a cell that did not complete, a partial or unknown cost (cost_usd null, partial true or unknown_attempts above 0), or a cost that is not a finite number above zero makes that pair's ratio undetermined, never a number",
     "invalidate": "on a copy of each clean run, invalidate <run> <feedback identity>: the variant exits 2 with invalidate_coordinator_committed and unchanged run-tree bytes, the baseline exits 0; reported, decides no outcome",
     "elapsed_time": "seconds of the run and resume invocations; reported, decides nothing"
   },
@@ -21,9 +33,24 @@
     "Retain": "all four cells complete, no paid work repeats in any cell, and the cost ratio is at or below 0.8 in both pairs",
     "Improve": "anything else; Agent Sessions stays opt-in at target 2.38, the Python Agent item is not opened, and no further spend follows unless the consumer thread names a need"
   },
-  "refusal": "readout.py refuses to read out (exit 2, no outcome) when this file's SHA-256 differs from the hash it names, or when a cell recorded a different criterion hash",
+  "readings": [
+    "a repeated dispatch of a committed turn counts toward Retire only in variant cells",
+    "a resumed run that fails at the workflow level before the stop counts as not completed",
+    "a pair's cost ratio exists only when both of its cells completed: a baseline that failed is never a cheap baseline",
+    "providers.codex is bound to claude_unrestricted_workspace_metered, not claude_unrestricted_workspace, because a capped run needs metered templates"
+  ],
+  "refusal": "readout.py refuses to read out (exit 2, no outcome) when this file's SHA-256 differs from the hash it names; when a cell recorded a different criterion hash or frozen_files; or when a cell has a retry although its first attempt is not an infrastructure failure",
+  "infrastructure_failure": [
+    "the cell's record is missing, unreadable or incomplete: no cell.json, no readable report.json or a nonzero report exit, no run tree, or cell.json naming another cell",
+    "no turn committed",
+    "the run stopped for a spend cap (spend_cap_reached or spend_cap_unmetered) or the CLI's per-call budget (error_max_budget_usd)",
+    "a provider attempt whose usage is not reported or reports no output tokens: the model produced nothing (launch, login or CLI failure) or the metering failed",
+    "codex was called",
+    "a provider attempt's init event lists a plugin or an MCP server, or names a model other than claude-haiku-5-5",
+    "a resumed cell without the evidence of its stop and resume: the wrapper exit 75 right after the reviewer's first turn with nothing in flight, and a resume invocation; or a resumed cell that ran to the end without stopping"
+  ],
   "decision_order": [
-    "invalid -> undetermined: a cell is missing; cells mix rehearsal and real runs; cells differ in runtime commit, fixture commit or source digest of an arm; a real cell ran on a runtime with uncommitted changes; a recorded usage model or bound model input is not claude-haiku-5-5; the wrapper stopped a resumed cell with a turn in flight or elsewhere than right after the reviewer's first turn (a run that ends before the stop is filed as it stands and counts for completion)",
+    "undetermined: a cell is missing or is an infrastructure failure; cells mix rehearsal and real runs; cells differ in runtime commit, fixture commit or source digest of an arm; a real cell ran on a runtime with uncommitted changes; a recorded usage model or bound model input is not claude-haiku-5-5",
     "Retire by completion or a redispatched committed variant turn, whatever the cost",
     "Retire by cost when both ratios are known and at or above 1.25",
     "undetermined when a ratio is unknown and the known ratios do not already exclude Retire by cost",

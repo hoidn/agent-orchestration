@@ -1,32 +1,46 @@
 #!/usr/bin/env bash
 # Run ONE PQ-1c cell on a fresh clone of the fixture repository, then file its evidence.
 #
-#   PQ1C_SPEND_AUTHORIZED=yes run_cell.sh RUNTIME CELL RESULTS_ROOT
+#   PQ1C_SPEND_AUTHORIZED=yes run_cell.sh RUNTIME CELL RESULTS_ROOT      (a paid run)
+#   PQ1C_REHEARSAL_STANDINS=DIR run_cell.sh RUNTIME CELL RESULTS_ROOT     (a rehearsal; no spend variable)
 #
-# RUNTIME is the frozen checkout whose `orchestrator` package runs the cell and whose
-# workflows/examples sources are compared. CELL is variant-clean, variant-resumed, baseline-clean or
-# baseline-resumed. This spends provider calls (four claude-haiku-5-5 calls per cell, under
-# --max-cost-usd 2): it refuses, before anything is launched, unless PQ1C_SPEND_AUTHORIZED is exactly
-# "yes"; when a binding names any model but claude-haiku-5-5 or any template but the Claude metered one;
-# when claude resolves to a blocking no-provider stub; when the criterion is not the frozen one; for a
-# cell outside the four; for a slot already used; for a second infrastructure retry of a cell.
-# Slots are claimed once, for good, in $HOME/.local/state/pq1c, whatever RESULTS_ROOT is.
-# PQ1C_INFRA_RETRY="<reason>" claims the one retry slot <cell>-retry of a cell that has run.
-# Rehearsal: PQ1C_REHEARSAL_STANDINS=DIR runs DIR/claude (a stand-in) instead of the claude on PATH,
-# with its own ledger $HOME/.local/state/pq1c-rehearsal; the cell records rehearsal: true.
+# RUNTIME is the frozen checkout whose `orchestrator` package runs the cell and whose workflows/examples
+# sources are compared. CELL is exactly one of variant-clean, variant-resumed, baseline-clean,
+# baseline-resumed. A paid cell makes four claude-haiku-5-5 calls, each through cell_claude.sh (user-level
+# Claude Code setup left out, USD 0.5 per call), under --max-cost-usd 2 for the run. Before anything is
+# launched it refuses: without PQ1C_SPEND_AUTHORIZED=yes; a binding other than claude-haiku-5-5 on the
+# Claude metered template; kit files whose SHA-256 differs from the criterion's `frozen_files`, or a
+# criterion other than the one readout.py names; a claude that is a blocking no-provider stub; a cell
+# name outside the four; a used slot; a retry beyond the kit's one; a run PATH where another directory
+# holds a claude or codex; in a paid run, uncommitted changes in the kit or in the runtime's
+# orchestrator/ or workflows/examples/. Slots are claimed once, for good, in $HOME/.local/state/pq1c
+# (a rehearsal: $HOME/.local/state/pq1c-rehearsal), whatever RESULTS_ROOT is.
+# PQ1C_INFRA_RETRY="<reason>" runs the kit's single infrastructure retry (slot <cell>-retry): allowed once
+# in all, and only for a cell whose first attempt finished as an infrastructure failure (readout.py
+# --retry-check) or died without filing its record. A rehearsal runs only a stand-in carrying the kit's
+# stand-in marker line, and never while a spend authorization is set.
 # Output: RESULTS_ROOT/<slot>/{cell.json,workspace/,run.log,resume.log,report.json,invalidate.json,...}.
 set -euo pipefail
 
 MODEL=claude-haiku-5-5                        # every call; checked by exact id
 TEMPLATE=claude_unrestricted_workspace_metered
 CAP_USD=2
-CELLS="variant-clean variant-resumed baseline-clean baseline-resumed"
 STOPPED=75                                    # the stop driver's exit right after the selected record
+STANDIN_MARKER='# pq1c-rehearsal-stand-in: makes no provider call'
 
 refuse() { echo "run_cell.sh: refused: $*" >&2; exit 3; }
+PREP= SEED=
+cleanup() { rm -rf ${PREP:+"$PREP"} ${SEED:+"$SEED"}; }
+trap cleanup EXIT
 
-[ "${PQ1C_SPEND_AUTHORIZED:-}" = yes ] ||
-  refuse "this starts paid $MODEL calls; set PQ1C_SPEND_AUTHORIZED=yes once the owner has approved the tranche"
+if [ -n "${PQ1C_REHEARSAL_STANDINS:-}" ]; then
+  [ -z "${PQ1C_SPEND_AUTHORIZED:-}" ] || refuse "a rehearsal never runs while PQ1C_SPEND_AUTHORIZED is set"
+  REHEARSAL=true
+else
+  [ "${PQ1C_SPEND_AUTHORIZED:-}" = yes ] ||
+    refuse "this starts paid $MODEL calls; set PQ1C_SPEND_AUTHORIZED=yes once the owner has approved the tranche"
+  REHEARSAL=false
+fi
 if [ $# -ne 3 ]; then
   echo "usage: PQ1C_SPEND_AUTHORIZED=yes run_cell.sh RUNTIME CELL RESULTS_ROOT" >&2
   exit 2
@@ -35,7 +49,10 @@ KIT=$(cd "$(dirname "$0")" && pwd -P)
 RUNTIME=$(realpath -e "$1") || refuse "no runtime at $1"
 CELL=$2
 ROOT=$(realpath -m "$3")
-case " $CELLS " in *" $CELL "*) ;; *) refuse "$CELL is not one of the four cells: $CELLS";; esac
+case $CELL in
+  variant-clean|variant-resumed|baseline-clean|baseline-resumed) ;;
+  *) refuse "$CELL is not one of the four cells: variant-clean variant-resumed baseline-clean baseline-resumed";;
+esac
 ARM=${CELL%-*}
 MODE=${CELL#*-}
 PYTHON=$(command -v "${PQ1C_PYTHON:-python3}") || refuse "no python3"
@@ -84,29 +101,62 @@ if not operands or operands - {"planner_model", "reviewer_model"}:
 EOF
   refuse "a binding is not $MODEL on $TEMPLATE"
 
+# What defines the experiment is frozen in the criterion: the task and bindings, this launcher, the wrapper.
+FROZEN=$("$PYTHON" - "$KIT" <<'EOF'
+import hashlib, json, sys
+from pathlib import Path
+kit = Path(sys.argv[1])
+frozen = json.loads((kit / "criterion.json").read_text())["frozen_files"]
+found = {name: hashlib.sha256((kit / name).read_bytes()).hexdigest() for name in sorted(frozen)}
+changed = sorted(name for name in frozen if found[name] != frozen[name])
+if changed:
+    sys.exit(f"run_cell.sh: {', '.join(changed)} differ from the criterion's frozen_files")
+print(json.dumps(found, sort_keys=True))
+EOF
+) || refuse "the kit's files are not the frozen ones"
+
 is_stub() {
   case "$1" in */no_provider/*|*/provider-guard/*) return 0;; esac
   grep -qs -e 'no provider calls' -e 'test provider guard' "$1"
 }
-if [ -n "${PQ1C_REHEARSAL_STANDINS:-}" ]; then
-  REHEARSAL=true
+CALLER_CLAUDE=$(command -v claude || true)
+if [ "$REHEARSAL" = true ]; then
   CLAUDE=$(realpath -e "$PQ1C_REHEARSAL_STANDINS/claude") || refuse "no stand-in claude in $PQ1C_REHEARSAL_STANDINS"
+  case "$CLAUDE" in "$HOME"/.local/share/claude/*) refuse "$CLAUDE is an installed Claude CLI, not a stand-in";; esac
+  [ -z "$CALLER_CLAUDE" ] || [ "$(readlink -f "$CALLER_CLAUDE")" != "$CLAUDE" ] ||
+    refuse "$CLAUDE is the claude on PATH, not a stand-in"
+  [ "$(stat -c %s "$CLAUDE")" -lt 1000000 ] && grep -qxF "$STANDIN_MARKER" "$CLAUDE" ||
+    refuse "$CLAUDE is not one of the kit's stand-ins (no marker line)"
   LEDGER=$HOME/.local/state/pq1c-rehearsal
 else
-  REHEARSAL=false
-  FOUND=$(command -v claude) || refuse "no claude on PATH"
-  CLAUDE=$(readlink -f "$FOUND")
+  [ -n "$CALLER_CLAUDE" ] || refuse "no claude on PATH"
+  CLAUDE=$(readlink -f "$CALLER_CLAUDE")
   LEDGER=$HOME/.local/state/pq1c
 fi
 ! is_stub "$CLAUDE" || refuse "claude resolves to the blocking no-provider stub $CLAUDE; a rehearsal needs PQ1C_REHEARSAL_STANDINS"
-[ "$REHEARSAL" = true ] || [ -z "$DIRTY" ] ||
-  refuse "the runtime $RUNTIME has uncommitted changes under orchestrator/ or workflows/examples/"
+if [ "$REHEARSAL" = false ]; then
+  [ -z "$DIRTY" ] || refuse "the runtime $RUNTIME has uncommitted changes under orchestrator/ or workflows/examples/"
+  KIT_STATE=$(git -C "$KIT" status --porcelain -- . 2>/dev/null) || refuse "the kit $KIT is not in a git checkout"
+  [ -z "$KIT_STATE" ] || refuse "the kit $KIT has uncommitted changes"
+fi
 
+# Slots. A first run of each cell, and one infrastructure retry in all: at most 20 paid calls.
 RETRY_REASON=${PQ1C_INFRA_RETRY:-}
 if [ -n "$RETRY_REASON" ]; then
   SLOT=$CELL-retry
+  USED=$(find "$LEDGER" -mindepth 1 -maxdepth 1 -name '*-retry' 2>/dev/null | head -1 || true)
+  [ -z "$USED" ] || refuse "the kit's one infrastructure retry is used ($USED)"
   [ -d "$LEDGER/$CELL" ] || refuse "$CELL has not run, so there is nothing to retry"
-  [ ! -e "$LEDGER/$SLOT" ] || refuse "$CELL has had its one infrastructure retry ($LEDGER/$SLOT)"
+  FIRST=$(sed -n 1p "$LEDGER/$CELL/claimed")
+  FIRST_PID=$(sed -n 2p "$LEDGER/$CELL/claimed")
+  [ "$(dirname "$FIRST")" = "$ROOT" ] || refuse "the first attempt of $CELL is under $(dirname "$FIRST"), not $ROOT"
+  if [ ! -f "$FIRST/cell.json" ]; then
+    ! { kill -0 "$FIRST_PID" 2>/dev/null && grep -qa run_cell.sh "/proc/$FIRST_PID/cmdline"; } ||
+      refuse "the first attempt of $CELL is still running (pid $FIRST_PID)"
+  else
+    "$PYTHON" -B "$KIT/readout.py" --retry-check "$FIRST" >&2 ||
+      refuse "the first attempt of $CELL is not an infrastructure failure"
+  fi
 else
   SLOT=$CELL
   [ ! -e "$LEDGER/$SLOT" ] || refuse "slot $SLOT is used ($LEDGER/$SLOT); an infrastructure retry needs PQ1C_INFRA_RETRY"
@@ -115,8 +165,8 @@ CELL_DIR=$ROOT/$SLOT
 [ ! -e "$CELL_DIR" ] || refuse "$CELL_DIR exists"
 VERSION=$(env -i "HOME=$HOME" PATH=/usr/bin:/bin DISABLE_AUTOUPDATER=1 "$CLAUDE" --version) || refuse "$CLAUDE --version failed"
 
-# One fixture repository per results root, built the same way every time (same commit id): the documents
-# of the consumer tests' `design_docs` fixture. Each cell runs in a fresh clone of it.
+# One fixture repository per results root, built the same way every time (same commit id) and moved into
+# place whole, so parallel first launches agree: the documents of the consumer tests' `design_docs` fixture.
 mkdir -p "$ROOT" "$LEDGER"
 FIXTURE=$ROOT/fixture.git
 GIT_FIXED=(env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME="PQ-1c fixture"
@@ -126,15 +176,15 @@ GIT_FIXED=(env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME
 if [ ! -d "$FIXTURE" ]; then
   SEED=$(mktemp -d "$ROOT/.seed-XXXXXX")
   for relpath in AGENTS.md docs/index.md docs/templates/design_template.md; do
-    mkdir -p "$SEED/$(dirname "$relpath")"
-    printf '# %s\n' "$relpath" > "$SEED/$relpath"
+    mkdir -p "$SEED/src/$(dirname "$relpath")"
+    printf '# %s\n' "$relpath" > "$SEED/src/$relpath"
   done
-  printf '.orchestrate/\nworkflows/\nmanifests/\ninputs.json\n' > "$SEED/.gitignore"
-  "${GIT_FIXED[@]}" git -C "$SEED" init -q -b main
-  "${GIT_FIXED[@]}" git -C "$SEED" add -A
-  "${GIT_FIXED[@]}" git -C "$SEED" commit -q -m "PQ-1c fixture"
-  "${GIT_FIXED[@]}" git clone -q --bare "$SEED" "$FIXTURE"
-  rm -rf "$SEED"
+  printf '.orchestrate/\nworkflows/\nmanifests/\ninputs.json\n' > "$SEED/src/.gitignore"
+  "${GIT_FIXED[@]}" git -C "$SEED/src" init -q -b main
+  "${GIT_FIXED[@]}" git -C "$SEED/src" add -A
+  "${GIT_FIXED[@]}" git -C "$SEED/src" commit -q -m "PQ-1c fixture"
+  "${GIT_FIXED[@]}" git clone -q --bare "$SEED/src" "$SEED/fixture.git"
+  mv -T "$SEED/fixture.git" "$FIXTURE" 2>/dev/null || [ -d "$FIXTURE" ] || refuse "could not place $FIXTURE"
 fi
 FIXTURE_COMMIT=$(git -C "$FIXTURE" rev-parse HEAD)
 
@@ -144,11 +194,12 @@ mkdir -p "$PREP/workspace/$(dirname "$SOURCE")" "$PREP/workspace/manifests" "$PR
 cp "$RUNTIME/$SOURCE" "$PREP/workspace/$SOURCE"
 cp "$KIT/providers.json" "$PREP/workspace/manifests/providers.json"
 cp "$KIT/inputs.json" "$PREP/workspace/inputs.json"
-ln -s "$CLAUDE" "$PREP/bin/claude"
+cp "$KIT/cell_claude.sh" "$PREP/bin/claude"
+printf '%s\n' "$CLAUDE" > "$PREP/bin/claude.target"
 # Nothing here is bound to codex; a call to it fails and is logged beside the cell.
 printf '#!/bin/sh\necho "codex $*" >> "$(dirname "$0")/../codex-calls.log"\necho "pq1c: codex is not bound" >&2\nexit 97\n' \
   > "$PREP/bin/codex"
-chmod +x "$PREP/bin/codex"
+chmod +x "$PREP/bin/claude" "$PREP/bin/codex"
 SOURCE_SHA256=$(sha256sum "$RUNTIME/$SOURCE" | cut -d' ' -f1)
 FRONTEND=("$SOURCE" --entry-workflow "$ENTRY" --source-root workflows/examples
           --provider-externs-file manifests/providers.json)
@@ -176,11 +227,13 @@ if os.environ.get("PQ1C_STOP_RECORD"):
 from orchestrator.cli import main
 sys.argv = ["orchestrator", *sys.argv[1:]]
 sys.exit(main())'
-# A fresh environment: the cell's bin (claude, the codex stub) first; every model variable pinned to
-# $MODEL; advisor, CLAUDE.md files, auto memory, the refusal fallback and the auto-updater off.
+# A fresh environment: the cell's bin (the claude wrapper, the codex stub) first and no other directory
+# holding a claude or codex; every model variable pinned to $MODEL; advisor, CLAUDE.md files, auto memory,
+# the refusal fallback and the auto-updater off.
+run_path() { printf '%s' "$BIN:$(dirname "$PYTHON"):/usr/bin:/bin"; }
 run_env() {
   env -i "HOME=$HOME" "USER=${USER:-$(id -un)}" "LANG=${LANG:-C.UTF-8}" TERM=dumb \
-    "PATH=$BIN:$(dirname "$PYTHON"):/usr/bin:/bin" "PYTHONPATH=$RUNTIME" PYTHONDONTWRITEBYTECODE=1 \
+    "PATH=$(run_path)" "PYTHONPATH=$RUNTIME" PYTHONDONTWRITEBYTECODE=1 \
     "ANTHROPIC_MODEL=$MODEL" "ANTHROPIC_DEFAULT_MODEL=$MODEL" "ANTHROPIC_DEFAULT_HAIKU_MODEL=$MODEL" \
     "ANTHROPIC_SMALL_FAST_MODEL=$MODEL" "ANTHROPIC_DEFAULT_SONNET_MODEL=$MODEL" \
     "ANTHROPIC_DEFAULT_OPUS_MODEL=$MODEL" "ANTHROPIC_DEFAULT_FABLE_MODEL=$MODEL" \
@@ -192,13 +245,20 @@ orc() { (cd "$WS" && run_env "$PYTHON" -c "$DRIVER" "$@"); }
 orc_stopping() { (cd "$WS" && run_env PQ1C_STOP_RECORD="$STOP_RECORD" "PQ1C_STOP_TURN=/ feedback" "$PYTHON" -c "$DRIVER" "$@"); }
 
 BIN=$PREP/bin WS=$PREP/workspace
+IFS=: read -r -a RUN_DIRS <<< "$(run_path)"
+for dir in "${RUN_DIRS[@]:1}"; do
+  for cli in claude codex; do
+    [ ! -e "$dir/$cli" ] || refuse "$dir/$cli is on the cell's PATH after the wrapper; the agent could reach it"
+  done
+done
 orc compile "${FRONTEND[@]}" > "$PREP/compile.json" 2> "$PREP/compile.stderr" ||
-  { cat "$PREP/compile.stderr" >&2; rm -rf "$PREP"; refuse "the $ARM program does not compile with the kit's bindings"; }
+  { cat "$PREP/compile.stderr" >&2; refuse "the $ARM program does not compile with the kit's bindings"; }
 
 # Claim the slot, then move the prepared cell into place; from here on the cell is filed whatever happens.
 mkdir "$LEDGER/$SLOT" || refuse "slot $SLOT was claimed meanwhile"
-echo "$CELL_DIR $(date -u +%FT%TZ)" > "$LEDGER/$SLOT/claimed"
+printf '%s\n%s\n%s\n' "$CELL_DIR" "$$" "$(date -u +%FT%TZ)" > "$LEDGER/$SLOT/claimed"
 mv "$PREP" "$CELL_DIR"
+PREP=
 BIN=$CELL_DIR/bin WS=$CELL_DIR/workspace
 
 memo_fact() {   # memo_fact run_id|feedback|stop: one fact of the cell's single run, from its memo
@@ -224,7 +284,7 @@ EOF
 tree_digest() { (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1); }
 
 set +e
-RUN_ID= RESUME_EXIT=null STOP=null INVALIDATE=null RESUME_SEC=0
+RUN_ID= RESUME_EXIT=null STOP=null RESUME_SEC=0
 START=$(date +%s)
 if [ "$MODE" = clean ]; then
   orc run "${FRONTEND[@]}" --input-file inputs.json --max-cost-usd "$CAP_USD" > "$CELL_DIR/run.log" 2>&1
@@ -266,21 +326,25 @@ json.dump({"exit": int(e), "identity": i, "coordinator_committed": c == "0", "by
 fi
 set -e
 
+# The record is written whole (temporary file, then rename), so a readable cell.json is a finished cell.
 "$PYTHON" - "$CELL_DIR/cell.json" cell "$CELL" arm "$ARM" mode "$MODE" slot "$SLOT" retry_reason "$RETRY_REASON" \
   rehearsal "$REHEARSAL" model "$MODEL" template "$TEMPLATE" effort "high (fixed by the sources; not verified for Haiku)" \
   cap_usd "$CAP_USD" claude_path "$CLAUDE" claude_version "$VERSION" runtime "$RUNTIME" runtime_commit "$RUNTIME_COMMIT" \
   runtime_dirty "$([ -n "$DIRTY" ] && echo true || echo false)" source "$SOURCE" source_sha256 "$SOURCE_SHA256" \
-  criterion_sha256 "$CRITERION_SHA256" fixture_commit "$FIXTURE_COMMIT" run_id "$RUN_ID" run_exit "$RUN_EXIT" \
-  stop "$STOP" resume_exit "$RESUME_EXIT" report_exit "$REPORT_EXIT" run_sec "$RUN_SEC" resume_sec "$RESUME_SEC" <<'EOF'
-import json, sys
+  criterion_sha256 "$CRITERION_SHA256" frozen_files "$FROZEN" fixture_commit "$FIXTURE_COMMIT" run_id "$RUN_ID" \
+  run_exit "$RUN_EXIT" stop "$STOP" resume_exit "$RESUME_EXIT" report_exit "$REPORT_EXIT" run_sec "$RUN_SEC" \
+  resume_sec "$RESUME_SEC" <<'EOF'
+import json, os, sys
 meta = dict(zip(sys.argv[2::2], sys.argv[3::2]))
 for key in ("cap_usd", "run_exit", "run_sec", "resume_sec"):
     meta[key] = int(meta[key])
-for key in ("stop", "resume_exit", "report_exit"):
+for key in ("stop", "resume_exit", "report_exit", "frozen_files"):
     meta[key] = json.loads(meta[key])
 for key in ("rehearsal", "runtime_dirty"):
     meta[key] = meta[key] == "true"
 meta["retry_reason"] = meta["retry_reason"] or None
-json.dump(meta, open(sys.argv[1], "w"), indent=2, sort_keys=True)
+with open(sys.argv[1] + ".tmp", "w") as out:
+    json.dump(meta, out, indent=2, sort_keys=True)
+os.replace(sys.argv[1] + ".tmp", sys.argv[1])
 EOF
 echo "$CELL_DIR: run exit $RUN_EXIT, resume exit $RESUME_EXIT"
