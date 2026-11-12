@@ -3,9 +3,10 @@
 # session metadata is scanned separately. Exact IDs deliberately refuse unknown model tiers.
 name=$(basename "$0"); here=$(cd "$(dirname "$0")" && pwd -P); real=
 refuse() { echo "model guard: $*" >&2; exit 2; }
-# The unit's one bound Claude model: Sonnet, or Haiku when ORC_ALLOWED_CLAUDE_MODELS is exactly its ID. Inside
-# the shims' sandbox the launcher's read-only binding decides instead, so a candidate's own environment
-# cannot rebind it; the opt-in must still list Haiku for Haiku to run.
+# The unit's one bound Claude model. Inside the shims' sandbox it is the read-only binding the launcher writes
+# from the unit's declaration, so neither the launch nor a candidate's environment can rebind it. The file is
+# absent only outside the sandbox (direct guard use), where Haiku binds when ORC_ALLOWED_CLAUDE_MODELS is exactly
+# its ID. Either way the opt-in must still list Haiku for Haiku to run, so the environment can only narrow.
 claude_model=claude-sonnet-5-5
 [ "${ORC_ALLOWED_CLAUDE_MODELS-}" != claude-haiku-5-5 ] || claude_model=claude-haiku-5-5
 frozen=/.compare-claude-model

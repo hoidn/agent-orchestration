@@ -52,8 +52,6 @@ except ImportError:  # run as a script
         main_checkout, random_child, runtime_commit, sha256_file, shim_commands, shim_prefix, visible_in_sandbox,
     )
 
-SONNET, HAIKU = "claude-sonnet-5-5", "claude-haiku-5-5"
-
 # arm: (source, entry workflow, source root, providers file, typed inputs); paths in the runtime checkout.
 ARMS = {
     "best_of_n": ("experiments/orc_vs_single_call/workflows/best_of_n.orc", "best_of_n::best-of-n",
@@ -215,12 +213,6 @@ def write_commands(records, cwd, state, runtime, env, spec):
     return command
 
 
-def claude_binding(environment):
-    """The run's one Claude model: Haiku only when the caller's COMPARE_CLAUDE_MODELS is exactly its ID."""
-    selected = (os.environ if environment is None else environment).get("COMPARE_CLAUDE_MODELS")
-    return HAIKU if selected == HAIKU else SONNET
-
-
 def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec=None, *, environment=None):
     """Build the run's agents' tree and records directory, print the command; return the records directory.
     `spec` replaces the ARMS lookup (`arm` then only names W/records/<arm>/); its paths face the runtime's
@@ -246,15 +238,16 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec
     inputs = arm_inputs(task, arm, cands, sets, spec.inputs)
     dump(records / "inputs.json", inputs)
     cwd, state = (tree, link_best_of_n_state(tree, cands)) if arm == "best_of_n" else (cands[0], spec.state_dir)
+    claude = sandbox.claude_binding((os.environ if environment is None else environment).get("COMPARE_CLAUDE_MODELS"))
     native = sandbox.prepare_unit(tree, records, homes=root / '.private-homes',
                                   providers=None if spec.command else spec.providers,
-                                  result_root=state or cwd / '.orchestrate/runs', environment=environment)
+                                  result_root=state or cwd / '.orchestrate/runs', environment=environment,
+                                  claude_model=claude)
     env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base, "TMPDIR": tree / "tmp"}
     env['COMPARE_SANDBOX'] = native['declaration']
     if inputs.get("model") in contamination.CODEX_MODELS:
         env["COMPARE_CODEX_MODELS"] = inputs["model"]
-    claude = claude_binding(environment)
-    if claude != SONNET:
+    if claude != sandbox.SONNET:  # Haiku also needs the opt-in at launch; a Sonnet unit keeps an ambient denial
         env["COMPARE_CLAUDE_MODELS"] = claude
     command = write_commands(records, cwd, state, runtime, env, spec)
     dump(records / "record.json", {
@@ -426,10 +419,9 @@ def scan(records, solution, home=None, roots=(), others=()):
         roots=[("records root", records.parents[1]), *((name, Path(path).resolve()) for name, path in roots)])
     model = load(records / "inputs.json").get("model") if 'arm' in record else None
     expected = model if model in contamination.CODEX_MODELS else "gpt-5.6-terra"
-    claude = record.get("claude_model", SONNET)
     hits = contamination.find_hits(records, record["tree"], record["created_at"], home, compiled,
                                    expected_codex_model=expected,
-                                   **({} if claude == SONNET else {"expected_claude_model": claude}))
+                                   expected_claude_model=record.get("claude_model", sandbox.SONNET))
     record["scan"] = {"solution": solution, "hits": hits, "verdict": None,
                       "calls": len(list((records / "calls").glob("*")))}
     dump(records / "record.json", record)

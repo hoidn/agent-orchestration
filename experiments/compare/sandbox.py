@@ -26,9 +26,11 @@ AUTH = {'codex': ('OPENAI_API_KEY',), 'claude': ('ANTHROPIC_API_KEY', 'ANTHROPIC
 POLICY = ('ORC_ALLOWED_CODEX_MODELS', 'ORC_ALLOWED_CLAUDE_MODELS', 'ORC_SINGLE_CALL_CLI_STATE',
           'CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE')
 CLAUDE_BINDING = '/.compare-claude-model'  # the model guard's read-only Claude binding (shim/model-guard)
+SONNET, HAIKU = 'claude-sonnet-5-5', 'claude-haiku-5-5'
+CLAUDE_MODELS = (SONNET, HAIKU)  # a unit's one bound Claude model is one of these exact IDs
 BROAD = frozenset(('/', '/home', '/root', '/etc', '/mnt', '/srv', '/opt', '/run', '/var', '/tmp'))
 DEPENDENCY_FIELDS = frozenset(('codex', 'claude', 'readonly', 'path', 'environment', 'catalog', 'skills'))
-UNIT_FIELDS = frozenset(('tree', 'records', 'home', 'home_path', 'clones', 'providers', 'result_root'))
+UNIT_FIELDS = frozenset(('tree', 'records', 'home', 'home_path', 'clones', 'providers', 'result_root', 'claude_model'))
 
 
 def _read(path):
@@ -129,8 +131,22 @@ def _providers(source, data, environment):
     return sorted(selected)
 
 
-def prepare_unit(tree, records, *, homes, clones=(), providers=None, environment=None, result_root=None):
-    """Create one home once; its declaration/marker bind launch, resume and receipt discovery."""
+def claude_binding(opt_in):
+    """The one Claude model an opt-in (COMPARE_CLAUDE_MODELS) binds: Haiku only for its exact ID, else Sonnet."""
+    return HAIKU if opt_in == HAIKU else SONNET
+
+
+def _bound_claude(model):
+    if model not in CLAUDE_MODELS:
+        raise ValueError(f"Claude binding {model!r} is outside the owner's exact Sonnet/Haiku IDs")
+    return model
+
+
+def prepare_unit(tree, records, *, homes, clones=(), providers=None, environment=None, result_root=None,
+                 claude_model=SONNET):
+    """Create one home once; its declaration/marker bind launch, resume and receipt discovery. The declaration
+    fixes the unit's one Claude model; a launch environment can only narrow it."""
+    _bound_claude(claude_model)
     environment = os.environ if environment is None else environment
     tree, records, homes = (Path(p).resolve() for p in (tree, records, homes))
     declaration = records / 'sandbox.json'
@@ -175,7 +191,7 @@ def prepare_unit(tree, records, *, homes, clones=(), providers=None, environment
         (home / '.claude.json').write_text('{"hasCompletedOnboarding":true}\n')
     data.update(tree=str(tree), records=str(records), home=str(home), home_path=str(GUEST_HOME),
                 clones=[str(Path(p).resolve()) for p in clones], providers=selected,
-                result_root=str(Path(result_root).resolve() if result_root else tree))
+                result_root=str(Path(result_root).resolve() if result_root else tree), claude_model=claude_model)
     _write(declaration, data)
     metadata = {'home': str(home), 'home_path': str(GUEST_HOME), 'declaration': str(declaration)}
     _write(home / '.compare-unit.json', {**metadata, 'tree': str(tree)})
@@ -268,6 +284,7 @@ def launch(name, argv, environment=None, *, call=None):
         raise ValueError('COMPARE_SANDBOX must name the prepared unit declaration')
     data = _read(pointer)
     _validate_dependencies(data)
+    claude_model = _bound_claude(data.get('claude_model', SONNET))  # units declared before the field: Sonnet
     tree, records = Path(data['tree']), Path(data['records'])
     info = {'home': data['home'], 'home_path': data['home_path'], 'declaration': pointer}
     home = session_home({'tree': str(tree), 'sandbox': info})
@@ -299,7 +316,10 @@ def launch(name, argv, environment=None, *, call=None):
         raise
     binding = None
     try:
-        args = ['bwrap', '--die-with-parent', '--new-session', '--unshare-pid', '--unshare-ipc', '--unshare-uts',
+        # --disable-userns: no nested user namespace, so the candidate cannot mount over the binding or the guard
+        # whatever the host's user-namespace policy (bubblewrap >= 0.8).
+        args = ['bwrap', '--die-with-parent', '--new-session', '--unshare-user', '--disable-userns',
+                '--unshare-pid', '--unshare-ipc', '--unshare-uts',
                 '--clearenv', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/var/tmp',
                 '--bind', str(home), str(GUEST_HOME)]
         mounts = dict(data['readonly'])
@@ -321,12 +341,12 @@ def launch(name, argv, environment=None, *, call=None):
             elif path.exists():
                 args += ['--ro-bind', str(path), str(path)]
         args += ['--bind', str(tree), str(tree), '--bind', str(tree / 'tmp'), '/tmp']
-        # The candidate can neither edit the guard nor rebind its Claude model: Haiku only on the exact opt-in.
-        claude_model = ('claude-haiku-5-5' if environment.get('ORC_ALLOWED_CLAUDE_MODELS') == 'claude-haiku-5-5'
-                        else 'claude-sonnet-5-5')
+        # The candidate can neither edit the guard nor rebind the declared Claude model.
         binding, writer = os.pipe()
-        os.write(writer, claude_model.encode())
-        os.close(writer)
+        try:
+            os.write(writer, claude_model.encode())
+        finally:
+            os.close(writer)
         args += ['--ro-bind', str(tree / '.model-guard'), str(tree / '.model-guard'),
                  '--ro-bind-data', str(binding), CLAUDE_BINDING]
         if staging is not None:

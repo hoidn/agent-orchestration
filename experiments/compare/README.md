@@ -191,16 +191,24 @@ Each unit has its own native home; the harness also guards instrumented CLI rout
   and `codex`, first on the sandboxed agent's `PATH`, for top-level and nested CLI calls. Parallel
   installation leaves identical copies alone, creates missing copies by atomic hard link and
   restores edited copies by rename. Arguments, stdin, streams and status reach the real CLI.
-  Each unit has one bound Claude model: Sonnet, or Haiku when `COMPARE_CLAUDE_MODELS` (forwarded
-  as `ORC_ALLOWED_CLAUDE_MODELS`) is exactly `claude-haiku-5-5`; any other value, including a list
-  naming Haiku among others, leaves Sonnet bound and can only narrow it. Claude defaults to the bound
-  model; the primary model is one exact ID. Explicit and fallback model arguments (separate or `=`
-  forms, including every comma-separated fallback) must use the bound ID, and Haiku also needs the
-  opt-in to list it. The forced Claude subagent model must also be the bound one. Inside the sandbox
-  the binding is a read-only file (`/.compare-claude-model`) and `<tree>/.model-guard` is mounted
-  read-only, so a candidate cannot rebind the model through its own environment or edit the guard.
-  `prepare.py run` takes the opt-in from its environment and writes it into `command.sh`,
-  `resume.sh` and `record.json` (`claude_model`); `pool` sets it for a Claude judge.
+  Each unit has one bound Claude model, fixed when the unit is prepared and recorded as
+  `claude_model` in its `sandbox.json` (controller-owned, never mounted) and `record.json`. It is
+  Haiku when `COMPARE_CLAUDE_MODELS` is exactly `claude-haiku-5-5` at `prepare.py run` time (a pool
+  binds a Claude judge to its own ID), and Sonnet otherwise, including for a list naming Haiku among
+  others. Each launch writes the declared model into a read-only `/.compare-claude-model` and
+  mounts `<tree>/.model-guard` read-only, so neither the launch shell nor a candidate can rebind the
+  model or edit the guard. The launch environment (`COMPARE_CLAUDE_MODELS`, forwarded as
+  `ORC_ALLOWED_CLAUDE_MODELS`) can only narrow: Haiku runs only when it also lists Haiku, which a
+  Haiku unit's `command.sh`/`resume.sh` and a Haiku judge's scripts set explicitly. A Sonnet unit's
+  scripts set nothing, so an ambient `COMPARE_CLAUDE_MODELS=""` still denies Claude, and an ambient
+  Haiku opt-in leaves Sonnet bound and refuses its Claude calls. A Haiku unit started without its
+  opt-in refuses every Claude call rather than running Sonnet. Claude defaults to the bound model;
+  the primary model is one exact ID. Explicit and fallback model arguments (separate or `=` forms,
+  including every comma-separated fallback) must use the bound ID, and the guard pins the forced
+  Claude subagent model to it. The shims strip any ambient `CLAUDE_CODE_SUBAGENT_MODEL`. Compared with
+  Sonnet-only units, every launch also gains the read-only guard and binding mounts, `record.json`
+  gains `claude_model`, a Sonnet judge's scripts carry `COMPARE_CLAUDE_MODELS=claude-sonnet-5-5`,
+  and refusals name the "Sonnet/Haiku cap".
 - **Codex.** The same guard defaults to Terra and checks long and short model arguments. It
   rejects review subcommands (which can select a separate `review_model`), profile, provider,
   local-model and feature-enabling overrides, and admits only scalar
@@ -236,6 +244,11 @@ Each unit has its own native home; the harness also guards instrumented CLI rout
   names do not count as usage. Direct API calls without a scoped session are invisible, and
   sessions started at literal sandbox `/tmp/...` paths rather than under `TMPDIR` are not
   attributed to the tree. These guards do not claim prevention beyond instrumented routes.
+  The sandbox runs in its own user namespace with further user namespaces disabled
+  (`--unshare-user --disable-userns`, bubblewrap 0.8 or later), so a candidate cannot mount over the
+  binding file or the guard on any host. `experiments/orc_structural_search/qualification.py` still
+  scans every run as Sonnet/Terra: a Haiku answer there is a non-clearable hit (fails closed), so
+  that campaign's configurations must not bind Haiku.
 
 1. **Prepare** one run per invocation. It prints the command, writes it to `R/command.sh` and
    writes `R/resume.sh`.

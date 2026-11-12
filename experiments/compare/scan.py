@@ -30,11 +30,15 @@ import json
 import re
 from pathlib import Path
 
+try:
+    from . import sandbox  # imported as experiments.compare.scan
+except ImportError:  # run as a script
+    import sandbox
+
 ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
 FABLE = "Fable model"
 FORBIDDEN_MODEL = "Forbidden model"
 CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-luna", "gpt-6.1-sol")
-CLAUDE_MODELS = ("claude-sonnet-5-5", "claude-haiku-5-5")
 JUDGE_TESTS = r"\bpytest\b|\bdev_check(?:\.py)?\b"
 BOUNDARY = r"(?![\w.-])"  # a path ends here: what follows is not part of its last component
 POOL_FILES = r"records/(?:mapping\.json|patches/|score-inputs-|(?:score|resume)-\S*\.sh|results\.(?:json|md)|judges/)"
@@ -166,11 +170,11 @@ def refuse_publication_errors(calls_root):
 
 
 def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="gpt-5.6-terra",
-              expected_claude_model="claude-sonnet-5-5"):
+              expected_claude_model=sandbox.SONNET):
     refuse_publication_errors(calls_root)
     if expected_codex_model not in CODEX_MODELS:
         raise SystemExit("expected Codex model must be an exact known Codex ID")
-    if expected_claude_model not in CLAUDE_MODELS:
+    if expected_claude_model not in sandbox.CLAUDE_MODELS:
         raise SystemExit("expected Claude model must be the exact Sonnet or Haiku ID")
     hits = []
     for path, number, text in sources(Path(calls_root), Path(tree), since, Path(home)):
