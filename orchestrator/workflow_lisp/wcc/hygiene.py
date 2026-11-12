@@ -58,12 +58,11 @@ from .model import (
     WccRunRefPayload,
     WccRunRefWorkflowPayload,
     WccSelectArm,
-    WccTrialPayload,
     WccValue,
 )
 
 # Nodes that hold no reference to a value name.
-_CLOSED = (WccNodeMetadata, WccRunRefPayload, WccRunRefWorkflowPayload, WccTrialPayload)
+_CLOSED = (WccNodeMetadata, WccRunRefPayload, WccRunRefWorkflowPayload)
 
 
 def _gather(

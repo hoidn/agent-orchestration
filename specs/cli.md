@@ -249,8 +249,9 @@ this locking rule does not retain workflow supervision or watchdog execution.
     contract must be specified before `ORCHESTRATE_KEEP_RUNS` is activated.
 
 - Safety
-  - `--clean-processed` only operates on the configured `processed_dir` when it resolves within WORKSPACE.
-  - `--archive-processed` destination must not be inside the configured `processed_dir`. Default output is `RUN_ROOT/processed.zip`.
+  - `--clean-processed` and `--archive-processed` are accepted and have no
+    effect: evaluated execution neither cleans nor archives a processed
+    directory.
 
 ## Commands and Examples
 
@@ -265,11 +266,13 @@ followed by `-m orchestrator` when the module was invoked (see
 lists the public commands (`run`, `py`, `compile`, `repl`, `resume`,
 `invalidate`, `input`, `report`, `dashboard`, `monitor`). The retired and
 maintainer commands (`prompt`, `trial`, `explain`,
-`workflow-lisp-route-readiness`, `peer-ready`, `peer-send`, `peer-ack`,
-`peer-finish`, `provider-materialization-submit`,
+`workflow-lisp-route-readiness`, `provider-materialization-submit`,
 `provider-isolation-environment-manifest`) and the flags evaluated execution
 does not read (see [Evaluated execution](#evaluated-execution-target-235))
-are hidden from help and still accepted with their documented behavior.
+are hidden from help and still accepted with their documented behavior. The
+peer-group member commands `peer-ready`, `peer-send`, `peer-ack` and
+`peer-finish` were removed on 2026-11-11 with their executor (git tag
+`archive/dead-executors-2026-11-11`) and get argparse's `invalid choice`.
 
 ```bash
 # Run an admitted evaluated entry (provider execution changes the workspace)
@@ -717,6 +720,7 @@ the `resume` command.
 | Code | Raised by | Exit | Effect on evidence |
 | --- | --- | --- | --- |
 | `closed_program_gap`, `compiled_workflow_source_required`, `compiled_workflow_snapshot_conflict`, `command_boundary_closure_missing`, `command_boundary_manifest_invalid`, `command_result_inputs_invalid` | `compile`; `run`; the fresh build of `resume` | 2 | None; `run` creates no run root |
+| `form_retired` | `compile`; `run`; the fresh build of `resume`: a list head naming a removed form (`trial`) that no user definition or binding shadows, at every target and also where the entry does not reach it; the message names git tag `archive/dead-executors-2026-11-11` | 2 | None; `run` creates no run root |
 | `workflow_lisp_cli_input_unsupported` | `compile` with a flat-route export flag | 2 | None |
 | Workflow input binding failure (a missing, unknown, mistyped or non-finite input): no named code; `run` and `--dry-run` print `Validation error: Workflow input binding failed`, `resume` prints `[resume_preflight_failed] Workflow input binding failed`; a `: <detail>` suffix follows only for a conversion or non-finite failure, a missing or unknown input prints the bare message | `run`; the fresh inputs of `resume` | 2 | None; `run` creates no run root |
 | `resume_preflight_failed` | `resume` refusals without a code of their own: a non-canonical `--run-ref-root`, an input binding failure, an unreadable recipe input file | 2 | None |

@@ -52,7 +52,6 @@ from .expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunRefExpr,
-    TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
@@ -857,7 +856,7 @@ def normalize_resolved_inline_procedure_calls(
                 ):
                     return True
             elif isinstance(candidate, _EFFECT_EXPRS + (
-                TrialExpr, ResumeOrStartExpr, WithLiveProvidersExpr,
+                ResumeOrStartExpr, WithLiveProvidersExpr,
                 WithLiveProviderPeersExpr, ListMapEffectExpr,
             )):
                 return True
@@ -2022,16 +2021,10 @@ def _validate_pure_function_expr(
     procedure_catalog: "ProcedureCatalog | None" = None,
     target_dsl_version: str | None = None,
 ) -> None:
-    from .effects import RunsRefEffect, RunsTrialEffect, effect_summary
-    from .expressions import TrialExpr
+    from .effects import RunsRefEffect, effect_summary
     from .typecheck_context import raise_run_ref_placement_invalid
 
     for candidate in walk_expr(expr):
-        if isinstance(candidate, TrialExpr):
-            raise_run_ref_placement_invalid(
-                candidate,
-                reason="is not permitted in a pure function",
-            )
         if isinstance(candidate, RunRefExpr):
             raise_run_ref_placement_invalid(
                 candidate,
@@ -2041,7 +2034,7 @@ def _validate_pure_function_expr(
             signature = procedure_catalog.signatures_by_name.get(candidate.callee_name)
             if (not target_dsl_supports_effect_ceilings(target_dsl_version or "")
                 and signature is not None and any(
-                isinstance(effect, (RunsRefEffect, RunsTrialEffect))
+                isinstance(effect, RunsRefEffect)
                 for effect in signature.declared_effects
             )):
                 raise_run_ref_placement_invalid(
@@ -2078,8 +2071,6 @@ def _find_purity_violation(
     *,
     allow_procedure_calls: bool = False,
 ) -> str | None:
-    if isinstance(expr, TrialExpr):
-        return "trial"
     if isinstance(expr, CallExpr):
         return "call"
     if isinstance(expr, ProcedureCallExpr):

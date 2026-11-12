@@ -12,7 +12,7 @@ schema notation, not authored workflow files.
 
 - Provider attempt lifecycle
   - At-least-once recovery applies to a validated interrupted in-flight
-    ordinary, session, supervision, peer-group, or phased provider visit.
+    ordinary, session, or phased provider visit.
     Ordinary dispatch uses the next unused attempt ordinal and never reuses
     partial attempt content. Compatible completed-result reuse remains
     invocation-free.
@@ -844,25 +844,17 @@ schema notation, not authored workflow files.
     reserved compiler-owned `ProviderSteeringDirective`, whose only accepted
     wire objects are exactly `{"variant":"CONTINUE"}` and
     `{"variant":"STEER","guidance":<non-empty string>}`. Unknown fields,
-    missing or cross-variant fields, and empty guidance are rejected. Runtime
-    control interprets only the validated discriminant; guidance remains
-    free-form provider content.
+    missing or cross-variant fields, and empty guidance are rejected.
   - The settlement body is pure over the two validated member values, and the
-    form returns that body's type. The compiler lowers the whole form to one
-    `provider_supervision.v1` executable node with bounded initial overlap,
-    one workflow-state/result boundary, and `max_steers: 1`.
-  - Static and runtime validation both require the worker's resolved template
-    to have valid `turn_boundary_resume: true` support and use the cancellable
-    provider process-group lifecycle. The supervisor needs no session
-    capability. `STEER` may launch exactly one resume turn only after the
-    codec and process lifecycle prove the accepted boundary and exact
-    same-session identity; otherwise the group fails closed.
-  - The runtime composes the supervisor's structural observation injection
-    after ordinary source/dependency/input/consume composition and before the
-    output-contract suffix. Its tmux socket and worker target are
-    process-local execution data: they may occur in debug prompt evidence but
-    never become workflow values, output bundles, persisted state, or resume
-    authority.
+    form returns that body's type.
+  - **Executor removed 2026-11-11.** The runtime that executed this form
+    (the `provider_supervision.v1` executable node, its coordinator, state and
+    observation injection) was deleted; its packages are kept at git tag
+    `archive/dead-executors-2026-11-11`, and the last tree with the whole runtime,
+    including the step-executor bindings that hosted it, is commit `08cdd59b`.
+    The frontend still parses, checks and elaborates the form, and the closed build refuses it with
+    `[closed_program_gap]` wherever the selected entry reaches it. Future
+    direction: [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
 - Workflow Lisp live-provider peer groups (v2.17)
   - `with-live-provider-peers` is a `.orc`-only form with a literal,
@@ -874,56 +866,16 @@ schema notation, not authored workflow files.
     are rejected.
   - Every member result may be any transportable type. The settlement body is
     pure, may read exactly the complete member-result environment, and must
-    produce a transportable value. The compiler lowers the form to one closed
-    `provider_peer_group.v1` executable node with messaging policy
-    `all_other_members`, `interactive_session_schema_version:
-    "interactive_terminal_turn_queue.v1"`, and `max_steers: 0`.
-  - Static and runtime validation require every resolved member provider to
-    declare the exact structural `interactive_session_support` capability.
-    Providers without it remain valid outside a peer-group member position.
-    The interactive adapter owns the provider client pane; the observation
-    manager and its display pane are not an input path.
-  - One runtime endpoint is created per group visit and is bound to the exact
-    run, step, node, visit, and endpoint instance. After root-owned monotonic
-    member attempt allocation, each provider receives an opaque binding that
-    resolves server-side to one exact member id, attempt scope, attempt
-    ordinal, and endpoint instance. The endpoint and opaque bindings are
-    process-local handles, not workflow values, result state, checkpoint
-    identity, or reusable evidence.
-  - The member-visible client surface is exactly:
-    `orchestrator peer-ready`, `orchestrator peer-send <target-binding>
-    <message>`, `orchestrator peer-ack <message-id>`, and
-    `orchestrator peer-finish`. Clients submit one bounded request through
-    their runtime-provided endpoint/binding and return its receipt; they cannot
-    choose a sender, run root, arbitrary endpoint, state path, ledger path, or
-    pane, and cannot write state, ledgers, bundles, or terminal results.
-    Messages are non-empty UTF-8 of at most 65,536 encoded bytes; newlines and
-    ordinary Unicode are preserved.
-  - `peer-ready` is an all-members barrier. Only after every exact member
-    attempt is ready does one coordinator transition make the group active.
-    Sends while the group is not active, self sends, and sends involving
-    stale, closing, terminal, unknown, ambiguous, or cross-group
-    member/attempt identities fail without delivery.
-  - For an accepted send, the single-writer coordinator durably appends the
-    receiver's `recorded` ledger row before asking the exact receiver adapter
-    to offer the message at its next natural turn boundary. It then durably
-    appends `offered` or `offer_failed`; client success requires `offered`.
-    `peer-ack` appends `receiver_acknowledged` only for the exact receiver
-    attempt and message id. Exact request-id replay returns the prior durable
-    receipt; reuse with a different payload fails closed.
-  - `peer-finish` is cooperative and separate from messaging. It is retryable
-    with `pending_messages` while any accepted incoming message lacks an
-    acknowledgement. Once eligible, it validates and freezes the member's
-    exact typed bundle bytes, offers the declared graceful-close command, and
-    returns success so the current provider turn can finish naturally. A
-    member is terminal only after the client, pane, helper, and process
-    boundary are joined with a complete natural-shutdown proof.
-  - A peer message cannot cancel, resume, steer, replace, select, settle, or
-    directly publish a member. There is no peer-group forcing edge,
-    provider-session resume delivery, dynamic membership, cross-run messaging,
-    or YAML spelling. Any member, protocol, delivery, bundle, deadline,
-    endpoint, or cleanup failure fails the whole group, performs failed
-    cleanup, and publishes no settlement.
+    produce a transportable value.
+  - **Executor removed 2026-11-11.** The runtime that executed this form
+    (the `provider_peer_group.v1` executable node, its coordinator, state and
+    the member commands `peer-ready`, `peer-send`, `peer-ack` and
+    `peer-finish`) was deleted; its packages are kept at git tag
+    `archive/dead-executors-2026-11-11`, and the last tree with the whole runtime,
+    including the step-executor bindings that hosted it, is commit `08cdd59b`.
+    The frontend still parses, checks and elaborates the form, and the closed build refuses it with
+    `[closed_program_gap]` wherever the selected entry reaches it. Future
+    direction: [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
 - Adjudicated provider prompt and evaluator delivery (v2.11)
   - Each candidate uses the ordinary provider prompt composition contract, including step-wide `asset_depends_on`, `depends_on`, `consumes` injection, and deterministic output-contract suffixes. A candidate `asset_file` or `input_file` override replaces only the base prompt source.

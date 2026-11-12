@@ -11,10 +11,9 @@
   - Provider observation writes invocation-local normalized display streams
     and finalized transcripts under `RUN_ROOT/provider-observation/display/`
     and `RUN_ROOT/provider-observation/transcripts/`.
-  - v2.17 provider-peer-group visits write exact attempt ledgers, member
-    evidence, provisional bundles, and terminal group evidence under
-    `RUN_ROOT/provider-peer-group/`. These are run-owned evidence, not
-    additional workflow results.
+  - v2.17 provider-peer-group visit evidence under `RUN_ROOT/provider-peer-group/`
+    was removed with its executor on 2026-11-11 (git tag
+    `archive/dead-executors-2026-11-11`).
 
 - Provider observation (v2.16)
   - Ordinary provider observation is attempted by default at both workflow and
@@ -23,12 +22,6 @@
   - Ordinary manager creation, pane allocation, append, health, finalization,
     and teardown failures are best-effort observability failures and cannot
     change provider transport, timeout, metadata, bundle, or result semantics.
-  - A `provider_supervision` node's two initial panes are load-bearing until a
-    validated supervisor directive is committed to the serialized arbiter.
-    Initial allocation failure or pre-directive observation loss fails the
-    group and triggers member cleanup. The optional resume-turn pane and
-    post-directive mirror/teardown are best effort because they cannot change
-    the already selected control path.
   - Session-aware panes mirror normalized assistant text, never raw session
     JSONL. Claude and Codex session transports additionally display bounded
     tool-activity notices (tool name/kind and started, completed or error status)
@@ -41,8 +34,7 @@
     stdout and never enters a workflow result. Pane bytes and transcripts remain
     display evidence; parsers and result validation continue to consume the
     authoritative provider transport and declared output bundle.
-  - Live tmux socket and target values are process-local. They may occur in the
-    supervisor's composed prompt and debug prompt evidence but never enter
+  - Live tmux socket and target values are process-local. They never enter
     workflow values, `state.json`, stable status records, checkpoints, or
     resume selection.
   - An evaluated run whose checked program contains `agent`/`agent_turn`
@@ -73,34 +65,10 @@
     exit information or violations ([State](state.md#memo-records)); ordinary
     provider failure diagnostics retain their existing detail.
 
-- Provider peer-group evidence (v2.17)
-  - The `interactive_terminal_turn_queue.v1` adapter pane owns the actual
-    provider client and is part of execution lifecycle, not a writable
-    observation pane. Pane text, normalized display text, transcripts, and
-    provider stdout/stderr remain non-authoritative views; typed direct-root
-    bundle validation is result authority.
-  - Each receiver attempt has one append-only
-    `injected-messages.jsonl`. A durable header binds the exact group visit and
-    receiver attempt even when no messages are sent. Canonical sequenced rows
-    record `recorded`, `offered` or `offer_failed`, and
-    `receiver_acknowledged` lifecycle events.
-  - Ledger claims are intentionally narrow: `recorded` means validation
-    passed and the receiver row is durable; `offered` means the exact adapter
-    submitted literal input to the exact provider client; and
-    `receiver_acknowledged` means the exact receiver returned the message id
-    through its ordinary tool channel. No event or report may rename these
-    claims as `seen`, `model_seen`, `understood`, or `applied`.
-  - Terminal group evidence uses
-    `provider_peer_group_terminal_evidence.v1` and reports the exact visit,
-    authored-order member attempt identities, terminal member lifecycles,
-    ledger digests/counts, frozen bundle digests, natural-shutdown or
-    failed-cleanup evidence, endpoint drain/close/worker-join proofs, and
-    either a settlement digest or bounded failure.
-  - Endpoint paths, endpoint instance ids, opaque sender bindings, tmux
-    targets, and live pane/server handles are process-local. They may appear in
-    transient runtime diagnostics but never become workflow values, ordinary
-    artifacts, stable report fields, checkpoint identity, or resume
-    authority. A completed cleanup leaves no endpoint or adapter socket.
+- Provider peer-group evidence (v2.17): its executor, adapter pane lifecycle
+  and message ledgers were removed on 2026-11-11 (git tag
+  `archive/dead-executors-2026-11-11`); see the
+  [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
 - Error context (normative)
   - On step failure, record message, exit code, tails of stdout/stderr, and error context details (undefined variables, missing deps, substituted command, missing secrets, etc.).
@@ -178,23 +146,10 @@ derives solely from the validated `.orc` executable and `state.json`.
     `output.provider_session` projections came from the retired-run report;
     `report` no longer produces them (kept at the git tag `archive/retired-run-readers-2026-11-11`).
   - v2.11 adjudicated provider snapshots may expose selected candidate id, selected score or null score, selection reason, run-local score ledger path, workspace-visible score ledger mirror path, promotion status, and adjudication failure type. Candidate workspaces, evaluator packets, and ledgers are observability sidecars, not ordinary artifact lineage.
-  - v2.16 provider-supervision snapshots render one outer step with kind
-    `provider_supervision`. Its ordinary artifacts are the settlement result;
-    debug projection may expose only the selected worker-attempt and directive-
-    attempt references plus bounded terminal metadata. Interrupted-visit
-    recovery may expose `provider_attempt_interrupted_rerun` plus the discarded
-    visit and fresh-visit coordinates, but member panes, targets, provisional
-    bundles, and transcripts are not result or resume authority.
-  - v2.17 provider-peer-group snapshots render one outer step with kind
-    `provider_peer_group`. Its ordinary `output.artifacts` are the settlement
-    projection. `output.debug.provider_peer_group` may expose only
-    `terminal_evidence_path`, `terminal_evidence_schema_version`, and
-    `outcome`; detailed members, ledgers, bundles, and lifecycle proof remain
-    in the referenced run-owned evidence. Interrupted-visit recovery may
-    expose `provider_attempt_interrupted_rerun` plus the discarded visit and
-    fresh-visit coordinates. Message bodies, endpoint/binding handles, pane
-    targets, and provisional member values are not stable report or result
-    fields.
+  - v2.16 provider-supervision and v2.17 provider-peer-group snapshots: no
+    step of either kind can be produced since their executors were removed on
+    2026-11-11 (see the
+    [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md)).
   - Target-2.23 phased recovery and v2.11 adjudication recovery may expose only
     their bounded named diagnostic, recovery family/mismatch class, and old/new
     visit coordinates. Prompt, candidate, score packet, ledger, and partial
