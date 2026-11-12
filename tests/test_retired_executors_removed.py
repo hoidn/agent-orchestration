@@ -1,4 +1,7 @@
-"""The retired executor packages and their commands are gone, and nothing still imports them."""
+"""The retired executor packages and their commands are gone, and nothing still imports them.
+
+Also the modules of the bundle-era IR stack that nothing imported (Lane D stage 3, tag
+`archive/old-ir-stack-2026-11-12`)."""
 
 from __future__ import annotations
 
@@ -20,6 +23,18 @@ REMOVED_PACKAGES = [
     "orchestrator.workflow.adjudication",
     "orchestrator.cli.commands.trial",
     "orchestrator.workflow.elaboration",
+    "orchestrator.workflow.linting",
+    "orchestrator.workflow.conditions",
+    "orchestrator.workflow.predicates",
+    "orchestrator.workflow.frontend_origins",
+    "orchestrator.workflow.runtime_context",
+    "orchestrator.workflow.runtime_types",
+    "orchestrator.workflow.step_results",
+    "orchestrator.workflow.pointers",
+    "orchestrator.workflow.transition_executor",
+    "orchestrator.workflow_lisp.observability_summaries",
+    "orchestrator.workflow_lisp.consumer_rendering_census",
+    "orchestrator.managed_jobs",
 ]
 # A module that held one former public name of each removed package or module.
 FORMER_PUBLIC_MODULES = [
@@ -31,6 +46,19 @@ FORMER_PUBLIC_MODULES = [
     "orchestrator.workflow.adjudication.scoring",
     "orchestrator.cli.commands.trial",
     "orchestrator.workflow.elaboration",
+    "orchestrator.workflow.linting",
+    "orchestrator.workflow.conditions",
+    "orchestrator.workflow.predicates",
+    "orchestrator.workflow.frontend_origins",
+    "orchestrator.workflow.runtime_context",
+    "orchestrator.workflow.runtime_types",
+    "orchestrator.workflow.step_results",
+    "orchestrator.workflow.pointers",
+    "orchestrator.workflow.transition_executor",
+    "orchestrator.workflow_lisp.observability_summaries",
+    "orchestrator.workflow_lisp.consumer_rendering_census",
+    # No row for orchestrator.managed_jobs: a stale editable install that predates its removal
+    # still maps the package by name, so an import can succeed from another tree.
 ]
 REMOVED_COMMANDS = [
     ["peer-ready"], ["peer-send", "b", "m"], ["peer-ack", "m1"], ["peer-finish"],

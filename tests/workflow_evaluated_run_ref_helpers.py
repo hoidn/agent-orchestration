@@ -17,7 +17,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256, compute_co
 from orchestrator.workflow.run_ref.config import PathProgram, ReferenceBinding, RunRefInput, build_run_ref_static_config, encode_run_ref_static_config
 from orchestrator.workflow.run_ref.result_contract import RUN_REF_RESULT_CONTRACT_SCHEMA, _accounting_descriptor, _workspace_delta_descriptor
 from orchestrator.workflow.run_ref.source import MaterializedSource, SourceRequest, materialize_source
-from orchestrator.workflow.executable_ir import RunRefStepConfig, StepCommonConfig
+from orchestrator.workflow.run_ref.step_config import RunRefStepConfig, StepCommonConfig
 
 _PATH_SITE = "71d55760c27a0d51" + "0" * 48
 _STRING_DESCRIPTOR = {"kind": "primitive", "name": "String"}
