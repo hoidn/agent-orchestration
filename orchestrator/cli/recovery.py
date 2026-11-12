@@ -212,6 +212,28 @@ def _not_repeatable(exc, context: _Context) -> list[str]:
             *context.fresh_run("start a new run:")]
 
 
+def _spend_cap_reached(exc, context: _Context) -> list[str]:
+    higher = max(getattr(exc, "spent_usd", 0.0), getattr(exc, "cap_usd", 0.0)) * 2
+    if higher <= 0:
+        return ["no provider call started; to continue, resume without a cap:", context.resume()]
+    return ["no provider call started; to continue, resume with a higher cap:",
+            context.command("resume", context.run_id, "--max-cost-usd", f"{higher:.6g}")]
+
+
+_UNMETERED_FIX = {
+    "template_unmetered": "bind the step to its `<name>_metered` template and start a new run with the cap",
+    "model_unpriced": "set the step's `:model` to a model id the price table prices and start a new run with the cap",
+    "step_uncapped": "a run reference or phased provider step cannot run under a cap",
+    "attempt_unmetered": "an earlier attempt was cut off or has no complete priced usage, so the cap cannot be checked",
+}
+
+
+def _spend_cap_unmetered(exc, context: _Context) -> list[str]:
+    cause = getattr(exc, "cause", None) or "unknown"
+    fix = _UNMETERED_FIX.get(cause, "the cap prices only metered calls")
+    return [f"cause {cause}: {fix}", "to continue this run without a cap:", context.resume()]
+
+
 _RECOVERY = {
     "resume_program_changed": _program_changed,
     "resume_inputs_changed": _inputs_changed,
@@ -224,6 +246,8 @@ _RECOVERY = {
     "resume_request_missing": lambda exc, context: [
         "this run was recorded without a rebuild recipe, so it cannot be resumed; start it again with run"],
     "lexical_restore_pending_effect_unsafe": _not_repeatable,
+    "spend_cap_reached": _spend_cap_reached,
+    "spend_cap_unmetered": _spend_cap_unmetered,
 }
 REFUSAL_CODES: tuple[str, ...] = tuple(_RECOVERY)
 

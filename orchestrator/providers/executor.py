@@ -46,6 +46,7 @@ from .session_transport import (
     SessionTransportAccumulator,
     create_session_transport_accumulator,
     extract_codex_assistant_text,
+    transport_error_fails_call,
 )
 from ..security.secrets import SecretsManager
 from ..variables.substitution import VariableSubstitutor
@@ -3255,6 +3256,10 @@ class ProviderExecutor:
                     if exit_code == 0:
                         exit_code = 2
 
+        if error is not None and not transport_error_fails_call(
+            invocation.metadata_mode, invocation.session_request
+        ):
+            error = None  # a plain metered call: usage reads `unknown`, the result file decides
         if error is not None and exit_code == 0:
             exit_code = 2
 

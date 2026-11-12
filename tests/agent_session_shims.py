@@ -157,6 +157,11 @@ finish()
 '''
 
 
+def closed_path(bin_dir: Path) -> str:
+    """A PATH that resolves a provider CLI only from `bin_dir`: nothing is inherited, so a test never reaches a real one."""
+    return os.pathsep.join([str(bin_dir), os.path.dirname(sys.executable), "/usr/bin", "/bin"])
+
+
 def install_agent_shims(bin_dir: Path, monkeypatch, *, codex_home: Path, claude_home: Path, plan: dict) -> None:
     bin_dir.mkdir(parents=True, exist_ok=True)
     for tool, body in (("codex", FAKE_CODEX), ("claude", FAKE_CLAUDE)):
@@ -164,7 +169,7 @@ def install_agent_shims(bin_dir: Path, monkeypatch, *, codex_home: Path, claude_
             (bin_dir / f".{tool}{marker}").unlink(missing_ok=True)
         (bin_dir / tool).write_text(f"#!{sys.executable}\n" + body, encoding="utf-8")
         (bin_dir / tool).chmod(0o700)
-    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(bin_dir))
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(claude_home))
     monkeypatch.setenv("AGENT_SHIM_PLAN", json.dumps(plan))

@@ -672,6 +672,17 @@ def create_session_transport_accumulator(
     return None
 
 
+def transport_error_fails_call(
+    metadata_mode: str | ProviderSessionMetadataMode | None,
+    session_request: Any,
+) -> bool:
+    """A session turn and an OMP call need their transport; a plain metered call only reads usage from it."""
+    return (
+        session_request is not None
+        or metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+    )
+
+
 def supports_resume_boundary_observation(
     metadata_mode: str | ProviderSessionMetadataMode | None,
 ) -> bool:
@@ -688,4 +699,5 @@ __all__ = [
     "SessionTransportAccumulator",
     "create_session_transport_accumulator",
     "supports_resume_boundary_observation",
+    "transport_error_fails_call",
 ]

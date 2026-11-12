@@ -26,7 +26,8 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
-from .providers import provider_result
+from .providers import provider_result, provider_transport
+from .spend_cap import check_spend_cap
 from .agent_sessions import allocation_result
 from . import effect_execution
 from .effect_execution import PreparedAttempt, ExternalOutcome, perform_external
@@ -388,6 +389,7 @@ def prepare_effect(
             implementation_files=implementation_files, dependencies=dependencies, context=dict(run_files=run_files,
             workspace=workspace, workspace_files=workspace_files, site_classes=site_classes, reader=reader,
             provider_executor=provider_executor, launch_cwd=launch_cwd, stream_output=stream_output, views=views))
+    check_spend_cap(authority, snapshot, node, executor=provider_executor, policy=getattr(resolved, "policy", None))
     if baseline is not None and node.get("repeat") == "never":
         raise effect_inputs._PreflightRefusal("lexical_restore_pending_effect_unsafe",
             f"{identity}: effect declares that it must not be repeated", identity=identity)
@@ -554,7 +556,8 @@ def _validate_attempt_outcome(attempt, outcome):
             workspace_files=attempt.workspace_files, result_path=outcome.result_path)
     else:
         result, digest = provider_result(attempt.node, attempt.resolved, attempt.attempt_files,
-            attempt.workspace_files, outcome.result_path)
+            attempt.workspace_files, outcome.result_path,
+            transport=provider_transport(attempt.provider_executor, attempt.node))
     return result, digest, None, None
 
 
