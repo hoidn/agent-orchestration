@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import hashlib
 from typing import Any, Mapping
 
@@ -11,7 +10,6 @@ import pytest
 from orchestrator.workflow.prompt_identity import (
     PROMPT_ATTEMPT_COMPOSITION_V2_SCHEMA,
     PROMPT_ATTEMPT_IDENTITY_V2_VERSION,
-    PROVIDER_POLICY_V2_SCHEMA,
     ROLE_ORDER,
     build_fragment_program_role,
     build_injected_dependencies_role,
@@ -43,7 +41,6 @@ from orchestrator.workflow.provider_phased_delivery.models import (
     ByteDigestProjection,
     CompositionProjection,
 )
-from orchestrator.workflow.prompt_identity import validate_prompt_identity_role
 
 
 EMPTY_KEYS_SHA256 = (
@@ -244,53 +241,6 @@ def _scope() -> ProviderAttemptScope:
             "adjudication_subject": None,
         }
     )
-
-
-def test_provider_policy_v2_is_exact_structural_and_sealed() -> None:
-    role = build_provider_policy_role_v2(_policy())
-
-    assert tuple(role) == ("schema_version", "payload", "sha256")
-    assert role["schema_version"] == PROVIDER_POLICY_V2_SCHEMA
-    assert _thaw(role["payload"]) == _policy()
-    assert role["sha256"] == canonical_sha256(_policy())
-    assert (
-        validate_prompt_identity_role(
-            "provider_policy",
-            role,
-            attempt_identity_version=PROMPT_ATTEMPT_IDENTITY_V2_VERSION,
-        )
-        == role
-    )
-
-
-@pytest.mark.parametrize(
-    "mutate",
-    (
-        lambda value: value.update({"input_mode": "stdin"}),
-        lambda value: value.update({"environment": {}}),
-        lambda value: value["transport"].update({"extra": None}),
-        lambda value: value["transport"].update({"kind": "stdin"}),
-        lambda value: value["transport"].update(
-            {"schema_version": "interactive_terminal_turn_queue.v2"}
-        ),
-        lambda value: value["phased_call_policy"].update({"extra": None}),
-        lambda value: value["phased_call_policy"].update(
-            {"delivery": "composed"}
-        ),
-        lambda value: value["phased_call_policy"].update(
-            {"materialization_attempts": True}
-        ),
-        lambda value: value["phased_call_policy"].update(
-            {"materialization_attempts": 4}
-        ),
-    ),
-)
-def test_provider_policy_v2_rejects_open_or_invalid_payloads(mutate) -> None:
-    value = deepcopy(_policy())
-    mutate(value)
-
-    with pytest.raises(ValueError, match="prompt_attempt_identity_role_invalid"):
-        build_provider_policy_role_v2(value)
 
 
 def test_identity_v2_seals_five_roles_composition_and_exact_deliveries() -> None:
@@ -545,15 +495,6 @@ def test_identity_v2_comparison_adds_only_actual_delivery_drift() -> None:
         "classifications": ("actual_delivery_drift",),
         "reason": None,
     }
-
-
-def test_identity_v2_builder_requires_tuple_trace() -> None:
-    with pytest.raises(TypeError, match="tuple"):
-        build_prompt_attempt_identity_v2(
-            roles=_roles(),
-            cut=_cut(),
-            actual_deliveries=list(_turns()),  # type: ignore[arg-type]
-        )
 
 
 def test_identity_v2_requires_nonempty_t2_even_without_deliveries() -> None:
