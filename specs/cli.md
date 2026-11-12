@@ -240,8 +240,9 @@ this locking rule does not retain workflow supervision or watchdog execution.
     contract must be specified before `ORCHESTRATE_KEEP_RUNS` is activated.
 
 - Safety
-  - `--clean-processed` only operates on the configured `processed_dir` when it resolves within WORKSPACE.
-  - `--archive-processed` destination must not be inside the configured `processed_dir`. Default output is `RUN_ROOT/processed.zip`.
+  - `--clean-processed` and `--archive-processed` are accepted and have no
+    effect: evaluated execution neither cleans nor archives a processed
+    directory.
 
 ## Commands and Examples
 
@@ -256,11 +257,13 @@ followed by `-m orchestrator` when the module was invoked (see
 lists the public commands (`run`, `py`, `compile`, `repl`, `resume`,
 `invalidate`, `input`, `report`, `dashboard`, `monitor`). The retired and
 maintainer commands (`prompt`, `trial`, `explain`,
-`workflow-lisp-route-readiness`, `peer-ready`, `peer-send`, `peer-ack`,
-`peer-finish`, `provider-materialization-submit`,
+`workflow-lisp-route-readiness`, `provider-materialization-submit`,
 `provider-isolation-environment-manifest`) and the flags evaluated execution
 does not read (see [Evaluated execution](#evaluated-execution-target-235))
-are hidden from help and still accepted with their documented behavior.
+are hidden from help and still accepted with their documented behavior. The
+peer-group member commands `peer-ready`, `peer-send`, `peer-ack` and
+`peer-finish` were removed on 2026-11-11 with their executor (git tag
+`archive/dead-executors-2026-11-11`) and get argparse's `invalid choice`.
 
 ```bash
 # Run an admitted evaluated entry (provider execution changes the workspace)
