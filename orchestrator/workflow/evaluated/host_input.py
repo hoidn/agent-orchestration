@@ -360,12 +360,27 @@ def pending_projection(snapshot):
 
 
 def pending(run_root):
-    """Return the checked pending request, without repair, expiration or source IO."""
+    """Return the checked pending request, without repair, expiration or source IO.
+
+    Runs without the writer lock: a `rebased` record appended after the authority loaded leaves the journal
+    ending at another program. The lineage is then loaded again, once; a second failure under a newer program
+    says the run is being rebased (Edit And Continue §4). Nothing is written.
+    """
     from .authority import load_run_authority
+    from .memo_reducer import MemoError
     root = Path(run_root).absolute()
     with closing(WorkspaceFiles(root)) as files:
         authority = load_run_authority(root, run_files=files)
-        snapshot, _ = _checked_snapshot(authority)
+        try:
+            snapshot, _ = _checked_snapshot(authority)
+        except MemoError as exc:
+            reloaded = load_run_authority(root, run_files=files)
+            if reloaded.program.digest == authority.program.digest:
+                raise
+            try:
+                snapshot, _ = _checked_snapshot(reloaded)
+            except MemoError as again:
+                raise MemoError("memo_inconsistent", f"the run is being rebased: {again}") from exc
         return pending_projection(snapshot)
 
 

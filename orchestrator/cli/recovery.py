@@ -111,7 +111,7 @@ def _changed_sites(stored_program, fresh_program) -> list[str]:
 def _program_changed(exc, context: _Context) -> list[str]:
     fresh = getattr(exc, "fresh_program", None)
     if fresh is None or context.stored_program is None:
-        lines = ["the source or a manifest differs from the one this run was started with"]
+        lines = ["the source or a manifest differs from the run's program in force"]
     else:
         changed = _changed_sites(context.stored_program, fresh)
         lines = (["effect sites that differ from the recorded program:", *changed] if changed

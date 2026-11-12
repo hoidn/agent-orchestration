@@ -104,10 +104,14 @@ derives solely from the validated `.orc` executable and `state.json`.
 
 - Status/report surfaces
   - `report` and the dashboard read evaluated runs only: the checked authority
-    (`run.json`, `closed_program.json`, `memo.jsonl`) and the view derived from
-    it, without reopening the workflow source. The view reads nothing under
+    (`run.json`, `closed_program.json`, `memo.jsonl`, and the
+    `closed_program.<digest>.json` its `rebased` records name) and the view
+    derived from it, without reopening the workflow source. For a run with
+    several programs both list the view's `programs` (markdown `## Programs`,
+    the dashboard's Programs section) and each row's `program`. The view reads nothing under
     `effects/`; `report` additionally reads only `attempt-<n>/usage.json` of
-    provider-class steps ([usage](#report-usage)), never a recipe, prompt,
+    provider-class steps, or of the attempts a row's `metered_attempts` lists
+    ([usage](#report-usage)), never a recipe, prompt,
     stdout or result file. A run directory with a
     `state.json` entry and no evaluated authority was written by the retired
     runtime; both refuse it with `workflow_execution_profile_retired` and the
@@ -149,10 +153,13 @@ derives solely from the validated `.orc` executable and `state.json`.
     `run_ref`) has `usage`, summed over all its attempts (`attempt-1` to its
     latest, beside its `result_path`), and the run has `run.usage`, the same sum
     over every such step's attempts plus `price_table: {source, date}` of the
-    table used:
+    table used. A row whose attempts are partly provider-class and partly not
+    (its identity changed class across a `rebased` record; State, "Derived
+    view") carries `metered_attempts` and sums exactly those attempts, whatever
+    its latest class, so a cut refunds nothing:
     `{"tokens": {"input", "output", "cache_read", "cache_write"} | null,
     "cost_usd": float | null, "attempts": n, "unknown_attempts": k,
-    "partial": bool}`. Other steps have no `usage`; a run with no
+    "partial": bool}`. Other steps, except a row with `metered_attempts`, have no `usage`; a run with no
     provider-class step has no `run.usage` key and its markdown no `## Usage`
     section.
     - Unknown attempts: an attempt whose `usage.json` is absent (killed before
