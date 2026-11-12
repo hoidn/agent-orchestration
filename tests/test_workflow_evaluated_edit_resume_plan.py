@@ -31,7 +31,8 @@ if Path("fail-" + sys.argv[1]).exists():
     sys.exit(1)
 Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(int(sys.argv[2]) + 1))
 '''
-HEAD = '(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n  (defmodule pipe) IMPORTS (export run)\n'
+TARGET = '(:target-dsl "2.40")'          # every source here; the refusal case "target" edits this one literal
+HEAD = f'(workflow-lisp (:language "0.1") {TARGET}\n  (defmodule pipe) IMPORTS (export run)\n'
 COMMANDS = {"step": {"stable_command": ["python", "t.py"], "closure": ["t.py"]},
             "shell": {"stable_command": ["sh", "s.sh"], "closure": ["s.sh"]}}
 
@@ -209,7 +210,7 @@ def macro(root):
       s4))''')
 
 
-HELPER = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+HELPER = f'''(workflow-lisp (:language "0.1") {TARGET}
   (defmodule helper) (export twice)
   (defproc twice ((x Int)) -> Int
     (let* ((u {cmd("u", "x")}) (v {cmd("v", "u")})) v)))
@@ -570,7 +571,7 @@ def no_plan(stderr: str) -> str:
 REFUSALS = {
     "entry workflow": ("resume_program_changed", [(S, "(export run)", "(export main)"),
                                                   (S, "(defworkflow run ", "(defworkflow main ")]),
-    "target": ("resume_program_changed", [(S, '(:target-dsl "2.40")', '(:target-dsl "2.39")')]),
+    "target": ("resume_program_changed", [(S, TARGET, '(:target-dsl "2.39")')]),
     "an added entry input": ("resume_inputs_changed", [(S, "((n Int :default 0))", "((n Int :default 0) (m Int :default 1))")]),
     "an unpinned bare interpreter": ("resume_program_changed", [(S, "      s4))", f"      {cmd('x', 's4', 'shell')}))")]),
     "a pure fault under the edited program": ("pure_expr_division_by_zero", [(S, "      s4))", "      (int/div s4 (- n n))))")]),
@@ -933,3 +934,149 @@ def test_confined_child_with_a_commit_after_the_cut_refuses(world, monkeypatch, 
     assert done.returncode == 2, done.stderr
     assert no_plan(done.stderr) == "invalidate_coordinator_committed"
     assert_unchanged(parent, before)
+
+
+# ---- review fixes: the library entry, an edited stable command, corruption, and the gaps the mutations showed ------
+
+def test_plan_resume_plans_a_run_with_a_parallel_map_without_a_given_file_owner(parallel_base, tmp_path):
+    from orchestrator.workflow.evaluated.rebase import plan_resume
+    root, run_root = _copy(parallel_base, tmp_path)
+    edit(root, cmd("post", "pre"), cmd("post", "(+ pre 1)"))
+    before = tree(root)
+
+    plan = plan_resume(run_root, root)
+
+    assert [short(entry.data["identity"]) for entry in plan.cancelled] == ["post"]
+    assert_unchanged(root, before)
+
+
+def test_plan_resume_plans_a_run_whose_committed_run_reference_is_reused(tmp_path):
+    from orchestrator.workflow.evaluated.rebase import plan_resume
+    parent, run_root, _refs = run_ref_run(tmp_path / "r")
+    edit(parent, cmd("b", "a"), cmd("b", "(+ a 1)"), "controller.orc")
+    before = tree(parent)
+
+    plan = plan_resume(run_root, parent)
+
+    assert [entry.data["identity"].rsplit(" / ", 1)[-1] for entry in plan.kept] == ["a", "attempt"]
+    assert_unchanged(parent, before)
+
+
+def test_fresh_run_command_printed_for_a_run_reference_run_names_its_root_and_runs(tmp_path):
+    parent, run_root, refs = run_ref_run(tmp_path / "r")
+    edit(parent, cmd("b", "a"), cmd("b", "(+ a 1)"), "controller.orc")
+
+    (fresh,) = [line.strip() for line in refused_process(parent, run_root).stderr.splitlines()
+                if line.startswith("    ") and " run " in line]
+
+    words = shlex.split(fresh)
+    assert words[words.index("--run-ref-root") + 1] == str(refs)
+    assert cli(parent, *words[words.index("run"):]).returncode == 0
+
+
+@pytest.mark.parametrize("closure", ["unchanged", "changed"])
+def test_a_failed_steps_stable_command_fixed_in_the_manifest_is_planned_as_its_retry(tmp_path, closure):
+    """The author fixes the failed `s3` by its manifest's stable command (and argv): its recorded file evidence no
+    longer binds, so its files are those of the new command; a clean failure admits them, an unproven one is listed."""
+    root = own_tools(tmp_path / "ws")
+    (root / "fail-s3").write_text("")
+    if closure == "changed":
+        (root / "dirty-s3").write_text("")
+    run_root = run(root, code=1)
+    for marker in ("fail-s3", "dirty-s3"):
+        (root / marker).unlink(missing_ok=True)
+    edit(root, '["python", "t3.py"]', '["python", "-B", "t3.py"]', "commands.json")
+    edit(root, '"python" "t3.py"', '"python" "-B" "t3.py"')
+
+    plan = printed_plan(refused(root, run_root).stderr)
+
+    assert (plan["kept"], plan["cancelled"], plan["runs first"]) == (["s1", "s2"], [], [P + "s3"])
+    assert plan["unfinished"] == ([] if closure == "unchanged" else ["s3"])
+
+
+def test_a_committed_steps_stable_command_that_no_longer_binds_its_evidence_cancels_from_it(tmp_path):
+    commands = {**COMMANDS, "d": {"stable_command": ["./d.sh"], "closure": ["d.sh"]}}
+    text = body([("s1", cmd("s1", "n", "shell")), ("s2", '(command-result d :argv ("./d.sh" "s2" s1) :returns Int)'),
+                 ("s3", cmd("s3", "s2"))], "s3")
+    root = workspace(tmp_path / "ws", text, commands=commands,
+                     extra={"d.sh": '#!/bin/sh\necho $(( $2 + 1 )) > "$ORCHESTRATOR_OUTPUT_BUNDLE_PATH"\n'})
+    (root / "d.sh").chmod(0o700)
+    run_root = run(root)
+    edit(root, '"stable_command": ["./d.sh"]', '"stable_command": ["sh", "./d.sh"]', "commands.json")
+    edit(root, '("./d.sh" "s2" s1)', '("sh" "./d.sh" "s2" s1)')
+
+    plan = printed_plan(refused(root, run_root).stderr)
+
+    assert (plan["kept"], plan["cancelled"]) == (["s1"], ["s2", "s3"])
+    assert plan["cut is at"][0].startswith(P + "s2: its input changed")
+
+
+@pytest.mark.parametrize("field", ["depends_on", "value"])
+def test_a_corrupt_committed_row_refuses_and_is_never_cancelled(completed, tmp_path, field):
+    """A committed row that no replay under the program that wrote it accepts is corruption, not "not reusable"."""
+    root, run_root = _copy(completed(serial), tmp_path)
+    rows = fx.rows(run_root)
+    (s4,) = [row for row in rows if row["record"] == "committed" and row["identity"] == P + "s4"]
+    s4[field] = [] if field == "depends_on" else "four"
+    (run_root / "memo.jsonl").write_bytes(b"".join(json.dumps(row, sort_keys=True, separators=(",", ":")).encode()
+                                                   + b"\n" for row in rows))
+    edit(root, "      s4))", "      (+ s4 1)))")
+
+    assert no_plan(refused(root, run_root).stderr) == "memo_inconsistent"
+
+
+def test_a_commit_whose_value_no_longer_fits_the_edited_result_type_is_cancelled(completed, tmp_path):
+    root, run_root = _copy(completed(serial), tmp_path)
+    edit(root, cmd("s2", "s1"), cmd("s2", "s1").replace(":returns Int", ":returns String"))
+
+    plan = printed_plan(refused(root, run_root).stderr)
+
+    assert (plan["kept"], plan["cancelled"]) == (["s1"], ["s2", "s3", "s4"])
+    assert plan["cut is at"] == [f"{P}s2: its stored value does not fit the edited step's result type"]
+
+
+def test_a_retired_pending_request_is_asked_again(tmp_path):
+    root, run_root, _request = host_workspace(tmp_path / "ws")
+    edit(root, cmd("s1", "n"), cmd("s1", "(+ n 1)"))
+
+    plan = printed_plan(refused(root, run_root).stderr)
+
+    assert (plan["cancelled"], plan["retired"], plan["asked again"]) == (["s1"], ["reply"], [P + "reply"])
+
+
+APPROVE = '  (defprompt approve (:fills (number :value Int)) -> Approval "Approve {number}?")\n'
+PROMPTED = body([("s1", cmd("s1", "n")), ("reply", "(request-input (approve :number s1) :returns Approval)"),
+                 ("s3", cmd("s3", "s1"))], "(match reply ((ANSWERED answer) s3) ((CANCELLED _) 0) ((EXPIRED _) 0))")
+
+
+def test_a_pending_request_whose_prompt_changed_is_retired_and_asked_again(tmp_path):
+    """Reached next and of its class, but its question differs from its `started` input: not kept."""
+    root = workspace(tmp_path / "ws", "  (defenum Approval APPROVED DENIED)\n" + APPROVE + PROMPTED, imports=HOST_IMPORTS)
+    run_root = run(root)
+    edit(root, '"Approve {number}?"', '"Approve {number} now?"')
+
+    plan = printed_plan(refused(root, run_root).stderr)
+
+    assert (plan["kept"], plan["retired"], plan["asked again"]) == (["s1"], ["reply"], [P + "reply"])
+
+
+def test_token_journal_field_binds_the_last_record_not_only_the_length(completed, tmp_path):
+    from orchestrator.workflow.evaluated.rebase import token_difference
+    root, run_root = _copy(completed(serial), tmp_path)
+    edit(root, "      s4))", "      (+ s4 1)))")
+    first = token_of(refused(root, run_root).stderr)
+    journal = run_root / "memo.jsonl"
+    last = b'{"outcome":"completed","record":"terminal","value":4}\n'
+    assert journal.read_bytes().endswith(last)
+    journal.write_bytes(journal.read_bytes()[:-len(last)] + last.replace(b":4}", b":5}"))     # the same length
+
+    assert token_difference(first, token_of(refused(root, run_root).stderr)) == ["journal"]
+
+
+def test_pending_phased_attempt_that_is_not_kept_refuses():
+    from tests.test_workflow_evaluated_edit_resume_baseline import _recorded, _recorded_workspace
+    with _recorded_workspace("phased_pending") as root:
+        run_root, env = _recorded("phased_pending", root)
+        edit(root, ':model "bound-model"', ':model "other-model"', "tests/fixtures/phased_239/main.orc")
+
+        assert no_plan(refused_process(root, run_root, env).stderr) == "resume_program_changed"

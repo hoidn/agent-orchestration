@@ -63,6 +63,8 @@ def run_command(header: Mapping[str, Any], *, launcher: str, state_dir: str | No
         words += ["--input-file", recipe["input_file"]]
     for name, value in recipe["input_overrides"].items():
         words += ["--input", f"{name}={value}"]
+    if header.get("run_ref_root"):
+        words += ["--run-ref-root", header["run_ref_root"]]
     return launcher + " " + " ".join(shlex.quote(word) for word in words) + state_dir_flag(state_dir)
 
 

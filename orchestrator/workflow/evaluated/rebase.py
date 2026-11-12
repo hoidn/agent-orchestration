@@ -31,7 +31,7 @@ from .declaration import declaration_subject, replay_parts, written_subject
 from .machine import evaluate_closed_program, site_classes, site_nodes
 from .memo import _encode_record, earlier_tables, read_memo
 from .memo_reducer import _DYNAMIC_INDEX, JournalEntry, is_coordinator_class, reduce_memo
-from .replay import MissingCommit, _Discovery
+from .replay import MissingCommit, _Discovery, discover_prefix
 
 # Exactly the failures of conditions 2 to 4 that mean "not reusable": order, dependencies, the agent cursor and the
 # host payload; the value fit is the one whose cause is a pure coercion fault. Any other `memo_inconsistent` refuses.
@@ -45,10 +45,6 @@ _NOT_REUSABLE = frozenset({
     "request differs from reached operands",
     "question differs from reached operand",
 })
-# The recorded file evidence of a command binds positions of its stable command; under an edited manifest these say
-# that the command changed, which is an input difference (condition 5), not a malformed journal.
-_STABLE_COMMAND_CHANGED = frozenset({"prior token evidence differs from stable command",
-                                     "prior token evidence has no stable command token"})
 _FIELDS = ("journal", "program", "cut", "sets")
 _TOKEN = re.compile(r"plan-([0-9a-f]{8})-([0-9a-f]{8})-([0-9a-f]{8})-([0-9a-f]{8})")
 _PROVIDER_CLASSES = frozenset({"provider", "provider_phased", "agent_turn"})
@@ -93,17 +89,28 @@ def plan_resume(run_root: Path, workspace: Path, *, run_files=None) -> Plan:
 
     Read-only: resume preflight steps 1 to 9 as `resume` runs them, then `compute_plan`. Takes no lock; `resume`
     computes the same plan under the run writer lock."""
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+    if run_files is not None:
+        return _plan_with(Path(run_root), Path(workspace), run_files)
+    files = WorkspaceFiles(Path(run_root))      # the retained run-root owner the run-reference and map checks need
+    try:
+        return _plan_with(Path(run_root), Path(workspace), files)
+    finally:
+        files.close()
+
+
+def _plan_with(run_root: Path, workspace: Path, run_files) -> Plan:
     from orchestrator.cli.commands.evaluated import candidate_preflight, prepare_evaluated_resume
 
     try:
-        authority, inputs, provider_io = prepare_evaluated_resume(Path(run_root), workspace=Path(workspace),
-                                                                  run_files=run_files)
+        authority, inputs, provider_io = prepare_evaluated_resume(run_root, workspace=workspace, run_files=run_files)
         candidate = authority.program
     except ValueError as exc:
         if getattr(exc, "code", None) != "resume_program_changed" or not hasattr(exc, "fresh_program"):
             raise
-        authority, candidate, inputs, provider_io = candidate_preflight(exc, Path(run_root), Path(workspace), run_files)
-    return compute_plan(authority, candidate, inputs, workspace=Path(workspace), provider_io=provider_io)
+        authority, candidate, inputs, provider_io = candidate_preflight(exc, run_root, workspace, run_files)
+    return compute_plan(authority, candidate, inputs, workspace=workspace, provider_io=provider_io)
 
 
 def compute_plan(authority, candidate: ClosedProgram, inputs, *, workspace: Path, provider_io) -> Plan:
@@ -119,8 +126,11 @@ def compute_plan(authority, candidate: ClosedProgram, inputs, *, workspace: Path
     if not rebased and cut is None:
         raise PlanRefusal("resume_preflight_failed", "no committed step's input changed under the run's program: "
                           "there is no plan to accept")
+    # A cut cancels rows the plan's passes do not read again: check first that the journal is consistent under the
+    # program that wrote it, so corrupt evidence refuses (`memo_inconsistent`) and is never cancelled as "not reusable".
+    written = None if cut is None else discover_prefix(authority, snapshot)
     kept, cancelled, retired = _split(snapshot, cut)
-    _refuse(authority, snapshot, candidate, cut, cancelled, retired)
+    _refuse(authority, snapshot, candidate, cut, cancelled, retired, written)
     after = _journal_after(authority, snapshot, candidate if rebased else None, cut)
     prefix = _strict_replay(planning, after, inputs, workspace, provider_io)
     from .attempts import unproven_reason
@@ -257,14 +267,16 @@ def _first_divergence(planning, snapshot, reused, workspace, before):
                                                    item.commit, workspace, snapshot, item.owner,
                                                    launch_workspace=item.launch_workspace)
         except effect_inputs._EffectInputDiverged as exc:
-            files = ", ".join(_file_names(exc.changed_files)) or "none"
-            return (item.commit.offset, item.identity,
-                    f"its input changed (parts: {', '.join(exc.changed_parts) or 'none'}; files: {files})")
-        except ValueError as exc:
-            if str(exc) not in _STABLE_COMMAND_CHANGED:
-                raise
-            return item.commit.offset, item.identity, "its stable command changed"
+            return item.commit.offset, item.identity, _what_changed(exc)
     return None
+
+
+def _what_changed(exc) -> str:
+    """The parts and files a divergence names, or its own detail when it names neither (a launch directory)."""
+    if not exc.changed_parts and not exc.changed_files:
+        return f"its input changed ({exc})"
+    files = ", ".join(_file_names(exc.changed_files)) or "none"
+    return f"its input changed (parts: {', '.join(exc.changed_parts) or 'none'}; files: {files})"
 
 
 def _file_names(keys) -> list[str]:
@@ -320,7 +332,7 @@ def _check_candidate(authority, candidate) -> None:
                           f"{', '.join(unpinned) or exc}; spell it by path or start a new run") from exc
 
 
-def _refuse(authority, snapshot, candidate, cut, cancelled, retired) -> None:
+def _refuse(authority, snapshot, candidate, cut, cancelled, retired, written) -> None:
     """Design §5 on the plan, before anything could be written; each raises its own code."""
     _refuse_repeat(authority, snapshot, candidate, cancelled)
     if cut is None:
@@ -333,7 +345,7 @@ def _refuse(authority, snapshot, candidate, cut, cancelled, retired) -> None:
     from .run_ref import guard_confined_invalidation
     check_invalidation_suffix(snapshot, next(entry for entry in snapshot.entries if entry.offset == cut),
                               authority.run_files)
-    guard_confined_invalidation(authority, snapshot, cut)
+    guard_confined_invalidation(authority, snapshot, cut, prefix=written)
     if candidate.digest == authority.program.digest:
         return              # under the run's program the range is C8's, which retires such a start (`invalidate`)
     for start in retired:
@@ -396,16 +408,14 @@ def _strict_replay(planning, after, inputs, workspace, provider_io):
 
 def _unproven(after, prefix, workspace) -> tuple[tuple[str, int, str | None], ...]:
     from .attempts import unproven_command_retries
-    from .closure import resolve_command_evidence
 
     reached = {item.identity: item for item in prefix.frontiers}
     rows = []
     for identity in unproven_command_retries(after):
         start, item = after.latest_starts[identity], reached.get(identity)
-        evidence = None if item is None else canonical_sha256(resolve_command_evidence(
-            item.node["command"], item.node["closure"], workspace_root=workspace,
-            prior=start.data["implementation_files"],
-            launch_cwd=effect_inputs.resolve_launch_cwd(workspace, item.launch_workspace)))
+        evidence = None if item is None else canonical_sha256(effect_inputs._resolve_command_implementation(
+            item.node, workspace, identity, start.data["implementation_files"], (),
+            effect_inputs.resolve_launch_cwd(workspace, item.launch_workspace)))
         rows.append((identity, start.data["attempt"], evidence))
     return tuple(rows)
 
@@ -436,14 +446,12 @@ def _request_id(snapshot, entry) -> str | None:
 
 
 def _costs(authority, snapshot, cancelled) -> tuple[tuple[str, float | None], ...]:
-    """Each cancelled provider-class commit's attempt, priced as `report` prices it (None: not metered)."""
-    metered = [entry for entry in cancelled if snapshot.lineage.class_at(entry.offset, _id(entry)) in _PROVIDER_CLASSES]
+    """Each cancelled provider-class step's attempts so far, priced as `report` prices a step (None: not metered)."""
+    metered = [entry.data for entry in cancelled if snapshot.lineage.class_at(entry.offset, _id(entry)) in _PROVIDER_CLASSES]
     if not metered:
         return ()
     from orchestrator.providers.pricing import load_price_table
-    from orchestrator.providers.usage import _regular_json, summed_usage
+    from orchestrator.providers.usage import run_usage
 
-    table = load_price_table()
-    return tuple((_id(entry), summed_usage([_regular_json(
-        authority.run_root / Path(entry.data["result_path"]).parent / "usage.json")], table)["cost_usd"])
-        for entry in metered)
+    per_step, _total = run_usage(authority.run_root, metered, load_price_table())
+    return tuple((row["identity"], per_step[row["identity"]]["cost_usd"]) for row in metered)

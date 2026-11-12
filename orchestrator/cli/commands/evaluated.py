@@ -224,13 +224,15 @@ def candidate_preflight(refusal, run_root: Path, workspace: Path, run_files=None
 
 
 def _plan_or_reason(compute):
-    """The plan printed with a refusal, or the error that is the reason none can be shown. It never changes the
-    refusal's code or exit status, so any failure here is shown, not raised."""
-    from orchestrator.workflow.evaluated.rebase import PlanRefusal
+    """The plan printed with a refusal, or the error that is the reason none can be shown: a coded one, or an
+    `OSError` or `ValueError`, which the preflight reports as `resume_preflight_failed`. That refusal's own code and
+    exit status do not change. Any other error is a defect, not a reason, and propagates."""
     try:
         return compute()
-    except Exception as failure:  # noqa: BLE001 - printed as the reason no plan can be accepted
-        return failure if getattr(failure, "code", None) else PlanRefusal(type(failure).__name__, str(failure))
+    except Exception as failure:
+        if not (getattr(failure, "code", None) or isinstance(failure, (OSError, ValueError))):
+            raise
+        return failure
 
 
 def _edit_plan(exc, run_root, workspace, run_files):

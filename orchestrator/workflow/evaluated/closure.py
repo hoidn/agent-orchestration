@@ -34,6 +34,11 @@ class ClosureEvidenceError(ValueError):
         self.reason = reason
 
 
+class PriorEvidenceUnbindable(ClosureEvidenceError):
+    """Recorded evidence binds a stable-command token that the current stable command does not have at that position:
+    the command changed since the evidence was recorded (an edited manifest), so that evidence cannot be re-bound."""
+
+
 def _package_root() -> Path:
     import orchestrator
 
@@ -386,14 +391,14 @@ def _prior_lookup(
     if position is None:
         return _lookup(base, path, workspace_root=workspace, package_root=package)
     if (base != "workspace" and not (launch_cwd is not None and base == "absolute")) or position >= len(stable_command):
-        raise ValueError("prior token evidence has no stable command token")
+        raise PriorEvidenceUnbindable(path, "prior token evidence has no stable command token")
     token = stable_command[position]
     if isinstance(token, str) and _skip_bare_argv0(position, token):
-        raise ValueError("prior evidence cannot bind a bare argv[0] path")
+        raise PriorEvidenceUnbindable(path, "prior evidence cannot bind a bare argv[0] path")
     if not isinstance(token, str) or _token_path(
         token, lexical_workspace, launch_cwd
     ) != (base, path):
-        raise ValueError("prior token evidence differs from stable command")
+        raise PriorEvidenceUnbindable(path, "prior token evidence differs from stable command")
     return token if token.startswith("/") else os.path.join(str(launch_cwd or workspace), token)
 
 

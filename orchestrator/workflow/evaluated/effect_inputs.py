@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from orchestrator.workflow.evaluated.attempts import _retry_baseline, attempt_paths, retry_change_admitted
-from orchestrator.workflow.evaluated.closure import ClosureEvidenceError, resolve_command_evidence
+from orchestrator.workflow.evaluated.closure import ClosureEvidenceError, PriorEvidenceUnbindable, resolve_command_evidence
 from orchestrator.workflow.evaluated.commands import (
     CommandPerformerError,
     CommandTemplateError,
@@ -474,15 +474,17 @@ def _render_resolved_argv(node, operands, commit, identity, *, external, workspa
 
 
 def _resolve_command_implementation(node, workspace, identity, previous, destinations, launch_cwd=None):
+    """The command's declared files now. `previous` (a commit's or a retry baseline's evidence) adds the files it bound;
+    when the stable command changed so that it cannot be re-bound, the files are those of the current command, and
+    the comparison that follows sees the change (a commit diverges; a retry needs §8.1's acceptance)."""
+    def resolve(prior):
+        return resolve_command_evidence(node["command"], node["closure"], workspace_root=workspace, prior=prior,
+                                        destinations=destinations, launch_cwd=launch_cwd)
     try:
-        return resolve_command_evidence(
-            node["command"],
-            node["closure"],
-            workspace_root=workspace,
-            prior=previous,
-            destinations=destinations,
-            launch_cwd=launch_cwd,
-        )
+        try:
+            return resolve(previous)
+        except PriorEvidenceUnbindable:
+            return resolve(None)
     except ClosureEvidenceError as exc:
         if previous is not None and not _is_destination_overlap(exc):
             raise _EffectInputDiverged(
