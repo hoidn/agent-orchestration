@@ -967,12 +967,59 @@ def migrate_python(source: str, report: Report, verify: bool) -> str:
     return "".join(out)
 
 
-def migrate_file(path: Path, *, check: bool, verify: bool) -> Report:
-    """Migrate one file; a file that cannot be read, tokenized or parsed is reported and left."""
+SUBSTITUTED = ("loop/recur", "(:target-dsl", ":lowering", ":effects")
+
+
+def substituted_sources(paths: list[Path]) -> dict[str, str]:
+    """`.orc` path suffixes that a module among `paths` names while it substitutes `.orc` text.
+
+    A module rewrites a fixture's text when one of its substitution operands (`protected_spans`)
+    holds a loop, a header or a clause; every `.orc` path literal in that module maps to the place
+    of that operand. Such a fixture and its patterns change together, by hand. A module that cannot
+    be read or parsed is skipped here; `migrate_file` reports it.
+    """
+    named = {}
+    for path in (path for path in paths if path.suffix == ".py"):
+        try:
+            source = path.read_text(encoding="utf-8")
+            tree = ast.parse(source)
+        except (OSError, UnicodeDecodeError, SyntaxError):
+            continue
+        line = _first_substitution(source)
+        for node in ast.walk(tree) if line else ():
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.endswith(".orc"):
+                named.setdefault(node.value.removeprefix("./"), f"{path}:{line}")
+    return named
+
+
+def _first_substitution(source: str) -> int | None:
+    """Line of the first substitution operand that holds a loop, a header or a clause."""
+    starts = [start for (start, end), (category, _) in protected_spans(source).items()
+              if category == "substitution" and any(marker in source[start:end] for marker in SUBSTITUTED)]
+    return source.count("\n", 0, min(starts)) + 1 if starts else None
+
+
+def _substituted_by(path: Path, named: dict[str, str]) -> str | None:
+    target = "/" + path.resolve().as_posix()
+    return next((where for suffix, where in named.items() if target.endswith("/" + suffix)), None)
+
+
+def migrate_file(path: Path, *, check: bool, verify: bool, substituted: dict[str, str] | None = None) -> Report:
+    """Migrate one file; a file that cannot be read, tokenized or parsed is reported and left.
+
+    A `.orc` file named in `substituted` (`substituted_sources`) is left whole and reported.
+    """
     report = Report(str(path))
     try:
         with path.open(encoding="utf-8", newline="") as handle:
             source = handle.read()
+        where = _substituted_by(path, substituted or {}) if path.suffix != ".py" else None
+        if where is not None:
+            reason = f"{where} substitutes this file's text; migrate both by hand"
+            if OLD_VERSION.search(source):
+                report.note(1, "substituted", reason)
+            _skip(Unit(source), report, "substituted", reason)
+            return report
         new = _migrated(path, source, report, verify)
     except (OSError, UnicodeDecodeError, SyntaxError, tokenize.TokenError) as error:
         report.error = f"cannot be migrated ({type(error).__name__}: {error}); left as it was"
@@ -1065,7 +1112,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--report", type=Path, help="write the changed files and the hand work as JSON")
     parser.add_argument("paths", nargs="+", type=Path, help="files, or directories to walk")
     args = parser.parse_args(argv)
-    reports = [migrate_file(path, check=args.check, verify=args.verify) for path in expand(args.paths)]
+    files = expand(args.paths)
+    substituted = substituted_sources(files)
+    reports = [migrate_file(path, check=args.check, verify=args.verify, substituted=substituted) for path in files]
     _print(reports, check=args.check, verify=args.verify)
     if args.report is not None:
         write_report(reports, args.report)
