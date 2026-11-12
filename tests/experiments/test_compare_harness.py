@@ -18,6 +18,7 @@ from experiments.compare import prepare, repos, scan
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
     READY, REPO, call, drive, edit, git, selects, skip_without_sandbox, start, world, write_memo, write_task,
 )
+from tests.agent_session_shims import closed_path
 
 skip_without_sandbox()
 
@@ -622,7 +623,7 @@ def test_generic_command_arm_runs_behind_shims_and_records_arm_kind(world, capsy
     shutil.copy2(REPO / "experiments/compare/codex-models-0.163.0.json",
                  runtime_compare / "codex-models-0.163.0.json")
     done = subprocess.run(["bash", "-c", capsys.readouterr().out], capture_output=True, text=True,
-                          env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"})
+                          env={**os.environ, "PATH": closed_path(world.fakebin)})
     assert done.returncode == 0, done.stderr
     assert (done.returncode, done.stderr, done.stdout.splitlines()[:4], record["arm_kind"]) == (
         0, "",

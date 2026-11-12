@@ -225,7 +225,8 @@ from orchestrator.workflow.evaluated.memo import read_memo, invalidate_suffix
 from orchestrator.workflow.evaluated.runtime import execute_pure_resume
 ''' + LOAD_IO + '''
 root = Path(sys.argv[1])
-os.environ["PATH"] = str(root / "bin") + os.pathsep + os.environ["PATH"]
+from tests.agent_session_shims import closed_path
+os.environ["PATH"] = closed_path(root / "bin")
 run_root, = (root / ".orchestrate" / "runs").iterdir()
 stack, authority = retained_authority(run_root)
 io = io_from_document(json.loads((root / "io.json").read_text()), authority.program)

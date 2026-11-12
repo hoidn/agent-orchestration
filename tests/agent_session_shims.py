@@ -157,9 +157,10 @@ finish()
 '''
 
 
-def closed_path(bin_dir: Path) -> str:
-    """A PATH that resolves a provider CLI only from `bin_dir`: nothing is inherited, so a test never reaches a real one."""
-    return os.pathsep.join([str(bin_dir), os.path.dirname(sys.executable), "/usr/bin", "/bin"])
+def closed_path(*bin_dirs: Path | str) -> str:
+    """A PATH that resolves a provider CLI only from `bin_dirs` (in order), then the running Python's directory,
+    `/usr/bin` and `/bin`: nothing is inherited, so a test never reaches a real CLI (nor the suite guard's stubs)."""
+    return os.pathsep.join([*map(str, bin_dirs), os.path.dirname(sys.executable), "/usr/bin", "/bin"])
 
 
 def install_agent_shims(bin_dir: Path, monkeypatch, *, codex_home: Path, claude_home: Path, plan: dict) -> None:
