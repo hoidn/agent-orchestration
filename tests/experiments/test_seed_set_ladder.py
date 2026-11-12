@@ -129,6 +129,14 @@ def test_a_chosen_rung_is_filled_from_one_adjacent_rung_only():
     assert counts(ladder.choose(rows, answer, results, 0.0, ladder.FLAT)) == {"T5": 5, "T4": 6}
 
 
+def test_a_fill_tie_takes_the_easier_neighbour():  # review2 M1: T3 and T5 are both one from 2 around T4
+    rows = manifest_rows({"T3": 20, "T4": 6, "T5": 5})
+    results = {"T1": 4, "T2": 4, "T3": 3, "T4": 2, "T5": 1}
+    answer = ladder.table(results)
+    assert (answer, counts(ladder.choose(rows, answer, results, 0.0, ladder.FLAT))) == (
+        {"chosen": "T4"}, {"T4": 6, "T3": 14})
+
+
 def test_a_split_side_shorter_than_ten_is_topped_up_from_the_other_side_in_seed_order():
     rows = manifest_rows({"T3": 20, "T4": 6, "T5": 5})
     picked = ladder.choose(rows, {"split": ["T3", "T4"]}, {"T3": 4, "T4": 0}, 0.0, ladder.FLAT)

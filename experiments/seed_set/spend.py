@@ -37,7 +37,8 @@ LEDGER = Path("~/.local/state/seed-set/spend-ledger.jsonl")  # expanded against 
 CAPS = {
     "smoke": {"candidate": {HAIKU: 10, SONNET: 1}, "judge": {HAIKU: 1, SONNET: 1}},
     "calibration": {"candidate": {HAIKU: 80, SONNET: 20}, "judge": {HAIKU: 30, SONNET: 30}},
-    "redraw": {"candidate": {HAIKU: 40, SONNET: 10}, "judge": {HAIKU: 15, SONNET: 15}},
+    # the redraw serves the ladder probe only: Haiku direct runs, no Sonnet run, no judge (coordinator, review2 M4)
+    "redraw": {"candidate": {HAIKU: 40, SONNET: 0}, "judge": {HAIKU: 0, SONNET: 0}},
 }
 # Named in the plan, not authorized: they need a new owner approval recorded in the plan's ledger and here.
 UNAUTHORIZED = ("seed_evaluation", "extension")

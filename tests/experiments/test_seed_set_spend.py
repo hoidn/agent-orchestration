@@ -53,7 +53,7 @@ def test_caps_are_the_plans_budget():
     caps = {t: {k: dict(m) for k, m in kinds.items()} for t, kinds in spend.CAPS.items()}
     assert caps == {"smoke": {"candidate": {H: 10, S: 1}, "judge": {H: 1, S: 1}},
                     "calibration": {"candidate": {H: 80, S: 20}, "judge": {H: 30, S: 30}},
-                    "redraw": {"candidate": {H: 40, S: 10}, "judge": {H: 15, S: 15}}}
+                    "redraw": {"candidate": {H: 40, S: 0}, "judge": {H: 0, S: 0}}}  # review2 M4: probe only
 
 
 def test_a_start_is_appended_before_it_is_returned(ledger):
@@ -422,6 +422,37 @@ def test_the_command_line_refuses_an_unauthorized_launch_before_preparing_anythi
     with pytest.raises(SystemExit, match="provider spend refused"):
         study.main([*args, "candidates", "--tranche", "calibration", "--arm", "direct", "t1", "t2"])
     assert not runner.work.exists()
+
+
+@pytest.mark.parametrize("step", ["pool", "judge"])
+def test_the_redraw_tranche_never_pools_or_judges(runner, monkeypatch, step):  # review2 M4
+    monkeypatch.setenv(AUTH, "redraw")
+    ready(runner)
+    pool_dir_of(runner, "t1")
+    with pytest.raises(SystemExit, match="ladder probe only"):
+        (study.build_pools if step == "pool" else study.judge)(runner, "redraw", "first", ["t1"])
+    assert not [row for row in spend.rows(runner.ledger) if row["kind"] == "judge"]
+
+
+def pool_dir_of(runner, task, scan=None):
+    """A built pool's records as the judge reads them; `scan` is the identity scan's hits, None for no scan."""
+    records = runner.pools / task / "first" / "records"
+    (records / "judges").mkdir(parents=True)
+    (records / "mapping.json").write_text(json.dumps({"batches": [[1]], "clones": {}, "judges": {}}))
+    if scan is not None:
+        (records / "identity-scan.json").write_text(json.dumps({"hits": scan}))
+    return records
+
+
+@pytest.mark.parametrize("scan", [None, ["direct.orc in clone-1"]])
+def test_a_judge_refuses_a_pool_without_a_clean_identity_scan_before_any_launch(runner, monkeypatch, scan):  # M5
+    monkeypatch.setenv(AUTH, "calibration")
+    ready(runner)
+    pool_dir_of(runner, "t1", scan)
+    monkeypatch.setattr(study, "launch", lambda *a, **k: pytest.fail("a judge was launched"))
+    with pytest.raises(SystemExit, match="identity scan"):
+        study.judge(runner, "calibration", "first", ["t1"])
+    assert not [row for row in spend.rows(runner.ledger) if row["kind"] == "judge"]
 
 
 def test_a_pool_that_ended_as_an_incident_is_never_built_again(runner):

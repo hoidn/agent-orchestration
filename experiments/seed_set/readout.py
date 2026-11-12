@@ -3,9 +3,13 @@
 `report` takes the gate records (`gates.pool_records` over the pools' results.json), the runs' study.json facts
 keyed by records path, and the spend totals. Anchors and the binding of every rating to the patch its judge read
 are checked first; when any check fails the report holds measure-free figures only (runs, outcomes, calls, wall
-clock, visible-check passes, spend) and no score. `LIMITS` are stated on every readout.
+clock, visible-check passes, spend) and no score. A decision that is a stop keeps measure-free figures and the
+reason only: which judge checks and gates failed, as pass or fail, with no mean, score, rate or re-roll figure
+(coordinator ruling on M7, 2026-11-12). `LIMITS` are stated on every readout. Exact gate values (Fractions) are
+floats in the report (`plain`).
 """
 
+from fractions import Fraction
 from statistics import mean
 
 from experiments.seed_set import gates, ladder, selection
@@ -70,9 +74,9 @@ def v4_note(calibration):
     v4 = calibration["judges"][judge]["V4"] if judge else None
     if not v4 or v4["assessed"]:
         return None
-    return (f"V4 (agreement with the hidden tests) was not assessed for {judge}: {v4['passing']} hidden-passing and "
-            f"{v4['failing']} hidden-failing candidates, under 15 in a class; the judge was not checked against the "
-            "tests and passed its gate on V1-V3 alone (coordinator ruling)")
+    return (f"V4 (agreement with the hidden tests) was not assessed for {judge}: fewer than 15 candidates in a "
+            "hidden-test class; the judge was not checked against the tests and passed its gate on V1-V3 alone "
+            "(coordinator ruling)")
 
 
 def rungs(counts):
@@ -92,13 +96,35 @@ def report(records, pools, tasks, retests, rungs, runs, totals, programs, planne
         return out
     out["calibration"] = calibration = gates.calibration(records, pools, tasks, retests)
     incidents = sum(1 for row in out["unusual_runs"] if row["incident"])
-    if incidents > 0.10 * planned:
+    if incidents * 10 > planned:  # over 10%, exactly
         calibration["decision"] = f"stop: {incidents} of {planned} planned runs are incidents, over 10%"
     calibration["v4_note"] = v4_note(calibration)
-    judge = calibration["selected"]
-    per_task = direct_runs(records, runs, judge, tasks) if judge else {}
+    if calibration["decision"].startswith("stop"):
+        out["calibration"] = stopped(calibration)
+        return plain(out)
+    per_task = direct_runs(records, runs, calibration["selected"], tasks)
     out["baselines"] = selection.baselines(per_task) if per_task else None
-    return out
+    return plain(out)
+
+
+def stopped(calibration):
+    """What a stop reports of the calibration: the decision and which checks passed, and no figure."""
+    checks = {judge: {k: c[k]["passed"] for k in ("V1", "V2", "V3", "V4")} | {"passed": c["passed"]}
+              for judge, c in calibration["judges"].items()}
+    return {"stopped": True, "decision": calibration["decision"], "selected": calibration["selected"],
+            "insensitive": calibration["insensitive"], "v4_note": calibration["v4_note"], "judge_checks": checks,
+            "gate_checks": {g: v["passed"] for g, v in calibration.get("gates", {}).items()}}
+
+
+def plain(value):
+    """`value` with every Fraction as a float, for JSON and display."""
+    if isinstance(value, Fraction):
+        return float(value)
+    if isinstance(value, dict):
+        return {k: plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [plain(v) for v in value]
+    return value
 
 
 def fmt(value):
@@ -143,6 +169,38 @@ def gate_lines(gates_):
             f"{g4['judge_exclusions']}: {g4['passed']}"]
 
 
+def judged_lines(c, b):
+    """A qualified calibration (a selected judge, every gate passed): the judge gate, the calibration table, the
+    task gates and the re-roll baselines."""
+    lines = ["## Judge gate", ""] + judge_lines(c["judges"])
+    lines += ["", f"Selected judge: {c['selected'] or 'none'}"
+              + (f" ({c['insensitive']} treated as insensitive on G3)" if c["insensitive"] else "") + ".", ""]
+    lines += ["## Calibration table", ""] + task_lines(c["table"]) + ["", "## Task gates", ""]
+    lines += gate_lines(c["gates"]) + ["", f"Survivors (at most 16, seed order): {', '.join(c['survivors'])}."]
+    unscored = [t for t, row in c["table"].items() if row["haiku"] is None or row["sonnet"] is None]
+    lines += [f"Tasks without both arms scored by {c['selected']} (left out of G2/G3): {unscored or 'none'}."]
+    if b:
+        lines += ["", "## Offline re-roll baselines (Haiku direct runs)", "",
+                  f"Q1 {fmt(b['Q1'])}; Q2 {fmt(b['Q2'])} at {fmt(b['Q2_calls'])} calls; Q3 {fmt(b['Q3'])} at "
+                  f"{fmt(b['Q3_calls'])} calls; random-of-3 {fmt(b['random_of_3'])}; any-of-3 {fmt(b['any_of_3'])}; "
+                  f"visible check failed in {fmt(b['visible_fail_rate'])} of direct runs."]
+    decision = c["decision"] + (f"; {c['v4_note']}" if c.get("v4_note") else "")
+    return lines + ["", f"Decision: {decision}."]
+
+
+def stop_lines(c):
+    """A stop's reason: the decision and which checks failed, as pass or fail only."""
+    lines = ["## Why the study stopped (no quality figure is reported)", ""]
+    lines += [f"- {judge}: " + ", ".join(f"{k} {v}" for k, v in checks.items()) for judge, checks in
+              c["judge_checks"].items()]
+    lines += [f"- Selected judge: {c['selected'] or 'none'}"
+              + (f" ({c['insensitive']} treated as insensitive on G3)" if c["insensitive"] else "")]
+    lines += ["- Task gates on the selected judge: " + ", ".join(f"{g} {v}" for g, v in c["gate_checks"].items())
+              ] if c["gate_checks"] else []
+    decision = c["decision"] + (f"; {c['v4_note']}" if c.get("v4_note") else "")
+    return lines + ["", f"Decision: {decision}."]
+
+
 def limit_lines():
     return ["", "## Limits", ""] + [f"- {line}" for line in LIMITS]
 
@@ -170,23 +228,7 @@ def markdown(r):
         return "\n".join(lines + [f"- {f}" for f in r["anchor_failures"]]
                          + ["", "An anchor check failed: no quality number is reported."] + limit_lines()) + "\n"
     lines += ["Every pool holds an unchanged base and the reference fix, both rated; hidden tests fail the base and "
-              "pass the reference.", "", "## Judge gate", ""] + judge_lines(r["calibration"]["judges"])
+              "pass the reference.", ""]
     c = r["calibration"]
-    lines += ["", f"Selected judge: {c['selected'] or 'none'}"
-              + (f" ({c['insensitive']} treated as insensitive on G3)" if c["insensitive"] else "") + ".", ""]
-    if c["selected"]:
-        lines += ["## Calibration table", ""] + task_lines(c["table"]) + ["", "## Task gates", ""]
-        lines += gate_lines(c["gates"]) + ["", f"Survivors (at most 16, seed order): {', '.join(c['survivors'])}."]
-        unscored = [t for t, row in c["table"].items() if row["haiku"] is None or row["sonnet"] is None]
-        lines += [f"Tasks without both arms scored by {c['selected']} (left out of G2/G3): {unscored or 'none'}."]
-    else:
-        lines += [f"Hidden-test fallback: {c['tests_primary']}."]
-    b = r["baselines"]
-    if b:
-        lines += ["", "## Offline re-roll baselines (Haiku direct runs)", "",
-                  f"Q1 {fmt(b['Q1'])}; Q2 {fmt(b['Q2'])} at {fmt(b['Q2_calls'])} calls; Q3 {fmt(b['Q3'])} at "
-                  f"{fmt(b['Q3_calls'])} calls; random-of-3 {fmt(b['random_of_3'])}; any-of-3 {fmt(b['any_of_3'])}; "
-                  f"visible check failed in {fmt(b['visible_fail_rate'])} of direct runs."]
-    decision = c["decision"] + (f"; {c['v4_note']}" if c.get("v4_note") else "")
-    lines += ["", f"Decision: {decision}."] + limit_lines()
-    return "\n".join(lines) + "\n"
+    lines += stop_lines(c) if c.get("stopped") else judged_lines(c, r["baselines"])
+    return "\n".join(lines + limit_lines()) + "\n"

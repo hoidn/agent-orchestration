@@ -226,6 +226,11 @@ def live_pools(study):
     return [path for path in study.pools.glob("*/*") if (path / "clones").exists()]
 
 
+def probe_only(tranche):
+    if tranche == "redraw":
+        raise SystemExit("the redraw cap serves the ladder probe only: it builds no pool and runs no judge")
+
+
 def pool_incident(study, task, kind, reason, failed_judges=()):
     dest = study.results / "pools" / f"{task}-{kind}"
     dest.mkdir(parents=True)
@@ -235,6 +240,7 @@ def pool_incident(study, task, kind, reason, failed_judges=()):
 
 def build_pools(study, tranche, kind, tasks):
     """One pool per task from its collected, scanned runs that are not incidents; both anchors join the batch."""
+    probe_only(tranche)
     require_tasks(study, tranche, tasks, kind)
     load_criterion(study)
     for task in dict.fromkeys(tasks):
@@ -263,14 +269,21 @@ def build_pools(study, tranche, kind, tasks):
 
 
 def judge(study, tranche, kind, tasks):
-    """Each pool's judges one after another, each reserved before launch; verify-pool, scan and audit after each."""
+    """Each pool's judges one after another, each reserved before launch; verify-pool, scan and audit after each.
+    Every named pool must hold an identity scan with no hit before the first judge launches (review2 M5)."""
     spend.authorize(tranche)
+    probe_only(tranche)
     fixes = require_tasks(study, tranche, tasks, kind)
     rules.enforce(study, tranche)
     rules.require_early_look(study, tranche, kind, tasks)
+    pools = [out for task in dict.fromkeys(tasks) if (out := study.pools / task / kind).exists()]
+    for out in pools:
+        scan = out / "records" / "identity-scan.json"
+        if not scan.exists() or load(scan).get("hits") != []:
+            raise SystemExit(f"{out}: no clean identity scan ({scan}); no judge is launched")
     for task in dict.fromkeys(tasks):
         out = study.pools / task / kind
-        if not out.exists():
+        if out not in pools:
             print(f"{out}: no pool (see its incident), no judge")
             continue
         mapping = load(out / "records" / "mapping.json")

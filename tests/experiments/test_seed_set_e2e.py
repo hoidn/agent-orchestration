@@ -210,11 +210,13 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     assert (len(first["clones"]), anchors["b1b1b1b1b1-base"]["hidden"], anchors["b1b1b1b1b1-upstream"]["hidden"],
             {j: r["quality"] for j, r in anchors["b1b1b1b1b1-base"]["ratings"].items()}) == (7, 0.5, 1.0, {H: 0, S: 0})
 
-    c = report["calibration"]
-    assert (report["anchor_failures"], c["selected"], c["judges"][H]["V3"]["clones"], c["judges"][H]["V3"]["mean_abs"],
-            c["gates"]["G1"]["survivors"], c["gates"]["G2"]["haiku_mean"], c["gates"]["G3"]["gap"], c["decision"]) == (
-        [], H, 14, 0, 0, 4, 4, "stop: a gate fails and the ladder probe was the one redraw; no quality claim")
+    c = report["calibration"]  # a stop reports pass or fail only, no quality figure (review2 M7)
+    assert (report["anchor_failures"], set(c), c["selected"], c["gate_checks"], c["decision"], report["baselines"]) == (
+        [], {"stopped", "decision", "selected", "insensitive", "v4_note", "judge_checks", "gate_checks"}, H,
+        {"G1": False, "G2": True, "G3": True, "G4": True},
+        "stop: a gate fails and the ladder probe was the one redraw; no quality claim", None)
     text = (s.results / "readout.md").read_text()
+    assert ("## Calibration table" in text, "## Offline re-roll baselines" in text) == (False, False)
     (line,) = [x for x in text.splitlines() if x.startswith("Decision:")]
     assert (line.startswith("Decision: stop"), "V4 (agreement with the hidden tests) was not assessed" in line,
             "Tasks: 2 (T3 in-tree 2)" in text) == (True, True, True)  # too few candidates per hidden class

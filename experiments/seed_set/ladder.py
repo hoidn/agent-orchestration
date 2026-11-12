@@ -132,11 +132,13 @@ def rung_counts(rungs):
 
 def adjacent(rung, rungs, results):
     """The neighbour of `rung` in the phase's ladder `rungs` that fills it (plan: "filled from the adjacent tier whose
-    count is nearer to 2"): an unprobed neighbour counts as farthest; a tie goes to the harder."""
+    count is nearer to 2"): an unprobed neighbour counts as farthest; a tie goes to the EASIER neighbour (coordinator
+    ruling on review2 M1, 2026-11-12: the easier side is the larger tier, so the tie no longer stops T4 filled from
+    T5 at 11 tasks). Choosing a rung (`table`) keeps its own tie rule, the harder."""
     ladder = order(set(rungs) | {rung})
     at = ladder.index(rung)
     near = [ladder[k] for k in (at - 1, at + 1) if 0 <= k < len(ladder)]
-    return min(near, key=lambda r: (abs(results[r] - 2) if r in results else PROBE_TASKS, -ladder.index(r)),
+    return min(near, key=lambda r: (abs(results[r] - 2) if r in results else PROBE_TASKS, ladder.index(r)),
                default=None)
 
 

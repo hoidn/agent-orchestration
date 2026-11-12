@@ -14,20 +14,35 @@ left out of every mean and count against G4. A rating whose judged digest differ
 refused (left out of `scores`, listed in `unbound`, and an apparatus failure: `binding_failures`). Task lists are
 in seed order. V1 and V2 count as `floor(fraction * tasks)`, which is the plan's 18 and 17 of the 20 tasks the
 calibration always has (a draw short of 20 is a stop, `probing.probe_readout`); G1 needs 12 survivors.
+
+Every comparison with a threshold is exact (coordinator ruling on B1, 2026-11-12): means, shares and rates are
+`fractions.Fraction`s over whole-number scores and counts, and the thresholds are Fractions, so a value exactly at
+a threshold (a G3 gap of exactly 0.5) meets it. Callers convert to float only for display (`readout.plain`).
 """
 
 import math
-from statistics import mean
+from fractions import Fraction
 
 HAIKU, SONNET = "claude-haiku-5-5", "claude-sonnet-5-5"
 JUDGES = (HAIKU, SONNET)  # cheapest first: the cheapest passing judge is used
 POLICY = ("Fable model", "Forbidden model")
-SURVIVOR = (2.0, 6.5)  # a task's Haiku mean, inclusive
+SURVIVOR = (Fraction(2), Fraction(13, 2))  # a task's Haiku mean, inclusive
 SURVIVORS_MIN, SURVIVORS_MAX = 12, 16
+V1_SHARE, V2_SHARE = Fraction(9, 10), Fraction(17, 20)  # 18 and 17 of 20 tasks
+V1_REFERENCE, V1_BASE, CONTROL_GAP = 6, 1, 4
+V3_MEAN, V3_LARGE, V4_PROBABILITY = Fraction(3, 4), Fraction(1, 10), Fraction(3, 4)
+G2_RANGE, G3_GAP, G4_RATED, G4_EXCLUSIONS = (Fraction(5, 2), Fraction(13, 2)), Fraction(1, 2), Fraction(9, 10), 2
+RATE_RANGE, RATE_GAP = (20, 80), 10  # hidden pass rate, percent: the tests-primary fallback and G3's switch
 
 
-def required(fraction, n):
-    return math.floor(fraction * n + 1e-9)
+def mean(values):
+    """The exact mean of whole-number scores (or of exact means)."""
+    values = list(values)
+    return Fraction(sum(values), len(values))
+
+
+def required(share, n):
+    return math.floor(share * n)
 
 
 def anchor_role(label):
@@ -94,11 +109,13 @@ def v1_controls(records, judge, tasks):
     its task and is listed."""
     pairs = {t: anchors(records, t, judge) for t in tasks}
     present = {t: p for t, p in pairs.items() if None not in p}
-    met = sum(ref - base >= 4 for base, ref in present.values())
+    met = sum(ref - base >= CONTROL_GAP for base, ref in present.values())
     refs, bases = [p[1] for p in present.values()], [p[0] for p in present.values()]
-    out = {"met": met, "of": len(tasks), "need": required(0.9, len(tasks)), "missing": sorted(set(tasks) - set(present)),
+    out = {"met": met, "of": len(tasks), "need": required(V1_SHARE, len(tasks)),
+           "missing": sorted(set(tasks) - set(present)),
            "mean_reference": mean(refs) if refs else None, "mean_base": mean(bases) if bases else None}
-    return out | {"passed": bool(refs) and met >= out["need"] and out["mean_reference"] >= 6 and out["mean_base"] <= 1}
+    return out | {"passed": bool(refs) and met >= out["need"] and out["mean_reference"] >= V1_REFERENCE
+                  and out["mean_base"] <= V1_BASE}
 
 
 def v2_reference_rank(records, judge, tasks):
@@ -111,7 +128,7 @@ def v2_reference_rank(records, judge, tasks):
             missing.append(task)
         else:
             met += ref >= mean(rated)
-    need = required(0.85, len(tasks))
+    need = required(V2_SHARE, len(tasks))
     return {"met": met, "of": len(tasks), "need": need, "missing": missing, "passed": met >= need}
 
 
@@ -142,9 +159,9 @@ def v3_retest(records, judge, retest_tasks):
                 diffs.append(abs(pair[0] - pair[1]))
                 candidate += [abs(pair[0] - pair[1])] if r["role"] == "candidate" else []
     out = {"clones": len(diffs), "missing": sorted(set(missing)), "mean_abs": mean(diffs) if diffs else None,
-           "large_fraction": sum(d >= 2 for d in diffs) / len(diffs) if diffs else None,
+           "large_fraction": Fraction(sum(d >= 2 for d in diffs), len(diffs)) if diffs else None,
            "candidate_mean_abs": mean(candidate) if candidate else None}
-    return out | {"passed": bool(diffs) and out["mean_abs"] <= 0.75 and out["large_fraction"] <= 0.10}
+    return out | {"passed": bool(diffs) and out["mean_abs"] <= V3_MEAN and out["large_fraction"] <= V3_LARGE}
 
 
 def v4_agreement(records, judge, tasks, minimum=15):
@@ -160,9 +177,9 @@ def v4_agreement(records, judge, tasks, minimum=15):
                              for r in worst]}
     if len(passing) < minimum or len(failing) < minimum:
         return out | {"assessed": False, "probability": None, "passed": None}
-    wins = sum(1 if p > f else 0.5 if p == f else 0 for p in passing for f in failing)
-    probability = wins / (len(passing) * len(failing))
-    return out | {"assessed": True, "probability": probability, "passed": probability >= 0.75}
+    half_wins = sum(2 if p > f else 1 if p == f else 0 for p in passing for f in failing)  # a tie counts half
+    probability = Fraction(half_wins, 2 * len(passing) * len(failing))
+    return out | {"assessed": True, "probability": probability, "passed": probability >= V4_PROBABILITY}
 
 
 def judge_gate(records, judge, tasks, retest_tasks):
@@ -198,7 +215,7 @@ def _mean_of(table, key):
 
 def _rate(table, model):
     runs = sum(row[f"{model}_runs"] for row in table.values())
-    return 100 * sum(row[f"{model}_passes"] for row in table.values()) / runs if runs else None
+    return Fraction(100 * sum(row[f"{model}_passes"] for row in table.values()), runs) if runs else None
 
 
 def policy_hits(records, pools):
@@ -220,15 +237,16 @@ def task_gates(records, pools, judge, tasks):
     gates = {
         "G1": {"survivors": len(survivors), "need": SURVIVORS_MIN, "passed": len(survivors) >= SURVIVORS_MIN},
         "G2": {"haiku_mean": haiku, "haiku_pass_rate": rate_h, "tasks": len(paired),
-               "passed": haiku is not None and 2.5 <= haiku <= 6.5},
+               "passed": haiku is not None and G2_RANGE[0] <= haiku <= G2_RANGE[1]},
         "G3": {"gap": None if None in (haiku, sonnet) else sonnet - haiku,
                "pass_rate_gap": None if None in (rate_h, rate_s) else rate_s - rate_h},
-        "G4": {"rated_fraction": rated / len(runs) if runs else None, "policy_hits": policy_hits(records, pools),
+        "G4": {"rated_fraction": Fraction(rated, len(runs)) if runs else None, "policy_hits": policy_hits(records, pools),
                "judge_exclusions": excluded},
     }
-    gates["G3"]["passed"] = gates["G3"]["gap"] is not None and gates["G3"]["gap"] >= 0.5
+    gates["G3"]["passed"] = gates["G3"]["gap"] is not None and gates["G3"]["gap"] >= G3_GAP
     g4 = gates["G4"]
-    g4["passed"] = bool(runs) and g4["rated_fraction"] >= 0.9 and not g4["policy_hits"] and max(excluded.values()) <= 2
+    g4["passed"] = (bool(runs) and g4["rated_fraction"] >= G4_RATED and not g4["policy_hits"]
+                    and max(excluded.values()) <= G4_EXCLUSIONS)
     return {"table": table, "survivors": survivors[:SURVIVORS_MAX], "gates": gates}
 
 
@@ -237,8 +255,8 @@ def tests_primary(table):
     rate_h, rate_s = _rate(table, "haiku"), _rate(table, "sonnet")
     return {"survivors": [t for t, row in table.items() if 1 <= row["haiku_passes"] <= 3],
             "haiku_pass_rate": rate_h, "sonnet_minus_haiku": None if None in (rate_h, rate_s) else rate_s - rate_h,
-            "haiku_rate_ok": rate_h is not None and 20 <= rate_h <= 80,
-            "gap_ok": None not in (rate_h, rate_s) and rate_s - rate_h >= 10}
+            "haiku_rate_ok": rate_h is not None and RATE_RANGE[0] <= rate_h <= RATE_RANGE[1],
+            "gap_ok": None not in (rate_h, rate_s) and rate_s - rate_h >= RATE_GAP}
 
 
 def calibration(records, pools, tasks, retest_tasks):
@@ -252,7 +270,7 @@ def calibration(records, pools, tasks, retest_tasks):
     selected, insensitive = passing[0], None
     result = task_gates(records, pools, selected, tasks)
     g3 = result["gates"]["G3"]
-    if not g3["passed"] and (g3["pass_rate_gap"] or 0) >= 10 and len(passing) > 1:
+    if not g3["passed"] and (g3["pass_rate_gap"] or 0) >= RATE_GAP and len(passing) > 1:
         insensitive, selected = selected, passing[1]
         result = task_gates(records, pools, selected, tasks)
     gates = result["gates"]

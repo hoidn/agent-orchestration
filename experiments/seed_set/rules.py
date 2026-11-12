@@ -130,7 +130,7 @@ def stop_reasons(study):
     facts = [load(path) for path in study_runs(study)]
     for tranche in PLANNED:
         incidents = sum(f["tranche"] == tranche and "incident" in f for f in facts)
-        if incidents > 0.10 * planned_runs(study, tranche):
+        if incidents * 10 > planned_runs(study, tranche):  # over 10%, exactly
             reasons.append(f"{incidents} incidents in the {tranche} tranche, over 10% of its planned runs")
     return reasons
 

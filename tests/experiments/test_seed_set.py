@@ -319,7 +319,7 @@ def test_a_retest_pool_missing_a_first_pool_clone_makes_its_task_missing():
 def test_v3_reports_the_candidate_only_difference_beside_the_all_clone_one():
     records, _ = world(retest_shift=1)
     v3 = gate(records)["V3"]
-    assert (round(v3["mean_abs"], 3), v3["candidate_mean_abs"]) == (round(6 / 7, 3), 1)
+    assert (v3["mean_abs"], v3["candidate_mean_abs"]) == (gates.Fraction(6, 7), 1)
 
 
 def test_g4_ignores_judge_exclusions_on_pools_outside_the_gated_tasks():
@@ -411,7 +411,7 @@ def test_v3_just_above_ten_percent_large_differences_fails():
 
 
 def test_v3_a_difference_of_exactly_two_counts_as_large():
-    assert v3_of([2] * 8 + [0] * 62)["large_fraction"] == 8 / 70
+    assert v3_of([2] * 8 + [0] * 62)["large_fraction"] == gates.Fraction(8, 70)
 
 
 @pytest.mark.parametrize("haiku, survivor", [((2, 2, 2, 2), True), ((6, 7, 6, 7), True), ((1, 2, 2, 2), False),
@@ -428,12 +428,9 @@ def test_g2_is_inclusive_at_two_and_a_half_and_six_and_a_half(haiku, passed):
     assert gates.task_gates(records, pools, H, tasks_of()[0])["gates"]["G2"]["passed"] is passed
 
 
-@pytest.mark.parametrize("sonnet, passed", [(4, False), (4.25, True)])
-def test_g3_needs_a_gap_of_at_least_half_a_point(sonnet, passed):
-    records, pools = world(haiku=(3, 4, 4, 4), sonnet=0)  # Haiku mean 3.75
-    for r in records:
-        if r["model"] == S:
-            r["scores"] = {j: sonnet for j in gates.JUDGES}
+@pytest.mark.parametrize("haiku, passed", [((3, 4, 4, 4), False), ((3, 3, 4, 4), True)])  # 0.25; exactly 0.5
+def test_g3_needs_a_gap_of_at_least_half_a_point(haiku, passed):
+    records, pools = world(haiku=haiku, sonnet=4)
     assert gates.task_gates(records, pools, H, tasks_of()[0])["gates"]["G3"]["passed"] is passed
 
 

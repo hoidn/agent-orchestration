@@ -133,7 +133,7 @@ def test_an_extension_that_still_misses_stops_every_later_start(s):
 def test_an_extension_in_band_chooses_from_the_extension_rungs(s):
     probed(s, "first", dict.fromkeys(ladder.FLAT, 4))
     probed(s, "extension", {"T2w": 2})
-    assert {t["rung"] for t in probing.probe_readout(s)["chosen"]} == {"T2w", "T3w"}  # the unprobed tie: harder
+    assert {t["rung"] for t in probing.probe_readout(s)["chosen"]} == {"T2w", "T1w"}  # the unprobed tie: easier (M1)
 
 
 def test_the_extension_is_used_once_nothing_more_probes_after_its_answer(s):
