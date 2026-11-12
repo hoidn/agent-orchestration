@@ -4,12 +4,14 @@ Progress goes to stderr and the terminal value to stdout. Only the command line
 enables the lines (`terminal_lines` on the parsed arguments); library callers
 get a disabled reporter. The reporter reads nothing but the `stderr.txt` of an
 attempt that failed. Nothing it does may fail the run: a write error turns off
-that stream alone, and any other error in the observer turns the reporter off.
+that stream alone (and points a dead descriptor at /dev/null), and any other
+error in the observer turns the reporter off.
 The line grammar is owned by specs/cli.md ("Evaluated execution").
 """
 
 from __future__ import annotations
 
+import errno
 import io
 import json
 import os
@@ -80,12 +82,17 @@ def say(line: str) -> None:
     try:
         stream.write(line + "\n")
         stream.flush()
-    except Exception:
-        _silence(stream)
+    except Exception as exc:
+        _silence_if_dead(stream, exc)
 
 
-def _silence(stream) -> None:
-    """Point a failed stream's descriptor at /dev/null so the shutdown flush cannot fail."""
+_DEAD_DESCRIPTOR = {errno.EPIPE, errno.EBADF, errno.EIO}
+
+
+def _silence_if_dead(stream, exc: Exception) -> None:
+    """Point a dead stream's descriptor at /dev/null so the shutdown flush cannot fail; leave a live one alone."""
+    if not (isinstance(exc, OSError) and exc.errno in _DEAD_DESCRIPTOR):
+        return
     try:
         null = os.open(os.devnull, os.O_WRONLY)
         os.dup2(null, stream.fileno())
@@ -119,9 +126,9 @@ class TerminalReporter:
             for line in lines:
                 stream.write(line + "\n")
             stream.flush()
-        except Exception:
+        except Exception as exc:
             setattr(self, name, None)
-            _silence(stream)
+            _silence_if_dead(stream, exc)
 
     def _progress(self, line: str) -> None:
         if not self.quiet:
@@ -197,8 +204,15 @@ class TerminalReporter:
         self._write("err", *(f"waiting {identity}  {command}" for identity in identities))
 
     def result(self, value: Any) -> None:
-        """One line of compact JSON that starts a line of its own, after streamed output that did not end one."""
+        """One line of compact JSON that starts a line of its own, after streamed output that did not end one.
+
+        Characters the stream's encoding cannot write are JSON escapes, so the line stays valid JSON.
+        """
         line = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        try:
+            line.encode(getattr(self.out, "encoding", None) or "utf-8")
+        except (UnicodeEncodeError, LookupError):
+            line = json.dumps(value, sort_keys=True, separators=(",", ":"))
         if self.out is not None and _stdout_tracker is not None:
             try:
                 self.out.flush()
