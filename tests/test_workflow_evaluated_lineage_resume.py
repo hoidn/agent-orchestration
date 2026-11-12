@@ -405,3 +405,24 @@ def test_child_journal_with_a_record_fails_closed(tmp_path):
         memo.write_bytes(memo.read_bytes() + terminal)
         with pytest.raises(MemoError, match="rebased record names a program whose site table was not supplied"):
             evaluated_child.validate_evaluated_child_terminal(**arguments)
+
+
+def test_a_record_inside_bytes_another_journal_folded_is_still_read(serial_base, tmp_path):
+    """`read_memo` skips only bytes the process's last fold reduced; another journal's bytes are scanned in full."""
+    from orchestrator.workflow.evaluated.authority import load_run_authority
+    from orchestrator.workflow.evaluated.machine import site_classes
+    from orchestrator.workflow.evaluated.memo import read_memo
+
+    _, other = _copy(serial_base, tmp_path / "other")
+    workspace, run_root = _copy(serial_base, tmp_path / "edited")
+    _edit(workspace, [*SERIAL[:3], cmd("s4", "(+ s3 1)")], "s4")
+    fx.rebase(run_root, workspace, fx.offset_of(run_root, "committed", "s4"), RUN_ARGS)
+    journal = other / "memo.jsonl"           # longer than the record's offset, not a prefix of it, and no record
+    first, rest = journal.read_bytes().split(b"\n", 1)
+    anchor = fx.offset_of(other, "committed", "s4") + 1      # the first line gains one digit
+    padding = b'{"from_commit":%d,' % anchor + b" " * 400 + b'"record":"invalidated","time":1}\n'
+    journal.write_bytes(first.replace(b'"time":', b'"time":1') + b"\n" + rest + padding)
+    authority = load_run_authority(other)
+    read_memo(journal, site_classes(authority.program))
+    current = load_run_authority(run_root)
+    assert len(read_memo(run_root / "memo.jsonl", site_classes(current.program)).lineage.record_offsets) == 1
