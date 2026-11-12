@@ -277,9 +277,11 @@ runs added.
 
 ## Two limits
 
-- If a step fails because of a bug in its own script, fixing the script does
-  not let that run continue yet: `resume` refuses and prints a `run` command
-  for a new run. Start a new run.
+- If a step fails because of a bug in its own script, fix the script and
+  run the printed `resume` command: the failed step runs again with the
+  fixed script. A step that was killed, or that changed its own script
+  before it failed, is not retried with changed files until you add
+  `--accept-changes` to the `resume` command, which the refusal prints.
 - `invalidate` runs the step and every later one again, and does not roll
   back files in the workspace: what the earlier attempts wrote stays.
 

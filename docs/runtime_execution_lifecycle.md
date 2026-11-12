@@ -150,7 +150,9 @@ ordinal, never by rewriting the old one.
    (`effect_input_diverged` at the first divergence) before any launch, reconciliation or
    tail repair; a completed terminal that replay reaches returns without writing
 6) Continue evaluation as in Run from the first uncommitted effect; retried attempts take
-   the next ordinal
+   the next ordinal. A command retried with changed declared files needs its last attempt's
+   `failed` row to say `closure: unchanged` (not a parallel-map item), or
+   `resume --accept-changes`; the flag is refused when no unfinished command attempt needs it
 ```
 
 Every refusal in steps 1–5 exits 2 and writes nothing; exit 1 is a run that
@@ -231,6 +233,18 @@ orchestrator resume 20261112T035933Z-d60jut
 The resume runs that step and every step after it again, with their current
 prompt files, and reuses the steps before it. To undo the edit instead,
 restore the file's old contents and resume.
+
+**A command step failed because of its script.** The same works for the
+script of a command step: fix the script and resume. When the step failed,
+the runtime rehashed its declared files and recorded `closure: unchanged` on
+its `failed` row, so the retry runs with the fixed script and its
+`[effect_rerun]` line ends with `changed_files=<script>`. A step that was
+killed, that changed its own declared files, or that is an item of a
+parallel map is refused (`effect_input_diverged`) until you resume with
+`--accept-changes`, which the refusal prints. When the script is shared with
+a step that already committed, the refusal prints `invalidate` for that step
+and then `resume`. [`tests/test_workflow_evaluated_script_fix_retry.py`](../tests/test_workflow_evaluated_script_fix_retry.py)
+pins these cases.
 
 **Limits.**
 

@@ -89,7 +89,7 @@ From the reviewers' memory of the literature; verify before citing.
 | The recorded full suite has 71 failing tests, some dependent on launch context | Phase 0 |
 | Bare `(continue <effect>)` crashes the compiler; a loop without `:on-exhausted` compiles and fails at run time | Phase 1 |
 | A run prints nothing while in flight or on success; a failure prints no run id; resume refusals name no recourse | Phase 1 |
-| A command that failed because of a bug in its own script cannot be resumed once the script is fixed (`effect_input_diverged`; no override) | Phase 3 |
+| A command that failed because of a bug in its own script cannot be resumed once the script is fixed (`effect_input_diverged`; no override) | Phase 3; 3a done: plain `resume` retries after a clean failure, `resume --accept-changes` covers the rest |
 | Any semantic source edit refuses resume (`resume_program_changed`) | Phase 3 |
 | Inserting one effect renames every later generated binder on the Python surface, shifting effect identities | Phase 2 |
 | Provider token usage is not recorded; every Phase 1 search row logged consumption as unavailable | Phase 2 |
@@ -253,8 +253,9 @@ full designs.
   found 3a and 3b feasible and recovered why the retry-baseline rule exists.
   3a keeps that protection: a failed attempt records whether it changed its
   own script; plain `resume` retries when it did not, and
-  `resume --accept-changes` covers the other cases. 3a has an accepted
-  [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b needs its
+  `resume --accept-changes` covers the other cases. 3a is implemented by its
+  [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md), exit case (a)
+  included; 3b needs its
   own design, and first a fix so that a provider step's input digest does not
   depend on source positions.
 
@@ -461,7 +462,7 @@ is manual. Phase plans are linked here as they start:
   known gaps and the friction left for later.
 - Phase 2, started: [qualification, metering and stable names plan](2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md).
 - Phase 3, spike done: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
-  3a and 3b are feasible; 3a has its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md), accepted, not started.
+  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b needs its own design.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
 - Lane D, dashboard: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).

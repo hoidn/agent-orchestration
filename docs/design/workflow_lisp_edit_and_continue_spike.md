@@ -8,15 +8,20 @@ seven spike questions from the code and from probes that call no model.
 **Status.** Feasibility spike. The coordinator accepted its verdict on
 2026-11-11 with the [rulings below](#coordinator-rulings-2026-11-11); the
 contract revision it proposes is not accepted until an implementation plan
-lands it. Nothing here is implemented; the prototype it reports was throwaway
+lands it. Part 3a is implemented by its
+[plan](../plans/2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md), and its
+contract text (§7.1, C4, §8.1, §8.5, §17) now lives in evaluated execution and
+`specs/cli.md`, which govern; this page's 3a text is the proposal they
+replaced. 3b is not implemented. The prototype this page reports was throwaway
 and is deleted.
 
 **What owns the behavior today.** [Evaluated execution](workflow_lisp_evaluated_execution.md)
 (§7.3 C4 and C7, §8.1, §8.4, §8.5) and the [CLI contract](../../specs/cli.md)
 ("Resume preflight precedence", "Diagnostics"). A run resumes only under the
-program it started with, and a failed command is retried only with the script
-bytes its failed attempt started with. Follow those rules and the recovery
-lines the CLI prints until a revision is accepted.
+program it started with. A failed command whose `failed` record says
+`closure: unchanged` is retried with its current script; any other unfinished
+command with changed files needs `resume --accept-changes`. Follow those rules
+and the recovery lines the CLI prints.
 
 **Copy safety.** Transcripts are evidence, not recipes: the `ORC_SPIKE_*`
 variables existed only in the prototype. Probe scripts and the prototype diff
