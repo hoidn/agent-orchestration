@@ -10,7 +10,7 @@ from pathlib import Path
 import time
 from typing import Any, Callable, Mapping, Sequence
 
-from orchestrator.workflow.evaluated.attempts import allocate_attempt, attempt_paths
+from orchestrator.workflow.evaluated.attempts import allocate_attempt, attempt_paths, closure_after_failure
 from orchestrator.workflow.evaluated.commands import CommandPerformerError, command_result  # noqa: F401 (re-export)
 from orchestrator.workflow.evaluated.confined_dispatch import EFFECT_UNSUPPORTED, ConfinedDispatchRefusal, require_confinable
 from orchestrator.workflow.evaluated.memo import (
@@ -503,7 +503,8 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
         if projected:
             raise agent_turns.unresolved_after_projection(attempt, exc) from exc
         publication_error = _fail_started_effect(
-            authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc)
+            authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc,
+            closure=closure_after_failure(attempt))
         _raise_if_publication_fatal(publication_error, fatal_publication)
         raise
     finally:
@@ -558,7 +559,7 @@ def _validate_attempt_outcome(attempt, outcome):
     return result, digest, None, None
 
 
-def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> Exception | None:
+def _fail_started_effect(authority, identity, ordinal, site_classes, exc, *, closure=None) -> Exception | None:
     try:
         after = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
         pending = after.pending_starts.get(identity)
@@ -573,6 +574,8 @@ def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> Exc
             violations = getattr(exc, "violations", None)
             if violations is not None:
                 failure["violations"] = violations
+            if closure is not None:
+                failure["closure"] = closure
             append_record(authority.memo_path, failure, run_files=authority.run_files, checked_authority=authority)
     except ViewPublicationError:
         raise

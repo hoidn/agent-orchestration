@@ -925,6 +925,12 @@ own delivery status and captured evidence.
     `tests/test_workflow_evaluated_invalidate.py`,
     `tests/test_workflow_evaluated_run_ref.py`,
     `tests/test_workflow_evaluated_views.py`.
+  - Evaluated journals are read forward only. The optional `closure` field
+    of a command's `failed` row ([State](state.md#memo-records)) changes
+    neither `evaluated_execution.v1` nor schema `3.0`: a build that predates
+    it answers `memo_inconsistent` (from `resume`, `invalidate` and `report`)
+    once a host command has failed under a build that writes it, and
+    journals without the field reduce as before.
   - Admission at 2.35 is unchanged by execution: an effect class or form
     outside the first release still refuses at build with
     `closed_program_gap`, a scope exclusion rather than a defect list. A

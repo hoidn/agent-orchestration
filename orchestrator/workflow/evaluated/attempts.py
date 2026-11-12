@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from orchestrator.workflow.evaluated.closure import resolve_command_evidence
 from orchestrator.workflow.evaluated.memo import (
     MemoError,
     MemoSnapshot,
@@ -63,3 +64,20 @@ def allocate_attempt(
             checked_authority=checked_authority,
         )
         raise MemoError(code, str(exc)) from exc
+
+
+def closure_after_failure(attempt) -> str | None:
+    """`unchanged` when a failed host command's declared files still equal its `started` evidence, else `changed`.
+
+    Rehashes as the precommit check does (C4); a rehash that cannot complete counts as `changed`, so its
+    retry still needs the author's acceptance. None for every other effect and inside a confined child.
+    """
+    node = attempt.node
+    if node["class"] != "command" or attempt.confined is not None:
+        return None
+    try:
+        after = resolve_command_evidence(node["command"], node["closure"], workspace_root=attempt.workspace,
+                                         prior=attempt.implementation_files, launch_cwd=attempt.launch_cwd)
+    except Exception:  # noqa: BLE001 - any failure to prove the files unchanged is `changed`, never a lost `failed` row
+        return "changed"
+    return "unchanged" if after == attempt.implementation_files else "changed"
