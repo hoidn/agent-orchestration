@@ -616,4 +616,4 @@ For the coordinator to rule on:
 | Date | Decision or event | Detail | Spend |
 | --- | --- | --- | --- |
 | 2026-11-11 | Plan accepted by the coordinator | Deviations 1–12 accepted as written. In particular: the `:on-exhausted` error waits for Lane D stage 4 (warning now); the tutorial teaches `.orc`; the exit test uses a failure outside the command's own files because a script fix cannot be resumed before roadmap Phase 3a; the result prints on stdout under `--quiet`. | none |
-| 2026-11-11 | Authoring check not yet funded | The six-session Haiku request (proposed cap USD 2 per session) goes to the owner together with the seed-set calibration budget. Task 10 builds the kit without calls. | none |
+| 2026-11-11 | Authoring check approved by the owner | Six `claude-haiku-5-5` sessions (three before, three after the phase), cap USD 2 per session and USD 12 in total, no retries, no judge calls. Task 10 builds the kit; nothing is spent until the kit and the "before" environment exist. | 0 of USD 12 |
