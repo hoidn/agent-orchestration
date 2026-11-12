@@ -50,12 +50,6 @@ ORCHESTRATE_E2E=1 pytest -q -m e2e tests/e2e/test_e2e_codex_provider_session_con
 pytest -q tests/test_workflow_evaluated_invalidate_smoke.py
 ```
 
-The retained `test_e2e_codex_provider.py` and `test_e2e_claude_provider.py`
-modules still construct retired YAML workflows and refer to the removed root
-`orchestrate` wrapper. They require migration before they can supply current
-acceptance evidence. Selecting every `e2e` marker with live opt-in includes
-those legacy cases; use the explicit current selectors above.
-
 ## Target 2.39 Phased Provider Checks
 
 These checks cover the accepted [phased contract](../docs/design/workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration),
@@ -101,7 +95,7 @@ pytest -q tests/test_workflow_evaluated_invalidate_smoke.py
 E2E infrastructure selector:
 
 ```bash
-pytest --collect-only -q tests/e2e/test_e2e_presence.py
+pytest --collect-only -q tests/e2e
 ```
 
 ## Recommended Workflow
