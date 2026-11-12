@@ -238,11 +238,11 @@ def test_ask_binding_does_not_shadow_author_parameter_or_prompt_name(tmp_path, m
     @proc
     def prompt1(value: str) -> str: return value
     @workflow
-    def run(_e0: str) -> str:
-        ask(question(text=_e0), returns=str)
-        return prompt1(_e0)
+    def run(_ask: str) -> str:
+        ask(question(text=_ask), returns=str)
+        return prompt1(_ask)
     ''')
-    started = run(source.__file__, inputs={"_e0": "original"}, quiet=True)
+    started = run(source.__file__, inputs={"_ask": "original"}, quiet=True)
     request = pending(started.run_root)
     answer(started.run_root, request["request_id"], "different", by="operator", workspace=tmp_path)
     assert resume(started.run_root) == 0
