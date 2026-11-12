@@ -198,12 +198,19 @@ full designs.
   - record per-attempt provider token usage where the agent CLI reports it;
     `report` shows per-step and total tokens and priced cost; an optional
     per-run spend cap stops before the next provider call;
-  - make generated binder names stable under insertion, on both surfaces;
+  - make generated binder names stable under insertion. Done for the Python
+    surface only: the `.orc` site rule is unchanged, because prefix reuse
+    (Phase 3) does not match effects by name;
   - run the Agent Sessions comparison (PQ-1c) as its plan defines it: four
     cells, three outcomes, models inside the Sonnet/Terra cap unless the owner
     authorizes otherwise. One run per cell decides measure-free axes only.
 - **Headline exit test:** a parallel best-of-N run survives a kill and
   resumes, and its report shows tokens per step and a total.
+- **State:** in execution under its
+  [plan](2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md).
+  Usage is recorded only for provider steps bound to the opt-in metered
+  templates, since switching the built-in templates would change what the
+  terminal shows.
 - **Spend:** small, as gated tranches. **Effort:** 3–5 weeks.
 
 ### Phase 3: Edit and continue
@@ -242,6 +249,14 @@ full designs.
 - **Makes harder:** a run can be the product of several programs, so reading
   its audit trail needs the program lineage.
 - **Spend:** none. **Effort:** 5–7 weeks (spike 1, design 1–2, build 3–4).
+- **State:** the [spike](../design/workflow_lisp_edit_and_continue_spike.md)
+  found 3a and 3b feasible and recovered why the retry-baseline rule exists.
+  3a keeps that protection: a failed attempt records whether it changed its
+  own script; plain `resume` retries when it did not, and
+  `resume --accept-changes` covers the other cases. 3a has an accepted
+  [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b needs its
+  own design, and first a fix so that a provider step's input digest does not
+  depend on source positions.
 
 ### Phase 4: Python additions pulled by the consumer
 
@@ -264,8 +279,15 @@ test; the gate throughout is "no test outside the Phase 0 list fails, and
 every removed test is listed with the code it covered".
 
 1. **Dead executors:** trial, adjudication, peer groups and supervision, with
-   their CLI commands, source forms, specs and tests (about 20k lines). This
-   removes accepted source forms, so it is a language change with spec edits.
+   their CLI commands, specs and tests (about 20k lines), and the `trial`
+   source form. Removing an accepted source form is a language change with
+   spec edits. The two live-provider forms (`with-live-providers`,
+   `with-live-provider-peers`) are **not** removed: the owner keeps live
+   supervision and peers as a future direction (decision 9). Their old
+   executor packages are still deleted, since a port to evaluated execution
+   would not reuse them; the code stays under the local tag
+   `archive/dead-executors-2026-11-11`, and the reusable design is recorded in
+   a salvage page before the deletion merges.
 2. **`StateManager` dead methods and CLI vestiges.**
 3. **The old IR stack,** after moving the dozen live types to a small module
    and after the dashboard is migrated to evaluated runs (it reads only the
@@ -388,6 +410,7 @@ the owner can amend any of them.
 | 6 | Phase 5 size | Superseded by decision 8 |
 | 7 | Phase 6 form | Option B approved 2026-11-11; no spend authorized; generic search not selected |
 | 8 | Research scope | Scaled down by the owner 2026-11-11: find a few simple workflows that work well on a calibrated task set, as seeds for genetic search; calibration first. Supersedes decision 6. Same day: judge-primary scoring validated on two natural controls; smoke and calibration spend authorized; seed programs under 50 lines of `.orc`, `common.orc` not counted |
+| 9 | Live supervision and peer groups | Kept as a future direction by the owner 2026-11-11: not scheduled, no phase owns it. Lane D keeps the two source forms and their frontend support, deletes the old executor packages, and records the reusable design first. A port needs its own design on evaluated execution; the [salvage record](../design/live_provider_supervision_and_peers_salvage.md) is its starting material and finds supervision the closer of the two |
 
 ## Process rules
 
@@ -437,7 +460,13 @@ is manual. Phase plans are linked here as they start:
   and the [tutorial](../tutorial_first_pipeline.md); its ledger records the
   known gaps and the friction left for later.
 - Phase 2, started: [qualification, metering and stable names plan](2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md).
+- Phase 3, spike done: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
+  3a and 3b are feasible; 3a has its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md), accepted, not started.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
-- Lane D, dashboard: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).
+- Lane D, dashboard, done: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).
+  `report` and the dashboard read evaluated runs only and refuse retired runs
+  (old readers at the git tag `archive/retired-run-readers-2026-11-11`); this
+  unblocks stage 3, the old IR stack.
+- Lane D, dead executors, started: [dead executors and `StateManager` plan](2026-11-11-lane-d-dead-executors-and-state-manager-plan.md).
 - Thread M, reduced: [zero-spend measurement plan](2026-11-11-roadmap-thread-m-zero-spend-measurement-plan.md).

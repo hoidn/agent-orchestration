@@ -4365,7 +4365,7 @@ are retired. The read-only typed core remains available for analysis/LSP.
 Public `run`, `--dry-run`, `resume` and `invalidate` use the evaluated profile.
 Supply the entry's declared input and binding manifests as shown in the linked
 recipe; executable entries through 2.34 refuse before publication or effects.
-Historical state is read by report/dashboard, without conversion or replay.
+`report` and the dashboard refuse historical runs with `workflow_execution_profile_retired`; there is no conversion or replay.
 
 ### 78.1 Historical Migration Promotion Gates
 

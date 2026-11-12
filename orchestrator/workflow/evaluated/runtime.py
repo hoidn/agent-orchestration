@@ -393,9 +393,6 @@ def prepare_effect(
     if baseline is not None and node.get("repeat") == "never":
         raise effect_inputs._PreflightRefusal("lexical_restore_pending_effect_unsafe",
             f"{identity}: effect declares that it must not be repeated", identity=identity)
-    if baseline is not None:
-        code = "provider_attempt_interrupted_rerun" if node['class'] == 'provider_phased' else "effect_rerun"
-        logger.warning("[%s] %s attempts=%s", code, identity, list(range(1, ordinal)))
     if node['class'] == 'run_ref':
         validate_evaluated_run_ref_start(authority, resolved, identity, ordinal, workspace)
     leaf_context = None if confined is None else confined.leaf_context()  # after the snapshot copy (R3)
@@ -405,8 +402,12 @@ def prepare_effect(
     if confined is not None:
         confined.check_evidence(extra_bytes=len(canonical_json_bytes(started)) + 1)
     _require_retained_root(run_files)
+    code = "provider_attempt_interrupted_rerun" if node['class'] == 'provider_phased' else "effect_rerun"
     attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority,
-        before_failure=None if confined is None else lambda exc: confined.record_failure(authority, exc))
+        before_failure=None if confined is None else lambda exc: confined.record_failure(authority, exc),
+        # logged once `started` is durable, so the terminal's `run` and `start` lines come before it
+        after_started=None if baseline is None else lambda: logger.warning(
+            "[%s] %s attempts=%s", code, identity, list(range(1, ordinal))))
     return PreparedAttempt(authority, node, identity, ordinal, result_path, input_digest,
         parts, implementation_files, tuple(dependencies), resolved, workspace, workspace_files,
         site_classes, provider_executor, attempt_files, launch_cwd, stream_output, confined=leaf_context, views=views,

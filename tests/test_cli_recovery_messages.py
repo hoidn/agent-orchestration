@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shlex
+import sys
 
 import pytest
 
@@ -16,7 +18,7 @@ from tests.test_cli_run_output import (
 def commands(stderr: str) -> list[str]:
     """The recovery commands: lines indented by the command indent."""
     return [line.strip() for line in stderr.splitlines()
-            if line.startswith(COMMAND_INDENT + "python -m orchestrator ")]
+            if line.startswith(COMMAND_INDENT + shlex.quote(sys.executable) + " -m orchestrator ")]
 
 
 def run_id_of(stderr: str) -> str:
@@ -68,6 +70,17 @@ def test_committed_script_edit_refusal_prints_invalidate_and_resume_that_recover
     assert ("commit", IDENTITIES[0]) in effect_rows(resumed.stderr)
     assert f"commit  {IDENTITIES[0]}  attempt 2" in resumed.stderr.splitlines()
     assert resumed.stdout.splitlines()[-1] == RESULT_LINE
+
+
+def test_committed_script_edit_refusal_warns_once_before_its_commands(tmp_path: Path) -> None:
+    write_pipeline(tmp_path)
+    run_id = run_id_of(run_pipeline(tmp_path).stderr)
+    edit_script(tmp_path)
+
+    lines = refused(tmp_path, run_id, "effect_input_diverged").stderr.splitlines()
+
+    warning = lines[next(index for index, line in enumerate(lines) if line.startswith(COMMAND_INDENT)) - 1]
+    assert (warning.count("every later one"), warning.count("workspace files are not rolled back")) == (1, 1)
 
 
 def test_failed_step_script_edit_refusal_names_the_file_and_a_run_command_that_works(tmp_path: Path) -> None:

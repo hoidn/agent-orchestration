@@ -198,13 +198,25 @@ class Provider:
         self.options = dict(model=model, effort=effort, timeout_sec=timeout_sec)
         self.site = author_site()
 
-    def __call__(self, fragment, *, model=MISSING, effort=MISSING, timeout_sec=MISSING):
+    def __call__(self, fragment, *, model=MISSING, effort=MISSING, timeout_sec=MISSING, name=None):
         trace = active_trace()
         if not isinstance(fragment, PromptApplication):
             raise PythonFrontendError("python_provider_prompt", "Provider calls require a Prompt application")
         options = dict(self.options)
         options.update({name: value for name, value in dict(model=model, effort=effort, timeout_sec=timeout_sec).items() if value is not MISSING})
-        return trace.bind(trace.expression("provider", (self, fragment, options), fragment.prompt.returns))
+        return trace.bind(trace.expression("provider", (self, fragment, options), fragment.prompt.returns),
+                          callee=_prompt_name(fragment.prompt, trace.generator), name=name)
+
+
+def _prompt_name(prompt, generator):
+    """The prompt's `.orc` name: extern, imported, decorated or module variable."""
+    if prompt.extern_name is not None: return prompt.extern_name
+    if not isinstance(prompt, Prompt): return prompt.name
+    if prompt.function is not None: return prompt.function.__name__
+    graph = generator.graph
+    owner = generator if graph is None else graph.generators.get(prompt.owner, generator)
+    # An unowned prompt fails emission with python_prompt_owner; any name serves until then.
+    return owner.prompt_names.get(id(prompt), ("prompt",))[0]
 
 
 class Command:
@@ -212,7 +224,7 @@ class Command:
         self.name = name
         self.returns = returns
 
-    def __call__(self, *argv, inputs=None):
+    def __call__(self, *argv, inputs=None, name=None):
         trace = active_trace()
         inputs_present = inputs is not None
         inputs = {} if inputs is None else inputs
@@ -220,7 +232,7 @@ class Command:
             raise PythonFrontendError("python_command_inputs_invalid", "Command inputs must map string names to typed values")
         return trace.bind(trace.expression(
             "command", (self, tuple(argv), dict(inputs), inputs_present), self.returns,
-        ))
+        ), callee=self.name, name=name)
 
 
 @dataclass(frozen=True)
@@ -286,13 +298,20 @@ class Definition:
     def __call__(self, *args, **kwargs):
         trace = active_trace()
         signature, annotations, result = self.signature()
+        name = binder_keyword(signature, kwargs)
         try:
             bound = signature.bind(*args, **kwargs)
             bound.apply_defaults()
         except TypeError as exc:
             raise PythonFrontendError("python_call_arguments", str(exc)) from exc
         trace.generator.require_definition(self)
-        return trace.bind(trace.expression("call", (self, dict(bound.arguments)), result))
+        return trace.bind(trace.expression("call", (self, dict(bound.arguments)), result),
+                          callee=self.__name__, name=name)
+
+
+def binder_keyword(signature, kwargs):
+    """Pop `name=` as the binder, unless the callee has a parameter of that name."""
+    return None if "name" in signature.parameters else kwargs.pop("name", None)
 
 
 def workflow(function=None, *, returns=MISSING):

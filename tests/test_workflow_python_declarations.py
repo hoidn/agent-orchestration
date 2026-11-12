@@ -471,15 +471,15 @@ def test_generated_bindings_do_not_shadow_python_parameters(tmp_path):
         effect: str
         parameter: str
     @workflow
-    def run(_e0: str) -> Pair:
-        value = agent(p(task=_e0))
-        return Pair(effect=value, parameter=_e0)
+    def run(_p: str) -> Pair:
+        value = agent(p(task=_p))
+        return Pair(effect=value, parameter=_p)
     ''', providers={"providers.review": "codex"})
     body = built.program.tree["body"]
-    assert body["name"] != "_e0"
-    assert body["value"]["prompt"]["fills"][0]["value"]["n"] == "_e0"
+    assert body["name"] != "_p"
+    assert body["value"]["prompt"]["fills"][0]["value"]["n"] == "_p"
     fields = dict(body["body"]["value"]["fields"])
-    assert fields["parameter"]["n"] == "_e0"
+    assert fields["parameter"]["n"] == "_p"
     assert fields["effect"]["n"] == body["name"]
 
 

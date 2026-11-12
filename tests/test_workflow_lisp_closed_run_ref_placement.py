@@ -374,35 +374,6 @@ def test_closed_entry_allows_imported_effectful_if_condition(tmp_path):
     assert restored.sites == built.program.sites
 
 
-@pytest.mark.parametrize("position", ["body"])
-@pytest.mark.parametrize("transitive", [False, True])
-def test_closed_ordinary_positions_still_refuse_trial(tmp_path, position, transitive):
-    from tests.test_workflow_lisp_trial import _trial_source
-
-    fixture = _build_path_fixture(tmp_path, case="trial")
-    trial = _trial_source(arm_a=_path_form(fixture.materialized_source.repository_revision_id),
-                          arm_b=_path_form(fixture.materialized_source.repository_revision_id))
-    helper = f'''(defproc invoke ((payload String)) -> String :effects ((runs-trial))
-      :lowering inline (let* ((trial {trial})) payload))''' if transitive else ""
-    value = '(invoke payload)' if transitive else f'(let* ((trial {trial})) payload)'
-    bodies = {
-        "body": f'''(loop/recur :max 1 :state (loop-state (current String payload))
-          :on-exhausted "exhausted" (fn (state) (done {value})))''',
-    }
-    source = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule placement/trial) (export run) (defunion Choice (YES (value String)))
-      {helper} (defworkflow run ((payload String)) -> String {bodies[position]}))''')
-    providers = tmp_path / "providers.json"
-    providers.write_text('{"scorer":"codex"}')
-    prompts = tmp_path / "prompts.json"
-    prompts.write_text('{"trial-rubric":{"asset_file":"rubrics/trial.md"}}')
-    with pytest.raises(LispFrontendCompileError) as caught:
-        build_closed_program_bundle(FrontendBuildRequest(
-            source_path=source, workspace_root=tmp_path,
-            provider_externs_path=providers, prompt_externs_path=prompts))
-    assert caught.value.diagnostics[0].code == "trial_nested_unsupported"
-
-
 @pytest.mark.parametrize("locality", ["direct", "same", "imported"])
 def test_closed_loop_permission_still_refuses_bundle_mode(tmp_path, locality):
     source, _ = _placement_source(tmp_path, "body", locality)

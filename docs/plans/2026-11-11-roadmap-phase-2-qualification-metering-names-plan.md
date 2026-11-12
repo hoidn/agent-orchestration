@@ -31,6 +31,27 @@ not change, and `report` reads those files. Names change in the Python
 emitter first (a Python run resumes from its retained `.orc` snapshot, so
 none is stranded); the `.orc` site rule waits for the Phase 3 spike.
 
+## Changes since acceptance
+
+The [ledger](#ledger) holds each ruling with its reason. Read the task text
+below with these changes:
+
+- **Metering is opt-in.** Built-in `claude*` and `codex*` templates do not
+  switch to structured output: B2's first check showed the switch changes
+  terminal text for every multi-message turn. Separate `claude*_metered` and
+  `codex*_metered` templates carry the structured flags; attempts of built-in
+  templates record usage `unknown` (`no_transport`). Wherever B2, B3, the exit
+  test or decision 2 say built-in templates gain the flags, read the metered
+  templates. A capped run (B3) therefore needs metered templates for its
+  provider steps.
+- **C2 is dropped.** The `effect_site_positional` lint could not read the real
+  site labels where strict applies, and a re-derived numbering was wrong.
+- **C3 is dropped.** The Phase 3 spike does not match effects by name, so no
+  new target is added. Lane 3 is C1 only: Python binder names.
+- **A committed result file is not re-read.** In A2, a deleted committed
+  `result.json` does not make resume refuse; the tests pin that and the
+  attempt-time `command_result_missing` failure.
+
 ## Global constraints
 
 - New or substantially changed modules: at most 500 lines; functions: at
@@ -85,7 +106,7 @@ Four worktrees, one per lane.
 | --- | --- | --- |
 | 1 parallel | A1, A2, A3, A4 | nothing |
 | 2 metering | B1, B2, B3, then B4 | B4: the [dashboard migration](2026-11-11-dashboard-evaluated-runs-migration-plan.md) branch merged (it rewrites `report`) |
-| 3 names | C1 and C2 together, then C3 | C3: the Phase 3 spike's finding and decision 4 |
+| 3 names | C1 (C2 and C3 are dropped) | nothing |
 | 4 comparison | D1, then D2 | D1: B3 merged. D2: B4 merged and owner approval |
 
 Shared files: `orchestrator/workflow/evaluated/runtime.py` (a lane 1 fix and
@@ -241,6 +262,8 @@ catalog workflow names.
 
 ### B2: record usage per attempt (M)
 
+**Revised:** metered templates are opt-in (see [Changes since acceptance](#changes-since-acceptance)); built-in templates stay as they are.
+
 **Files:** `orchestrator/providers/registry.py` (the plain `command` of each
 built-in `claude*` and `codex*` template gains the structured flags and
 `command_metadata_mode`), `orchestrator/workflow/evaluated/providers.py`
@@ -365,6 +388,8 @@ source gives a new program digest once, hence a new run.
 
 ### C2: warn on positional `.orc` sites (S)
 
+**Dropped** (see [Changes since acceptance](#changes-since-acceptance)); the text below is kept as the record of what was tried.
+
 **Files:** `orchestrator/workflow_lisp/{lints,compiler}.py` (the
 required-lint collector, after site assignment), the frontend
 specification's lint list, the drafting guide; create
@@ -381,6 +406,8 @@ second, naming both and the fix (bind each with `let*`). No digest changes.
       library produce.
 
 ### C3: callee-derived `.orc` site labels (M; gated)
+
+**Dropped** (see [Changes since acceptance](#changes-since-acceptance)).
 
 Starts only after the spike's finding and decision 4. **Files:**
 `orchestrator/contracts/closed_program/{sites,targets}.py`,
@@ -550,3 +577,10 @@ claim; any change to the resume refusals (Phase 3); `invalidate` by name.
 | 2026-11-11 | Ruling, decision 4 | C2 now; C3 only on a new target and only if the Phase 3 spike needs names to match effects. The rule is never changed in place | none |
 | 2026-11-11 | Ruling, decisions 5 and 6 | PQ-1c and the A3 live smoke are planned all on `claude-haiku-5-5` (owner cost default). Neither runs before the owner approves the tranche; the request (27 calls, USD 10) is put to the owner when A3's deterministic tests and D1's rehearsal pass | none authorized |
 | 2026-11-11 | Ruling, decision 7 | Accepted as written: Python `name=` keyword; A4 reruns the compatibility comparison only if lane 1 changed bytes under `orchestrator/` | none |
+| 2026-11-11 | C3 dropped | The [Phase 3 spike](../design/workflow_lisp_edit_and_continue_spike.md) found that prefix reuse does not match effects by name, so callee-derived `.orc` site labels are not needed; C1 and C2 stay for readability. No new target is added | none |
+| 2026-11-11 | B1 done; B2 gate failed; ruling: metering is opt-in | B1 (`c238e5cf` on `feat/p2-metering`) packages the usage reader and a price table read from the vendors' public pages. B2's first check showed the switch changes terminal text for every multi-message turn (the decoder streams each assistant message; the plain CLIs print only the last), so by decision 2's condition the built-in templates do not switch. Metered templates (`claude*_metered`, `codex*_metered`) are opt-in; built-in templates record `unknown` usage. Wherever this plan says built-in templates gain the structured flags, read the metered templates instead. Consequence for B3: a capped run needs metered templates for its provider steps. If wrong: users who never opt in see no cost figures | none |
+| 2026-11-11 | A1 to A3 done, in review | 35 public tests on `feat/p2-parallel`, no production change. Ruling: a deleted committed `result.json` does not make resume refuse, because the memo row is the authority; the tests pin that and the attempt-time `command_result_missing` failure. The authored reserved-environment case is covered at launcher level only | none |
+| 2026-11-11 | C2 dropped; C1 revised after review | The review found the `effect_site_positional` lint wrong in 8 of 34 shapes, because it re-derived the compiler's numbering, and found that it refused the packaged `backlog-drain` macro under strict. Ruling: accurate by construction or nothing. The real `#n` labels exist only in the closed build, where no lint profile applies, so the lint is reverted in full (`ae67d05a` on `feat/p2-names`). A scan of the real compiled labels finds no scope with a second numbered site in the 7 catalog programs that build. Known and left: effects a macro binds in `let*` are numbered by position, since macro binders keep no label. C1's review found that a nested `when`, `match` or `loop` took its name before the enclosing form; fixed in `c1eddc74`, with `name=` now refused at the Python line where it cannot take effect | none |
+| 2026-11-12 | A1 to A3 and C1 merged (`3491fbba`, `f2c71652`) | Lane 1: 46 public tests in five modules, no production change; the review broke production code in 16 ways and every break failed a test; its one major (relative repository paths in the best-of-N test) is fixed. C1: the review's nested-form defect and a `match` regression from its fix are both fixed. Full suite on `main` plus both branches: 14,520 passed, only the four worktree-artifact failures. Open in lane 1: A4 (closeout), Task 6 box 4 of the Phase 5 plan (figures against the serial specimen), the live smoke (not authorized). One unexplained failure of the consumer module in 21 runs under load 60, not reproduced since | none |
+| 2026-11-12 | Incident: two unplanned provider calls during the metering re-review | To test launch failures the reviewer removed the `claude` stand-in while its probe's `PATH` still held the real CLI, so the real `claude` ran twice on `claude-haiku-5-5` with the prompt "Answer." in a temporary workspace, without bypassed permissions; it wrote no result. Cost by the CLI's own figure: about USD 0.011. This spend was not authorized by any tranche. Cause: the coordinator's review brief said to use stand-ins but did not require the no-provider stubs first on `PATH`, and the tests' `_env` helper appends the inherited `PATH`. Response: the helper is being closed to a fixed `PATH` with a test (review finding R-m4), and every later brief requires the stubs first on `PATH` | about USD 0.011, unauthorized |
+| 2026-11-12 | B2 and B3 revised after review | The review found five ways the cap let spend through uncounted: a call it could not price, partial usage priced as complete, long-context tiers priced at the short rate, a malformed usage line that failed a successful call and caused a second paid launch on resume, and a run reference's child. All fixed (`8a1c2f52`, `11f8d316`) and re-reviewed (approve). Under a cap, a step is refused before launch when its template reports no usage, it is phased, it is a run reference, or its model has no complete rates (an alias such as `haiku` counts as none); the cap's figure is the larger of the CLI's reported cost and the highest-tier price | none |

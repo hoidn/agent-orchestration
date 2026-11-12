@@ -78,10 +78,6 @@ def _names(keys) -> list[str]:
     return names
 
 
-def _file_names(keys) -> str:
-    return ", ".join(_names(keys)) or "none recorded"
-
-
 def _unfinished_users(snapshot, identity: str, changed: list[str]) -> list[str]:
     """Other steps whose latest attempt is pending or failed and whose files include a changed one (any, if unknown).
 
@@ -153,7 +149,7 @@ def _effect_diverged(exc, context: _Context) -> list[str]:
                 *context.fresh_run("or start a new run with the fixed files:")]
     parts = ", ".join(getattr(exc, "changed_parts", ())) or "unknown"
     return [f"step {identity} was committed with other inputs; changed: {parts}; files: {files}",
-            f"to run this step and every later one again ({_REPEAT_WARNING}):",
+            "to run this step and every later one again (workspace files are not rolled back):",
             context.command("invalidate", context.run_id, identity), context.resume()]
 
 

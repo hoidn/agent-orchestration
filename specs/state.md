@@ -13,8 +13,10 @@ replays, repairs and translates none of those profiles. Public resume (including
 restart/repair) and invalidation refuse them before locks or mutation; they
 do not proceed to the historical checksum, projection or numeric validators.
 
-Historical report/dashboard readers interpret stored evidence without source
-compilation or rewriting original data. Shared result/provider IO contracts
+`report` and the dashboard read evaluated runs only and refuse a run these
+profiles wrote with `workflow_execution_profile_retired`, reading nothing of it
+beyond the view-hint check; the old readers are kept at the git tag
+`archive/retired-run-readers-2026-11-11`. Original data is never rewritten. Shared result/provider IO contracts
 remain applicable where used by admitted evaluated effects. A historical
 provider family or host-input format does not confer evaluated admission.
 Recovery is qualified only for the exact retained complete release/environment
@@ -130,13 +132,8 @@ and demonstrated family, under the [retirement recovery policy](../docs/design/w
     - runtime-owned audit and recovery sidecars live under `.orchestrate/runs/<run_id>/managed_jobs/<step-id-or-name>/`
     - managed provider step results may expose `steps.<Step>.managed_jobs = {phase, audit_path, outcome, recovery_status, jobs, ...}`
     - outstanding managed jobs leave the provider step in a resumable recovery state so `resume <run_id>` re-enters recovery without relaunching the provider
-  - v2.17 provider-peer-group evidence:
-    - visit metadata lives under
-      `.orchestrate/runs/<run_id>/provider-peer-group/<encoded-node>/visit-metadata/<visit>.json`
-    - exact member attempt records live under
-      `.orchestrate/runs/<run_id>/provider-peer-group/<encoded-node>/visits/<visit>/members/<member>/attempt-<ordinal>/`
-    - terminal group evidence lives at the corresponding
-      `visits/<visit>/evidence.json`
+  - v2.17 provider-peer-group evidence: removed with its executor on
+    2026-11-11 (git tag `archive/dead-executors-2026-11-11`).
   - v2.14 declared resource-transition sidecars:
     - runtime-native resource/state transitions may own private generated `resource_state` documents outside `state.json`; native documents carry `transition_schema_version`, a runtime version token, resource identity metadata, and the typed resource state payload
     - resource transitions may also own append-only private generated `transition_audit` JSONL ledgers; audit rows record committed, replayed, rejected, and partial-failure outcomes together with idempotency evidence and request digest
@@ -703,7 +700,7 @@ creates or asks a replacement question.
     ambiguous, or checksum-incompatible state still fails closed.
 
 - State backups and cleanup
-  - When `--backup-state` is enabled or `--debug` is set, copy `state.json` to `state.json.step_<Step>.bak` before each step (keep last 3).
+  - `--backup-state` and `--debug` are accepted and write no state backups.
   - `clean --older-than <duration>` removes old run directories (see `cli.md`).
 
 - Logs directory (see `observability.md`)
@@ -737,8 +734,8 @@ creates or asks a replacement question.
 
 ## Provider Prompt-Dependency Attempt State And Resume
 
-- Provider attempts are at-least-once across ordinary, session, supervision,
-  peer-group, and phased provider execution. An exact interrupted in-flight
+- Provider attempts are at-least-once across ordinary, session, and phased
+  provider execution. An exact interrupted in-flight
   visit is marked `interrupted` where truthful evidence is available, its
   partial result authority is discarded, and ordinary dispatch allocates a
   fresh attempt. The runtime emits the named operator-visible diagnostic
@@ -747,7 +744,7 @@ creates or asks a replacement question.
 - A Workflow Lisp provider boundary with a typed prompt-dependency contract
   allocates its attempt ordinal in root `RunState.provider_attempt_allocations`.
   The member is omitted while empty. It is root-owned across ordinary, loop,
-  call-frame, phased, supervision, peer-group, and adjudicated execution;
+  call-frame, phased, and adjudicated execution;
   nested state managers do not maintain competing counters.
 - Each allocation entry is a plain monotonic counter: its closed current form
   contains the exact scope plus `last_allocated_ordinal`, and a Q3-bound scope
@@ -860,8 +857,7 @@ creates or asks a replacement question.
   prompt, compiled fragment, document rows, shown groups, and injection.
   Content sealing and report-time loading both fail closed on a
   malformed, open, tampered, or mismatched record.
-- Attempt identity records, role digests, comparisons, and `prompt_context`
-  reports are non-authoritative. Compatible completed-result reuse uses the
+- Attempt identity records and role digests are non-authoritative. Compatible completed-result reuse uses the
   existing source, root, call-frame, bound-input, checkpoint,
   result-contract, and completed-boundary guards without reading Q3 evidence.
   A pending or failed boundary allocates a fresh attempt and evidence record.
@@ -1029,8 +1025,7 @@ defines the closed proof and attempt-receipt fields.
   `provider_phased_protocol_frame.v1`,
   `workflow_prompt_fragment_snapshot.functional.v3`,
   `provider_phased_candidate_digest_manifest.v1`,
-  `provider_phased_delivery_diagnostic.v1`, and
-  `workflow_prompt_context_report.v2`. They are validated evidence or report
+  and `provider_phased_delivery_diagnostic.v1`. They are validated evidence
   schemas, not persisted provider-configuration/checkpoint carriers and not
   workflow-state authority. Missing, malformed, downgraded, or mixed-version
   evidence fails its owning validation boundary closed.
@@ -1039,12 +1034,10 @@ defines the closed proof and attempt-receipt fields.
   delivery until its durable receipt proves delivery. Functional-v3 evidence
   is content-free and validates this distinction; it never stores prompt,
   candidate, result, submit, command, or environment bytes.
-- `workflow_prompt_context_report.v2` projects validated v1 attempts through
-  nullable `legacy_final_prompt_sha256` and validated v2 attempts through
-  `canonical_composed` plus ordered `actual_deliveries`. Comparison is
-  version-strict and may report `actual_delivery_drift`; it never substitutes
-  canonical composition for a delivered prompt. Reports remain
-  non-authoritative.
+- Historical: `workflow_prompt_context_report.v2`, the report's projection of
+  v1 and v2 attempts and their comparison, is no longer produced; `report`
+  reads evaluated runs only. Its contract and producer are kept at the git tag
+  `archive/retired-run-readers-2026-11-11`.
 - Each phased attempt owns one append-only
   `provider_prompt_phase_ledger.v1` JSONL sidecar. Its header is sequence zero,
   subsequent events are contiguous, and terminal rows close the grammar.
@@ -1755,99 +1748,19 @@ actual boundary; it does not establish terminality by itself.
 
 ## Provider-Supervision State And Resume (v2.16)
 
-- State schema remains `2.1`. One running supervision group owns one ordinary
-  live cursor whose `current_step` has `type: "provider_supervision"`, the
-  generated step id, status `running`, and its visit count. The group is one
-  atomic workflow step; its members do not publish independent workflow
-  results or checkpoints.
-- The group visit is not a provider attempt. Worker-fresh and
-  supervisor-directive invocations each allocate a distinct root-owned
-  root-owned provider-attempt ordinal; `STEER` allocates a third ordinal for
-  the worker resume turn only after the prior boundary is validated. Attempt
-  scopes are derived from group step id, visit, member id, and turn ordinal.
-- Visit evidence lives below
-  `provider-supervision/<encoded-node>/visits/<visit>/`. Its
-  `metadata.json` progresses from pending/running evidence to a terminal
-  disposition such as `committed_terminal_result`; provisional member bundles
-  and transcripts remain secondary evidence. A completed node exposes only
-  the selected worker-attempt and directive-attempt references in debug state,
-  not member values or live targets as competing state authorities.
-- The coordinator alone commits the validated settlement result, artifact and
-  dataflow publications, terminal step result, selected-attempt references,
-  and exact matching `current_step` clearance as one state transaction.
-- If ordinary resume finds a matching running supervision visit without that
-  visit's terminal group result, it first applies every ordinary integrity and
-  projection guard. It then marks available visit evidence `interrupted`,
-  clears only the exact matching `current_step`, preserves older terminal
-  results, emits `provider_attempt_interrupted_rerun`, and enters a fresh group
-  visit through ordinary dispatch. No member session, attempt, pane, or
-  provisional result from the interrupted visit is reused.
-- A mismatched or malformed supervision cursor/visit relationship fails with
-  `provider_supervision_resume_state_integrity_error`. Ordinary resume never
-  reuses an interrupted visit's member sessions. Existing root, callee,
-  checkpoint, and projection-integrity guards remain unchanged.
+The provider-supervision executor and its state were removed on 2026-11-11. Its packages are
+kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime, including its step-executor bindings, is commit `08cdd59b`. The closed
+build refuses the `with-live-providers` form with `[closed_program_gap]`; see the
+[salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
 ## Provider-Peer-Group State And Resume (v2.17)
 
-- State schema remains `2.1`. One running peer group owns one ordinary live
-  cursor whose `current_step` has `type: "provider_peer_group"`, the generated
-  step id, status `running`, and its visit count. The group is one atomic
-  workflow step; members, messages, ledgers, and endpoints do not publish
-  independent workflow results or checkpoints.
-- The group visit is not a provider attempt. Every member allocates one
-  distinct root-owned provider-attempt ordinal in authored order
-  before member launch. Attempt scopes derive from the group step identity,
-  visit, and member id. A peer group has no member resume turn and no
-  fresh-to-resume attempt transition.
-- The runtime preflights the complete visit root before allocation and the
-  exact attempt-qualified path set after allocation. Each member attempt owns
-  one immutable prompt-dependency snapshot, one append-only
-  `injected-messages.jsonl` ledger with a durable header even when empty, one
-  member terminal `evidence.json`, and one `provisional-result.json`.
-  Preimages, collisions, missing identities, and authored-order/path-set
-  mismatches fail closed.
-- Receiver ledgers contain canonical monotonically sequenced `recorded`,
-  `offered` or `offer_failed`, and `receiver_acknowledged` rows. Their terminal
-  summaries bind the exact receiver attempt, canonical digest, row count, and
-  lifecycle counts. Message content stays in the receiver ledger; it is not
-  copied into `state.json`, result artifacts, Semantic IR, checkpoint
-  identity, or prompt-dependency snapshots.
-- Terminal group evidence uses
-  `provider_peer_group_terminal_evidence.v1`. Completed evidence binds the
-  exact visit, authored-order member attempts, each member's terminal
-  lifecycle, ledger summary, frozen-bundle digest, complete natural-shutdown
-  proof, endpoint drain/close/worker-join proofs, and settlement digest. Failed
-  evidence has no settlement digest, carries a bounded failure code/message,
-  and records available failed-cleanup proof instead of reclassifying forced
-  cleanup as natural completion.
-- On successful settlement, `steps.<Step>.artifacts` contains only the
-  validated settlement projection. When the coordinator can close terminal
-  group evidence, `steps.<Step>.debug.provider_peer_group` contains only the
-  run-root-relative terminal evidence path, terminal evidence schema version,
-  and `completed|failed` outcome. Endpoint paths/bindings, pane targets,
-  message bodies, provisional member values, and member bundle paths are not
-  competing state or resume authorities.
-- For a reportable terminal group, the coordinator alone commits the validated
-  settlement (when successful), ordinary artifact/dataflow publications,
-  terminal step result, bounded evidence reference, and exact matching
-  `current_step` clearance as one state transaction. Any
-  member/protocol/delivery/bundle/settlement/endpoint/cleanup failure publishes
-  no settlement. A startup cleanup failure that cannot truthfully construct
-  complete terminal peer evidence propagates after cleaning all known
-  resources; it must not fabricate a terminal evidence record.
-- If ordinary resume finds a matching running peer-group visit without that
-  visit's terminal group result, it first applies every ordinary integrity and
-  projection guard. It then preserves partial ledgers as audit-only evidence,
-  marks available visit evidence `interrupted`, clears only the exact matching
-  `current_step`, emits `provider_attempt_interrupted_rerun`, and enters a
-  fresh group visit through ordinary dispatch. No member attempt, endpoint,
-  pane, bundle, provisional result, or settlement from the interrupted visit
-  is reused.
-- A mismatched or malformed peer-group cursor/visit relationship fails with
-  `provider_peer_group_resume_state_integrity_error`. Ordinary resume never
-  reuses an interrupted visit's attempts, endpoint, panes, bundles, or ledgers.
-  Root/callee checksums, lexical checkpoint validation, and
-  projection-integrity guards remain unchanged.
+The provider-peer-group executor and its state were removed on 2026-11-11. Its packages are
+kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime, including its step-executor bindings, is commit `08cdd59b`. The closed
+build refuses the `with-live-provider-peers` form with `[closed_program_gap]`; see the
+[salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
 ## Reusable-Call State Contract (v2.5)
 

@@ -31,10 +31,13 @@ def allocate_attempt(
     *,
     checked_authority=None,
     before_failure=None,
+    after_started=None,
 ) -> WorkspaceFiles:
-    """Synchronize ``started`` before creating and pinning its attempt directory."""
+    """Synchronize ``started`` (then call ``after_started``) before creating and pinning its attempt directory."""
     attempt_dir = Path(started_record["result_path"]).parent
     append_record(memo_path, started_record, run_files=run_files, checked_authority=checked_authority)
+    if after_started is not None:
+        after_started()
     try:
         return run_files.mkdir_exclusive(attempt_dir)
     except OSError as exc:

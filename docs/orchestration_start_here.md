@@ -169,8 +169,8 @@ present."
   source. `resume`, including `--force-restart`, refuses a retired execution
   profile first with `workflow_execution_profile_retired`, before source
   checks or mutation; a fresh `run` of a non-`.orc` path fails closed with
-  `.orc required`. Legacy state remains viewable only
-  through state-only report/dashboard observability.
+  `.orc required`. `report` and the dashboard refuse legacy
+  runs; the old readers are kept at the git tag `archive/retired-run-readers-2026-11-11`.
 
 Confusion: "Execution runs the authored source tree directly."
 - Correction: execution runs the checked closed program compiled from the

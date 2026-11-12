@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
@@ -115,8 +116,33 @@ def test_failed_run_prints_the_step_its_stderr_and_the_resume_command(tmp_path: 
     run_id = result.stderr.splitlines()[0].split()[1]
     assert printed(result.stderr, "failed")[0].startswith(IDENTITIES[1] + "  attempt 1  [command_exit_nonzero]")
     assert "| step two is broken" in result.stderr
-    assert resume_command(result.stderr) == f"python -m orchestrator resume {run_id}"
+    assert resume_command(result.stderr) == f"{shlex.quote(sys.executable)} -m orchestrator resume {run_id}"
     assert result.stdout == ""
+
+
+def test_a_failed_step_shows_its_exception_line_first_when_a_long_message_pushes_it_out_of_the_tail(
+    tmp_path: Path,
+) -> None:
+    write_pipeline(tmp_path)
+    (tmp_path / "step.py").write_text(
+        'raise ValueError("\\n".join(f"detail {i}" for i in range(15)))\n', encoding="utf-8")
+
+    shown = printed(run_pipeline(tmp_path).stderr, "|")
+
+    assert (len(shown), shown[0], shown[-1]) == (10, "ValueError: detail 0", "detail 14")
+
+
+def test_a_failed_step_after_a_handled_traceback_ends_with_its_own_last_line(tmp_path: Path) -> None:
+    write_pipeline(tmp_path)
+    (tmp_path / "step.py").write_text(
+        "import sys, traceback\n"
+        "try:\n    {}['cache']\nexcept KeyError:\n    traceback.print_exc()\n"
+        "for i in range(12):\n    print(f'build step {i}', file=sys.stderr)\n"
+        "print('error: link failed (exit 1)', file=sys.stderr)\nsys.exit(1)\n", encoding="utf-8")
+
+    shown = printed(run_pipeline(tmp_path).stderr, "|")
+
+    assert shown[-1] == "error: link failed (exit 1)"
 
 
 def test_quiet_run_prints_only_the_result(tmp_path: Path) -> None:
@@ -137,6 +163,27 @@ def test_resume_prints_only_the_effects_it_runs_and_the_result(tmp_path: Path) -
     assert effect_rows(resumed.stderr) == [("start", IDENTITIES[1]), ("commit", IDENTITIES[1]),
                                            ("start", IDENTITIES[2]), ("commit", IDENTITIES[2])]
     assert resumed.stdout.splitlines()[-1] == RESULT_LINE
+
+
+def test_resume_prints_the_run_line_first_and_the_rerun_note_after_its_start_line(tmp_path: Path) -> None:
+    failed = failed_run(tmp_path)
+    (tmp_path / "fail-two").unlink()
+
+    lines = shell(tmp_path, resume_command(failed.stderr)).stderr.splitlines()
+
+    assert lines[0].split()[0] == "run"
+    rerun = next(index for index, line in enumerate(lines) if line.startswith("[effect_rerun]"))
+    assert lines[rerun - 1].split() == ["start", *IDENTITIES[1].split(), "attempt", "2"]
+
+
+def test_the_printed_resume_command_works_without_python_on_path(tmp_path: Path) -> None:
+    failed = failed_run(tmp_path)
+    (tmp_path / "fail-two").unlink()
+
+    resumed = subprocess.run(resume_command(failed.stderr), shell=True, cwd=tmp_path, capture_output=True, text=True,
+                             env={**env(), "PATH": str(tmp_path / "no-bin")}, check=False)
+
+    assert (resumed.returncode, resumed.stdout.splitlines()[-1:]) == (0, [RESULT_LINE]), resumed.stderr
 
 
 def test_resume_accepts_quiet(tmp_path: Path) -> None:

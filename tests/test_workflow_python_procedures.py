@@ -445,11 +445,11 @@ def test_generated_mirror_preserves_digest_and_sites(tmp_path):
       (defmodule py/sample) (export fetch run)
       (defproc fetch ((value Int)) -> Int
         :effects ((uses-command probe))
-        (let* ((_e0 (command-result probe :argv ("python" "probe.py" value) :returns Int))) _e0))
+        (let* ((_probe (command-result probe :argv ("python" "probe.py" value) :returns Int))) _probe))
       (defworkflow run ((value Int)) -> Int
-        (let* ((_e0 (fetch value))
-               (_e1 (fetch (+ value 1))))
-          (+ _e0 _e1))))
+        (let* ((_fetch (fetch value))
+               (_fetch_2 (fetch (+ value 1))))
+          (+ _fetch _fetch_2))))
     ''', encoding="utf-8")
     manifest = mirror_root / "commands.json"
     manifest.write_text(json.dumps(command), encoding="utf-8")

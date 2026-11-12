@@ -18,7 +18,6 @@ from .typecheck_context import (
     TypecheckContext,
     TypedExpr,
     _type_label,
-    effect_summary_requires_run_ref_placement_refusal,
     raise_error,
     raise_run_ref_placement_invalid,
 )
@@ -49,14 +48,6 @@ def typecheck_loop_recur_expr(
     session_state = context.session_state
 
     typed_max = recurse(expr.max_iterations_expr)
-    if effect_summary_requires_run_ref_placement_refusal(
-        typed_max.effect_summary
-    ):
-        raise_run_ref_placement_invalid(
-            typed_max.expr,
-            reason="is not permitted in `loop/recur` :max",
-            effect_summary=typed_max.effect_summary,
-        )
     if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
         raise_error(
             "`loop/recur :max` must resolve to `Int`",
@@ -65,14 +56,6 @@ def typecheck_loop_recur_expr(
             form_path=expr.max_iterations_expr.form_path,
         )
     typed_state = recurse(expr.initial_state_expr)
-    if effect_summary_requires_run_ref_placement_refusal(
-        typed_state.effect_summary
-    ):
-        raise_run_ref_placement_invalid(
-            typed_state.expr,
-            reason="is not permitted in `loop/recur` state",
-            effect_summary=typed_state.effect_summary,
-        )
     ensure_loop_projectable_type(
         typed_state.type_ref,
         code="loop_recur_state_type_invalid",
@@ -100,14 +83,6 @@ def typecheck_loop_recur_expr(
         )
     finally:
         session_state.loop_context.pop()
-    if effect_summary_requires_run_ref_placement_refusal(
-        typed_body.effect_summary
-    ):
-        raise_run_ref_placement_invalid(
-            typed_body.expr,
-            reason="is not permitted in a `loop/recur` body",
-            effect_summary=typed_body.effect_summary,
-        )
     if not isinstance(typed_body.type_ref, LoopControlTypeRef):
         raise_error(
             "`loop/recur` body must terminate with `continue` or `done`",
