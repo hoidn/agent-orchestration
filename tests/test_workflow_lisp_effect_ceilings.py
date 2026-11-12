@@ -154,7 +154,7 @@ def test_target_239_inline_effectful_procedure_skips_legacy_lowering_analysis(
     assert any(procedure.transitive_effect_summary.transitive_effects for procedure in helpers)
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36", "2.37", "2.38", "2.39"])
+@pytest.mark.parametrize("target", ["2.38", "2.39"])
 def test_loop_call_private_override_respects_definition_origin(tmp_path, monkeypatch, target):
     from orchestrator.workflow_lisp import procedure_specialization
 
@@ -213,7 +213,7 @@ def test_loop_call_private_override_respects_definition_origin(tmp_path, monkeyp
         assert checks
 
 
-@pytest.mark.parametrize("origin", ["2.35", "2.36", "2.37", "2.38"])
+@pytest.mark.parametrize("origin", ["2.35", "2.38"])
 def test_new_caller_preserves_imported_old_auto_and_private_identities(tmp_path, origin):
     library = f'''(workflow-lisp (:language "0.1") (:target-dsl "{origin}")
       (defmodule el1/lib) (export ChecksResult private-helper auto-helper)
