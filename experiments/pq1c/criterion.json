@@ -1,0 +1,37 @@
+{
+  "study": "PQ-1c: Agent Sessions variant against the plain baseline of design-review-execute",
+  "protocol": "docs/plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#pq-1c-protocol",
+  "claims": "measure-free figures only: no judge, no calibration, no quality claim, no claim about better",
+  "model": "claude-haiku-5-5",
+  "cells": ["variant-clean", "variant-resumed", "baseline-clean", "baseline-resumed"],
+  "pairs": {"clean": ["variant-clean", "baseline-clean"], "resumed": ["variant-resumed", "baseline-resumed"]},
+  "turns_per_run": 4,
+  "axes": {
+    "completion": "report run.status is completed with four committed typed results (provider or agent_turn commits of four identities)",
+    "no_repeated_paid_work": "every turn identity has one started row, and no log of the cell has an effect_rerun or agent_bootstrap_restarted line",
+    "committed_turn_redispatched": "a turn identity has a started row after its committed row",
+    "usage_recorded": "every provider attempt (an attempt directory holding prompt.txt) has a usage.json that is reported and complete",
+    "cost": "report run.usage.cost_usd, variant over baseline, per pair; a partial or unknown cost (cost_usd null, partial true or unknown_attempts above 0) or a zero baseline makes that pair's ratio undetermined, never a number",
+    "invalidate": "on a copy of each clean run, invalidate <run> <feedback identity>: the variant exits 2 with invalidate_coordinator_committed and unchanged run-tree bytes, the baseline exits 0; reported, decides no outcome",
+    "elapsed_time": "seconds of the run and resume invocations; reported, decides nothing"
+  },
+  "thresholds": {"retire_cost_ratio_at_or_above": 1.25, "retain_cost_ratio_at_or_below": 0.8},
+  "outcomes": {
+    "Retire": "a variant cell does not complete while its baseline cell does, or a committed turn of a variant cell is dispatched again, or the cost ratio is at or above 1.25 in both pairs",
+    "Retain": "all four cells complete, no paid work repeats in any cell, and the cost ratio is at or below 0.8 in both pairs",
+    "Improve": "anything else; Agent Sessions stays opt-in at target 2.38, the Python Agent item is not opened, and no further spend follows unless the consumer thread names a need"
+  },
+  "refusal": "readout.py refuses to read out (exit 2, no outcome) when this file's SHA-256 differs from the hash it names, or when a cell recorded a different criterion hash",
+  "decision_order": [
+    "invalid -> undetermined: a cell is missing; cells mix rehearsal and real runs; cells differ in runtime commit, fixture commit or source digest of an arm; a real cell ran on a runtime with uncommitted changes; a recorded usage model or bound model input is not claude-haiku-5-5; the wrapper stopped a resumed cell with a turn in flight or elsewhere than right after the reviewer's first turn (a run that ends before the stop is filed as it stands and counts for completion)",
+    "Retire by completion or a redispatched committed variant turn, whatever the cost",
+    "Retire by cost when both ratios are known and at or above 1.25",
+    "undetermined when a ratio is unknown and the known ratios do not already exclude Retire by cost",
+    "Retain when all cells complete, nothing repeats and both ratios are known and at or below 0.8",
+    "undetermined when completion and no repetition hold and a ratio is unknown that could still give Retain",
+    "Improve otherwise"
+  ],
+  "can_decide": ["completion", "repeated dispatch", "the invalidate behavior", "whether usage was recorded", "a cost difference outside the 0.8 to 1.25 band"],
+  "cannot_decide": ["retained context", "document quality", "elapsed time", "a cost difference inside the band", "how often a cell fails"],
+  "owner_judgment": "whether what was observed justifies losing the ability to invalidate feedback"
+}
