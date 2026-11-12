@@ -6,17 +6,22 @@ import dataclasses
 import typing
 
 from orchestrator.workflow_lisp.closed.command_templates import _DEMAND_FREE_TYPES
-from orchestrator.workflow_lisp import spans, syntax
+from orchestrator.workflow_lisp import effects, spans, syntax
+from orchestrator.workflow_lisp.type_env import RecordTypeRef
 
 _LEAVES = {type(None), str, int, float, bool, bytes}
-# Fields typed `object` whose contents exist before any WCC node does: a run-ref result's
-# origin digest (bytes), and the helper expansion frames (`syntax.ExpansionStack`) of parsing.
-_OPAQUE_FIELDS = {"run_ref_origin", "expansion_stack"}
+# Fields typed `object`, by owner and name, whose contents exist before any WCC node does: a
+# run-ref result's origin digest (bytes) and the helper expansion frames (`syntax.ExpansionStack`)
+# of parsing. Any other `object` field reachable from the stop list fails the test.
+_OPAQUE_FIELDS = {(RecordTypeRef, "run_ref_origin"), (effects.ProcedureCallEdge, "expansion_stack"),
+                  *((getattr(syntax, name), "expansion_stack") for name in (
+                      "SyntaxBool", "SyntaxFloat", "SyntaxIdentifier", "SyntaxInt", "SyntaxKeyword",
+                      "SyntaxList", "SyntaxString"))}
 _NAMES = {**vars(spans), **vars(syntax)}  # names some modules import only for type checking
 
 
 def _field_types(hint, owner, name):
-    if hint is typing.Any or (hint is object and name not in _OPAQUE_FIELDS):
+    if hint is typing.Any or (hint is object and (owner, name) not in _OPAQUE_FIELDS):
         raise AssertionError(f"{owner.__name__}.{name} is typed {hint!r}, which could hold a WCC operand")
     if typing.get_origin(hint) is typing.Literal or hint is object:
         return
