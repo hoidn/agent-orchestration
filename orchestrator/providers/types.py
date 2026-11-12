@@ -104,48 +104,6 @@ def canonical_workflow_call_policy(
     }
 
 
-def validate_phased_delivery_carriage(
-    policy: Mapping[str, object] | None,
-    *,
-    prompt_attempt_identity_version: str | None,
-    target_dsl_version: str | None = None,
-) -> None:
-    """Require exact policy/attempt-identity agreement at every carrier."""
-
-    normalized = (
-        {}
-        if policy is None
-        else canonical_workflow_call_policy(policy)
-    )
-    phased = normalized.get("delivery") == "phased"
-    identity_is_phased = (
-        prompt_attempt_identity_version
-        == "workflow_prompt_attempt_identity.v2"
-    )
-    q5_policy_present = any(
-        key in normalized
-        for key in ("delivery", "materialization_attempts")
-    )
-    if q5_policy_present or identity_is_phased:
-        try:
-            target = tuple(
-                int(part)
-                for part in (target_dsl_version or "").split(".")
-            )
-        except (AttributeError, TypeError, ValueError):
-            target = ()
-        if target_dsl_version is not None and target < (2, 23):
-            raise ValueError(
-                "provider_phased_delivery_carriage_mismatch: "
-                "phased carriage requires target DSL 2.23"
-            )
-    if phased != identity_is_phased:
-        raise ValueError(
-            "provider_phased_delivery_carriage_mismatch: "
-            "call policy and prompt-attempt identity version disagree"
-        )
-
-
 def escape_provider_command_token(token: str) -> str:
     """Apply command-template escape processing before placeholder validation."""
     processed = token.replace("$$", _ESCAPED_DOLLAR_SENTINEL)

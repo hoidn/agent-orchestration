@@ -39,14 +39,14 @@ profile or qualification gate. Target 2.40 adds [durable host input](workflow_li
 | [omp_provider_and_native_continuation.md](omp_provider_and_native_continuation.md) | OMP provider calls and existing native-session continuation | Partial; creation/import routes retired, OMP-I2 dropped 2026-11-11 | Within retained scope |
 | [workflow_lisp_procedure_first_reuse_contract.md](workflow_lisp_procedure_first_reuse_contract.md) | Procedure-first boundary roles, lowering identity, effects, and migration rules | Accepted contract / adoption gated | No |
 | [workflow_lisp_procedure_migration_identity_compatibility.md](workflow_lisp_procedure_migration_identity_compatibility.md) | Strict-default procedure-migration identity compatibility and bounded internal retirement | Accepted durable contract / historical generator and pilot evidence | No |
-| [workflow_lisp_semantic_workflow_ir.md](workflow_lisp_semantic_workflow_ir.md) | Semantic IR authority surface | Partial: retained typed/shared-service scope | Only within evaluated admission |
+| [workflow_lisp_semantic_workflow_ir.md](workflow_lisp_semantic_workflow_ir.md) | Semantic IR authority surface | Historical; code removed 2026-11-12 (local tag `archive/old-ir-stack-2026-11-12`); current owner linked in the record | No |
 | [workflow_lisp_macro_surface_contract.md](workflow_lisp_macro_surface_contract.md) | Current macro surface and provenance obligations | Current contract | Yes |
 | [workflow_lisp_stdlib_lowering.md](workflow_lisp_stdlib_lowering.md) | Stdlib lowering boundary | Partial: retained typed/shared-service scope | Only within evaluated admission |
-| [workflow_lisp_state_layout.md](workflow_lisp_state_layout.md) | Generated path and state layout ownership | Partial: retained typed/shared-service scope | Only within evaluated admission |
+| [workflow_lisp_state_layout.md](workflow_lisp_state_layout.md) | Generated path and state layout ownership | Historical; code removed 2026-11-12 (local tag `archive/old-ir-stack-2026-11-12`); current owner linked in the record | No |
 | [workflow_lisp_source_map.md](workflow_lisp_source_map.md) | Source-map provenance, including runtime structured-result field lineage | Partial: retained typed/shared-service scope | Only within evaluated admission |
 | [workflow_lisp_effect_graph.md](workflow_lisp_effect_graph.md) | Effect visibility | Partial: retained typed/shared-service scope | Only within evaluated admission |
-| [workflow_lisp_core_workflow_ast.md](workflow_lisp_core_workflow_ast.md) | Core Workflow AST | Partial: retained typed/shared-service scope | Only within evaluated admission |
-| [workflow_lisp_core_stmt_taxonomy.md](workflow_lisp_core_stmt_taxonomy.md) | Core statement classification | Partial: retained typed/shared-service scope | Only within evaluated admission |
+| [workflow_lisp_core_workflow_ast.md](workflow_lisp_core_workflow_ast.md) | Core Workflow AST | Historical; code removed 2026-11-12 (local tag `archive/old-ir-stack-2026-11-12`); current owner linked in the record | No |
+| [workflow_lisp_core_stmt_taxonomy.md](workflow_lisp_core_stmt_taxonomy.md) | Core statement classification | Historical; code removed 2026-11-12 (local tag `archive/old-ir-stack-2026-11-12`); current owner linked in the record | No |
 | [workflow_lisp_type_catalog.md](workflow_lisp_type_catalog.md) | Workflow Lisp type catalog | Partial | Yes |
 | [workflow_lisp_reference_catalog.md](workflow_lisp_reference_catalog.md) | Workflow Lisp reference/catalog material | Partial | Yes |
 | [workflow_lisp_proof_graph.md](workflow_lisp_proof_graph.md) | Variant proof and value authority | Partial | No |

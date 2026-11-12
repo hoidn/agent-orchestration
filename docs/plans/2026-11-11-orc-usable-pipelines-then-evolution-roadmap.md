@@ -301,9 +301,10 @@ every removed test is listed with the code it covered".
    old bundles today). `report` and the dashboard then drop their readers for
    runs of the retired runtime, with the tests held back for them.
 4. **Targets, in three steps:** collapse the monotone capability gates into
-   one table; migrate the packaged library and the catalog to the newest
-   target with a behavior comparison; remove the older procedure regime and
-   migrate or delete the fixtures that exist only for it. The same plan
+   one table; migrate the catalog and the fixtures to the newest target with
+   a behavior comparison; then, in one step, migrate the packaged library and
+   remove the older procedure regime (the library cannot move first: an older
+   module cannot import a newer one). The same plan
    deletes the source forms that are registered but refuse at build.
 5. **Surface coherence** (added 2026-11-12 from an assessment of the language
    by its compiler and about 55 provider-free programs; the coordinator
@@ -505,7 +506,12 @@ is manual. Phase plans are linked here as they start:
   unblocks stage 3, the old IR stack.
 - Lane D, dead executors, done: [dead executors and `StateManager` plan](2026-11-11-lane-d-dead-executors-and-state-manager-plan.md).
   Stages 1 and 2 are merged; the two live-provider source forms stay (decision 9).
-- Lane D, old IR stack, started: [stage 3 plan](2026-11-12-lane-d-stage-3-old-ir-stack-plan.md).
+- Lane D, old IR stack, done: [stage 3 plan](2026-11-12-lane-d-stage-3-old-ir-stack-plan.md).
+  The old stack's modules are gone and nothing imports them (code kept at the local tag
+  `archive/old-ir-stack-2026-11-12`); a small leftovers list remains in the plan's ledger.
+- Lane D, one target, planned: [stage 4 plan](2026-11-12-lane-d-stage-4-one-target-plan.md),
+  written and under review; not accepted yet.
+- Lane D, surface coherence: design in progress (stage 5).
 - Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
   after every record; memo reduction now continues from the last fold, a start the evaluator has
   just reached is published without a replay, and two compile passes skip work that cannot matter.
