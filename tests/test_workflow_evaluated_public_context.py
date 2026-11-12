@@ -27,30 +27,14 @@ from tests.test_workflow_lisp_closed_program_elaboration import _BIND_PROC_CAPTU
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests import workflow_evaluated_context_helpers as context_helpers
 from tests import workflow_evaluated_totality_helpers as totality_helpers
-from tests.workflow_inprocess_cli import run_cli_in_process
-
-
-def _compile_in_process(files):
-    """`compile_public` with the compile step run in this process; it is setup in every test here."""
-    workspace = files["workspace"]
-    argv = ["compile", str(files["source"]), "--source-root", str(files["source_root"]),
-            "--provider-externs-file", str(files["providers"]),
-            "--prompt-externs-file", str(files["prompts"]),
-            "--command-boundaries-file", str(files["commands"])]
-    if "imports" in files:
-        argv += ["--imported-workflow-bundles-file", str(files["imports"])]
-    result = run_cli_in_process(workspace, argv)
-    (workspace / "compile.stdout").write_text(result.stdout)
-    (workspace / "compile.stderr").write_text(result.stderr)
-    (workspace / "compile.argv.json").write_text(json.dumps(["orchestrator", *argv]))
-    assert result.returncode == 0, result.stderr
+from tests.workflow_inprocess_cli_helpers import compile_public_inprocess
 
 
 @pytest.fixture(autouse=True)
 def _fast_compile(monkeypatch):
     for module in (totality_helpers, context_helpers):
-        monkeypatch.setattr(module, "compile_public", _compile_in_process)
-    monkeypatch.setitem(globals(), "compile_public", _compile_in_process)
+        monkeypatch.setattr(module, "compile_public", compile_public_inprocess)
+    monkeypatch.setitem(globals(), "compile_public", compile_public_inprocess)
 
 
 PROVIDER_PATH_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
