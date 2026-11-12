@@ -6,15 +6,19 @@ Usage: check.py SESSION_DIR
 Copies SESSION_DIR (the agent's tally.orc, commands.json and scripts) into a
 fresh directory per case, with a pristine line_count.sh from this kit, and runs
 the `orchestrator` found on PATH there: `compile` once, then `run` and
-`report --format json` for a visible case and two hidden cases. A case passes
-when `run` exits 0 and `run.workflow_outputs` equals the expected record; a
-hidden case also needs line_count.sh to have been called during its run.
-Prints one JSON object and exits 0 on a pass, 1 on a fail. Calls no model.
+`report --format json` for a visible case, two fixed hidden cases and one
+hidden case drawn at random now, whose expected record follows from the rule
+in task.md. A case passes when `run` exits 0, `run.workflow_outputs` equals the
+expected record, the report shows at least rounds + 1 completed command steps,
+and line_count.sh was called exactly rounds + 1 times (one count per round), so
+a single script that does the whole loop fails. Prints one JSON object and
+exits 0 on a pass, 1 on a fail. Calls no model.
 """
 
 from __future__ import annotations
 
 import json
+import secrets
 from pathlib import Path
 import shutil
 import subprocess
@@ -24,12 +28,20 @@ import tempfile
 KIT = Path(__file__).resolve().parent
 TIMEOUT_SEC = 120
 MANIFEST = ("--command-boundaries-file", "commands.json")
-# (name, lines already in notes.txt, target, expected record, hidden)
-CASES = (
-    ("visible", 2, 5, {"lines": 5, "rounds": 3}, False),
-    ("hidden_already_satisfied", 4, 3, {"lines": 4, "rounds": 0}, True),
-    ("hidden_bound_reached", 1, 50, {"lines": 7, "rounds": 6}, True),
-)
+MAX_ROUNDS = 6
+# (name, lines already in notes.txt, target)
+FIXED_CASES = (("visible", 2, 5), ("hidden_already_satisfied", 4, 3), ("hidden_bound_reached", 1, 50))
+
+
+def expected(lines: int, target: int) -> dict:
+    """task.md's rule: append until the count reaches target, at most six times."""
+    rounds = min(MAX_ROUNDS, max(0, target - lines))
+    return {"lines": lines + rounds, "rounds": rounds}
+
+
+def cases() -> list[tuple[str, int, int]]:
+    # Drawn at check time, so a table of the fixed cases fails; target > 5 never equals a fixed case.
+    return [*FIXED_CASES, ("hidden_random", secrets.randbelow(5), 6 + secrets.randbelow(7))]
 IGNORED = shutil.ignore_patterns(".orchestrate", "line_count.calls")
 
 
@@ -48,28 +60,34 @@ def _workspace(session: Path, parent: Path, name: str) -> Path:
     return workspace
 
 
-def _outputs(workspace: Path) -> object:
+def _report(workspace: Path) -> tuple[object, int]:
+    """(run.workflow_outputs, number of completed command steps) from `report --format json`."""
     runs = sorted((workspace / ".orchestrate" / "runs").glob("*"))
     if len(runs) != 1:
-        return None
+        return None, 0
     report = _orchestrator(workspace, "report", "--run-id", runs[0].name, "--format", "json")
     try:
-        return json.loads(report.stdout)["run"]["workflow_outputs"]
+        shown = json.loads(report.stdout)
+        steps = [step for step in shown["steps"] if step.get("kind") == "command" and step.get("status") == "completed"]
+        return shown["run"]["workflow_outputs"], len(steps)
     except (ValueError, KeyError, TypeError):
-        return None
+        return None, 0
 
 
-def _case(session: Path, parent: Path, name: str, lines: int, target: int, expected: dict, hidden: bool) -> dict:
+def _case(session: Path, parent: Path, name: str, lines: int, target: int) -> dict:
     workspace = _workspace(session, parent, name)
     (workspace / "notes.txt").write_text("".join(f"line {n}\n" for n in range(lines)), encoding="utf-8")
     run = _orchestrator(workspace, "run", "tally.orc", *MANIFEST,
                         "--input", "file=notes.txt", "--input", f"target={target}")
     calls_log = workspace / "line_count.calls"
     calls = len(calls_log.read_text().splitlines()) if calls_log.exists() else 0
-    outputs = _outputs(workspace) if run.returncode == 0 else None
-    passed = run.returncode == 0 and outputs == expected and (calls > 0 or not hidden)
-    return {"case": name, "passed": passed, "run_exit": run.returncode, "outputs": outputs,
-            "expected": expected, "line_count_calls": calls, "stderr_tail": run.stderr[-2000:]}
+    outputs, command_steps = _report(workspace) if run.returncode == 0 else (None, 0)
+    want = expected(lines, target)
+    passed = (run.returncode == 0 and outputs == want and command_steps >= want["rounds"] + 1
+              and calls == want["rounds"] + 1)
+    return {"case": name, "lines": lines, "target": target, "passed": passed, "run_exit": run.returncode,
+            "outputs": outputs, "expected": want, "command_steps": command_steps, "line_count_calls": calls,
+            "stderr_tail": run.stderr[-2000:]}
 
 
 def check(session: Path) -> dict:
@@ -79,7 +97,7 @@ def check(session: Path) -> dict:
         result = {"session": str(session), "compile_exit": compiled.returncode,
                   "compile_stderr_tail": compiled.stderr[-2000:], "cases": []}
         if compiled.returncode == 0:
-            result["cases"] = [_case(session, parent, *case) for case in CASES]
+            result["cases"] = [_case(session, parent, *case) for case in cases()]
     result["passed"] = compiled.returncode == 0 and all(case["passed"] for case in result["cases"])
     return result
 
