@@ -156,7 +156,6 @@ class ReferenceResolver:
             else:
                 raise ReferenceResolutionError(f"Structured ref target scope is unavailable for '{ref}'")
         elif ref.startswith("parent.steps."):
-            parts = ref.split(".")
             step_results = scope_map.get("parent_steps") if scope_map is not None else None
             if not isinstance(step_results, dict):
                 raise ReferenceResolutionError(f"Structured ref target scope is unavailable for '{ref}'")
