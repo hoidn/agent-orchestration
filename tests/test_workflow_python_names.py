@@ -129,3 +129,53 @@ def test_a_callee_parameter_called_name_keeps_its_argument(tmp_path):
         return greet(name=task)
     ''')
     assert built.program.tree["body"]["name"] == "_greet"
+
+
+def test_a_form_nested_in_one_arm_keeps_the_sibling_arm_sites(tmp_path):
+    base = '''
+    return when(task == "x", then=lambda: agent(review(task=task)), else_=lambda: agent(plan(task=task)))
+    '''
+    nested = '''
+    return when(task == "x",
+        then=lambda: concat(when(task == "y", then=lambda: "a", else_=lambda: "b"), agent(review(task=task))),
+        else_=lambda: agent(plan(task=task)))
+    '''
+    else_site = "_when / body / else / _plan"
+    assert else_site in _sites(tmp_path / "base", base)
+    assert else_site in _sites(tmp_path / "nested", nested)
+
+
+def _refusal(root: Path, body: str) -> tuple[str, str]:
+    with pytest.raises(PythonFrontendError) as refused:
+        _sites(root, body)
+    lines = (root / "sample.py").read_text(encoding="utf-8").splitlines()
+    return refused.value.code, lines[refused.value.site.line - 1].strip()
+
+
+def test_a_name_on_a_loop_tail_branch_is_refused_at_its_python_line(tmp_path):
+    body = '''
+    return loop(state=0, max=3,
+        body=lambda n: when(n == 2, then=lambda: done(task), else_=lambda: cont(n + 1), name="decide"),
+        on_exhausted=lambda n: task)
+    '''
+    assert _refusal(tmp_path, body) == (
+        "python_binder_name_unbound",
+        'body=lambda n: when(n == 2, then=lambda: done(task), else_=lambda: cont(n + 1), name="decide"),',
+    )
+
+
+@pytest.mark.parametrize("reserved", ["true", "if", "match"])
+def test_an_orc_literal_or_form_name_is_refused_as_a_binder(tmp_path, reserved):
+    body = f'''
+    return agent(review(task=task), name="{reserved}")
+    '''
+    assert _refusal(tmp_path, body) == (
+        "python_binder_name_reserved", f'return agent(review(task=task), name="{reserved}")',
+    )
+
+
+def test_all_of_refuses_a_name_at_its_python_line(tmp_path):
+    body = '''
+    return when(all_of(lambda: task == "x", name="both"), then=lambda: task, else_=lambda: task)
+    '''
+    assert _refusal(tmp_path, body)[0] == "python_binder_name_unsupported"

@@ -3,7 +3,10 @@
 Effect binders follow their callee: the first use of callee `c` binds `_c`,
 later uses `_c_2`, `_c_3`, ... (characters outside `[A-Za-z0-9_]` become `_`),
 so inserting a step renames only later uses of the same callee. An explicit
-`name=` is the binder verbatim. Region binders (match payloads, loop state)
+`name=` is the binder verbatim; it must be a Python identifier that is not an
+`.orc` literal (`true`, `false`, `nil`) or form name. Callees that normalize
+to the same identifier (`a-b` and `a_b`, a command `loop` and the `loop` form)
+share one counter, so inserting one renames later uses of the other. Region binders (match payloads, loop state)
 keep per-kind counters `_<prefix><n>`. Every name is unique per definition and
 never shadows a Python parameter.
 """
@@ -13,6 +16,11 @@ from dataclasses import dataclass, field
 import re
 
 from .diagnostics import PythonFrontendError
+
+
+def _orc_reserved() -> frozenset[str]:
+    from orchestrator.workflow_lisp.form_registry import registered_form_heads
+    return frozenset({"true", "false", "nil", *registered_form_heads()})
 
 
 @dataclass
@@ -42,6 +50,8 @@ class NameAllocator:
     def explicit(self, name, site):
         if not isinstance(name, str) or not name.isidentifier():
             raise PythonFrontendError("python_binder_name_invalid", "name= requires a Python identifier string", site=site)
+        if name in _orc_reserved():
+            raise PythonFrontendError("python_binder_name_reserved", f"`{name}` is an .orc literal or form name, not a binder", site=site)
         if name in self.reserved:
             raise PythonFrontendError("python_binder_name_taken", f"Binder `{name}` is already used in this definition", site=site)
         self.reserved.add(name)

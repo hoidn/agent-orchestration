@@ -253,8 +253,13 @@ class Trace:
         result = child.run(function, arguments)
         return child, result, binder
 
-    def bind(self, expression: Expr, *, callee: str, name: str | None = None) -> Expr:
-        """Bind `expression` as `name`, or as the next binder of `callee` (see names.py)."""
+    def reserve(self, callee, name=None, *, site=None):
+        """The binder for one use of `callee`: `name` if given, else the next `_<callee>` (see names.py)."""
+        return self.names.callee(callee) if name is None else self.names.explicit(name, site or author_site())
+
+    def bind(self, expression: Expr, *, callee: str | None = None, name: str | None = None,
+             binder: str | None = None) -> Expr:
+        """Bind `expression` as a `binder` already reserved, or reserve one for `callee`/`name`."""
         self.validate_value(expression)
         if _contains_loop_control(expression):
             raise PythonFrontendError(
@@ -262,10 +267,9 @@ class Trace:
                 "Loop transfers must remain in the tail position of a loop body",
                 site=expression._site,
             )
-        name = (self.names.callee(callee) if name is None
-                else self.names.explicit(name, expression._site))
-        self.bindings.append((name, expression))
-        return self.reference(name, expression._annotation, site=expression._site)
+        binder = binder or self.reserve(callee, name, site=expression._site)
+        self.bindings.append((binder, expression))
+        return self.reference(binder, expression._annotation, site=expression._site)
 
     def run(self, function, arguments):
         token = _ACTIVE.set(self)
@@ -368,16 +372,30 @@ def _closed_union(annotation):
             all(getattr(case, "_orc_kind", None) == "variant" for case in args))
 
 
+def _bind_branch(trace, expression, binder, name):
+    """Bind a `when`/`match`, or return it unbound when it carries a tail loop control."""
+    if not _contains_loop_control(expression):
+        return trace.bind(expression, binder=binder)
+    if name is not None:
+        raise PythonFrontendError("python_binder_name_unbound",
+            "name= cannot apply: a branch that holds cont/done is a loop tail and has no binder",
+            site=expression._site)
+    return expression
+
+
 def when(condition, *, then, else_, name=None):
     trace = active_trace()
     trace.validate_value(condition)
+    # The form takes its name before its arms do, so a form nested in an arm
+    # never renames the enclosing one.
+    binder = trace.reserve("when", name)
     then_region = trace.region(then)
     else_region = trace.region(else_)
     expression = trace.expression(
         "when", (condition, then_region[:2], else_region[:2]),
         _branch_annotation(trace.generator, (then_region[1], else_region[1])),
     )
-    return expression if _contains_loop_control(expression) else trace.bind(expression, callee="when", name=name)
+    return _bind_branch(trace, expression, binder, name)
 
 
 def match(value, *, name=None, **cases):
@@ -394,13 +412,14 @@ def match(value, *, name=None, **cases):
     names = [variant.__name__ for variant in variants]
     if len(set(names)) != len(names) or set(cases) != set(names):
         raise PythonFrontendError("python_match_cases", "match requires exactly one arm for every named union case", site=author_site())
+    binder = trace.reserve("match", name)
     arms = []
     for variant in variants:
         child, result, binder = trace.region(cases[variant.__name__], binder_type=variant)
         arms.append((variant, binder, child, result))
     annotation = _branch_annotation(trace.generator, [result for _, _, _, result in arms])
     expression = trace.expression("match", (value, tuple(arms)), annotation)
-    return expression if _contains_loop_control(expression) else trace.bind(expression, callee="match", name=name)
+    return _bind_branch(trace, expression, binder, name)
 
 
 def _require_host_input_target(generator, *, site=None):
@@ -418,14 +437,18 @@ def ask(question, *, returns, timeout_sec=None, show=(), name=None):
                       callee="ask", name=name)
 
 
-def _boolean_thunks(kind, thunks):
+def _boolean_thunks(kind, thunks, options):
     trace = active_trace()
+    if options:
+        raise PythonFrontendError("python_binder_name_unsupported",
+            f"{kind} takes only thunks; it accepts no {', '.join(sorted(options))}=", site=author_site())
+    binder = trace.reserve(kind)
     regions = tuple(trace.region(thunk)[:2] for thunk in thunks)
-    return trace.bind(trace.expression(kind, regions, bool), callee=kind)
+    return trace.bind(trace.expression(kind, regions, bool), binder=binder)
 
 
-def all_of(*thunks): return _boolean_thunks("all_of", thunks)
-def any_of(*thunks): return _boolean_thunks("any_of", thunks)
+def all_of(*thunks, **options): return _boolean_thunks("all_of", thunks, options)
+def any_of(*thunks, **options): return _boolean_thunks("any_of", thunks, options)
 
 
 def length(value): return declaration_expression("op", ("list/length", value), int)
@@ -441,6 +464,7 @@ def loop(*, state, max, body, on_exhausted, name=None):
     if state_type is None and type(state) in {bool, int, float, str}:
         state_type = type(state)
     owner = object()
+    binder = trace.reserve("loop", name)
     body_region = trace.region(
         body, binder_type=state_type, binder_required=True, binder_prefix="loop",
         loop_owner=owner, loop_state_type=state_type,
@@ -454,7 +478,7 @@ def loop(*, state, max, body, on_exhausted, name=None):
     annotation = _branch_annotation(trace.generator, result_values)
     return trace.bind(trace.expression(
         "loop", (max, state, body_region, exhausted_region, owner), annotation,
-    ), callee="loop", name=name)
+    ), binder=binder)
 
 
 def cont(state):

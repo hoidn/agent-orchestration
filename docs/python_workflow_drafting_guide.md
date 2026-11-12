@@ -103,8 +103,10 @@ Generated step names follow the callee: the first `work(...)` call in a
 function binds `_work`, the next `_work_2`. Inserting a call of another callee
 leaves these names, and the steps' recorded identities, unchanged. Pass
 `name="x"` to an effect call, `when`, `match`, `loop` or `ask` to fix a step's
-name against any insertion; the [design](design/python_workflow_frontend.md#branches-matching-and-loops)
-owns the rule.
+name against any insertion. A called workflow or procedure that has its own
+parameter `name` takes `name=` as that argument instead. The
+[design](design/python_workflow_frontend.md#branches-matching-and-loops)
+owns the rule and its refusals.
 
 The module's `TARGET` defaults to 2.39; admitted targets are 2.35–2.40.
 Procedures infer effects at 2.39 and later. Older targets require explicit effect

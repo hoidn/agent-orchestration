@@ -388,16 +388,26 @@ A binder names its callee, so inserting a step renames only later uses of the
 same callee. Within one workflow function, the first use of a command, prompt
 (through its provider call), called definition, `when`, `match`, `loop`, `ask`,
 `all_of` or `any_of` binds `_<callee>`; later uses bind `_<callee>_2`,
-`_<callee>_3` and so on, skipping names already taken. Characters outside
-`[A-Za-z0-9_]` become `_`. Every effect call, `when`, `match`, `loop` and `ask`
-accept `name="x"`, which is the binder verbatim; a name already used in the
-function, including a parameter, fails at its Python line with
-`python_binder_name_taken`. A called definition whose own parameter is `name`
-receives `name=` as that argument. The Python variable never names a binder.
-Match payload and loop state binders keep their `_case<n>`, `_loop<n>` and
-`_exhausted<n>` counters. A changed rule changes the program digest of an
-unchanged source once, so a rebuild starts a new run; an existing run resumes
-from its retained `.orc` snapshot.
+`_<callee>_3` and so on, skipping names already taken. A `when`, `match`,
+`loop`, `all_of` or `any_of` takes its name before its arms are traced, so a
+form nested in an arm never renames the enclosing form. Characters outside
+`[A-Za-z0-9_]` become `_`, and callees that become the same identifier (`a-b`
+and `a_b`, a command `loop` and the `loop` form) share one counter, so
+inserting one renames later uses of the other. Effect calls, `when`, `match`,
+`loop` and `ask` accept `name="x"`, which is the binder verbatim. At its Python
+line, the call is refused with `python_binder_name_taken` when the name is
+already used in the function (parameters included), `python_binder_name_reserved`
+for an `.orc` literal or form name such as `true` or `if`,
+`python_binder_name_invalid` for a non-identifier, and
+`python_binder_name_unbound` on a `when` or `match` that holds a loop's
+`cont`/`done` and so has no binder. `all_of` and `any_of` refuse `name=` with
+`python_binder_name_unsupported`. A called definition whose own parameter is
+`name` receives `name=` as that argument, and its binder follows the callee
+rule. The Python variable never names a binder. Match payload and loop state
+binders keep their `_case<n>`, `_loop<n>` and `_exhausted<n>` counters. A
+changed rule changes the program digest of an unchanged source once, so a
+rebuild starts a new run; an existing run resumes from its retained `.orc`
+snapshot.
 
 ## Modules And The `.orc` Bridge
 
