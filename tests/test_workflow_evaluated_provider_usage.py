@@ -14,7 +14,6 @@ import sys
 
 import pytest
 
-from orchestrator.providers.registry import ProviderRegistry
 from tests.workflow_evaluated_consumer_sources import PROGRAMS, install
 
 
@@ -40,6 +39,10 @@ def line(row):
     sys.stdout.write(json.dumps(row) + "\n")
 if mode == "garbage":
     sys.stdout.write("not a transport line\n")
+elif mode == "wrong-shape":
+    line({"type": "assistant", "message": "x"})
+elif mode == "deep":
+    sys.stdout.write("[" * 100000 + "]" * 100000 + "\n")
 elif transport and tool == "claude":
     sid = "00000000-0000-4000-8000-000000000001"
     line({"type": "system", "subtype": "init", "session_id": sid})
@@ -47,6 +50,8 @@ elif transport and tool == "claude":
         line({"type": "assistant", "session_id": sid, "message": {"id": f"msg_{n}", "model": "claude-haiku-5-5",
               "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 11, "output_tokens": 1,
               "cache_read_input_tokens": 5, "cache_creation_input_tokens": 3}}})
+    if mode == "hang":
+        sys.stdout.flush(); import time; time.sleep(60)
     line({"type": "result", "subtype": "success", "is_error": False, "result": messages[-1], "session_id": sid,
           "total_cost_usd": 0.25, "modelUsage": {"claude-haiku-5-5": {"inputTokens": 11, "outputTokens": 7,
           "cacheReadInputTokens": 5, "cacheCreationInputTokens": 3, "costUSD": 0.25}}})
@@ -62,16 +67,29 @@ else:
 sys.stdout.flush()
 if mode == "fail":
     sys.exit(3)
+if mode == "squat":         # a file already where the runtime writes usage.json: that write fails
+    Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).with_name("usage.json").write_text("{}")
 if mode != "no-result":
     Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text('{"ok": true}', encoding="utf-8")
 '''
 
-CLAUDE_USAGE = {"status": "reported", "source": "result.modelUsage", "reported_cost_usd": 0.25, "rows": [
+CLAUDE_USAGE = {"status": "reported", "source": "result.modelUsage", "reported_cost_usd": 0.25, "complete": True, "rows": [
     {"model": "claude-haiku-5-5", "tokens": {"input": 11, "output": 7, "cache_read": 5, "cache_write": 3}}]}
-CODEX_USAGE = {"status": "reported", "source": "turn.completed.usage", "reported_cost_usd": None, "rows": [
+CODEX_USAGE = {"status": "reported", "source": "turn.completed.usage", "reported_cost_usd": None, "complete": True, "rows": [
     {"model": "gpt-5.6-terra", "tokens": {"input": 6, "output": 7, "cache_read": 5, "cache_write": 0}}]}
-PLAIN = sorted(name for name, template in ProviderRegistry()._builtin_providers.items()
-               if template.command[0] in ("claude", "codex") and template.command_metadata_mode is None)
+# The built-in plain templates and the argv each passes today (`PROMPT` stands for the argv prompt).
+PLAIN_ARGV = {
+    **{name: ["-p", "PROMPT", "--model", "claude-haiku-5-5", "--effort", "high"]
+       for name in ("claude", "claude_sonnet_summary", "claude_haiku_summary")},
+    "claude_unrestricted_workspace": ["-p", "--model", "claude-haiku-5-5", "--effort", "high",
+                                      "--permission-mode", "bypassPermissions"],
+    **{name: ["exec", "--model", "claude-haiku-5-5", "--config", "model_reasoning_effort=high",
+              "--dangerously-bypass-approvals-and-sandbox"] for name in ("codex", "codex_gpt55")},
+    **{name: ["exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model",
+              "claude-haiku-5-5", "--config", "model_reasoning_effort=high"]
+       for name in ("codex_unrestricted_workspace", "codex_gpt55_unrestricted_workspace")},
+}
+PLAIN = sorted(PLAIN_ARGV)
 
 
 def _workspace(root: Path, template: str, model: str = "claude-haiku-5-5") -> Path:
@@ -123,8 +141,12 @@ def test_unmetered_templates_keep_plain_stdout_and_terminal_text(tmp_path, templ
     """Today's plain call: the CLI prints its final message and a newline; the run then prints the value."""
     root = _workspace(tmp_path / "w", template)
     result = _run(root, messages=json.dumps(messages))
-    assert (result.returncode, result.stdout, (_attempts(root)[0] / "stdout.txt").read_text()) == (
-        0, messages[-1] + "\n" + '{"ok":true}\n', messages[-1] + "\n"), result.stderr
+    attempt = _attempts(root)[0]
+    (call,) = [json.loads(line) for line in (root / "argv.jsonl").read_text().splitlines()]
+    prompt = (attempt / "prompt.txt").read_text()
+    argv = ["PROMPT" if word == prompt else word for word in call["argv"]]
+    assert (result.returncode, result.stdout, (attempt / "stdout.txt").read_text(), argv) == (
+        0, messages[-1] + "\n" + '{"ok":true}\n', messages[-1] + "\n", PLAIN_ARGV[template]), result.stderr
 
 
 @pytest.mark.parametrize(("template", "model", "expected"), [
@@ -251,3 +273,32 @@ def test_phased_attempt_records_no_transport(tmp_path):
         bindings.preflight_candidates(bindings.compose_attempt(bindings.allocate_attempt(), deadline=bindings.deadline))
         bindings.candidates.close()
     assert json.loads(attempt.attempt_files.read("usage.json")) == {"status": "unknown", "reason": "no_transport"}
+
+
+def _completed_once_and_resumes_without_a_launch(root: Path, result) -> None:
+    assert (result.returncode, _memo(root)[-1]["outcome"]) == (0, "completed"), result.stderr
+    (run_id,) = [path.name for path in (root / ".orchestrate" / "runs").iterdir()]
+    resumed = _orchestrator(root, "resume", run_id)
+    assert (resumed.returncode, len((root / "argv.jsonl").read_text().splitlines())) == (0, 1), resumed.stderr
+
+
+@pytest.mark.parametrize("mode", ["wrong-shape", "deep"])
+def test_wrong_shape_transport_never_fails_a_call_that_wrote_its_result(tmp_path, mode):
+    root = _workspace(tmp_path / "w", "claude_metered")
+    _completed_once_and_resumes_without_a_launch(root, _run(root, mode=mode))
+    assert _usage(_attempts(root)[0]) == {"status": "unknown", "reason": "malformed"}
+
+
+def test_a_failed_usage_write_never_fails_a_call_that_wrote_its_result(tmp_path):
+    root = _workspace(tmp_path / "w", "claude_metered")
+    _completed_once_and_resumes_without_a_launch(root, _run(root, mode="squat"))
+
+
+def test_timed_out_turn_records_incomplete_usage(tmp_path):
+    root = _workspace(tmp_path / "w", "claude_metered")
+    (root / "main.orc").write_text(SOURCE.replace("MODEL", "claude-haiku-5-5").replace(
+        ':effort "high"', ':effort "high" :timeout-sec 2'), encoding="utf-8")
+    result = _run(root, mode="hang")
+    assert (result.returncode, _memo(root)[1]["code"]) == (1, "provider_timeout"), result.stderr
+    usage = _usage(_attempts(root)[0])
+    assert (usage["source"], usage["complete"]) == ("assistant.message.usage", False)

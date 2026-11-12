@@ -2,17 +2,18 @@
 
 `usage_from_stdout(metadata_mode, raw_stdout, *, model)` returns
 
-    {"status": "reported", "source": str, "reported_cost_usd": float | None,
+    {"status": "reported", "source": str, "reported_cost_usd": float | None, "complete": bool,
      "rows": [{"model": str | None, "tokens": {"input", "output", "cache_read", "cache_write"}}]}
 
 or `{"status": "unknown", "reason": "no_transport" | "no_usage_event" | "malformed"}`; never zero for
-usage it could not read. Sources:
+usage it could not read, and never raises. Sources:
 
 - Claude `--output-format stream-json`: the last `result` line's `modelUsage`, one row per model, and
-  its `total_cost_usd`. Without a `result` line (a killed turn), the `assistant` lines' `message.usage`,
-  once per message id (Claude repeats a message's usage on each of its content-block lines; the last
-  wins). Those rows undercount output: stream-json assistant lines carry the output count of the
-  first streamed chunk, not of the finished message.
+  its `total_cost_usd` (an empty `modelUsage` with a cost keeps the cost, with no rows). Without a
+  usable `result` line (a killed, timed-out or terminated turn), the `assistant` lines'
+  `message.usage`, once per message id (Claude repeats a message's usage on each of its content-block
+  lines; the last wins), with `complete: false`: those rows are a lower bound, since stream-json
+  assistant lines carry the output count of the first streamed chunk, not of the finished message.
 - Codex `exec --json`: the last `turn.completed` line's `usage`; the model is the call's policy model.
   Charged input is input minus cached and cache-write tokens.
 
@@ -23,10 +24,12 @@ A cut final line (a killed writer) is ignored; any other undecodable line makes 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import stat
 from typing import Any, Iterable
 
-from .pricing import priced
+from .pricing import cap_cost
 from .types import ProviderSessionMetadataMode
 
 UNAVAILABLE = "unavailable"
@@ -61,9 +64,10 @@ def claude_message_rows(entries: Iterable[dict]) -> list[dict]:
     for n, entry in enumerate(entries):
         if entry.get("type") != "assistant":
             continue
-        message = entry.get("message") or {}
-        usage = message.get("usage") or {}
-        rows[message.get("id", n)] = {"model": message.get("model", UNAVAILABLE),
+        message = entry.get("message") if isinstance(entry.get("message"), dict) else {}
+        usage = message.get("usage") if isinstance(message.get("usage"), dict) else {}
+        key = message.get("id", n)
+        rows[key if isinstance(key, (str, int)) else n] = {"model": message.get("model", UNAVAILABLE),
                                       **{k: usage[k] if _is_int(usage.get(k)) else UNAVAILABLE
                                          for k in CLAUDE_FIELDS}}
     return list(rows.values())
@@ -111,6 +115,8 @@ def _events(raw_stdout: bytes) -> list[dict]:
             continue
         try:
             event = json.loads(line.decode("utf-8"))
+        except RecursionError:
+            raise _Malformed from None
         except ValueError:
             if index == len(lines) - 1 and line.startswith(b"{"):     # unterminated JSON: the writer was cut off
                 break
@@ -129,7 +135,7 @@ def _row(model, tokens) -> dict:
 
 def _claude(events: list[dict], model: str | None) -> dict | None:
     results = [event for event in events if event.get("type") == "result" and "modelUsage" in event]
-    if results:
+    if results and (results[-1]["modelUsage"] or _cost(results[-1]) is not None):
         return _claude_result(results[-1])
     messages = claude_message_rows(events)
     if not messages:
@@ -141,7 +147,7 @@ def _claude(events: list[dict], model: str | None) -> dict | None:
         for key, value in row["tokens"].items():
             into[key] += value
     return _reported("assistant.message.usage", [{"model": name, "tokens": tokens}
-                                                 for name, tokens in totals.items()], None)
+                                                 for name, tokens in totals.items()], None, complete=False)
 
 
 def _claude_result(result: dict) -> dict:
@@ -152,8 +158,12 @@ def _claude_result(result: dict) -> dict:
     for name, counts in per_model.items():
         native = {field: counts.get(key) for key, field in _MODEL_USAGE_FIELDS.items()}
         rows.append(_row(name, charge_tokens("claude", native, name)))
+    return _reported("result.modelUsage", rows, _cost(result))
+
+
+def _cost(result: dict) -> float | None:
     cost = result.get("total_cost_usd")
-    return _reported("result.modelUsage", rows, cost if type(cost) in (int, float) else None)
+    return cost if type(cost) in (int, float) else None
 
 
 def _codex(events: list[dict], model: str | None) -> dict | None:
@@ -166,8 +176,8 @@ def _codex(events: list[dict], model: str | None) -> dict | None:
     return _reported("turn.completed.usage", [_row(model, codex_charge_tokens(usage))], None)
 
 
-def _reported(source: str, rows: list[dict], cost: float | None) -> dict:
-    return {"status": "reported", "source": source, "reported_cost_usd": cost, "rows": rows}
+def _reported(source: str, rows: list[dict], cost: float | None, *, complete: bool = True) -> dict:
+    return {"status": "reported", "source": source, "reported_cost_usd": cost, "complete": complete, "rows": rows}
 
 
 _READERS = {_CLAUDE: _claude, _CODEX: _codex}
@@ -186,32 +196,66 @@ def usage_from_stdout(metadata_mode: str | None, raw_stdout: bytes, *, model: st
 
 
 def spent(run_root: Path, table: dict, *, in_flight: frozenset[str] = frozenset()) -> tuple[float, list[str]]:
-    """Priced usage of the run's provider attempts, and the attempts whose spend is unknown.
+    """The cap's figure for the run's provider attempts (`pricing.cap_cost`), and the attempts whose spend is unknown.
 
-    A provider attempt is an `effects/<sha>/attempt-<n>/` holding `prompt.txt`. One without a readable
-    `reported` `usage.json` (unknown usage, an unpriced model, a run recorded before usage existed, an
-    interrupted call) is listed, never counted as zero; `in_flight` (run-relative attempt directories
-    still running) are skipped.
+    A provider attempt is an `effects/<sha>/attempt-<n>/` directory holding a regular `prompt.txt`.
+    Every attempt with a regular `usage.json` is counted; one whose usage is unknown, incomplete or
+    unpriced is listed, never counted as zero. An attempt without `usage.json` is skipped only when it
+    is in `in_flight` (run-relative directories this invocation started and has not finished), else
+    listed. Symbolic links are never followed.
     """
     total, unmetered = 0.0, []
-    for prompt in sorted(Path(run_root).glob("effects/*/attempt-*/prompt.txt")):
-        attempt = prompt.parent.relative_to(run_root).as_posix()
-        if attempt in in_flight:
+    for attempt in _attempt_dirs(Path(run_root)):
+        relative = attempt.relative_to(run_root).as_posix()
+        usage = _regular_json(attempt / "usage.json")
+        if usage is _ABSENT and relative in in_flight:
             continue
-        cost = _attempt_cost(prompt.parent / "usage.json", table)
+        cost = None if usage is _ABSENT else cap_cost(usage, table)
         if cost is None:
-            unmetered.append(attempt)
+            unmetered.append(relative)
         else:
             total += cost
     return total, unmetered
 
 
-def _attempt_cost(path: Path, table: dict) -> float | None:
+_ABSENT = object()
+
+
+def _attempt_dirs(run_root: Path) -> list[Path]:
+    attempts = []
+    for effect in _real_dirs(run_root / "effects"):
+        attempts.extend(path for path in _real_dirs(effect)
+                        if path.name.startswith("attempt-") and _is_regular(path / "prompt.txt"))
+    return sorted(attempts)
+
+
+def _real_dirs(path: Path) -> list[Path]:
     try:
-        usage = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        with os.scandir(path) as entries:
+            return [Path(entry.path) for entry in entries if entry.is_dir(follow_symlinks=False)]
+    except OSError:
+        return []
+
+
+def _is_regular(path: Path) -> bool:
+    try:
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _regular_json(path: Path) -> Any:
+    """The parsed file, `_ABSENT` when there is none, or None when it is not a readable regular JSON file."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return _ABSENT
+    except OSError:
         return None
-    rows = usage.get("rows") if isinstance(usage, dict) and usage.get("status") == "reported" else None
-    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
-        return None
-    return priced(rows, table)
+    with os.fdopen(descriptor, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            return None
+        try:
+            return json.loads(stream.read().decode("utf-8"))
+        except (ValueError, RecursionError):
+            return None

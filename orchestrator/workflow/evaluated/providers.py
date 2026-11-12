@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from hashlib import sha256
 import json
+import logging
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
@@ -23,7 +24,7 @@ from orchestrator.contracts.closed_program.program import strip_provenance
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
-from orchestrator.providers.session_transport import decoded_assistant_text
+from orchestrator.providers.session_transport import create_session_transport_accumulator
 from orchestrator.providers.usage import usage_from_stdout
 from orchestrator.providers.types import ProviderParams, ProviderSessionMetadataMode
 from orchestrator.contracts.output_contract import (
@@ -34,6 +35,7 @@ from .commands import CommandPerformerError, validate_effect_result
 from .prompts import assemble_provider_prompt_with_cut, provider_expected_outputs
 
 
+logger = logging.getLogger(__name__)
 DELIVERY_SELECTORS = {"legacy": "legacy", "file/1": "file", "file/2": "file/2"}
 FILE_DELIVERY_NAME = "file/2"  # the current file rendering for new ordinary provider rows
 PHASED_DELIVERY_NAME = "file/1"  # the phased protocol retains its separator-inclusive contract cut
@@ -281,9 +283,7 @@ def launch_provider(
     finally:
         attempt_files.create("stdout.txt", stdout, exclusive=True)
         attempt_files.create("stderr.txt", stderr, exclusive=True)
-        policy = invocation.prepared_provider_policy if invocation is not None else None
-        record_usage(attempt_files, invocation.metadata_mode if invocation is not None else None, stdout,
-                     model=policy.model if policy is not None else None)
+        record_usage(attempt_files, invocation, stdout)
     if invocation.metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
         if not execution.normalized_stdout:
             raise ProviderPerformerError(
@@ -325,19 +325,55 @@ def _prepare_provider_invocation(node, resolved, result_path, executor, *, sessi
     )
 
 
-def record_usage(attempt_files, metadata_mode, raw_stdout, *, model):
-    """Write `usage.json`, the usage the attempt's transport stdout reports (`unknown` without one).
+NOT_DISPATCHED_USAGE = {"status": "reported", "source": "not_dispatched", "reported_cost_usd": None,
+                        "complete": True, "rows": []}
+NO_TRANSPORT_USAGE = {"status": "unknown", "reason": "no_transport"}
 
-    A view beside the attempt evidence: no memo row, input part or digest refers to it.
+
+def record_usage(attempt_files, invocation, raw_stdout):
+    """Write `usage.json`: what the attempt's transport stdout reports (`unknown` without one), or zero
+    when preparation failed and nothing was dispatched (`invocation` is None)."""
+    try:
+        policy = None if invocation is None else invocation.prepared_provider_policy
+        usage = NOT_DISPATCHED_USAGE if invocation is None else usage_from_stdout(
+            invocation.metadata_mode, raw_stdout, model=policy.model if policy is not None else None)
+    except Exception as exc:  # the reader never raises; this keeps a reader bug from deciding an outcome
+        usage = {"status": "unknown", "reason": "malformed"}
+        logger.warning("[provider_usage_malformed] %s: %s", attempt_files.workspace, exc)
+    write_usage(attempt_files, usage)
+
+
+def write_usage(attempt_files, usage):
+    """Create `usage.json`, a view beside the attempt evidence that no memo row, input part or digest refers to.
+
+    Never raises: a failure is logged, the call's own outcome stands, and the missing file reads as
+    unmetered under a spend cap.
     """
-    usage = usage_from_stdout(metadata_mode, raw_stdout, model=model)
-    attempt_files.create("usage.json", (json.dumps(usage, sort_keys=True) + "\n").encode("utf-8"), exclusive=True)
+    try:
+        attempt_files.create("usage.json", (json.dumps(usage, sort_keys=True) + "\n").encode("utf-8"), exclusive=True)
+    except Exception as exc:
+        logger.warning("[provider_usage_unrecorded] %s: %s", attempt_files.workspace, exc)
 
 
 def provider_transport(executor, node) -> str | None:
     """The plain-call transport (`command_metadata_mode`) of the template a provider node names."""
     template = executor.registry.get(node["provider"])
     return template.command_metadata_mode if template is not None else None
+
+
+def decoded_assistant_text(metadata_mode, raw_stdout: bytes) -> str | None:
+    """The assistant text a Claude or Codex transport carried (up to any bad line), else None."""
+    if metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
+        return None
+    accumulator = create_session_transport_accumulator(metadata_mode)
+    if accumulator is None:
+        return None
+    try:
+        accumulator.feed(raw_stdout)
+        accumulator.finalize(expected_session_id=None, require_terminal=False)
+    except RecursionError:
+        return None
+    return accumulator.normalized_stdout
 
 
 def _reply_excerpt(attempt_files, transport=None):
