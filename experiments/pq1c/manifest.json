@@ -1,0 +1,8 @@
+{
+  "cell_claude.sh": "6cc62dbf5714c6d3b87d0da333e12b7518f77af094b6e12285ea905d74bf1ac8",
+  "criterion.json": "191b5abaf521d376b3d48ca8dbf35b752115b27e411770b3d732e617f0870832",
+  "inputs.json": "bc614b9ac68a39f4155b6b3dc5994c996f681d629f069fca58b184e3af634dbd",
+  "providers.json": "d4ab6c49a91c6abd5c175ec0c6e0b2b28802d8d0727b9fb1aa597c2447699cbd",
+  "readout.py": "204c1b83b88d7dd1a7a787fb61cdc280ed0fe0ccd1b3319a061fa37259e079b6",
+  "run_cell.sh": "cbfffd55f40b17558d116bba96cdda3ea36eeda6a67469fc065d51c4616bc836"
+}

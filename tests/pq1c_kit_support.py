@@ -1,7 +1,8 @@
 """Shared stand-ins and drivers for the PQ-1c kit tests (`tests/test_pq1c_kit.py`, `tests/test_pq1c_readout.py`).
 
-The stand-in `claude` is the agent-session shim of `tests/agent_session_shims.py`. Its init event names
-`claude-haiku-5-5` and its closing `result` line carries usage, as the metering stand-ins print, so the
+The stand-in `claude` is the agent-session shim of `tests/agent_session_shims.py`. Its init event has the
+shape of a real isolated session's (built-in plugins and agents only, `claude-haiku-5-5`), it keeps its
+transcripts where the real CLI does, and its closing `result` line carries usage, as the metering stand-ins print, so the
 variant's agent turns and the baseline's plain metered calls both record priced usage. It carries the
 kit's stand-in marker line, logs every invocation (argv, cwd, the nesting marker, the rehearsal slots
 claimed at that moment) to `invocations.log` beside itself, reads its plan from `plan.json` beside itself,
@@ -42,7 +43,17 @@ _RESULT = '"session_id": session, "result": "ok"}'
 _USAGE = (', "total_cost_usd": 0.0042, "modelUsage": {"claude-haiku-5-5": {"inputTokens": 1000, "outputTokens": 200,'
           ' "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0, "costUSD": 0.0042}}')
 _INIT = '"session_id": session, "model": "fake"}'
-assert FAKE_CLAUDE.count(_RESULT) == FAKE_CLAUDE.count(_INIT) == 1
+_STORE = 'Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / "ws"'
+assert FAKE_CLAUDE.count(_RESULT) == FAKE_CLAUDE.count(_INIT) == FAKE_CLAUDE.count(_STORE) == 1
+BUILTIN_AGENTS = ["claude", "Explore", "general-purpose", "Plan", "statusline-setup"]
+BUILTIN_PLUGINS = [{"name": name, "path": "builtin", "source": f"{name}@builtin"} for name in (
+    "cc-plugin-agents-md", "cc-plugin-telemetry", "cc-plugin-privacy", "cc-plugin-plugin-authoring", "cc-plugin-easel")]
+# The init event of an isolated session (`--setting-sources project --strict-mcp-config --disable-slash-commands`),
+# in the structure a real 2.1.322 Haiku session on this host recorded; paths, ids and sockets left out.
+INIT_FIELDS = {"tools": ["Bash", "Edit", "Read", "Write"], "mcp_servers": [], "model": MODEL,
+               "permissionMode": "bypassPermissions", "slash_commands": [], "apiKeySource": "none",
+               "claude_code_version": "0.0.0", "output_style": "default", "agents": BUILTIN_AGENTS, "skills": [],
+               "plugins": BUILTIN_PLUGINS}
 STANDIN = '''# pq1c-rehearsal-stand-in: makes no provider call
 import json, os, subprocess, sys, time
 from pathlib import Path
@@ -63,7 +74,10 @@ if (_here / "nest").exists() and not os.environ.get("PQ1C_STANDIN_NESTED"):     
 sys.argv[0] = str(Path.cwd().parent / "bin" / "claude")
 os.environ.setdefault("AGENT_SHIM_PLAN", (_here / "plan.json").read_text())
 os.environ.setdefault("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude"))
-''' + FAKE_CLAUDE.replace(_RESULT, _RESULT[:-1] + _USAGE + "}").replace(_INIT, f'"session_id": session, "model": "{MODEL}"}}')
+''' + (FAKE_CLAUDE.replace(_RESULT, _RESULT[:-1] + _USAGE + "}")
+   .replace(_INIT, '"session_id": session, **' + repr(INIT_FIELDS) + "}")
+   # The real CLI keeps a workspace's transcripts under projects/<its path, non-alphanumerics replaced by ->.
+   .replace(_STORE, 'Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / __import__("re").sub(r"[^A-Za-z0-9]", "-", os.getcwd())'))
 
 
 def standins(tmp: Path, plan: dict = PLAN) -> Path:

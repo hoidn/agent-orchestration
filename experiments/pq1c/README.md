@@ -1,6 +1,6 @@
 # PQ-1c Kit
 
-**Status: experiment kit, frozen by its criterion.** It runs the
+**Status: experiment kit, frozen by its manifest.** It runs the
 [PQ-1c protocol](../../docs/plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#pq-1c-protocol)
 of roadmap Phase 2: is the Agent Sessions variant of design-review-execute
 worth keeping against the plain baseline? The plan owns the question, the
@@ -27,12 +27,18 @@ readout reports measure-free figures only: no judge and no quality claim.
 
 | File | Role |
 | --- | --- |
-| `criterion.json` | The axes, thresholds, outcomes, readings, infrastructure-failure rules and spend limits, and the SHA-256 of every file that defines a cell (`frozen_files`); its own SHA-256 is `CRITERION_SHA256` in `readout.py` |
-| `inputs.json` | The task, and `planner_model` and `reviewer_model` set to `claude-haiku-5-5` (frozen) |
-| `providers.json` | Both provider aliases on `claude_unrestricted_workspace_metered` (frozen) |
-| `run_cell.sh` | Runs one cell and files its evidence (frozen) |
-| `cell_claude.sh` | The cell's `claude`: the flags and the nesting guard below (frozen) |
+| `manifest.json` | The SHA-256 of every file below; its own SHA-256 is recorded in each cell and in the plan's ledger |
+| `criterion.json` | The axes, thresholds, outcomes, readings, infrastructure-failure and isolation rules, spend limits and the pinned fixture commit |
+| `inputs.json` | The task, and `planner_model` and `reviewer_model` set to `claude-haiku-5-5` |
+| `providers.json` | Both provider aliases on `claude_unrestricted_workspace_metered` |
+| `run_cell.sh` | Runs one cell and files its evidence |
+| `cell_claude.sh` | The cell's `claude`: the flags and the nesting guard below |
 | `readout.py` | Computes the axes from the four cells and returns one outcome or `undetermined`, with reasons |
+
+`run_cell.sh` and `readout.py` both refuse when any file differs from
+`manifest.json`, and the readout refuses a cell that ran with another
+manifest, so a changed criterion, task, launcher or readout cannot be mixed
+with cells run before the change.
 
 The kit is tested end to end with stand-in providers on a closed `PATH`:
 [`tests/test_pq1c_kit.py`](../../tests/test_pq1c_kit.py) and
@@ -62,17 +68,30 @@ another model. No other directory on the run's `PATH` may hold a `claude` or
 
 ## Spend limits
 
-- USD 0.5 per call (the wrapper) and USD 2 per run (`--max-cost-usd 2`,
-  checked before each call; a resumed cell is capped at USD 2 over the run).
+- USD 0.5 per call (`--max-budget-usd 0.5`, in the wrapper): the real bound,
+  USD 2 for a run of four calls. The CLI documents that spend can pass this
+  budget by the request in flight; the kit does not bound that overshoot.
+- `--max-cost-usd 10` for the run, checked before each call. That cap prices
+  every token at the model's highest tier, five times Haiku's ordinary rate,
+  so four calls at the per-call ceiling price at USD 10; a lower cap would
+  stop a run before the per-call ceilings do (USD 2 would stop it near USD 0.40
+  of real spend).
 - Four paid calls per cell, sixteen for the four cells, plus **one
   infrastructure retry in all** (one cell, four calls): at most **20 paid
-  calls**, and at most USD 10 by the caps (5 runs at USD 2). The CLI's budget
-  stop may overshoot by the request in flight; that is not measured.
+  calls**, at most **USD 10** by the per-call ceilings, plus the documented
+  overshoot of each call.
+- A stop by either limit (`spend_cap_reached`, or the CLI's
+  `error_max_budget_usd`) is a cost outcome, not infrastructure: the cell did
+  not complete, it is never retried, and its recorded cost is reported.
 - A retry (`PQ1C_INFRA_RETRY="<reason>"`, slot `<cell>-retry`) is allowed only
   for a cell whose first attempt finished as an infrastructure failure
   (`readout.py --retry-check`), or died without filing its record; never while
-  the first attempt runs, never for a valid observation, and never a second
-  time.
+  the first attempt runs, never for a valid observation (a cost stop is one),
+  and never a second time.
+- The first cell records the CLI version in the ledger (`claude-version`); a
+  later cell on another version refuses. `DISABLE_AUTOUPDATER=1` is set in
+  every cell's environment (`claude --help` documents no other switch), but the
+  operator's other sessions can still update a shared install.
 
 ## Run a cell
 
@@ -91,9 +110,9 @@ infrastructure failure, and the readout says so.
 Before anything is launched, `run_cell.sh` refuses: without the authorization
 variable; a binding other than `claude-haiku-5-5` on the metered template, or
 a source that binds `:model` to anything but the two inputs (checked by exact
-id, so no Fable model or model above the ceiling can pass); kit files whose
-SHA-256 differs from `frozen_files`, or a criterion other than the frozen
-one; a kit or runtime (`orchestrator/`, `workflows/examples/`) with
+id, so no Fable model or model above the ceiling can pass); a kit file whose
+SHA-256 differs from `manifest.json`; a CLI version other than the first
+cell's; a kit or runtime (`orchestrator/`, `workflows/examples/`) with
 uncommitted changes; a `claude` that is a blocking no-provider stub; a cell
 name other than exactly one of the four; a used slot; a retry outside the
 rule above; a run `PATH` where another directory holds a provider CLI; a
@@ -134,13 +153,28 @@ cannot decide retained context, document quality, elapsed time, a cost
 difference inside the band, or how often a cell fails.
 
 Only workflow-level outcomes decide. A cell is an infrastructure failure, and
-the readout `undetermined`, when its record is missing, unreadable or names
-another cell; when no turn committed; when it stopped for a spend cap or the
-per-call budget; when a provider attempt shows no model output or no usage;
-when codex was called; when a call's init event lists a plugin, an MCP server
-or another model; or when a resumed cell lacks the evidence of its stop and
-its resume. Cells that mix rehearsal and real runs, or differ in runtime,
-fixture or sources, also read out as `undetermined`. `readout.py` refuses
+the readout `undetermined`, when:
+
+- its record is missing, unreadable or names another cell, or its fixture is
+  not the pinned commit;
+- no turn committed (unless it stopped for cost), or the cap could not meter
+  a call (`spend_cap_unmetered`);
+- a provider attempt shows no usage or no output tokens;
+- codex was called, or a `claude` was started inside the cell;
+- a call's init event is missing, lacks a key the check reads, or lists what
+  the isolation flags should have removed: a plugin that is not built in, an
+  MCP server, a skill, a slash command, an agent outside the built-in set, or
+  another model (the built-in plugins and agents are the ones a real isolated
+  session lists on this host);
+- the CLI's transcripts for the workspace (`~/.claude/projects/<path>/`) are
+  not exactly the sessions the attempts name (2 for a variant cell, 4 for a
+  baseline cell): an extra one means a CLI ran outside the journal. This
+  detects such spend; it cannot prevent it, and its cost is outside every cap;
+- a resumed cell lacks the evidence of its stop and its resume.
+
+Cells that mix rehearsal and real runs, or differ in runtime commit, fixture,
+CLI version, Python version, price table or sources, also read out as
+`undetermined`. `readout.py` refuses
 (exit 2) a criterion or a cell recording another criterion or other frozen
 files, and a retry of a cell whose first attempt is a valid observation; with
 a retry it names the attempt it used and the one it replaced.
@@ -155,14 +189,18 @@ Readings of the protocol, written into the criterion before it was frozen:
   baseline that failed is never a cheap baseline, and a pair with a cell that
   did not complete leaves the cost axis undetermined;
 - a cost that is not a finite number above zero, or a partial one, is never a
-  number.
+  number;
+- a stop by the spend cap or the per-call budget counts as not completed, not
+  as infrastructure.
 
 The owner then records whether what was observed justifies losing the
 ability to invalidate feedback; readout and judgment go in the plan's ledger.
 
 ## Known gaps
 
-The wrapper's flags are verified against `claude --help` (2.1.322) only, not
-in a real `-p --resume` session; the readout checks each call's init event for
-plugins and MCP servers afterwards. The agent can still start a CLI by its
-absolute path; only the `PATH` route is closed.
+The wrapper's flags are verified against `claude --help` (2.1.322) and a
+recorded fresh isolated session, not in a real `-p --resume` session; the
+readout checks each call's init event afterwards. The agent can still start a
+CLI by its absolute path; only the `PATH` route is closed, and the transcript
+count detects the likely case afterwards. An API error after some output
+(overloaded, 5xx) reads as a workflow failure, not as infrastructure.

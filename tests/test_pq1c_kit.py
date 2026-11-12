@@ -18,7 +18,7 @@ import pytest
 
 from tests.pq1c_kit_support import (CELLS, FAILING_PLAN, KIT, MODEL, NO_PROVIDER, REPO, WRAPPER_FLAGS, copy_cells,
                                     edit_json, invocations, launch, ledger, nothing_launched, outcome, paid_calls,
-                                    readout_module, refused, rehearse, standins)
+                                    refused, rehearse, standins)
 from tests.workflow_evaluated_consumer_sources import design_docs
 
 
@@ -91,22 +91,24 @@ def test_launcher_refuses_a_source_that_binds_a_literal_model(tmp):
     assert refused(launched, "bindings:") and nothing_launched(tmp), launched.stderr
 
 
-@pytest.mark.parametrize("name", ["inputs.json", "run_cell.sh", "cell_claude.sh"])
-def test_launcher_refuses_kit_files_other_than_the_frozen_ones(tmp, name):
+@pytest.mark.parametrize("name", ["inputs.json", "run_cell.sh", "cell_claude.sh", "readout.py", "criterion.json"])
+def test_launcher_refuses_kit_files_other_than_the_manifests(tmp, name):
     def edit(kit):
         if name == "inputs.json":
             edit_json(kit / name, lambda inputs: inputs.update(task=inputs["task"] + " Also add a README."))
+        elif name == "criterion.json":
+            edit_json(kit / name, lambda criterion: criterion["thresholds"].update(retain_cost_ratio_at_or_below=0.95))
         else:
             (kit / name).write_text((kit / name).read_text() + "\n# changed\n")
     launched = launch(tmp, "variant-clean", kit=_kit_copy(tmp, edit))
-    assert refused(launched, "frozen_files") and nothing_launched(tmp), launched.stderr
+    assert refused(launched, "differ from manifest.json") and nothing_launched(tmp), launched.stderr
 
 
-def test_launcher_refuses_a_criterion_other_than_the_frozen_one(tmp):
-    kit = _kit_copy(tmp, lambda kit: edit_json(
-        kit / "criterion.json", lambda criterion: criterion["thresholds"].update(retain_cost_ratio_at_or_below=0.95)))
-    launched = launch(tmp, "variant-clean", kit=kit)
-    assert refused(launched, "frozen criterion") and nothing_launched(tmp), launched.stderr
+def test_launcher_refuses_a_cli_version_other_than_the_first_cells(tmp):
+    ledger(tmp).mkdir(parents=True)
+    (ledger(tmp) / "claude-version").write_text("9.9.9 (Claude Code)\n")
+    launched = launch(tmp, "variant-clean")
+    assert refused(launched, "but the first cell ran") and paid_calls(tmp) == [], launched.stderr
 
 
 def test_paid_run_refuses_the_no_provider_stub(tmp):
@@ -166,12 +168,22 @@ def test_rehearsal_refuses_to_run_a_cell_twice(rehearsal):
     assert sorted(path.name for path in rehearsal.glob("*-*")) == sorted(CELLS)
 
 
+def test_each_cell_leaves_one_native_transcript_per_session(rehearsal):
+    sessions = {cell: len(json.loads((rehearsal / cell / "cell.json").read_text())["native_sessions"]) for cell in CELLS}
+    assert sessions == {"variant-clean": 2, "variant-resumed": 2, "baseline-clean": 4, "baseline-resumed": 4}
+
+
+def test_the_cli_version_is_recorded_in_the_ledger_at_the_first_cell(rehearsal):
+    assert (ledger(rehearsal.parent) / "claude-version").read_text().strip() == "0.0.0 (pq1c stand-in)"
+
+
 def test_rehearsal_workspace_is_a_clone_of_the_consumer_design_docs_fixture(rehearsal, tmp_path):
     design_docs(tmp_path)
     expected = {path.relative_to(tmp_path).as_posix(): path.read_text() for path in tmp_path.rglob("*.md")}
     workspace = rehearsal / "variant-clean" / "workspace"
     assert {relpath: (workspace / relpath).read_text() for relpath in expected} == expected
-    assert len({json.loads((rehearsal / cell / "cell.json").read_text())["fixture_commit"] for cell in CELLS}) == 1
+    pinned = json.loads((KIT / "criterion.json").read_text())["fixture_commit"]
+    assert {json.loads((rehearsal / cell / "cell.json").read_text())["fixture_commit"] for cell in CELLS} == {pinned}
 
 
 def test_resumed_cells_stop_after_the_reviewers_first_turn_with_nothing_in_flight(rehearsal):
@@ -226,7 +238,7 @@ def retried(tmp_path_factory) -> Path:
 
 
 def test_an_infrastructure_failure_gets_the_one_retry_and_no_second(retried):
-    assert sorted(path.name for path in ledger(retried).iterdir()) == ["variant-clean", "variant-clean-retry"]
+    assert sorted(path.name for path in ledger(retried).iterdir() if path.is_dir()) == ["variant-clean", "variant-clean-retry"]
     again = launch(retried, "variant-clean", PQ1C_INFRA_RETRY="again")
     other = launch(retried, "baseline-clean", PQ1C_INFRA_RETRY="another cell")
     assert refused(again, "one infrastructure retry is used") and refused(other, "one infrastructure retry is used")
@@ -237,7 +249,8 @@ def test_the_readout_uses_the_retry_and_names_the_attempt_it_replaced(retried, r
     shown = outcome(retried / "results")
     cell = shown["cells"]["variant-clean"]
     assert (shown["outcome"], cell["attempt_used"], cell["replaced"]["status"] != "completed") == ("Improve", "retry", True)
-    assert any("no turn committed" in problem for problem in cell["replaced"]["problems"])
+    assert any("no turn committed" in problem for problem in cell["replaced"]["why"])
+    assert "recorded_cost_usd" in cell["replaced"]
 
 
 def test_launcher_refuses_a_retry_of_a_cell_that_never_ran(tmp):
@@ -275,8 +288,8 @@ def test_two_first_launches_at_once_run_one_cell_and_leave_no_debris(tmp):
 
 # --- the frozen files ---
 
-def test_the_kit_files_are_the_frozen_ones():
-    criterion = json.loads((KIT / "criterion.json").read_text())
-    found = {name: hashlib.sha256((KIT / name).read_bytes()).hexdigest() for name in criterion["frozen_files"]}
-    assert found == criterion["frozen_files"]
-    assert hashlib.sha256((KIT / "criterion.json").read_bytes()).hexdigest() == readout_module().CRITERION_SHA256
+def test_the_kit_files_are_the_manifests():
+    manifest = json.loads((KIT / "manifest.json").read_text())
+    defining = {"cell_claude.sh", "criterion.json", "inputs.json", "providers.json", "readout.py", "run_cell.sh"}
+    assert set(manifest) == defining
+    assert {name: hashlib.sha256((KIT / name).read_bytes()).hexdigest() for name in manifest} == manifest

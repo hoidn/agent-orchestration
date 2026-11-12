@@ -7,10 +7,11 @@
 # RUNTIME is the frozen checkout whose `orchestrator` package runs the cell and whose workflows/examples
 # sources are compared. CELL is exactly one of variant-clean, variant-resumed, baseline-clean,
 # baseline-resumed. A paid cell makes four claude-haiku-5-5 calls, each through cell_claude.sh (user-level
-# Claude Code setup left out, USD 0.5 per call), under --max-cost-usd 2 for the run. Before anything is
-# launched it refuses: without PQ1C_SPEND_AUTHORIZED=yes; a binding other than claude-haiku-5-5 on the
-# Claude metered template; kit files whose SHA-256 differs from the criterion's `frozen_files`, or a
-# criterion other than the one readout.py names; a claude that is a blocking no-provider stub; a cell
+# Claude Code setup left out, USD 0.5 per call), under --max-cost-usd 10 for the run (the cap prices at the
+# highest tier, 5x Haiku's ordinary rate). Before anything is launched it refuses: without
+# PQ1C_SPEND_AUTHORIZED=yes; a binding other than claude-haiku-5-5 on the Claude metered template; a kit file
+# whose SHA-256 differs from manifest.json; a CLI version other than the first cell's (recorded in the
+# ledger); a claude that is a blocking no-provider stub; a cell
 # name outside the four; a used slot; a retry beyond the kit's one; a run PATH where another directory
 # holds a claude or codex; in a paid run, uncommitted changes in the kit or in the runtime's
 # orchestrator/ or workflows/examples/. Slots are claimed once, for good, in $HOME/.local/state/pq1c
@@ -24,7 +25,7 @@ set -euo pipefail
 
 MODEL=claude-haiku-5-5                        # every call; checked by exact id
 TEMPLATE=claude_unrestricted_workspace_metered
-CAP_USD=2
+CAP_USD=10                                    # see criterion.json "spend": the per-call ceiling is the real bound
 STOPPED=75                                    # the stop driver's exit right after the selected record
 STANDIN_MARKER='# pq1c-rehearsal-stand-in: makes no provider call'
 
@@ -70,10 +71,6 @@ else
   STOP_RECORD=committed                       # a plain provider step ends at its commit
 fi
 
-CRITERION_SHA256=$(sha256sum "$KIT/criterion.json" | cut -d' ' -f1)
-grep -qx "CRITERION_SHA256 = \"$CRITERION_SHA256\"" "$KIT/readout.py" ||
-  refuse "criterion.json (sha256 $CRITERION_SHA256) is not the frozen criterion named in readout.py"
-
 # The bindings: models only through the two inputs, both exactly $MODEL; both provider aliases on the
 # Claude metered template, which sets no model of its own; the source binds :model to those inputs only.
 PYTHONPATH=$RUNTIME PYTHONDONTWRITEBYTECODE=1 "$PYTHON" - "$KIT" "$RUNTIME/$SOURCE" "$MODEL" "$TEMPLATE" <<'EOF' ||
@@ -101,19 +98,21 @@ if not operands or operands - {"planner_model", "reviewer_model"}:
 EOF
   refuse "a binding is not $MODEL on $TEMPLATE"
 
-# What defines the experiment is frozen in the criterion: the task and bindings, this launcher, the wrapper.
-FROZEN=$("$PYTHON" - "$KIT" <<'EOF'
+# What defines the experiment is frozen in manifest.json: the criterion, the readout, this launcher, the
+# wrapper, the task and bindings. Each cell records the manifest's SHA-256; the readout refuses another.
+KIT_FILES=$("$PYTHON" - "$KIT" <<'EOF'
 import hashlib, json, sys
 from pathlib import Path
 kit = Path(sys.argv[1])
-frozen = json.loads((kit / "criterion.json").read_text())["frozen_files"]
+frozen = json.loads((kit / "manifest.json").read_text())
 found = {name: hashlib.sha256((kit / name).read_bytes()).hexdigest() for name in sorted(frozen)}
 changed = sorted(name for name in frozen if found[name] != frozen[name])
 if changed:
-    sys.exit(f"run_cell.sh: {', '.join(changed)} differ from the criterion's frozen_files")
+    sys.exit(f"run_cell.sh: {', '.join(changed)} differ from manifest.json")
 print(json.dumps(found, sort_keys=True))
 EOF
 ) || refuse "the kit's files are not the frozen ones"
+MANIFEST_SHA256=$(sha256sum "$KIT/manifest.json" | cut -d' ' -f1)
 
 is_stub() {
   case "$1" in */no_provider/*|*/provider-guard/*) return 0;; esac
@@ -164,6 +163,11 @@ fi
 CELL_DIR=$ROOT/$SLOT
 [ ! -e "$CELL_DIR" ] || refuse "$CELL_DIR exists"
 VERSION=$(env -i "HOME=$HOME" PATH=/usr/bin:/bin DISABLE_AUTOUPDATER=1 "$CLAUDE" --version) || refuse "$CLAUDE --version failed"
+# The CLI version is fixed by the first cell; the operator's other sessions can update a shared install.
+[ ! -f "$LEDGER/claude-version" ] || [ "$(cat "$LEDGER/claude-version")" = "$VERSION" ] ||
+  refuse "claude is $VERSION, but the first cell ran $(cat "$LEDGER/claude-version")"
+PYTHON_VERSION=$("$PYTHON" -c 'import sys; print(sys.version.split()[0])')
+PRICE_TABLE_SHA256=$(sha256sum "$RUNTIME/orchestrator/providers/price_table.json" | cut -d' ' -f1)
 
 # One fixture repository per results root, built the same way every time (same commit id) and moved into
 # place whole, so parallel first launches agree: the documents of the consumer tests' `design_docs` fixture.
@@ -257,6 +261,7 @@ orc compile "${FRONTEND[@]}" > "$PREP/compile.json" 2> "$PREP/compile.stderr" ||
 # Claim the slot, then move the prepared cell into place; from here on the cell is filed whatever happens.
 mkdir "$LEDGER/$SLOT" || refuse "slot $SLOT was claimed meanwhile"
 printf '%s\n%s\n%s\n' "$CELL_DIR" "$$" "$(date -u +%FT%TZ)" > "$LEDGER/$SLOT/claimed"
+[ -f "$LEDGER/claude-version" ] || printf '%s\n' "$VERSION" > "$LEDGER/claude-version"
 mv "$PREP" "$CELL_DIR"
 PREP=
 BIN=$CELL_DIR/bin WS=$CELL_DIR/workspace
@@ -324,6 +329,11 @@ if [ "$MODE" = clean ] && [ "$RUN_EXIT" -eq 0 ]; then
 json.dump({"exit": int(e), "identity": i, "coordinator_committed": c == "0", "bytes_unchanged": b == a}, open(sys.argv[6], "w"), indent=2)' \
     "$INVALIDATE_EXIT" "$FEEDBACK" "$COMMITTED" "$BEFORE" "$AFTER" "$CELL_DIR/invalidate.json"
 fi
+# The CLI's native transcripts for this workspace (it names the directory after the path, every
+# non-alphanumeric character replaced by -): the readout compares them with the sessions the attempts name.
+NATIVE_SESSIONS=$("$PYTHON" -c 'import json, pathlib, re, sys
+d = pathlib.Path(sys.argv[1]) / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(pathlib.Path(sys.argv[2]).resolve()))
+print(json.dumps(sorted(p.stem for p in d.glob("*.jsonl"))))' "$HOME" "$WS")
 set -e
 
 # The record is written whole (temporary file, then rename), so a readable cell.json is a finished cell.
@@ -331,14 +341,15 @@ set -e
   rehearsal "$REHEARSAL" model "$MODEL" template "$TEMPLATE" effort "high (fixed by the sources; not verified for Haiku)" \
   cap_usd "$CAP_USD" claude_path "$CLAUDE" claude_version "$VERSION" runtime "$RUNTIME" runtime_commit "$RUNTIME_COMMIT" \
   runtime_dirty "$([ -n "$DIRTY" ] && echo true || echo false)" source "$SOURCE" source_sha256 "$SOURCE_SHA256" \
-  criterion_sha256 "$CRITERION_SHA256" frozen_files "$FROZEN" fixture_commit "$FIXTURE_COMMIT" run_id "$RUN_ID" \
+  manifest_sha256 "$MANIFEST_SHA256" kit_files "$KIT_FILES" python "$PYTHON" python_version "$PYTHON_VERSION" \
+  price_table_sha256 "$PRICE_TABLE_SHA256" native_sessions "$NATIVE_SESSIONS" fixture_commit "$FIXTURE_COMMIT" run_id "$RUN_ID" \
   run_exit "$RUN_EXIT" stop "$STOP" resume_exit "$RESUME_EXIT" report_exit "$REPORT_EXIT" run_sec "$RUN_SEC" \
   resume_sec "$RESUME_SEC" <<'EOF'
 import json, os, sys
 meta = dict(zip(sys.argv[2::2], sys.argv[3::2]))
 for key in ("cap_usd", "run_exit", "run_sec", "resume_sec"):
     meta[key] = int(meta[key])
-for key in ("stop", "resume_exit", "report_exit", "frozen_files"):
+for key in ("stop", "resume_exit", "report_exit", "kit_files", "native_sessions"):
     meta[key] = json.loads(meta[key])
 for key in ("rehearsal", "runtime_dirty"):
     meta[key] = meta[key] == "true"

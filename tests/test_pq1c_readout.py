@@ -13,6 +13,10 @@ import shutil
 
 import pytest
 
+import subprocess
+import sys
+
+from tests.agent_session_shims import closed_path
 from tests.pq1c_kit_support import KIT, edit_json, outcome, readout, rehearse
 
 
@@ -84,12 +88,43 @@ def log_line(cell: str, log: str, line: str):
     return lambda results: (results / cell / log).open("a").write(line + "\n")
 
 
-def init_with_plugin(cell: str):
+def init_edited(cell: str, edit):
+    """Edit the first attempt's stream-json init event (`edit` returns the new event, or None to drop it)."""
     def change(results):
         stdout = _attempt(results, cell, "stdout.txt")
         rows = [json.loads(line) for line in stdout.read_text().splitlines()]
-        rows = [{**row, "plugins": [{"name": "superpowers"}]} if row.get("subtype") == "init" else row for row in rows]
-        stdout.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        rows = [edit(dict(row)) if row.get("subtype") == "init" else row for row in rows]
+        stdout.write_text("".join(json.dumps(row) + "\n" for row in rows if row is not None))
+    return change
+
+
+def _added(key: str, item):
+    return lambda init: {**init, key: [*init[key], item]}
+
+
+def _renamed(old: str, new: str):
+    return lambda init: {**{k: v for k, v in init.items() if k != old}, new: init[old]}
+
+
+def budget_stopped(cell: str):
+    """The CLI's per-call budget stopped the cell's last call: it ends with an error_max_budget_usd result."""
+    def change(results):
+        stdout = sorted((results / cell / "workspace").glob(".orchestrate/runs/*/effects/*/attempt-*/stdout.txt"))[-1]
+        stdout.write_text(stdout.read_text() + json.dumps({"type": "result", "subtype": "error_max_budget_usd",
+                                                          "is_error": True}) + "\n")
+        _run(results, cell, lambda run: run.update(status="failed"))
+    return change
+
+
+def extra_session(cell: str):
+    """One more native transcript for the workspace than the attempts name: a CLI ran outside the journal."""
+    return lambda results: edit_json(results / cell / "cell.json",
+                                     lambda record: record["native_sessions"].append("ffffffff-0000-4000-8000-000000000000"))
+
+
+def zero_output(cell: str):
+    def change(results):
+        edit_json(_attempt(results, cell, "usage.json"), lambda usage: usage["rows"][0]["tokens"].update(output=0))
     return change
 
 
@@ -119,10 +154,13 @@ V0, V1, B0, B1 = "variant-clean", "variant-resumed", "baseline-clean", "baseline
     ((partial_usage(V0), times(V1, 0.7)), "undetermined"),
     ((partial_usage(V0),), "Improve"),
     ((partial_usage(V0), failed(V1)), "Retire"),
+    ((budget_stopped(V0),), "Retire"),
+    ((log_line(V1, "resume.log", "[spend_cap_reached] spent 10 USD of a 10 USD cap"),), "Retire"),
+    ((budget_stopped(B0), times(V0, 0.7), times(V1, 0.7)), "Improve"),
 ], ids=["retain", "retire-cost", "one-pair-cheaper", "one-pair-dearer", "split", "retire-incomplete",
         "retire-redispatch", "baseline-redispatch-not-retire", "baseline-incomplete", "failed-baseline-not-cheap",
         "both-clean-failed", "partial-could-retire", "partial-could-retain", "partial-band-excluded",
-        "partial-but-incomplete"])
+        "partial-but-incomplete", "variant-budget-stop", "variant-cap-reached", "baseline-budget-stop"])
 def test_readout_returns_the_criterion_outcome(rehearsal, tmp_path, changes, expected):
     shown = outcome(_changed(rehearsal, tmp_path, *changes))
     assert shown["outcome"] == expected, shown["reasons"]
@@ -150,9 +188,21 @@ def test_a_cost_that_is_not_a_finite_number_above_zero_decides_nothing(rehearsal
     (lambda results: (results / V0 / "report.json").unlink(), meta(V0, report_exit=1)),
     (unknown_usage(V0),),
     (log_line(V0, "run.log", "[spend_cap_unmetered] attempt cut off"),),
-    (log_line(V1, "resume.log", "[spend_cap_reached] spent 2 USD of a 2 USD cap"),),
     (log_line(V0, "codex-calls.log", "codex exec"),),
-    (init_with_plugin(B1),),
+    (log_line(B0, "nested-calls.log", "-p --model claude-fable-5-1"),),
+    (zero_output(V0),),
+    (init_edited(B1, _added("plugins", {"name": "superpowers", "path": "/home/u/.claude/plugins/superpowers",
+                                         "source": "superpowers@claude-plugins"})),),
+    (init_edited(B1, _added("plugins", {"name": "cc-plugin-agents-md"})),),
+    (init_edited(B1, _added("agents", "developer")),),
+    (init_edited(B1, _added("skills", "ponytail")),),
+    (init_edited(B1, _added("slash_commands", "brainstorm")),),
+    (init_edited(B1, _added("mcp_servers", {"name": "docs", "status": "connected"})),),
+    (init_edited(B1, lambda init: {**init, "model": "claude-fable-5-1"}),),
+    (init_edited(B1, lambda init: None),),
+    (init_edited(B1, _renamed("plugins", "plugin_list")),),
+    (init_edited(B1, _renamed("mcp_servers", "mcpServers")),),
+    (extra_session(V0),),
     (meta(V1, run_exit=0, resume_exit=None, stop={"exit": 0, "pending": 0, "last_identity": "", "attempts": 4}),
      times(V0, 0.7), times(V1, 0.7)),
     (meta(V1, resume_exit=None),),
@@ -160,7 +210,9 @@ def test_a_cost_that_is_not_a_finite_number_above_zero_decides_nothing(rehearsal
     (lambda results: shutil.rmtree(results / B1),),
     (lambda results: (results / B0 / "cell.json").write_text("{not json"),),
     tuple(failed(cell) for cell in (V0, V1, B0, B1)) + tuple(unknown_usage(cell) for cell in (V0, V1, B0, B1)),
-], ids=["report-missing", "unmetered-attempt", "cap-unmetered", "cap-reached", "codex-called", "plugin-loaded",
+], ids=["report-missing", "unmetered-attempt", "cap-unmetered", "codex-called", "claude-nested", "zero-output",
+        "user-plugin", "plugin-without-builtin-marker", "user-agent", "user-skill", "slash-command", "mcp-server",
+        "other-model", "no-init-event", "renamed-plugins", "renamed-mcp-servers", "extra-native-session",
         "stop-never-fired", "never-resumed", "another-cells-record", "cell-missing", "unreadable-record",
         "all-failed-silently"])
 def test_an_infrastructure_failure_makes_the_readout_undetermined(rehearsal, tmp_path, changes):
@@ -181,10 +233,47 @@ def test_readout_refuses_a_criterion_whose_hash_differs_from_the_frozen_one(rehe
     assert _refused(readout(rehearsal, "--criterion", str(tmp_path / "criterion.json")))
 
 
-@pytest.mark.parametrize("field", ["criterion_sha256", "frozen_files"])
-def test_readout_refuses_a_cell_that_recorded_another_criterion_or_kit(rehearsal, tmp_path, field):
-    other = {"criterion_sha256": "0" * 64, "frozen_files": {"inputs.json": "0" * 64}}[field]
-    assert _refused(readout(_changed(rehearsal, tmp_path, meta(V0, **{field: other}))))
+def test_readout_refuses_a_cell_that_ran_with_another_manifest(rehearsal, tmp_path):
+    assert _refused(readout(_changed(rehearsal, tmp_path, meta(V0, manifest_sha256="0" * 64))))
+
+
+def test_readout_refuses_to_run_when_its_own_digest_differs_from_the_manifest(rehearsal, tmp_path):
+    kit = tmp_path / "kit"
+    shutil.copytree(KIT, kit)
+    (kit / "readout.py").write_text((kit / "readout.py").read_text().replace("<= low", "<= low * 2"))
+    shown = subprocess.run([sys.executable, "-B", str(kit / "readout.py"), str(rehearsal)], capture_output=True,
+                           text=True, timeout=120, check=False, env={"PATH": closed_path()})
+    assert _refused(shown), shown.stderr
+
+
+@pytest.mark.parametrize("key, value", [("claude_version", "2.1.400 (Claude Code)"), ("python_version", "3.99.0"),
+                                        ("price_table_sha256", "0" * 64), ("runtime_commit", "0" * 40)])
+def test_cells_that_ran_in_different_environments_read_out_undetermined(rehearsal, tmp_path, key, value):
+    shown = outcome(_changed(rehearsal, tmp_path, meta(B1, **{key: value})))
+    assert shown["outcome"] == "undetermined" and any(key in reason for reason in shown["reasons"]), shown["reasons"]
+
+
+def test_a_fixture_other_than_the_pinned_one_reads_out_undetermined(rehearsal, tmp_path):
+    shown = outcome(_changed(rehearsal, tmp_path, *(meta(cell, fixture_commit="0" * 40) for cell in (V0, V1, B0, B1))))
+    assert shown["outcome"] == "undetermined"
+
+
+def test_a_cost_stop_is_not_retried_and_its_recorded_cost_is_reported(rehearsal, tmp_path):
+    results = _changed(rehearsal, tmp_path, budget_stopped(V0))
+    cell = outcome(results)["cells"][V0]
+    assert (cell["completed"], cell["problems"], cell["recorded_cost_usd"] > 0) == (False, [], True)
+    assert readout(results / V0, "--retry-check").returncode == 4
+
+
+def test_a_retry_shows_the_replaced_attempts_recorded_cost_and_why(rehearsal, tmp_path):
+    def killed_then_retried(results):
+        shutil.copytree(results / V0, results / f"{V0}-retry", symlinks=True)
+        edit_json(results / f"{V0}-retry" / "cell.json", lambda record: record.update(slot=f"{V0}-retry"))
+        (results / V0 / "cell.json").unlink()                   # the first attempt died before filing its record
+    shown = outcome(_changed(rehearsal, tmp_path, killed_then_retried))
+    replaced = shown["cells"][V0]["replaced"]
+    assert (shown["outcome"], replaced["recorded_cost_usd"] > 0, "did not finish" in replaced["why"][0]) == (
+        "Improve", True, True)
 
 
 def test_readout_refuses_a_retry_of_a_valid_observation(rehearsal, tmp_path):

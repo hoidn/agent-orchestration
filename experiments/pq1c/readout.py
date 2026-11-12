@@ -4,17 +4,19 @@
 Usage: readout.py RESULTS_ROOT [--criterion PATH]
        readout.py --retry-check CELL_DIR      (for run_cell.sh: exit 0 when CELL_DIR is an infrastructure failure)
 
-Reads, per cell (`RESULTS_ROOT/<cell>`, or `<cell>-retry` when the cell had the kit's infrastructure retry):
-`cell.json`, `report.json` (`report --format json`), the run's `memo.jsonl` and each provider attempt's
-`usage.json` and `stdout.txt` under `workspace/.orchestrate/runs/<id>/`, `run.log` and `resume.log` (the
-terminal logs), `codex-calls.log` and `nested-calls.log`, and, for a clean cell, `invalidate.json`. Computes
-the axes of `criterion.json` and prints one JSON object whose `outcome` is Retire, Retain, Improve or
-undetermined, with the reasons. A cell whose record is missing or incomplete, or that stopped for a cap,
-launch, login or metering reason, is an infrastructure failure: it makes the readout undetermined, since
-only workflow-level outcomes decide. Measure-free figures only: no quality claim. Calls no model and runs
-no orchestrator command. Exits 0 with a readout; 2 when it refuses: the criterion's SHA-256 is not
-`CRITERION_SHA256` (recorded at the rehearsal and in the plan's ledger), a cell recorded another criterion
-or other frozen files, or a cell has a retry although its first attempt was not an infrastructure failure.
+Reads `manifest.json` beside itself and refuses unless every file it lists (this script, `criterion.json`,
+the launcher, the wrapper, the bindings) has the listed SHA-256. Then reads, per cell (`RESULTS_ROOT/<cell>`,
+or `<cell>-retry` when the cell had the kit's infrastructure retry): `cell.json`, `report.json`
+(`report --format json`), the run's `memo.jsonl` and each provider attempt's `usage.json` and `stdout.txt`
+under `workspace/.orchestrate/runs/<id>/`, `run.log` and `resume.log`, `codex-calls.log`,
+`nested-calls.log` and, for a clean cell, `invalidate.json`. Computes the axes of `criterion.json` and prints
+one JSON object whose `outcome` is Retire, Retain, Improve or undetermined, with the reasons. A cell whose
+record is missing, incomplete or contaminated, or that stopped for a launch, login, metering or isolation
+reason, is an infrastructure failure: it makes the readout undetermined, since only workflow-level outcomes
+decide. A stop by the spend cap or the per-call budget is a cost outcome: the cell did not complete.
+Measure-free figures only: no quality claim. Calls no model and runs no orchestrator command. Exits 0 with a
+readout; 2 when it refuses: a kit file differs from the manifest, a cell recorded another manifest, or a cell
+has a retry although its first attempt was not an infrastructure failure.
 """
 
 from __future__ import annotations
@@ -27,15 +29,20 @@ import math
 from pathlib import Path
 import sys
 
-CRITERION_SHA256 = "802185c7bcfc4165cdf012264be8daedb4e1d73f304abfd53c5afa1172eb069c"
 KIT = Path(__file__).resolve().parent
+MANIFEST = KIT / "manifest.json"
 TURN_CLASSES = ("provider", "agent_turn")
 FLAGGED_LINES = ("effect_rerun", "agent_bootstrap_restarted")
-CAP_LINES = ("spend_cap_reached", "spend_cap_unmetered")
-BUDGET_STOP = "error_max_budget_usd"
+UNMETERED_LINE = "spend_cap_unmetered"   # the cap could not meter a call: infrastructure
+CAP_REACHED_LINE = "spend_cap_reached"    # the run spent its cap: a cost outcome
+BUDGET_STOP = "error_max_budget_usd"      # the CLI's per-call budget stopped a call: a cost outcome
+INIT_KEYS = ("plugins", "mcp_servers", "skills", "slash_commands", "agents", "model", "session_id")
 LOGS = ("run.log", "resume.log")
 META_KEYS = ("cell", "arm", "mode", "slot", "rehearsal", "runtime_commit", "runtime_dirty", "source_sha256",
-             "fixture_commit", "run_exit", "stop", "resume_exit", "report_exit", "run_sec", "resume_sec")
+             "fixture_commit", "run_exit", "stop", "resume_exit", "report_exit", "run_sec", "resume_sec",
+             "manifest_sha256", "claude_version", "python_version", "price_table_sha256", "native_sessions")
+# Cells must agree on these; a difference makes the readout undetermined.
+SHARED_KEYS = ("rehearsal", "runtime_commit", "fixture_commit", "claude_version", "python_version", "price_table_sha256")
 STOPPED = 75
 
 
@@ -43,11 +50,17 @@ class Refusal(Exception):
     """The readout cannot be trusted against this criterion or these cells."""
 
 
-def load_criterion(path: Path) -> dict:
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    if digest != CRITERION_SHA256:
-        raise Refusal(f"{path} has sha256 {digest}, not the frozen {CRITERION_SHA256}")
-    return json.loads(path.read_text(encoding="utf-8"))
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_kit(criterion_path: Path) -> tuple[dict, str]:
+    """(criterion, manifest SHA-256) once every file the manifest lists matches it; refuses otherwise."""
+    for name, wanted in json.loads(MANIFEST.read_text(encoding="utf-8")).items():
+        path = criterion_path if name == "criterion.json" else KIT / name
+        if _sha256(path) != wanted:
+            raise Refusal(f"{path} has sha256 {_sha256(path)}, not the manifest's {wanted}")
+    return json.loads(criterion_path.read_text(encoding="utf-8")), _sha256(MANIFEST)
 
 
 def _json(path: Path):
@@ -122,18 +135,49 @@ def usage_facts(run_root: Path | None, model: str) -> dict:
             "other_models": sorted(name for name in models if name != model)}
 
 
-def _init_problems(run_root: Path | None, model: str) -> list[str]:
-    """What each attempt's stream-json init event shows: no plugin, no MCP server, no other model."""
-    problems = []
+def _listed(value) -> list:
+    """A list as found; anything else is kept as one flagged entry (fails closed)."""
+    return value if isinstance(value, list) else [value]
+
+
+def _builtin_plugin(plugin) -> bool:
+    return isinstance(plugin, dict) and plugin.get("path") == "builtin" and str(plugin.get("source", "")).endswith("@builtin")
+
+
+def _not_removed(init: dict, criterion: dict) -> dict:
+    """What an isolated session's init event should not list: user plugins and agents, MCP servers, skills,
+    slash commands, another model."""
+    builtin_agents = criterion["isolation"]["builtin_agents"]
+    shown = {"plugins": [plugin for plugin in _listed(init["plugins"]) if not _builtin_plugin(plugin)],
+             "agents": [agent for agent in _listed(init["agents"]) if agent not in builtin_agents],
+             **{key: _listed(init[key]) for key in ("mcp_servers", "skills", "slash_commands")},
+             "model": [] if init["model"] == criterion["model"] else [init["model"]]}
+    return {key: value for key, value in shown.items() if value}
+
+
+def _init_problem(rows: list[dict], criterion: dict) -> str | None:
+    """The attempt has exactly one stream-json init event, with every key read here, listing nothing the
+    isolation flags should have removed. A missing event or key is a problem (fails closed)."""
+    inits = [row for row in rows if row.get("type") == "system" and row.get("subtype") == "init"]
+    if len(inits) != 1:
+        return f"{len(inits)} init events, not one"
+    missing = [key for key in INIT_KEYS if key not in inits[0]]
+    if missing:
+        return f"the init event lacks {missing}"
+    shown = _not_removed(inits[0], criterion)
+    return f"the init event shows what isolation should have removed: {shown}" if shown else None
+
+
+def attempt_facts(run_root: Path | None, criterion: dict) -> dict:
+    """Per provider attempt: its init-event problems, the sessions it names and whether the CLI's budget stopped it."""
+    problems, sessions, budget_stops = [], set(), []
     for attempt in _attempts(run_root):
         where, rows = attempt.relative_to(run_root).as_posix(), _jsonl(attempt / "stdout.txt")
-        init = next((row for row in rows if row.get("type") == "system" and row.get("subtype") == "init"), {"model": model})
-        if init.get("plugins") or init.get("mcp_servers") or init.get("model") != model:
-            problems.append(f"{where}: init lists plugins {init.get('plugins')}, "
-                            f"MCP servers {init.get('mcp_servers')}, model {init.get('model')}")
-        if any(row.get("subtype") == BUDGET_STOP for row in rows):
-            problems.append(f"{where}: stopped by the per-call budget ({BUDGET_STOP})")
-    return problems
+        problem = _init_problem(rows, criterion)
+        problems += [f"{where}: {problem}"] if problem else []
+        sessions |= {str(row.get("session_id")) for row in rows if row.get("subtype") == "init"}
+        budget_stops += [f"{where}: {BUDGET_STOP}"] if any(row.get("subtype") == BUDGET_STOP for row in rows) else []
+    return {"init_problems": problems, "sessions": sorted(sessions), "budget_stops": budget_stops}
 
 
 def cost(report: dict) -> tuple[float | None, str | None]:
@@ -179,21 +223,34 @@ def _stop_problems(meta: dict) -> list[str]:
     return [] if meta["resume_exit"] is not None else ["the resumed cell was stopped but never resumed"]
 
 
-def _tree_problems(cell_dir: Path, report: dict | None, run_root: Path | None, turns: dict, model: str) -> list[str]:
+def _tree_problems(cell_dir: Path, report: dict | None, run_root: Path | None, facts: dict) -> list[str]:
+    """What the run tree shows that is not the workflow's own outcome."""
     problems = [] if isinstance(report, dict) else ["no readable report.json"]
     problems += [] if run_root else ["no run tree"]
-    problems += [] if turns["committed_turns"] else ["no turn committed"]
-    problems += [f"stopped by a spend cap: {line}" for line in _found(cell_dir, CAP_LINES)]
+    problems += [] if facts["committed_turns"] or facts["cost_stops"] else ["no turn committed"]
+    problems += [f"the cap could not meter a call: {line}" for line in _found(cell_dir, (UNMETERED_LINE,))]
     problems += ["codex was called"] if (cell_dir / "codex-calls.log").exists() else []
-    return problems + _init_problems(run_root, model)
+    problems += [f"{_line_count(cell_dir / 'nested-calls.log')} claude started inside the cell (refused)"] \
+        if (cell_dir / "nested-calls.log").exists() else []
+    return problems + facts["init_problems"]
 
 
-def _meta_problems(name: str, cell_dir: Path, meta: dict, model: str) -> list[str]:
+def _meta_problems(name: str, cell_dir: Path, meta: dict, criterion: dict) -> list[str]:
     named = meta["cell"] == name and meta["slot"] in (name, f"{name}-retry") and meta["slot"] == cell_dir.name
     problems = [] if named else [f"cell.json names {meta['cell']} / {meta['slot']}, not {name} in {cell_dir.name}"]
     problems += [] if meta["report_exit"] == 0 else [f"report exited {meta['report_exit']}"]
     problems += ["ran on a runtime with uncommitted changes"] if not meta["rehearsal"] and meta["runtime_dirty"] else []
+    problems += [] if meta["fixture_commit"] == criterion["fixture_commit"] else [
+        f"fixture commit {meta['fixture_commit']}, not {criterion['fixture_commit']}"]
     return problems + _stop_problems(meta)
+
+
+def _session_problems(meta: dict, sessions: list[str]) -> list[str]:
+    """The CLI's transcripts for the workspace are exactly the sessions the attempts name; more means a CLI ran
+    outside the journal (detected, not prevented)."""
+    found = sorted(map(str, _listed(meta["native_sessions"])))
+    return [] if found == sessions else [f"{len(found)} native session transcripts for the workspace, "
+                                         f"{len(sessions)} sessions in its attempts"]
 
 
 def _model_problems(usage: dict, run: dict, model: str) -> list[str]:
@@ -204,13 +261,13 @@ def _model_problems(usage: dict, run: dict, model: str) -> list[str]:
     return [f"a model other than {model}: {other}"] if other else []
 
 
-def _meta(cell_dir: Path, criterion: dict) -> dict | None:
-    """The finished cell's record, or None when it is missing or incomplete; refuses another criterion."""
+def _meta(cell_dir: Path, manifest_sha256: str) -> dict | None:
+    """The finished cell's record, or None when it is missing or incomplete; refuses another manifest."""
     meta = _json(cell_dir / "cell.json")
     if not isinstance(meta, dict) or any(key not in meta for key in META_KEYS):
         return None
-    if meta.get("criterion_sha256") != CRITERION_SHA256 or meta.get("frozen_files") != criterion["frozen_files"]:
-        raise Refusal(f"{cell_dir} recorded another criterion or other frozen files")
+    if meta["manifest_sha256"] != manifest_sha256:
+        raise Refusal(f"{cell_dir} ran with manifest {meta['manifest_sha256']}, not {manifest_sha256}")
     return meta
 
 
@@ -218,49 +275,63 @@ def _line_count(path: Path) -> int:
     return len(path.read_text(errors="replace").splitlines()) if path.is_file() else 0
 
 
-def read_cell(name: str, cell_dir: Path, criterion: dict) -> dict:
+def recorded_cost(cell_dir: Path) -> float | None:
+    """What the cell recorded as spent, whole or partial: the report's figure, else the attempts' reported costs."""
+    report = _json(cell_dir / "report.json")
+    value = ((report.get("run") or {}).get("usage") or {}).get("cost_usd") if isinstance(report, dict) else None
+    if value is not None:
+        return value
+    run_root = _run_root(cell_dir)
+    costs = [(_json(attempt / "usage.json") or {}).get("reported_cost_usd") for attempt in _attempts(run_root)]
+    costs = [cost for cost in costs if isinstance(cost, (int, float))]
+    return sum(costs) if costs else None
+
+
+def read_cell(name: str, cell_dir: Path, criterion: dict, manifest_sha256: str) -> dict:
     """The cell's facts and its `problems` (empty for a valid workflow-level observation)."""
-    meta, model = _meta(cell_dir, criterion), criterion["model"]
+    meta, model = _meta(cell_dir, manifest_sha256), criterion["model"]
     if meta is None:
         return {"present": False, "problems": [f"{name}: {cell_dir.name} has no complete cell.json (did not finish)"]}
     report = _json(cell_dir / "report.json")
     report = report if isinstance(report, dict) else None
     run = (report or {}).get("run") or {}
     run_root = _run_root(cell_dir)
-    turns = turn_facts(_jsonl(run_root / "memo.jsonl") if run_root else [])
+    facts = {**turn_facts(_jsonl(run_root / "memo.jsonl") if run_root else []), **attempt_facts(run_root, criterion)}
+    facts["cost_stops"] = facts["budget_stops"] + _found(cell_dir, (CAP_REACHED_LINE,))
     usage = usage_facts(run_root, model)
     cost_usd, cost_reason = cost(report or {})
-    problems = _meta_problems(name, cell_dir, meta, model) + _tree_problems(cell_dir, report, run_root, turns, model)
-    problems += usage["silent_attempts"] + _model_problems(usage, run, model)
+    problems = _meta_problems(name, cell_dir, meta, criterion) + _tree_problems(cell_dir, report, run_root, facts)
+    problems += usage["silent_attempts"] + _model_problems(usage, run, model) + _session_problems(meta, facts["sessions"])
     return {"present": True, "dir": cell_dir.name, "meta": meta, "status": run.get("status"),
-            "completed": run.get("status") == "completed" and len(turns["committed_turns"]) == criterion["turns_per_run"],
-            **turns, "repeated_work": [f"{identity}: started more than once" for identity in turns["started_twice"]]
+            "completed": run.get("status") == "completed" and len(facts["committed_turns"]) == criterion["turns_per_run"]
+            and not facts["cost_stops"], **facts,
+            "repeated_work": [f"{identity}: started more than once" for identity in facts["started_twice"]]
             + _found(cell_dir, FLAGGED_LINES), **usage, "cost_usd": cost_usd, "cost_reason": cost_reason,
-            "invalidate": _invalidate(cell_dir, meta), "nested_claude_refused": _line_count(cell_dir / "nested-calls.log"),
+            "recorded_cost_usd": recorded_cost(cell_dir), "invalidate": _invalidate(cell_dir, meta),
             "elapsed_sec": meta["run_sec"] + meta["resume_sec"], "problems": [f"{name}: {p}" for p in problems]}
 
 
-def choose(name: str, root: Path, criterion: dict) -> dict:
+def choose(name: str, root: Path, criterion: dict, manifest_sha256: str) -> dict:
     """The cell's first attempt, or its retry when the first was an infrastructure failure."""
-    first = read_cell(name, root / name, criterion)
+    first = read_cell(name, root / name, criterion, manifest_sha256)
     if not (root / f"{name}-retry").is_dir():
         return {**first, "attempt_used": "first"}
     if not first["problems"]:
         raise Refusal(f"{name} has a retry, but its first attempt is a valid observation")
-    retry = read_cell(name, root / f"{name}-retry", criterion)
-    replaced = {key: first.get(key) for key in ("status", "cost_usd", "problems")}
+    retry = read_cell(name, root / f"{name}-retry", criterion, manifest_sha256)
+    replaced = {"status": first.get("status"), "recorded_cost_usd": recorded_cost(root / name),
+                "why": first["problems"]}
     replaced |= {key: first["meta"].get(key) for key in ("run_exit", "resume_exit")} if first["present"] else {}
-    return {**retry, "attempt_used": "retry", "replaced": replaced,
-            "why": "the first attempt was an infrastructure failure"}
+    return {**retry, "attempt_used": "retry", "replaced": replaced}
 
 
 def invalid(cells: dict) -> list[str]:
     reasons = [problem for cell in cells.values() for problem in cell["problems"]]
     present = [cell["meta"] for cell in cells.values() if cell["present"]]
-    differing = {key: {meta[key] for meta in present} for key in ("rehearsal", "runtime_commit", "fixture_commit")}
+    differing = {key: {str(meta[key]) for meta in present} for key in SHARED_KEYS}
     differing |= {f"{arm} source_sha256": {meta["source_sha256"] for meta in present if meta["arm"] == arm}
                   for arm in ("variant", "baseline")}
-    return reasons + [f"cells differ in {key}" for key, values in differing.items() if len(values) > 1]
+    return reasons + [f"cells differ in {key}: {sorted(values)}" for key, values in differing.items() if len(values) > 1]
 
 
 def ratios(cells: dict, criterion: dict) -> dict:
@@ -315,16 +386,17 @@ def _shown(cell: dict) -> dict:
         return cell
     meta = cell["meta"]
     return {**{key: value for key, value in cell.items() if key != "meta"},
-            **{key: meta.get(key) for key in ("claude_version", "run_exit", "resume_exit", "stop", "retry_reason")}}
+            **{key: meta.get(key) for key in ("claude_version", "run_exit", "resume_exit", "stop", "retry_reason",
+                                              "native_sessions")}}
 
 
 def readout(root: Path, criterion_path: Path) -> dict:
-    criterion = load_criterion(criterion_path)
-    cells = {name: choose(name, root, criterion) for name in criterion["cells"]}
+    criterion, manifest_sha256 = load_kit(criterion_path)
+    cells = {name: choose(name, root, criterion, manifest_sha256) for name in criterion["cells"]}
     bad = invalid(cells)
     found = ratios(cells, criterion)
     outcome, reasons = decide(cells, found, criterion, bad)
-    return {"outcome": outcome, "reasons": reasons, "ratios": found, "criterion_sha256": CRITERION_SHA256,
+    return {"outcome": outcome, "reasons": reasons, "ratios": found, "manifest_sha256": manifest_sha256,
             "rehearsal": any(cell["meta"]["rehearsal"] for cell in cells.values() if cell["present"]),
             "claims": criterion["claims"], "cannot_decide": criterion["cannot_decide"],
             "owner_judgment": criterion["owner_judgment"], "cells": {name: _shown(cell) for name, cell in cells.items()}}
@@ -333,7 +405,8 @@ def readout(root: Path, criterion_path: Path) -> dict:
 def retry_check(cell_dir: Path, criterion_path: Path) -> int:
     """0 when the finished attempt in `cell_dir` is an infrastructure failure (a retry is allowed), else 4."""
     name = cell_dir.name.removesuffix("-retry")
-    problems = read_cell(name, cell_dir, load_criterion(criterion_path))["problems"]
+    criterion, manifest_sha256 = load_kit(criterion_path)
+    problems = read_cell(name, cell_dir, criterion, manifest_sha256)["problems"]
     print(json.dumps({"cell": name, "infrastructure_failure": bool(problems), "problems": problems}, indent=2))
     return 0 if problems else 4
 
