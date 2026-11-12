@@ -224,7 +224,10 @@ pip install -e ".[dev]"
 python -m orchestrator --help
 ```
 
-For a provider-free Python check and local command run, follow the
+To write, run, fail and resume your first pipeline from an empty directory,
+with no model calls, follow the
+[first-pipeline tutorial](docs/tutorial_first_pipeline.md). For a
+provider-free Python check and local command run, follow the
 [typed Python guide](docs/python_workflow_drafting_guide.md#run-the-local-example).
 Both authoring routes use the same compiler and evaluated runtime.
 

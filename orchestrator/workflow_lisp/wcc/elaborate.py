@@ -2103,15 +2103,16 @@ def _bind_effectful_loop_state_fields(
     it captures no authored reference. It returns None when no field has an
     effect; the loop lowerer then projects the state as pure.
 
-    An effect given directly as the state, ``(continue e)``, becomes
-    ``(let* ((g e)) (continue g))``. Other effectful states (``if``, ``let*``,
-    arithmetic) are left alone: they already lower, and binding them would
-    change their program digest.
+    An effect or a `match` given directly as the state, ``(continue e)``,
+    becomes ``(let* ((g e)) (continue g))``; a `match` state, pure or not, has
+    no other lowering. Other effectful states (``if``, ``let*``, arithmetic)
+    are left alone: they already lower, and binding them would change their
+    program digest.
     """
 
     state = expr.state_expr
     # `request-input` is an effect here but not in the shared `_EFFECT_NODE_TYPES`.
-    direct_effect = isinstance(state, (*_EFFECT_NODE_TYPES, RequestInputExpr)) and not isinstance(
+    direct_effect = isinstance(state, (*_EFFECT_NODE_TYPES, RequestInputExpr, MatchExpr)) and not isinstance(
         state, ResourceTransitionExpr
     )
     if not (

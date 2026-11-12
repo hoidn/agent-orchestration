@@ -671,10 +671,10 @@ def _select_and_finalize_typed_program(
 ) -> TypedProgram:
     """Select a typed workflow without admitting it as an executable entry."""
 
-    from ..build import _select_entry_workflow_from_surface
+    from ..build import _select_entry_workflow_from_surface, entry_candidates_note
     from ..build_manifest_io import _cli_request_diagnostic
 
-    available_names = {workflow.definition.name for workflow in result.typed_workflows}
+    available_names = [workflow.definition.name for workflow in result.typed_workflows]  # in declaration order
     if export_surface is not None and not (standalone_namespace and entry_workflow):
         canonical_name = _select_entry_workflow_from_surface(
             export_surface,
@@ -692,13 +692,14 @@ def _select_and_finalize_typed_program(
             canonical_name = local_names.get(entry_workflow, entry_workflow)
         else:
             exported = (local_names if result.module.module_name is None else
-                {name: local_names[name] for name in result.module.exports if name in local_names})
+                {name: full for name, full in local_names.items() if name in result.module.exports})
             if len(exported) != 1:
                 raise LispFrontendCompileError((LispFrontendDiagnostic(
                     code="entry_workflow_required",
                     message="`--entry-workflow` is required when the entry module exports multiple workflows",
                     span=result.module.span,
                     form_path=("workflow-lisp",),
+                    notes=entry_candidates_note(exported),
                     phase="cli_request",
                 ),))
             canonical_name = next(iter(exported.values()))

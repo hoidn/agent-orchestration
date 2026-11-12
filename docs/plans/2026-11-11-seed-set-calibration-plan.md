@@ -148,6 +148,119 @@ every threshold, rule, cap and stop of this plan. Its sha256 goes in the
 ledger before the first call. A later apparatus fix is a ledger row with the
 new hash; thresholds do not change.
 
+## Probable calibration failures and the response to each
+
+Added 2026-11-11 on the owner's instruction to preempt them. Each response is
+fixed here, before any spend, and stays inside the authorized calibration and
+redraw caps. Where this section and Step 2 differ, this section governs.
+
+| Probable failure | Why it is likely | Response |
+| --- | --- | --- |
+| Tasks too easy for Haiku: G1 and G2 fail high, G3 has no room, V4 has too few failing candidates | In the Phase 1 authoring check three of three Haiku sessions passed in about 100 seconds; every task hands the agent a failing test it can run | The difficulty ladder and its probe, below |
+| The workflows' check steps never fire, so no workflow differs from `direct` | A single agent session can run the visible test itself and iterate | The probe measures it; the check-withheld form, below |
+| Tasks too hard: Haiku cannot find the change from a short commit message | The repository is large and statements are short | The ladder's easy tiers |
+| A judge cannot tell the fix from no change, or ranks the fix below candidates | October's failures; judges run no tests | An early judge look on three tasks before the rest of the judge calls |
+| Apparatus incidents eat the tranche | About 40% of October's calibration starts were lost to them | The mechanical smoke check; first wave two at a time; the subagent tool off in candidate sessions; launches halt on the incident rule |
+| A candidate can reach the fix | Clones are built from this repository | A zero-spend audit that no clone holds objects after its base commit and that the scan for the fix hash fires on a planted copy |
+
+**Difficulty ladder (owner, 2026-11-11: "by designing significantly harder /
+easier tasks").** Tasks are built in five tiers that differ by design, not by
+a few lines. Every tier holds natural changes from this repository with their
+own tests, admitted through the same oracle, split, leak and provider-guard
+checks. No flaw is ever planted.
+
+| Tier | What makes it that hard |
+| --- | --- |
+| T1, very easy | One source file, at most 20 changed source lines; the statement names the file; the failing test is in the tree |
+| T2, easy | At most two source files and 60 lines; the statement is the commit message; the failing test is in the tree |
+| T3, medium | The 20 tasks already built: at most five files and 200 lines; the failing test is in the tree |
+| T4, hard | Six to fifteen source files or 200 to 600 lines; the statement is the commit message; the failing test is in the tree |
+| T5, very hard | A feature, not a fix: a commit or a run of consecutive commits that adds new behavior with at least 300 added source lines; the statement is the commit message; check-withheld form, so there is no test to run |
+
+At least eight tasks per tier, twelve where the history allows.
+
+**Check-withheld form.** The visible test is not in the candidate's tree; it
+exists only in the check command that a workflow runs, which puts the test in
+place, runs it and removes it. `direct` then has no test to run, and a
+workflow's check step is the only executed signal. T5 always uses it. Any
+tier can be built in it; calibration and seed evaluation always use the same
+form for a task.
+
+**Ladder probe (20 Haiku candidate calls, charged to the redraw tranche).**
+Before any other calibration call: `direct` once on the first four tasks of
+each tier in seed order, hidden tests run, no judges. Per tier it gives the
+number of tasks whose hidden set passes, and the share of runs in which the
+agent itself ran the visible test.
+
+| Probe result | Calibration's 20 tasks |
+| --- | --- |
+| Some tier has 1 to 3 passes of 4 | Drawn in seed order from that tier, filled from the adjacent tier whose count is nearer to 2 |
+| No tier is in that band, but the tiers straddle it | Ten from the hardest tier with 3 or 4 passes and ten from the easiest tier with 0 or 1 |
+| Every tier has 3 or 4 passes (all too easy) | One extension probe, below, on the harder end |
+| Every tier has 0 or 1 passes (all too hard) | Read the 20 transcripts first; then one extension probe, below, on the easier end |
+| The agent ran the visible test in 80% or more of the in-tree runs, and the chosen tier is T1 to T4 | The chosen tasks are used in the check-withheld form |
+
+**If the whole ladder misses (one extension probe, 20 more Haiku calls, the
+rest of the redraw cap).** Four probe tasks cannot tell 3 of 4 from 4 of 4
+reliably, so this is a coarse screen, and its only job is to avoid spending
+the calibration tranche on a task set that cannot pass its gates.
+
+- *All too easy.* The ladder is extended upward without planting anything:
+  T1 to T4 in the check-withheld form (the agent loses the test it was
+  iterating against), and a tier T6 of larger features (several commits on
+  one topic, at least 1,000 added source lines). The extension probe runs
+  `direct` on four tasks of each of the two hardest available rungs and four
+  each of T3 and T4 withheld, as far as 20 calls go.
+- *All too hard.* That is more likely an apparatus fault than difficulty,
+  because T1 names the file and ships a failing test: the agent may be unable
+  to run tests in the sandbox, or to write its result. The transcripts are
+  read before another call; a fault is fixed and the ladder probe's failed
+  runs are reported as incidents, not as difficulty. If the runs are sound,
+  the extension probe adds a tier T0 (the statement also quotes the visible
+  test's failing assertion) and runs it and T1 again.
+- *If the extension probe still finds no tier in the band:* stop. No
+  calibration call is made, at most 40 probe calls have been spent, and the
+  result goes to the owner as a finding with two options that both need a
+  new decision: a different author model (all too hard), or tasks of another
+  kind, longer and multi-stage, since a model that finishes every task of
+  this family in one call leaves a workflow nothing to add (all too easy).
+
+**Bisection instead of the flat probe (owner, 2026-11-11: "consider binary
+search type strategies if this turns out to be inefficient").** The flat
+probe is the default because its 20 runs go out as one batch, it measures on
+every tier whether the agent runs the test itself, and it shows whether the
+tiers are really ordered by difficulty, which a bisection assumes. It is
+replaced by a bisection over the rungs, ordered T0, T1, T2, T3, T4, T5, T6,
+in either of these cases:
+
+- the smoke shows a `direct` run is expensive: a median above 15 minutes or
+  above USD 0.50 by the CLI's own figure;
+- more than five rungs have to be searched, which is the extension probe:
+  it then bisects the rungs not yet probed instead of probing them all.
+
+The rule: probe four tasks of the middle rung; 4 passes of 4 moves to the
+middle of the harder half, 0 of 4 to the middle of the easier half, 1 to 3
+stops there. When two adjacent rungs come out 4 and 0, calibration takes ten
+tasks from each. Seven rungs need at most three steps, 12 calls, against 28
+for a flat pass. What it costs: the steps run one after another, it gives no
+check that the rungs are ordered, and a rung decided on four tasks can send
+the search the wrong way; so if a step contradicts an earlier one (a harder
+rung passes more than an easier one), the search stops and the remaining
+rungs are probed flat within the cap.
+
+Tasks are chosen by tier and seed order, never by their own probe outcome; a
+probed task that is drawn keeps its probe run as the first of its four Haiku
+runs unless the form changed. The ladder probe is the plan's one redraw,
+taken before calibration instead of after it: no later redraw follows, and
+Step 2's redraw paragraph does not apply. Worst case in Haiku candidate
+calls: 40 from the redraw cap (probe and extension probe) and 80 from the
+calibration cap.
+
+**Early judge look (6 judge calls from the calibration cap).** After the
+first three tasks have their runs, pool and judge them with both judges. If,
+for both judges, the reference scores less than 4 points above the base on
+two of the three, stop and report to the owner before any further judge call.
+
 ## Step 2: Calibration (paid)
 
 **Smoke,** on the last reserve task, which then leaves the reserve: one direct
@@ -343,3 +456,11 @@ Allowance does not move between tranches; there is no top-up after a null.
 | 2026-11-11 | Owner decision, judge gate: "Two natural controls". The judge is validated on the untouched base and the reference fix of each task, plus the retest, test-agreement and stronger-arm checks of Step 2. This is a study-local gate computed from the pools' `results.json`; it is recorded in the `AGENTS.md` experiment rules. |
 | 2026-11-11 | Coordinator ruling: both judges are calibrated on the same batches (the planner's alternative of running the Sonnet judge only on a Haiku failure is not taken). Spend to date: 0. |
 | 2026-11-11 | Owner requirement: "part of the seed's simplicity req should be a challenging loc limit (eg <50 lines of orc". Recorded as the size limit in step 1c: under 50 physical lines per seed program, `common.orc` exempt and frozen. The owner confirmed on 2026-11-11 that `common.orc` does not count; the four programs pass at 22, 31, 40 and 45 lines (44 to 67 if `common.orc` were counted). |
+| 2026-11-11 | Owner instruction: "preempt probable calibration failures". The section "Probable calibration failures and the response to each" is added: a 20-call Haiku probe before anything else, hard and easy reserves mined before spend, a check-withheld task form, an early judge look on three tasks, and apparatus measures. All inside the authorized caps; the early replacement of tasks is the plan's one redraw. Coordinator rulings; the check-withheld form changes what `direct` can do and is used only on the probe's evidence. |
+| 2026-11-11 | Owner clarification: preempt "by designing significantly harder / easier tasks". The reserves and the single-tier probe of the previous row are replaced by a five-tier difficulty ladder (very easy to very hard, the hardest being features in the check-withheld form) and a ladder probe of four tasks per tier that picks the tier calibration draws from. No flaw is planted in any task. |
+| 2026-11-11 | Owner question: "what if all tiers are too easy or all tiers are too hard". The ladder section gains the two cases: one extension probe of 20 calls inside the redraw cap (harder rungs: the check-withheld form and a tier of larger features; or, after reading the transcripts for an apparatus fault, an easier rung), then a stop with a report to the owner if no tier lands in the band. No calibration call is made on a task set the probe shows cannot pass. |
+| 2026-11-11 | Owner suggestion: "consider binary search type strategies if this turns out to be inefficient". Recorded as a pre-decided switch: the flat ladder probe stays the default; a bisection over the ordered rungs replaces it when a `direct` run proves expensive in the smoke (median above 15 minutes or USD 0.50) and is always used for the extension probe. Thresholds are the coordinator's. |
+| 2026-11-11 | Runner reviewed and revised (branch `feat/seed-set-prep`, not merged). The independent review confirmed the caps, the locking and the gate formulas, and found one blocker and nine majors, all fixed: the visible check and the hidden tests now run behind refusing stubs with an empty home, so candidate code cannot start a provider outside the guard; the spend ledger lives at a fixed path under the home directory; planning and reserving share one lock; order and stop rules are enforced in code (criterion frozen, smoke passed, stops on a forbidden model, three contaminated tasks or the incident rule); provider incidents are not scored as zeros; an unsummarizable pool is an incident, not a suppressed readout; resume scripts are disabled. Spend to date: 0. |
+| 2026-11-11 | Coordinator rulings recorded with the runner: there is no later redraw (the ladder probe is the one redraw; the redraw cap's 40 Haiku calls serve only the probe, its Sonnet and judge allowances stay unused; a failed calibration gate is a stop with no quality claim). A judge whose agreement with the hidden tests cannot be assessed (fewer than 15 candidates in a class) is not failed for that, and the decision line and the result say in plain words that it passed on V1 to V3 alone. When two rungs are in band the one nearer 2 of 4 wins, ties to the harder. |
+| 2026-11-11 | Known limits of the runner, accepted: the subagent tool cannot be switched off (the provider command is a fixed registry template), so the model pin and the call cap are the bound; the session audit cannot see a session kept only in memory or a direct API request made with the sandbox's copied credential; the detector for "the agent ran the visible test itself" misses wrappers and test files run directly, and over-counts a `-k` filter that deselects the test. |
+
