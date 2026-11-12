@@ -139,6 +139,53 @@ def _dispatches(root: Path) -> dict[str, int]:
             "judge": len(jsonl(root / "requests.jsonl"))}
 
 
+def _assert_resumed(root: Path, run_id: str, env: dict) -> None:
+    """Resume completes with the expected winner; only the killed coders run again."""
+    resumed = subprocess.run(["orchestrator", "resume", run_id], cwd=root, env=env, capture_output=True, text=True,
+                             timeout=TIMEOUT)
+    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+    assert selection(root)["winner"] in resumed.stdout
+    assert _dispatches(root) == {"alpha": 1, "beta": 1, "gamma": 2, "delta": 2, "judge": 1}
+
+
+def _assert_step_usage(usage: dict, table: dict, coder_cost: float | None) -> None:
+    """Each coder's tokens and priced cost; the killed coders' attempts count as unknown; the judge unpriced."""
+    coders = [coder(index) for index in range(len(REPOS))]
+    killed = {coder(REPOS.index(f"candidates/{name}")) for name in HELD}
+    assert set(usage) == {*coders, JUDGE}
+    for identity in coders:
+        assert usage[identity] == ({"tokens": TOKENS, "cost_usd": pytest.approx(coder_cost), "attempts": 2,
+                                    "unknown_attempts": 1, "partial": True} if identity in killed else
+                                   {"tokens": TOKENS, "cost_usd": pytest.approx(coder_cost), "attempts": 1,
+                                    "unknown_attempts": 0, "partial": False}), identity
+    # The program's judge model has no rates in the price table: tokens are shown, its cost is not.
+    assert JUDGE_MODEL not in table["models"]
+    assert usage[JUDGE] == {"tokens": JUDGE_TOKENS, "cost_usd": None, "attempts": 1, "unknown_attempts": 0,
+                            "partial": True}
+
+
+def _assert_report(root: Path, run_id: str, env: dict) -> None:
+    """Tokens of completed attempts per step, killed attempts unknown, the priced part of the cost."""
+    report = subprocess.run(["orchestrator", "report", "--run-id", run_id, "--format", "json"], cwd=root, env=env,
+                            capture_output=True, text=True, timeout=TIMEOUT)
+    assert report.returncode == 0, report.stderr
+    snapshot = json.loads(report.stdout)
+    usage = {step["identity"]: step["usage"] for step in snapshot["steps"] if "usage" in step}
+    table = load_price_table()
+    coder_cost = priced([{"model": CODER_MODEL, "tokens": TOKENS}], table)
+    _assert_step_usage(usage, table, coder_cost)
+    total = snapshot["run"]["usage"]
+    assert total == {"tokens": {key: 4 * TOKENS[key] + JUDGE_TOKENS[key] for key in TOKENS},
+                     "cost_usd": pytest.approx(len(REPOS) * coder_cost), "attempts": len(usage) + len(HELD),
+                     "unknown_attempts": len(HELD), "partial": True,
+                     "price_table": {"source": table["source"], "date": table["date"]}}
+    markdown = subprocess.run(["orchestrator", "report", "--run-id", run_id], cwd=root, env=env,
+                              capture_output=True, text=True, timeout=TIMEOUT)
+    assert markdown.returncode == 0, markdown.stderr
+    section = markdown.stdout.split("## Usage\n", 1)[1]
+    assert section.startswith("- total: `≥ "), section
+
+
 def test_parallel_best_of_n_survives_a_kill_and_reports_tokens(installed, tmp_path):  # noqa: F811
     _standins(tmp_path / "bin")
     root, frontend = _workspace(tmp_path)
@@ -152,39 +199,7 @@ def test_parallel_best_of_n_survives_a_kill_and_reports_tokens(installed, tmp_pa
 
     # 2. Resume completes with the expected winner; only the killed coders run again.
     env = _env(installed, tmp_path, root)
-    resumed = subprocess.run(["orchestrator", "resume", run_id], cwd=root, env=env, capture_output=True, text=True,
-                             timeout=TIMEOUT)
-    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
-    assert selection(root)["winner"] in resumed.stdout
-    assert _dispatches(root) == {"alpha": 1, "beta": 1, "gamma": 2, "delta": 2, "judge": 1}
+    _assert_resumed(root, run_id, env)
 
     # 3. The report: tokens of completed attempts per step, killed attempts unknown, the priced part of the cost.
-    report = subprocess.run(["orchestrator", "report", "--run-id", run_id, "--format", "json"], cwd=root, env=env,
-                            capture_output=True, text=True, timeout=TIMEOUT)
-    assert report.returncode == 0, report.stderr
-    snapshot = json.loads(report.stdout)
-    usage = {step["identity"]: step["usage"] for step in snapshot["steps"] if "usage" in step}
-    coders = [coder(index) for index in range(len(REPOS))]
-    killed = {coder(REPOS.index(f"candidates/{name}")) for name in HELD}
-    assert set(usage) == {*coders, JUDGE}
-    table = load_price_table()
-    coder_cost = priced([{"model": CODER_MODEL, "tokens": TOKENS}], table)
-    for identity in coders:
-        assert usage[identity] == ({"tokens": TOKENS, "cost_usd": pytest.approx(coder_cost), "attempts": 2,
-                                    "unknown_attempts": 1, "partial": True} if identity in killed else
-                                   {"tokens": TOKENS, "cost_usd": pytest.approx(coder_cost), "attempts": 1,
-                                    "unknown_attempts": 0, "partial": False}), identity
-    # The program's judge model has no rates in the price table: tokens are shown, its cost is not.
-    assert JUDGE_MODEL not in table["models"]
-    assert usage[JUDGE] == {"tokens": JUDGE_TOKENS, "cost_usd": None, "attempts": 1, "unknown_attempts": 0,
-                            "partial": True}
-    total = snapshot["run"]["usage"]
-    assert total == {"tokens": {key: 4 * TOKENS[key] + JUDGE_TOKENS[key] for key in TOKENS},
-                     "cost_usd": pytest.approx(len(coders) * coder_cost), "attempts": len(usage) + len(killed),
-                     "unknown_attempts": len(killed), "partial": True,
-                     "price_table": {"source": table["source"], "date": table["date"]}}
-    markdown = subprocess.run(["orchestrator", "report", "--run-id", run_id], cwd=root, env=env,
-                              capture_output=True, text=True, timeout=TIMEOUT)
-    assert markdown.returncode == 0, markdown.stderr
-    section = markdown.stdout.split("## Usage\n", 1)[1]
-    assert section.startswith("- total: `≥ "), section
+    _assert_report(root, run_id, env)
