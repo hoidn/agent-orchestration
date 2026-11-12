@@ -78,10 +78,6 @@ def _names(keys) -> list[str]:
     return names
 
 
-def _file_names(keys) -> str:
-    return ", ".join(_names(keys)) or "none recorded"
-
-
 def _unfinished_users(snapshot, identity: str, changed: list[str]) -> list[str]:
     """Other steps whose latest attempt is pending or failed and whose files include a changed one (any, if unknown).
 

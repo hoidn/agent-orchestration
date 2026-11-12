@@ -268,8 +268,6 @@ def run_evaluated_workflow(
 
     state_manager = StateManager(
         workspace=workspace,
-        backup_enabled=getattr(args, "backup_state", False),
-        debug=getattr(args, "debug", False),
         state_dir=Path(args.state_dir).expanduser().resolve()
         if getattr(args, "state_dir", None) else None,
         run_id=run_id,
