@@ -103,17 +103,19 @@ JSON files. They are for observability and external tooling only; control flow
 derives solely from the validated `.orc` executable and `state.json`.
 
 - Status/report surfaces
-  - Reports and dashboards may project persisted legacy-run state without
-    reopening the recorded workflow source. A non-`.orc` workflow path selects
-    state-only compatibility: no authored YAML parsing, source-derived
-    structure, or workflow execution is permitted.
-  - Dashboard status projection is advisory and read-only: it may expose both persisted `state.status` and dashboard-derived `display_status`, but it must not reconcile stale running state, write `context.status_reconciled_*`, or otherwise mutate `state.json`.
-  - The existing `orchestrate report` command may continue to self-heal stale running state when it derives a terminal status; dashboard routes must reuse only pure projection helpers, not the mutating report command path.
+  - `report` and the dashboard read evaluated runs only: the checked authority
+    (`run.json`, `closed_program.json`, `memo.jsonl`) and the view derived from
+    it, without reopening the workflow source. A run directory with a
+    `state.json` entry and no evaluated authority was written by the retired
+    runtime; both refuse it with `workflow_execution_profile_retired` and the
+    git tag `archive/retired-run-readers-2026-11-11` that keeps the old readers (see
+    [the CLI contract](cli.md#evaluated-readers)). Its `state.json` is not read
+    beyond the view-hint check.
+  - Dashboard status projection is advisory and read-only: it shows the derived
+    view's status and never writes to a run directory.
   - Dashboard run identity is the resolved workspace root plus the scanned run directory name. `state.run_id` is display metadata and mismatch context only.
   - Dashboard index and detail pages may support an optional `refresh=<seconds>` query parameter using page-level meta refresh. Invalid or out-of-range values are ignored, and refresh support must not add background workers or route-triggered state changes.
   - Dashboard file previews are observability views over existing artifacts and logs only; missing prompt audits, stdout/stderr spill files, provider-session files, and backups are display states rather than run failures.
-  - Dashboard summary pages are read-only GUI views over `RUN_ROOT/summaries/index.json`, `RUN_ROOT/summaries/run-summary.md`, and request-time run state. They may link to detailed summary, snapshot, error, provider-session, and transport files through existing run-scoped file routes, but they must not parse summary prose as workflow state or execute recovery/control actions.
-  - The dashboard summary live endpoint (`/runs/<workspace_id>/<run_dir>/summaries/live.json`) reports current-step metadata, summary index facts, and generated live-note artifacts when present. It may expose links to generated observability artifacts, but provider calls for live narration belong in runtime-side observers or sidecars, not dashboard page requests.
   - Step snapshots may include normalized `output.outcome` fields when present in `state.json`.
   - The normalized outcome surface is intended for human-readable reports and typed routing; it does not replace the underlying `status`, `exit_code`, or `error` fields.
   - v1.7 scalar bookkeeping steps report distinct kinds (`set_scalar`, `increment_scalar`) and expose their local produced values through the normal `output.artifacts` surface.
@@ -139,12 +141,10 @@ derives solely from the validated `.orc` executable and `state.json`.
     or populate the run-level error. No completed cleanup history is required
     in this projection. Rendering the report is not a full revalidation of
     export bytes; settlement and resume retain that responsibility.
-  - Status/report snapshots may expose `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, `run.current_executor_session`, `run.excluded_suspended_ms`, and `run.suspended_gap_excluded` when executor-session accounting is available.
-  - v2.10 status/report snapshots may expose:
-    - bounded `provider_attempt_interrupted_rerun` context for a validated
-      interrupted provider-session visit; it is a recovery diagnostic, not a
-      run-level failure
-    - `output.provider_session` step summaries including `mode`, `session_id`, `metadata_path`, and `publication_state`
+  - The executor-session accounting fields (`run.active_runtime_ms` and its
+    siblings) and the v2.10 `provider_attempt_interrupted_rerun` and
+    `output.provider_session` projections came from the retired-run report;
+    `report` no longer produces them (kept at the git tag `archive/retired-run-readers-2026-11-11`).
   - v2.11 adjudicated provider snapshots may expose selected candidate id, selected score or null score, selection reason, run-local score ledger path, workspace-visible score ledger mirror path, promotion status, and adjudication failure type. Candidate workspaces, evaluator packets, and ledgers are observability sidecars, not ordinary artifact lineage.
   - v2.16 provider-supervision and v2.17 provider-peer-group snapshots: no
     step of either kind can be produced since their executors were removed on
@@ -211,11 +211,10 @@ withdrawn from the current package: no admitted 2.35+ producer or public
 state-reader path supplies the typed authority they require. The rules below
 preserve the historical format contract, not current rendering support.
 
-The CLI retains its state-only historical report: trial rows expose identity,
-kind and status with empty input/output payloads. It does not reconstruct
-detailed budgets, scores, rankings or verdict joins. Dashboard generic raw/debug
-inspection remains a separate read-only surface and does not promise the CLI
-redaction. Raw run state, output suppression, trial configuration/ledger and
+`report` and the dashboard no longer read trial runs: a retained trial run has
+no evaluated authority, so both refuse it with
+`workflow_execution_profile_retired`; the old state-only report is kept at the
+git tag `archive/retired-run-readers-2026-11-11`. Raw run state, output suppression, trial configuration/ledger and
 settlement validators, and frozen JSON remain supported only for their actual
 data consumers. None of these readers restores trial execution or supplies
 recovery evidence for another release. See the
@@ -256,130 +255,15 @@ recovery evidence for another release. See the
   non-trial runs perform no trial projection work and create zero trial
   sidecars.
 
-## Workflow Lisp Judgment Views
+## Workflow Lisp Judgment Views (Historical)
 
-- Every JSON report has the exact additive top-level sibling below, including
-  runs with no eligible result. The nested object and every row described in
-  this section are closed; unknown keys and schema versions fail report
-  validation.
-
-  ```json
-  {
-    "judgment_views": {
-      "schema_version": "workflow_judgment_views.v1",
-      "judgments": [],
-      "matrices": [],
-      "disagreements": [],
-      "iteration_series": []
-    }
-  }
-  ```
-
-  Markdown reports derive a sibling `Judgment views` section from the same
-  validated projection.
-- Every judgment coordinate is the closed object with exact fields
-  `root_workflow_identity`, `call_frame_path`, `runtime_step_id`,
-  `enclosing_step_id`, `enclosing_visit`, and `loop`.
-  `root_workflow_identity` is the root state's canonical `workflow_checksum`;
-  `call_frame_path` is the exact outermost-to-innermost array of persisted,
-  non-empty call-frame IDs; and the step/visit values come from the validated
-  provider-attempt scope. `loop` is null or the closed object with exact fields
-  `kind`, `step_id`, and `iteration`, where `kind` is `for_each` or
-  `repeat_until` and `iteration` is nonnegative. Coordinates are never
-  reconstructed from display names, runtime-step spelling, or filesystem
-  paths.
-- An available judgment is the closed
-  `workflow_judgment_inspection.v1` object with exact fields
-  `schema_version`, `status: "available"`, `coordinate`,
-  `attempt_ordinal`, `result`, and `provenance`.
-  - `result` has exactly `declared_shape`, `contract_sha256`,
-    `value_sha256`, `value`, and `comparison`.
-    `declared_shape` is `root_value`, `record_value`, or `union_value`;
-    `value` is the authoritative reached-state value revalidated against the
-    exact persisted result contract. `comparison` is null or the closed
-    `{kind, value}` object, whose kind is `canonical_value` or
-    `union_variant`.
-  - `provenance` has exactly `evidence_record_sha256`,
-    `identity_schema_version`, `role_sha256`, `final_prompt_sha256`,
-    `composition_sha256`, and `comparison`.
-    `identity_schema_version` is exact
-    `workflow_prompt_attempt_identity.v1`; `role_sha256` has exactly
-    `fragment_program`, `resolved_bindings`, `injected_dependencies`,
-    `runtime_contributions`, and `provider_policy`; and `comparison` reuses
-    the closed Q3 comparison schema and reason set byte-for-byte.
-- An unavailable judgment is the closed
-  `workflow_judgment_inspection.v1` object with exactly
-  `schema_version`, `status: "unavailable"`, `coordinate`, and `reason`.
-  Its reason is exactly one of
-  `judgment_result_binding_missing`, `judgment_result_binding_invalid`,
-  `judgment_result_binding_ambiguous`, `judgment_result_scope_mismatch`,
-  `judgment_result_attempt_mismatch`, `judgment_result_evidence_invalid`,
-  `judgment_result_contract_mismatch`, `judgment_result_value_mismatch`,
-  `judgment_result_coordinate_invalid`, or
-  `judgment_view_group_invalid`. Unavailable rows remain ordered members but
-  never count as votes.
-- Comparison keys are structural. Exact `Bool`, `Int`, `Float`, `String`, and
-  enum roots compare by canonical value; unions compare by selected variant
-  name. Records, lists, maps, paths, `Value`, and other structured roots have
-  no comparison key and are `not_comparable`; their canonical result digests
-  remain visible. Conventional field names such as `decision`, `score`, or
-  `approved` have no semantic role.
-- Rows group only by `(root workflow identity, runtime step ID)`. A closed
-  `workflow_judgment_matrix.v1` matrix has exactly `schema_version`, `group`,
-  and `members`; `group` has exactly `root_workflow_identity` and
-  `runtime_step_id`. Each member has exactly `coordinate`, `status`,
-  `comparison`, `result_value_sha256`, `evidence_record_sha256`, and `reason`.
-  Its status is:
-  - `comparable`, with a non-null comparison, both digests, and null reason;
-  - `not_comparable`, with null comparison, both digests, and null reason; or
-  - `unavailable`, with null comparison and digests plus one closed Q4 reason.
-- Each matrix has one closed `workflow_judgment_disagreement.v1` row with
-  exactly `schema_version`, `group`, `status`, `available_member_count`,
-  `comparable_member_count`, `not_comparable_member_count`,
-  `unavailable_member_count`, and `distinct_comparison_key_count`.
-  Classification is total in this order: fewer than two available rows is
-  `insufficient_members`; otherwise any available row without a key is
-  `not_comparable`; otherwise one distinct key is `agree`; otherwise two or
-  more distinct keys is `disagree`. Unavailable members are counted only by
-  `unavailable_member_count`. The `disagreements` array has exactly one row per
-  matrix in matrix order.
-- A closed `workflow_judgment_iteration_series.v1` row has exactly
-  `schema_version`, `scope_sha256`, `coordinate`, and `attempts`. Each attempt
-  has exactly `attempt_ordinal`, `record_status`, `record_sha256`,
-  `comparison`, and `committed_result_status`, reusing Q3's closed record
-  status, digest, and comparison contracts. `committed_result_status` is:
-  - `bound` only for the one ordinal selected by a fully validated result
-    binding;
-  - `not_bound` only when another ordinal is validly bound in that scope or
-    reached state proves the scope has no committed provider result; or
-  - `unknown_pre_q4` for every ordinal when an otherwise-compatible pre-Q4
-    reached result has no binding.
-  At most one ordinal is `bound`, and the projector never infers a committing
-  attempt from the newest record.
-- Deterministic order is independent of discovery, filesystem enumeration, and
-  provider completion timing. Judgments and matrix members sort by:
-  root-workflow-identity bytes; runtime-step-ID UTF-8 bytes; canonical JSON
-  UTF-8 bytes of `call_frame_path` using `ensure_ascii=False` and separators
-  `(",", ":")`; enclosing-step-ID UTF-8 bytes; enclosing visit; loop kind
-  then loop-step-ID UTF-8 bytes with non-loop before loop; loop iteration;
-  attempt ordinal with missing before positive; and result-digest bytes with
-  missing before present. Matrices sort by their two group coordinates.
-  Attempts sort by ascending ordinal; iteration series sort by the full
-  coordinate order and then scope-digest bytes.
-- State-only and bundle-backed reports use the same
-  `orchestrator.dashboard.compiled_workflow.load_persisted_compiled_workflow_surface`
-  path, anchored by
-  `state.runtime_observability.compiled_frontend.persisted_workflow_surface`,
-  to resolve the exact run-bound, content-addressed result contract. They
-  produce the same projection without recompiling retained/current source or
-  trusting an unbound live bundle. A missing, ambiguous, digest-invalid, or
-  coordinate-inconsistent persisted surface makes only the affected judgment
-  unavailable.
-- Judgment views are pure, read-only, and non-authoritative. Execution,
-  resume, workflow parsers, and workflows do not consume them; they cannot
-  route, retry, settle, score, promote, or mutate a workflow. Association,
-  validation, grouping, ordering, and rendering are deterministic
-  runtime/report obligations and add no provider-prompt instruction or input.
+The read-only judgment views that `report` derived from the old runtime's
+state (the `judgment_views` JSON sibling and the Markdown `Judgment views`
+section) are removed: they read only runs the retired runtime wrote, which
+`report` now refuses. No evaluated producer supplies their inputs. The
+contract and its implementation are kept at the git tag
+`archive/retired-run-readers-2026-11-11`
+(`specs/observability.md` and `orchestrator/workflow/judgment_views.py` there).
 
 ## Error Context (shape)
 

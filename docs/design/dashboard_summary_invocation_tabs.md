@@ -1,8 +1,6 @@
 # Dashboard Summary Invocation Tabs
 
-Status scope: target design; implementation acceptance is not established by this page. Current operator behavior is owned by [Observability](../../specs/observability.md) and the [CLI dashboard contract](../../specs/cli.md). Use existing read-only run/summary pages until the lineage-selection acceptance criteria are met.
-
-Status: draft implementation design
+Status: Retired. The Summary Hub this design would extend was removed from the dashboard ([dashboard migration plan](../plans/2026-11-11-dashboard-evaluated-runs-migration-plan.md)); the design is not implemented and selects no work. The old pages are kept at the git tag `archive/retired-run-readers-2026-11-11`. Current dashboard behavior is owned by the [CLI dashboard contract](../../specs/cli.md#evaluated-readers).
 
 ## Problem
 

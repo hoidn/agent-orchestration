@@ -69,8 +69,8 @@ Ordinary `run` accepts a path whose suffix
 compares case-insensitively as `.orc` and rejects every other source with
 `.orc required` before creating state. Python authoring uses `py build/check/run`
 to generate and validate ordinary `.orc` first. The production YAML parser and PyYAML
-runtime dependency are removed. Persisted legacy runs retain state-only
-report/dashboard compatibility without source parsing. Old workflow profiles
+runtime dependency are removed. `report` and the dashboard refuse persisted
+legacy runs with `workflow_execution_profile_retired`. Old workflow profiles
 refuse `resume`, force-restart and invalidation with
 `workflow_execution_profile_retired` before changing retained run contents.
 Native `prompt resume` remains separate. The
@@ -1934,8 +1934,9 @@ reader contracts for reports from a 2.35/2.36 run.
 
 ### Inspecting Judgment Views
 
-Q4 judgment views are a bounded read-only diagnostic projection, not provider
-results or workflow-readable state. See the
+Q4 judgment views are removed from `report` with the retired-run readers (kept
+at the git tag `archive/retired-run-readers-2026-11-11`); there is nothing to
+inspect on current runs. See the
 [judgment-view contract](design/workflow_lisp_judgment_views.md) and the
 [capability matrix](capability_status_matrix.md) for the panel's exact scope;
 older-profile snapshot evidence does not qualify evaluated readers.

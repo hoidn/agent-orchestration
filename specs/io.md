@@ -243,11 +243,11 @@ authoring changes do not introduce a new result-acceptance profile.
       preparation failure publishes the closed
       `workflow_prompt_fragment_preparation_failure.functional.v1` record;
       either publication failure launches no provider.
-    - `orchestrator report` JSON always includes the additive top-level
-      `prompt_context` object, including for older targets and unqualified
-      runs. Its Markdown projection contains status labels, role digests, and
-      fixed comparison classifications only; neither report projection is a
-      provider result or execution/resume input.
+    - `orchestrator report` JSON has exactly `run`, `progress` and `steps`; it
+      no longer includes a `prompt_context` object or its Markdown projection,
+      which read only runs of the retired runtime (kept at the git tag
+      `archive/retired-run-readers-2026-11-11`). Report output is never a provider result or
+      execution/resume input.
   - Result-file freshness (every target):
     - Before each command call, and each provider call with composed delivery,
       that has `output_bundle.path` or `variant_output.path`, including each

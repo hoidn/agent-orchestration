@@ -19,9 +19,9 @@ Execution admission follows the [CLI support boundary](cli.md#executable-support
 and [versioning](versioning.md#executable-support-and-historical-version-gates).
 Retired workflow profiles refuse before locks, source loading or mutation,
 regardless of recorded source suffix, terminality or restart/repair flags;
-there is no historical resume fallback. `report` and dashboard remain state-only
-observability for historical runs, without parsing authored YAML or compiling
-source to reconstruct semantics. Source compilation, transitive imports, retained
+there is no historical resume fallback. `report` and the dashboard refuse historical runs
+with `workflow_execution_profile_retired`; they never parse authored YAML or
+compile source to reconstruct semantics. Source compilation, transitive imports, retained
 typed-program capsules, REPL loading and LSP analysis admit only registered
 targets 2.35–2.40 throughout the dependency graph. Older headers are rejected;
 historical data readers do not reopen source admission. Direct syntax/import
@@ -590,7 +590,7 @@ YAML-fenced snippets are structural notation, not authored workflow files.
   - structured `repeat_until` requires `version: "2.7"` or higher.
   - `repeat_until.on_exhausted` requires `version: "2.12"` or higher.
   - Advisory authoring-time linting:
-    - `orchestrate run --dry-run` and `orchestrate report` may surface non-fatal warnings for migration patterns such as shell gates that should become `assert`, stringly `when.equals` routing that should become typed predicates, raw `goto` diamonds that should become structured control, and imported/exported output-name collisions.
+    - `orchestrate run --dry-run` may surface non-fatal warnings for migration patterns such as shell gates that should become `assert`, stringly `when.equals` routing that should become typed predicates, raw `goto` diamonds that should become structured control, and imported/exported output-name collisions.
     - Lint warnings are advisory only in the first pass and never change workflow load validity or runtime exit codes.
 
   - Workflow Lisp `provider-result` call policy:

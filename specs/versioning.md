@@ -392,10 +392,10 @@ own delivery status and captured evidence.
     runtime contributions, and prepared provider policy. The exact prepared
     final-prompt and composition digests close the record without persisting
     prompt or role bytes.
-  - A pure fixed-order comparator and the additive `prompt_context` JSON and
-    Markdown report projections remain provenance only. The report key is
-    present for every target; older valid fragment snapshots project as
-    `legacy_snapshot`, and unqualified runs project an empty attempt list.
+  - The fixed-order comparator and the `prompt_context` JSON and Markdown
+    report projections were provenance only; they read runs of the retired
+    runtime and are removed (kept at the git tag `archive/retired-run-readers-2026-11-11`). `report` no longer
+    has a `prompt_context` key for any target.
   - Compiled fragment identities/contracts remain v1 or v2 according to the
     existing Q1/Q2 shape. Target-2.20/2.21 compiler, runtime, checkpoint,
     provider, evidence, and completed-result reuse bytes remain unchanged.

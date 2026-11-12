@@ -8,9 +8,12 @@ from urllib.parse import quote
 
 import pytest
 
+from orchestrator.dashboard.projection import RunProjector
 from orchestrator.dashboard.scanner import RunScanner
 from orchestrator.dashboard.server import DashboardApp
-from tests.test_workflow_evaluated_dashboard import _detail, _forbid_legacy
+from tests.agent_session_shims import install_agent_shims
+from tests.test_workflow_evaluated_agent_turns import PLAN, fixture as agent_fixture
+from tests.test_workflow_evaluated_dashboard import _detail, _forbid_legacy, _timeline
 from tests.test_workflow_evaluated_invalidate import _completed_run, _cli, _tree_bytes, _fixture as _command_fixture
 from tests.test_workflow_evaluated_providers import _fixture, _cli as _provider_cli, _requests
 from tests.test_workflow_evaluated_resume_kills import _run_root
@@ -29,8 +32,8 @@ def test_command_current_attempt_files_and_missing_result_keep_memo_value(tmp_pa
     before = _tree_bytes(tmp_path)
     step = _detail(tmp_path, run_root).steps[1]
     row = _snapshot(run_root).active_commits[step.ref].data
-    assert set(step.file_refs) == {"result", "stdout", "stderr"}
-    assert step.file_refs["result"].route_path == row["result_path"]
+    assert set(step.file_refs) == {"result.json", "stdout.txt", "stderr.txt"}
+    assert step.file_refs["result.json"].route_path == row["result_path"]
     app = DashboardApp(RunScanner([tmp_path]))
     for reference in step.file_refs.values():
         response = _preview(app, run_root, reference)
@@ -40,7 +43,7 @@ def test_command_current_attempt_files_and_missing_result_keep_memo_value(tmp_pa
     before = _tree_bytes(tmp_path)
     step = _detail(tmp_path, run_root).steps[1]
     assert json.loads(step.output_preview) == 20
-    response = _preview(app, run_root, step.file_refs["result"])
+    response = _preview(app, run_root, step.file_refs["result.json"])
     assert response.status == 200 and "missing" in response.body.decode()
     assert _tree_bytes(tmp_path) == before
 
@@ -51,9 +54,9 @@ def _assert_provider_preview(workspace, run_root, attempt):
     step, = detail.steps
     row = detail.state["steps"][step.ref]
     assert row["attempt"] == attempt
-    assert set(step.file_refs) == {"result", "prompt", "stdout", "stderr"}
+    assert set(step.file_refs) == {"result.json", "prompt.txt", "stdout.txt", "stderr.txt"}
     app = DashboardApp(RunScanner([workspace]))
-    for name in ("prompt", "stdout", "stderr"):
+    for name in ("prompt.txt", "stdout.txt", "stderr.txt"):
         reference = step.file_refs[name]
         assert f"attempt-{attempt}/" in reference.route_path
         content = reference.absolute_path.read_text()
@@ -71,7 +74,7 @@ def test_provider_retry_previews_keep_latest_error_and_older_attempts(tmp_path, 
     run_root = _run_root(tmp_path)
     _forbid_legacy(monkeypatch)
     first, first_row = _assert_provider_preview(tmp_path, run_root, 1)
-    old = _tree_bytes(first.file_refs["prompt"].absolute_path.parent)
+    old = _tree_bytes(first.file_refs["prompt.txt"].absolute_path.parent)
     _provider_env(monkeypatch, tmp_path, "invalid")
     assert _cli(tmp_path, "resume", run_root.name).returncode == 1
     second, second_row = _assert_provider_preview(tmp_path, run_root, 2)
@@ -82,14 +85,14 @@ def test_provider_retry_previews_keep_latest_error_and_older_attempts(tmp_path, 
     final, final_row = _assert_provider_preview(tmp_path, run_root, 3)
     assert final.error is None and final_row["value"] == {"ok": True}
     assert len(_requests(tmp_path)) == 3
-    assert _tree_bytes(first.file_refs["prompt"].absolute_path.parent) == old
+    assert _tree_bytes(first.file_refs["prompt.txt"].absolute_path.parent) == old
 
 
 def test_invalidate_retry_previews_use_new_attempt_and_preserve_old_files(tmp_path, monkeypatch):
     run_root = _completed_run(tmp_path)
     original = _detail(tmp_path, run_root)
     identities = [step.ref for step in original.steps]
-    old = [_tree_bytes(step.file_refs["result"].absolute_path.parent) for step in original.steps]
+    old = [_tree_bytes(step.file_refs["result.json"].absolute_path.parent) for step in original.steps]
     result = _cli(tmp_path, "invalidate", run_root.name, identities[1])
     assert result.returncode == 0, result.stderr
     _forbid_legacy(monkeypatch)
@@ -104,13 +107,13 @@ def test_invalidate_retry_previews_use_new_attempt_and_preserve_old_files(tmp_pa
     assert [step.ref for step in final.steps] == identities
     assert [row["attempt"] for row in final.state["steps"].values()] == [1, 2, 2]
     _assert_old_files(original.steps, old)
-    assert "attempt-2/" in final.steps[1].file_refs["result"].route_path
+    assert "attempt-2/" in final.steps[1].file_refs["result.json"].route_path
 
 
 def test_attempt_file_routes_reject_symlink_escape_and_traversal(tmp_path, monkeypatch):
     run_root = _completed_run(tmp_path)
     step = _detail(tmp_path, run_root).steps[0]
-    stream = step.file_refs["stdout"].absolute_path
+    stream = step.file_refs["stdout.txt"].absolute_path
     outside = tmp_path / "outside.txt"
     outside.write_text("private outside bytes")
     stream.unlink()
@@ -118,10 +121,10 @@ def test_attempt_file_routes_reject_symlink_escape_and_traversal(tmp_path, monke
     _forbid_legacy(monkeypatch)
     before = _tree_bytes(tmp_path)
     detail = _detail(tmp_path, run_root)
-    assert "stdout" not in detail.steps[0].file_refs
+    assert "stdout.txt" not in detail.steps[0].file_refs
     assert any("unsafe stdout" in warning for warning in detail.warnings)
     app = DashboardApp(RunScanner([tmp_path]))
-    response = _preview(app, run_root, step.file_refs["stdout"])
+    response = _preview(app, run_root, step.file_refs["stdout.txt"])
     assert response.status == 400 and b"private outside bytes" not in response.body
     route = f"/runs/w0/{run_root.name}/files/run/%2e%2e/outside.txt"
     assert app.handle("GET", route).status == 400
@@ -137,7 +140,7 @@ def test_actual_stream_preview_escapes_limits_and_raw_download(tmp_path, monkeyp
     run_root = _run_root(tmp_path)
     _forbid_legacy(monkeypatch)
     before = _tree_bytes(tmp_path)
-    reference = _detail(tmp_path, run_root).steps[0].file_refs["stdout"]
+    reference = _detail(tmp_path, run_root).steps[0].file_refs["stdout.txt"]
     app = DashboardApp(RunScanner([tmp_path]))
     response = _preview(app, run_root, reference)
     assert response.status == 200
@@ -152,7 +155,7 @@ def test_actual_stream_preview_escapes_limits_and_raw_download(tmp_path, monkeyp
 
 def _assert_old_files(steps, old):
     for index, step in enumerate(steps):
-        assert _tree_bytes(step.file_refs["result"].absolute_path.parent) == old[index]
+        assert _tree_bytes(step.file_refs["result.json"].absolute_path.parent) == old[index]
 
 
 def _escaped_loop_run(workspace):
@@ -199,3 +202,161 @@ def _assert_canonical_step_route(workspace, run_root, identity):
     assert response.status == 200
     assert html.escape(identity) in response.body.decode()
     assert _tree_bytes(workspace) == before
+
+
+_UNLINKED = {"receipt.json"}
+_UNLINKED_BY_CLASS = {"agent_turn": {"stdout.txt"}}
+
+
+def _attempt_hrefs(run_root, row):
+    """Routes of the attempt directory's top-level regular files that the pages link, read from the disk."""
+    attempt = (run_root / row["result_path"]).parent
+    hidden = _UNLINKED | _UNLINKED_BY_CLASS.get(row["effect_class"], set())
+    return {f"/runs/w0/{run_root.name}/files/run/{quote(path.relative_to(run_root).as_posix())}"
+            for path in attempt.iterdir() if path.is_file() and not path.is_symlink() and path.name not in hidden}
+
+
+def _page_rows(workspace, run_root):
+    response = DashboardApp(RunScanner([workspace])).handle("GET", f"/runs/w0/{run_root.name}")
+    assert response.status == 200
+    return {row["name"]: row for row in _timeline(response)}
+
+
+def _assert_attempt_links(workspace, run_root, effect_class):
+    state = _detail(workspace, run_root).state
+    rows = _page_rows(workspace, run_root)
+    selected = [(name, row) for name, row in state["steps"].items() if row["effect_class"] == effect_class]
+    assert selected
+    for name, row in selected:
+        assert set(rows[name]["files"]) == _attempt_hrefs(run_root, row)
+    return selected
+
+
+def _agent_turn_run(workspace, monkeypatch):
+    install_agent_shims(workspace / "bin", monkeypatch, codex_home=workspace / "codex",
+                        claude_home=workspace / "claude", plan=PLAN)
+    assert _cli(workspace, "run", *agent_fixture(workspace)).returncode == 0
+    return _run_root(workspace)
+
+
+@pytest.mark.parametrize("effect_class", ["provider", "agent_turn"])
+def test_attempt_directory_files_are_linked_for_every_class(tmp_path, monkeypatch, effect_class):
+    if effect_class == "provider":
+        assert _provider_cli(tmp_path, _fixture(tmp_path)).returncode == 0
+        run_root = _run_root(tmp_path)
+    else:
+        run_root = _agent_turn_run(tmp_path, monkeypatch)
+    name, row = _assert_attempt_links(tmp_path, run_root, effect_class)[0]
+    names = {path.name for path in (run_root / row["result_path"]).parent.iterdir()}
+    assert {"result.json", "prompt.txt", "stdout.txt", "stderr.txt"} <= names
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.txt"
+    outside.write_text("private outside bytes")
+    planted = (run_root / row["result_path"]).parent / "planted.txt"
+    planted.symlink_to(outside)
+    before = _tree_bytes(tmp_path)
+    detail = _detail(tmp_path, run_root)
+    assert any("unsafe planted" in warning for warning in detail.warnings)
+    response = DashboardApp(RunScanner([tmp_path])).handle("GET", f"/runs/w0/{run_root.name}")
+    assert "planted.txt\"" not in response.body.decode() and b"private outside bytes" not in response.body
+    _assert_attempt_links(tmp_path, run_root, effect_class)
+    assert _tree_bytes(tmp_path) == before
+
+
+def test_agent_turn_receipt_and_raw_stream_are_not_linked_but_served_by_path(tmp_path, monkeypatch):
+    run_root = _agent_turn_run(tmp_path, monkeypatch)
+    state = _detail(tmp_path, run_root).state
+    name, row = next((name, row) for name, row in state["steps"].items() if row["effect_class"] == "agent_turn")
+    attempt = (run_root / row["result_path"]).parent.relative_to(run_root).as_posix()
+    app = DashboardApp(RunScanner([tmp_path]))
+    before = _tree_bytes(tmp_path)
+    pages = [app.handle("GET", f"/runs/w0/{run_root.name}").body.decode(),
+             app.handle("GET", f"/runs/w0/{run_root.name}/steps/{quote(name, safe='')}").body.decode()]
+    for page in pages:
+        assert f"{attempt}/prompt.txt" in page and f"{attempt}/stderr.txt" in page
+        assert f"{attempt}/receipt.json" not in page and f"{attempt}/stdout.txt" not in page
+    for hidden in ("receipt.json", "stdout.txt"):
+        raw = app.handle("GET", f"/runs/w0/{run_root.name}/files/run/{attempt}/{hidden}?raw=1")
+        assert raw.status == 200 and raw.body == (run_root / attempt / hidden).read_bytes()
+    assert _tree_bytes(tmp_path) == before
+
+
+def _attempt_dir(workspace, run_root, suffix="/ prefix"):
+    step = next(step for step in _detail(workspace, run_root).steps if step.ref.endswith(suffix))
+    return step, step.file_refs["result.json"].absolute_path.parent
+
+
+def _all_routes(app, run_root, step):
+    run = f"/runs/w0/{run_root.name}"
+    return [app.handle("GET", route) for route in (
+        "/runs", run, f"{run}/steps/{quote(step.ref, safe='')}", f"{run}/state",
+        f"{run}/files/run/memo.jsonl", f"{run}/files/run/{step.file_refs['result.json'].route_path}")]
+
+
+def test_dot_dot_suffix_file_name_keeps_every_route_answering(tmp_path):
+    run_root = _completed_run(tmp_path)
+    step, attempt = _attempt_dir(tmp_path, run_root)
+    (attempt / "..txt").write_text("dots")
+    before = _tree_bytes(tmp_path)
+    app = DashboardApp(RunScanner([tmp_path]))
+    assert [response.status for response in _all_routes(app, run_root, step)] == [200] * 6
+    href = f"/runs/w0/{run_root.name}/files/run/{step.file_refs['result.json'].route_path.rsplit('/', 1)[0]}/..txt"
+    assert href in _page_rows(tmp_path, run_root)[step.ref]["files"]
+    assert app.handle("GET", href).status == 200
+    assert _tree_bytes(tmp_path) == before
+
+
+def test_non_utf8_file_name_is_skipped_with_a_warning(tmp_path):
+    run_root = _completed_run(tmp_path)
+    step, attempt = _attempt_dir(tmp_path, run_root)
+    os.close(os.open(os.fsencode(attempt) + b"/bad\xff.txt", os.O_CREAT | os.O_WRONLY, 0o600))
+    before = _tree_bytes(tmp_path)
+    app = DashboardApp(RunScanner([tmp_path]))
+    responses = _all_routes(app, run_root, step)
+    assert [response.status for response in responses] == [200] * 6
+    assert "1 file names in effects/" in responses[1].body.decode() and "not UTF-8" in responses[1].body.decode()
+    assert _tree_bytes(tmp_path) == before
+
+
+def test_attempt_links_are_top_level_regular_files_only(tmp_path):
+    run_root = _completed_run(tmp_path)
+    step, attempt = _attempt_dir(tmp_path, run_root)
+    (attempt / "nested").mkdir()
+    (attempt / "nested" / "deep.txt").write_text("deep")
+    (attempt / "memo_link").symlink_to(run_root / "memo.jsonl")
+    (attempt / "loop").symlink_to("..")
+    os.mkfifo(attempt / "pipe")
+    before = _tree_bytes(tmp_path)
+    page = DashboardApp(RunScanner([tmp_path])).handle("GET", f"/runs/w0/{run_root.name}")
+    files = _page_rows(tmp_path, run_root)[step.ref]["files"]
+    assert {href.rsplit("/", 1)[1] for href in files} == {"result.json", "stdout.txt", "stderr.txt"}
+    body = page.body.decode()
+    assert "unsafe memo_link" in body and "unsafe loop" in body and "unsafe pipe" in body
+    assert _tree_bytes(tmp_path) == before
+
+
+def test_attempt_links_are_capped_with_a_warning(tmp_path):
+    run_root = _completed_run(tmp_path)
+    step, attempt = _attempt_dir(tmp_path, run_root)
+    for index in range(300):
+        (attempt / f"extra-{index:03}.txt").write_text("x")
+    page = DashboardApp(RunScanner([tmp_path])).handle("GET", f"/runs/w0/{run_root.name}")
+    assert len(_page_rows(tmp_path, run_root)[step.ref]["files"]) == 50
+    assert "253 more files" in page.body.decode()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads mode-000 directories")
+def test_run_list_and_file_routes_do_not_list_attempt_directories(tmp_path):
+    run_root = _completed_run(tmp_path)
+    step, attempt = _attempt_dir(tmp_path, run_root)
+    app = DashboardApp(RunScanner([tmp_path]))
+    attempt.chmod(0)
+    try:
+        index = app.handle("GET", "/runs")
+        memo = app.handle("GET", f"/runs/w0/{run_root.name}/files/run/memo.jsonl")
+        page = app.handle("GET", f"/runs/w0/{run_root.name}")
+        rows = RunProjector().project_index(RunScanner([tmp_path]).scan().runs)
+    finally:
+        attempt.chmod(0o700)
+    assert index.status == memo.status == page.status == 200
+    assert "unreadable attempt directory" in page.body.decode()
+    assert not [warning for row in rows for warning in row.warnings if "attempt directory" in warning]

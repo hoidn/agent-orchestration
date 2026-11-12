@@ -17,13 +17,10 @@ from orchestrator.workflow.prompt_identity import (
     build_provider_policy_role_v2,
     build_runtime_contributions_role,
     canonical_sha256,
-    compare_prompt_attempt_records,
-    PromptComparisonRecord,
     validate_prompt_attempt_identity,
     validate_prompt_attempt_identity_v2,
 )
 from orchestrator.workflow.prompting import CanonicalPromptCut
-from orchestrator.workflow.provider_attempts import ProviderAttemptScope
 from orchestrator.workflow.provider_phased_delivery.diagnostics import (
     DiagnosticSource,
     PhasedDeliveryDiagnostic,
@@ -223,26 +220,6 @@ def _reseal(identity: dict[str, Any]) -> None:
     )
 
 
-def _scope() -> ProviderAttemptScope:
-    return ProviderAttemptScope.from_dict(
-        {
-            "run_id": "run-identity-v2",
-            "resume_scope": {
-                "root_workflow_file": "workflows/review.orc",
-                "call_frame_ids": [],
-            },
-            "runtime_step_id": "review",
-            "enclosing_step": {
-                "step_name": "Review",
-                "step_id": "review",
-                "visit_count": 1,
-            },
-            "loop_iteration": None,
-            "adjudication_subject": None,
-        }
-    )
-
-
 def test_identity_v2_seals_five_roles_composition_and_exact_deliveries() -> None:
     identity = _identity()
     rows = identity["actual_deliveries"]
@@ -411,51 +388,6 @@ def test_identity_v2_accepts_exact_integer_ordinals_and_null_task_submission() -
     assert materialization["submission_ordinal"] == 1
 
 
-def test_identity_v1_remains_valid_and_cross_version_comparison_is_closed() -> None:
-    from tests.test_prompt_identity import _attempt_identity
-
-    v1 = _attempt_identity()
-    assert validate_prompt_attempt_identity(v1) == v1
-    previous = PromptComparisonRecord(
-        scope=_scope(),
-        ordinal=1,
-        outcome="v2_snapshot",
-        prompt_attempt_identity=v1,
-    )
-    current = PromptComparisonRecord(
-        scope=_scope(),
-        ordinal=2,
-        outcome="v3_snapshot",
-        prompt_attempt_identity=_identity(),
-    )
-
-    assert compare_prompt_attempt_records(current, previous) == {
-        "status": "unavailable",
-        "previous_attempt_ordinal": None,
-        "classifications": (),
-        "reason": "identity_version_mismatch",
-    }
-
-
-def test_comparison_records_require_exact_evidence_identity_version_pairing() -> None:
-    from tests.test_prompt_identity import _attempt_identity
-
-    with pytest.raises(ValueError, match="identity version"):
-        PromptComparisonRecord(
-            scope=_scope(),
-            ordinal=1,
-            outcome="v2_snapshot",
-            prompt_attempt_identity=_identity(),
-        )
-    with pytest.raises(ValueError, match="identity version"):
-        PromptComparisonRecord(
-            scope=_scope(),
-            ordinal=1,
-            outcome="v3_snapshot",
-            prompt_attempt_identity=_attempt_identity(),
-        )
-
-
 def test_functional_v2_rejects_identity_v2_as_a_closed_version_mismatch() -> None:
     from orchestrator.workflow.prompt_identity import (
         build_prompt_fragment_snapshot_v2,
@@ -471,30 +403,6 @@ def test_functional_v2_rejects_identity_v2_as_a_closed_version_mismatch() -> Non
             prompt_attempt_identity=_identity(),
             compiler_fragment_identity_schema_version=COMPILED_V1,
         )
-
-
-def test_identity_v2_comparison_adds_only_actual_delivery_drift() -> None:
-    previous = PromptComparisonRecord(
-        scope=_scope(),
-        ordinal=1,
-        outcome="v3_snapshot",
-        prompt_attempt_identity=_identity(turns=_turns()[:2]),
-    )
-    current = PromptComparisonRecord(
-        scope=_scope(),
-        ordinal=2,
-        outcome="v3_snapshot",
-        prompt_attempt_identity=_identity(
-            turns=_turns(initial_keys=("TAB",))[:2],
-        ),
-    )
-
-    assert compare_prompt_attempt_records(current, previous) == {
-        "status": "available",
-        "previous_attempt_ordinal": 1,
-        "classifications": ("actual_delivery_drift",),
-        "reason": None,
-    }
 
 
 def test_identity_v2_requires_nonempty_t2_even_without_deliveries() -> None:
