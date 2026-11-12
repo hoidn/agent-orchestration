@@ -2,8 +2,7 @@
 
 This module turns syntax-layer workflow definitions into typed call signatures,
 checks that frontend record/union boundaries can be represented by current
-workflow contracts, imports signatures from validated workflow bundles, and
-typechecks workflow bodies against local procedures, externs, and command
+workflow contracts, and typechecks workflow bodies against local procedures, externs, and command
 boundaries.
 
 See `../../docs/design/workflow_lisp_frontend_mvp_specification.md` for the supported
@@ -16,13 +15,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import InitVar, dataclass, field, replace
 from typing import TYPE_CHECKING, Literal
-
-from orchestrator.workflow.loaded_bundle import (
-    workflow_boundary_projection,
-    workflow_input_contracts,
-    workflow_output_contracts,
-    workflow_public_input_contracts,
-)
 
 from .command_boundaries import (
     CertifiedAdapterBinding,
@@ -53,7 +45,6 @@ from .procedure_refs import ProcRefResolutionContext
 from .procedures import ProcedureCatalog
 from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
-from .spans import SourcePosition
 from .syntax import ExpansionStack, SyntaxIdentifier, SyntaxFloat, SyntaxInt, SyntaxKeyword, SyntaxList, SyntaxNode, SyntaxString, SyntaxBool, WorkflowLispSyntaxModule, syntax_head, syntax_head_name, syntax_identifier, syntax_node_datum, syntax_resolved_name, target_dsl_uses_evaluated_execution, target_dsl_supports_local_hook_inference
 from .type_env import (
     FrontendTypeEnvironment,
@@ -79,7 +70,6 @@ from .typecheck import (
 )
 
 if TYPE_CHECKING:
-    from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
     from .functions import FunctionCatalog, TypedFunctionDef
     from .procedures import TypedProcedureDef
     from .modules import LinkedModuleGraph, ModuleImportScope
@@ -398,7 +388,6 @@ class WorkflowCatalog:
 
     signatures_by_name: Mapping[str, WorkflowSignature]
     definitions_by_name: Mapping[str, WorkflowDef]
-    imported_bundles_by_name: Mapping[str, "LoadedWorkflowBundle"]
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None
     allow_transportable_input_boundaries: bool = False
 
@@ -896,7 +885,6 @@ def build_workflow_catalog(
     *,
     imported_signatures: Mapping[str, WorkflowSignature] | None = None,
     lookup_aliases: Mapping[str, str] | None = None,
-    imported_workflow_bundles: Mapping[str, "LoadedWorkflowBundle"] | None = None,
     imported_programs: Mapping[str, object] | None = None,
     allow_hidden_context_callers: bool = False,
     selected_entry_workflow_name: str | None = None,
@@ -912,19 +900,10 @@ def build_workflow_catalog(
     )
 
     signatures_by_name: dict[str, WorkflowSignature] = dict(imported_signatures or {})
-    for imported_name, imported_bundle in (imported_workflow_bundles or {}).items():
-        imported_signature = signatures_by_name.get(imported_name)
-        if imported_signature is None:
-            continue
-        signatures_by_name[imported_name] = _merge_signature_compatibility_bridge_types(
-            imported_signature,
-            bundle=imported_bundle,
-            type_env=type_env,
-        )
     definitions_by_name: dict[str, WorkflowDef] = {}
     diagnostics: list[LispFrontendDiagnostic] = []
     for imported_name, program in (imported_programs or {}).items():
-        if imported_name in signatures_by_name or imported_name in (imported_workflow_bundles or {}):
+        if imported_name in signatures_by_name:
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="workflow_definition_duplicate",
@@ -1183,24 +1162,6 @@ def build_workflow_catalog(
             ),
         )
 
-    for imported_name, imported_bundle in (imported_workflow_bundles or {}).items():
-        if imported_name in signatures_by_name:
-            if imported_signatures is not None and imported_name in imported_signatures:
-                continue
-            diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="workflow_definition_duplicate",
-                    message=f"duplicate workflow definition `{imported_name}`",
-                    span=_bundle_source_span(imported_bundle),
-                    form_path=("workflow-lisp", imported_name),
-                )
-            )
-            continue
-        signatures_by_name[imported_name] = _signature_from_imported_bundle(
-            imported_name,
-            imported_bundle,
-            type_env=type_env,
-        )
     for alias_name, canonical_name in (lookup_aliases or {}).items():
         signature = signatures_by_name.get(canonical_name)
         if signature is not None:
@@ -1211,7 +1172,6 @@ def build_workflow_catalog(
     return WorkflowCatalog(
         signatures_by_name=signatures_by_name,
         definitions_by_name=definitions_by_name,
-        imported_bundles_by_name=dict(imported_workflow_bundles or {}),
         family_profile_catalog=family_profile_catalog,
         allow_transportable_input_boundaries=allow_transportable_input_boundaries,
     )
@@ -1787,82 +1747,6 @@ def specialized_private_compatibility_bridge_callees(
     return frozenset(allowed)
 
 
-def _signature_from_imported_bundle(
-    alias: str,
-    bundle: "LoadedWorkflowBundle",
-    *,
-    type_env: FrontendTypeEnvironment,
-) -> WorkflowSignature:
-    """Reconstruct a frontend workflow signature from a validated bundle."""
-
-    input_contracts = workflow_input_contracts(bundle)
-    public_input_contracts = workflow_public_input_contracts(bundle)
-    boundary_projection = workflow_boundary_projection(bundle)
-    grouped_inputs: dict[str, dict[str, Mapping[str, object]]] = {}
-    param_order: list[str] = []
-    for input_name, input_spec in public_input_contracts.items():
-        if not isinstance(input_name, str) or not isinstance(input_spec, Mapping):
-            continue
-        param_name = input_name.split("__", 1)[0]
-        if param_name not in grouped_inputs:
-            grouped_inputs[param_name] = {}
-            param_order.append(param_name)
-        grouped_inputs[param_name][input_name] = dict(input_spec)
-    for input_name in boundary_projection.private_compatibility_bridge_inputs:
-        input_spec = input_contracts.get(input_name)
-        if not isinstance(input_name, str) or not isinstance(input_spec, Mapping):
-            continue
-        param_name = input_name.split("__", 1)[0]
-        if param_name not in grouped_inputs:
-            grouped_inputs[param_name] = {}
-            param_order.append(param_name)
-        grouped_inputs[param_name][input_name] = dict(input_spec)
-    for binding in boundary_projection.private_runtime_context_bindings:
-        param_name = binding.source_param_name or binding.binding_id
-        if not isinstance(param_name, str):
-            continue
-        binding_inputs = {
-            input_name: dict(input_spec)
-            for input_name in binding.generated_input_names
-            if isinstance(input_name, str)
-            and isinstance((input_spec := input_contracts.get(input_name)), Mapping)
-        }
-        if not binding_inputs:
-            continue
-        if param_name not in grouped_inputs:
-            grouped_inputs[param_name] = {}
-            param_order.append(param_name)
-        grouped_inputs[param_name].update(binding_inputs)
-
-    span = _bundle_source_span(bundle)
-    form_path = ("workflow-lisp", alias)
-    signature = _signature_from_imported_contracts(
-        alias,
-        input_contract_groups=tuple(
-            (name, grouped_inputs[name]) for name in param_order
-        ),
-        output_contracts=workflow_output_contracts(bundle),
-        type_env=type_env,
-        span=span,
-        form_path=form_path,
-    )
-    return replace(
-        signature,
-        hidden_context_requirements=_hidden_context_requirements_from_bundle(
-            bundle,
-            params=signature.params,
-        ),
-        private_compatibility_bridge_types=_compatibility_bridge_types_from_bundle(
-            bundle,
-            type_env=type_env,
-            span=span,
-            form_path=form_path,
-            existing_param_names=frozenset(name for name, _ in signature.params),
-        ),
-        allow_private_compatibility_bridge_omission=False,
-    )
-
-
 def _signature_from_imported_contracts(
     alias: str,
     *,
@@ -2050,131 +1934,6 @@ def _signature_from_imported_typed_program(
             native_signature.allowed_private_compatibility_bridge_callees
         ),
         entry_bootstrap_gate_denial=native_signature.entry_bootstrap_gate_denial,
-    )
-
-
-def _hidden_context_requirements_from_bundle(
-    bundle: "LoadedWorkflowBundle",
-    *,
-    params: tuple[tuple[str, TypeRef], ...],
-) -> Mapping[str, PromotedEntryHiddenContextRequirement]:
-    """Recover callee-owned hidden-context requirements from imported boundary metadata."""
-
-    params_by_name = dict(params)
-    requirements: dict[str, PromotedEntryHiddenContextRequirement] = {}
-    for binding in workflow_boundary_projection(bundle).private_runtime_context_bindings:
-        param_name = None
-        if binding.source_param_name in params_by_name:
-            param_name = binding.source_param_name
-        elif binding.binding_id in params_by_name:
-            param_name = binding.binding_id
-        if param_name is None:
-            continue
-        binding_kind = "runtime_owned_entry_context"
-        allows_entry_bootstrap = False
-        if (
-            binding.context_family == PHASE_CONTEXT_NAME
-            and binding.derived_phase_identity is not None
-        ):
-            binding_kind = "derived_private_child_context"
-            allows_entry_bootstrap = True
-        elif binding.bridge_class == "derived_private_child_context":
-            binding_kind = "derived_private_child_context"
-        requirements[param_name] = PromotedEntryHiddenContextRequirement(
-            param_name=param_name,
-            context_kind=binding.context_family,
-            phase_name=binding.derived_phase_identity,
-            binding_kind=binding_kind,
-            allows_entry_bootstrap=allows_entry_bootstrap,
-        )
-    return requirements
-
-
-def _compatibility_bridge_types_from_bundle(
-    bundle: "LoadedWorkflowBundle",
-    *,
-    type_env: FrontendTypeEnvironment,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-    existing_param_names: frozenset[str],
-) -> Mapping[str, TypeRef]:
-    from .phase_family_boundary import is_compatibility_bridge_param
-
-    preferred_type_candidates_by_input = {
-        "run_state_path": ("RunStatePath", "StateFileExisting", "StateExisting", "StateFile"),
-        "progress_ledger_path": ("ProgressLedger",),
-        "selection_bundle_path": ("SelectionBundlePath",),
-    }
-    input_contracts = workflow_input_contracts(bundle)
-    boundary_projection = workflow_boundary_projection(bundle)
-    compatibility_types: dict[str, TypeRef] = {}
-    for input_name in boundary_projection.private_compatibility_bridge_inputs:
-        if input_name in existing_param_names:
-            continue
-        input_spec = input_contracts.get(input_name)
-        if not isinstance(input_spec, Mapping):
-            continue
-        preferred_type = None
-        for candidate_name in preferred_type_candidates_by_input.get(input_name, ()):
-            try:
-                candidate_type = type_env.resolve_type(
-                    candidate_name,
-                    span=span,
-                    form_path=form_path,
-                )
-            except LispFrontendCompileError:
-                continue
-            if is_compatibility_bridge_param(input_name, candidate_type):
-                preferred_type = candidate_type
-                break
-        compatibility_types[input_name] = preferred_type or _match_boundary_type_from_contracts(
-            {input_name: dict(input_spec)},
-            type_env=type_env,
-            generated_name=input_name,
-            allow_union=False,
-            span=span,
-            form_path=form_path,
-        )
-    return compatibility_types
-
-
-def _merge_signature_compatibility_bridge_types(
-    signature: WorkflowSignature,
-    *,
-    bundle: "LoadedWorkflowBundle",
-    type_env: FrontendTypeEnvironment,
-) -> WorkflowSignature:
-    compatibility_types = _compatibility_bridge_types_from_bundle(
-        bundle,
-        type_env=type_env,
-        span=signature.span,
-        form_path=signature.form_path,
-        existing_param_names=frozenset(name for name, _ in signature.params).union(
-            signature.private_compatibility_bridge_types
-        ),
-    )
-    if not compatibility_types:
-        return signature
-    merged_compatibility_types = dict(signature.private_compatibility_bridge_types)
-    merged_compatibility_types.update(compatibility_types)
-    return WorkflowSignature(
-        name=signature.name,
-        params=signature.params,
-        return_type_ref=signature.return_type_ref,
-        span=signature.span,
-        form_path=signature.form_path,
-        param_defaults=signature.param_defaults,
-        hidden_context_requirements=signature.hidden_context_requirements,
-        hidden_context_ambiguities=signature.hidden_context_ambiguities,
-        private_compatibility_bridge_types=merged_compatibility_types,
-        allow_hidden_context_binding=signature.allow_hidden_context_binding,
-        allow_private_compatibility_bridge_omission=signature.allow_private_compatibility_bridge_omission,
-        allowed_hidden_context_callees=signature.allowed_hidden_context_callees,
-        derived_hidden_context_callees=signature.derived_hidden_context_callees,
-        entry_hidden_context_callees=signature.entry_hidden_context_callees,
-        allowed_private_compatibility_bridge_callees=(
-            signature.allowed_private_compatibility_bridge_callees
-        ),
     )
 
 
@@ -2748,16 +2507,6 @@ def _normalize_boundary_contract_definition(definition: Mapping[str, object]) ->
         for key, value in dict(definition).items()
         if key not in {"default", "from", "projection", "__allow_unresolved_source"}
     }
-
-
-def _bundle_source_span(bundle: "LoadedWorkflowBundle") -> SourceSpan:
-    """Create a diagnostic span for an imported workflow bundle."""
-
-    workflow_path = bundle.provenance.workflow_path
-    return SourceSpan(
-        start=SourcePosition(path=str(workflow_path), line=1, column=1, offset=0),
-        end=SourcePosition(path=str(workflow_path), line=1, column=1, offset=0),
-    )
 
 
 def typecheck_workflow_definitions(

@@ -21,10 +21,6 @@ from pathlib import Path
 from types import MappingProxyType
 
 from orchestrator._common.safe_tree import resolve_path_preserving_fd
-from orchestrator.workflow.loaded_bundle import (
-    LoadedWorkflowBundle,
-    WorkflowBoundaryProjectionView,
-)
 
 from orchestrator.contracts.closed_program.targets import DEFAULT_LOWERING_SCHEMA
 
@@ -400,28 +396,6 @@ def _infer_entry_source_root(
     return path.parents[len(expected_parts) - 1]
 
 
-def _bundle_boundary_contracts(
-    bundle: LoadedWorkflowBundle,
-) -> tuple[
-    Mapping[str, Mapping[str, object]],
-    Mapping[str, Mapping[str, object]],
-    WorkflowBoundaryProjectionView,
-]:
-    """Copy the final structural contracts and boundary classification of one bundle."""
-
-    from orchestrator.workflow.loaded_bundle import (
-        workflow_boundary_projection,
-        workflow_input_contracts,
-        workflow_output_contracts,
-    )
-
-    return (
-        workflow_input_contracts(bundle),
-        workflow_output_contracts(bundle),
-        workflow_boundary_projection(bundle),
-    )
-
-
 @dataclass(frozen=True)
 class LinkedStage1CompileResult:
     """Definition-only compile result for an entry module graph.
@@ -586,7 +560,6 @@ def compile_stage3_entrypoint(
     entry_workflow: str | None = None,
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, PromptExternValue] | None = None,
-    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     imported_programs: Mapping[str, object] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
@@ -626,7 +599,6 @@ def compile_stage3_entrypoint(
         entry_workflow=entry_workflow,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
-        imported_workflow_bundles=imported_workflow_bundles,
         imported_programs=imported_programs,
         command_boundaries=command_boundaries,
         validation_profile=normalized_validation_profile,
@@ -697,7 +669,6 @@ def compile_stage3_module(
     entry_workflow: str | None = None,
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, PromptExternValue] | None = None,
-    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     imported_programs: Mapping[str, object] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
@@ -720,7 +691,6 @@ def compile_stage3_module(
         entry_workflow=entry_workflow,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
-        imported_workflow_bundles=imported_workflow_bundles,
         imported_programs=imported_programs,
         command_boundaries=command_boundaries,
         validate_shared=validate_shared,
@@ -1236,7 +1206,6 @@ def _run_stage3_entrypoint_validation_pipeline(
     entry_workflow: str | None = None,
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, PromptExternValue] | None = None,
-    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     imported_programs: Mapping[str, object] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool | None = None,
@@ -1287,7 +1256,6 @@ def _run_stage3_entrypoint_validation_pipeline(
             entry_workflow=entry_workflow,
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
-            imported_workflow_bundles=imported_workflow_bundles,
             imported_programs=imported_programs,
             command_boundaries=command_boundaries,
             validation_profile=normalized_validation_profile,
@@ -1494,10 +1462,6 @@ def _command_boundary_fingerprint_payload(
     return payload
 
 
-def _imported_workflow_bundle_fingerprint(bundle: LoadedWorkflowBundle) -> str:
-    return _stable_json_digest(workflow_executable_ir_to_json(bundle.ir))
-
-
 def _derive_reusable_state_producer_context(
     *,
     definition_module: WorkflowLispModule,
@@ -1505,7 +1469,6 @@ def _derive_reusable_state_producer_context(
     provider_externs: Mapping[str, str] | None,
     prompt_externs: Mapping[str, PromptExternValue] | None,
     command_boundary_environment: CommandBoundaryEnvironment,
-    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
 ) -> Mapping[str, object]:
     provider_extern_bindings = dict(sorted((provider_externs or {}).items()))
     prompt_extern_bindings = prompt_extern_legacy_bindings(prompt_externs)
@@ -1514,10 +1477,7 @@ def _derive_reusable_state_producer_context(
         name: _command_boundary_fingerprint_payload(binding)
         for name, binding in sorted(command_boundary_environment.bindings_by_name.items())
     }
-    imported_workflow_fingerprints = {
-        workflow_name: _imported_workflow_bundle_fingerprint(bundle)
-        for workflow_name, bundle in sorted(imported_workflow_bundles.items())
-    }
+    imported_workflow_fingerprints = {}
     lowering_options = {
         "language_version": definition_module.language_version,
         "target_dsl_version": definition_module.target_dsl_version,
@@ -1550,7 +1510,6 @@ def _compile_stage3_graph(
     entry_workflow: str | None,
     provider_externs: Mapping[str, str] | None,
     prompt_externs: Mapping[str, PromptExternValue] | None,
-    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
     imported_programs: Mapping[str, object] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
     validate_shared: bool | None = None,
@@ -1565,8 +1524,8 @@ def _compile_stage3_graph(
     """Compile a resolved module graph in dependency order.
 
     Each module is expanded and typechecked after its imports have published
-    type refs, macro definitions, procedure signatures, workflow signatures,
-    and validated workflow bundles. Exported workflows are validated as needed
+    type refs, macro definitions, procedure signatures, and workflow
+    signatures. Exported workflows are validated as needed
     so downstream modules can call them through the existing workflow loader.
     """
 
@@ -1611,27 +1570,14 @@ def _compile_stage3_graph(
     local_definition_keys: dict[str, object] = {}
     local_definition_dids: dict[str, tuple[str, str, object]] = {}
     typed_program_snapshot = None
-    explicit_imported_bundles = dict(imported_workflow_bundles or {})
     explicit_imported_programs = dict(imported_programs or {})
 
-    _reject_duplicate_imported_program_bindings(
-        explicit_imported_bundles,
-        explicit_imported_programs,
-    )
     _require_explicit_source_snapshots(
         target=graph.modules_by_name[graph.entry_module_name].syntax_module.target_dsl_version,
         source_path=graph.modules_by_name[graph.entry_module_name].path,
-        imported_workflow_bundles=explicit_imported_bundles,
         imported_programs=explicit_imported_programs,
     )
-    imported_snapshot_bindings = {
-        **explicit_imported_programs,
-        **{
-            alias: bundle.typed_program
-            for alias, bundle in explicit_imported_bundles.items()
-            if getattr(bundle, "typed_program", None) is not None
-        },
-    }
+    imported_snapshot_bindings = dict(explicit_imported_programs)
     _reject_compiled_workflow_snapshot_conflicts(
         imported_snapshots=imported_snapshot_bindings,
         source_module_paths={
@@ -1838,7 +1784,6 @@ def _compile_stage3_graph(
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
         )
-        effective_imported_bundles = dict(explicit_imported_bundles)
         referenced_programs = set()
         if explicit_imported_programs:
             from .expressions import elaborate_expression
@@ -1851,7 +1796,7 @@ def _compile_stage3_graph(
                 local_raw_names=frozenset(procedure.name for procedure in raw_procedure_defs))
             collect_workflow_resolver = _workflow_name_resolver(module_name, import_scope,
                 local_raw_names=frozenset(workflow.name for workflow in raw_workflow_defs),
-                external_workflow_names=frozenset({*effective_imported_bundles, *explicit_imported_programs}))
+                external_workflow_names=frozenset(explicit_imported_programs))
 
             def record_workflow_reference(name, span, form_path):
                 resolved = collect_workflow_resolver(name, span, form_path)
@@ -1883,7 +1828,6 @@ def _compile_stage3_graph(
             type_env,
             imported_signatures=imported_workflow_signatures,
             lookup_aliases=workflow_lookup_aliases,
-            imported_workflow_bundles=effective_imported_bundles,
             imported_programs={name: program for name, program in explicit_imported_programs.items()
                 if name in referenced_programs},
             allow_hidden_context_callers=module_name == graph.entry_module_name,
@@ -1946,7 +1890,6 @@ def _compile_stage3_graph(
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
             command_boundary_environment=command_boundary_environment,
-            imported_workflow_bundles=effective_imported_bundles,
         )
         local_function_resolver = _function_name_resolver(
             module_name,
@@ -1962,9 +1905,7 @@ def _compile_stage3_graph(
             module_name,
             import_scope,
             local_raw_names=frozenset(workflow.name for workflow in raw_workflow_defs),
-            external_workflow_names=frozenset(
-                {*effective_imported_bundles, *explicit_imported_programs}
-            ),
+            external_workflow_names=frozenset(explicit_imported_programs),
         )
         validate_module_result_guidance(
             definition_module,
@@ -2289,14 +2230,7 @@ def _compile_stage3_graph(
             module_name=module_name,
             typed_workflows=typed_workflows,
             typed_procedures=resolved_combined_procedures,
-            imported_programs={
-                **explicit_imported_programs,
-                **{
-                    alias: bundle.typed_program
-                    for alias, bundle in explicit_imported_bundles.items()
-                    if getattr(bundle, "typed_program", None) is not None
-                },
-            },
+            imported_programs=dict(explicit_imported_programs),
             procedure_type_envs=combined_procedure_type_envs,
             workflow_type_envs=workflow_type_envs_by_name,
             module_type_envs=module_type_envs,
@@ -2334,18 +2268,10 @@ def _compile_stage3_graph(
             )
         )
         if module_name == graph.entry_module_name:
-            imported_programs = {
-                **explicit_imported_programs,
-                **{
-                    alias: imported_bundle.typed_program
-                    for alias, imported_bundle in explicit_imported_bundles.items()
-                    if getattr(imported_bundle, "typed_program", None) is not None
-                },
-            }
+            imported_programs = dict(explicit_imported_programs)
             typed_program_snapshot = typed_program_from_graph(
                 target=module_source.syntax_module.target_dsl_version,
                 source_paths={name: source.path for name, source in graph.modules_by_name.items()},
-                imported_bundles=explicit_imported_bundles,
                 entry_module=module_name,
                 entry_dir=str(module_source.path.parent),
                 type_env=type_env,
@@ -3407,35 +3333,10 @@ def _is_complete_typed_program(program: object, *, _seen: frozenset[int] = froze
     return True
 
 
-def _reject_duplicate_imported_program_bindings(
-    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
-    imported_programs: Mapping[str, object],
-) -> None:
-    overlap = sorted(set(imported_workflow_bundles).intersection(imported_programs))
-    if not overlap:
-        return
-    alias = overlap[0]
-    bundle = imported_workflow_bundles[alias]
-    raise LispFrontendCompileError(
-        (
-            LispFrontendDiagnostic(
-                code="module_import_collision",
-                message=(
-                    f"compiled workflow binding `{alias}` is supplied through both a bundle "
-                    "and a typed program; one binding must have one producer owner"
-                ),
-                span=_bundle_span(bundle),
-                form_path=("workflow-lisp", alias),
-            ),
-        )
-    )
-
-
 def _require_explicit_source_snapshots(
     *,
     target: str,
     source_path: Path,
-    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
     imported_programs: Mapping[str, object],
 ) -> None:
     from .closed.target import require_supported_typed_program_targets
@@ -3443,11 +3344,6 @@ def _require_explicit_source_snapshots(
 
     for program in imported_programs.values():
         require_supported_typed_program_targets(program, source_path=source_path)
-    for bundle in imported_workflow_bundles.values():
-        require_supported_typed_program_targets(
-            getattr(bundle, "typed_program", None),
-            source_path=source_path,
-        )
 
     for alias, program in imported_programs.items():
         if _is_complete_typed_program(program):
@@ -3462,19 +3358,6 @@ def _require_explicit_source_snapshots(
             )
         )
         raise _compiled_workflow_source_required(alias, target, span)
-    for alias, bundle in imported_workflow_bundles.items():
-        program = getattr(bundle, "typed_program", None)
-        selected_name = getattr(bundle.surface, "name", alias)
-        if (
-            not _is_complete_typed_program(program)
-            or program.entry.definition.name != selected_name
-            or not _typed_program_matches_bundle(program, bundle)
-        ):
-            raise _compiled_workflow_source_required(
-                selected_name,
-                target,
-                _bundle_span(bundle),
-            )
 
 
 def _compiled_workflow_source_required(
@@ -3614,70 +3497,6 @@ def _reject_compiled_workflow_snapshot_conflicts(
                 )
 
 
-def _typed_program_matches_bundle(program, bundle: LoadedWorkflowBundle) -> bool:
-    selected_name = bundle.surface.name
-    if program.entry is None or program.entry.definition.name != selected_name:
-        return False
-    retained_facts = program._compiled_bundle_boundaries.get(selected_name)
-    if retained_facts is None:
-        return False
-    try:
-        candidate_facts = _bundle_boundary_contracts(bundle)
-    except (AttributeError, KeyError, TypeError, ValueError):
-        return False
-    return _bundle_boundary_facts_match(retained_facts, candidate_facts)
-
-
-def _bundle_boundary_facts_match(expected, actual) -> bool:
-    from .build import _freeze_configuration_value
-
-    def contract_map_semantics(contracts):
-        return {
-            name: {
-                str(key): _freeze_configuration_value(value)
-                for key, value in definition.items()
-                if key not in {"from", "__allow_unresolved_source"}
-            }
-            for name, definition in contracts.items()
-            if isinstance(name, str) and isinstance(definition, Mapping)
-        }
-
-    def binding_semantics(binding):
-        return (
-            binding.binding_id,
-            binding.source_param_name,
-            binding.context_family,
-            binding.bridge_class,
-            tuple(binding.generated_input_names),
-            tuple(binding.required_capabilities),
-            binding.derived_phase_identity,
-            tuple(binding.allocation_ids),
-            _freeze_configuration_value(binding.projection_hints),
-        )
-
-    def projection_semantics(projection):
-        return (
-            contract_map_semantics(projection.public_input_contracts),
-            tuple(
-                binding_semantics(binding)
-                for binding in projection.private_runtime_context_bindings
-            ),
-            tuple(projection.private_managed_write_root_inputs),
-            tuple(projection.private_compatibility_bridge_inputs),
-        )
-
-    expected_inputs, expected_outputs, expected_projection = expected
-    actual_inputs, actual_outputs, actual_projection = actual
-    return (
-        contract_map_semantics(expected_inputs)
-        == contract_map_semantics(actual_inputs)
-        and contract_map_semantics(expected_outputs)
-        == contract_map_semantics(actual_outputs)
-        and projection_semantics(expected_projection)
-        == projection_semantics(actual_projection)
-    )
-
-
 def _reject_legacy_to_evaluated_snapshot_calls(
     *,
     target: str,
@@ -3813,18 +3632,6 @@ def _reject_legacy_to_evaluated_snapshot_calls(
                 form_path=form_path,
                 expansion_stack=expansion_stack,
             )
-
-
-def _bundle_span(bundle: LoadedWorkflowBundle):
-    """Create a source span pointing at an imported workflow bundle file."""
-
-    from .spans import SourcePosition, SourceSpan
-
-    workflow_path = bundle.provenance.workflow_path
-    return SourceSpan(
-        start=SourcePosition(path=str(workflow_path), line=1, column=1, offset=0),
-        end=SourcePosition(path=str(workflow_path), line=1, column=1, offset=0),
-    )
 
 
 def _expanded_syntax_module(path: Path) -> WorkflowLispSyntaxModule:

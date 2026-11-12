@@ -20,7 +20,7 @@ from typing import Any
 
 from orchestrator._common.io_atomic import durable_atomic_write
 from orchestrator.run_lock import run_root_matches_fd
-from orchestrator.workflow.executable_ir import RunRefStepConfig
+from orchestrator.workflow.run_ref.step_config import RunRefStepConfig
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.references import (
     ReferenceResolutionError,
