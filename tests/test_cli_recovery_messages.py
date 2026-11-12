@@ -70,6 +70,17 @@ def test_committed_script_edit_refusal_prints_invalidate_and_resume_that_recover
     assert resumed.stdout.splitlines()[-1] == RESULT_LINE
 
 
+def test_committed_script_edit_refusal_warns_once_before_its_commands(tmp_path: Path) -> None:
+    write_pipeline(tmp_path)
+    run_id = run_id_of(run_pipeline(tmp_path).stderr)
+    edit_script(tmp_path)
+
+    lines = refused(tmp_path, run_id, "effect_input_diverged").stderr.splitlines()
+
+    warning = lines[next(index for index, line in enumerate(lines) if line.startswith(COMMAND_INDENT)) - 1]
+    assert (warning.count("every later one"), warning.count("workspace files are not rolled back")) == (1, 1)
+
+
 def test_failed_step_script_edit_refusal_names_the_file_and_a_run_command_that_works(tmp_path: Path) -> None:
     write_pipeline(tmp_path)
     (tmp_path / "fail-one").write_text("", encoding="utf-8")
