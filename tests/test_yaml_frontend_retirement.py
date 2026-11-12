@@ -272,7 +272,7 @@ def test_report_state_only_projection_displays_stale_running_without_mutation(
     assert state_path.read_bytes() == before
 
 
-def test_dashboard_degrades_non_orc_run_without_reading_authored_source(
+def test_dashboard_refuses_non_orc_run_without_reading_authored_source(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "workflows" / "legacy.yaml"
@@ -289,9 +289,10 @@ def test_dashboard_degrades_non_orc_run_without_reading_authored_source(
 
     detail = RunProjector().project_detail(run)
 
-    assert detail.degraded is True
-    assert detail.workflow_structure is None
-    assert detail.row.workflow_name is None
-    assert [step.name for step in detail.steps] == ["PersistedStep"]
-    assert any("legacy authored workflow" in warning for warning in detail.warnings)
-    assert not any("failed to load workflow metadata" in warning for warning in detail.warnings)
+    assert detail.row.display_status == "retired"
+    assert detail.row.failure_summary.startswith(
+        "workflow_execution_profile_retired: run legacy-dashboard was written by the retired runtime"
+    )
+    assert detail.steps == [] and detail.state is None
+    assert detail.row.workflow_file is None
+    assert not any("PersistedStep" in warning or "boom" in warning for warning in detail.warnings)

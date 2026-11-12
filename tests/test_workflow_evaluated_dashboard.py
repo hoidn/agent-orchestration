@@ -80,11 +80,8 @@ def _no_legacy(*_args, **_kwargs):
 
 
 def _forbid_legacy(monkeypatch):
+    """Forbid the mutable writer paths; the dashboard has no legacy metadata or status path left to forbid."""
     _forbid_mutable_paths(monkeypatch)
-    for name in ("_load_workflow", "_steps_from_state", "_row", "_observability_files", "_availability"):
-        monkeypatch.setattr(RunProjector, name, _no_legacy)
-    monkeypatch.setattr("orchestrator.dashboard.projection.build_status_snapshot", _no_legacy)
-    monkeypatch.setattr("orchestrator.dashboard.projection.derive_status_projection", _no_legacy)
 
 
 def test_dashboard_effect_rows_keep_memo_order_without_flat_sources(tmp_path, monkeypatch):
@@ -98,8 +95,6 @@ def test_dashboard_effect_rows_keep_memo_order_without_flat_sources(tmp_path, mo
     assert [step.ref for step in detail.steps] == list(view.active_commits)
     assert [step.kind for step in detail.steps] == ["command"] * 3
     assert [json.loads(step.output_preview) for step in detail.steps] == [1, 20, 20]
-    assert detail.workflow_structure is None and detail.observability_files == {}
-    assert detail.row.state_mtime is None and detail.row.heartbeat_at is None
     assert _tree_bytes(tmp_path) == before
 
 
@@ -109,7 +104,6 @@ def _assert_live_dashboard(workspace, run_root, status):
     response = DashboardApp(RunScanner([workspace])).handle("GET", f"/runs/w0/{run_root.name}")
     assert response.status == 200 and _outputs(response) is None
     assert detail.row.display_status == status
-    assert detail.row.heartbeat_at is None and detail.row.state_mtime is None
     assert detail.row.updated_at.startswith("1970")
     assert _tree_bytes(run_root) == before
     return detail

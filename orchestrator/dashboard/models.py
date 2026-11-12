@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Optional
-
-if TYPE_CHECKING:
-    from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
-    from orchestrator.workflow.persisted_surface import PersistedWorkflowSurfaceGraph
+from typing import Any, Mapping, Optional
 
 
 @dataclass(frozen=True)
@@ -33,6 +29,7 @@ class RunRecord:
     read_error: Optional[str] = None
     parse_error: Optional[str] = None
     warnings: list[str] = field(default_factory=list)
+    retired: bool = False
 
 
 @dataclass(frozen=True)
@@ -91,14 +88,10 @@ class DashboardStep:
     status: str
     kind: str = "unknown"
     step_id: Optional[str] = None
-    visit_count: Any = None
     duration_ms: Any = None
     output_preview: str = ""
     error: Any = None
     outcome: Any = None
-    artifacts: Mapping[str, Any] = field(default_factory=dict)
-    debug: Mapping[str, Any] = field(default_factory=dict)
-    provider_session: Mapping[str, Any] = field(default_factory=dict)
     file_refs: Mapping[str, FileReference] = field(default_factory=dict)
     attempt: Optional[int] = None
     started_at: Optional[str] = None
@@ -117,23 +110,14 @@ class DashboardIndexRow:
     state_path: Path
     state_run_id: Optional[str]
     workflow_file: Optional[str] = None
-    workflow_name: Optional[str] = None
-    persisted_status: str = "unknown"
     display_status: str = "unknown"
-    display_status_reason: Optional[str] = None
     cursor_summary: str = ""
     started_at: Any = None
     updated_at: Any = None
     elapsed_seconds: Optional[float] = None
-    current_step_started_at: Optional[str] = None
-    current_step_age_seconds: Optional[float] = None
-    state_mtime: Optional[float] = None
     read_time: Optional[str] = None
-    heartbeat_at: Optional[str] = None
-    heartbeat_age_seconds: Optional[float] = None
     failure_summary: str = ""
     warnings: list[str] = field(default_factory=list)
-    availability: Mapping[str, bool] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -144,18 +128,7 @@ class DashboardRunDetail:
     steps: list[DashboardStep] = field(default_factory=list)
     cursor: Any = None
     bound_inputs: Mapping[str, Any] = field(default_factory=dict)
-    workflow_outputs: Any = field(default_factory=dict)
-    finalization: Mapping[str, Any] = field(default_factory=dict)
+    workflow_outputs: Any = None
     error: Any = None
-    artifact_versions: Mapping[str, Any] = field(default_factory=dict)
-    artifact_consumes: Mapping[str, Any] = field(default_factory=dict)
-    call_frame_artifact_versions: Mapping[str, Any] = field(default_factory=dict)
-    call_frame_artifact_consumes: Mapping[str, Any] = field(default_factory=dict)
-    observability_files: Mapping[str, list[FileReference]] = field(default_factory=dict)
-    common_artifact_refs: Mapping[str, FileReference] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
-    degraded: bool = False
     state: Optional[Mapping[str, Any]] = None
-    workflow_structure: Optional[
-        LoadedWorkflowBundle | PersistedWorkflowSurfaceGraph
-    ] = None

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Iterable
 
@@ -11,7 +10,7 @@ from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_
 
 
 class RunScanner:
-    """Scan explicit workspace roots for `.orchestrate/runs/*/state.json` files."""
+    """Scan explicit workspace roots for run directories under `.orchestrate/runs/`."""
 
     def __init__(self, workspace_roots: Iterable[str | Path]) -> None:
         self.workspaces = self._resolve_workspaces(workspace_roots)
@@ -61,6 +60,11 @@ class RunScanner:
         return ScanResult(workspaces=list(self.workspaces), runs=runs, errors=errors)
 
     def _read_run(self, workspace: WorkspaceRecord, run_root: Path, state_path: Path) -> RunRecord | None:
+        """An evaluated run, a retired run (a `state.json` entry and no evaluated authority), or nothing.
+
+        A retired run's `state.json` is never opened beyond the view-hint check in
+        `has_evaluated_authority` (regular file, no symlink follow, non-blocking).
+        """
         try:
             resolved_root = run_root.resolve(strict=True)
             resolved_root.relative_to(workspace.root)
@@ -73,7 +77,7 @@ class RunScanner:
             return self._read_evaluated_run(workspace, run_root.name, resolved_root, state_path)
         if not state_path.exists() and not state_path.is_symlink():
             return None
-        return self._read_legacy_run(workspace, run_root, state_path)
+        return RunRecord(workspace, run_root.name, resolved_root, state_path, retired=True)
 
     def _read_evaluated_run(self, workspace, run_dir_id, run_root, state_path):
         try:
@@ -83,89 +87,3 @@ class RunScanner:
                              parse_error=f"{getattr(exc, 'code', 'memo_inconsistent')}: {exc}")
         return RunRecord(workspace, run_dir_id, run_root, state_path,
                          state=state, state_run_id=state["run_id"])
-
-    def _read_legacy_run(self, workspace: WorkspaceRecord, run_root: Path, state_path: Path) -> RunRecord:
-        run_dir_id = run_root.name
-        warnings: list[str] = []
-        try:
-            resolved_scanned_run_root = run_root.resolve(strict=True)
-        except OSError:
-            resolved_scanned_run_root = run_root.resolve(strict=False)
-        try:
-            resolved_scanned_run_root.relative_to(workspace.root)
-        except ValueError:
-            return RunRecord(
-                workspace=workspace,
-                run_dir_id=run_dir_id,
-                run_root=run_root,
-                state_path=state_path,
-                read_error=f"run root escapes workspace: {run_root}",
-            )
-
-        try:
-            resolved_state_path = state_path.resolve(strict=True)
-        except OSError as exc:
-            return RunRecord(
-                workspace=workspace,
-                run_dir_id=run_dir_id,
-                run_root=resolved_scanned_run_root,
-                state_path=state_path,
-                read_error=str(exc),
-            )
-        resolved_run_root = resolved_state_path.parent
-        try:
-            resolved_run_root.relative_to(workspace.root)
-        except ValueError:
-            return RunRecord(
-                workspace=workspace,
-                run_dir_id=run_dir_id,
-                run_root=resolved_scanned_run_root,
-                state_path=state_path,
-                read_error=f"state.json resolves outside workspace: {state_path}",
-            )
-
-        try:
-            raw_state = resolved_state_path.read_text(encoding="utf-8")
-        except OSError as exc:
-            return RunRecord(
-                workspace=workspace,
-                run_dir_id=run_dir_id,
-                run_root=resolved_run_root,
-                state_path=resolved_state_path,
-                read_error=str(exc),
-            )
-
-        try:
-            state = json.loads(raw_state)
-        except json.JSONDecodeError as exc:
-            return RunRecord(
-                workspace=workspace,
-                run_dir_id=run_dir_id,
-                run_root=resolved_run_root,
-                state_path=resolved_state_path,
-                parse_error=str(exc),
-            )
-
-        if not isinstance(state, dict):
-            return RunRecord(
-                workspace=workspace,
-                run_dir_id=run_dir_id,
-                run_root=resolved_run_root,
-                state_path=resolved_state_path,
-                parse_error="state.json must contain a JSON object",
-            )
-
-        state_run_id = state.get("run_id") if isinstance(state.get("run_id"), str) else None
-        if state_run_id and state_run_id != run_dir_id:
-            warnings.append(
-                f"state.run_id {state_run_id!r} differs from run directory {run_dir_id!r}"
-            )
-        return RunRecord(
-            workspace=workspace,
-            run_dir_id=run_dir_id,
-            run_root=resolved_run_root,
-            state_path=resolved_state_path,
-            state=state,
-            state_run_id=state_run_id,
-            warnings=warnings,
-        )
