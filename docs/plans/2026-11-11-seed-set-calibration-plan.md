@@ -195,15 +195,43 @@ agent itself ran the visible test.
 | Probe result | Calibration's 20 tasks |
 | --- | --- |
 | Some tier has 1 to 3 passes of 4 | Drawn in seed order from that tier, filled from the adjacent tier whose count is nearer to 2 |
-| No tier is in that band | Ten from the hardest tier with 3 or 4 passes and ten from the easiest tier with 0 or 1 |
+| No tier is in that band, but the tiers straddle it | Ten from the hardest tier with 3 or 4 passes and ten from the easiest tier with 0 or 1 |
+| Every tier has 3 or 4 passes (all too easy) | One extension probe, below, on the harder end |
+| Every tier has 0 or 1 passes (all too hard) | Read the 20 transcripts first; then one extension probe, below, on the easier end |
 | The agent ran the visible test in 80% or more of the in-tree runs, and the chosen tier is T1 to T4 | The chosen tasks are used in the check-withheld form |
+
+**If the whole ladder misses (one extension probe, 20 more Haiku calls, the
+rest of the redraw cap).** Four probe tasks cannot tell 3 of 4 from 4 of 4
+reliably, so this is a coarse screen, and its only job is to avoid spending
+the calibration tranche on a task set that cannot pass its gates.
+
+- *All too easy.* The ladder is extended upward without planting anything:
+  T1 to T4 in the check-withheld form (the agent loses the test it was
+  iterating against), and a tier T6 of larger features (several commits on
+  one topic, at least 1,000 added source lines). The extension probe runs
+  `direct` on four tasks of each of the two hardest available rungs and four
+  each of T3 and T4 withheld, as far as 20 calls go.
+- *All too hard.* That is more likely an apparatus fault than difficulty,
+  because T1 names the file and ships a failing test: the agent may be unable
+  to run tests in the sandbox, or to write its result. The transcripts are
+  read before another call; a fault is fixed and the ladder probe's failed
+  runs are reported as incidents, not as difficulty. If the runs are sound,
+  the extension probe adds a tier T0 (the statement also quotes the visible
+  test's failing assertion) and runs it and T1 again.
+- *If the extension probe still finds no tier in the band:* stop. No
+  calibration call is made, at most 40 probe calls have been spent, and the
+  result goes to the owner as a finding with two options that both need a
+  new decision: a different author model (all too hard), or tasks of another
+  kind, longer and multi-stage, since a model that finishes every task of
+  this family in one call leaves a workflow nothing to add (all too easy).
 
 Tasks are chosen by tier and seed order, never by their own probe outcome; a
 probed task that is drawn keeps its probe run as the first of its four Haiku
 runs unless the form changed. The ladder probe is the plan's one redraw,
 taken before calibration instead of after it: no later redraw follows, and
 Step 2's redraw paragraph does not apply. Worst case in Haiku candidate
-calls: 20 from the redraw cap and 80 from the calibration cap.
+calls: 40 from the redraw cap (probe and extension probe) and 80 from the
+calibration cap.
 
 **Early judge look (6 judge calls from the calibration cap).** After the
 first three tasks have their runs, pool and judge them with both judges. If,
@@ -407,3 +435,4 @@ Allowance does not move between tranches; there is no top-up after a null.
 | 2026-11-11 | Owner requirement: "part of the seed's simplicity req should be a challenging loc limit (eg <50 lines of orc". Recorded as the size limit in step 1c: under 50 physical lines per seed program, `common.orc` exempt and frozen. The owner confirmed on 2026-11-11 that `common.orc` does not count; the four programs pass at 22, 31, 40 and 45 lines (44 to 67 if `common.orc` were counted). |
 | 2026-11-11 | Owner instruction: "preempt probable calibration failures". The section "Probable calibration failures and the response to each" is added: a 20-call Haiku probe before anything else, hard and easy reserves mined before spend, a check-withheld task form, an early judge look on three tasks, and apparatus measures. All inside the authorized caps; the early replacement of tasks is the plan's one redraw. Coordinator rulings; the check-withheld form changes what `direct` can do and is used only on the probe's evidence. |
 | 2026-11-11 | Owner clarification: preempt "by designing significantly harder / easier tasks". The reserves and the single-tier probe of the previous row are replaced by a five-tier difficulty ladder (very easy to very hard, the hardest being features in the check-withheld form) and a ladder probe of four tasks per tier that picks the tier calibration draws from. No flaw is planted in any task. |
+| 2026-11-11 | Owner question: "what if all tiers are too easy or all tiers are too hard". The ladder section gains the two cases: one extension probe of 20 calls inside the redraw cap (harder rungs: the check-withheld form and a tier of larger features; or, after reading the transcripts for an apparatus fault, an easier rung), then a stop with a report to the owner if no tier lands in the band. No calibration call is made on a task set the probe shows cannot pass. |
