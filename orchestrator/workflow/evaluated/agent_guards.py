@@ -1,6 +1,6 @@
 """Receipt-based agent guards (R1): the C8 write preflight and the resume-time prefix receipt check.
 
-Depends on: the snapshot's journal entries, the checked site table, and each uncommitted agent attempt's
+Depends on: the snapshot's journal entries and lineage (each row's class by the program that wrote it), and each uncommitted agent attempt's
 `receipt.json` / `abandoned.json` under the retained run root (`run_files.subroot`). The journal-only part of the
 preflight *is* the reducer's `memo_reducer_agents.check_invalidation_cut`, so an `invalidated` row the preflight
 admits always reduces; the receipt rules only add refusals. Committed turns are never checked against receipts:
@@ -13,14 +13,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from .agent_sessions import Receipt, read_receipt
-from .memo_reducer import MemoError, _DYNAMIC_INDEX
+from .memo_reducer import MemoError
 from .memo_reducer_agents import DISPATCHED_FAILURE_CODES, check_invalidation_cut
 
 _UNDISPATCHED = {"intent", "not_dispatched"}
 _AFTER_DISPATCH = {"abandoned", "completed", "unknown"}
 
 
-def check_invalidation_suffix(snapshot, chosen, run_files, site_classes) -> None:
+def check_invalidation_suffix(snapshot, chosen, run_files) -> None:
     """Refuse a cut at `chosen` over agent attempt history before any write (C8, Agent Sessions).
 
     Only attempts started at or after the cut are affected (start order). An attempt started before the cut cannot
@@ -32,10 +32,10 @@ def check_invalidation_suffix(snapshot, chosen, run_files, site_classes) -> None
     non-dispatched code.
     """
     cut = chosen.offset
-    journal = SimpleNamespace(entries=snapshot.entries, site_class=lambda identity: _site_class(site_classes, identity),
+    journal = SimpleNamespace(entries=snapshot.entries, class_at=snapshot.lineage.class_at,
                               inconsistent=_advanced_by_journal)
     check_invalidation_cut(journal, cut)        # the reducer's own rule: pending or dispatched-failure starts at/after the cut
-    for entry, closing in _uncommitted_agent_attempts(snapshot, site_classes):
+    for entry, closing in _uncommitted_agent_attempts(snapshot):
         if entry.offset < cut:
             continue
         row = entry.data                        # closed `failed` with a non-dispatched code: the journal rule passed
@@ -45,10 +45,10 @@ def check_invalidation_suffix(snapshot, chosen, run_files, site_classes) -> None
                             f"({closing['code']}) after launch; its receipt records {receipt.completion}")
 
 
-def validate_prefix_receipts(authority, snapshot, site_classes) -> None:
+def validate_prefix_receipts(authority, snapshot) -> None:
     """At resume, receipts of pending and dispatched-failure agent attempts must agree with the journal
     (`memo_inconsistent`); a failed attempt with a non-dispatched code is never consulted."""
-    for entry, closing in _uncommitted_agent_attempts(snapshot, site_classes):
+    for entry, closing in _uncommitted_agent_attempts(snapshot):
         if closing is not None and closing["code"] not in DISPATCHED_FAILURE_CODES:
             continue
         row = entry.data
@@ -74,13 +74,13 @@ def _advanced_by_journal(detail: str) -> MemoError:
                      "reconciled before its prefix can be cancelled, and a dispatched attempt's native history is never cut")
 
 
-def _uncommitted_agent_attempts(snapshot, site_classes):
+def _uncommitted_agent_attempts(snapshot):
     """(`started` entry, closing `failed` row or None) for every agent turn attempt that did not commit."""
     closing = {(e.data["identity"], e.data["attempt"]): e.data for e in snapshot.entries
                if e.data["record"] in {"committed", "failed"}}
     for entry in snapshot.entries:
         row = entry.data
-        if row["record"] != "started" or _site_class(site_classes, row["identity"]) != "agent_turn":
+        if row["record"] != "started" or snapshot.lineage.class_at(entry.offset, row["identity"]) != "agent_turn":
             continue
         closed = closing.get((row["identity"], row["attempt"]))
         if closed is None or closed["record"] == "failed":
@@ -100,6 +100,3 @@ def _receipt(run_files, row) -> Receipt | None:
     finally:
         files.close()
 
-
-def _site_class(site_classes, identity: str) -> str | None:
-    return site_classes.get(identity) or site_classes.get(_DYNAMIC_INDEX.sub("[*]", identity))

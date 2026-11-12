@@ -4279,9 +4279,10 @@ def _elaborate_constructor_field_matches_to_body(
             wrappers.append(("match", binding_name, binding_type, field_expr, binding_scope))
             continue
 
+        field_scope = scope.child_scope("constructor-field", authored_binding_name=field_name)
         field_body = _elaborate_expr_to_body(
             field_expr,
-            scope=scope.child_scope("constructor-field", authored_binding_name=field_name),
+            scope=field_scope,
             type_env=type_env,
             value_env={**value_env, **generated_env},
             workflow_return_types=workflow_return_types,
@@ -4292,9 +4293,12 @@ def _elaborate_constructor_field_matches_to_body(
             active_phase_scope=active_phase_scope,
         )
         field_prefix, field_value = _body_to_prefix_and_value(field_body)
-        wrappers.append(("prefix", field_prefix))
+        wrappers.append(("prefix", field_prefix, field_scope))
         field_values.append((field_name, field_value))
 
+    _hoist_constructor_field_prefixes(
+        wrappers, field_values, value_env={**value_env, **generated_env}, compile_time_bindings=compile_time_bindings
+    )
     result_type = _infer_expr_type(
         expr,
         type_env=type_env,
@@ -4361,6 +4365,34 @@ def _elaborate_constructor_field_matches_to_body(
             active_phase_scope=active_phase_scope,
         )
     return current
+
+
+def _hoist_constructor_field_prefixes(wrappers, field_values, *, value_env, compile_time_bindings) -> None:
+    """Rename, in place, a field's prefix bindings that later fields or earlier fields' values can see.
+
+    As `hoist_parts_without_capture` does for the other constructor path, except
+    that a `match` field runs in place: an earlier field's prefix is hoisted over
+    it, and a later field's prefix only over the name it binds.
+    """
+
+    for index, wrapper in enumerate(wrappers):
+        if wrapper[0] != "prefix":
+            continue
+        later = (
+            WccSelectArm(prefix=other[1], value=field_values[position][1]) if other[0] == "prefix" else other[3]
+            for position, other in enumerate(wrappers[index + 1 :], start=index + 1)
+        )
+        earlier = (value for _, value in field_values[:index])
+        prefix, value = hoist_without_capture(
+            wrapper[1],
+            field_values[index][1],
+            over=tuple((code, frozenset()) for code in (*earlier, *later)),
+            scope=wrapper[2],
+            value_env=value_env,
+            compile_time_bindings=compile_time_bindings,
+        )
+        wrappers[index] = ("prefix", prefix, wrapper[2])
+        field_values[index] = (field_values[index][0], value)
 
 
 def _elaborate_match_to_body(

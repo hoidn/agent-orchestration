@@ -284,7 +284,8 @@ Under exact `result_persistence_profile: "evaluated_execution.v1"` with
 | Entry | Role |
 | --- | --- |
 | `run.json` | Immutable run header (below): authority for identity, bound inputs, interpreter pins, rebuild recipe and roots |
-| `closed_program.json` | The checked closed program (`schema: workflow-lisp/closed-program/1`, `representation: table/1`, `target` equal to the entry source target): authority for the program. Its provenance-free digest equals the header `program_digest`; its byte content equals the canonical artifact serialization |
+| `closed_program.json` | The checked closed program (`schema: workflow-lisp/closed-program/1`, `representation: table/1`, `target` equal to the entry source target): authority for the run's first program; never replaced. Its provenance-free digest equals the header `program_digest`; its byte content equals the canonical artifact serialization |
+| `closed_program.<digest>.json` | A program the run switched to, named by the 64 hex digits of its digest: authority for the records after the `rebased` record that names it (below). It loads, passes the checker and has that digest, else the run is `memo_inconsistent`; its bytes need not equal a fresh build's, since positions are not part of the digest. A file that no complete record names is not authority |
 | `memo.jsonl` | Append-only effect journal: the only authority for results |
 | `run.lock` | The run writer lock (`flock`); empty, and never authority |
 | `effects/<digest>/attempt-N/` | Per-attempt evidence directories (below) |
@@ -380,6 +381,7 @@ truncates it, after its preflight. Exactly these record kinds and keys:
 | `invalidated` | `from_commit`, `time` | The byte offset of the first byte of an active `committed` record: cancels that commit and every later active commit in one record and reopens a terminal; no identity or dependent list |
 | `terminal` | `outcome: "completed"`, `value`; or `outcome: "failed"`, `code`, `message` | `completed` only after `halt` with every reached effect committed and every coordinator settled; `failed` only with no pending start and no unsettled coordinator |
 | `suspended` | `identity`, `attempt`, `request_id` | Target-2.40 `request_input` only; one suspension referring to the matching start's immutable payload; see [host input](#evaluated-durable-host-input-target-240) |
+| `rebased` | `program_digest`, `from_offset` (integer or `null`), `time` | Switches the run to the named program, which differs from the one in force and whose artifact `closed_program.<digest>.json` is in the run root; cancels every active commit and retires every pending start at or after `from_offset`, which is `null` or the offset of an active commit or pending start, as an `invalidated` range does, and reopens a terminal. Records before it are reduced under the earlier program. Readers accept it; no command of this build writes it |
 
 The [phased-provider extension](#evaluated-phased-provider-attempts-target-239) further defines its coordinator class and proof fields. The [host-input extension](#evaluated-durable-host-input-target-240) defines full conditional request/reply payloads and reducer rules.
 
@@ -401,8 +403,8 @@ state or reports; the required journal `exit_info` remains `{}` and `violations`
 Ordinary-provider diagnostics retain their existing detail.
 
 Reducer rules (`orchestrator/workflow/evaluated/memo.py`): after a terminal
-only `started` (after a `failed` terminal) or `invalidated` is accepted, and
-each clears the terminal; `started` refuses an identity with an active commit
+only `started` (after a `failed` terminal), `invalidated` or `rebased` is
+accepted, and each clears the terminal; `started` refuses an identity with an active commit
 or a non-next ordinal; `committed` and `failed` require the matching pending
 `started`; a `failed` row's `closure` must be `unchanged` or `changed` and
 is refused on any site that is not a `command`; an ordinary effect may not carry `proof`; a coordinator is a
@@ -430,6 +432,23 @@ in the preceding journal prefix. Pending starts before the anchor remain.
 The journal history, latest start and next attempt ordinal are preserved:
 retiring a pending obligation does not authorize repeating the effect or
 bypass C4/§8.1. A later start lies outside the closed range.
+
+A run's programs, its *lineage*, are the first program (the header's) and
+then the program of each complete `rebased` record in journal order; the last
+is the current program. Every record is validated with the site table of the
+program in force where it lies, the number of `rebased` records before it, so
+a row keeps its class when a later program gives its identity another one.
+A reader refuses (`memo_inconsistent`) a record that names the program in
+force or whose artifact is missing or does not verify; the reducer refuses a
+`from_offset` that is neither an active commit nor a pending start, a cut
+over a committed coordinator or over the agent attempts an invalidation
+anchor may not cover, and any commit or pending start that stays but is not a
+site of the new program with the same class. A journal whose last record's
+program does not have the reader's site table is `memo_inconsistent`. Interpreter pins are the
+first program's bare interpreters; a later program may use only pinned ones
+and need not use all of them (`memo_inconsistent` otherwise). A parent never
+accepts a run-reference child's terminal or recovery evidence whose journal
+holds a `rebased` record: those reductions use the child's one program.
 
 Identities are the canonical site and activation texts of the checked
 program, for example `workflow:main::run / built`; a `[*]` site is
@@ -1957,7 +1976,9 @@ program authority, including full instantiated constraints and provenance.
 The dynamic effect identity is the ordinary owner/site, procedure activation
 and loop-index identity. `request_id` is a versioned canonical SHA-256 over
 `schema_version: 1`, `run_id`, the canonical complete immutable header digest,
-`program_digest`, dynamic `identity` and attempt ordinal. It remains stable on
+`program_digest`, dynamic `identity` and attempt ordinal. `program_digest` is
+that of the program in force when the request started, and a later program
+of the run checks the ID against that one. It remains stable on
 replay and differs for new attempts, activations, loop visits or separately
 created run authority. A complete copy of the same authority is the same run,
 not a separately authenticated tenant.
