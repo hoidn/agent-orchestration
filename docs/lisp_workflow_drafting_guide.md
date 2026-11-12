@@ -3008,9 +3008,8 @@ What to rely on:
   prompt prose: a provider prompt that names a repository needs an absolute
   path (the best-of-N test passes absolute repository inputs for this
   reason). A run reference in an item keeps the parent's authority and runs
-  its child in its own clone (the contract of
-  [§11](design/workflow_lisp_evaluated_execution.md#11-parallel-effects); no
-  test yet observes the child's directory).
+  its child in its own clone below the run-reference root, never in the item
+  directory.
 - **Failure.** When an item fails, its siblings still run and commit; the
   map then fails with the lowest failing input index. A running item is not
   cancelled.
@@ -3041,6 +3040,7 @@ here.
 
 Evidence: `tests/test_workflow_evaluated_parallel_cwd_variants.py`,
 `tests/test_workflow_evaluated_parallel_reserved_root.py`,
+`tests/test_workflow_evaluated_parallel_run_ref_clone.py`,
 `tests/test_workflow_evaluated_parallel_kill_resume.py`,
 `tests/test_workflow_evaluated_parallel_invalidate.py`,
 `tests/test_workflow_evaluated_parallel_consumers.py`,

@@ -440,29 +440,25 @@ Fresh runs on `e65c1782`, stand-ins only, the no-provider stubs first on
 | --- | --- |
 | `tests/test_workflow_evaluated_parallel_{cwd_variants,reserved_root,kill_resume,invalidate,consumers}.py` and `tests/test_phase2_exit_e2e.py` (`-n 8`) | 47 passed (18, 4, 16, 2, 6 and 1 collected) |
 | Controls: `tests/test_workflow_evaluated_{resume_kills,recovery,invalidate_windows,parallel_cwd_cli,parallel_resume,parallel_run_ref,consumers,views,recovery_views,run_ref_settlement}.py`, `tests/test_logical_workspace_coordinates.py` | 330 passed |
+| `tests/test_workflow_evaluated_parallel_run_ref_clone.py` (added by this closeout): a run-reference child per item, decoy `candidate.orc` files in the item directories and the parent workspace, fresh run and resume after a kill at the child's start reservation and at its commit before settlement | 3 collected, 3 passed |
+| After merging `main` at `68858baf` (run and resume performance work, which changed `orchestrator/workflow/evaluated/`): the seven modules above, `tests/test_workflow_evaluated_parallel{,_resume}.py`, the controls above and the document tests | 509 passed |
 | `tests/test_workflow_evaluated_parallel_resume.py` after renaming `test_live_parallel_execution_is_still_refused` to `test_bare_evaluator_without_parallel_handler_refuses_par_map` (it tests `evaluate_closed_program` without a parallel handler) | 41 collected, 41 passed |
 
 The lane 1 review broke production code in 16 ways and each break failed a
 named test; the exit-test review broke it in 8 ways, all caught (both review
 records are kept with the Phase 2 coordinator). The old-target artifact
 comparison and the full suite were not rerun, because lane 1 changed no
-production byte; the full suites recorded in the
-[Phase 2 ledger](../plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#ledger)
-stand (14,520 passed with lane 1 merged; 14,414 after B4, each with only the
-four known worktree-artifact failures).
+production byte. The most recent full suite with the lane 1 tests on `main`
+in the [Phase 2 ledger](../plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#ledger)
+stands: at the B4 merge `895b5f74` (branch with `main` merged), 14,414
+passed, only the four known worktree-artifact failures. The later
+performance merge `1102ab17` has no full-suite figure there; the parallel
+modules were rerun on it (table above).
 
 **Phase 5 plan boxes.** Closed, each with its test named in the plan: Task 3
-box 2; Task 5, all five; Task 6 boxes 1 to 3; Task 7 box 1 (these document
+boxes 2 and 3; Task 5, all five; Task 6 boxes 1 to 3; Task 7 box 1 (these document
 edits) and box 4 (reused suites). Still open:
 
-- Task 3 box 3, one clause: no test observes that a parallel item's
-  run-reference child runs in its clone workspace. A scratch copy in which the
-  child launcher used its request directory as cwd passed all 43 tests of the
-  parallel run-reference, invalidate, reserved-root and kill/resume modules and
-  all 73 of `tests/test_workflow_evaluated_run_ref.py`,
-  `tests/test_workflow_evaluated_run_ref_settlement.py` and
-  `tests/test_workflow_run_ref_child.py`. The parallel route passes no item cwd
-  to the run-reference adapter (read, not tested).
 - Task 6 box 4: run figures against the serial specimen are not recorded.
 - Task 6 box 5: the live smoke, not authorized.
 - Task 7 box 2: Radon is not installed; the census below is an AST
@@ -470,6 +466,18 @@ edits) and box 4 (reused suites). Still open:
 - Task 7 box 3: the pinned-controller compatibility campaign has never run for
   Phase 5; the old-target evidence is Task 1C's.
 - Task 7 box 5: independent and coordinator review pending.
+
+**The child-in-clone clause.** Changing the run-reference child launcher's
+cwd to its request directory passed every parallel and run-reference test,
+and passes the new module too: the mutation is equivalent, because a
+path-mode child takes every root from its request (`clone_root` in
+`orchestrator/workflow/run_ref/child.py::_execute_closed_path`) and nothing
+under `orchestrator/workflow/run_ref/` reads the process cwd. A path-mode
+child is effect-free (a command in it refuses with
+`trial_candidate_environment_not_admissible`), so it can record no cwd; the
+new module asserts what the child does read, its program and inputs, from
+its own clone. Making the child take its root from its process cwd as well
+fails all three cases.
 
 **Limits a user must know.** Authored reserved environment is refused at
 launcher level only (no public surface exists for it); the built-in
@@ -496,4 +504,5 @@ embedded in string constants are not analysed):
 | `tests/test_workflow_evaluated_parallel_invalidate.py` | 60 | `test_invalidate_cancels_the_whole_suffix_across_interleaved_items` 10 |
 | `tests/test_workflow_evaluated_parallel_consumers.py` | 241 | `_run_with_failed_candidate` 11 |
 | `tests/workflow_evaluated_parallel_kill_helpers.py` | 155 | at most 6 |
+| `tests/test_workflow_evaluated_parallel_run_ref_clone.py` | 107 | `_assert_children_ran_in_their_clones` 9 |
 | `tests/test_phase2_exit_e2e.py` | 190 | `test_parallel_best_of_n_survives_a_kill_and_reports_tokens` **20**, over the limit of 12 (eleven of its points are `assert` statements) |
