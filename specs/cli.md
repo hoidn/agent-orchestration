@@ -705,6 +705,7 @@ the `resume` command.
 | Code | Raised by | Exit | Effect on evidence |
 | --- | --- | --- | --- |
 | `closed_program_gap`, `compiled_workflow_source_required`, `compiled_workflow_snapshot_conflict`, `command_boundary_closure_missing`, `command_boundary_manifest_invalid`, `command_result_inputs_invalid` | `compile`; `run`; the fresh build of `resume` | 2 | None; `run` creates no run root |
+| `form_retired` | `compile`; `run`; the fresh build of `resume`: a list head naming a removed form (`trial`) that no user definition or binding shadows, at every target and also where the entry does not reach it; the message names git tag `archive/dead-executors-2026-11-11` | 2 | None; `run` creates no run root |
 | `workflow_lisp_cli_input_unsupported` | `compile` with a flat-route export flag | 2 | None |
 | Workflow input binding failure (a missing, unknown, mistyped or non-finite input): no named code; `run` and `--dry-run` print `Validation error: Workflow input binding failed`, `resume` prints `[resume_preflight_failed] Workflow input binding failed`; a `: <detail>` suffix follows only for a conversion or non-finite failure, a missing or unknown input prints the bare message | `run`; the fresh inputs of `resume` | 2 | None; `run` creates no run root |
 | `resume_preflight_failed` | `resume` refusals without a code of their own: a non-canonical `--run-ref-root`, an input binding failure, an unreadable recipe input file | 2 | None |

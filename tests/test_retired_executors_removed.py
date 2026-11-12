@@ -74,3 +74,40 @@ def test_removed_commands_are_refused(tmp_path: Path, argv: list[str]) -> None:
     result = cli(tmp_path, *argv)
 
     assert (result.returncode, "invalid choice" in result.stderr, list(tmp_path.iterdir())) == (2, True, [])
+
+
+RETIRED_FORM_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
+  (defmodule main) (export run)
+  (defworkflow {holder} () -> Int
+    ({form} :arms ()))
+  {entry})
+'''
+
+
+@pytest.mark.parametrize("target", ["2.35", "2.40"])
+@pytest.mark.parametrize("reached", [True, False], ids=["reached", "unreached"])
+@pytest.mark.parametrize("form", ["trial"])
+def test_retired_form_refuses_with_located_retirement_diagnostic(
+    tmp_path: Path, form: str, target: str, reached: bool
+) -> None:
+    entry = "" if reached else "(defworkflow run () -> Int 1)"
+    source = RETIRED_FORM_SOURCE.format(target=target, form=form, holder="run" if reached else "unused", entry=entry)
+    (tmp_path / "main.orc").write_text(source, encoding="utf-8")
+
+    result = cli(tmp_path, "compile", "main.orc")
+
+    lines = [line for line in result.stderr.splitlines() if "[form_retired]" in line]
+    assert (result.returncode, len(lines), lines and "main.orc:4:" in lines[0],
+            lines and "archive/dead-executors-2026-11-11" in lines[0]) == (2, 1, True, True), result.stderr
+
+
+def test_user_definition_named_like_a_retired_form_still_compiles(tmp_path: Path) -> None:
+    (tmp_path / "main.orc").write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule main) (export run)
+  (defproc trial ((n Int)) -> Int :effects () :lowering inline (+ n 1))
+  (defworkflow run ((n Int)) -> Int (trial n)))
+''', encoding="utf-8")
+
+    result = cli(tmp_path, "run", "main.orc", "--input", "n=1")
+
+    assert (result.returncode, result.stdout.splitlines()[-1:]) == (0, ["2"]), result.stderr
