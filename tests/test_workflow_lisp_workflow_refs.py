@@ -5,13 +5,6 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.expressions import NameExpr, ProduceOneOfExpr, ProviderResultExpr
-from orchestrator.workflow_lisp.phase_stdlib import (
-    ProduceOneOfCandidateFieldSpec,
-    ProduceOneOfCandidateSpec,
-    ProduceOneOfProducerSpec,
-)
-from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
@@ -75,62 +68,6 @@ def _workflow_ref_command_boundaries() -> dict[str, ExternalToolBinding]:
     }
 
 
-def _test_span(path: str) -> SourceSpan:
-    start = SourcePosition(path=path, line=1, column=1, offset=0)
-    end = SourcePosition(path=path, line=1, column=2, offset=1)
-    return SourceSpan(start=start, end=end)
-
-
-def _name(name: str) -> NameExpr:
-    return NameExpr(name=name, span=_test_span(name), form_path=("workflow-lisp", "workflow-ref-test"))
-
-
-def test_workflow_ref_extern_collection_descends_into_produce_one_of_candidate_targets() -> None:
-    from orchestrator.workflow_lisp.workflow_refs import collect_workflow_extern_names
-
-    expr = ProduceOneOfExpr(
-        returns_type_name="SelectionResult",
-        ctx_expr=_name("ctx"),
-        producer=ProduceOneOfProducerSpec(
-            kind="provider",
-            provider_expr=None,
-            prompt_expr=None,
-            inputs=(),
-        ),
-        candidates=(
-            ProduceOneOfCandidateSpec(
-                variant_name="APPROVED",
-                fields=(
-                    ProduceOneOfCandidateFieldSpec(
-                        field_name="result",
-                        target_expr=ProviderResultExpr(
-                            provider=_name("providers.execute"),
-                            prompt=_name("prompts.implementation.execute"),
-                            inputs=(),
-                            returns_type_name="ChecksResult",
-                            span=_test_span("provider-result"),
-                            form_path=("workflow-lisp", "workflow-ref-test"),
-                        ),
-                    ),
-                ),
-            ),
-        ),
-        span=_test_span("produce-one-of"),
-        form_path=("workflow-lisp", "workflow-ref-test"),
-    )
-
-    providers, prompts = collect_workflow_extern_names(expr)
-
-    assert providers == {"providers.execute"}
-    assert prompts == {"prompts.implementation.execute"}
-
-
-
-
-
-
-
-
 def test_workflow_ref_specialization_through_owner_seam_compiles_and_validates(tmp_path: Path) -> None:
     result = compile_stage3_module(
         VALID_FIXTURES / "workflow_refs_forwarding.orc",
@@ -145,12 +82,6 @@ def test_workflow_ref_specialization_through_owner_seam_compiles_and_validates(t
         procedure.definition.name == "entry::invoke-runner__spec__runner__entry__echo_helper"
         for procedure in result.typed_procedures
     )
-
-
-
-
-
-
 
 
 def test_stage3_materializes_combined_workflow_and_proc_ref_specialization(
@@ -289,8 +220,6 @@ def test_linked_stage3_materializes_imported_workflow_ref_procedure_specializati
     assert specialized.resolved_lowering_mode.value == "inline"
 
 
-
-
 def _write_workflow_ref_key_collision(tmp_path: Path) -> Path:
     path = tmp_path / "workflow_ref_key_collision.orc"
     path.write_text(
@@ -405,8 +334,6 @@ def test_stage3_fails_closed_if_collision_disambiguator_reuses_a_key(
     assert excinfo.value.diagnostics[0].code == "procedure_specialization_key_collision"
 
 
-
-
 def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
     tmp_path: Path,
 ) -> None:
@@ -509,10 +436,6 @@ def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
         next(iter(procedure.specialization.workflow_ref_bindings.values())).workflow_name
         for procedure in specializations
     } == {"demo/a::echo-helper", "demo_a::echo_helper"}
-
-
-
-
 
 
 def test_workflow_ref_imported_module_resolution_compiles_and_validates(tmp_path: Path) -> None:

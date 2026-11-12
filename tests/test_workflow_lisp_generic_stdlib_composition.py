@@ -15,12 +15,6 @@ from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_b
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 MODULE_FIXTURES = FIXTURES / "modules"
-VALID_MODULE_ROOT = MODULE_FIXTURES / "valid" / "generic_stdlib_composition"
-VALID_ENTRY_FIXTURE = VALID_MODULE_ROOT / "generic_stdlib_composition" / "entry.orc"
-INVALID_MODULE_ROOT = MODULE_FIXTURES / "invalid" / "generic_stdlib_composition_unqualified_transition"
-INVALID_ENTRY_FIXTURE = (
-    INVALID_MODULE_ROOT / "generic_stdlib_composition_unqualified_transition" / "entry.orc"
-)
 CAPABILITY_UNDECLARED_FIXTURE = FIXTURES / "invalid" / "generic_stdlib_composition_capability_undeclared.orc"
 CONSTRAINT_ORDERING_FIXTURE = FIXTURES / "invalid" / "generic_stdlib_composition_constraint_ordering.orc"
 NON_EXHAUSTIVE_FIXTURE = FIXTURES / "invalid" / "generic_stdlib_composition_non_exhaustive.orc"
@@ -28,19 +22,6 @@ NON_EXHAUSTIVE_FIXTURE = FIXTURES / "invalid" / "generic_stdlib_composition_non_
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
-
-
-def _compile_entry_fixture(path: Path, *, source_root: Path, tmp_path: Path, validate_shared: bool = True):
-    return compile_stage3_entrypoint(
-        path,
-        source_roots=(source_root,),
-        provider_externs={},
-        prompt_externs={},
-        command_boundaries={},
-        validate_shared=validate_shared,
-        workspace_root=tmp_path,
-
-    )
 
 
 def _compile_module_fixture(
@@ -66,14 +47,6 @@ def _compile_module_fixture_frontend_only(path: Path, *, tmp_path: Path):
         provider_externs={},
         prompt_externs={},
         command_boundaries={
-            "apply_resource_transition": ExternalToolBinding(
-                name="apply_resource_transition",
-                stable_command=(
-                    "python",
-                    "-m",
-                    "orchestrator.workflow_lisp.adapters.apply_resource_transition",
-                ),
-            ),
             "produce_review_decision": ExternalToolBinding(
                 name="produce_review_decision",
                 stable_command=("python", "scripts/produce_review_decision.py"),
@@ -84,31 +57,6 @@ def _compile_module_fixture_frontend_only(path: Path, *, tmp_path: Path):
         workspace_root=tmp_path,
 
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def test_compile_stage3_entrypoint_rejects_unqualified_macro_emitted_transition_reference(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_entry_fixture(INVALID_ENTRY_FIXTURE, source_root=INVALID_MODULE_ROOT, tmp_path=tmp_path)
-
-    _assert_diagnostic_code(excinfo, "transition_unknown")
 
 
 def test_compile_stage3_rejects_parametric_capability_undeclared(tmp_path: Path) -> None:
@@ -156,68 +104,6 @@ def test_minimal_caller_satisfies_review_revise_loop_declared_constraints(tmp_pa
         _compile_module_fixture_frontend_only(
             FIXTURES / "valid" / "minimal_caller_review_revise_loop.orc",
             tmp_path=tmp_path,
-        )
-        is not None
-    )
-
-
-def test_minimal_caller_satisfies_finalize_selected_item_declared_constraints(tmp_path: Path) -> None:
-    assert (
-        _compile_module_fixture(
-            FIXTURES / "valid" / "minimal_caller_finalize_selected_item.orc",
-            tmp_path=tmp_path,
-        )
-        is not None
-    )
-
-
-def test_minimal_caller_satisfies_backlog_drain_proc_declared_constraints(tmp_path: Path) -> None:
-    # Minimal-caller fixture for the Tranche 2 flagship (design Acceptance
-    # Checks: every stdlib generic gets one whose types provide exactly the
-    # declared constraints and nothing more). The fixture let*-binds the
-    # backlog-drain-proc terminal and passes it to settle-drain-terminal —
-    # the user-sanctioned composition idiom (2026-07-10 adjudication:
-    # procedure calls in argument position are unsupported; bind with let*).
-    # The backlog-drain macro is NOT exercised (it re-targets in Task 5 of
-    # docs/plans/2026-07-06-backlog-drain-generic-migration-plan.md and must
-    # emit this same let*-bound shape).
-    #
-    # Contract anchors preserved by the generic procedure:
-    # - G2 selection-payload projection: the item context is built from
-    #   selection `item-id` and `item-state-root` plus ctx `run`/`ledger`
-    #   and run `artifact-root`.
-    # - G4 selector-BLOCKED mapping: the selector's BLOCKED `reason` is
-    #   dropped and the terminal blocker class is the constant
-    #   `user_decision_required`.
-    # - Exhaustion class: `on_exhausted` forces loop-status EXHAUSTED with
-    #   blocker class `unrecoverable_after_fix_attempt`; items/progress stay
-    #   at accumulator state.
-    # - Progress-report seeding: the intrinsic seeds the accumulator
-    #   progress path with the literal
-    #   `artifacts/work/drain-progress-report.md`; the generic proc takes
-    #   it as the `initial-progress-report` parameter, which this fixture
-    #   (and Task 5's macro) supplies via the `__generated-relpath-seed__`
-    #   pattern with that same literal.
-    # - EMPTY vs COMPLETED: an EMPTY selection terminates as EMPTY only when
-    #   zero items were processed, otherwise COMPLETED.
-    assert (
-        _compile_module_fixture(
-            FIXTURES / "valid" / "minimal_caller_backlog_drain.orc",
-            tmp_path=tmp_path,
-            command_boundaries={
-                "drain_select": ExternalToolBinding(
-                    name="drain_select",
-                    stable_command=("python", "scripts/select_next_item.py"),
-                ),
-                "drain_run_item": ExternalToolBinding(
-                    name="drain_run_item",
-                    stable_command=("python", "scripts/execute_selected_item.py"),
-                ),
-                "drain_draft_gap": ExternalToolBinding(
-                    name="drain_draft_gap",
-                    stable_command=("python", "scripts/draft_gap_item.py"),
-                ),
-            },
         )
         is not None
     )

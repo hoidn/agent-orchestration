@@ -475,18 +475,6 @@ def test_workflow_program_wcc_payload_carries_child_policy_inputs_and_commit(tmp
     )
 
 
-def test_resource_form_in_child_is_an_unsupported_environment_effect():
-    from orchestrator.workflow_lisp.expressions import elaborate_expression
-    from orchestrator.workflow_lisp.typecheck_run_ref import _child_form_refusal
-    from tests.test_workflow_lisp_resource_stdlib import _expression_syntax
-
-    form = elaborate_expression(_expression_syntax(
-        "(resource-transition :transition write-drain-status :resource drain-run-state "
-        ':request (record DrainStatusRequest :status "BLOCKED"))'), bound_names=frozenset())
-
-    assert _child_form_refusal(form, network_none=False)[0] == "run_ref_environment_effect_unsupported"
-
-
 def test_in_memory_frontend_build_reports_child_refusal(tmp_path):
     """The LSP and `_compile_entry` path compiles without the typed-program selector."""
     from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle_in_memory

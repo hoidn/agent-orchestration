@@ -76,7 +76,7 @@ L5_AMBIGUOUS_ROOT = (
     FIXTURES / "modules" / "invalid" / "ambiguous"
 )
 REVIEW_REVISE_DESIGN_DOCS = FIXTURES / "current_editor" / "review_revise_design_docs.orc"
-STDLIB_CALLER = FIXTURES / "valid" / "minimal_caller_finalize_selected_item.orc"
+STDLIB_CALLER = FIXTURES / "valid" / "lsp_stdlib_improve_caller.orc"
 
 
 def _navigation_surface() -> object:
@@ -1740,15 +1740,15 @@ def test_definition_reaches_imported_stdlib_defproc_authored_span(
     index = _build_index(stdlib_result)
     stdlib_span = _definition_span(
         stdlib_result,
-        callable_name="std/resource::finalize-selected-item-proc",
+        callable_name="std/improve::improve",
         kind="procedure",
     )
 
     assert _definition_at(
         index,
         source_path=STDLIB_CALLER.resolve(),
-        line=41,
-        character=7,
+        line=11,
+        character=5,
         accepted_text_by_path=_accepted_texts(stdlib_result),
     ) == stdlib_span
     assert Path(stdlib_span.start.path).resolve().is_relative_to(
@@ -2215,7 +2215,7 @@ def test_retained_direct_call_duplicates_use_the_common_conflict_checks(
         _build_index(conflicting_result)
 
 
-def test_document_symbols_are_all_ten_compiler_proven_kinds_in_source_order(
+def test_document_symbols_are_all_eight_compiler_proven_kinds_in_source_order(
     l1_symbols_result: LinkedStage3CompileResult,
 ) -> None:
     symbols = _symbols(
@@ -2231,8 +2231,6 @@ def test_document_symbols_are_all_ten_compiler_proven_kinds_in_source_order(
         ("CommonFields", "schema"),
         ("ReviewState", "record"),
         ("ReviewOutcome", "union"),
-        ("review-state", "resource"),
-        ("record-review", "transition"),
         ("default-status", "procedure"),
         ("normalize-status", "procedure"),
         ("render-and-preserve", "procedure"),
@@ -2241,7 +2239,7 @@ def test_document_symbols_are_all_ten_compiler_proven_kinds_in_source_order(
         ("review-many", "workflow"),
     )
     assert tuple(symbol.source_ordinal for symbol in symbols) == tuple(
-        range(14)
+        range(12)
     )
     assert tuple(
         symbol.definition_span.start.offset for symbol in symbols
@@ -2428,7 +2426,7 @@ def test_completion_preserves_same_label_procedure_workflow_and_form_rows(
             "review",
             "procedure",
             "lsp_l1_symbols/entry::review",
-            "procedure (status: String) -> String effects ()",
+            "procedure (status: String) -> String restriction: (); inferred effects: (); effect status: complete",
         ),
         (
             "review",
@@ -2440,7 +2438,7 @@ def test_completion_preserves_same_label_procedure_workflow_and_form_rows(
     )
 
 
-def test_completion_details_use_resolved_signatures_and_declared_effects_only(
+def test_completion_details_use_resolved_signatures_and_inferred_effects(
     l1_symbols_result: LinkedStage3CompileResult,
 ) -> None:
     rows = {
@@ -2510,24 +2508,26 @@ def test_completion_details_use_resolved_signatures_and_declared_effects_only(
     )
     assert changed_workflow.effect_summary.transitive_effects
     assert rows[("procedure", "default-status")] == (
-        "procedure () -> String effects ()"
+        "procedure () -> String restriction: (); inferred effects: (); effect status: complete"
     )
     assert rows[("procedure", "normalize-status")] == (
-        "procedure (status: String) -> String effects ()"
+        "procedure (status: String) -> String restriction: (); inferred effects: (); effect status: complete"
     )
     assert rows[("procedure", "render-and-preserve")] == (
         "procedure "
         "(reports: List[Optional[Map[String, ReportPath]]], "
         "status: String, target: ReportPath) "
         "-> List[Optional[Map[String, ReportPath]]] "
-        "effects (writes(status-view))"
+        "restriction: (writes(status-view)); inferred effects: (); "
+        "effect status: complete"
     )
     assert changed_rows[("procedure", "render-and-preserve")] == (
         "procedure "
         "(reports: List[Optional[Map[String, ReportPath]]], "
         "status: String, target: ReportPath) "
         "-> List[Optional[Map[String, ReportPath]]] "
-        "effects (writes(status-view))"
+        "restriction: (writes(status-view)); "
+        "inferred effects: (writes(inferred-only)); effect status: complete"
     )
     assert rows[("workflow", "default-review")] == (
         "workflow () -> ReviewState"
@@ -2578,7 +2578,7 @@ def test_server_maps_completion_namespaces_details_and_protocol_kinds(
         (
             "review",
             types.CompletionItemKind.Function,
-            "procedure (status: String) -> String effects ()",
+            "procedure (status: String) -> String restriction: (); inferred effects: (); effect status: complete",
         ),
         (
             "review",
@@ -3723,11 +3723,12 @@ def test_full_and_recovery_completion_ignore_post_init_registry_mutation(
     )
     recovery = server.completion(_completion_params(entry_path))
 
-    assert tuple(
+    # At 2.40 the full list hides the private and compatibility-only heads of the frozen rows.
+    assert {
         item.label
         for item in full.items
         if item.kind == types.CompletionItemKind.Keyword
-    ) == frozen_labels
+    } <= set(frozen_labels)
     assert recovery.is_incomplete is True
     assert tuple(item.label for item in recovery.items) == frozen_labels
     assert "zz-late-form" not in {
@@ -3735,7 +3736,7 @@ def test_full_and_recovery_completion_ignore_post_init_registry_mutation(
     }
 
 
-def test_server_presents_ten_symbol_kinds_and_exact_selection_ranges(
+def test_server_presents_eight_symbol_kinds_and_exact_selection_ranges(
     tmp_path: Path,
 ) -> None:
     root = tmp_path / "lsp_l1_symbols"
@@ -3767,8 +3768,6 @@ def test_server_presents_ten_symbol_kinds_and_exact_selection_ranges(
         types.SymbolKind.Interface,
         types.SymbolKind.Struct,
         types.SymbolKind.Enum,
-        types.SymbolKind.Object,
-        types.SymbolKind.Event,
         types.SymbolKind.Function,
         types.SymbolKind.Function,
         types.SymbolKind.Function,
@@ -3931,7 +3930,7 @@ def test_server_navigation_never_serves_a_non_current_snapshot(
     server.driver = driver
 
     current_definition = server.definition(
-        _definition_params(entry_path, line=75, character=5)
+        _definition_params(entry_path, line=47, character=5)
     )
     current_symbols = server.document_symbols(
         _document_symbol_params(entry_path)
@@ -3949,8 +3948,6 @@ def test_server_navigation_never_serves_a_non_current_snapshot(
         "CommonFields",
         "ReviewState",
         "ReviewOutcome",
-        "review-state",
-        "record-review",
         "default-status",
         "normalize-status",
         "render-and-preserve",
@@ -4042,7 +4039,7 @@ def test_server_navigation_never_serves_a_non_current_snapshot(
         requested_path = root / "not-open.orc"
 
     assert server.definition(
-        _definition_params(requested_path, line=75, character=5)
+        _definition_params(requested_path, line=47, character=5)
     ) is None
     assert server.document_symbols(
         _document_symbol_params(requested_path)

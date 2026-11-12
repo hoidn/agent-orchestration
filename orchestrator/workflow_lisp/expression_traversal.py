@@ -17,7 +17,6 @@ from .expressions import (
     EnumMemberExpr,
     ExprNode,
     FieldAccessExpr,
-    FinalizeSelectedItemExpr,
     CondExpr,
     FunctionCallExpr,
     GeneratedRelpathSeedExpr,
@@ -28,7 +27,6 @@ from .expressions import (
     ListMapEffectExpr,
     ListMapExpr,
     LiteralExpr,
-    MaterializeViewExpr,
     LoopBodyFnExpr,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
@@ -40,16 +38,12 @@ from .expressions import (
     PureOpExpr,
     ProcedureCallExpr,
     ProcRefLiteralExpr,
-    ProduceOneOfExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
     RequestInputExpr,
     RecordUpdateExpr,
     RecordExpr,
-    ResourceTransitionExpr,
-    ResumeOrStartExpr,
     RunRefExpr,
-    RunProviderPhaseExpr,
     UnionVariantExpr,
     UnionVariantTagExpr,
     WithLiveProviderPeersExpr,
@@ -57,9 +51,7 @@ from .expressions import (
     WithPhaseExpr,
     WorkflowRefLiteralExpr,
 )
-from .phase_stdlib import ProduceOneOfCandidateSpec, ProduceOneOfProducerSpec
 from .prompts import PromptApplicationExpr
-from .resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 
 
 def is_pure_projection_expr(
@@ -130,52 +122,6 @@ def is_pure_projection_expr(
             allow_generated_relpath_seed=allow_generated_relpath_seed,
         )
     return False
-
-
-def _produce_one_of_children(
-    producer: ProduceOneOfProducerSpec,
-    candidates: tuple[ProduceOneOfCandidateSpec, ...],
-) -> tuple[ExprNode, ...]:
-    children: list[ExprNode] = []
-    if producer.provider_expr is not None:
-        children.append(producer.provider_expr)
-    if producer.prompt_expr is not None:
-        children.append(producer.prompt_expr)
-    children.extend(producer.inputs)
-    for candidate in candidates:
-        for field in candidate.fields:
-            if field.target_expr is not None:
-                children.append(field.target_expr)
-    return tuple(children)
-
-
-def _resource_transition_children(spec: ResourceTransitionSpec) -> tuple[ExprNode, ...]:
-    if spec.mode == "declared_transition":
-        children: list[ExprNode] = []
-        if spec.expected_version_expr is not None:
-            children.append(spec.expected_version_expr)
-        if spec.request_expr is not None:
-            children.append(spec.request_expr)
-        return tuple(children)
-    children = [spec.ctx_expr]
-    if spec.when_expr is not None:
-        children.append(spec.when_expr)
-    if spec.resource_expr is not None:
-        children.append(spec.resource_expr)
-    if spec.ledger_expr is not None:
-        children.append(spec.ledger_expr)
-    return tuple(children)
-
-
-def _finalize_selected_item_children(spec: FinalizeSelectedItemSpec) -> tuple[ExprNode, ...]:
-    return (
-        spec.ctx_expr,
-        spec.selected_expr,
-        spec.queue_transition_expr,
-        spec.roadmap_expr,
-        spec.plan_expr,
-        spec.implementation_expr,
-    )
 
 
 def command_operands(expr: CommandResultExpr):
@@ -313,21 +259,6 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         if expr.on_exhausted_result_expr is not None:
             children.append(expr.on_exhausted_result_expr)
         return tuple(children)
-    if isinstance(expr, RunProviderPhaseExpr):
-        return (expr.ctx_expr, expr.inputs_expr, expr.provider, expr.prompt)
-    if isinstance(expr, ProduceOneOfExpr):
-        return (expr.ctx_expr,) + _produce_one_of_children(expr.producer, expr.candidates)
-    if isinstance(expr, ResumeOrStartExpr):
-        return (expr.ctx_expr, expr.resume_from_expr, expr.start_expr)
-    if isinstance(expr, ResourceTransitionExpr):
-        return _resource_transition_children(expr.spec)
-    if isinstance(expr, MaterializeViewExpr):
-        children: list[ExprNode] = [expr.value_expr]
-        if expr.target_expr is not None:
-            children.append(expr.target_expr)
-        return tuple(children)
-    if isinstance(expr, FinalizeSelectedItemExpr):
-        return _finalize_selected_item_children(expr.spec)
     if isinstance(expr, LoopBodyFnExpr):
         return (expr.body_expr,)
     raise TypeError(f"unsupported expression traversal node: {type(expr)!r}")

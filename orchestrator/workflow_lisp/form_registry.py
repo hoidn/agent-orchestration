@@ -153,28 +153,6 @@ _FORM_SPECS = (
         rationale="Union definitions are admitted only at top level.",
     ),
     _spec(
-        "defresource",
-        kind=FormKind.TOP_LEVEL_DEFINITION,
-        owner_module="definitions",
-        introduced_in="workflow_lisp_frontend_mvp",
-        remove_by=None,
-        macro_bindable=False,
-        admitted_top_level=True,
-        elaboration_route=None,
-        rationale="Resource declarations are admitted only at top level.",
-    ),
-    _spec(
-        "deftransition",
-        kind=FormKind.TOP_LEVEL_DEFINITION,
-        owner_module="definitions",
-        introduced_in="workflow_lisp_frontend_mvp",
-        remove_by=None,
-        macro_bindable=False,
-        admitted_top_level=True,
-        elaboration_route=None,
-        rationale="Transition declarations are admitted only at top level.",
-    ),
-    _spec(
         "defworkflow",
         kind=FormKind.TOP_LEVEL_DEFINITION,
         owner_module="workflows",
@@ -656,96 +634,6 @@ _FORM_SPECS = (
         elaboration_route="generated_relpath_seed",
         rationale="Compiler-private relpath seeds remain hidden while ordinary stdlib code still needs typed placeholder paths.",
     ),
-    _spec(
-        "run-provider-phase",
-        kind=FormKind.TEMP_COMPILER_INTRINSIC,
-        owner_module="expressions",
-        introduced_in="workflow_lisp_frontend_mvp",
-        remove_by="ordinary imported stdlib expansion",
-        macro_bindable=False,
-        admitted_top_level=False,
-        elaboration_route="run_provider_phase",
-        rationale="Provider phase lowering remains a temporary compiler intrinsic pending ordinary stdlib ownership.",
-    ),
-    _spec(
-        "produce-one-of",
-        kind=FormKind.TEMP_COMPILER_INTRINSIC,
-        owner_module="expressions",
-        introduced_in="workflow_lisp_frontend_refactor",
-        remove_by="ordinary imported stdlib expansion",
-        macro_bindable=False,
-        admitted_top_level=False,
-        elaboration_route="produce_one_of",
-        rationale="Candidate production remains a temporary compiler intrinsic pending ordinary stdlib ownership.",
-    ),
-    _spec(
-        "provider",
-        kind=FormKind.TEMP_COMPILER_INTRINSIC,
-        owner_module="expressions",
-        introduced_in="workflow_lisp_frontend_refactor",
-        remove_by="ordinary imported stdlib expansion",
-        macro_bindable=False,
-        admitted_top_level=False,
-        elaboration_route=None,
-        feature_tags=("nested_producer_only",),
-        rationale="The producer helper stays reserved for nested stdlib producer sections rather than general expression elaboration.",
-    ),
-    _spec(
-        "resume-or-start",
-        kind=FormKind.TEMP_COMPILER_INTRINSIC,
-        owner_module="expressions",
-        introduced_in="workflow_lisp_frontend_refactor",
-        remove_by="ordinary imported stdlib expansion",
-        macro_bindable=False,
-        admitted_top_level=False,
-        elaboration_route="resume_or_start",
-        rationale="Resume/state-reuse remains a temporary compiler intrinsic pending ordinary stdlib ownership.",
-    ),
-    _spec(
-        "resource-transition",
-        kind=FormKind.TEMP_COMPILER_INTRINSIC,
-        owner_module="expressions",
-        introduced_in="workflow_lisp_frontend_refactor",
-        remove_by="runtime-native resource transitions",
-        macro_bindable=False,
-        admitted_top_level=False,
-        elaboration_route="resource_transition",
-        rationale="Resource transitions stay compiler-owned until the runtime-native surface is promoted.",
-    ),
-    _spec(
-        "finalize-selected-item",
-        kind=FormKind.TEMP_COMPILER_INTRINSIC,
-        owner_module="stdlib_modules/std/resource.orc",
-        introduced_in="workflow_lisp_generic_resource_context_core",
-        remove_by="ordinary imported stdlib expansion",
-        macro_bindable=True,
-        admitted_top_level=False,
-        elaboration_route="finalize_selected_item",
-        feature_tags=("compatibility_route_only",),
-        rationale="Selected-item fan-in remains a compatibility intrinsic while the imported stdlib route is converging.",
-    ),
-    _spec(
-        "backlog-drain",
-        kind=FormKind.STDLIB_EXTENSION,
-        owner_module="stdlib_modules/std/drain.orc",
-        introduced_in="workflow_lisp_generic_resource_context_core",
-        remove_by=None,
-        macro_bindable=True,
-        admitted_top_level=False,
-        elaboration_route=None,
-        rationale="The public stdlib backlog drain stays macro-bindable and reaches the compiler via imported stdlib expansion.",
-    ),
-    _spec(
-        "materialize-view",
-        kind=FormKind.TEMP_COMPILER_INTRINSIC,
-        owner_module="expressions",
-        introduced_in="workflow_lisp_frontend_refactor",
-        remove_by="runtime-native materialized value views",
-        macro_bindable=False,
-        admitted_top_level=False,
-        elaboration_route="materialize_view",
-        rationale="Materialized value views stay compiler-owned until the runtime-native generated step is promoted.",
-    ),
 )
 
 
@@ -818,9 +706,32 @@ def target_dsl_version_at_least(
     return target >= minimum_version
 
 
-# Forms removed from the language: head -> what it was. Elaboration refuses them with `form_retired`.
-RETIRED_FORMS = {"trial": "blinded trials"}
-RETIRED_FORMS_TAG = "archive/dead-executors-2026-11-11"
+# Forms removed from the language: head -> (what it was, the git tag of the last version with it).
+# Elaboration refuses them with `form_retired`.
+_ONE_TARGET_TAG = "archive/pre-one-target-2026-11-12"
+RETIRED_FORMS = {
+    "trial": ("blinded trials", "archive/dead-executors-2026-11-11"),
+    "defresource": ("resource declarations", _ONE_TARGET_TAG),
+    "deftransition": ("resource transition declarations", _ONE_TARGET_TAG),
+    "resource-transition": ("resource transitions", _ONE_TARGET_TAG),
+    "materialize-view": ("materialized value views", _ONE_TARGET_TAG),
+    "finalize-selected-item": ("selected-item fan-in", _ONE_TARGET_TAG),
+    "backlog-drain": ("the std/drain backlog drain", _ONE_TARGET_TAG),
+    "resume-or-start": ("reusable phase state", _ONE_TARGET_TAG),
+    "run-provider-phase": ("provider phases", _ONE_TARGET_TAG),
+    "produce-one-of": ("produced-outcome selection", _ONE_TARGET_TAG),
+    "provider": ("the producer section of `produce-one-of`", _ONE_TARGET_TAG),
+}
+
+
+def retired_form_message(name: str, display_name: str) -> str | None:
+    """The `form_retired` message for a removed head, or None when the head was never removed."""
+
+    retired = RETIRED_FORMS.get(name)
+    if retired is None:
+        return None
+    what, tag = retired
+    return f"`{display_name}` was removed ({what}); the last version with it is git tag {tag}"
 
 
 def get_form_spec(

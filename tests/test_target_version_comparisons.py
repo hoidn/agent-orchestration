@@ -61,7 +61,6 @@ ALLOWED = {
     "orchestrator/workflow_lisp/syntax.py": 1,  # 3
     "orchestrator/workflow_lisp/type_env.py": 2,  # 5
     "orchestrator/workflow_lisp/typecheck_effects.py": 2,  # 10, 11
-    "orchestrator/workflow_lisp/typecheck_resume.py": 2,  # stored resume state's target (deleted form)
     "orchestrator/workflow_lisp/workflows.py": 1,  # 3
 }
 

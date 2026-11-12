@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from textwrap import dedent
 
 import pytest
 
@@ -24,10 +23,6 @@ INVALID_MISSING_INPUT_FIXTURE = FIXTURES / "invalid" / "certified_adapter_missin
 INVALID_EXTRA_INPUT_FIXTURE = FIXTURES / "invalid" / "certified_adapter_extra_input.orc"
 INVALID_TYPE_MISMATCH_FIXTURE = FIXTURES / "invalid" / "certified_adapter_type_mismatch.orc"
 INVALID_SEMANTIC_BYPASS_FIXTURE = FIXTURES / "invalid" / "certified_adapter_semantic_bypass.orc"
-
-
-
-
 
 
 def _validated_command_boundaries(
@@ -108,65 +103,6 @@ def _expression_syntax(source: str) -> SyntaxNode:
     )
 
 
-def _declared_transition_module_source(*, backend: str = "write_drain_status_adapter") -> str:
-    return (
-        dedent(
-            f"""
-            (workflow-lisp
-              (:language "0.1")
-              (:target-dsl "2.35")
-              (defpath StateFile
-                :kind relpath
-                :under "state"
-                :must-exist false)
-              (defrecord DrainRunState
-                (drain_status String))
-              (defrecord DrainStatusRequest
-                (status String))
-              (defrecord DrainStatusResult
-                (status String))
-              (defrecord DrainStatusAudit
-                (status String))
-              (defrecord Output
-                (status String))
-              (defresource drain-run-state
-                :state-type DrainRunState
-                :backing state-layout)
-              (deftransition write-drain-status
-                :resource drain-run-state
-                :request-type DrainStatusRequest
-                :result-type DrainStatusResult
-                :preconditions ((!= request.status ""))
-                :updates ((set-field drain_status request.status))
-                :write-set (drain_status)
-                :idempotency-fields (status)
-                :result (record DrainStatusResult
-                  :status request.status)
-                :audit (record DrainStatusAudit
-                  :status request.status)
-                :conflict-policy fail_closed
-                :backend {backend})
-              (defworkflow orchestrate
-                ((status String))
-                -> Output
-                (record Output
-                  :status status)))
-            """
-        ).strip()
-        + "\n"
-    )
-
-
-
-
-
-
-
-
-
-
-
-
 def test_design_delta_g0_helper_without_retirement_metadata_is_rejected() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         build_command_boundary_environment(
@@ -183,119 +119,6 @@ def test_design_delta_g0_helper_without_retirement_metadata_is_rejected() -> Non
         )
 
     assert excinfo.value.diagnostics[0].code == "command_adapter_missing_contract"
-
-
-def test_compile_stage3_module_rejects_transition_binding_backend_mismatch(tmp_path: Path) -> None:
-    path = tmp_path / "transition_binding_backend_mismatch.orc"
-    path.write_text(_declared_transition_module_source(), encoding="utf-8")
-    payload = {
-        "write_drain_status_adapter": {
-            "kind": "certified_adapter",
-            "stable_command": ["python", "scripts/write_drain_status.py"],
-            "input_contract": {"type": "object"},
-            "output_type_name": "DrainStatusResult",
-            "effects": ["resource_transition", "ledger_update"],
-            "path_safety": {"kind": "workspace_relpath"},
-            "source_map_behavior": "step",
-            "fixture_ids": ["write_drain_status_ok"],
-            "negative_fixture_ids": ["write_drain_status_bad"],
-            "behavior_class": "resource_transition",
-            "input_signature": [
-                {
-                    "name": "run_state_path",
-                    "type_name": "StateFile",
-                    "required": True,
-                    "transport_key": "run_state_path",
-                }
-            ],
-            "artifact_contracts": ["write_drain_status_bundle"],
-            "state_writes": ["state/run-state.json"],
-            "error_codes": ["write_drain_status_invalid"],
-            "owner_module": "declared/runtime",
-            "replacement_path": "resource-transition",
-            "invocation_protocol": "json_object_positional_arg",
-            "transition_binding": {
-                "transition_name": "write-drain-status",
-                "resource_kind": "drain-run-state",
-                "contract_role": "migration_backend",
-                "backend_selector": "different_adapter",
-            },
-        }
-    }
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            command_boundaries=_parse_command_boundaries_manifest(
-                payload,
-                manifest_path=None,
-            ),
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    assert excinfo.value.diagnostics[0].code == "command_adapter_missing_contract"
-    assert "backend" in excinfo.value.diagnostics[0].message
-
-
-def test_compile_stage3_module_rejects_transition_binding_for_runtime_native_transition(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "transition_binding_runtime_native_backend.orc"
-    path.write_text(
-        _declared_transition_module_source(backend="runtime_native"),
-        encoding="utf-8",
-    )
-    payload = {
-        "write_drain_status_adapter": {
-            "kind": "certified_adapter",
-            "stable_command": ["python", "scripts/write_drain_status.py"],
-            "input_contract": {"type": "object"},
-            "output_type_name": "DrainStatusResult",
-            "effects": ["resource_transition", "ledger_update"],
-            "path_safety": {"kind": "workspace_relpath"},
-            "source_map_behavior": "step",
-            "fixture_ids": ["write_drain_status_ok"],
-            "negative_fixture_ids": ["write_drain_status_bad"],
-            "behavior_class": "resource_transition",
-            "input_signature": [
-                {
-                    "name": "run_state_path",
-                    "type_name": "StateFile",
-                    "required": True,
-                    "transport_key": "run_state_path",
-                }
-            ],
-            "artifact_contracts": ["write_drain_status_bundle"],
-            "state_writes": ["state/run-state.json"],
-            "error_codes": ["write_drain_status_invalid"],
-            "owner_module": "declared/runtime",
-            "replacement_path": "resource-transition",
-            "invocation_protocol": "json_object_positional_arg",
-            "transition_binding": {
-                "transition_name": "write-drain-status",
-                "resource_kind": "drain-run-state",
-                "contract_role": "migration_backend",
-                "backend_selector": "write_drain_status_adapter",
-            },
-        }
-    }
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            command_boundaries=_parse_command_boundaries_manifest(
-                payload,
-                manifest_path=None,
-            ),
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    assert excinfo.value.diagnostics[0].code == "command_adapter_missing_contract"
-    assert "runtime_native" in excinfo.value.diagnostics[0].message
-
-
 
 
 def test_design_delta_parent_drain_manifest_rejects_unknown_retirement_class() -> None:
@@ -367,8 +190,6 @@ def test_design_delta_parent_drain_validate_review_findings_requires_full_retire
 
     with pytest.raises(LispFrontendCompileError):
         _validated_command_boundaries(payload)
-
-
 
 
 def test_command_result_adapter_requires_full_promoted_metadata(tmp_path: Path) -> None:
@@ -457,12 +278,6 @@ def test_command_result_adapter_requires_exclusive_adapter_mode() -> None:
         )
 
     assert excinfo.value.diagnostics[0].code == "command_result_adapter_invalid"
-
-
-
-
-
-
 
 
 def test_command_result_adapter_accepts_recursive_record_input(tmp_path: Path) -> None:

@@ -534,7 +534,7 @@ def test_stage3_graph_attempt_completes_with_topological_canonical_paths(
     assert attempt.canonical_entry_path == entry_path.resolve()
     assert attempt.started_at_ordinal == 0
     assert attempt.completed_at_ordinal == graph_return_boundaries[0]
-    assert attempt.completed_at_ordinal < len(trace.records)
+    assert attempt.completed_at_ordinal == len(trace.records)
     assert attempt.module_paths == (
         dependency_path.resolve(),
         entry_path.resolve(),
@@ -662,7 +662,7 @@ def test_repeated_stage3_entry_uses_distinct_monotonic_graph_attempt_ids(
     assert first.completed_at_ordinal is not None
     assert second.completed_at_ordinal is not None
     assert first.module_paths == second.module_paths == (entry_path.resolve(),)
-    assert second.started_at_ordinal > first.completed_at_ordinal
+    assert second.started_at_ordinal >= first.completed_at_ordinal
 
 
 def test_stage1_entrypoint_has_no_source_read_trace_surface() -> None:
@@ -813,11 +813,6 @@ def test_stage3_default_wcc_analysis_traces_source_reads(
     ("fixture_path", "provider_externs", "prompt_externs"),
     (
         (
-            FIXTURES / "valid" / "materialize_view_runtime.orc",
-            {},
-            {},
-        ),
-        (
             FIXTURES
             / "provider_peer_group"
             / "provider_peer_group_three.orc",
@@ -833,7 +828,7 @@ def test_stage3_default_wcc_analysis_traces_source_reads(
             },
         ),
     ),
-    ids=("materialize-view", "provider-peer-group"),
+    ids=("provider-peer-group",),
 )
 def test_default_wcc_nominal_lowering_reads_join_the_active_trace(
     tmp_path: Path,

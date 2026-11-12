@@ -168,20 +168,18 @@ def test_stdlib_compatibility_and_imported_only_heads_are_macro_bindable_but_not
 
     reserved = registry.reserved_macro_names()
 
-    for head_name in ("with-phase", "finalize-selected-item"):
-        spec = registry.get_form_spec(head_name)
+    with_phase = registry.get_form_spec("with-phase")
+    assert with_phase is not None
+    assert with_phase.macro_bindable is True
+    assert "compatibility_route_only" in with_phase.feature_tags
+    assert "with-phase" not in reserved
 
-        assert spec is not None
-        assert spec.macro_bindable is True
-        assert "compatibility_route_only" in spec.feature_tags
-        assert head_name not in reserved
-
-    backlog_drain = registry.get_form_spec("backlog-drain")
-    assert backlog_drain is not None
-    assert backlog_drain.kind is registry.FormKind.STDLIB_EXTENSION
-    assert backlog_drain.macro_bindable is True
-    assert "compatibility_route_only" not in backlog_drain.feature_tags
-    assert "backlog-drain" not in reserved
+    review_loop = registry.get_form_spec("review-revise-loop")
+    assert review_loop is not None
+    assert review_loop.kind is registry.FormKind.STDLIB_EXTENSION
+    assert review_loop.macro_bindable is True
+    assert "compatibility_route_only" not in review_loop.feature_tags
+    assert "review-revise-loop" not in reserved
 
 
 def test_form_registry_does_not_publish_review_loop_bridge_metadata() -> None:

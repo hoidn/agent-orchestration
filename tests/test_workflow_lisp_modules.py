@@ -696,8 +696,6 @@ def test_compile_stage3_entrypoint_registers_canonical_callable_keys(tmp_path: P
     assert "neurips/helper::provider-attempt" in result.entry_result.workflow_catalog.signatures_by_name
 
 
-
-
 def test_compile_stage3_entrypoint_resolves_imported_workflow_refs_to_canonical_keys(tmp_path: Path) -> None:
     compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
     assert callable(compile_fn), "compile_stage3_entrypoint is missing"
@@ -1016,7 +1014,6 @@ def test_compile_stage3_entrypoint_keeps_native_analysis_for_old_source(tmp_path
     )
     assert result.entry_result.typed_program.target == "2.35"
     assert "demo/entry::run" in result.entry_result.typed_program.workflows
-
 
 
 def test_compile_stage3_entrypoint_prefers_local_names_over_only_imports(tmp_path: Path) -> None:
@@ -1350,10 +1347,6 @@ def test_compile_stage3_entrypoint_rejects_imported_callable_name_collisions(tmp
     _assert_diagnostic_code(excinfo, "callable_name_collision")
 
 
-
-
-
-
 def test_linked_private_procedures_resolve_in_their_defining_module(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1412,100 +1405,3 @@ def test_compile_stage3_entrypoint_imported_private_helper_unknown_type_stays_at
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "type_unknown"
     assert diagnostic.span.start.path.endswith("helper.orc")
-
-
-
-
-
-
-
-
-def test_compile_stage3_entrypoint_rejects_ambiguous_unqualified_transition_imports(
-    tmp_path: Path,
-) -> None:
-    source_root = tmp_path / "ambiguous_transition_imports"
-    for module_name in ("first", "second"):
-        _write_module(
-            source_root / "demo" / f"{module_name}.orc",
-            "\n".join(
-                [
-                    "(workflow-lisp",
-                    '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
-                    f"  (defmodule demo/{module_name})",
-                    "  (export OutcomeRequest OutcomeResult record-outcome outcome-state)",
-                    "  (defrecord OutcomeState",
-                    "    (status String))",
-                    "  (defrecord OutcomeRequest",
-                    "    (status String))",
-                    "  (defrecord OutcomeResult",
-                    "    (status String))",
-                    "  (defrecord OutcomeAudit",
-                    "    (status String))",
-                    "  (defrecord OutcomeTransitionResult",
-                    "    (status String))",
-                    "  (defresource outcome-state",
-                    "    :state-type OutcomeState",
-                    "    :backing state-layout)",
-                    "  (deftransition record-outcome",
-                    "    :resource outcome-state",
-                    "    :request-type OutcomeRequest",
-                    "    :result-type OutcomeTransitionResult",
-                    '    :preconditions ((!= request.status ""))',
-                    "    :updates ((set-field status request.status))",
-                    "    :write-set (status)",
-                    "    :idempotency-fields (status)",
-                    "    :result (record OutcomeTransitionResult",
-                    "      :status request.status)",
-                    "    :audit (record OutcomeAudit",
-                    "      :status request.status)",
-                    "    :conflict-policy fail_closed",
-                    "    :backend runtime_native)",
-                    "  (defworkflow shared",
-                        "    ()",
-                        "    -> OutcomeResult",
-                        "    (let* ((transition-result",
-                        "             (resource-transition",
-                        "               :transition record-outcome",
-                        "               :resource outcome-state",
-                        "               :request (record OutcomeRequest :status \"ok\"))))",
-                        "      (record OutcomeResult",
-                        "        :status transition-result.status))))",
-                    ]
-                ),
-            )
-    entry_path = _write_module(
-        source_root / "demo" / "entry.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
-                "  (defmodule demo/entry)",
-                "  (import demo/first :only (OutcomeResult OutcomeRequest record-outcome outcome-state))",
-                "  (import demo/second :only (OutcomeResult OutcomeRequest record-outcome outcome-state))",
-                "  (export run)",
-                "  (defworkflow run",
-                "    ()",
-                "    -> OutcomeResult",
-                "    (let* ((transition-result",
-                "             (resource-transition",
-                "               :transition record-outcome",
-                "               :resource outcome-state",
-                "               :request (record OutcomeRequest :status \"ok\"))))",
-                "      (record OutcomeResult",
-                "        :status transition-result.status))))",
-                ]
-            ),
-        )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_stage3_entrypoint(
-            entry_path,
-            source_root=source_root,
-
-            validate_shared=True,
-            tmp_path=tmp_path,
-        )
-
-    _assert_diagnostic_code(excinfo, "module_import_ambiguous")

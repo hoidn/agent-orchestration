@@ -119,12 +119,6 @@ not select compiler/runtime behavior or certify evaluated LSP support.
   `output_bundle`, `variant_output`, input, and output contracts.
 - `stdlib_contracts.py`: certified command adapter bindings retained for
   stdlib forms, such as `validate_review_findings_v1` for `review-revise-loop`.
-- `resource.py` / `resource_stdlib.py`: current resource/context helpers and
-  bridge surfaces used while the generic `RunCtx` / `Resource<TState>` /
-  `Transition<TRequest, TResult>` target is implemented.
-- `stdlib_modules/std/drain.orc`: imported generic `backlog-drain` procedure
-  and macro ownership; ordinary specialization and WCC lowering handle the
-  expanded parent-owned loop without a drain-specific Python helper module.
 - `route_readiness.py`: validation and lookup for
   `docs/workflow_lisp_route_readiness_registry.json`, including route labels,
   schema identity, and target/example readiness checks.

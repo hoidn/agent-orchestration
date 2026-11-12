@@ -14,9 +14,7 @@ from .effects import (
     LivePeerMessagingEffect,
     LiveSupervisionEffect,
     MaterializesPointerEffect,
-    MovesResourceEffect,
     RunsRefEffect,
-    UpdatesLedgerEffect,
     UpdatesStateEffect,
     UsesProviderEffect,
     effect_summary_from_direct,
@@ -977,8 +975,6 @@ _FORBIDDEN_CHILD_ATOMS = (
     LiveSupervisionEffect,
     LivePeerMessagingEffect,
     UpdatesStateEffect,
-    MovesResourceEffect,
-    UpdatesLedgerEffect,
     CapturesSnapshotEffect,
     MaterializesPointerEffect,
 )
@@ -993,12 +989,6 @@ _FORBIDDEN_CHILD_FORMS = {
     ex.WithLiveProviderPeersExpr: "parallel live provider peers",
     ex.RequestInputExpr: "human input",
     ex.WithPhaseExpr: "phase context",
-    ex.RunProviderPhaseExpr: "provider session phase",
-    ex.ResumeOrStartExpr: "session resume",
-    ex.ProduceOneOfExpr: "provider session selection",
-    ex.ResourceTransitionExpr: "resource transition",
-    ex.MaterializeViewExpr: "resource view",
-    ex.FinalizeSelectedItemExpr: "resource finalization",
 }
 
 

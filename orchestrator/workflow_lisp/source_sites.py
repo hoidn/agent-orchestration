@@ -39,7 +39,6 @@ from .expressions import (
     NameExpr,
     ProcedureCallExpr,
     ProviderResultExpr,
-    RunProviderPhaseExpr,
     RunRefExpr,
 )
 from .loops import LoopControlTypeRef
@@ -72,16 +71,16 @@ _SCOPED_FIELDS = frozenset({"body", "workspace_body", "exhaustion"})
 _UNRESOLVED = "unresolved"
 _ATOMS = (str, bytes, int, float, bool, Path)
 
-_KINDS = {ProviderResultExpr: "provider-call", RunProviderPhaseExpr: "provider-phased-call",
+_KINDS = {ProviderResultExpr: "provider-call",
     AgentExpr: "agent-turn", ProcedureCallExpr: "procedure-call", CallExpr: "workflow-call", RunRefExpr: "run-ref",
     LetStarExpr: "let*", IfExpr: "if", CondExpr: "cond", MatchExpr: "match", LoopRecurExpr: "loop",
     ListMapExpr: "list-map", ListMapEffectExpr: "list-map", FunctionCallExpr: "function-call"}
 # The WCC node that carries an authored site's value at the site's start; `let*` is anchored separately.
-_VALUE_NODES = {"provider-call": (WccPerform,), "provider-phased-call": (WccPerform,), "agent-turn": (WccPerform,),
+_VALUE_NODES = {"provider-call": (WccPerform,), "agent-turn": (WccPerform,),
     "procedure-call": (WccCall,), "workflow-call": (WccPerform,), "run-ref": (WccPerform,),
     "if": (WccIf, WccSelect), "cond": (WccIf, WccSelect), "match": (WccCase,), "loop": (WccRecJoin,),
     "list-map": (WccListMap, WccParallelMap), "function-call": (WccBlock,)}
-_PROVIDER_FORMS = (ProviderResultExpr, AgentExpr, RunProviderPhaseExpr)
+_PROVIDER_FORMS = (ProviderResultExpr, AgentExpr)
 
 Position = tuple[str, int, int]
 
