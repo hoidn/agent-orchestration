@@ -55,8 +55,9 @@ if sys.argv[1:] == ["--version"]:
     print("0.0.0 (pq1c stand-in)"); sys.exit(0)
 if (_here / "slow").exists():
     time.sleep(4)
-if (_here / "nest").exists():
-    _nested = subprocess.run(["claude", "-p", "--model", "claude-fable-5-1"], input="", capture_output=True, text=True)
+if (_here / "nest").exists() and not os.environ.get("PQ1C_STANDIN_NESTED"):     # one level only, guard or not
+    _nested = subprocess.run(["claude", "-p", "--model", "claude-fable-5-1"], input="", capture_output=True, text=True,
+                             env={**os.environ, "PQ1C_STANDIN_NESTED": "1"}, timeout=60)
     (_here / "nested.json").write_text(json.dumps({"exit": _nested.returncode}))
 # The shim counts its plan steps beside argv[0]: count per cell (the cell's bin), not beside the stand-in.
 sys.argv[0] = str(Path.cwd().parent / "bin" / "claude")
