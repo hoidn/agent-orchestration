@@ -148,6 +148,57 @@ every threshold, rule, cap and stop of this plan. Its sha256 goes in the
 ledger before the first call. A later apparatus fix is a ledger row with the
 new hash; thresholds do not change.
 
+## Probable calibration failures and the response to each
+
+Added 2026-11-11 on the owner's instruction to preempt them. Each response is
+fixed here, before any spend, and stays inside the authorized calibration and
+redraw caps. Where this section and Step 2 differ, this section governs.
+
+| Probable failure | Why it is likely | Response |
+| --- | --- | --- |
+| Tasks too easy for Haiku: G1 and G2 fail high, G3 has no room, V4 has too few failing candidates | In the Phase 1 authoring check three of three Haiku sessions passed in about 100 seconds; every task hands the agent a failing test it can run | The probe below, and a hard reserve ready before spend |
+| The workflows' check steps never fire, so no workflow differs from `direct` | A single agent session can run the visible test itself and iterate | The probe measures it; the check-withheld form below is ready |
+| Tasks too hard: Haiku cannot find the change from a short commit message | The repository is large and statements are short | An easy reserve ready before spend |
+| A judge cannot tell the fix from no change, or ranks the fix below candidates | October's failures; judges run no tests | An early judge look on three tasks before the rest of the judge calls |
+| Apparatus incidents eat the tranche | About 40% of October's calibration starts were lost to them | The mechanical smoke check; first wave two at a time; the subagent tool off in candidate sessions; launches halt on the incident rule |
+| A candidate can reach the fix | Clones are built from this repository | A zero-spend audit that no clone holds objects after its base commit and that the scan for the fix hash fires on a planted copy |
+
+**Probe (20 Haiku candidate calls from the calibration cap).** Before any
+other calibration call: `direct` once on each of the 20 drawn tasks, hidden
+tests run, no judges. Two figures decide what happens next: the number of
+tasks whose hidden set passes, and the share of runs in which the agent
+itself ran the visible test.
+
+| Probe result | Next |
+| --- | --- |
+| 5 to 15 tasks pass and the agent ran the visible test in under 80% of runs | Proceed with Step 2; the probe run is the first of each task's four Haiku runs |
+| The agent ran the visible test in 80% of runs or more | Switch every task to the check-withheld form and probe once more (20 calls); continue from that result on that form |
+| 16 or more pass | Replace the ten drawn tasks with the fewest changed source lines by the ten hard-reserve tasks with the most |
+| 4 or fewer pass | Replace the ten drawn tasks with the most changed source lines by ten easy-reserve tasks |
+
+A replacement is chosen by changed-line count, never by a task's own probe
+outcome. It is the plan's one redraw, taken early: the replaced tasks' probe
+calls are spent, the ten new tasks take the redraw tranche (40 Haiku, 10
+Sonnet), and no second redraw follows. Worst case in Haiku candidate calls:
+70 of the calibration cap and 40 of the redraw cap.
+
+**Check-withheld form.** The visible test is not in the candidate's tree; it
+exists only in the check command that a workflow runs, which puts the test in
+place, runs it and removes it. `direct` then has no test to run, and a
+workflow's check step is the only executed signal. This is the form in which
+structure can matter, and it is used only when the probe shows the in-tree
+test makes the check steps redundant. Calibration and seed evaluation always
+use the same form.
+
+**Reserves.** Before spend, at least ten hard-reserve tasks (the size filter
+raised) and at least ten easy-reserve tasks, each through the same oracle and
+leak checks as the drawn tasks.
+
+**Early judge look (6 judge calls from the calibration cap).** After the
+first three tasks have their runs, pool and judge them with both judges. If,
+for both judges, the reference scores less than 4 points above the base on
+two of the three, stop and report to the owner before any further judge call.
+
 ## Step 2: Calibration (paid)
 
 **Smoke,** on the last reserve task, which then leaves the reserve: one direct
@@ -343,3 +394,4 @@ Allowance does not move between tranches; there is no top-up after a null.
 | 2026-11-11 | Owner decision, judge gate: "Two natural controls". The judge is validated on the untouched base and the reference fix of each task, plus the retest, test-agreement and stronger-arm checks of Step 2. This is a study-local gate computed from the pools' `results.json`; it is recorded in the `AGENTS.md` experiment rules. |
 | 2026-11-11 | Coordinator ruling: both judges are calibrated on the same batches (the planner's alternative of running the Sonnet judge only on a Haiku failure is not taken). Spend to date: 0. |
 | 2026-11-11 | Owner requirement: "part of the seed's simplicity req should be a challenging loc limit (eg <50 lines of orc". Recorded as the size limit in step 1c: under 50 physical lines per seed program, `common.orc` exempt and frozen. The owner confirmed on 2026-11-11 that `common.orc` does not count; the four programs pass at 22, 31, 40 and 45 lines (44 to 67 if `common.orc` were counted). |
+| 2026-11-11 | Owner instruction: "preempt probable calibration failures". The section "Probable calibration failures and the response to each" is added: a 20-call Haiku probe before anything else, hard and easy reserves mined before spend, a check-withheld task form, an early judge look on three tasks, and apparatus measures. All inside the authorized caps; the early replacement of tasks is the plan's one redraw. Coordinator rulings; the check-withheld form changes what `direct` can do and is used only on the probe's evidence. |
