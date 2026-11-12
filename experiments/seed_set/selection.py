@@ -5,12 +5,16 @@ False), and averages over every ordered triple of them: `Q1` is the direct mean;
 the visible check passes, at most k attempts, keeping the passing attempt or else the k-th (best-of-k by the
 visible check has the same quality at k calls); `random_of_3` keeps a random one; `any_of_3` the best judged one
 (an upper bound). `select_seeds` applies rules 1-6 to per-arm summaries and reports each arm's difference from
-direct with a 90% bootstrap interval over tasks and the driver's dominance test against direct.
+direct with a 90% bootstrap interval over tasks and the driver's dominance test against direct. Rule 7 (owner,
+2026-11-11) bounds a seed's size: its program file has fewer than `MAX_PROGRAM_LINES` physical lines, every line
+counted (code, comments, blank lines); the shared `common.orc` is exempt but frozen (`common_definitions`).
 """
 
 import math
 import random
+import re
 from itertools import permutations
+from pathlib import Path
 from statistics import mean
 
 from experiments.orc_structural_search.pareto import dominates
@@ -18,6 +22,18 @@ from experiments.orc_structural_search.pareto import dominates
 TAU_Q, TAU_C = 0.5, 0.10
 COST_LIMIT, COMPLETION, DISTINCTIVE = 3.0, 0.95, 0.20
 RETRY = "retry_until_check"
+MAX_PROGRAM_LINES = 50  # a seed program has fewer physical lines than this
+COMMON_TYPES = ("Change", "CheckReport", "Outcome")  # all common.orc may define: the seeds' shared interface
+
+
+def program_lines(path):
+    """Physical lines of a program file: every line, blank and comment lines included."""
+    return len(Path(path).read_bytes().splitlines())
+
+
+def common_definitions(path):
+    """The names common.orc defines with a `def...` form (its module name aside)."""
+    return sorted(re.findall(r"\(def(?!module)\w+\s+([^\s()]+)", Path(path).read_text()))
 
 
 def _retry(triple, k):
@@ -71,14 +87,16 @@ def rules(name, arm, direct, rerolled):
         "4_cost": arm["calls"] <= COST_LIMIT * direct["calls"] and tokens,
         "5_distinctive": (arm.get("distinctive") or 0) >= DISTINCTIVE,
         "6_parity": name != RETRY or arm.get("parity") is True,
+        "7_lines": arm["lines"] < MAX_PROGRAM_LINES,
     }
 
 
 def select_seeds(arms, rerolled):
     """`arms` maps name to {"tasks": {task: mean score}, "completed", "calls", "tokens" or None, "distinctive",
-    "parity"}; "direct" is the reference and always a seed. Returns the seeds and every arm's report."""
+    "parity", "lines"}; "direct" is the reference and a seed while within the line limit. Returns the seeds and
+    every arm's report."""
     direct = arms["direct"]
-    reports, seeds = {}, ["direct"]
+    reports, seeds = {}, ["direct"] if direct["lines"] < MAX_PROGRAM_LINES else []
     for name, arm in arms.items():
         if name == "direct":
             continue
@@ -88,7 +106,7 @@ def select_seeds(arms, rerolled):
         checked = rules(name, arm, direct, rerolled)
         quality = {"quality": mean(arm["tasks"].values()), "cost": arm["calls"]}
         reference = {"quality": mean(direct["tasks"].values()), "cost": direct["calls"]}
-        reports[name] = {"rules": checked, "difference": mean(differences), "interval": [low, high],
+        reports[name] = {"rules": checked, "lines": arm["lines"], "difference": mean(differences), "interval": [low, high],
                          "spans_tolerance": low < -TAU_Q < high, "dominated_by_direct": dominates(reference, quality, TAU_Q, TAU_C)}
         if all(checked.values()):
             seeds.append(name)

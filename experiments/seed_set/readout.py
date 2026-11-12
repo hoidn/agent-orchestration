@@ -42,8 +42,9 @@ def direct_runs(records, runs, judge, tasks):
     return {task: rows for task, rows in per_task.items() if len(rows) >= 3}
 
 
-def report(records, pools, tasks, retests, redrawn, runs, totals):
-    out = {"tasks": tasks, "retest_tasks": retests, "redrawn": redrawn, "spend": totals,
+def report(records, pools, tasks, retests, redrawn, runs, totals, programs):
+    """`programs` maps each arm to its program's {"source", "lines"}."""
+    out = {"tasks": tasks, "retest_tasks": retests, "redrawn": redrawn, "spend": totals, "programs": programs,
            "measure_free": measure_free(runs), "anchor_failures": gates.anchor_failures(records, pools, tasks),
            "calibration": None, "baselines": None}
     if out["anchor_failures"]:
@@ -106,6 +107,10 @@ def markdown(r):
     lines += [f"| {name} | {row['runs']} | {row['completed']} | {row['failed']} | {row['incidents']} | {row['calls']} | "
               f"{fmt(row['wall_clock_mean_sec'])} | {row['visible_passed']} | {row['metering_complete']} |"
               for name, row in r["measure_free"].items()]
+    lines += ["", f"## Programs (fewer than {selection.MAX_PROGRAM_LINES} lines; common.orc exempt)", "",
+              "| arm | program | lines | within the limit |", "| --- | --- | --- | --- |"]
+    lines += [f"| {arm} | {p['source']} | {p['lines']} | {p['lines'] < selection.MAX_PROGRAM_LINES} |"
+              for arm, p in r["programs"].items()]
     lines += ["", "## Spend", ""] + spend_lines(r["spend"]) + ["", "## Anchors", ""]
     if r["anchor_failures"]:
         return "\n".join(lines + [f"- {f}" for f in r["anchor_failures"]]

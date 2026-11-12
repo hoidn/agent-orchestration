@@ -219,9 +219,9 @@ def test_rerolls_need_three_runs():
         selection.rerolls([(8, True), (2, False)])
 
 
-def arm(scores, calls=1.0, completed=1.0, distinctive=0.5, parity=None):
+def arm(scores, calls=1.0, completed=1.0, distinctive=0.5, parity=None, lines=40):
     return {"tasks": dict(enumerate(scores)), "calls": calls, "completed": completed, "tokens": None,
-            "distinctive": distinctive, "parity": parity}
+            "distinctive": distinctive, "parity": parity, "lines": lines}
 
 
 DIRECT = arm([4, 5, 6, 5])
@@ -240,6 +240,7 @@ def test_a_workflow_at_direct_quality_and_two_calls_is_a_seed():
     ("implement_check_repair", arm([5, 5, 6, 5], completed=0.9), "1_completes"),
     ("implement_check_repair", arm([5, 5, 6, 5], distinctive=0.1), "5_distinctive"),
     ("retry_until_check", arm([5, 5, 6, 5], calls=2.6, parity=False), "6_parity"),
+    ("implement_review_revise", arm([5, 5, 6, 5], calls=2.2, lines=50), "7_lines"),
 ])
 def test_each_selection_rule_can_reject_a_workflow(name, candidate, rule):
     result = selection.select_seeds({"direct": DIRECT, name: candidate}, REROLLED)
@@ -251,3 +252,13 @@ def test_the_bootstrap_interval_is_fixed_by_its_seed_and_spans_the_mean():
     differences = [0.5, -1.0, 2.0, 0.0, 1.0]
     low, high = selection.bootstrap(differences)
     assert (selection.bootstrap(differences) == (low, high), low < 0.5 < high) == (True, True)
+
+
+def test_a_program_file_counts_every_physical_line(tmp_path):
+    program = tmp_path / "p.orc"
+    program.write_text("(workflow-lisp\n\n  ;; a comment\n)\n")
+    assert selection.program_lines(program) == 4
+
+
+def test_a_direct_program_at_the_line_limit_is_not_a_seed():
+    assert selection.select_seeds({"direct": {**DIRECT, "lines": 50}}, REROLLED)["seeds"] == []

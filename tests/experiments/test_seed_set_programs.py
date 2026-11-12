@@ -14,6 +14,7 @@ import sys
 import pytest
 
 from experiments.compare.repos import build_candidate, git
+from experiments.seed_set.selection import COMMON_TYPES, MAX_PROGRAM_LINES, common_definitions, program_lines
 
 ROOT = Path(__file__).resolve().parents[2]
 PROGRAMS = ROOT / "experiments" / "seed_set" / "programs"
@@ -129,6 +130,15 @@ def test_program_compiles_at_2_39(arm):
          "--command-boundaries-file", str(PROGRAMS / "commands.json"), "--diagnostics-json"],
         cwd=ROOT, env={**os.environ, "PYTHONPATH": str(ROOT)}, capture_output=True, text=True)
     assert json.loads(proc.stdout)["status"] == "accepted", proc.stdout + proc.stderr
+
+
+@pytest.mark.parametrize("arm", sorted(ARMS))
+def test_every_arms_program_is_under_the_line_limit(arm):
+    assert program_lines(PROGRAMS / ARMS[arm]["source"]) < MAX_PROGRAM_LINES
+
+
+def test_common_defines_only_the_shared_result_types():
+    assert common_definitions(PROGRAMS / "common.orc") == sorted(COMMON_TYPES)
 
 
 def test_no_program_names_a_model():

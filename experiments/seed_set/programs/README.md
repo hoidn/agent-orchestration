@@ -13,6 +13,10 @@ so they differ in structure only. Every provider call has `:timeout-sec 1200`.
 | `implement_check_repair.orc` | 40 | 3 | When the visible check fails, the next call repairs the same tree and sees the check output. |
 | `implement_review_revise.orc` | 45 | 3 | A review call follows, and a revision call when the review requests changes. |
 
+**Size limit** (owner, 2026-11-11): every program an arm runs has fewer than 50 physical lines, every line
+counted (code, comments, blank lines); `selection.MAX_PROGRAM_LINES` holds the limit, a test and the selection
+rule enforce it. `common.orc` is not counted but may define only the shared `Change`, `CheckReport` and `Outcome`.
+
 **Model and effort** are workflow inputs, not program text. `arms.json` binds
 them per arm (`claude-haiku-5-5`, `medium`; the calibration arm `direct_sonnet`
 is `direct.orc` with `claude-sonnet-5-5`) together with the source, entry and

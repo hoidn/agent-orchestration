@@ -34,7 +34,7 @@ from experiments.compare import pool as pooling, prepare, summarize as summary
 from experiments.compare.repos import dump, load, sha256_file
 from experiments.orc_structural_search import metering
 from experiments.orc_structural_search.evaluation import check_first_attempt
-from experiments.seed_set import gates, readout, spend
+from experiments.seed_set import gates, readout, selection, spend
 
 PROGRAMS = Path("experiments/seed_set/programs")  # in the runtime checkout
 BOUNDARIES = ("dev_check.py", "reset_clone.py")  # copied into the clone and excluded from its patch
@@ -336,12 +336,15 @@ def calibration_tasks(study):
 
 
 def write_readout(study):
-    models = {name: arm["model"] for name, arm in load_arms(study).items()}
+    arms = load_arms(study)
+    models = {name: arm["model"] for name, arm in arms.items()}
+    programs = {name: {"source": arm["source"], "lines": selection.program_lines(study.programs / arm["source"])}
+                for name, arm in arms.items()}
     tasks, retests, redrawn = calibration_tasks(study)
     records, pools = load_records(study, models)
     runs = {str(path.parent.resolve()): load(path) | {"wall_clock_sec": load(path.parent / "record.json").get(
         "wall_clock_sec")} for path in study_runs(study)}
-    report = readout.report(records, pools, tasks, retests, redrawn, runs, spend.totals(study.ledger))
+    report = readout.report(records, pools, tasks, retests, redrawn, runs, spend.totals(study.ledger), programs)
     study.results.mkdir(parents=True, exist_ok=True)
     dump(study.results / "calibration.json", report)
     (study.results / "readout.md").write_text(readout.markdown(report))
