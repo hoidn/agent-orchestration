@@ -52,25 +52,8 @@ def _has_authority_header(run_root, run_files):
 
 def resume_workflow(
     run_id: str,
-    repair: bool = False,
     force_restart: bool = False,
     state_dir: Optional[str] = None,
-    on_error: str = 'stop',
-    max_retries: Optional[int] = None,
-    retry_delay_ms: Optional[int] = None,
-    backup_state: bool = False,
-    debug: bool = False,
-    stream_output: bool = False,
-    summary_mode: Optional[str] = None,
-    summary_provider: Optional[str] = None,
-    summary_timeout_sec: Optional[int] = None,
-    summary_max_input_chars: Optional[int] = None,
-    summary_profile: Optional[str] = None,
-    live_agent_notes: Optional[bool] = None,
-    live_agent_note_provider: Optional[str] = None,
-    live_agent_note_interval_sec: Optional[float] = None,
-    live_agent_note_timeout_sec: Optional[int] = None,
-    live_agent_note_max_tail_chars: Optional[int] = None,
     run_ref_root: Optional[str] = None,
     **kwargs
 ) -> int:
