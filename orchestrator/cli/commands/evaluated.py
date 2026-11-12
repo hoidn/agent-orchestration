@@ -17,14 +17,13 @@ from orchestrator.state import StateManager
 from orchestrator.run_lock import workspace_run_lock, reserved_run_writer_lock, ReservedRunRootError, run_root_matches_fd
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow.evaluated.authority import (
-    MEMO_FILENAME, publish_run_authority, load_run_authority, load_run_header,
+    publish_run_authority, load_run_authority, load_run_header,
 )
 from orchestrator.workflow.evaluated.commands import workspace_relative_path
 from orchestrator.workflow.evaluated.interpreters import check_command_interpreter
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.evaluated.machine import site_classes
-from orchestrator.workflow.evaluated.memo import _read_bytes, read_memo
-from orchestrator.workflow.evaluated.memo_reducer_lineage import current_program_digest
+from orchestrator.workflow.evaluated.memo import current_digest, read_memo, remember_tables
 from orchestrator.workflow.evaluated.runtime import execute_pure_resume, execute_pure_run
 from orchestrator.workflow.evaluated.spend_cap import pending_attempts
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
@@ -194,9 +193,8 @@ def prepare_evaluated_resume(run_root: Path, *, workspace: Path, force_restart=F
     request = _resume_build_request(header, workspace, run_files)
     fresh = prepare_closed_program_bundle(request, source_read_trace=SourceReadTrace())
     refuse_confined_run_ref_sites(fresh.program)
-    if fresh.program.digest != current_program_digest(_read_bytes(Path(run_root) / MEMO_FILENAME, run_files),
-                                                      header["program_digest"]):        # only `rebased` records read
-        raise _ResumeRefusal("resume_program_changed", "current program differs from the run header",
+    if fresh.program.digest != current_digest(run_root, header["program_digest"], run_files=run_files):
+        raise _ResumeRefusal("resume_program_changed", "current program differs from the run's program in force",
                              fresh_program=fresh.program)
     inputs = _bind_recipe(fresh.program, recipe, workspace, run_files)
     if canonical_sha256(inputs) != header["input_digest"]:
@@ -204,6 +202,7 @@ def prepare_evaluated_resume(run_root: Path, *, workspace: Path, force_restart=F
         raise _ResumeRefusal("resume_inputs_changed", "current bound inputs differ from the run header",
                              changed_inputs=sorted(name for name in {*recorded, *inputs} if recorded.get(name) != inputs.get(name)))
     authority = load_run_authority(run_root, header=header, run_files=run_files)
+    remember_tables(authority)           # read_memo, at every effect start, parses no artifact again
     provider_io = fresh.provider_io.bind(authority.program)
     return authority, inputs, provider_io
 

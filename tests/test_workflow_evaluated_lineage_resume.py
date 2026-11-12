@@ -440,3 +440,57 @@ def test_a_cut_commit_runs_again_with_its_changed_script_without_the_flag(tmp_pa
     code, started, stderr = _resume(workspace, run_root)
     assert (code, started) == (0, ["s4#2"]), stderr
     assert fx.rows(run_root)[-1] == {"record": "terminal", "outcome": "completed", "value": 5}
+
+
+def test_a_cut_at_a_suspended_request_retires_it_and_the_next_resume_asks_again(tmp_path):
+    """A cut at a pending start retires it and its suspension; the old request ID is stale (§5, host input)."""
+    workspace = _workspace(tmp_path / "ws", SERIAL, "s4")
+    (workspace / "gate.orc").write_text(GATE.replace("S2_ARG", "s1"))
+    fx.cli(workspace, "run", *GATE_ARGS)
+    (run_root,) = (workspace / ".orchestrate" / "runs").iterdir()
+    assert fx.rows(run_root)[-1]["record"] == "suspended"
+    (workspace / "gate.orc").write_text(GATE.replace("S2_ARG", "(+ s1 10)"))
+    fx.rebase(run_root, workspace, fx.offset_of(run_root, "started", "reply"), GATE_ARGS)
+    done = cli_inprocess(workspace, "resume", run_root.name)
+    assert done.returncode == 0, done.stderr
+    old, new = [row["host_request"]["request_id"] for row in fx.rows(run_root) if "host_request" in row]
+    assert old != new and fx.rows(run_root)[-1]["record"] == "suspended"
+    stale = fx.cli(workspace, "input", "answer", run_root.name, old, "--by", "operator", "--value", '"APPROVED"')
+    assert stale.returncode != 0 and "host_input_stale" in stale.stderr + stale.stdout
+    answered = fx.cli(workspace, "input", "answer", run_root.name, new, "--by", "operator", "--value", '"APPROVED"')
+    assert answered.returncode == 0, answered.stderr
+    assert cli_inprocess(workspace, "resume", run_root.name).returncode == 0
+    assert fx.rows(run_root)[-1] == {"record": "terminal", "outcome": "completed", "value": 12}
+
+
+def test_a_reader_holding_the_program_before_a_record_is_refused(serial_base, tmp_path):
+    from orchestrator.workflow.evaluated.authority import load_run_authority
+    from orchestrator.workflow.evaluated.machine import site_classes
+    from orchestrator.workflow.evaluated.memo import read_memo
+
+    workspace, run_root = _copy(serial_base, tmp_path)
+    before = load_run_authority(run_root)
+    _edit(workspace, [*SERIAL, cmd("s5", "s4")], "s5")             # the new program has another site table
+    fx.rebase(run_root, workspace, None, RUN_ARGS)
+    with pytest.raises(MemoError, match="do not end at the caller's program"):
+        read_memo(before.memo_path, site_classes(before.program))
+
+
+def test_each_run_root_verifies_its_own_artifact(serial_base, tmp_path):
+    """Two run roots with one lineage digest in one process (the REPL): the second's artifact is checked too."""
+    from orchestrator.workflow.evaluated.authority import load_run_authority
+    from orchestrator.workflow.evaluated.machine import site_classes
+    from orchestrator.workflow.evaluated.memo import read_memo
+
+    roots = []
+    for name in ("one", "two"):
+        workspace, run_root = _copy(serial_base, tmp_path / name)
+        _edit(workspace, [*SERIAL[:3], cmd("s4", "(+ s3 1)")], "s4")
+        digest = fx.rebase(run_root, workspace, fx.offset_of(run_root, "committed", "s4"), RUN_ARGS)
+        roots.append(run_root)
+    table = site_classes(load_run_authority(roots[0]).program)
+    assert len(read_memo(roots[0] / "memo.jsonl", table).lineage.record_offsets) == 1
+    artifact = roots[1] / f"closed_program.{digest.removeprefix('sha256:')}.json"
+    artifact.write_bytes(artifact.read_bytes()[:-40])
+    with pytest.raises(ValueError, match=artifact.name):
+        read_memo(roots[1] / "memo.jsonl", table)

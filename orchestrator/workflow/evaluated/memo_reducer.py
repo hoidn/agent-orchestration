@@ -7,10 +7,13 @@ from dataclasses import dataclass, field
 import json
 import math
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from orchestrator.workflow.evaluated import memo_reducer_agents as agents
 from orchestrator.workflow.evaluated.closure_evidence import validate_implementation_evidence
+
+if TYPE_CHECKING:
+    from orchestrator.workflow.evaluated.memo_reducer_lineage import Lineage
 
 _RECORDS = {"started", "committed", "failed", "suspended", "settled", "invalidated", "terminal", "rebased"}
 
@@ -51,13 +54,18 @@ class MemoSnapshot:
     settlements: frozenset[tuple[str, int]]
     unsettled_coordinators: dict[tuple[str, int], JournalEntry]
     terminal: JournalEntry | None
+    lineage: Lineage        # the class of any row, by the program that wrote it
     suspensions: dict[str, JournalEntry] = field(default_factory=dict)
-    lineage: Any = None     # memo_reducer_lineage.Lineage: the class of any row, by the program that wrote it
 
 
 def is_coordinator_class(name: str) -> bool:
     """Coordinator commits carry an inline proof and need a `settled` row before a terminal (K8)."""
     return name in COORDINATOR_CLASSES
+
+
+def class_in(table: Mapping[str, str], identity: str) -> str | None:
+    """An identity's class in a site table, a `[*]` site matching its instantiated indices."""
+    return table.get(identity) or table.get(_DYNAMIC_INDEX.sub("[*]", identity))
 
 
 def _inconsistent(detail: str) -> MemoError:
@@ -189,8 +197,8 @@ class _Reducer:
             frozenset(self.settlements),
             dict(self.unsettled),
             self.terminal,
-            dict(self.suspensions),
             Lineage(self.tables, tuple(self.record_offsets)),
+            dict(self.suspensions),
         )
 
     def accept(self, entry: JournalEntry) -> None:
@@ -220,9 +228,7 @@ class _Reducer:
     def site_class(self, identity: str) -> str:
         if "[*]" in identity:
             raise _inconsistent("identity contains an uninstantiated checked-site wildcard")
-        kind = self.site_classes.get(identity)
-        if kind is None:
-            kind = self.site_classes.get(_DYNAMIC_INDEX.sub("[*]", identity))
+        kind = class_in(self.site_classes, identity)
         if kind not in _CLASSES:
             raise _inconsistent(f"identity does not resolve to a checked effect site: {identity}")
         return kind

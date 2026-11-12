@@ -25,7 +25,7 @@ from .memo_reducer import (
     is_coordinator_class,
     reduce_memo,
 )
-from .memo_reducer_lineage import lineage_digests, rebased_records, verified_program
+from .memo_reducer_lineage import current_program_digest, lineage_digests, rebased_records
 
 
 def _read_bytes(path: Path, run_files: WorkspaceFiles | None = None) -> bytes:
@@ -93,17 +93,29 @@ def _site_table(root: Path, digest: str, load) -> dict[str, str]:
 
 def _lineage_tables(root: Path, records, site_classes, run_files) -> tuple[dict[str, str], ...]:
     """The earlier programs' tables; the last record must name the caller's program (compared by table)."""
-    from .authority import PROGRAM_FILENAME, load_run_header
+    from .authority import PROGRAM_FILENAME, _read_file, load_run_header, verified_program
 
     header_digest = load_run_header(root, run_files=run_files)["program_digest"]
     digests = lineage_digests(header_digest, [digest for _offset, digest in records])
-    read = lambda name: _read_bytes(root / name, run_files)  # noqa: E731
+    read = lambda name: _read_file(root / name, run_files)  # noqa: E731
     first = lambda: verified_program(read, header_digest, PROGRAM_FILENAME)  # noqa: E731
     tables = [_site_table(root, digests[0], first),
               *(_site_table(root, digest, lambda d=digest: verified_program(read, d)) for digest in digests[1:])]
     if tables[-1] != dict(site_classes):
         raise _inconsistent("journal's rebased records do not end at the caller's program")
     return tuple(tables[:-1])
+
+
+def remember_tables(authority) -> None:
+    """Record the site table of every program a checked authority verified, so that `read_memo` of its run root
+    never parses those artifacts again in this process (the loader already did)."""
+    _site_table(authority.run_root, authority.program.digest, lambda: authority.program)
+    earlier_tables(authority)
+
+
+def current_digest(run_root: Path, header_digest: str, *, run_files: WorkspaceFiles | None = None) -> str:
+    """Resume step 7: the run's current program, from the journal's complete `rebased` records only (C10)."""
+    return current_program_digest(_read_bytes(Path(run_root) / "memo.jsonl", run_files), header_digest)
 
 
 def earlier_tables(authority) -> tuple[dict[str, str], ...]:

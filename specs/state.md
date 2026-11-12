@@ -440,13 +440,13 @@ then the program of each complete `rebased` record in journal order; the last
 is the current program. Every record is validated with the site table of the
 program in force where it lies, the number of `rebased` records before it, so
 a row keeps its class when a later program gives its identity another one.
-At a `rebased` record the reducer refuses (`memo_inconsistent`) a record that
-names the program in force, whose artifact is missing or does not verify, or
-whose `from_offset` is neither an active commit nor a pending start; a cut
+A reader refuses (`memo_inconsistent`) a record that names the program in
+force or whose artifact is missing or does not verify; the reducer refuses a
+`from_offset` that is neither an active commit nor a pending start, a cut
 over a committed coordinator or over the agent attempts an invalidation
-anchor may not cover; and any commit or pending start that stays but is not a
-site of the new program with the same class. A journal whose records do not
-end at the reader's program is `memo_inconsistent`. Interpreter pins are the
+anchor may not cover, and any commit or pending start that stays but is not a
+site of the new program with the same class. A journal whose last record's
+program does not have the reader's site table is `memo_inconsistent`. Interpreter pins are the
 first program's bare interpreters; a later program may use only pinned ones
 and need not use all of them (`memo_inconsistent` otherwise). A parent never
 accepts a run-reference child's terminal or recovery evidence whose journal
