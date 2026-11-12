@@ -2474,6 +2474,8 @@ def _replace_eliminated_let_procs(
     rewrite_results = (
         {} if let_proc_rewrite_results is None else let_proc_rewrite_results
     )
+    if not rewrite_results:
+        return node  # nothing to replace; skip the full-tree copy
     replacement = rewrite_results.get(id(node))
     if replacement is not None:
         return _replace_eliminated_let_procs(
