@@ -210,7 +210,8 @@ full designs.
   [plan](2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md).
   Usage is recorded only for provider steps bound to the opt-in metered
   templates, since switching the built-in templates would change what the
-  terminal shows.
+  terminal shows. The Agent Sessions comparison is done: Retire by cost on
+  measure-free figures, owner's judgment open (plan ledger, D3).
 - **Spend:** small, as gated tranches. **Effort:** 3–5 weeks.
 
 ### Phase 3: Edit and continue
@@ -468,8 +469,10 @@ is manual. Phase plans are linked here as they start:
   known gaps and the friction left for later.
 - Phase 2, in execution: [qualification, metering and stable names plan](2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md).
   The headline exit test passes on `main` and the parallel-map closeout is merged. The Agent
-  Sessions comparison is running under the budget of decision 10; the live best-of-N smoke is
-  not approved.
+  Sessions comparison ran under the budget of decision 10 (16 calls, USD 0.33): outcome
+  Retire, by cost (the session variant cost 1.74 and 1.38 times the plain baseline). The
+  owner's judgment on it is open; until then Agent Sessions stays opt-in and gets no further
+  work. The live best-of-N smoke is not approved.
 - Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
   3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; its first task proves the design's open claims before any feature code.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
