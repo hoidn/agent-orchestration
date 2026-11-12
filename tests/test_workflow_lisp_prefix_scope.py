@@ -256,6 +256,46 @@ def test_an_effectful_control_value_bound_in_a_loop_body_keeps_order_and_scope(
     assert _run(tmp_path, monkeypatch, probes) == (0, {"title": "other+r", "score": 1}, expected_logs)
 
 
+# The loop state is the record itself, so an effect can be the whole `continue` value.
+DIRECT_LOOP = """(loop/recur :max 4
+      :state SEED
+      :on-exhausted state
+      (fn (state)
+        (if (= state.score 2) (done state) CONTINUE)))"""
+
+DIRECT_CONTINUES = {
+    "command": (
+        '(continue (command-result probe_revise :argv ("python" "PROBE_REVISE" state.title "tidy" "fb")'
+        " :returns Candidate))"
+    ),
+    "procedure": "(continue (revise state))",
+    "let-bound": "(let* ((next (revise state))) (continue next))",
+}
+
+DIRECT_EXPECTED = (0, {"title": "draft+r+r", "score": 2}, ([], ["draft tidy fb", "draft+r tidy fb"], []))
+
+
+@pytest.mark.parametrize("form", list(DIRECT_CONTINUES))
+def test_an_effect_given_directly_to_continue_runs_as_the_let_bound_form(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str
+) -> None:
+    body = DIRECT_LOOP.replace("CONTINUE", DIRECT_CONTINUES[form])
+    probes = _write_program(tmp_path, body=body, returns="Candidate", seed="draft")
+
+    assert _run(tmp_path, monkeypatch, probes) == DIRECT_EXPECTED
+
+
+@pytest.mark.parametrize("form", ["command", "procedure"])
+def test_resume_after_a_commit_inside_direct_continue_never_repeats_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str
+) -> None:
+    from tests.test_workflow_lisp_elaborated_prefixes import _assert_committed_prefix_resume
+
+    body = DIRECT_LOOP.replace("CONTINUE", DIRECT_CONTINUES[form])
+    probes = _write_program(tmp_path, body=body, returns="Candidate", seed="draft")
+    _assert_committed_prefix_resume(tmp_path, monkeypatch, probes, DIRECT_EXPECTED)
+
+
 @pytest.mark.parametrize("form", list(TWO_ARMS_FORMS))
 def test_resume_after_a_committed_command_preserves_each_match_arm_scope(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str
