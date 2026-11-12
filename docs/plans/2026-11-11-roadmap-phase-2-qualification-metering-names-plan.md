@@ -31,6 +31,27 @@ not change, and `report` reads those files. Names change in the Python
 emitter first (a Python run resumes from its retained `.orc` snapshot, so
 none is stranded); the `.orc` site rule waits for the Phase 3 spike.
 
+## Changes since acceptance
+
+The [ledger](#ledger) holds each ruling with its reason. Read the task text
+below with these changes:
+
+- **Metering is opt-in.** Built-in `claude*` and `codex*` templates do not
+  switch to structured output: B2's first check showed the switch changes
+  terminal text for every multi-message turn. Separate `claude*_metered` and
+  `codex*_metered` templates carry the structured flags; attempts of built-in
+  templates record usage `unknown` (`no_transport`). Wherever B2, B3, the exit
+  test or decision 2 say built-in templates gain the flags, read the metered
+  templates. A capped run (B3) therefore needs metered templates for its
+  provider steps.
+- **C2 is dropped.** The `effect_site_positional` lint could not read the real
+  site labels where strict applies, and a re-derived numbering was wrong.
+- **C3 is dropped.** The Phase 3 spike does not match effects by name, so no
+  new target is added. Lane 3 is C1 only: Python binder names.
+- **A committed result file is not re-read.** In A2, a deleted committed
+  `result.json` does not make resume refuse; the tests pin that and the
+  attempt-time `command_result_missing` failure.
+
 ## Global constraints
 
 - New or substantially changed modules: at most 500 lines; functions: at
@@ -85,7 +106,7 @@ Four worktrees, one per lane.
 | --- | --- | --- |
 | 1 parallel | A1, A2, A3, A4 | nothing |
 | 2 metering | B1, B2, B3, then B4 | B4: the [dashboard migration](2026-11-11-dashboard-evaluated-runs-migration-plan.md) branch merged (it rewrites `report`) |
-| 3 names | C1 and C2 together, then C3 | C3: the Phase 3 spike's finding and decision 4 |
+| 3 names | C1 (C2 and C3 are dropped) | nothing |
 | 4 comparison | D1, then D2 | D1: B3 merged. D2: B4 merged and owner approval |
 
 Shared files: `orchestrator/workflow/evaluated/runtime.py` (a lane 1 fix and
@@ -241,6 +262,8 @@ catalog workflow names.
 
 ### B2: record usage per attempt (M)
 
+**Revised:** metered templates are opt-in (see [Changes since acceptance](#changes-since-acceptance)); built-in templates stay as they are.
+
 **Files:** `orchestrator/providers/registry.py` (the plain `command` of each
 built-in `claude*` and `codex*` template gains the structured flags and
 `command_metadata_mode`), `orchestrator/workflow/evaluated/providers.py`
@@ -365,6 +388,8 @@ source gives a new program digest once, hence a new run.
 
 ### C2: warn on positional `.orc` sites (S)
 
+**Dropped** (see [Changes since acceptance](#changes-since-acceptance)); the text below is kept as the record of what was tried.
+
 **Files:** `orchestrator/workflow_lisp/{lints,compiler}.py` (the
 required-lint collector, after site assignment), the frontend
 specification's lint list, the drafting guide; create
@@ -381,6 +406,8 @@ second, naming both and the fix (bind each with `let*`). No digest changes.
       library produce.
 
 ### C3: callee-derived `.orc` site labels (M; gated)
+
+**Dropped** (see [Changes since acceptance](#changes-since-acceptance)).
 
 Starts only after the spike's finding and decision 4. **Files:**
 `orchestrator/contracts/closed_program/{sites,targets}.py`,

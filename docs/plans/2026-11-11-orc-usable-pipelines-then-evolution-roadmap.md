@@ -198,12 +198,19 @@ full designs.
   - record per-attempt provider token usage where the agent CLI reports it;
     `report` shows per-step and total tokens and priced cost; an optional
     per-run spend cap stops before the next provider call;
-  - make generated binder names stable under insertion, on both surfaces;
+  - make generated binder names stable under insertion. Done for the Python
+    surface only: the `.orc` site rule is unchanged, because prefix reuse
+    (Phase 3) does not match effects by name;
   - run the Agent Sessions comparison (PQ-1c) as its plan defines it: four
     cells, three outcomes, models inside the Sonnet/Terra cap unless the owner
     authorizes otherwise. One run per cell decides measure-free axes only.
 - **Headline exit test:** a parallel best-of-N run survives a kill and
   resumes, and its report shows tokens per step and a total.
+- **State:** in execution under its
+  [plan](2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md).
+  Usage is recorded only for provider steps bound to the opt-in metered
+  templates, since switching the built-in templates would change what the
+  terminal shows.
 - **Spend:** small, as gated tranches. **Effort:** 3–5 weeks.
 
 ### Phase 3: Edit and continue
@@ -242,6 +249,14 @@ full designs.
 - **Makes harder:** a run can be the product of several programs, so reading
   its audit trail needs the program lineage.
 - **Spend:** none. **Effort:** 5–7 weeks (spike 1, design 1–2, build 3–4).
+- **State:** the [spike](../design/workflow_lisp_edit_and_continue_spike.md)
+  found 3a and 3b feasible and recovered why the retry-baseline rule exists.
+  3a keeps that protection: a failed attempt records whether it changed its
+  own script; plain `resume` retries when it did not, and
+  `resume --accept-changes` covers the other cases. 3a has an accepted
+  [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b needs its
+  own design, and first a fix so that a provider step's input digest does not
+  depend on source positions.
 
 ### Phase 4: Python additions pulled by the consumer
 

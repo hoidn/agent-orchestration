@@ -2022,6 +2022,9 @@ remain excluded. Historical target-2.23 Q5 fixtures and results remain historica
 `closed_program_gap`. See the
 [live-binding contract](design/workflow_lisp_provider_live_binding.md) for the
 historical one-worker/one-supervisor surface; its execution is retired.
+Live supervision and peer groups are an unscheduled future direction; the
+[salvage record](design/live_provider_supervision_and_peers_salvage.md) holds
+the reusable design.
 
 ## 8B. Recorded Provider Peer Groups
 
@@ -2029,6 +2032,9 @@ historical one-worker/one-supervisor surface; its execution is retired.
 `closed_program_gap`. See the
 [peer-messaging contract](design/workflow_lisp_provider_peer_messaging.md) for
 the historical cooperative-provider surface; its execution is retired.
+Live supervision and peer groups are an unscheduled future direction; the
+[salvage record](design/live_provider_supervision_and_peers_salvage.md) holds
+the reusable design.
 
 ## Pinned Child Runs And Trials
 

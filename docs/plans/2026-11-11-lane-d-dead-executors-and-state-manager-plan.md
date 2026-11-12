@@ -64,6 +64,28 @@ once, in `cli/commands/evaluated.py::run_evaluated_workflow`, for `run_id`, `run
 and `close()`; `workflow/provider_attempts.py` calls `_state_mutation()`. Of the other 55 methods,
 47 have no caller in `orchestrator/` or `tests/` and 8 are called only by retained tests.
 
+## Scope After Owner Decision 9
+
+The owner keeps live supervision and peer groups as a future direction
+([roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#owner-decisions),
+decision 9). The [ledger](#ledger) has the rulings. Read the rest of this page
+with these changes:
+
+- **Task 5 is on hold.** The forms `with-live-providers` and
+  `with-live-provider-peers` keep their parser, checker and elaboration and
+  keep refusing with `closed_program_gap`. Only `trial` becomes a retired form
+  (Task 4), so `RETIRED_FORMS` has one row.
+- **Task 6** keeps the spec and guide sections of the two forms. It shortens
+  only what describes the deleted executors and the `peer-*` commands, and
+  points the two forms' status at the
+  [salvage record](../design/live_provider_supervision_and_peers_salvage.md).
+- **Tasks 1 and 2 stand:** the old executor packages are deleted; a port
+  would not reuse them.
+- **D4 is "keep":** the flags that do nothing stay parsed, so Task 6 removes no
+  flag lines from `specs/cli.md`; it rewords the lines that still describe
+  processed-directory checks and state backups as accepted with no effect.
+- **Task 7 correction:** `ForEachState` stays, because `RunState` uses it.
+
 ## What A User Sees Afterwards
 
 **Forms (D1, recommended): one retirement line.** Without it a removed form gets
@@ -239,6 +261,8 @@ edits are under `orchestrator/workflow_lisp/`.
       `tests/test_first_hour_e2e.py`.
 
 ### Task 5: Remove `with-live-providers` and `with-live-provider-peers` (2.5)
+
+**On hold** (see [Scope After Owner Decision 9](#scope-after-owner-decision-9)). Not to be executed without a new owner decision.
 
 Production edits are under `orchestrator/workflow_lisp/`.
 
