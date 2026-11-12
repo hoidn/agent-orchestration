@@ -442,7 +442,10 @@ instantiated with its dynamic index (`[3]`) in identities.
 `input_parts` names depend on the effect class, each value a `sha256:`
 digest: a command has `argv`, `contract`, `closure`, `implementation_files`,
 plus `document` for a checked input document and `input_contract` for an
-external-tool document; a provider has `declaration`, `values`, `policy`,
+external-tool document; a provider has `declaration` (the digest of the
+checked node without source positions; a value written before that rule is
+accepted on replay or recovery only when it equals the earlier,
+position-bearing digest of the same node), `values`, `policy`,
 `params`, `prompt`, `dependency_rows`, `delivery` (the canonical digest of
 the name of the output-contract rendering the attempt used, `legacy`,
 `file/1` or `file/2`; new ordinary file-transport attempts select `file/2`,

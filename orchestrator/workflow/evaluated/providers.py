@@ -20,7 +20,6 @@ from orchestrator.workflow.prompting import CanonicalPromptCut, PromptComposer
 from orchestrator.workflow.evaluated.values import EvaluatedValue
 from orchestrator.workflow.evaluated.provider_io import WorkflowIOReader
 from orchestrator.contracts.closed_program.sites import _effect_value_children
-from orchestrator.contracts.closed_program.program import strip_provenance
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
@@ -32,6 +31,7 @@ from orchestrator.contracts.output_contract import (
 )
 
 from .commands import CommandPerformerError, validate_effect_result
+from .declaration import declaration_digest
 from .prompts import assemble_provider_prompt_with_cut, provider_expected_outputs
 
 
@@ -205,7 +205,7 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
         else [asdict(row) for row in reads.dependency_snapshot.authored_rows]
     )
     parts = {
-        "declaration": canonical_sha256(strip_provenance({"body": dict(node)})["body"]),
+        "declaration": declaration_digest(node),
         "values": canonical_sha256(values),
         "policy": canonical_sha256(policy),
         "params": canonical_sha256({}),

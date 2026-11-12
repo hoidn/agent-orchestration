@@ -1040,7 +1040,12 @@ of its tagged prompt source and of every file the prompt reads, its contract, it
 provider binding with the policy in force, and for a command the digests of
 what it declares (C2). Its digest, and the digest of each part, enter the
 `started` and `committed` records. A divergence names the parts and the
-files that differ.
+files that differ. A provider-class effect's `declaration` part is the
+digest of its checked node (for an agent turn, of that node seen as a
+provider node) without source positions. A recorded value written under the
+earlier rule, which kept the source positions of operand nodes, is accepted
+when it equals that rule applied to the same node; any other difference
+diverges.
 
 ### 7.3 What a command boundary declares
 
