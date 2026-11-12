@@ -348,3 +348,45 @@ def test_shared_script_fix_recovers_through_printed_invalidate_and_resume(tmp_pa
     resumed = shell(tmp_path, resume)
     assert resumed.returncode == 0, resumed.stderr
     assert resumed.stdout.splitlines()[-1] == RESULT_LINE
+
+
+# Review fixes: live processes of a failed attempt, everything the flag accepts, segment match, "needed"
+
+DETACHED_WRITER = '''import subprocess, sys
+child = """import time
+from pathlib import Path
+time.sleep(2)
+Path("s3.py").open("a").write("# written by a leftover process\\\\n")
+Path("child-done").write_text("")
+"""
+subprocess.Popen([sys.executable, "-c", child], start_new_session=True,
+                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+sys.exit(3)
+'''
+WAITING_PARENT = '''import subprocess, sys
+subprocess.run([sys.executable, "-c", "import time; time.sleep(0.3)"], check=True)
+sys.exit(3)
+'''
+
+
+def test_failed_attempt_with_a_live_detached_child_records_changed_and_resume_refuses(tmp_path: Path) -> None:
+    import time
+    write_four_steps(tmp_path, {"s3": DETACHED_WRITER})
+    assert run_four(tmp_path).returncode == 1
+    deadline = time.monotonic() + 30
+    while not (tmp_path / "child-done").exists():
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+
+    (failed,) = failed_rows(tmp_path)
+    assert failed["closure"] == "changed"
+    refuses_without_writes(tmp_path, "effect_input_diverged")
+
+
+def test_command_that_waits_for_its_children_records_unchanged(tmp_path: Path) -> None:
+    write_four_steps(tmp_path, {"s3": WAITING_PARENT})
+
+    assert run_four(tmp_path).returncode == 1
+
+    (failed,) = failed_rows(tmp_path)
+    assert failed["closure"] == "unchanged"

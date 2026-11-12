@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from orchestrator.workflow.evaluated.attempt_processes import attempt_process_alive
 from orchestrator.workflow.evaluated.closure import resolve_command_evidence
 from orchestrator.workflow.evaluated.memo import (
     _DYNAMIC_INDEX,
@@ -70,14 +71,19 @@ def allocate_attempt(
 
 
 def closure_after_failure(attempt) -> str | None:
-    """`unchanged` when a failed host command's declared files still equal its `started` evidence, else `changed`.
+    """`unchanged` when no process of a failed host command is alive and its declared files still equal its
+    `started` evidence, else `changed`.
 
-    Rehashes as the precommit check does (C4); a rehash that cannot complete counts as `changed`, so its
-    retry still needs the author's acceptance. None for every other effect and inside a confined child.
+    The liveness check comes first: once no process of the attempt is alive, none can write afterwards, so the
+    rehash that follows (as the precommit check does, C4) is final. A rehash that cannot complete counts as
+    `changed`, so its retry still needs the author's acceptance. None for every other effect and inside a
+    confined child.
     """
     node = attempt.node
     if node["class"] != "command" or attempt.confined is not None:
         return None
+    if attempt_process_alive(attempt.authority.run_root.name, attempt.result_path):
+        return "changed"
     try:
         after = resolve_command_evidence(node["command"], node["closure"], workspace_root=attempt.workspace,
                                          prior=attempt.implementation_files, launch_cwd=attempt.launch_cwd)
