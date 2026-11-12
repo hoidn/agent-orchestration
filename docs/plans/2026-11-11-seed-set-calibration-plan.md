@@ -380,6 +380,56 @@ dominance test against direct with `tau_q` 0.5 point and `tau_c` 0.10.
 **Extension (reserved).** A live workflow within 0.25 point of the line in
 rule 2 or 3 gets two more runs per task, once, judged in one further batch.
 
+**Search dimensions around one seed (proposed 2026-11-12; not authorized, not yet built).**
+Owner question: is it better, in the Pareto sense, to plan with a mid model
+and implement with a weak one, to use the weak model for both, or the mid
+model for both, with the reviewer's strength as a further axis. The owner's
+framing: one seed and declared search dimensions, not several seeds. No
+measurement in this repository answers the question, and the four programs
+above cannot: none has a plan step and all run on Haiku.
+
+The seed is one program, `plan_implement_review.orc` (new, under 50 lines):
+plan, implement, review, revise at most once. The dimensions a later search
+may vary, each a binding of that program and not a new program:
+
+| Dimension | Values |
+| --- | --- |
+| Planner | absent, Haiku, Sonnet |
+| Implementer | Haiku, Sonnet |
+| Reviewer | absent, Haiku, Sonnet |
+| Revision rounds (reviewer present) | 1, 2 |
+| Conversation (owner decision 11 of the roadmap keeps Agent Sessions) | each later step of a role starts fresh, or continues that role's session; only between steps bound to one model |
+
+That is 18 placements before rounds and conversation. `direct.orc` is the point (absent,
+Haiku, absent) and `implement_review_revise.orc` is (absent, Haiku, Haiku),
+so the study's existing arms are points of the same space.
+
+What this study does for it: qualify the seed and freeze the rules of the
+space. It does not evaluate the placements; that is the search's work, under
+its own plan and budget.
+
+- Seed qualification: the all-Haiku full form (Haiku, Haiku, Haiku) runs
+  three times per task and must meet selection rules 1 and 2. About 60 runs,
+  180 to 240 Haiku calls, and one more judge batch per task.
+- Cost in this space is priced tokens only (frozen price table). Provider
+  calls are not a cost proxy once points differ in model.
+- The front a point is judged on includes the offline re-roll curve `Q(k)`
+  priced at `k` direct Haiku runs: a Sonnet step must beat spending the same
+  money on more Haiku attempts.
+- Each step's model is verified per step from the run's receipts; a run
+  whose step did not run on the declared model is excluded and listed.
+- Limit of any claim: the task set is chosen so that Sonnet beats Haiku on
+  it (gate G3), so results hold for tasks where the model matters.
+
+The calibration already measures two points of the space with priced tokens
+(direct on Haiku four times and direct on Sonnet once, per task); they are
+reported with the calibration result. Zero-spend preparation: the program,
+per-step model binding through the shims' model guard, and the per-step
+model check. The qualification spend is requested with the seed-evaluation
+budget. Note for the search plan: 18 points is small enough for a full grid
+or successive halving; a genetic search earns its cost only when the
+program's structure also mutates.
+
 ## Step 4: Output
 
 `experiments/seed_set/`: `programs/`, `tasks/`, `tasks.jsonl`,
@@ -463,4 +513,4 @@ Allowance does not move between tranches; there is no top-up after a null.
 | 2026-11-11 | Runner reviewed and revised (branch `feat/seed-set-prep`, not merged). The independent review confirmed the caps, the locking and the gate formulas, and found one blocker and nine majors, all fixed: the visible check and the hidden tests now run behind refusing stubs with an empty home, so candidate code cannot start a provider outside the guard; the spend ledger lives at a fixed path under the home directory; planning and reserving share one lock; order and stop rules are enforced in code (criterion frozen, smoke passed, stops on a forbidden model, three contaminated tasks or the incident rule); provider incidents are not scored as zeros; an unsummarizable pool is an incident, not a suppressed readout; resume scripts are disabled. Spend to date: 0. |
 | 2026-11-11 | Coordinator rulings recorded with the runner: there is no later redraw (the ladder probe is the one redraw; the redraw cap's 40 Haiku calls serve only the probe, its Sonnet and judge allowances stay unused; a failed calibration gate is a stop with no quality claim). A judge whose agreement with the hidden tests cannot be assessed (fewer than 15 candidates in a class) is not failed for that, and the decision line and the result say in plain words that it passed on V1 to V3 alone. When two rungs are in band the one nearer 2 of 4 wins, ties to the harder. |
 | 2026-11-11 | Known limits of the runner, accepted: the subagent tool cannot be switched off (the provider command is a fixed registry template), so the model pin and the call cap are the bound; the session audit cannot see a session kept only in memory or a direct API request made with the sandbox's copied credential; the detector for "the agent ran the visible test itself" misses wrappers and test files run directly, and over-counts a `-k` filter that deselects the test. |
-
+| 2026-11-12 | Owner question: which model placement is Pareto-better (plan mid and implement weak, weak for both, mid for both; reviewer strength as another axis), clarified as "1 seed + defining the search dimensions" rather than several seeds. Coordinator ruling: recorded in Step 3 as "Search dimensions around one seed", proposed and not authorized. This study only qualifies the one seed in its all-Haiku form and freezes the space's rules (priced-token cost, equal-price re-roll curve on the front, per-step model check); evaluating placements belongs to the search. Coordinator's reading, to be corrected by the owner if wrong: the four existing programs and their selection rule stay as planned. Spend to date: 0. |

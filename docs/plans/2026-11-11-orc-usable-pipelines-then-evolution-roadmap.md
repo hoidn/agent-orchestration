@@ -210,7 +210,9 @@ full designs.
   [plan](2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md).
   Usage is recorded only for provider steps bound to the opt-in metered
   templates, since switching the built-in templates would change what the
-  terminal shows.
+  terminal shows. The Agent Sessions comparison is done: Retire by cost on
+  measure-free figures; the owner keeps Agent Sessions for the workflow
+  patterns it allows (decision 11).
 - **Spend:** small, as gated tranches. **Effort:** 3–5 weeks.
 
 ### Phase 3: Edit and continue
@@ -255,9 +257,12 @@ full designs.
   own script; plain `resume` retries when it did not, and
   `resume --accept-changes` covers the other cases. 3a is implemented by its
   [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md), exit case (a)
-  included; 3b needs its
-  own design, and first a fix so that a provider step's input digest does not
-  depend on source positions.
+  included. 3b (resume under an edited program) has an accepted
+  [design](../design/workflow_lisp_edit_and_continue.md) and
+  [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md); its first
+  task proved the design's nine open claims by test before any feature code,
+  and the build is in execution. Accepting an edit needs a plan token that
+  the refusal prints, so the plan the author saw is the plan that is applied.
 
 ### Phase 4: Python additions pulled by the consumer
 
@@ -297,7 +302,26 @@ every removed test is listed with the code it covered".
 4. **Targets, in three steps:** collapse the monotone capability gates into
    one table; migrate the packaged library and the catalog to the newest
    target with a behavior comparison; remove the older procedure regime and
-   migrate or delete the fixtures that exist only for it.
+   migrate or delete the fixtures that exist only for it. The same plan
+   deletes the source forms that are registered but refuse at build.
+5. **Surface coherence** (added 2026-11-12 from an assessment of the language
+   by its compiler and about 55 provider-free programs; the coordinator
+   confirmed the counts and the guide drift, a design task reproduces the
+   rest before deciding anything). The core holds together; the edges do not:
+   - one rule for where an effect may appear (today it is allowed as a
+     procedure argument, operand, `if` condition and `match` subject, and
+     refused in a record field, a variant field and a list element);
+   - the three iteration forms (`loop/recur`, `list/map`, `list/map-effect`)
+     differ in binder shape, in what a body may contain and in whether `:max`
+     takes a variable;
+   - four kinds of callable with three calling conventions;
+   - the authoring guide (3,438 lines) describes much that is unavailable,
+     and the design record (81 documents, 52,000 lines) is too large to act
+     as a design. Each language change in this stage shrinks the guide, and
+     the stage ends with one current language reference and the superseded
+     designs marked historical.
+   Order: the design for the effect rule and the iteration and callable
+   conventions first; code only after it is accepted.
 
 - **Exit test:** the named packages are gone and nothing imports them; one
   admitted target for new source; any retained older target is listed with its
@@ -368,6 +392,8 @@ was not taken. No spend is authorized.
 
 Reviewer estimates inferred from code counts; low to medium confidence. Token
 metering in Phase 2 was not sized by any reviewer.
+Phase 3 is larger than the table says: the accepted plan for 3b alone estimates
+27 to 45 working days before review rounds.
 
 | Item | Engineer-weeks |
 | --- | --- |
@@ -412,6 +438,8 @@ the owner can amend any of them.
 | 7 | Phase 6 form | Option B approved 2026-11-11; no spend authorized; generic search not selected |
 | 8 | Research scope | Scaled down by the owner 2026-11-11: find a few simple workflows that work well on a calibrated task set, as seeds for genetic search; calibration first. Supersedes decision 6. Same day: judge-primary scoring validated on two natural controls; smoke and calibration spend authorized; seed programs under 50 lines of `.orc`, `common.orc` not counted |
 | 9 | Live supervision and peer groups | Kept as a future direction by the owner 2026-11-11: not scheduled, no phase owns it. Lane D keeps the two source forms and their frontend support, deletes the old executor packages, and records the reusable design first. A port needs its own design on evaluated execution; the [salvage record](../design/live_provider_supervision_and_peers_salvage.md) is its starting material and finds supervision the closer of the two |
+| 10 | Budget for the Agent Sessions comparison (PQ-1c) | Approved 2026-11-12: the comparison only, at most 20 `claude-haiku-5-5` calls, ceiling USD 10, through the kit's launcher. The live best-of-N smoke is not approved |
+| 11 | Agent Sessions after the comparison | Kept, 2026-11-12. The owner values sessions for versatility in workflow patterns, not efficiency. The comparison's cost finding (1.4 to 1.7 times the plain handoff on a four-turn pattern; a committed turn cannot be invalidated) is the known price, not a reason to retire |
 
 ## Process rules
 
@@ -461,8 +489,12 @@ is manual. Phase plans are linked here as they start:
   and the [tutorial](../tutorial_first_pipeline.md); its ledger records the
   known gaps and the friction left for later.
 - Phase 2, in execution: [qualification, metering and stable names plan](2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md).
-  The headline exit test passes on `main`; the closeout and the Agent Sessions comparison are open.
-- Phase 3, spike done: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
+  The headline exit test passes on `main` and the parallel-map closeout is merged. The Agent
+  Sessions comparison ran under the budget of decision 10 (16 calls, USD 0.33): outcome
+  Retire, by cost (the session variant cost 1.74 and 1.38 times the plain baseline). The
+  owner keeps Agent Sessions (decision 11): its value is the workflow patterns it allows, which
+  the comparison did not measure. The live best-of-N smoke is not approved.
+- Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
   3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; its first task proves the design's open claims before any feature code.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
