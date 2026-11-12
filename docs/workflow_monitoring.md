@@ -175,6 +175,20 @@ reports `FAILED`, `CRASHED`, or `STALLED`. For a historical flat-route run,
 read its `state.json` directly, or run the old readers from a worktree of the
 git tag `archive/retired-run-readers-2026-11-11`.
 
+## Tokens And Cost Of A Run
+
+`orchestrator report --run-id <run_id>` shows, for each provider step, the
+tokens its attempts reported and their list-price cost, and a `## Usage`
+section with the run total and the price table's source and date
+(`--format json`: each provider step's `usage` and `run.usage`). Only steps
+bound to a `<name>_metered` template report tokens
+([metered templates](../specs/providers.md#metered-templates-and-usage)); any
+other provider step shows `unknown`, never `0`. A total marked `≥` is a lower
+bound: some attempt reported nothing (a plain template, or an attempt killed
+before it finished) or only part of its usage. `--price-table PATH` prices
+the same usage with another table. The cost is a list-price equivalent, not
+billed spend. Field rules: [observability](../specs/observability.md#report-usage).
+
 ## After A Suspension Notification
 
 Use `input get` to inspect the exact request and full answer contract, then

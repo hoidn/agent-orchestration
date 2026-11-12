@@ -33,7 +33,7 @@ notices are not a runtime filter. This README deliberately lives outside
 | [Backlog Item: Temporary Failure-State Testing Guidance](active/2026-04-28-temporary-failure-state-testing-guidance.md) | open testing-guidance proposal; no implementation selected |
 | [Backlog Item: Audit Workflow Semantics And Process Ratio](active/2026-04-28-workflow-semantics-process-ratio-audit.md) | unselected audit-method proposal |
 | [Backlog Item: DSL Recoverable Step Outputs](active/2026-04-29-dsl-recoverable-step-outputs.md) | unselected recoverable-output design intent; original DSL shape historical |
-| [Provider Step Token Usage Accounting](active/2026-04-30-provider-step-token-usage-accounting.md) | unselected structured usage-accounting proposal |
+| [Provider Step Token Usage Accounting](active/2026-04-30-provider-step-token-usage-accounting.md) | implemented 2026-11-12 by the [Phase 2 plan](../plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#lane-2-token-and-cost-metering) |
 | [Backlog Item: Migrate Key Workflows To Document-Role Conventions](active/2026-05-28-workflow-document-ontology-migration.md) | unselected document-role migration intent |
 | [Backlog Item: Create A Design Gap Architecture Template](active/2026-05-29-design-gap-architecture-template.md) | unselected bounded-gap-template proposal |
 | [Backlog Item: Improve Workflow Lisp KISS Workflow Ergonomics](active/2026-05-29-workflow-lisp-kiss-workflow-ergonomics.md) | unselected ergonomics intent; retired specimen baseline |

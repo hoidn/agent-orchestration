@@ -141,6 +141,29 @@ derives solely from the validated `.orc` executable and `state.json`.
     or populate the run-level error. No completed cleanup history is required
     in this projection. Rendering the report is not a full revalidation of
     export bytes; settlement and resume retain that responsibility.
+  - <a id="report-usage"></a>Token usage and cost (`report`). Each
+    provider-class step (`provider`, `provider_phased`, `agent_turn`,
+    `run_ref`) has `usage`, summed over all its attempts (`attempt-1` to its
+    latest, beside its `result_path`), and the run has `run.usage`, the same sum
+    over every such step's attempts plus `price_table: {source, date}` of the
+    table used:
+    `{"tokens": {"input", "output", "cache_read", "cache_write"} | null,
+    "cost_usd": float | null, "attempts": n, "unknown_attempts": k,
+    "partial": bool}`. Other steps have no `usage`. An attempt whose
+    `usage.json` is absent (killed before writing it, or still running), not a
+    readable regular file, `unknown`, or not well-formed `reported` usage counts
+    in `unknown_attempts`, never as zero; a `run_ref` step's attempts always do,
+    since its child run's spend is in the child's own report. `tokens` is null
+    when no attempt reported. `cost_usd` is the list-price equivalent at the
+    table's ordinary rates (`pricing.priced`, not the spend cap's highest-tier
+    figure), null when no attempt reported or any reported model has no
+    rates. `partial` is true when the figures are a lower bound: some attempt
+    is unknown or its usage is `complete: false`. Markdown prints a step's
+    `usage` line and a `## Usage` section with the run total and the table's
+    source and date; it prints `unknown` when no attempt reported, a leading
+    `≥` on partial figures, and never `0` for an unmetered step. `usage` is a
+    view of the attempt files, not memo authority
+    ([providers](providers.md#metered-templates-and-usage)).
   - The executor-session accounting fields (`run.active_runtime_ms` and its
     siblings) and the v2.10 `provider_attempt_interrupted_rerun` and
     `output.provider_session` projections came from the retired-run report;

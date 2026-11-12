@@ -130,7 +130,17 @@ def priced(rows: list[dict], table: Mapping) -> float | None:
     return value
 
 
-def load_price_table() -> dict:
-    """The packaged, validated price table."""
-    text = resources.files(__package__).joinpath('price_table.json').read_text(encoding='utf-8')
-    return validate(json.loads(text))
+def load_price_table(path=None) -> dict:
+    """The packaged price table, or the one at `path`, validated.
+
+    Raises OSError when `path` cannot be read and ValueError when it is not a valid table.
+    """
+    if path is None:
+        text = resources.files(__package__).joinpath('price_table.json').read_text(encoding='utf-8')
+    else:
+        with open(path, encoding='utf-8') as stream:
+            text = stream.read()
+    try:
+        return validate(json.loads(text))
+    except RecursionError as error:
+        raise ValueError('price_table nesting too deep') from error

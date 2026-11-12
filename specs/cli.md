@@ -168,10 +168,18 @@ this locking rule does not retain workflow supervision or watchdog execution.
       before locks/writes. [Historical state](state.md#durable-host-input-state-and-recovery)
       remains unchanged. `input get` prints the pending evaluated request or
       retained historical request as JSON (exit 0); absent/invalid request exits 2.
-  - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
+  - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>] [--price-table <path>]`
     - Reads evaluated runs only (see the [readers](#evaluated-readers)). Without
       `--run-id` it reports the evaluated run with the greatest directory name;
       retired runs are skipped.
+    - Usage: each provider-class step (`provider`, `provider_phased`,
+      `agent_turn`, `run_ref`) carries `usage` and the run `run.usage`, summed
+      from every attempt's `usage.json` and priced at the ordinary rates of the
+      packaged price table, or of the table at `--price-table`; the shape and
+      the `unknown` and partial rules are in
+      [observability](observability.md#report-usage). A `--price-table` file
+      that cannot be read or is not a valid table exits 2 with one stderr line
+      `Error: price_table_invalid: <path>: <reason>`, before the run is read.
     - A run directory with a `state.json` entry and no evaluated authority
       (`run.json`, `closed_program.json`, `memo.jsonl`) was written by the
       retired runtime: `report` exits 2 with one stderr line
@@ -375,6 +383,7 @@ orchestrator run WORKFLOW [the same frontend flags] [--input NAME=VALUE ...]
 orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR] [--quiet] [--max-cost-usd USD]
 orchestrator invalidate RUN_ID IDENTITY [--state-dir DIR]
 orchestrator report [--run-id RUN_ID] [--runs-root DIR] [--format md|json] [--output PATH]
+  [--price-table PATH]
 orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--state-dir DIR]
 ```
 

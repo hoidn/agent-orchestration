@@ -1260,7 +1260,8 @@ unchanged. Like the rest of the run tree it is trusted as found: a hand-edited `
 what a spend cap counts; a `usage.json` that is not a regular file reads as unmetered. It holds either
 `{"status": "reported", "source", "reported_cost_usd", "complete", "rows": [{"model", "tokens": {"input", "output", "cache_read", "cache_write"}}]}`
 or `{"status": "unknown", "reason": "no_transport" | "no_usage_event" | "malformed"}`. Unknown usage
-is never zero, and `complete: false` marks a lower bound, not a total.
+is never zero, and `complete: false` marks a lower bound, not a total. `report` sums these files per step and
+per run ([observability](observability.md#report-usage)).
 
 - Opt-in. Built-in plain templates (`claude`, `codex`, ... and `gemini`) print plain text and record
   `unknown` / `no_transport`, as do OMP and phased providers. A workflow meters a provider step by

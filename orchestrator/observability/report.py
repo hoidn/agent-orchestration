@@ -20,6 +20,32 @@ def _render_json_fence(value: Any) -> str:
 
 
 
+_TOKEN_FIELDS = ("input", "output", "cache_read", "cache_write")
+
+
+def _usage_text(usage: Mapping[str, Any]) -> str:
+    """Tokens and cost, `unknown` when no attempt reported (never 0); a leading `≥` marks a lower bound."""
+    unknown = usage["unknown_attempts"]
+    attempts = f"attempts {usage['attempts']}" + (f", {unknown} unknown" if unknown else "")
+    if usage["tokens"] is None:
+        return f"unknown; {attempts}"
+    bound = "≥ " if usage["partial"] else ""
+    tokens = ", ".join(f"{key} {usage['tokens'][key]}" for key in _TOKEN_FIELDS)
+    cost = "unknown" if usage["cost_usd"] is None else f"{bound}{usage['cost_usd']:.6g}"
+    return f"{bound}{tokens}; cost_usd {cost}; {attempts}"
+
+
+def _render_run_usage(usage: Mapping[str, Any]) -> list[str]:
+    table = usage["price_table"]
+    return ["## Usage", _render_kv_lines([("total", _usage_text(usage)),
+                                          ("price_table", f"{table['source']} ({table['date']})")]), ""]
+
+
+def _render_step_usage(step: Mapping[str, Any]) -> list[str]:
+    return [_render_kv_lines([("usage", _usage_text(step["usage"]))])] if "usage" in step else []
+
+
+
 def render_status_markdown(snapshot: Dict[str, Any]) -> str:
     """Render an evaluated run's report snapshot without invented audit data."""
     return _render_evaluated_status_markdown(snapshot)
@@ -51,11 +77,13 @@ def _render_evaluated_status_markdown(snapshot: Dict[str, Any]) -> str:
         for pending in run['run_ref_cleanup']:
             lines.append(_render_kv_lines(pending.items()))
             lines.append('')
+    lines.extend(_render_run_usage(run["usage"]))
     lines.extend(["## Progress", _render_kv_lines(snapshot["progress"].items()), "", "## Steps"])
     for step in snapshot["steps"]:
         lines.extend([f"### {step['name']} ({step['status']})", _render_kv_lines(
             (key, step.get(key)) for key in ("kind", "attempt", "result_path", "started_at", "completed_at",
                                          "agent", "predecessor", "continuation", "locator_present"))])
+        lines.extend(_render_step_usage(step))
         if "value" in step:
             lines.append(_render_json_fence(step["value"]))
         if isinstance(step.get("host_settlement"), Mapping):

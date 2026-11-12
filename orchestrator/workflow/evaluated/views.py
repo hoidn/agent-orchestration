@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from orchestrator._common.safe_tree import SafeTreeRejectionError
 
+from orchestrator.providers.pricing import load_price_table
+from orchestrator.providers.usage import run_usage
 from orchestrator.run_lock import ReservedRunRootError, run_writer_active
 from orchestrator.workflow.evaluated.authority import (
     HEADER_FILENAME, MEMO_FILENAME, PROGRAM_FILENAME, PROFILE, SCHEMA_VERSION, RunAuthorityError,
@@ -19,6 +21,7 @@ from orchestrator.workflow.evaluated.memo import MemoError, _DYNAMIC_INDEX, redu
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .replay import MissingCommit as _MissingCommit, discover_prefix
+from .spend_cap import CAPPED_CLASSES as PROVIDER_CLASSES
 
 
 RETIRED_READERS_TAG = "archive/retired-run-readers-2026-11-11"
@@ -228,14 +231,24 @@ def _update_effect_row(target, row, snapshot):
         target.update(status="failed", error={"type": row["code"], "code": row["code"], "exit_info": exit_info})
 
 
-def report_snapshot(view: dict[str, Any], run_root: Path) -> dict[str, Any]:
-    """Adapt real effect rows to the existing public report envelope."""
+def report_snapshot(view: dict[str, Any], run_root: Path, table: dict | None = None) -> dict[str, Any]:
+    """Adapt real effect rows to the existing public report envelope.
+
+    Provider-class steps gain `usage` and the run `run.usage`, read from the attempts' `usage.json`
+    (`run_usage`) and priced with `table` (default: the packaged price table); the view stays memo-only.
+    """
+    table = load_price_table() if table is None else table
     run = {key: value for key, value in view.items() if key != "steps"}
     run["run_root"] = str(run_root)
     steps = [{**row, "kind": row.get("effect_class", "unknown"),
               "output": {"output_preview": repr(row.get("output")),
                          "duration_ms": row.get("duration_ms")}}
              for row in view["steps"].values()]
+    metered = [step for step in steps if step["kind"] in PROVIDER_CLASSES]
+    per_step, total = run_usage(run_root, metered, table)
+    for step in metered:
+        step["usage"] = per_step[step["identity"]]
+    run["usage"] = {**total, "price_table": {"source": table["source"], "date": table["date"]}}
     progress = {status: sum(row["status"] == status for row in steps)
                 for status in ("completed", "running", "failed", "pending", "skipped", "settling", "suspended", "invalidated")}
     progress["total"] = len(steps)
