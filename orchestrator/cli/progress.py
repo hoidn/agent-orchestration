@@ -15,6 +15,7 @@ import errno
 import io
 import json
 import os
+import shlex
 import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -27,8 +28,10 @@ _STDERR_TAIL_BYTES = 64 * 1024
 
 
 def launcher() -> str:
-    """The command prefix that reruns this program: the installed script or the module form."""
-    return "python -m orchestrator" if Path(sys.argv[0]).name == "__main__.py" else "orchestrator"
+    """The command prefix that reruns this program: the installed script, or this interpreter's module form."""
+    if Path(sys.argv[0]).name != "__main__.py":
+        return "orchestrator"
+    return f"{shlex.quote(sys.executable) if sys.executable else 'python'} -m orchestrator"
 
 
 class _LineEndTracker(io.RawIOBase):
@@ -99,6 +102,24 @@ def _silence_if_dead(stream, exc: Exception) -> None:
         os.close(null)
     except Exception:  # an unusual stream object: dropping our reference is all that is left
         pass
+
+
+def _stderr_tail(lines: list[str]) -> list[str]:
+    """The last lines; when the last Python traceback's exception line falls before them, it replaces the first.
+
+    A multi-line exception message can push that line out of the tail, which then shows only the message's end.
+    The line comes first, so the block still ends with the real last line. Limit: an exception group's header is
+    indented, so the search finds the plain traceback before it, if any.
+    """
+    tail = lines[-STDERR_TAIL_LINES:]
+    headers = [index for index, line in enumerate(lines) if line.startswith("Traceback (most recent call last):")]
+    if not headers:
+        return tail
+    exception = next((index for index in range(headers[-1] + 1, len(lines))
+                      if lines[index][:1] not in {"", " ", "\t"}), None)
+    if exception is None or exception >= len(lines) - len(tail):
+        return tail
+    return [lines[exception], *tail[1:]]
 
 
 class TerminalReporter:
@@ -173,7 +194,7 @@ class TerminalReporter:
         with stderr_path.open("rb") as stream:
             stream.seek(max(0, stream.seek(0, os.SEEK_END) - _STDERR_TAIL_BYTES))
             tail = stream.read().decode("utf-8", errors="replace").splitlines()
-        return [*lines, f"        stderr: {stderr_path}", *(f"        | {line}" for line in tail[-STDERR_TAIL_LINES:])]
+        return [*lines, f"        stderr: {stderr_path}", *(f"        | {line}" for line in _stderr_tail(tail))]
 
     def error(self, exc: Exception, *, header: Mapping[str, Any] | None = None, stored_program: Any = None,
               snapshot: Any = None) -> None:

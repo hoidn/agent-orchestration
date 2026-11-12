@@ -248,7 +248,10 @@ this locking rule does not retain workflow supervision or watchdog execution.
 The program is `orchestrator`, the installed script; `python -m orchestrator`
 runs the same program from a checkout or an environment without the script.
 Help and usage name it `orchestrator`, and every command the CLI prints for
-the user to run starts with the form that was invoked. The spelling
+the user to run starts with `<launcher>`: `orchestrator` when the installed
+script was invoked, or the running interpreter's path, quoted for the shell,
+followed by `-m orchestrator` when the module was invoked (see
+[the terminal lines](#evaluated-execution-target-235)). The spelling
 `orchestrate` elsewhere in this contract names the same program. `--help`
 lists the public commands (`run`, `py`, `compile`, `repl`, `resume`,
 `invalidate`, `input`, `report`, `dashboard`, `monitor`). The retired and
@@ -373,6 +376,15 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   rendered diagnostic (`run` not under `--quiet`, `--log-level error`, or
   any level above warnings); `compile` still exits `0` with its JSON on
   stdout, and `--diagnostics-json` output is unchanged.
+- Entry selection: without `--entry-workflow`, a module that does not export
+  exactly one workflow, or a file without `defmodule`, refuses with
+  `entry_workflow_required` (exit `2`). Its first line is unchanged; the
+  rendered diagnostic adds one line `note: workflows, in declaration order:
+  <names>` naming the workflows `--entry-workflow` accepts (a module's
+  exported workflows; when it exports none, as in a file without
+  `defmodule`, every workflow of the file by its full name), at most 20,
+  followed by `and <n> more` when there are more. A file without workflows
+  has no note.
 - `repl` loads and inspects module declarations/types, launches its entry through public `run`, attaches
   read-only to an evaluated run and evaluates pure expressions over captured
   bindings; see [REPL commands and diagnostics](#workflow-lisp-repl-targets-235-and-236).
@@ -425,13 +437,19 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   resume  <launcher> resume <run id> [--state-dir DIR]
   ```
 
-  `<launcher>` is `orchestrator`, or `python -m orchestrator` when the
-  program was started as a module. All of these lines go to stderr. The
+  `<launcher>` is `orchestrator`, or `<interpreter> -m orchestrator` when
+  the program was started as a module, where `<interpreter>` is the path of
+  the running Python interpreter, quoted for the shell (`python` when that
+  path is unknown). All of these lines go to stderr. The
   `run` line comes first, once the run root exists; `resume` prints it before
   its first new effect row or failure, so a preflight refusal's `[code]` line
   stays first. `start` and `commit` follow the journal; effects reused from
   the memo print nothing. A `failed` row prints its block, with the stderr
-  lines when the attempt's `stderr.txt` exists. The `resume` line is
+  lines when the attempt's `stderr.txt` exists; when the exception line of
+  the last Python traceback within the last 64 KiB of that file falls before
+  its last ten lines (a long exception message), it takes the place of the
+  first of them, so it is shown first and the block still ends with the
+  file's last line. The `resume` line is
   printed after a run or resume that exits `1`, unless its error has a row
   in the recovery table (see [Diagnostics](#diagnostics)), whose lines say
   what to run instead; after exit `2` it is printed only when no refusal was
@@ -721,7 +739,7 @@ the `resume` command.
 | `view_write_failed` | derived-view replacement after an append | `run`/`resume` 1; `invalidate` 2 | The appended record stays authority; no `failed` row or terminal; readers reconstruct the view |
 | `memo_torn_tail`, `memo_write_failed`, `memo_sync_failed`, `memo_changed` | journal append or tail repair | 1 during execution; 2 in `resume` tail repair and in `invalidate` | No partial record is authority; a complete row that survived a failed sync still consumes its ordinal |
 | (no code) | an I/O failure during initial authority publication | 1 | Nothing dispatched; printed as `Unexpected error` with the errno (a named code is a recorded follow-up) |
-| `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals |
+| `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals once the retry's `started` row is durable, so after its `run` and `start` lines |
 | `parallel_workspace_shared` | a later release | — | Not raised |
 
 <a id="workflow-lisp-repl-targets-235-and-236"></a>
