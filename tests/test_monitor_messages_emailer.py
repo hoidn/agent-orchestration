@@ -95,7 +95,6 @@ def test_render_event_email_includes_context_and_safe_capped_logs(
     assert "Current/failed step: Step" in body
     assert "Error: command_failed: boom" in body
     assert "artifacts/report.md" in body
-    assert "python -m orchestrator report --run-id run1" in body
     assert "normal stdout" in body
     assert "[REDACTED]" in body
     assert "super-secret" not in body
@@ -156,3 +155,10 @@ def test_smtp_sender_missing_secret_error_does_not_leak_configured_secret_name(
         SmtpEmailSender(_config().email).send(
             render_event_email(_event(Path("/tmp/repo")), _config()),
         )
+
+
+def test_retired_run_email_gives_the_refusal_instead_of_report_and_resume(tmp_path: Path):
+    body = render_event_email(_event(tmp_path), _config()).get_content()
+
+    assert "workflow_execution_profile_retired" in body
+    assert "orchestrator report" not in body and "orchestrator resume" not in body

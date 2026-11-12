@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from orchestrator.workflow.evaluated.authority import PROFILE
+from orchestrator.workflow.evaluated.views import has_evaluated_authority, retired_run_refusal
 
 from .models import MonitorConfig, MonitorEvent, MonitorEventKind
 
@@ -65,15 +66,7 @@ def _render_body(event: MonitorEvent, config: MonitorConfig) -> str:
     if error:
         lines.append(f"Error: {error}")
     lines.extend(_workflow_output_lines(state))
-    lines.extend(
-        [
-            "",
-            "Suggested commands:",
-            f"- cd {event.run.workspace.path}",
-            f"- python -m orchestrator report --run-id {event.run.run_dir_id}",
-            f"- python -m orchestrator resume {event.run.run_dir_id}",
-        ]
-    )
+    lines.extend(_command_lines(event))
     previews = [] if event.kind is MonitorEventKind.SUSPENDED else _safe_log_previews(
         event.run.run_root, step_name, _secret_values(config), state
     )
@@ -82,6 +75,19 @@ def _render_body(event: MonitorEvent, config: MonitorConfig) -> str:
         lines.append("Log previews:")
         lines.extend(previews)
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _command_lines(event: MonitorEvent) -> list[str]:
+    """`report` and `resume` for an evaluated run; a retired run gets the refusal line both would print."""
+    if not has_evaluated_authority(event.run.run_root):
+        return ["", "Suggested commands: none.", retired_run_refusal(event.run.run_dir_id)]
+    return [
+        "",
+        "Suggested commands:",
+        f"- cd {event.run.workspace.path}",
+        f"- python -m orchestrator report --run-id {event.run.run_dir_id}",
+        f"- python -m orchestrator resume {event.run.run_dir_id}",
+    ]
 
 
 def _workflow_output_lines(state):
