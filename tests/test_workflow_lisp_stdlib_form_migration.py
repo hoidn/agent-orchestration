@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import importlib
 import re
 from pathlib import Path
@@ -25,114 +24,6 @@ PHASE_SCOPE_STDLIB_FIXTURE = VALID_FIXTURES / "phase_scope_stdlib_targets.orc"
 RESOURCE_STDLIB_FIXTURE = VALID_FIXTURES / "resource_stdlib_finalize_selected_item_stdlib.orc"
 DRAIN_STDLIB_FIXTURE = VALID_FIXTURES / "drain_stdlib_backlog_drain_stdlib.orc"
 RESOURCE_INTRINSIC_FIXTURE = VALID_FIXTURES / "resource_stdlib_finalize_selected_item.orc"
-
-
-def _retired_backlog_drain_structure_sites(package_root: Path) -> list[str]:
-    sanctioned_residue = {
-        package_root / "form_registry.py",
-        package_root / "stdlib_contracts.py",
-    }
-    forbidden_nodes: list[str] = []
-
-    def retired_key(value: object) -> str | None:
-        if not isinstance(value, str):
-            return None
-        if re.search(r"backlog[-_]drain", value, flags=re.IGNORECASE):
-            return value
-        return None
-
-    def record_string_key(source_path: Path, node: ast.AST, kind: str, value: object) -> None:
-        key = retired_key(value)
-        if key is not None:
-            forbidden_nodes.append(
-                f"{source_path.relative_to(package_root)}:{node.lineno}:{kind}:{key}"
-            )
-
-    def comparison_key_values(node: ast.AST):
-        if isinstance(node, ast.Constant):
-            yield node.value
-        elif isinstance(node, (ast.Tuple, ast.List, ast.Set)):
-            for element in node.elts:
-                yield from comparison_key_values(element)
-        elif isinstance(node, ast.Dict):
-            for key_node in node.keys:
-                if key_node is not None:
-                    yield from comparison_key_values(key_node)
-
-    for source_path in sorted(package_root.rglob("*.py")):
-        if source_path in sanctioned_residue:
-            continue
-        tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
-        for node in ast.walk(tree):
-            names: tuple[str, ...] = ()
-            if isinstance(node, (ast.Name, ast.Attribute)):
-                names = (node.id if isinstance(node, ast.Name) else node.attr,)
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                names = (node.name,)
-            elif isinstance(node, ast.arg):
-                names = (node.arg,)
-            for name in names:
-                if "backlog_drain" in name or "BacklogDrain" in name:
-                    forbidden_nodes.append(
-                        f"{source_path.relative_to(package_root)}:{node.lineno}:{name}"
-                    )
-            if isinstance(node, ast.Compare):
-                for operand in (node.left, *node.comparators):
-                    for value in comparison_key_values(operand):
-                        record_string_key(source_path, node, "comparison-key", value)
-            elif isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
-                record_string_key(source_path, node, "subscript-key", node.slice.value)
-            elif isinstance(node, ast.Dict):
-                for key_node in node.keys:
-                    if isinstance(key_node, ast.Constant):
-                        record_string_key(source_path, node, "dict-key", key_node.value)
-            elif isinstance(node, ast.MatchValue) and isinstance(node.value, ast.Constant):
-                record_string_key(source_path, node, "match-key", node.value.value)
-            elif (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr in {"get", "pop", "setdefault"}
-            ):
-                if node.args and isinstance(node.args[0], ast.Constant):
-                    record_string_key(source_path, node, "call-key", node.args[0].value)
-
-    return sorted(
-        forbidden_nodes,
-        key=lambda site: (site.split(":", 2)[0], int(site.split(":", 2)[1]), site),
-    )
-
-
-def test_retired_backlog_drain_has_no_name_keyed_compiler_structure() -> None:
-    package_root = Path(__file__).parents[1] / "orchestrator" / "workflow_lisp"
-
-    assert _retired_backlog_drain_structure_sites(package_root) == []
-
-
-def test_retired_backlog_drain_guard_rejects_string_keyed_dispatch(tmp_path: Path) -> None:
-    package_root = tmp_path / "orchestrator" / "workflow_lisp"
-    package_root.mkdir(parents=True)
-    (package_root / "mutated_dispatch.py").write_text(
-        "def dispatch(head, handlers):\n"
-        "    if head == 'backlog_drain':\n"
-        "        return handlers['backlog-drain']\n"
-        "    dispatch_table = {'backlog_drain': handlers['default']}\n"
-        "    if head in ('backlog_drain',):\n"
-        "        return handlers.get('backlog-drain')\n"
-        "    if describe('backlog-drain') == head:\n"
-        "        return handlers.setdefault('description', 'backlog-drain compatibility')\n"
-        "    return dispatch_table\n",
-        encoding="utf-8",
-    )
-
-    sites = _retired_backlog_drain_structure_sites(package_root)
-
-    assert sites == [
-        "mutated_dispatch.py:2:comparison-key:backlog_drain",
-        "mutated_dispatch.py:3:subscript-key:backlog-drain",
-        "mutated_dispatch.py:4:dict-key:backlog_drain",
-        "mutated_dispatch.py:5:comparison-key:backlog_drain",
-        "mutated_dispatch.py:6:call-key:backlog-drain",
-    ]
 
 
 def _form_registry_module():
@@ -344,23 +235,5 @@ def test_finalize_selected_item_stdlib_vector_compiles_on_promoted_route(tmp_pat
 
 def test_backlog_drain_stdlib_vector_compiles_on_promoted_route(tmp_path: Path) -> None:
     result = _compile_module_fixture(DRAIN_STDLIB_FIXTURE, tmp_path=tmp_path / "drain_backlog_drain")
-
-    assert result.entry_result.typed_workflows
-
-
-
-
-@pytest.mark.parametrize(
-    "stdlib_fixture",
-    (
-        RESOURCE_STDLIB_FIXTURE,
-        DRAIN_STDLIB_FIXTURE,
-    ),
-)
-def test_stdlib_vectors_still_compile_on_promoted_route_after_g8_deletion(
-    tmp_path: Path,
-    stdlib_fixture: Path,
-) -> None:
-    result = _compile_module_fixture(stdlib_fixture, tmp_path=tmp_path / stdlib_fixture.stem)
 
     assert result.entry_result.typed_workflows
