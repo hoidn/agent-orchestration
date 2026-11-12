@@ -103,7 +103,8 @@ document owns the answer.
 - Use [evaluated execution](design/workflow_lisp_evaluated_execution.md) for
   the checked closed program, evaluator, effect identity and memo authority.
   The frontend specification owns retained types, macros and typed imports.
-- Semantic IR, Executable IR, Stdlib Lowering and State Layout document
+- Semantic IR, Executable IR and State Layout are historical records; their code
+  was removed on 2026-11-12 (local tag `archive/old-ir-stack-2026-11-12`). Stdlib Lowering documents
   historical flat execution and retained data contracts. They do not admit
   excluded evaluated effects such as views or resource transitions; check
   the capability matrix before using those surfaces.

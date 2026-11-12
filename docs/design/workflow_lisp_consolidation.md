@@ -124,10 +124,10 @@ The extraction includes lazy paths formerly reaching child executable helpers:
 and `evaluated_child.py` uses source-free revision/path-fact owners. Keep these
 checks shared with executable children; do not whitelist hidden compiler imports
 in the parent.
-`RunRefStepConfig` and `StepCommonConfig` from `workflow/executable_ir.py` remain
-shared dependencies of evaluated run references. Retain them until their
-contracts and callers have moved; retiring flat execution cannot delete that
-whole module while maintained run references still depend on it.
+`RunRefStepConfig` and `StepCommonConfig`, shared dependencies of evaluated run
+references, live in `workflow/run_ref/step_config.py`. They were moved there verbatim
+from `workflow/executable_ir.py`, which was removed on 2026-11-12 with the rest of
+the bundle-era IR stack (local git tag `archive/old-ir-stack-2026-11-12`).
 
 Keep the package dependency-light, not necessarily stdlib-only: existing
 source-free descriptor, pure-expression and run-reference contracts remain
