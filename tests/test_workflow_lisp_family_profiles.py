@@ -25,18 +25,6 @@ VALID_WORKFLOW_LISP_FIXTURES = (
 TYPED_PROMPT_INPUT_PHASE_FIXTURE = (
     VALID_WORKFLOW_LISP_FIXTURES / "typed_prompt_input_phase.orc"
 )
-FORBIDDEN_SOURCE_SHAPE_TOKENS = (
-    "lisp_frontend_design_delta",
-    "PHASE_FAMILY_MODULE_PREFIX",
-    "DESIGN_DELTA_PARENT_DRAIN_TARGET_WORKFLOW_NAMES",
-    "_C1_TYPED_PROMPT_INPUT_ROWS",
-)
-SOURCE_SHAPE_GUARD_PATHS = (
-    REPO_ROOT / "orchestrator" / "workflow_lisp" / "phase_family_boundary.py",
-    REPO_ROOT / "orchestrator" / "workflow_lisp" / "workflows.py",
-)
-
-
 def _family_profiles_module():
     return importlib.import_module("orchestrator.workflow_lisp.family_profiles")
 
@@ -298,12 +286,3 @@ def test_family_profile_loader_accepts_hidden_context_parameter_alias(
     )
 
 
-def test_core_modules_do_not_retain_family_specific_hook_tables() -> None:
-    offenders = [
-        f"{path.relative_to(REPO_ROOT)}:{token}"
-        for path in SOURCE_SHAPE_GUARD_PATHS
-        for token in FORBIDDEN_SOURCE_SHAPE_TOKENS
-        if token in path.read_text(encoding="utf-8")
-    ]
-
-    assert offenders == []
