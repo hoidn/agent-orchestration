@@ -227,7 +227,10 @@ def candidates(repo, tip, t3_ids, record):
                 "fits no tier (over every bound)" if cand["tier"] is None else "T3 size; T3 is the first build's")})
         else:
             cand["statement"] = tier_statement(cand["tier"], cand)
-    return sorted([c for c in pool if c["tier"] in ORDER] + run_cands, key=lambda c: c["rank"])
+    chosen = sorted([c for c in pool if c["tier"] in ORDER] + run_cands, key=lambda c: c["rank"])
+    for cand in chosen:
+        cand["withheld_only"] = cand["tier"] in WITHHELD_ONLY  # only that form is shipped and audited
+    return chosen
 
 
 def build(work, workers, runs, out=b.HERE, repo=b.ROOT, tip=b.TIP, prior=()):
@@ -248,9 +251,16 @@ def build(work, workers, runs, out=b.HERE, repo=b.ROOT, tip=b.TIP, prior=()):
         if widened:
             admitted, skipped = evaluate_tier(tiered, rows, prior_rows, work, workers, runs)
         by_tier[tier] = (tiered, admitted, skipped, widened)
+    cache = work / "t3_withheld.jsonl"  # finished T3 withheld checks are reused after a restart, never re-run
+    done = {r["id"]: r for r in map(json.loads, cache.read_text().splitlines())} if cache.is_file() else {}
+    todo = [r for r in t3 if r["id"] not in done]
     with ProcessPoolExecutor(max_workers=workers) as pool_:
-        t3_results = list(pool_.map(b.withheld_only, [out / "tasks" / r["id"] for r in t3], [work] * len(t3),
-                                    [runs] * len(t3), [repo] * len(t3)))
+        for result in pool_.map(b.withheld_only, [out / "tasks" / r["id"] for r in todo], [work] * len(todo),
+                                [runs] * len(todo), [repo] * len(todo)):
+            done[result["id"]] = result
+            with cache.open("a") as handle:
+                handle.write(json.dumps(result, sort_keys=True) + "\n")
+    t3_results = [done[r["id"]] for r in t3]
     staged = out / "tasks_new"
     b.remove(staged)
     staged.mkdir()

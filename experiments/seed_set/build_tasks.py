@@ -384,7 +384,8 @@ def evaluate(cand, work, runs=RUNS, withheld=None):
                                      box / "withheld-clone", runs, withheld)
         if withheld and result.get("reason") is None:  # the ladder's packages also pass the leak audit
             from experiments.seed_set import leak_audit
-            failed = [f"{form}: {check}: {why}" for form in (tid, f"{tid}-withheld") for check, why in
+            shipped = [f"{tid}-withheld"] if cand.get("withheld_only") else [tid, f"{tid}-withheld"]
+            failed = [f"{form}: {check}: {why}" for form in shipped for check, why in
                       leak_audit.audit(work / "pkgs" / form, box, cand.get("commits") or [cand["commit"]],
                                        Path(cand["repo"]))]
             result |= {"reason": f"leak audit: {failed[0]}"} if failed else {}
