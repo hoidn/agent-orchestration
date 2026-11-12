@@ -338,3 +338,48 @@ def test_ctrl_c_during_a_step_prints_the_resume_command(tmp_path: Path, flags: t
     resumed = shell(tmp_path, command)
     assert resumed.returncode == 0, resumed.stderr
     assert resumed.stdout.splitlines()[-1] == RESULT_LINE
+
+
+ECHO = '''\
+(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+  (defmodule echo) (export run)
+  (defworkflow run ((text String)) -> String text))
+'''
+
+
+def test_a_result_the_terminal_cannot_encode_is_printed_escaped(tmp_path: Path) -> None:
+    (tmp_path / "echo.orc").write_text(ECHO, encoding="utf-8")
+
+    result = subprocess.run([sys.executable, "-B", "-m", "orchestrator", "run", "echo.orc", "--input", "text=café",
+                             "--quiet"], cwd=tmp_path, env={**env(), "PYTHONIOENCODING": "ascii"},
+                            capture_output=True, text=True, check=False)
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.splitlines()[-1]) == "café"
+
+
+def test_a_write_error_on_a_live_descriptor_leaves_the_descriptor_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    import stat
+    from orchestrator.cli.progress import say
+    read_end, write_end = os.pipe()
+    os.set_blocking(write_end, False)
+    try:
+        while True:
+            os.write(write_end, b"x" * 65536)
+    except BlockingIOError:
+        pass  # the pipe is full: the next write fails, but the descriptor is alive
+    stream = open(write_end, "w", closefd=False)
+    monkeypatch.setattr(sys, "stderr", stream)
+
+    say("a line that does not fit")
+
+    assert stat.S_ISFIFO(os.fstat(write_end).st_mode)
+    os.set_blocking(read_end, False)
+    while True:  # drain the pipe so the stream can be flushed and closed
+        try:
+            os.read(read_end, 65536)
+        except BlockingIOError:
+            break
+    stream.close()
+    os.close(write_end)
+    os.close(read_end)

@@ -441,14 +441,16 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   prints its terminal value (not the `{"__result__": ...}` wrapper) as one
   line of compact, sorted-key JSON on stdout, after any `print` lines and
   streamed provider output, starting a new line when that output did not end
-  one, so the last stdout line is the result; a resume of a completed run
+  one, so the last stdout line is the result; a character that stdout's
+  encoding cannot write is printed as a JSON `\u` escape; a resume of a completed run
   prints the recorded value the same way. `--quiet` drops the `run`, `start`
   and `commit` lines and warnings; the failure block, the `[code]` line,
   recovery lines, the `resume` and `waiting` lines and the result are always
   printed, so a failed or interrupted quiet run still names its `resume`
   command. A write error on stderr (for example a closed pipe) stops the
-  stderr lines only, and a process started without stderr prints none of
-  them; the stdout result is still printed, and neither changes the run or
+  stderr lines only (only a dead descriptor, `EPIPE`, `EBADF` or `EIO`, is
+  pointed at `/dev/null`), and a process started without stderr prints none
+  of them; the stdout result is still printed, and neither changes the run or
   its exit code.
 - `resume RUN_ID` recognizes the run by its header before any flat-route
   state check and performs the read-only preflight below under the workspace
@@ -669,8 +671,8 @@ the `resume` command.
 | --- | --- | --- |
 | `resume_program_changed` | each effect site added, removed or changed between the recorded and the current program, by identity (provenance ignored), or that only code between effects changed | `resume` after restoring the source; or a fresh `run`, in which every step runs again |
 | `resume_inputs_changed` | the inputs whose bound value differs | `resume` after restoring them; or a fresh `run` with the new values |
-| `effect_input_diverged`, a step the memo shows committed, when no step whose latest attempt did not commit uses a changed file | the identity, the changed input parts and implementation files | `invalidate RUN_ID 'IDENTITY'` then `resume`; this step and all later ones run again and workspace files are not rolled back |
-| `effect_input_diverged`, a committed step whose changed files are also used by a step whose latest attempt did not commit (or the changed files are unknown and such a step exists) | the changed files, the unfinished steps, and that a script fix after a failure cannot be resumed in this run | `resume` after restoring the files; or a fresh `run`; never `invalidate` |
+| `effect_input_diverged`, a step the memo shows committed, when no step whose latest attempt is pending or failed uses a changed file (a step invalidated and not yet run again does not count) | the identity, the changed input parts and implementation files | `invalidate RUN_ID 'IDENTITY'` then `resume`; this step and all later ones run again and workspace files are not rolled back |
+| `effect_input_diverged`, a committed step whose changed files are also used by a step whose latest attempt is pending or failed (or the changed files are unknown and such a step exists) | the changed files, the unfinished steps, and that a script fix after a failure cannot be resumed in this run | `resume` after restoring the files; or a fresh `run`; never `invalidate` |
 | `effect_input_diverged`, a step without an active commit (failed or pending) | the identity and the changed files, or that its inputs changed | `resume` after restoring what changed; otherwise a fresh `run`, since a step that did not finish cannot yet be retried with changed files in the same run |
 | `invalidate_not_committed` | whether the step has an unfinished attempt, its latest attempt failed, it was invalidated, or no step has that identity | `resume` for an unfinished, failed or invalidated step; then, after the warning that a step and every later one run again and workspace files are not rolled back, one `invalidate` command per committed identity in journal order (at most 20) |
 | `invalidate_coordinator_committed` | the committed run references or agent turns in the suffix | a fresh `run` |

@@ -83,9 +83,15 @@ def _file_names(keys) -> str:
 
 
 def _unfinished_users(snapshot, identity: str, changed: list[str]) -> list[str]:
-    """Other steps whose latest attempt did not commit and whose files include a changed one (any, if unknown)."""
+    """Other steps whose latest attempt is pending or failed and whose files include a changed one (any, if unknown).
+
+    An invalidated step is not one: it has no attempt to retry, so invalidating and resuming runs it afresh.
+    """
+    from orchestrator.workflow.evaluated.memo import _uncommitted_state
+
     return [other for other, start in snapshot.latest_starts.items()
             if other != identity and other not in snapshot.active_commits
+            and _uncommitted_state(snapshot, other) in {"pending", "failed"}
             and (not changed or set(changed) & set(_names(start.data.get("implementation_files") or {})))]
 
 
