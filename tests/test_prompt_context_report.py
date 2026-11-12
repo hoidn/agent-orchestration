@@ -608,36 +608,6 @@ def test_execution_and_resume_modules_do_not_import_prompt_context_reporting(
             encoding="utf-8"
         ), path
 
-    for relative in (
-        "orchestrator/cli/commands/report.py",
-        "orchestrator/observability/report.py",
-    ):
-        source = (
-            repository_root / relative
-        ).read_text(encoding="utf-8")
-        assert "project_prompt_context_v2" in source
-        assert "project_prompt_context(" not in source
-
-
-def test_loaded_and_state_only_reports_share_exact_prompt_projection(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from orchestrator.cli.commands.report import _state_only_snapshot
-    from orchestrator.observability.report import build_status_snapshot
-    from dataclasses import replace
-    from orchestrator.workflow.state_projection import WorkflowStateProjection
-    from tests.test_persisted_workflow_surface import _bundle
-
-    state, root, _scope_value, _v2 = _fixture(tmp_path, monkeypatch)
-    bundle = replace(_bundle("historical"), projection=WorkflowStateProjection({}))
-
-    loaded = build_status_snapshot(bundle, state, root)
-    state_only = _state_only_snapshot(state, root)
-
-    assert loaded["prompt_context"] == state_only["prompt_context"]
-    assert loaded["prompt_context"] == _project_v2(state, root)
-
 
 def test_execution_and_resume_do_not_call_prompt_context_projection(
     tmp_path: Path,

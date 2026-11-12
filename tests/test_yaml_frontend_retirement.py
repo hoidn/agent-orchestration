@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from argparse import Namespace
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -207,12 +206,12 @@ def test_resume_rejects_executable_legacy_runs_with_orc_required(
     assert _run_tree_snapshot(run_root) == before
 
 
-def test_report_uses_state_only_when_legacy_source_is_missing(
+def test_report_refuses_legacy_run_without_reading_its_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _write_run_state(
+    state_path = _write_run_state(
         tmp_path,
         run_id="legacy-report",
         workflow_file="deleted.yaml",
@@ -225,6 +224,7 @@ def test_report_uses_state_only_when_legacy_source_is_missing(
             }
         },
     )
+    before = state_path.read_bytes()
     monkeypatch.chdir(tmp_path)
 
     result = report_workflow(
@@ -233,42 +233,11 @@ def test_report_uses_state_only_when_legacy_source_is_missing(
         format="json",
     )
 
-    assert result == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["run"]["display_status"] == "failed"
-    assert [step["name"] for step in payload["steps"]] == ["PersistedStep"]
-    assert "state-only" in payload["run"]["report_warning"]
-
-
-def test_report_state_only_projection_displays_stale_running_without_mutation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    stale = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
-    state_path = _write_run_state(
-        tmp_path,
-        run_id="stale-legacy-report",
-        workflow_file="deleted.yml",
-        status="running",
-        updated_at=stale,
-        steps={"FailedStep": {"status": "failed", "error": {"message": "boom"}}},
-    )
-    before = state_path.read_bytes()
-    monkeypatch.chdir(tmp_path)
-
-    result = report_workflow(
-        run_id="stale-legacy-report",
-        runs_root=str(tmp_path / ".orchestrate" / "runs"),
-        format="json",
-    )
-
-    assert result == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["run"]["display_status"] == "failed"
-    assert payload["run"]["display_status_reason"] == (
-        "stale_running_terminal_not_finalized"
-    )
+    assert result == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("Error: workflow_execution_profile_retired: run legacy-report ")
+    assert "PersistedStep" not in captured.err and "persisted failure" not in captured.err
     assert state_path.read_bytes() == before
 
 

@@ -638,13 +638,6 @@ def test_execution_resume_and_parser_modules_do_not_consume_judgment_views(
             encoding="utf-8"
         ), path
 
-    for relative in (
-        "orchestrator/cli/commands/report.py",
-        "orchestrator/observability/report.py",
-    ):
-        source = (repository_root / relative).read_text(encoding="utf-8")
-        assert "project_judgment_views" in source
-
 
 def _synthetic_coordinate(visit: int) -> dict[str, Any]:
     return {
