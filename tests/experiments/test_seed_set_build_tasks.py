@@ -3,6 +3,7 @@
 import ast
 import os
 import subprocess
+import tempfile
 
 import pytest
 
@@ -164,6 +165,13 @@ def test_candidate_whose_tests_call_a_provider_is_rejected(tmp_path):
     commit(repo, {"orchestrator/calc.py": FIXED, "tests/test_calc.py": calls}, MESSAGE, "2026-08-01T00:00:00+0000")
     row = b.evaluate(b.mine(repo, "HEAD")[0][0], tmp_path / "work", runs=1)
     assert (row["reason"], row["note"]) == ("tests attempt a provider call", ["claude -p --model x"])
+
+
+def test_evaluate_leaves_the_callers_temporary_directory_and_path_unchanged(history, tmp_path):
+    repo, _ = history
+    before = (os.environ.get("TMPDIR"), os.environ["PATH"], tempfile.gettempdir())
+    b.evaluate(b.mine(repo, "HEAD")[0][0], tmp_path / "work", runs=1)
+    assert (os.environ.get("TMPDIR"), os.environ["PATH"], tempfile.gettempdir()) == before
 
 
 def test_outcome_that_differs_from_an_earlier_build_is_rejected():

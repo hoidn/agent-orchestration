@@ -329,6 +329,7 @@ def evaluate(cand, work, runs=RUNS):
         return {**row, "reason": "disk: under 20 GB free", "stop": True}
     box = work / tid
     remove(box)
+    saved = {name: os.environ.get(name) for name in ("TMPDIR", "PATH", "PYTHONDONTWRITEBYTECODE")}
     os.environ.update(TMPDIR=str(box / "tmp"), PYTHONDONTWRITEBYTECODE="1")
     tempfile.tempdir = None  # a reused worker process caches the previous task's (deleted) TMPDIR
     (box / "tmp").mkdir(parents=True)
@@ -343,6 +344,12 @@ def evaluate(cand, work, runs=RUNS):
         return {**row, **result}
     finally:
         remove(box)
+        for name, value in saved.items():  # the caller's environment: TMPDIR and PATH name the removed box
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        tempfile.tempdir = None
 
 
 def provider_attempts(log):
