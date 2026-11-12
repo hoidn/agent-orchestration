@@ -375,10 +375,8 @@ shown in [Section 13.7](#137-improve). Every source dependency must declare
 target 2.35 or newer, including dependencies supplied as typed programs or
 compiled bundles. Pre-2.35 entry execution is retired; source imports, REPL
 loads and LSP analysis below that floor also refuse. Historical source is
-preserved as evidence; no header or run conversion is performed. The
-[Phase 5 plan](plans/2026-10-07-evaluated-execution-phase-5-plan.md)
-owns bounded 2.37 parallel support and its remaining qualification; it is not
-general copy-safe guidance. Target 2.38 separately admits the bounded
+preserved as evidence; no header or run conversion is performed. Target 2.37
+adds bounded [parallel map](#173-parallel-map-target-237). Target 2.38 separately admits the bounded
 [Agent recipe](#agent-sessions-target-238) and
 [command-only confined children](#confined-workflow-children-target-238-command-only);
 the latter does not admit providers or Agent operations inside the child.
@@ -396,7 +394,7 @@ not in the historical flat-route workaround catalogue.
 | Records, unions, lists, and repeated pure bindings | Keep typed native values; no flattening or value-as-step wrapper is needed to reach a command. |
 | Effectful arguments and conditions | Admitted effects run in structural evaluation order, once per activation; boolean operators short-circuit. |
 | Pure contexts | Keep `:on-exhausted` and pure `list/map` bodies effect-free; union reads still require proof. |
-| Serial `list/map-effect` | Supply an explicit traversal bound and one admitted effect per body; parallel map requires the bounded 2.37 extension owned by the Phase 5 plan above and is not general copy-safe guidance. |
+| Serial `list/map-effect` | Supply an explicit traversal bound and one admitted effect per body; for concurrent items use the bounded 2.37 [parallel map](#173-parallel-map-target-237). |
 | Decimal arithmetic | Use the closed numeric operator surface in Section 9A; mixed numeric types and non-finite results fail closed. |
 | Path-mode `run-ref` | Admitted directly or through calls in effect-admitting branches, loops, budgets, seeds, `match` subjects and serial effect maps; retain pure-context restrictions. |
 
@@ -2950,11 +2948,106 @@ declared root.
 body; its source and body arguments remain pure. Pure `list/map` bodies remain
 effect-free. Indexing, filtering, folding, general ProcRef mapping and
 unbounded traversal are outside the current surface; parallel `list/map-effect`
-requires target 2.37 and remains bounded Phase 5 work, not copy-safe guidance
-(Section 2A). Traversal does
+requires target 2.37 ([Section 17.3](#173-parallel-map-target-237)). Traversal does
 not grant prompt visibility: a provider input still needs an admitted renderer.
 See [evaluated totality evidence](../tests/test_workflow_evaluated_totality.py)
 for record/union/list transport and pure-context refusals.
+
+### 17.3 Parallel map (target 2.37)
+
+`:parallel N :workspace E` on `list/map-effect` evaluates up to `N` items at a
+time, each in its own working directory. It is qualified through the public
+command line (`compile`, `run`, `resume`, `invalidate`, `report`) with
+stand-in providers and commands; it has not yet been run against a real
+provider. The [execution record's addendum](reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification)
+lists the evidence and what stays open.
+
+`main.orc`: one command per repository, at most two at a time.
+
+```lisp
+(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+  (defmodule main) (export run)
+  (defrecord Checked (repo String) (passed Bool))
+  (defworkflow run ((repos List[String])) -> List[Checked]
+    (list/map-effect ((repo repos)) :max 8 :parallel 2 :workspace repo
+      (command-result check :argv ("python" "check.py" repo) :returns Checked))))
+```
+
+`commands.json` is `{"check": {"stable_command": ["python", "check.py"], "closure": []}}`,
+`inputs.json` is `{"repos": ["repos/alpha", "repos/beta", "repos/gamma"]}`,
+and each repository directory holds its own `check.py`, which writes a
+`Checked` value to `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
+
+```bash
+python -m orchestrator compile main.orc --entry-workflow main::run --source-root . \
+  --command-boundaries-file commands.json
+python -m orchestrator run main.orc --command-boundaries-file commands.json --input-file inputs.json
+python -m orchestrator resume <run_id>
+```
+
+The run prints `start` and `commit` lines for `par-map:repo[0]` to `[2]` as
+they happen, then the three results in input order.
+
+What to rely on:
+
+- **The batch.** The list is fixed before any item starts; a list longer than
+  `:max` refuses with `list_map_effect_cap_exceeded` before any item starts.
+  `N` is a positive integer literal and bounds this map only: nested maps
+  have their own bound and there is no global limit. The result is in input
+  order whatever the completion order. Without `:parallel` the form is the
+  serial one; `:parallel 1` still uses the parallel identities.
+- **Working directories.** `E` is a pure expression over the item naming an
+  existing directory, relative to the run workspace or absolute. Two items
+  that resolve to one directory refuse with `parallel_workspace_shared`
+  before any item starts. Commands and providers launch in the item
+  directory, and a relative argv token is looked up there as written: a
+  script in the outer workspace is not found from an item, so name it by an
+  absolute path or run it as a package (`python -m ...`). Typed paths,
+  artifacts and results stay relative to the outer workspace, which the
+  runtime names in `ORCHESTRATOR_WORKSPACE_ROOT`. The runtime rewrites no
+  prompt prose: a provider prompt that names a repository needs an absolute
+  path (the best-of-N test passes absolute repository inputs for this
+  reason). A run reference in an item keeps the outer workspace as its
+  parent (a typed path input is copied from there, not from the item
+  directory) and runs its child in its own clone below the run-reference
+  root.
+- **Failure.** When an item fails, its siblings still run and commit, and
+  each failed item keeps its own `failed` row; the run then fails with an
+  item's error code (the lowest failing input index's, though the message
+  does not name the index). A running item is not cancelled.
+- **Kill and resume.** `resume` reuses every committed effect, continues each
+  item from its first missing effect and dispatches no committed effect
+  again; a completed resume writes nothing. A pending `must_not_repeat` command refuses with
+  `lexical_restore_pending_effect_unsafe`.
+- **A script changed before resume.** A failed or killed item of a parallel
+  map whose files changed needs `resume --accept-changes`: the plain-resume
+  retry after an unchanged-script failure applies to serial steps only.
+  Without the flag `resume` refuses with `effect_input_diverged` and writes
+  nothing. A committed item whose script changed refuses the same way; use
+  the `invalidate` then `resume` that the refusal prints
+  ([resume preflight](../specs/cli.md#resume-preflight-precedence), step 10).
+- **Invalidate.** `invalidate` cancels the whole journal suffix from its
+  anchor, across items; a committed run-reference suffix refuses.
+- **Spend cap.** Under `--max-cost-usd` each provider step needs a
+  `<name>_metered` template and a priced model
+  ([metered templates](../specs/providers.md#metered-templates-and-usage));
+  every item is checked before it starts, so a batch overshoots the cap by at
+  most the metered calls already running.
+
+Not available inside a parallel map: Python `parallel_map`, an `Agent`
+entering or leaving a worker (`parallel_agent_boundary`), phased providers,
+host input, and confined run-reference sites. A policy that picks its next
+candidate after seeing each result is not a batch and is not expressible
+here.
+
+Evidence: `tests/test_workflow_evaluated_parallel_cwd_variants.py`,
+`tests/test_workflow_evaluated_parallel_reserved_root.py`,
+`tests/test_workflow_evaluated_parallel_run_ref_clone.py`,
+`tests/test_workflow_evaluated_parallel_kill_resume.py`,
+`tests/test_workflow_evaluated_parallel_invalidate.py`,
+`tests/test_workflow_evaluated_parallel_consumers.py`,
+`tests/test_phase2_exit_e2e.py` (best-of-N killed, resumed and reported), and
+the `parallel` cases of `tests/test_workflow_evaluated_script_fix_retry.py`.
 
 ## 18. Effects
 

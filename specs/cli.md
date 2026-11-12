@@ -329,8 +329,9 @@ for deterministic public checks; paid-provider qualification remains unselected.
 Neither extension changes confinement qualification. See the
 [procedure guide](../docs/lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239). The [confined-command recipe](../docs/lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
 records host/image prerequisites; public confined providers remain closed. W3 changes
-authoring, not command/provider IO or the public lifecycle; 2.37 registration
-does not establish full parallel delivery. For Agent Sessions,
+authoring, not command/provider IO or the public lifecycle; 2.37 parallel map
+is qualified through this command line with stand-in providers and commands,
+not with a real provider ([evaluated design §11](../docs/design/workflow_lisp_evaluated_execution.md#11-parallel-effects)). For Agent Sessions,
 [PQ-1a](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records
 deterministic proofs and bounded adapter smokes; the real-provider comparison
 (PQ-1c) has not run and requires separate owner authorization.
@@ -806,7 +807,7 @@ the `resume` command.
 | (no code) | an I/O failure during initial authority publication | 1 | Nothing dispatched; printed as `Unexpected error` with the errno (a named code is a recorded follow-up) |
 | `accept_changes_unreached` | `resume --accept-changes` at the end of preflight, when an unproven command attempt that replay has not reached yet (as after an `invalidate`) will be accepted without a rehash | diagnostic | Logged before execution, followed by one `  <identity>: <reason>` line per attempt (at most 20, then `  ... and N more`) |
 | `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals once the retry's `started` row is durable, so after its `run` and `start` lines; a retry whose declared files changed (accepted under step 10) ends with ` changed_files=<names>`, comma-separated |
-| `parallel_workspace_shared` | a later release | — | Not raised |
+| `parallel_workspace_shared` | a target-2.37 parallel map whose items resolve to one working directory, before any item starts | 1 | No `started` row or dispatch; failed terminal |
 
 <a id="workflow-lisp-repl-targets-235-and-236"></a>
 

@@ -109,10 +109,10 @@ Targets 2.35 and 2.36 select [evaluated execution](workflow_lisp_evaluated_execu
 through public `compile`, `run`, `resume` and `invalidate`. The admitted
 first-release classes at 2.35 are delivered. The target-2.36 W3 additions are
 implemented at 2.36; the [Phase 4c closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns bounded public consumer and qualification evidence.
-Target 2.37 parallel-map compilation and bounded workers have scoped acceptance;
-full public qualification and phase delivery remain pending. See the
-[Phase 5 status](../plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)
-before using that surface; it is not yet a copy-safe authoring target.
+Target 2.37 bounded parallel map is qualified through the public command line
+with stand-in providers and commands, not yet with a real provider; use the
+[recipe and its limits](../lisp_workflow_drafting_guide.md#173-parallel-map-target-237)
+and the [open items](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification).
 Target 2.38 separately implements bounded [Agent Sessions](workflow_lisp_agent_sessions.md):
 run-local allocation and typed native turns. [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md)
 records deterministic proofs and bounded adapter smokes; the real-provider consumer
