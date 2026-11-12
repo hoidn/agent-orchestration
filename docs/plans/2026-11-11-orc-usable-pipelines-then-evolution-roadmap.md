@@ -395,7 +395,7 @@ the owner can amend any of them.
 | 6 | Phase 5 size | Superseded by decision 8 |
 | 7 | Phase 6 form | Option B approved 2026-11-11; no spend authorized; generic search not selected |
 | 8 | Research scope | Scaled down by the owner 2026-11-11: find a few simple workflows that work well on a calibrated task set, as seeds for genetic search; calibration first. Supersedes decision 6. Same day: judge-primary scoring validated on two natural controls; smoke and calibration spend authorized; seed programs under 50 lines of `.orc`, `common.orc` not counted |
-| 9 | Live supervision and peer groups | Kept as a future direction by the owner 2026-11-11: not scheduled, no phase owns it. Lane D keeps the two source forms and their frontend support, deletes the old executor packages, and records the reusable design first. A port needs its own design on evaluated execution |
+| 9 | Live supervision and peer groups | Kept as a future direction by the owner 2026-11-11: not scheduled, no phase owns it. Lane D keeps the two source forms and their frontend support, deletes the old executor packages, and records the reusable design first. A port needs its own design on evaluated execution; the [salvage record](../design/live_provider_supervision_and_peers_salvage.md) is its starting material and finds supervision the closer of the two |
 
 ## Process rules
 
