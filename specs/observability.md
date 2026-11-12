@@ -146,23 +146,10 @@ derives solely from the validated `.orc` executable and `state.json`.
       run-level failure
     - `output.provider_session` step summaries including `mode`, `session_id`, `metadata_path`, and `publication_state`
   - v2.11 adjudicated provider snapshots may expose selected candidate id, selected score or null score, selection reason, run-local score ledger path, workspace-visible score ledger mirror path, promotion status, and adjudication failure type. Candidate workspaces, evaluator packets, and ledgers are observability sidecars, not ordinary artifact lineage.
-  - v2.16 provider-supervision snapshots render one outer step with kind
-    `provider_supervision`. Its ordinary artifacts are the settlement result;
-    debug projection may expose only the selected worker-attempt and directive-
-    attempt references plus bounded terminal metadata. Interrupted-visit
-    recovery may expose `provider_attempt_interrupted_rerun` plus the discarded
-    visit and fresh-visit coordinates, but member panes, targets, provisional
-    bundles, and transcripts are not result or resume authority.
-  - v2.17 provider-peer-group snapshots render one outer step with kind
-    `provider_peer_group`. Its ordinary `output.artifacts` are the settlement
-    projection. `output.debug.provider_peer_group` may expose only
-    `terminal_evidence_path`, `terminal_evidence_schema_version`, and
-    `outcome`; detailed members, ledgers, bundles, and lifecycle proof remain
-    in the referenced run-owned evidence. Interrupted-visit recovery may
-    expose `provider_attempt_interrupted_rerun` plus the discarded visit and
-    fresh-visit coordinates. Message bodies, endpoint/binding handles, pane
-    targets, and provisional member values are not stable report or result
-    fields.
+  - v2.16 provider-supervision and v2.17 provider-peer-group snapshots: no
+    step of either kind can be produced since their executors were removed on
+    2026-11-11 (see the
+    [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md)).
   - Target-2.23 phased recovery and v2.11 adjudication recovery may expose only
     their bounded named diagnostic, recovery family/mismatch class, and old/new
     visit coordinates. Prompt, candidate, score packet, ledger, and partial

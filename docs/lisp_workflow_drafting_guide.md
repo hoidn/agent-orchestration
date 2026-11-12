@@ -406,11 +406,12 @@ references. Portable providers admit extern `asset_file`/`input_file` prompts
 and supported `defprompt` slots, including `:path :out`, but no session,
 context binding/capture, managed job or secrets.
 
-Selected `request-input`, `trial`, phased provider delivery,
+Selected `request-input`, phased provider delivery,
 `run-provider-phase`, `produce-one-of`, `resume-or-start`,
 `finalize-selected-item`, `resource-transition`, `materialize-view`, live
 provider supervision/peer groups and bundle-mode `run-ref` are unavailable
 at both evaluated targets and refuse at build with `closed_program_gap`.
+The `trial` form was removed and refuses with `form_retired`.
 Provider session artifacts and materialization attempts are also excluded.
 Recursive calls and runtime closures remain excluded. Frontend/typechecking
 may reject a source before this admission check; retargeting an old workflow
@@ -2050,8 +2051,9 @@ and the [path-child lifecycle](design/workflow_lisp_evaluated_execution.md#931-p
 for source, pin and root requirements. The public lifecycle recipe above
 records the run-reference root used on resume.
 
-Bundle-mode run references and `trial` are unavailable at both evaluated
-targets and refuse with `closed_program_gap`. The `trial` CLI and old trial SDK
+Bundle-mode run references are unavailable at both evaluated targets and
+refuse with `closed_program_gap`; the `trial` form was removed and refuses
+with `form_retired`. The `trial` CLI and old trial SDK
 are retired; the CLI refuses with `workflow_execution_target_retired` before
 source reads or publication. The [DSL contract](../specs/dsl.md) and
 [CLI contract](../specs/cli.md#evaluated-execution-target-235) own those boundaries.

@@ -285,8 +285,9 @@ own delivery status and captured evidence.
   - Targets below `2.16` neither accept the form nor reserve the prelude name.
     An older module's authored type with the same name therefore retains its
     prior meaning. There is no YAML spelling.
-  - The `provider_supervision.v1` executor was removed on 2026-11-11 (git tag
-    `archive/dead-executors-2026-11-11`). The form still parses and checks; the
+  - The `provider_supervision.v1` executor was removed on 2026-11-11 (packages kept at git tag
+    `archive/dead-executors-2026-11-11`; the whole runtime with its step-executor
+    bindings: commit `08cdd59b`). The form still parses and checks; the
     closed build refuses it with `[closed_program_gap]`. See the
     [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
@@ -299,8 +300,9 @@ own delivery status and captured evidence.
     authored binding or macro of the same name retains its prior meaning.
     There is no YAML spelling.
   - The `provider_peer_group.v1` executor and the `peer-ready`, `peer-send`,
-    `peer-ack` and `peer-finish` commands were removed on 2026-11-11 (git tag
-    `archive/dead-executors-2026-11-11`). The form still parses and checks; the
+    `peer-ack` and `peer-finish` commands were removed on 2026-11-11 (packages kept at git tag
+    `archive/dead-executors-2026-11-11`; the whole runtime with its step-executor
+    bindings: commit `08cdd59b`). The form still parses and checks; the
     closed build refuses it with `[closed_program_gap]`. See the
     [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 

@@ -1750,15 +1750,17 @@ actual boundary; it does not establish terminality by itself.
 
 ## Provider-Supervision State And Resume (v2.16)
 
-The provider-supervision executor and its state were removed on 2026-11-11; the last
-version with them is git tag `archive/dead-executors-2026-11-11`. The closed
+The provider-supervision executor and its state were removed on 2026-11-11. Its packages are
+kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime, including its step-executor bindings, is commit `08cdd59b`. The closed
 build refuses the `with-live-providers` form with `[closed_program_gap]`; see the
 [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
 ## Provider-Peer-Group State And Resume (v2.17)
 
-The provider-peer-group executor and its state were removed on 2026-11-11; the last
-version with them is git tag `archive/dead-executors-2026-11-11`. The closed
+The provider-peer-group executor and its state were removed on 2026-11-11. Its packages are
+kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime, including its step-executor bindings, is commit `08cdd59b`. The closed
 build refuses the `with-live-provider-peers` form with `[closed_program_gap]`; see the
 [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 

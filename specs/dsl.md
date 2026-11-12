@@ -932,7 +932,7 @@ YAML-fenced snippets are structural notation, not authored workflow files.
     - Compile-time refusals, transitive by effect kind through calls,
       procedures and hooks over the closed effect summary:
       `run_ref_environment_effect_unsupported` for nested `run-ref`, parallel
-      effect execution, dynamic evaluation, `trial`, human input,
+      effect execution, dynamic evaluation, human input,
       session/context capture, Agent allocation/turns or resource transitions in the child; for
       `:network :none` with any provider effect in the child's summary; and
       for `:memory-mib` below `:workspace-mib + 960` (the profile's scratch,
@@ -993,7 +993,8 @@ YAML-fenced snippets are structural notation, not authored workflow files.
     `archive/dead-executors-2026-11-11`. Elaboration refuses a `trial` list head
     that no user definition or binding shadows with `form_retired`, at every
     target and also where the entry does not reach it; a user's own definition
-    named `trial` is called normally. The `runs-trial` effect atom is unknown.
+    named `trial` is called normally. The `runs-trial` effect atom gets
+    `procedure_effect_invalid`.
 
   - Workflow Lisp WCC child-call argument projection:
     - Within existing bounded `list/map-effect`, an existing typed

@@ -844,16 +844,15 @@ schema notation, not authored workflow files.
     reserved compiler-owned `ProviderSteeringDirective`, whose only accepted
     wire objects are exactly `{"variant":"CONTINUE"}` and
     `{"variant":"STEER","guidance":<non-empty string>}`. Unknown fields,
-    missing or cross-variant fields, and empty guidance are rejected. Runtime
-    control interprets only the validated discriminant; guidance remains
-    free-form provider content.
+    missing or cross-variant fields, and empty guidance are rejected.
   - The settlement body is pure over the two validated member values, and the
     form returns that body's type.
   - **Executor removed 2026-11-11.** The runtime that executed this form
     (the `provider_supervision.v1` executable node, its coordinator, state and
-    observation injection) was deleted; the last version with it is git tag
-    `archive/dead-executors-2026-11-11`. The frontend still parses, checks and
-    elaborates the form, and the closed build refuses it with
+    observation injection) was deleted; its packages are kept at git tag
+    `archive/dead-executors-2026-11-11`, and the last tree with the whole runtime,
+    including the step-executor bindings that hosted it, is commit `08cdd59b`.
+    The frontend still parses, checks and elaborates the form, and the closed build refuses it with
     `[closed_program_gap]` wherever the selected entry reaches it. Future
     direction: [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
@@ -871,9 +870,10 @@ schema notation, not authored workflow files.
   - **Executor removed 2026-11-11.** The runtime that executed this form
     (the `provider_peer_group.v1` executable node, its coordinator, state and
     the member commands `peer-ready`, `peer-send`, `peer-ack` and
-    `peer-finish`) was deleted; the last version with it is git tag
-    `archive/dead-executors-2026-11-11`. The frontend still parses, checks and
-    elaborates the form, and the closed build refuses it with
+    `peer-finish`) was deleted; its packages are kept at git tag
+    `archive/dead-executors-2026-11-11`, and the last tree with the whole runtime,
+    including the step-executor bindings that hosted it, is commit `08cdd59b`.
+    The frontend still parses, checks and elaborates the form, and the closed build refuses it with
     `[closed_program_gap]` wherever the selected entry reaches it. Future
     direction: [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
