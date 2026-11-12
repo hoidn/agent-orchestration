@@ -12,6 +12,7 @@ import logging
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 
 from . import agent_guards, effect_inputs
+from .attempts import unproven_command_retries
 from .memo import MemoError, read_memo
 from .replay import discover_prefix
 
@@ -42,6 +43,9 @@ def checked_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
 def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
     snapshot, prefix = checked_resume_prefix(authority, inputs, run_id=run_id, workspace=workspace,
         provider_io=provider_io, site_classes=site_classes, confined=confined)
+    if authority.accept_changes and not unproven_command_retries(snapshot, site_classes):
+        raise effect_inputs._PreflightRefusal("resume_preflight_failed",
+            "--accept-changes: no unfinished command attempt needs it; resume without the flag")
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     return snapshot, commits, len(prefix.commits), prefix.value, not prefix.halted
 

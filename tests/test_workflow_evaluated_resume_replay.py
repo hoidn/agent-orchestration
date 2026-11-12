@@ -167,7 +167,8 @@ def _create_failed_attempt_without_terminal(tmp_path: Path, monkeypatch):
         "import os, sys\nfrom pathlib import Path\n"
         "target = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])\n"
         "Path('dispatches.txt').open('a', encoding='utf-8').write(target.parent.name + '\\n')\n"
-        "if target.parent.name == 'attempt-1': sys.exit(9)\n"
+        "if target.parent.name == 'attempt-1':\n"
+        "    Path(__file__).open('a', encoding='utf-8').write('# changed by its own attempt\\n'); sys.exit(9)\n"
         "target.write_text('5', encoding='utf-8')\n"
     )
     script.write_text(original_script, encoding="utf-8")

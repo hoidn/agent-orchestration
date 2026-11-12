@@ -511,6 +511,12 @@ def create_parser() -> argparse.ArgumentParser:
         help='Override default state directory'
     )
     resume_parser.add_argument(
+        '--accept-changes',
+        action='store_true',
+        help='Retry unfinished steps whose declared files changed although their last attempt '
+             'was interrupted or changed them itself'
+    )
+    resume_parser.add_argument(
         '--quiet',
         action='store_true',
         help='Print only failures, the resume command and the result'

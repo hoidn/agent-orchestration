@@ -65,6 +65,8 @@ class RunAuthority:
     run_files: WorkspaceFiles | None = field(default=None, compare=False, repr=False)
     # A view of appended memo rows (the CLI's terminal reporter); not authority.
     observer: Callable[[Mapping[str, Any]], None] | None = field(default=None, compare=False, repr=False)
+    # `resume --accept-changes` for this invocation (§8.1); never passed to a child run.
+    accept_changes: bool = field(default=False, compare=False, repr=False)
 
     @property
     def confined(self) -> bool:

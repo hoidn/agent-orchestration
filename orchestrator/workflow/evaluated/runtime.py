@@ -10,7 +10,8 @@ from pathlib import Path
 import time
 from typing import Any, Callable, Mapping, Sequence
 
-from orchestrator.workflow.evaluated.attempts import allocate_attempt, attempt_paths, closure_after_failure
+from orchestrator.workflow.evaluated.attempts import (allocate_attempt, attempt_paths, changed_files_note,
+    closure_after_failure)
 from orchestrator.workflow.evaluated.commands import CommandPerformerError, command_result  # noqa: F401 (re-export)
 from orchestrator.workflow.evaluated.confined_dispatch import EFFECT_UNSUPPORTED, ConfinedDispatchRefusal, require_confinable
 from orchestrator.workflow.evaluated.memo import (
@@ -405,7 +406,8 @@ def prepare_effect(
         before_failure=None if confined is None else lambda exc: confined.record_failure(authority, exc),
         # logged once `started` is durable, so the terminal's `run` and `start` lines come before it
         after_started=None if baseline is None else lambda: logger.warning(
-            "[%s] %s attempts=%s", code, identity, list(range(1, ordinal))))
+            "[%s] %s attempts=%s%s", code, identity, list(range(1, ordinal)),
+            changed_files_note(baseline.data["implementation_files"], implementation_files)))
     return PreparedAttempt(authority, node, identity, ordinal, result_path, input_digest,
         parts, implementation_files, tuple(dependencies), resolved, workspace, workspace_files,
         site_classes, provider_executor, attempt_files, launch_cwd, stream_output, confined=leaf_context, views=views,

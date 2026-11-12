@@ -359,7 +359,7 @@ orchestrator compile WORKFLOW [--entry-workflow NAME] [--source-root DIR ...]
   [--diagnostics-json]
 orchestrator run WORKFLOW [the same frontend flags] [--input NAME=VALUE ...]
   [--input-file JSON] [--state-dir DIR] [--run-ref-root DIR] [--dry-run] [--quiet]
-orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR] [--quiet]
+orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR] [--accept-changes] [--quiet]
 orchestrator invalidate RUN_ID IDENTITY [--state-dir DIR]
 orchestrator report [--run-id RUN_ID] [--runs-root DIR] [--format md|json] [--output PATH]
 orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--state-dir DIR]
@@ -479,6 +479,9 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   `[resume_preflight_failed] --run-ref-root must be a canonical absolute path`,
   exit `2`) and must equal the recorded root. A completed run resumes to its
   recorded terminal with exit `0` and no write, however often it is repeated.
+  `--accept-changes` accepts, for this invocation, the changed declared files
+  of every unfinished command attempt that no clean failure covers (step 10
+  below); it is refused when there is none.
   - Target 2.38 confined-child amendment: a completed run that records a pending run-ref
     workspace-cleanup obligation retries that cleanup on resume, records the
     outcome and dispatches nothing; a completed run without one keeps the
@@ -626,10 +629,16 @@ authority, memo, attempts or views, in this order:
     at a reached result-path form of a header without `result_root`;
     `resume_run_ref_root_missing` at any reached run reference, committed or
     not, of a header without `run_ref_root`), and at the first uncommitted
-    effect check the retry baseline (`effect_input_diverged` for changed
-    implementation files, `lexical_restore_pending_effect_unsafe` for a
-    `must_not_repeat` command; a pending provider start re-reads its C6
-    sources in memory). An agent turn with a pending start is classified
+    effect check the retry baseline (`effect_input_diverged` for missing or
+    unreadable implementation files, and for changed ones unless accepted:
+    the latest attempt's `failed` row says `closure: unchanged` and the step
+    is not a parallel-map item, or `--accept-changes` was given;
+    `lexical_restore_pending_effect_unsafe` for a `must_not_repeat` command,
+    whatever the field says; a pending provider start re-reads its C6
+    sources in memory). Then, with `--accept-changes`, at least one
+    uncommitted command attempt with a retry baseline must be unproven (no
+    `closure: unchanged` failure, or a parallel-map item), counting a pending
+    start an invalidation retired; otherwise `resume_preflight_failed`. An agent turn with a pending start is classified
     from its receipt and the native store, never by the retry baseline, and
     nothing is signalled: a live recorded process group is admitted and
     stopped under the writer lock before reconciliation; `recoverable`
@@ -690,8 +699,9 @@ the `resume` command.
 | `resume_program_changed` | each effect site added, removed or changed between the recorded and the current program, by identity (provenance ignored), or that only code between effects changed | `resume` after restoring the source; or a fresh `run`, in which every step runs again |
 | `resume_inputs_changed` | the inputs whose bound value differs | `resume` after restoring them; or a fresh `run` with the new values |
 | `effect_input_diverged`, a step the memo shows committed, when no step whose latest attempt is pending or failed uses a changed file (a step invalidated and not yet run again does not count) | the identity, the changed input parts and implementation files | `invalidate RUN_ID 'IDENTITY'` then `resume`; this step and all later ones run again and workspace files are not rolled back |
-| `effect_input_diverged`, a committed step whose changed files are also used by a step whose latest attempt is pending or failed (or the changed files are unknown and such a step exists) | the changed files, the unfinished steps, and that a script fix after a failure cannot be resumed in this run | `resume` after restoring the files; or a fresh `run`; never `invalidate` |
-| `effect_input_diverged`, a step without an active commit (failed or pending) | the identity and the changed files, or that its inputs changed | `resume` after restoring what changed; otherwise a fresh `run`, since a step that did not finish cannot yet be retried with changed files in the same run |
+| `effect_input_diverged`, a committed step whose changed files are also used by a step whose latest attempt is pending or failed (or the changed files are unknown and such a step exists) | the identity, the changed parts and files, and the unfinished steps | `invalidate RUN_ID 'IDENTITY'` then `resume`, with `--accept-changes` when an unfinished step is not proven clean (no `closure: unchanged` failure, or a parallel-map item); the same warning |
+| `effect_input_diverged`, a step without an active commit (failed or pending) whose files changed | the identity, the changed files, and why the change was not accepted: the attempt was interrupted, changed its own files, has no record, or is a parallel-map item | `resume --accept-changes`; `resume` after restoring the files; or a fresh `run` |
+| `effect_input_diverged`, a step without an active commit whose files are missing or unreadable, or whose other inputs changed | that its inputs changed | `resume` after restoring what changed; otherwise a fresh `run` |
 | `invalidate_not_committed` | whether the step has an unfinished attempt, its latest attempt failed, it was invalidated, or no step has that identity | `resume` for an unfinished, failed or invalidated step; then, after the warning that a step and every later one run again and workspace files are not rolled back, one `invalidate` command per committed identity in journal order (at most 20) |
 | `invalidate_coordinator_committed` | the committed run references or agent turns in the suffix | a fresh `run` |
 | `resume_result_root_changed`, `resume_run_ref_root_changed` | the recorded value | `resume` with the `--state-dir` or `--run-ref-root` value that matches the run |
@@ -704,7 +714,7 @@ the `resume` command.
 | `closed_program_gap`, `compiled_workflow_source_required`, `compiled_workflow_snapshot_conflict`, `command_boundary_closure_missing`, `command_boundary_manifest_invalid`, `command_result_inputs_invalid` | `compile`; `run`; the fresh build of `resume` | 2 | None; `run` creates no run root |
 | `workflow_lisp_cli_input_unsupported` | `compile` with a flat-route export flag | 2 | None |
 | Workflow input binding failure (a missing, unknown, mistyped or non-finite input): no named code; `run` and `--dry-run` print `Validation error: Workflow input binding failed`, `resume` prints `[resume_preflight_failed] Workflow input binding failed`; a `: <detail>` suffix follows only for a conversion or non-finite failure, a missing or unknown input prints the bare message | `run`; the fresh inputs of `resume` | 2 | None; `run` creates no run root |
-| `resume_preflight_failed` | `resume` refusals without a code of their own: a non-canonical `--run-ref-root`, an input binding failure, an unreadable recipe input file | 2 | None |
+| `resume_preflight_failed` | `resume` refusals without a code of their own: a non-canonical `--run-ref-root`, an input binding failure, an unreadable recipe input file, `--accept-changes` with no unfinished command attempt to accept (after memo replay) | 2 | None |
 | `command_transport_required`, `command_interpreter_missing` | `run` publication (a checked command without argv transport; a bare interpreter that does not resolve on `PATH` or is not launchable), printed as `Validation error: …` | 2 | None; no run root |
 | `reserved_run_root_changed` | any writer whose locked run root no longer matches its path: publication, execution, `resume` preflight, `invalidate` | publication and execution 1; `resume` preflight and `invalidate` 2 | Nothing written into the substitute root |
 | `memo_inconsistent` | `resume` preflight (including stored authority without command transport); `invalidate`; readers; during execution when evidence is unsettled at a start or at `halt` | 2 (`report`: 1; during execution 1 without a terminal) | None; readers report no outputs |
@@ -739,7 +749,7 @@ the `resume` command.
 | `view_write_failed` | derived-view replacement after an append | `run`/`resume` 1; `invalidate` 2 | The appended record stays authority; no `failed` row or terminal; readers reconstruct the view |
 | `memo_torn_tail`, `memo_write_failed`, `memo_sync_failed`, `memo_changed` | journal append or tail repair | 1 during execution; 2 in `resume` tail repair and in `invalidate` | No partial record is authority; a complete row that survived a failed sync still consumes its ordinal |
 | (no code) | an I/O failure during initial authority publication | 1 | Nothing dispatched; printed as `Unexpected error` with the errno (a named code is a recorded follow-up) |
-| `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals once the retry's `started` row is durable, so after its `run` and `start` lines |
+| `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals once the retry's `started` row is durable, so after its `run` and `start` lines; a retry whose declared files changed (accepted under step 10) ends with ` changed_files=<names>`, comma-separated |
 | `parallel_workspace_shared` | a later release | — | Not raised |
 
 <a id="workflow-lisp-repl-targets-235-and-236"></a>

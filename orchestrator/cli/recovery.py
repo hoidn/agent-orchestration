@@ -40,8 +40,8 @@ class _Context:
     def command(self, *words: str) -> str:
         return COMMAND_INDENT + self.launcher + " " + " ".join(shlex.quote(word) for word in words) + state_dir_flag(self.state_dir)
 
-    def resume(self) -> str:
-        return self.command("resume", self.run_id)
+    def resume(self, *flags: str) -> str:
+        return self.command("resume", self.run_id, *flags)
 
     def fresh_run(self, why: str) -> list[str]:
         if self.header is None or "resume_request" not in self.header:
@@ -125,7 +125,10 @@ def _inputs_changed(exc, context: _Context) -> list[str]:
 
 
 def _effect_diverged(exc, context: _Context) -> list[str]:
-    """Committed or not is read from the memo; `invalidate` is offered only when nothing unfinished shares the change."""
+    """Committed or not is read from the memo; a committed step's change shared by an unfinished step that no
+    clean failure covers adds `--accept-changes` to the `resume` after `invalidate`."""
+    from orchestrator.workflow.evaluated.attempts import proven_unchanged
+
     identity = getattr(exc, "identity", None)
     changed = _names(getattr(exc, "changed_files", ()))
     files = ", ".join(changed) or "none recorded"
@@ -135,22 +138,44 @@ def _effect_diverged(exc, context: _Context) -> list[str]:
                 "restore what changed and resume:", context.resume(),
                 *context.fresh_run("otherwise start a new run:")]
     if identity not in snapshot.active_commits:
-        what = (f"step {identity} did not finish, and its files changed since: {files}" if changed
-                else f"the inputs of step {identity} changed since its last attempt (see the message above)")
-        return [what, "restore what changed and resume:", context.resume(),
-                *context.fresh_run("otherwise start a new run; a step that did not finish cannot yet be "
-                                   "retried with changed files in the same run:")]
+        return _unfinished_step(identity, changed, files, context)
     unfinished = _unfinished_users(snapshot, identity, changed)
-    if unfinished:
-        return [f"the change ({files}) also affects {', '.join(unfinished)}, whose last attempt did not finish",
-                "a script fix after a failure cannot be resumed in this run: invalidating would run committed "
-                "steps again and resume would still refuse",
-                "restore the files as they were and resume:", context.resume(),
-                *context.fresh_run("or start a new run with the fixed files:")]
+    unproven = [other for other in unfinished if not proven_unchanged(snapshot, snapshot.latest_starts[other])]
     parts = ", ".join(getattr(exc, "changed_parts", ())) or "unknown"
-    return [f"step {identity} was committed with other inputs; changed: {parts}; files: {files}",
+    shared = ([f"the change also affects {', '.join(unfinished)}, whose last attempt did not finish"
+               + ("; resuming accepts its changed files" if unproven else "")] if unfinished else [])
+    return [f"step {identity} was committed with other inputs; changed: {parts}; files: {files}", *shared,
             "to run this step and every later one again (workspace files are not rolled back):",
-            context.command("invalidate", context.run_id, identity), context.resume()]
+            context.command("invalidate", context.run_id, identity),
+            context.resume("--accept-changes") if unproven else context.resume()]
+
+
+def _unfinished_step(identity: str, changed: list[str], files: str, context: _Context) -> list[str]:
+    """An uncommitted step: changed files can be accepted, since its last attempt is not proven clean (§8.1)."""
+    if not changed:
+        return [f"the inputs of step {identity} changed since its last attempt (see the message above)",
+                "restore what changed and resume:", context.resume(),
+                *context.fresh_run("otherwise start a new run:")]
+    return [f"step {identity} did not finish, and its files changed since: {files}; "
+            + _why_unproven(context.snapshot, identity),
+            "to retry it with the files as they are now:", context.resume("--accept-changes"),
+            "or restore the files as they were and resume:", context.resume(),
+            *context.fresh_run("or start a new run:")]
+
+
+def _why_unproven(snapshot, identity: str) -> str:
+    start = snapshot.latest_starts[identity]
+    failure = next((entry.data for entry in reversed(snapshot.entries) if entry.data["record"] == "failed"
+                    and entry.data.get("identity") == identity and entry.data.get("attempt") == start.data["attempt"]),
+                   None)
+    if failure is None:
+        return "its last attempt was interrupted, so it may have changed them itself"
+    closure = failure.get("closure")
+    if closure == "changed":
+        return "its last attempt changed its own declared files"
+    if closure is None:
+        return "its last attempt has no record of whether it changed them"
+    return "it is an item of a parallel map, where another item may have changed them after the failure"
 
 
 _NOT_COMMITTED = {

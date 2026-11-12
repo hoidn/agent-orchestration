@@ -11,6 +11,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 from tests.test_cli_run_output import cli, effect_rows, env
 
 PIPELINE = '''\
@@ -166,3 +168,183 @@ def test_misplaced_or_unknown_closure_value_is_memo_inconsistent(tmp_path: Path)
 
     _assert_memo_inconsistent(unknown, lambda *arguments: cli(unknown, *arguments))
     _assert_memo_inconsistent(provider, launch_provider)
+
+
+# T2: the retry rule and `resume --accept-changes`
+
+
+def tree_bytes(root: Path) -> dict[str, bytes]:
+    return {str(path.relative_to(root)): path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file()}
+
+
+def refuses_without_writes(root: Path, code: str, *flags: str) -> subprocess.CompletedProcess[str]:
+    before = tree_bytes(root / ".orchestrate")
+    result = cli(root, "resume", run_id(root), *flags)
+    assert result.returncode == 2, result.stderr
+    assert result.stderr.startswith(f"[{code}] "), result.stderr
+    assert tree_bytes(root / ".orchestrate") == before
+    return result
+
+
+def test_journal_without_the_field_refuses_until_accepted(tmp_path: Path) -> None:
+    write_four_steps(tmp_path, {"s3": BAD})
+    assert run_four(tmp_path).returncode == 1
+    _rewrite_failed(memo_path(tmp_path), lambda row: row.pop("closure"))
+    fix(tmp_path, "s3")
+
+    refuses_without_writes(tmp_path, "effect_input_diverged")
+    accepted = cli(tmp_path, "resume", run_id(tmp_path), "--accept-changes")
+
+    assert accepted.returncode == 0, accepted.stderr
+    assert started(accepted.stderr) == [IDENTITIES["s3"], IDENTITIES["s4"]]
+
+
+def test_must_not_repeat_refuses_after_a_fix_with_and_without_the_flag(tmp_path: Path) -> None:
+    write_four_steps(tmp_path, {"s3": BAD}, manifest={
+        "s3": {"stable_command": ["python", "s3.py"], "closure": ["s3.py"], "must_not_repeat": True}})
+    assert run_four(tmp_path).returncode == 1
+    fix(tmp_path, "s3")
+
+    refuses_without_writes(tmp_path, "lexical_restore_pending_effect_unsafe")
+    refuses_without_writes(tmp_path, "lexical_restore_pending_effect_unsafe", "--accept-changes")
+
+
+def test_missing_declared_file_refuses_with_and_without_the_flag(tmp_path: Path) -> None:
+    write_four_steps(tmp_path, {"s3": BAD}, manifest={
+        "s3": {"stable_command": ["python", "s3.py"], "closure": ["s3.py", "data.txt"]}})
+    (tmp_path / "data.txt").write_text("data\n", encoding="utf-8")
+    assert run_four(tmp_path).returncode == 1
+    fix(tmp_path, "s3")
+    (tmp_path / "data.txt").unlink()
+
+    plain = refuses_without_writes(tmp_path, "effect_input_diverged")
+    flagged = refuses_without_writes(tmp_path, "effect_input_diverged", "--accept-changes")
+
+    assert "--accept-changes" not in plain.stderr.split("\n", 1)[1] + flagged.stderr.split("\n", 1)[1]
+
+
+def test_accept_changes_with_nothing_to_accept_is_refused(tmp_path: Path) -> None:
+    completed, fixed, provider = (tmp_path / name for name in ("completed", "fixed", "provider"))
+    for root in (completed, fixed, provider):
+        root.mkdir()
+    write_four_steps(completed)
+    assert run_four(completed).returncode == 0
+    write_four_steps(fixed, {"s3": BAD})
+    assert run_four(fixed).returncode == 1
+    fix(fixed, "s3")
+    launch_provider = failed_provider_run(provider)
+
+    for root in (completed, fixed, provider):
+        refuses_without_writes(root, "resume_preflight_failed", "--accept-changes")
+    for root, resumed in ((completed, cli(completed, "resume", run_id(completed))),
+                          (fixed, cli(fixed, "resume", run_id(fixed))),
+                          (provider, launch_provider("resume", run_id(provider)))):
+        assert resumed.returncode == 0, (root, resumed.stderr)
+
+
+PARALLEL = '''\
+(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+  (defmodule main) (export run)
+  (defworkflow run () -> List[Int]
+    (list/map-effect ((repo (list "alpha" "beta" "gamma"))) :max 3 :parallel 2
+      :workspace (string/concat repo "/work")
+      (command-result fetch :argv ("python" "probe.py" "${loop.index}") :returns Int))))
+'''
+ITEM_GOOD = ('import json, os, sys\nfrom pathlib import Path\n'
+             'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(int(sys.argv[1]) + 10))\n')
+ITEM_SLEEP = 'import time\nfrom pathlib import Path\nPath("started").write_text("")\ntime.sleep(60)\n'
+
+
+def write_parallel(root: Path, scripts: dict[str, str]) -> None:
+    (root / "main.orc").write_text(PARALLEL, encoding="utf-8")
+    for item in ("alpha", "beta", "gamma"):
+        (root / item / "work").mkdir(parents=True)
+        (root / item / "work" / "probe.py").write_text(scripts.get(item, ITEM_GOOD), encoding="utf-8")
+    (root / "commands.json").write_text(json.dumps(
+        {"fetch": {"stable_command": ["python", "probe.py"], "closure": []}}), encoding="utf-8")
+
+
+def run_parallel(root: Path) -> subprocess.CompletedProcess[str]:
+    return cli(root, "run", "main.orc", "--command-boundaries-file", "commands.json")
+
+
+def item(index: int) -> str:
+    return f"workflow:main::run / par-map:repo[{index}] / #1"
+
+
+def test_failed_parallel_item_retries_alone_with_its_fixed_script(tmp_path: Path) -> None:
+    write_parallel(tmp_path, {"beta": BAD})
+    assert run_parallel(tmp_path).returncode == 1
+    (failed,) = failed_rows(tmp_path)
+    assert (failed["identity"], failed["closure"]) == (item(1), "unchanged")
+    (tmp_path / "beta" / "work" / "probe.py").write_text(ITEM_GOOD, encoding="utf-8")
+
+    refuses_without_writes(tmp_path, "effect_input_diverged")  # a sibling ran after the failure (decision 7)
+    accepted = cli(tmp_path, "resume", run_id(tmp_path), "--accept-changes")
+
+    assert accepted.returncode == 0, accepted.stderr
+    assert started(accepted.stderr) == [item(1)]
+    assert accepted.stdout.splitlines()[-1] == "[10,11,12]"
+
+
+def kill_when_started(root: Path, markers: list[Path], arguments: list[str]) -> None:
+    import signal
+    import time
+    process = subprocess.Popen([sys.executable, "-B", "-m", "orchestrator", *arguments], cwd=root, env=env(),
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    deadline = time.monotonic() + 60
+    while not all(marker.exists() for marker in markers):
+        assert time.monotonic() < deadline and process.poll() is None
+        time.sleep(0.05)
+    os.killpg(process.pid, signal.SIGKILL)
+    process.wait(timeout=60)
+
+
+def test_killed_parallel_items_refuse_until_accepted(tmp_path: Path) -> None:
+    write_parallel(tmp_path, {"alpha": ITEM_SLEEP, "beta": ITEM_SLEEP})
+    kill_when_started(tmp_path, [tmp_path / name / "work" / "started" for name in ("alpha", "beta")],
+                      ["run", "main.orc", "--command-boundaries-file", "commands.json"])
+    for name in ("alpha", "beta"):
+        (tmp_path / name / "work" / "probe.py").write_text(ITEM_GOOD, encoding="utf-8")
+
+    refuses_without_writes(tmp_path, "effect_input_diverged")
+    accepted = cli(tmp_path, "resume", run_id(tmp_path), "--accept-changes")
+
+    assert accepted.returncode == 0, accepted.stderr
+    assert {item(0), item(1)} <= set(started(accepted.stderr))
+    assert accepted.stdout.splitlines()[-1] == "[10,11,12]"
+
+
+def _shared_script_stopped_at_three(root: Path, how: str) -> str:
+    from tests.test_cli_run_output import SLOW_STEP, run_pipeline, write_pipeline
+    write_pipeline(root)
+    if how == "failed":
+        (root / "fail-three").write_text("", encoding="utf-8")
+        assert run_pipeline(root).returncode == 1
+        (root / "fail-three").unlink()
+    else:
+        (root / "step.py").write_text(SLOW_STEP, encoding="utf-8")
+        (root / "slow-three").write_text("", encoding="utf-8")
+        kill_when_started(root, [root / "started-three"],
+                          ["run", "main.orc", "--command-boundaries-file", "commands.json", "--input", "n=1"])
+        (root / "slow-three").unlink()
+    with (root / "step.py").open("a", encoding="utf-8") as stream:
+        stream.write("# edited\n")
+    return run_id(root)
+
+
+@pytest.mark.parametrize("how", ["failed", "killed"])
+def test_shared_script_fix_recovers_through_printed_invalidate_and_resume(tmp_path: Path, how: str) -> None:
+    from tests.test_cli_recovery_messages import commands
+    from tests.test_cli_run_output import IDENTITIES as SHARED, RESULT_LINE, shell
+    run = _shared_script_stopped_at_three(tmp_path, how)
+
+    refused = refuses_without_writes(tmp_path, "effect_input_diverged")
+
+    invalidate, resume = commands(refused.stderr)
+    assert invalidate.endswith(f" invalidate {run} '{SHARED[0]}'")
+    assert resume.endswith(f" resume {run}" + (" --accept-changes" if how == "killed" else ""))
+    assert shell(tmp_path, invalidate).returncode == 0
+    resumed = shell(tmp_path, resume)
+    assert resumed.returncode == 0, resumed.stderr
+    assert resumed.stdout.splitlines()[-1] == RESULT_LINE

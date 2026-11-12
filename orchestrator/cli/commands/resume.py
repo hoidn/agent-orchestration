@@ -11,7 +11,7 @@ from orchestrator.cli.commands.run import _state_root_symlink_error
 
 logger = logging.getLogger(__name__)
 
-def _evaluated_resume_route(run_root: Path, workspace: Path, *, force_restart: bool, run_ref_root: str | None, run_files=None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False) -> int | None:
+def _evaluated_resume_route(run_root: Path, workspace: Path, *, force_restart: bool, run_ref_root: str | None, run_files=None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False, accept_changes: bool = False) -> int | None:
     """Select immutable authority under the writer locks, before legacy state."""
     from orchestrator.workflow.evaluated.authority import PROFILE, SCHEMA_VERSION, RunAuthorityError, _read_header_json
     from orchestrator.cli.commands.evaluated import resume_evaluated_workflow
@@ -25,7 +25,7 @@ def _evaluated_resume_route(run_root: Path, workspace: Path, *, force_restart: b
         profile = header.get("result_persistence_profile")
         schema = header.get("schema_version")
         if profile == PROFILE and schema == SCHEMA_VERSION:
-            return resume_evaluated_workflow(run_root, workspace=workspace, force_restart=force_restart, run_ref_root=run_ref_root, run_files=run_files, stream_output=stream_output, quiet=quiet, state_dir=state_dir, terminal_lines=terminal_lines)
+            return resume_evaluated_workflow(run_root, workspace=workspace, force_restart=force_restart, run_ref_root=run_ref_root, run_files=run_files, stream_output=stream_output, quiet=quiet, state_dir=state_dir, terminal_lines=terminal_lines, accept_changes=accept_changes)
         if schema == "2.1" and profile in (None, DERIVED_PURE_REPLAY_PROFILE):
             return None
         raise RunAuthorityError("unsupported run authority profile or schema")
@@ -95,7 +95,7 @@ def resume_workflow(
             run_fd = writer_locks.enter_context(run_writer_lock(run_root))
             run_files = WorkspaceFiles(run_root, root_fd=run_fd)
             writer_locks.callback(run_files.close)
-            evaluated_exit = _evaluated_resume_route(run_root, workspace_dir, force_restart=force_restart, run_ref_root=run_ref_root, run_files=run_files, stream_output=not kwargs.get("quiet", False), quiet=kwargs.get("quiet", False), state_dir=state_dir, terminal_lines=kwargs.get("terminal_lines", False))
+            evaluated_exit = _evaluated_resume_route(run_root, workspace_dir, force_restart=force_restart, run_ref_root=run_ref_root, run_files=run_files, stream_output=not kwargs.get("quiet", False), quiet=kwargs.get("quiet", False), state_dir=state_dir, terminal_lines=kwargs.get("terminal_lines", False), accept_changes=kwargs.get("accept_changes", False))
             if evaluated_exit is not None:
                 return evaluated_exit
             from orchestrator.workflow.evaluated.authority import RunAuthorityError

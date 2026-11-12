@@ -205,7 +205,7 @@ def prepare_evaluated_resume(run_root: Path, *, workspace: Path, force_restart=F
     return authority, inputs, provider_io
 
 
-def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False) -> int:
+def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False, accept_changes: bool = False) -> int:
     """Rebuild and compare before loading the stored program, pins or memo.
 
     `terminal_lines` (the command line sets it) prints progress, recovery lines and the result.
@@ -215,6 +215,7 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
         authority, inputs, provider_io = prepare_evaluated_resume(
             run_root, workspace=workspace, force_restart=force_restart,
             run_ref_root=run_ref_root, run_files=run_files)
+        authority = replace(authority, accept_changes=accept_changes)
         _warn_changed_interpreters(authority)
         reporter.announce(lazy=True)
         exit_code, _ = _execute_reported(
