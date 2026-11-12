@@ -341,6 +341,16 @@ def test_each_edit_kind_prints_its_kept_and_cancelled_steps(completed, tmp_path,
     assert plan["token"] and re.fullmatch(r"plan-[0-9a-f]{8}(-[0-9a-f]{8}){3}", plan["token"][0])
 
 
+def test_a_step_of_another_class_at_the_same_identity_is_not_reused(completed, tmp_path):
+    root, run_root = _copy(completed(class_change), tmp_path)
+    for name, old, new in EDITS["a step becomes another class at the same identity"][1]:
+        edit(root, old, new, name)
+
+    plan = printed_plan(refused(root, run_root).stderr)
+
+    assert plan["cut is at"] == [f"{P}s2: it is a request_input step in the edited program"]
+
+
 def test_inserted_step_runs_first_and_the_cut_names_what_runs_before_it(completed, tmp_path):
     root, run_root = _copy(completed(serial), tmp_path)
     edit(root, "           (s2 ", f"           (x {NEW})\n           (s2 ")
@@ -591,10 +601,13 @@ def test_plan_refusal_changes_no_byte_and_keeps_code_and_exit(completed, tmp_pat
 def test_a_host_request_whose_recorded_identity_was_altered_refuses_and_is_not_cancelled(host_base, tmp_path):
     """Corruption is not "not reusable": a stored request whose ID does not belong to this run stays a refusal."""
     root, run_root = _copy(host_base, tmp_path)
-    rows = fx.rows(run_root)
-    for row in rows:
-        if row["record"] == "started" and "host_request" in row:
-            row["host_request"]["request_id"] = "sha256:" + "0" * 64
+    (request,) = [row["host_request"] for row in fx.rows(run_root) if "host_request" in row]
+    text = (run_root / "memo.jsonl").read_text().replace(request["request_id"], "sha256:" + "0" * 64)
+    rows = [json.loads(line) for line in text.splitlines()]
+    for row in rows:              # a well-formed request whose ID is not this run's; every digest over it recomputed
+        if "host_request" in row:
+            row["host_request"]["payload_digest"] = canonical_sha256(
+                {k: v for k, v in row["host_request"].items() if k != "payload_digest"})
     (run_root / "memo.jsonl").write_bytes(b"".join(json.dumps(row, sort_keys=True, separators=(",", ":")).encode()
                                                    + b"\n" for row in rows))
     edit(root, cmd("s3", "s1"), cmd("s3", "(+ s1 1)"))
@@ -764,7 +777,8 @@ def test_committed_agent_turn_after_the_cut_refuses(tmp_path):
     assert no_plan(refused_process(root, run_root, env).stderr) == "invalidate_coordinator_committed"
 
 
-def test_pending_agent_turn_after_the_cut_refuses(tmp_path):
+def pending_turn_run(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
+    """`c` committed, then the agent turn `b1` killed after its native turn completed, before `committed`."""
     from tests.agent_session_shims import FAKE_CODEX, closed_path
     from tests.test_workflow_evaluated_agent_turn_recovery import STOP_AFTER_RECEIPT, _stopped
     from tests.test_workflow_evaluated_edit_resume_baseline import _shim
@@ -781,9 +795,28 @@ def test_pending_agent_turn_after_the_cut_refuses(tmp_path):
     _stopped(root, STOP_AFTER_RECEIPT, {**env, "STOP_AT_COMPLETION": "completed", "STOP_TURN": "/ b1"},
              "run", *RUN_ARGS, "--source-root", ".", "--provider-externs-file", "providers.json", "--input", "task=t")
     (run_root,) = (root / ".orchestrate" / "runs").iterdir()
-    edit(root, '"c" 0)', '"c" 1)')
+    return root, run_root, env
+
+
+@pytest.mark.parametrize("edited", ["the step before it", "its own prompt"])
+def test_pending_agent_turn_at_or_after_the_cut_refuses(tmp_path, edited):
+    """Before it: the cut lies before the pending turn. Its prompt: reached next, but not kept (comparison point 3)."""
+    root, run_root, env = pending_turn_run(tmp_path)
+    if edited == "the step before it":
+        edit(root, '"c" 0)', '"c" 1)')
+    else:
+        edit(root, '"Review: {text}"', '"Review again: {text}"')
 
     assert no_plan(refused_process(root, run_root, env).stderr) == "invalidate_agent_session_advanced"
+
+
+def test_pending_agent_turn_reached_next_with_its_input_unchanged_is_kept(tmp_path):
+    root, run_root, env = pending_turn_run(tmp_path)
+    edit(root, "      c))", "      (+ c 1)))")
+
+    plan = printed_plan(refused_process(root, run_root, env).stderr)
+
+    assert (plan["cancelled"], plan["retired"], plan["runs first"]) == ([], [], ["workflow:pipe::run / b1"])
 
 
 def test_pre_change_pending_agent_turn_is_kept_under_an_edit_that_moves_positions():
