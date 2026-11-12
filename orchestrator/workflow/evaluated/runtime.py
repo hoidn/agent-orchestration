@@ -8,7 +8,7 @@ import logging
 import sys
 from pathlib import Path
 import time
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from orchestrator.workflow.evaluated.attempts import allocate_attempt, attempt_paths
 from orchestrator.workflow.evaluated.commands import CommandPerformerError, command_result  # noqa: F401 (re-export)
@@ -79,6 +79,7 @@ def execute_pure_run(
     stream_output: bool = False,
     confined: Any = None,
     expire_host_input: bool = False,
+    on_error: Callable[[Exception], None] | None = None,
 ) -> tuple[int, Any]:
     """Evaluate the checked table and persist its terminal outcome under its writer lock.
 
@@ -88,7 +89,7 @@ def execute_pure_run(
     if not isinstance(authority, RunAuthority):
         raise TypeError("authority must be a checked RunAuthority")
     if authority.confined and confined is None and site_classes(authority.program):
-        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED))
+        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED), on_error)
     workspace = Path(workspace).resolve(strict=True)
     checked_site_classes = site_classes(authority.program)
     run_files = authority.run_files or WorkspaceFiles(authority.run_root)
@@ -155,6 +156,8 @@ def execute_pure_run(
             code = getattr(exc, "code", "evaluated_execution_failed")
             message = str(exc) or code
             logger.error("[%s] %s", code, message)
+            if on_error is not None:
+                on_error(exc)
             if _can_append_failure_terminal(exc):
                 if confined is not None:
                     confined.record_failure(authority, exc)
@@ -168,6 +171,8 @@ def execute_pure_run(
         code = getattr(exc, "code", "evaluated_execution_failed")
         message = str(exc) or code
         logger.error("[%s] %s", code, message)
+        if on_error is not None:
+            on_error(exc)
         return 1, None
     finally:
         views.close()
@@ -200,12 +205,17 @@ def execute_pure_resume(
     provider_io: ProviderIOContext | None = None,
     stream_output: bool = False,
     confined: Any = None,
+    on_error: Callable[[Exception], None] | None = None,
 ) -> tuple[int, Any]:
-    """Replay committed effects before allowing resume to repair or continue."""
+    """Replay committed effects before allowing resume to repair or continue.
+
+    `on_error` (here and in `execute_pure_run`) receives each exception turned into exit 1 or 2,
+    after it is logged.
+    """
     if not isinstance(authority, RunAuthority):
         raise TypeError("authority must be a checked RunAuthority")
     if authority.confined and confined is None and site_classes(authority.program):
-        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED))
+        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED), on_error)
     workspace = Path(workspace).resolve(strict=True)
     checked_site_classes = site_classes(authority.program)
     try:
@@ -216,10 +226,10 @@ def execute_pure_resume(
     except Exception as exc:
         if confined is not None:
             confined.resume_error = exc
-        return _resume_refusal(exc)
+        return _resume_refusal(exc, on_error)
     if consumed != len(commits):
-        return _resume_refusal(MemoError("memo_inconsistent", "active commits remain after replay"))
-    terminal_result = _replayed_halt_result(snapshot, value, reached_boundary)
+        return _resume_refusal(MemoError("memo_inconsistent", "active commits remain after replay"), on_error)
+    terminal_result = _replayed_halt_result(snapshot, value, reached_boundary, on_error)
     if terminal_result is not None:
         if terminal_result[0] == 0:
             from .run_ref import retry_evaluated_cleanup
@@ -230,16 +240,16 @@ def execute_pure_resume(
                 if pending:
                     return 2, terminal_result[1]
             except Exception as exc:
-                return _resume_refusal(exc)
+                return _resume_refusal(exc, on_error)
         return terminal_result
     if snapshot.tail:
         try:
             repair_torn_tail(authority.memo_path, snapshot, run_files=authority.run_files)
         except Exception as exc:
-            return _resume_refusal(exc)
+            return _resume_refusal(exc, on_error)
     result = execute_pure_run(
         authority, inputs, run_id=run_id, workspace=workspace, provider_io=provider_io,
-        stream_output=stream_output, confined=confined, expire_host_input=True,
+        stream_output=stream_output, confined=confined, expire_host_input=True, on_error=on_error,
     )
     if result[0] == 0:
         from .run_ref import retry_evaluated_cleanup
@@ -251,7 +261,7 @@ def execute_pure_resume(
             if pending:
                 return 2, result[1]
         except Exception as exc:
-            return _resume_refusal(exc)
+            return _resume_refusal(exc, on_error)
     return result
 
 
@@ -369,7 +379,7 @@ def prepare_effect(
             provider_executor=provider_executor, launch_cwd=launch_cwd, stream_output=stream_output, views=views))
     if baseline is not None and node.get("repeat") == "never":
         raise effect_inputs._PreflightRefusal("lexical_restore_pending_effect_unsafe",
-            f"{identity}: effect declares that it must not be repeated")
+            f"{identity}: effect declares that it must not be repeated", identity=identity)
     if baseline is not None:
         code = "provider_attempt_interrupted_rerun" if node['class'] == 'provider_phased' else "effect_rerun"
         logger.warning("[%s] %s attempts=%s", code, identity, list(range(1, ordinal)))

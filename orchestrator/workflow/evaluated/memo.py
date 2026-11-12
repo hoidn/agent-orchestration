@@ -166,10 +166,17 @@ def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str]
     snapshot = read_memo(path, site_classes, run_files=run_files)
     chosen = snapshot.active_commits.get(identity)
     if chosen is None:
-        raise MemoError("invalidate_not_committed", identity)
+        error = MemoError("invalidate_not_committed", identity)
+        error.identity, error.committed = identity, list(snapshot.active_commits)
+        error.pending = identity in snapshot.pending_starts
+        error.failed = not error.pending and identity in snapshot.latest_starts
+        raise error
     suffix = [item for item in snapshot.active_commits.values() if item.offset >= chosen.offset]
-    if any(is_coordinator_class(item.data["effect_class"]) for item in suffix):
-        raise MemoError("invalidate_coordinator_committed", identity)
+    coordinators = [item.data["identity"] for item in suffix if is_coordinator_class(item.data["effect_class"])]
+    if coordinators:
+        error = MemoError("invalidate_coordinator_committed", identity)
+        error.coordinators = coordinators
+        raise error
     if checked_authority is not None:
         from .run_ref import guard_confined_invalidation
         guard_confined_invalidation(checked_authority, snapshot, chosen.offset)

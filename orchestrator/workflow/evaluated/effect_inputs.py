@@ -35,18 +35,23 @@ from .run_ref import require_run_ref_root, resolve_run_ref_input, validate_evalu
 
 
 class _PreflightRefusal(RuntimeError):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, *, identity: str | None = None) -> None:
         self.code = code
         self.preflight = True
+        self.identity = identity
         super().__init__(message)
 
 
 class _EffectInputDiverged(_PreflightRefusal):
-    def __init__(self, identity: str, detail: str) -> None:
+    """`retry` marks a failed step whose files changed; `changed_files` are implementation-file keys."""
+
+    def __init__(self, identity: str, detail: str, *, changed_parts=(), changed_files=(), retry=False) -> None:
         super().__init__(
             "effect_input_diverged",
             f"{identity}: effect input diverged ({detail})",
+            identity=identity,
         )
+        self.changed_parts, self.changed_files, self.retry = list(changed_parts), list(changed_files), retry
 
 
 def _replay_committed_effect(authority, node, operands, identity, reader, commit, workspace, snapshot, owner, *,
@@ -61,7 +66,8 @@ def _replay_committed_effect(authority, node, operands, identity, reader, commit
     if node["class"] == "agent_turn":
         dependencies = list(turn_dependencies(resolved, dependencies))
     result = _reuse_effect_commit(
-        authority, commit, node, identity, parts, canonical_sha256(parts), dependencies
+        authority, commit, node, identity, parts, canonical_sha256(parts), dependencies,
+        implementation_files=_implementation_files,
     )
     settled = (identity, commit.data["attempt"]) in snapshot.settlements
     if node["class"] == "run_ref":
@@ -484,10 +490,12 @@ def _check_retry_implementation(identity, baseline, implementation_files) -> Non
     if baseline is None or implementation_files == baseline.data["implementation_files"]:
         return
     changed = _changed_evidence(baseline.data["implementation_files"], implementation_files)
-    raise _EffectInputDiverged(identity, f"retry implementation files changed: {changed}")
+    raise _EffectInputDiverged(identity, f"retry implementation files changed: {changed}",
+                               changed_files=changed, retry=True)
 
 
-def _reuse_effect_commit(authority, commit, node, identity, parts, input_digest, dependencies):
+def _reuse_effect_commit(authority, commit, node, identity, parts, input_digest, dependencies,
+                         implementation_files=None):
     row = commit.data
     changed_parts = sorted(
         name for name in set(parts) | set(row["input_parts"])
@@ -498,6 +506,8 @@ def _reuse_effect_commit(authority, commit, node, identity, parts, input_digest,
         raise _EffectInputDiverged(
             identity,
             f"input parts changed: {changed_parts}; dependency identities changed: {dependency_changed}; previous {row['input_digest']}, current {input_digest}",
+            changed_parts=changed_parts, changed_files=() if implementation_files is None else
+            _changed_evidence(row.get("implementation_files") or {}, implementation_files),
         )
     return coerce_evaluated_value(
         row["value"],

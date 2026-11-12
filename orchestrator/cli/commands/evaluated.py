@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import replace
+from functools import partial
 import os
 import hashlib
 import logging
@@ -152,8 +153,9 @@ def _resume_build_request(header: Mapping[str, Any], workspace: Path, run_files=
 
 
 class _ResumeRefusal(ValueError):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, **details: Any):
         self.code = code
+        self.__dict__.update(details)
         super().__init__(message)
 
 
@@ -193,10 +195,13 @@ def prepare_evaluated_resume(run_root: Path, *, workspace: Path, force_restart=F
     fresh = prepare_closed_program_bundle(request, source_read_trace=SourceReadTrace())
     refuse_confined_run_ref_sites(fresh.program)
     if fresh.program.digest != header["program_digest"]:
-        raise _ResumeRefusal("resume_program_changed", "current program differs from the run header")
+        raise _ResumeRefusal("resume_program_changed", "current program differs from the run header",
+                             fresh_program=fresh.program)
     inputs = _bind_recipe(fresh.program, recipe, workspace, run_files)
     if canonical_sha256(inputs) != header["input_digest"]:
-        raise _ResumeRefusal("resume_inputs_changed", "current bound inputs differ from the run header")
+        recorded = header.get("bound_inputs", {})
+        raise _ResumeRefusal("resume_inputs_changed", "current bound inputs differ from the run header",
+                             changed_inputs=sorted(name for name in {*recorded, *inputs} if recorded.get(name) != inputs.get(name)))
     authority = load_run_authority(run_root, header=header, run_files=run_files)
     provider_io = fresh.provider_io.bind(authority.program)
     return authority, inputs, provider_io
@@ -204,14 +209,17 @@ def prepare_evaluated_resume(run_root: Path, *, workspace: Path, force_restart=F
 
 def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None) -> int:
     """Rebuild and compare before loading the stored program, pins or memo."""
+    reporter = TerminalReporter(run_root.name, run_root, quiet=quiet, state_dir=state_dir)
     try:
         authority, inputs, provider_io = prepare_evaluated_resume(
             run_root, workspace=workspace, force_restart=force_restart,
             run_ref_root=run_ref_root, run_files=run_files)
         _warn_changed_interpreters(authority)
-        reporter = TerminalReporter(run_root.name, run_root, quiet=quiet, state_dir=state_dir)
-        reporter.announce()
-        exit_code, value = execute_pure_resume(replace(authority, observer=reporter.record), inputs, run_id=run_root.name, workspace=workspace, provider_io=provider_io, stream_output=stream_output)
+        reporter.announce(lazy=True)
+        exit_code, value = execute_pure_resume(
+            replace(authority, observer=reporter.record), inputs, run_id=run_root.name, workspace=workspace,
+            provider_io=provider_io, stream_output=stream_output,
+            on_error=partial(reporter.error, header=authority.header, stored_program=authority.program))
         _report_outcome(reporter, authority, exit_code, value)
         return exit_code
     except LispFrontendCompileError as exc:
@@ -220,6 +228,7 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
         return 2
     except (OSError, UnicodeError, ValueError, ReservedRunRootError) as exc:
         logger.error("[%s] %s", getattr(exc, "code", "resume_preflight_failed"), exc)
+        reporter.error(exc, **_stored_context(exc, run_root, run_files))
         return 2
 
 
@@ -293,6 +302,7 @@ def run_evaluated_workflow(
                     workspace=workspace,
                     provider_io=built.provider_io,
                     stream_output=not getattr(args, "quiet", False),
+                    on_error=partial(reporter.error, header=authority.header),
                 )
                 _report_outcome(reporter, authority, exit_code, value)
                 return exit_code, state_manager.run_id, state_manager.run_root, _run_outputs(exit_code, value)
@@ -411,13 +421,36 @@ def _run_outputs(exit_code, value):
 def _report_outcome(reporter: TerminalReporter, authority, exit_code: int, value: Any) -> None:
     """The resume line after a failure; the result, or the waiting line of a suspended run."""
     if exit_code != 0:
-        reporter.run_failed()
+        if reporter.resumable(exit_code):
+            reporter.run_failed()
         return
     snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=authority.run_files)
     if snapshot.terminal is None:
         reporter.waiting(snapshot.suspensions)
     else:
         reporter.result(value)
+
+
+def _stored_context(exc, run_root, run_files) -> dict[str, Any]:
+    """The recorded header, and for a program change the stored program, for the recovery lines.
+
+    Read only after the refusal is decided, and never as authority: an unreadable header drops the
+    commands that need it, and a stored program that does not match the header digest drops the diff.
+    """
+    from orchestrator.contracts.closed_program.program import ClosedProgram
+    from orchestrator.workflow.evaluated.authority import PROGRAM_FILENAME, _read_file
+
+    try:
+        header = load_run_header(run_root, run_files=run_files)
+    except (OSError, UnicodeError, ValueError):
+        return {}
+    if getattr(exc, "code", None) != "resume_program_changed":
+        return {"header": header}
+    try:
+        stored = ClosedProgram.from_artifact(_read_file(run_root / PROGRAM_FILENAME, run_files).decode("utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return {"header": header}
+    return {"header": header, "stored_program": stored if stored.digest == header["program_digest"] else None}
 
 
 def _show_compile_warnings(built, args) -> None:

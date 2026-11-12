@@ -86,6 +86,20 @@ def _invalidate_retained(run_root, identity, run_files):
     )
 
 
+def _recovery_lines(exc: Exception, run_id: str, state_dir: str | None) -> list[str]:
+    """Recovery lines; without a readable header they omit the commands that need it."""
+    from orchestrator.cli.progress import launcher
+    from orchestrator.cli.recovery import recovery_lines
+    from orchestrator.workflow.evaluated.authority import load_run_header
+
+    try:
+        runs_root = Path(state_dir).expanduser().resolve() if state_dir else Path.cwd() / ".orchestrate" / "runs"
+        header = load_run_header(runs_root / run_id)
+    except (OSError, UnicodeError, ValueError, RuntimeError):
+        header = None
+    return recovery_lines(exc, run_id=run_id, launcher=launcher(), state_dir=state_dir, header=header)
+
+
 def invalidate_command(
     run_id: str,
     identity: str,
@@ -99,6 +113,8 @@ def invalidate_command(
         code = getattr(exc, "code", "memo_inconsistent")
         detail = getattr(exc, "detail", str(exc))
         print(f"[{code}] {detail}", file=sys.stderr)
+        for line in _recovery_lines(exc, run_id, state_dir):
+            print(line, file=sys.stderr)
         return 2
     print(json.dumps(record, ensure_ascii=True, sort_keys=True))
     return 0
