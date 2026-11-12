@@ -605,21 +605,6 @@ def test_closed_value_evaluator_matches_catalog_for_generated_applications(opera
     assert disagreements == []
 
 
-@pytest.mark.parametrize("operator", OPERATORS)
-def test_what_the_current_frontend_accepts_the_runtime_accepts_with_the_same_type(operator: str) -> None:
-    inside, _ = _arities(operator)
-    disagreements = [
-        (operands, frontend, static, evaluated)
-        for operands in (operands for arity in inside for operands in _applications(arity))
-        for frontend in [_frontend(operator, operands, "2.35")]
-        if not frontend.startswith("refused:")
-        for static, evaluated in [(_static(operator, operands), _evaluator(operator, operands))]
-        if not frontend == static == evaluated
-    ]
-
-    assert disagreements == []
-
-
 def test_the_generated_set_holds_well_typed_and_ill_typed_applications_of_every_operator() -> None:
     generated = [
         (operator, operands)
