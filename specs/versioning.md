@@ -462,12 +462,11 @@ own delivery status and captured evidence.
     checkpoint, and runtime bytes.
 
 - v2.25 additions (Workflow Lisp bounded static trials)
-  - Target `2.25` adds one durable `trial` effect over 2–16 statically authored
-    E1 `run-ref` arms, 1–64 repetitions, at most 256 cells, and an arm
-    concurrency cap in 1–32. Every arm has the same normalized value
-    descriptor. Failures are typed outcomes, collection order is authored
-    order rather than completion order, and nested or dynamically assembled
-    trials remain invalid.
+  - Target `2.25` added one durable `trial` effect over 2–16 statically authored
+    E1 `run-ref` arms with a blinded evaluator verdict, the `orchestrate trial` command and the
+    `run_trial_entry` SDK. All of them were removed on 2026-11-12 (packages kept at git tag
+    `archive/dead-executors-2026-11-11`; the whole runtime: commit `08cdd59b`). See the
+    [salvage record](../docs/design/trial_and_adjudication_salvage.md).
   - Target 2.25 also makes one generic transport correction: recursively
     transportable records and closed unions may occur below bounded list,
     optional, and string-keyed map containers. The maximum descriptor/value
@@ -477,59 +476,6 @@ own delivery status and captured evidence.
     `ensure_ascii=False`, and separators `(",", ":")`; raw bundle or file
     bytes are not the measurement surface. These are transport resource
     bounds, not security or isolation claims.
-  - `TrialStaticConfig.digest` binds target/lowering, source site, authored arm
-    order and E1 config digests, common result contract, repetitions,
-    evaluation, budget, and compiler/runtime identities. The runtime request
-    additionally binds parent run/frame/step/visit and resolved inputs.
-    Completion timing/order, paths, opaque-label salt, provider output, and
-    report bytes remain identity-neutral.
-  - `trial_event_ledger.v1` is one coordinator-written exact-scope ledger. A
-    cell settles between its prepared E1 row and adjacent E1 committed edge;
-    incomplete work discards and reruns at a fresh ordinal, exact committed
-    cells reuse, and terminal trial settlement is one atomic parent result
-    transition followed by its adjacent ledger commit. State schema stays
-    `2.1` and the lexical policy is `reuse_validated_trial_result`.
-  - Durable trial state contains validated effect/public-boundary facts only.
-    Pure ordering, median/ranking, rendered packet/report views, and other
-    derived values use `derived_pure_replay.v1` exact value-free completion
-    shells and transient replay. No derived-value cache, effect-identity memo,
-    cross-run memo, or optimizer state is introduced.
-  - The runtime freezes all admitted outcomes before checks or scoring, builds
-    closed canonically bounded opaque packets, excludes treatment and authored
-    arm/workflow identity plus lineage/provider/completion-order/sidecar facts,
-    while retaining selected normalized workspace-delta and declared-artifact
-    evidence. It validates packet-only citations and strict evaluator JSON,
-    enforces child/evaluator concurrency, deadlines, and total
-    evaluator-attempt accounting, then writes one digest-bound verdict
-    artifact. Existing evaluator transport and scorer identity are reused;
-    candidate fan-out, single-winner selection, artifact promotion, and source
-    promotion are not.
-  - The experimental Python surface is the ordinary compile-and-run service:
-
-    ```python
-    run_trial_entry(
-        workflow_file=Path(...),
-        entry_workflow="...",
-        inputs={...},
-        workspace=Path(...),
-        state_dir=Path(...),
-        run_ref_root=Path(...),
-    ) -> TrialRunResult
-    ```
-
-    The CLI is exactly
-    `orchestrate trial WORKFLOW --entry-workflow NAME` plus the ordinary
-    input, source-root, extern, state, and run-ref-root flags. Both require a
-    target-2.25 entry whose terminal public result is the exact compiler-owned
-    trial result, use the ordinary full compiler and executor, and return the
-    same closed versioned summary of run ID, terminal status, verdict
-    digest/path, and bounded failure diagnostic. They reject raw executable
-    configs, non-trial results, wrong targets, and privileged bypasses.
-  - Cloned workspaces and subprocesses are exact operational/output
-    boundaries, not an OS sandbox. This target adds no isolation, permissions,
-    secrets, capability, or other security mechanism. Generated candidate
-    admission retains target-2.24's deterministic-effect-free requirement
-    unless separate positive sandbox evidence already exists.
   - `trial` and the nested structural transport widening are gated at 2.25;
     earlier targets cannot opt in through Core fields or internal carriers.
     Targets through 2.24 remain byte-compatible in accepted source, compiler,
@@ -934,8 +880,8 @@ own delivery status and captured evidence.
   - `evaluated_execution_unavailable` refuses `resume --force-restart` on an
     admitted evaluated run. Historical schema-2.1 resume now refuses first with
     `workflow_execution_profile_retired`, even if its source has an evaluated
-    header; it never chooses a flat runtime. Old entry compile/run/dry-run and
-    retired trials/SDK use `workflow_execution_target_retired`;
+    header; it never chooses a flat runtime. Old entry compile/run/dry-run use
+    `workflow_execution_target_retired`;
     `prompt run`/`import` use `prompt_execution_retired`. Flat `explain` views
     refuse with `workflow_explain_retired`, exit 2 before reads/writes, with
     no evaluated replacement. Sites/exits:
@@ -1273,7 +1219,7 @@ retired. Run-ref still enforces its independent feature restrictions.
 | 2.22 | Workflow Lisp direct-fragment prompt-attempt identity, functional-v2 evidence, and additive prompt-context reports | Requires the compiler-owned identity-version/binding-plan pair, seals five content-free roles plus exact prepared-prompt composition after invocation preparation and before launch, classifies retry drift in fixed order, and preserves target-2.20/2.21 execution and evidence bytes. |
 | 2.23 | Workflow Lisp explicit phased contract delivery | Adds optional `:delivery :composed|:phased` and phased-only literal materialization attempts, exact `T1 || T2 == C` delivery inside one provider process, bounded same-client correction, identity-v2/functional-v3/phase-ledger evidence, and report-v2 actual-delivery comparison. Omitted/explicit composed calls preserve the ordinary path and identity-v1/functional-v2 bytes; state schema remains `2.1`. |
 | 2.24 | Workflow Lisp pinned child execution through `run-ref` | Adds exact repository/materialization identity, statically compiled-bundle and ordinary full child-compile program modes, all transportable inputs/results, deterministic workspace/accounting evidence, separate parent/child roots and writers, and at-least-once incomplete-attempt discard/fresh-rerun plus validated committed reuse. Mode 1 never recompiles; mode 2 v1 admits only deterministic effect-free candidates; effect-loop placement is deferred. State schema remains `2.1`. |
-| 2.25 | Workflow Lisp bounded static `trial` over `run-ref` | Adds homogeneous compiler-generated trial outcome/verdict contracts, bounded arm/repetition concurrency, coordinator-only settlement, M2-compatible persistence, frozen blinded evaluation, packet-only citations, exact budgets, and the ordinary-compiler SDK/CLI boundary. It also admits generically bounded recursive structural transport at depth 64 and at most 16,777,216 canonical UTF-8 JSON bytes. State schema remains `2.1`; no security mechanism is added. |
+| 2.25 | Workflow Lisp bounded static `trial` over `run-ref` | Added the `trial` effect with frozen blinded evaluation and its SDK/CLI; removed on 2026-11-12 ([salvage record](../docs/design/trial_and_adjudication_salvage.md)). It also admits generically bounded recursive structural transport at depth 64 and at most 16,777,216 canonical UTF-8 JSON bytes. State schema remains `2.1`; no security mechanism is added. |
 | 2.26 | Workflow Lisp strict Boolean control flow: arbitrary exact-`Bool` `if`/`cond` conditions, effectful short-circuit normalization, and `.variant`-derived union proof | Generalizes `if` and adds `cond` as nested-`if` sugar with typed exhaustiveness; condition effects run left to right at most once with `and`/`or` short circuit; typed `.variant` comparisons establish branch-local proof carried into the existing `requires_variant` guard and resume descriptor. State schema stays `2.1`; no new runtime/public-IR/state form. |
 | 2.27 | Workflow Lisp explicit fresh-session artifact | Adds one optional entry-root/sequential-spine `provider-result :session-artifact <bare-symbol>` that synthesizes a scalar String artifact and reuses existing fresh `provider_session` publication. Omission stays transient; invalid placement, duplicates, collisions, unsupported templates, and targets below 2.27 reject. State schema remains `2.1`; no new public IR/runtime form. |
 | 2.28 | Workflow Lisp whole-union prompt inputs | Adds direct closed-union and eligible list-of-union inputs through the existing canonical renderer. Variant-shaped compiler sources resolve only active payloads; literal/ref data remain distinct. Existing output contracts, phase fallback, old targets, and state schema `2.1` are preserved. |
