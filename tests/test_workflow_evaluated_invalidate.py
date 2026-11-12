@@ -12,6 +12,7 @@ from orchestrator.workflow.evaluated.authority import PROFILE, SCHEMA_VERSION, l
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow.evaluated.views import load_evaluated_view
+from tests.workflow_inprocess_cli_helpers import cli_inprocess
 
 
 PROGRAM = '''\
@@ -109,7 +110,7 @@ def _completed_run(root: Path, *, value: int = 20, state_dir: Path | None = None
     arguments = ["run", str(source), "--command-boundaries-file", str(boundaries)]
     if state_dir is not None:
         arguments.extend(["--state-dir", str(state_dir)])
-    result = _cli(root, *arguments)
+    result = cli_inprocess(root, *arguments)
     assert result.returncode == 0, result.stderr
     runs_root = state_dir if state_dir is not None else root / ".orchestrate" / "runs"
     (run_root,) = runs_root.iterdir()
@@ -123,7 +124,7 @@ def _first_commit(run_root: Path):
 
 def _pab_baseline(root: Path) -> dict[str, object]:
     source, boundaries = _fixture(root, 20)
-    run = _cli(root, "run", str(source), "--command-boundaries-file", str(boundaries))
+    run = cli_inprocess(root, "run", str(source), "--command-boundaries-file", str(boundaries))
     assert run.returncode == 0, run.stderr
     (run_root,) = (root / ".orchestrate" / "runs").iterdir()
     rows, snapshot = _memo(run_root)
@@ -253,7 +254,7 @@ def _fresh_file_handoff(root: Path):
     fresh_root = root / "fresh"
     fresh_root.mkdir()
     source, boundaries = _fixture(fresh_root, 21)
-    result = _cli(fresh_root, "run", str(source), "--command-boundaries-file", str(boundaries))
+    result = cli_inprocess(fresh_root, "run", str(source), "--command-boundaries-file", str(boundaries))
     assert result.returncode == 0, result.stderr
     (run_root,) = (fresh_root / ".orchestrate" / "runs").iterdir()
     _rows, snapshot = _memo(run_root)
