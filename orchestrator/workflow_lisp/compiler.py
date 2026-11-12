@@ -916,7 +916,9 @@ def _loop_missing_on_exhausted_diagnostics(
     """Warn once, at the loop, for each `loop/recur` without `:on-exhausted` in these bodies.
 
     A specialization repeats a generic body that its defining module already
-    lints, so it is skipped.
+    lints, so it is skipped. A loop that carries its own exhaustion code (the
+    loop `list/map-effect` lowers to) is not an authored `loop/recur`, so it is
+    skipped too.
     """
 
     return [
@@ -930,7 +932,9 @@ def _loop_missing_on_exhausted_diagnostics(
         for definition in definitions
         if definition.specialization is None
         for node in walk_expr(definition.typed_body.expr)
-        if isinstance(node, LoopRecurExpr) and node.on_exhausted_result_expr is None
+        if isinstance(node, LoopRecurExpr)
+        and node.on_exhausted_result_expr is None
+        and node.exhaustion_diagnostic_code is None
     ]
 
 

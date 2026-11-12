@@ -1895,8 +1895,8 @@ Loop body returns:
 
 `:on-exhausted` is the loop's value when it reaches `:max` without `done`; the
 loop binder (`state` here) is in scope and holds the last state. A loop without
-it compiles with the `loop_missing_on_exhausted` warning (an error under the
-strict lint profile), and reaching `:max` fails the run with `loop_exhausted`.
+it compiles with the `loop_missing_on_exhausted` warning, and reaching `:max`
+fails the run with `loop_exhausted`.
 
 Lowering options:
 
@@ -4555,9 +4555,11 @@ Examples:
 - `line_prefix_extractor_in_workflow`: error
 - `manual_snapshot_name_in_high_level_module`: warn
 - `variant_output_without_variant_specific_fields`: warn or error in strict mode
-- `loop_missing_on_exhausted`: warn or error in strict mode; one per
-  `loop/recur` without `:on-exhausted`, in workflows and procedures, located at
-  the loop
+- `loop_missing_on_exhausted`: warn. The registry marks it an error under the
+  strict profile, which only the compiler API selects; no command and not the
+  language server select it. One per authored `loop/recur` without
+  `:on-exhausted` after macro expansion, in workflows and procedures, located
+  at the loop; the loop that `list/map-effect` lowers to is not warned
 
 The boundary lints `low_level_state_path_in_high_level_module` and
 `variant_output_without_variant_specific_fields` treat structurally effect-free

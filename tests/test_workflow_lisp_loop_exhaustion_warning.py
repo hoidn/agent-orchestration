@@ -64,6 +64,21 @@ def test_loop_with_on_exhausted_has_no_warning(tmp_path: Path) -> None:
     assert _warnings(tmp_path, _source(exhausted=" :on-exhausted 99")) == []
 
 
+MAP_EFFECT = """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.39")
+  (defmodule counter)
+  (export run)
+  (defworkflow bump ((n Int)) -> Int (+ n 1))
+  (defworkflow run ((xs List[Int])) -> List[Int]
+    (list/map-effect ((i xs)) :max 3 (call bump :n i))))
+"""
+
+
+def test_an_effectful_list_map_has_no_warning(tmp_path: Path) -> None:
+    assert _warnings(tmp_path, MAP_EFFECT) == []
+
+
 GENERIC = """(workflow-lisp
   (:language "0.1")
   (:target-dsl "2.39")
