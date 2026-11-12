@@ -109,16 +109,38 @@ def test_later_sibling_divergence_refuses(tmp_path):
     _assert_refused_without_writes(batch, "effect_input_diverged", "par-map:repo[3]", "d/step.py")
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "for the coordinator: resume replays committed values from memo rows and never reads committed "
-    "result bytes (serial contract, test_workflow_evaluated_resume_replay::"
-    "_assert_provider_replay_skips_result_validation; views use stored values), so a deleted "
-    "committed result.json completes instead of refusing; the Phase 2 plan names this a refusal"))
-def test_missing_result_bytes_refuse(tmp_path):
-    batch = _failed_first_item(tmp_path)
+def test_deleted_committed_result_file_does_not_change_resume(tmp_path):
+    """The memo row is the authority: completed replay never re-reads committed result bytes."""
+    batch = Batch(tmp_path)
+    assert batch.run().returncode == 0
     (commit,) = [row for row in committed(batch.snapshot()) if item_of(row["identity"]) == "c"]
     (batch.run_root() / commit["result_path"]).unlink()
-    _assert_refused_without_writes(batch, "memo_inconsistent", "par-map:repo[2]")
+    memo, dispatched = (batch.run_root() / "memo.jsonl").read_bytes(), batch.dispatches()
+    result = resume(batch.ws, batch.run_root().name)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert batch.snapshot().terminal.data["value"] == FOUR_VALUE
+    assert (batch.run_root() / "memo.jsonl").read_bytes() == memo
+    assert batch.dispatches() == dispatched
+
+
+def test_parallel_item_that_writes_no_result_fails_with_command_result_missing(tmp_path):
+    batch = Batch(tmp_path)
+    (batch.ws / "c" / "noresult").write_text("")
+    result = batch.run()
+    assert result.returncode != 0 and "[command_result_missing]" in result.stdout + result.stderr
+    snapshot = batch.snapshot()
+    failed = [row.data for row in snapshot.entries if row.data["record"] == "failed"]
+    assert [(item_of(row["identity"]), row["code"]) for row in failed] == [("c", "command_result_missing")]
+    kept = committed(snapshot)
+    assert sorted(item_of(row["identity"]) for row in kept) == ["a", "b", "b", "d"]
+    (batch.ws / "c" / "noresult").unlink()
+    resumed = resume(batch.ws, batch.run_root().name)
+    assert resumed.returncode == 0, resumed.stdout + resumed.stderr
+    after = batch.snapshot()
+    assert after.terminal.data["value"] == FOUR_VALUE
+    assert committed(after)[:4] == kept
+    assert Counter(batch.dispatches()) == {
+        ("a", "first"): 1, ("b", "first"): 1, ("b", "second"): 1, ("c", "first"): 2, ("d", "first"): 1}
 
 
 WINDOW_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")

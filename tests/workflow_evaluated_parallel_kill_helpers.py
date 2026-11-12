@@ -1,7 +1,8 @@
 """A four-item parallel batch for public kill and resume tests (Phase 5 Task 5).
 
 `STEP` is the stand-in command copied into each item directory. It logs every dispatch
-to the control directory, fails while its cwd holds `fail`, and blocks the steps listed
+to the control directory, fails while its cwd holds `fail`, exits 0 without a result while
+it holds `noresult`, and blocks the steps listed
 in `hold.json`; once every listed step blocks it publishes the `kill_at` marker, so the
 kill lands with exactly the memo the test planned. It answers from its arguments only.
 """
@@ -40,6 +41,8 @@ with open(CONTROL / "dispatches.jsonl", "a", encoding="utf-8") as log:
     log.write(json.dumps({"repo": repo, "stage": stage, "bundle": bundle}) + "\\n")
 if Path("fail").exists():
     raise SystemExit(3)
+if Path("noresult").exists():
+    raise SystemExit(0)
 hold = CONTROL / "hold.json"
 held = json.loads(hold.read_text()) if hold.exists() else []
 if [repo, stage] in held:
