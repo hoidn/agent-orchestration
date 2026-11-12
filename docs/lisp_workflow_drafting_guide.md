@@ -1933,8 +1933,9 @@ reader contracts for reports from a 2.35/2.36 run.
 
 ### Inspecting Judgment Views
 
-Q4 judgment views are a bounded read-only diagnostic projection, not provider
-results or workflow-readable state. See the
+Q4 judgment views are removed from `report` with the retired-run readers (kept
+at the git tag `archive/retired-run-readers-2026-11-11`); there is nothing to
+inspect on current runs. See the
 [judgment-view contract](design/workflow_lisp_judgment_views.md) and the
 [capability matrix](capability_status_matrix.md) for the panel's exact scope;
 older-profile snapshot evidence does not qualify evaluated readers.

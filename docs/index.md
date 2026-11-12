@@ -313,7 +313,7 @@ reusing instructions. Plans can contain active obligations as well as history.
 | [Phased Execution At Target 2.39 Implementation Plan](plans/2026-10-16-phased-execution-239-plan.md) | Current selected migration plan; implementation evidence, review and verification obligations |
 | <a id="workflow-lisp-prompt-output-positions-implementation-plan"></a>[Workflow Lisp Prompt Output Positions Implementation Plan](plans/2026-07-26-workflow-lisp-prompt-output-positions-implementation-plan.md) | Plan or decision record; check current selection |
 | <a id="workflow-lisp-prompt-identity-diagnostics"></a>[Workflow Lisp Prompt Identity Diagnostics](design/workflow_lisp_prompt_identity_diagnostics.md) | Component contract or target; check admitted scope |
-| <a id="workflow-lisp-judgment-views"></a>[Workflow Lisp Judgment Views](design/workflow_lisp_judgment_views.md) | Component contract or target; check admitted scope |
+| <a id="workflow-lisp-judgment-views"></a>[Workflow Lisp Judgment Views](design/workflow_lisp_judgment_views.md) | Historical; the report projection is removed |
 | <a id="workflow-lisp-judgment-views-implementation-plan"></a>[Workflow Lisp Judgment Views Implementation Plan](plans/2026-07-29-workflow-lisp-judgment-views-implementation-plan.md) | Plan or decision record; check current selection |
 | <a id="workflow-lisp-prompt-identity-diagnostics-implementation-plan"></a>[Workflow Lisp Prompt Identity Diagnostics Implementation Plan](plans/2026-07-27-workflow-lisp-prompt-identity-diagnostics-implementation-plan.md) | Plan or decision record; check current selection |
 | <a id="workflow-lisp-language-server"></a>[Workflow Lisp Language Server](design/workflow_lisp_language_server.md) | Component contract or target; check admitted scope |

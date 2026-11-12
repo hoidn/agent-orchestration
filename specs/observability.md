@@ -173,12 +173,10 @@ derives solely from the validated `.orc` executable and `state.json`.
     or populate the run-level error. No completed cleanup history is required
     in this projection. Rendering the report is not a full revalidation of
     export bytes; settlement and resume retain that responsibility.
-  - Status/report snapshots may expose `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, `run.current_executor_session`, `run.excluded_suspended_ms`, and `run.suspended_gap_excluded` when executor-session accounting is available.
-  - v2.10 status/report snapshots may expose:
-    - bounded `provider_attempt_interrupted_rerun` context for a validated
-      interrupted provider-session visit; it is a recovery diagnostic, not a
-      run-level failure
-    - `output.provider_session` step summaries including `mode`, `session_id`, `metadata_path`, and `publication_state`
+  - The executor-session accounting fields (`run.active_runtime_ms` and its
+    siblings) and the v2.10 `provider_attempt_interrupted_rerun` and
+    `output.provider_session` projections came from the retired-run report;
+    `report` no longer produces them (kept at the git tag `archive/retired-run-readers-2026-11-11`).
   - v2.11 adjudicated provider snapshots may expose selected candidate id, selected score or null score, selection reason, run-local score ledger path, workspace-visible score ledger mirror path, promotion status, and adjudication failure type. Candidate workspaces, evaluator packets, and ledgers are observability sidecars, not ordinary artifact lineage.
   - v2.16 provider-supervision snapshots render one outer step with kind
     `provider_supervision`. Its ordinary artifacts are the settlement result;
