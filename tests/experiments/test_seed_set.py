@@ -474,3 +474,8 @@ def test_v3_a_mean_of_exactly_three_quarters_passes():
         r["scores"] = {j: v + 1 for j, v in r["scores"].items()}
     v3 = gates.v3_retest(records, H, retests)
     assert (v3["mean_abs"], v3["passed"]) == (0.75, True)
+
+
+def test_g1_scales_with_the_number_of_drawn_tasks():
+    records, pools = world(tasks=16)
+    assert gates.task_gates(records, pools, H, tasks_of(16)[0])["gates"]["G1"]["need"] == 9  # 12 of 20, rounded down
