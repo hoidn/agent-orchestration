@@ -334,7 +334,8 @@ is qualified through this command line with stand-in providers and commands,
 not with a real provider ([evaluated design §11](../docs/design/workflow_lisp_evaluated_execution.md#11-parallel-effects)). For Agent Sessions,
 [PQ-1a](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records
 deterministic proofs and bounded adapter smokes; the real-provider comparison
-(PQ-1c) has not run and requires separate owner authorization.
+(PQ-1c) priced the agent variant at 1.4 to 1.7 times the plain handoff on one four-turn
+pattern and made no quality claim ([result](../experiments/pq1c/README.md#result)).
 See [versioning](versioning.md#version-gating-summary) for qualification limits.
 
 An entry whose `:target-dsl` is `2.35` selects the evaluated route: `run`

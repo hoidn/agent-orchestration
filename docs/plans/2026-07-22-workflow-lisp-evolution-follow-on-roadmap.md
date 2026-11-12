@@ -114,8 +114,8 @@ Native sequential turns are separately recorded as
 on 2026-10-01 and selected on 2026-10-14. The first slice is implemented at
 target 2.38: the two-agent `design_review_execute` variant on Claude and Codex.
 [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) records
-deterministic proofs and bounded adapter smokes; the separately authorized
-clean and failed/resumed acceptance comparison (PQ-1c) has not run. The
+deterministic proofs and bounded adapter smokes; the clean and failed/resumed
+acceptance comparison (PQ-1c) ran on 2026-11-12 ([result](../../experiments/pq1c/README.md#result)). The
 `reviewed_change` coder variant remains a future second slice, with its turn
 shape selected then. [Agent Sessions](../design/workflow_lisp_agent_sessions.md)
 supersedes the [queue design](../design/workflow_lisp_provider_prompt_queue.md)

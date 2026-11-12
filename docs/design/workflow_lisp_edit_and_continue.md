@@ -66,7 +66,8 @@ digest position-free contracts (probe).
 | Keyword arguments reordered (`:effort` before `:model`) | changes | same; the program digest is also the same |
 | A binder that `:inputs` reads is renamed, or replaced by a pure alias | changes | changes |
 | A literal changes (`:model`); an operand changes shape (`s1` to `(+ s1 0)`) | changes | changes |
-| The provider's own label changes, or it moves into a procedure | changes | changes; its identity changes too |
+| The provider's own label changes | changes | changes; its identity changes too |
+| The provider moves into a procedure, its node otherwise unchanged | changes | same; its identity changes, so the step runs again |
 
 A renamed input binder must change the digest, because the name is prompt
 text: each input row is rendered as `## Typed Prompt Input: <name>`. A

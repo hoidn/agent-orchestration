@@ -299,7 +299,8 @@ authoring, not command/provider IO or the public lifecycle; 2.37 registration
 does not imply general parallel qualification. For Agent Sessions,
 [PQ-1a](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records
 deterministic proofs and bounded adapter smokes; the real-provider comparison
-(PQ-1c) has not run and requires separate owner authorization. See
+(PQ-1c) priced the agent variant at 1.4 to 1.7 times the plain handoff on one four-turn
+pattern and made no quality claim ([result](../experiments/pq1c/README.md#result)). See
 [versioning](versioning.md#version-gating-summary) for the target limits.
 
 This section owns the request a target-2.35 command or provider receives,

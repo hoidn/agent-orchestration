@@ -15,3 +15,5 @@ for public usage. Current evaluator tests own compilation, input identity,
 replay and recovery; the prototype is not an additional execution route.
 
 Since 2026-11-12, `trial.py` and `closed_effects.py` import `orchestrator.workflow.trial`, which is removed; the git tag `archive/dead-executors-2026-11-11` holds it.
+
+Since 2026-11-12, `run_ref.py` and `trial.py` import `orchestrator.workflow.executable_ir`, which is removed; the local git tag `archive/old-ir-stack-2026-11-12` holds it.

@@ -27,7 +27,6 @@ _RENDERERS_BY_KIND = {
     "value": "canonical-json",
     "path": "posix-path-line",
 }
-_EXPECTED_OUTPUTS_UNSET = object()
 
 
 def _freeze_json(value: Any) -> Any:
@@ -469,11 +468,6 @@ class CompilerPromptFragmentContractV2:
         return self
 
 
-CompilerPromptFragmentContractCarrier = (
-    CompilerPromptFragmentContract | CompilerPromptFragmentContractV2
-)
-
-
 @dataclass(frozen=True)
 class CompilerPromptAttemptBindingPlanRow:
     """One declaration-ordered Q3 runtime binding locator."""
@@ -789,177 +783,6 @@ def validate_compiler_prompt_attempt_binding_plan_authority(
         )
 
 
-def _typed_prompt_input_by_name(
-    typed_prompt_inputs: tuple[Any, ...],
-) -> dict[str, Mapping[str, Any]]:
-    by_name: dict[str, Mapping[str, Any]] = {}
-    for value in typed_prompt_inputs:
-        if not isinstance(value, Mapping):
-            raise ValueError(
-                "prompt_attempt_binding_plan_mismatch: "
-                "typed prompt input row is invalid"
-            )
-        name = value.get("binding_name")
-        if not isinstance(name, str) or name in by_name:
-            raise ValueError(
-                "prompt_attempt_binding_plan_mismatch: "
-                "typed prompt input names are invalid"
-            )
-        by_name[name] = value
-    return by_name
-
-
-def validate_compiler_prompt_attempt_pair(
-    identity_version: str | None,
-    plan: CompilerPromptAttemptBindingPlan | None,
-    *,
-    fragment_contract: CompilerPromptFragmentContractCarrier | None,
-    dependency_contract: Any = None,
-    typed_prompt_inputs: tuple[Any, ...] = (),
-    required: bool = False,
-    target_dsl_version: str | None = None,
-) -> None:
-    """Validate the target-gated Q3 pair and its existing carrier locators."""
-
-    pair_present = identity_version is not None or plan is not None
-    if target_dsl_version is not None:
-        try:
-            target_parts = tuple(
-                int(part) for part in target_dsl_version.split(".")
-            )
-        except (AttributeError, TypeError, ValueError) as exc:
-            raise ValueError(
-                "prompt_attempt_identity_version_invalid: "
-                "target DSL version is invalid"
-            ) from exc
-        target_supports_pair = target_parts >= (2, 22)
-        if not target_supports_pair and pair_present:
-            raise ValueError(
-                "prompt_attempt_identity_version_invalid: "
-                "Q3 prompt-attempt carriers require target DSL 2.22"
-            )
-        required = (
-            required
-            or target_supports_pair
-            and fragment_contract is not None
-        )
-    if identity_version is None and plan is None:
-        if required:
-            raise ValueError(
-                "prompt_attempt_identity_version_missing: "
-                "target-2.22 fragment application requires the Q3 pair"
-            )
-        return
-    if identity_version is None:
-        raise ValueError(
-            "prompt_attempt_identity_version_missing: "
-            "identity version and binding plan must be paired"
-        )
-    if plan is None:
-        raise ValueError(
-            "prompt_attempt_binding_plan_missing: "
-            "identity version and binding plan must be paired"
-        )
-    if identity_version not in {
-        PROMPT_ATTEMPT_IDENTITY_VERSION,
-        PHASED_PROMPT_ATTEMPT_IDENTITY_VERSION,
-    }:
-        raise ValueError(
-            "prompt_attempt_identity_version_invalid: "
-            "unsupported prompt-attempt identity version"
-        )
-    try:
-        validate_compiler_prompt_attempt_binding_plan(plan)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "prompt_attempt_binding_plan_invalid: binding plan is invalid"
-        ) from exc
-    if fragment_contract is None:
-        raise ValueError(
-            "prompt_attempt_binding_plan_mismatch: "
-            "binding plan requires a fragment contract"
-        )
-    rendered_plan_rows = tuple(
-        row for row in plan.rows if row.slot_kind != "doc"
-    )
-    if len(rendered_plan_rows) != len(fragment_contract.rendered_slots):
-        raise ValueError(
-            "prompt_attempt_binding_plan_mismatch: rendered rows disagree"
-        )
-    for row, fragment_row in zip(
-        rendered_plan_rows,
-        fragment_contract.rendered_slots,
-        strict=True,
-    ):
-        if (
-            row.slot_name != fragment_row.name
-            or row.slot_kind != fragment_row.kind
-            or row.renderer is None
-            or row.renderer["renderer_id"] != fragment_row.renderer_id
-        ):
-            raise ValueError(
-                "prompt_attempt_binding_plan_mismatch: "
-                "rendered row disagrees with fragment contract"
-            )
-    output_roles = {
-        row.slot_name: row.output_role for row in plan.rows
-    }
-    expected_output_names = tuple(
-        row.slot_name
-        for row in getattr(fragment_contract, "output_positions", ())
-    )
-    observed_output_names = tuple(
-        row.slot_name
-        for row in plan.rows
-        if row.output_role == "required_string_file"
-    )
-    if expected_output_names != observed_output_names or any(
-        role == "required_string_file" and name not in expected_output_names
-        for name, role in output_roles.items()
-    ):
-        raise ValueError(
-            "prompt_attempt_binding_plan_mismatch: "
-            "output roles disagree with fragment contract"
-        )
-    typed_by_name = _typed_prompt_input_by_name(typed_prompt_inputs)
-    expected_typed_names = {
-        row.slot_name
-        for row in plan.rows
-        if row.slot_kind in {"value", "path"}
-    }
-    if set(typed_by_name) != expected_typed_names:
-        raise ValueError(
-            "prompt_attempt_binding_plan_mismatch: "
-            "typed input coverage disagrees with binding plan"
-        )
-    for row in plan.rows:
-        if row.slot_kind not in {"value", "path"}:
-            continue
-        typed_renderer = typed_by_name[row.slot_name].get("renderer")
-        if (
-            not isinstance(typed_renderer, Mapping)
-            or row.renderer is None
-            or typed_renderer.get("renderer_id")
-            != row.renderer["renderer_id"]
-            or typed_renderer.get("renderer_version")
-            != row.renderer["renderer_version"]
-        ):
-            raise ValueError(
-                "prompt_attempt_binding_plan_mismatch: "
-                "typed renderer disagrees with binding plan"
-            )
-    if dependency_contract is not None:
-        doc_rows = tuple(row for row in plan.rows if row.slot_kind == "doc")
-        dependency_refs = tuple(
-            getattr(dependency_contract, "required_binding_refs", ())
-        )
-        if len(doc_rows) != len(dependency_refs):
-            raise ValueError(
-                "prompt_attempt_binding_plan_mismatch: "
-                "dependency coverage disagrees with binding plan"
-            )
-
-
 def _path_template_from_rendered_slot(
     slot: CompilerPromptFragmentRenderedSlot,
 ) -> str:
@@ -1129,76 +952,6 @@ def validate_compiler_prompt_fragment_contract(
     return contract
 
 
-def validate_compiler_prompt_fragment_pair(
-    contract: CompilerPromptFragmentContract | CompilerPromptFragmentContractV2 | None,
-    identity: str | None,
-    expected_outputs: object = _EXPECTED_OUTPUTS_UNSET,
-) -> None:
-    """Reject absent, malformed, or contradictory fragment carriage."""
-
-    if contract is None and identity is None:
-        return
-    if contract is None or identity is None:
-        if type(contract) is CompilerPromptFragmentContractV2:
-            raise ValueError(
-                "prompt_output_position_contract_mismatch: "
-                "v2 fragment contract and identity must be paired"
-            )
-        raise ValueError(
-            "compiled_prompt_fragment_identity_missing: contract and identity must be paired"
-        )
-    try:
-        validate_compiler_prompt_fragment_contract(contract)
-    except (TypeError, ValueError) as exc:
-        if type(contract) is CompilerPromptFragmentContractV2:
-            raise ValueError(
-                "prompt_output_position_contract_mismatch: "
-                "v2 fragment contract is invalid"
-            ) from exc
-        raise
-    if not isinstance(identity, str) or not _IDENTITY_RE.fullmatch(identity):
-        if type(contract) is CompilerPromptFragmentContractV2:
-            raise ValueError(
-                "prompt_output_position_contract_mismatch: "
-                "v2 fragment identity is malformed"
-            )
-        raise ValueError(
-            "compiled_prompt_fragment_identity_invalid: identity is malformed"
-        )
-    if contract.compiled_prompt_fragment_identity != identity:
-        if type(contract) is CompilerPromptFragmentContractV2:
-            raise ValueError(
-                "prompt_output_position_contract_mismatch: "
-                "v2 fragment identity differs from its carrier"
-            )
-        raise ValueError(
-            "compiled_prompt_fragment_identity_mismatch: contract identity differs"
-        )
-    if type(contract) is CompilerPromptFragmentContractV2:
-        if expected_outputs is _EXPECTED_OUTPUTS_UNSET:
-            raise ValueError(
-                "prompt_output_position_contract_mismatch: "
-                "v2 fragment pair validation requires expected_outputs"
-            )
-        if not isinstance(expected_outputs, (list, tuple)):
-            raise ValueError(
-                "prompt_output_position_contract_mismatch: "
-                "v2 fragment contract requires paired expected_outputs"
-            )
-        carrier_rows = [
-            _thaw_json(row.expected_output)
-            for row in contract.output_positions
-        ]
-        if (
-            any(not isinstance(row, Mapping) for row in expected_outputs)
-            or [_thaw_json(row) for row in expected_outputs] != carrier_rows
-        ):
-            raise ValueError(
-                "prompt_output_position_contract_mismatch: "
-                "v2 fragment output positions differ from expected_outputs"
-            )
-
-
 def serialize_compiler_prompt_fragment_rendered_slot(
     slot: CompilerPromptFragmentRenderedSlot,
 ) -> dict[str, Any]:
@@ -1234,23 +987,6 @@ def serialize_compiler_prompt_attempt_binding_plan_row(
         "renderer": (
             None if row.renderer is None else _thaw_json(row.renderer)
         ),
-    }
-
-
-def serialize_compiler_prompt_attempt_binding_plan(
-    plan: CompilerPromptAttemptBindingPlan,
-) -> dict[str, Any]:
-    """Serialize one sealed plan to its closed wire representation."""
-
-    validate_compiler_prompt_attempt_binding_plan(plan)
-    assert plan.plan_sha256 is not None
-    return {
-        "schema_version": plan.schema_version,
-        "rows": [
-            serialize_compiler_prompt_attempt_binding_plan_row(row)
-            for row in plan.rows
-        ],
-        "plan_sha256": plan.plan_sha256,
     }
 
 

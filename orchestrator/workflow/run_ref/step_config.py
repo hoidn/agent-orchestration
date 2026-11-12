@@ -1,7 +1,8 @@
 """Executable config of one run-reference step: `RunRefStepConfig` and its `StepCommonConfig`.
 
 Moved verbatim from `orchestrator/workflow/executable_ir.py`; `empty_frozen_mapping` is a copy of
-the helper in `orchestrator/workflow/surface_ast.py`.
+the helper in `orchestrator/workflow/surface_ast.py`. Both modules were removed on 2026-11-12; the
+local git tag `archive/old-ir-stack-2026-11-12` holds them.
 """
 
 from __future__ import annotations

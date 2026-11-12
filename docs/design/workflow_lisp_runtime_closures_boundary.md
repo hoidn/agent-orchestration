@@ -20,7 +20,7 @@ runtime closures     = runtime-owned callable values with full runtime semantics
 
 `ProcRef` and `let-proc` remain compile-time features. Runtime closures are a
 separate semantic tier because they affect identity, storage, effects,
-capabilities, source maps, executable IR validation, replay, and resume.
+capabilities, source maps, checked closed program validation, replay, and resume.
 
 ## 1. Purpose And Authority
 
@@ -31,13 +31,13 @@ implementation is allowed to start. It does not override the parent Workflow
 Lisp contract. It adds a stricter boundary for runtime callable values.
 
 Near-term `ProcRef`, `bind-proc`, and `let-proc` work MUST continue to compile
-away before executable IR. A change that leaves unresolved procedure values in
+away before the checked closed program. A change that leaves unresolved procedure values in
 executable/runtime artifacts is outside this document's accepted surface.
 
 The closure feature is implementation-ready only when a candidate design can
 meet the conformance profile and acceptance gate below with no fallback to
 dynamic Python objects, procedure-name strings, serialized code,
-provider-produced procedures, or unchecked executable IR.
+provider-produced procedures, or an unchecked closed program.
 
 ## 2. Conformance Profiles
 
@@ -72,7 +72,7 @@ Before implementation starts, the repo MUST have:
 - completed or explicitly bounded `ProcRef` and `bind-proc` semantics;
 - completed or explicitly bounded `let-proc` semantics, if `let-proc` examples
   are used as closure motivation;
-- a concrete executable IR extension point for checked dynamic invocation;
+- a concrete checked closed program extension point for checked dynamic invocation;
 - a closure-family registry design owned by executable bundles;
 - a source-map format that can describe both closure creation and invocation;
 - an effect/capability model strong enough to reject authority smuggling;

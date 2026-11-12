@@ -1,5 +1,15 @@
 # Workflow Lisp Semantic Workflow IR
 
+Status: **Historical — archived in place.** Its code, `orchestrator/workflow/semantic_ir.py`, was removed on 2026-11-12 with the rest
+of the bundle-era IR stack; the local git tag `archive/old-ir-stack-2026-11-12` holds it. The
+complete original record below, including its original status and present-tense descriptions, is
+preserved for provenance. It supplies no current execution admission, work selection or copy-safe
+recipe. Current authority: [evaluated execution](workflow_lisp_evaluated_execution.md) (the checked
+closed program), [State](../../specs/state.md) and the
+[frontend baseline](workflow_lisp_frontend_specification.md).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: retained typed analysis and historical-reader contract
 Scope: Semantic IR catalogs, validation and lineage; historical flat executable projections
 

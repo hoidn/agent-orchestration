@@ -2,7 +2,7 @@
 
 ## Metadata And Summary
 
-- **Status:** first slice implemented at additive evaluated target 2.38: `design_review_execute` with designer and reviewer agents on the Claude and Codex session adapters. [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) records deterministic proofs and bounded real-adapter smokes; acceptance comparison (PQ-1c) has not run. The `reviewed_change` coder variant remains a future second slice.
+- **Status:** first slice implemented at additive evaluated target 2.38: `design_review_execute` with designer and reviewer agents on the Claude and Codex session adapters. [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) records deterministic proofs and bounded real-adapter smokes; the acceptance comparison (PQ-1c) ran on 2026-11-12: the agent variant cost 1.4 to 1.7 times the plain handoff on this pattern, a committed agent turn could not be invalidated, and the owner keeps Agent Sessions for the workflow patterns it allows ([result](../../experiments/pq1c/README.md#result)). The `reviewed_change` coder variant remains a future second slice.
 - **Kind:** architecture decision and bounded language extension.
 - **Created:** 2026-10-13.
 - **Scope:** run-local agent identity, sequential native turns, and a typed result per turn.
@@ -406,8 +406,9 @@ unverifiable native state, silent replay, stronger snapshot semantics, or a seco
 Resolved or re-scoped by the owner selection of 2026-10-14. Rows marked as in-plan gates stay open
 until proved under PQ-1a; the selection does not satisfy them. Their current evidence disposition is
 recorded in the [qualification record](../reports/2026-10-14-agent-sessions-pq1a-qualification.md),
-including real-provider limits. The table preserves the selection-time questions; it does not mark
-the separate PQ-1c comparison or second consumer slice complete.
+including real-provider limits. The table preserves the selection-time questions; it does not record
+the separate PQ-1c comparison, whose [result](../../experiments/pq1c/README.md#result) is kept with its kit, or mark the
+second consumer slice complete.
 
 | Question / responsible component | Impact | Disposition at selection (2026-10-14) |
 | --- | --- | --- |

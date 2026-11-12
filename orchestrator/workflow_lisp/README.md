@@ -185,16 +185,16 @@ not select compiler/runtime behavior or certify evaluated LSP support.
 
 The larger design split these internal concepts into separate documents:
 
-- [Core Workflow AST](../../docs/design/workflow_lisp_core_workflow_ast.md)
+- [Core Workflow AST](../../docs/design/workflow_lisp_core_workflow_ast.md) (historical; code removed 2026-11-12)
 - [Workflow Core Calculus Middle-End](../../docs/design/workflow_lisp_core_calculus_middle_end.md)
-- [Core Statement Taxonomy](../../docs/design/workflow_lisp_core_stmt_taxonomy.md)
-- [Semantic Workflow IR](../../docs/design/workflow_lisp_semantic_workflow_ir.md)
-- [Executable IR](../../docs/design/workflow_lisp_executable_ir.md) (retired with the flat route)
+- [Core Statement Taxonomy](../../docs/design/workflow_lisp_core_stmt_taxonomy.md) (historical; code removed 2026-11-12)
+- [Semantic Workflow IR](../../docs/design/workflow_lisp_semantic_workflow_ir.md) (historical; code removed 2026-11-12)
+- [Executable IR](../../docs/design/workflow_lisp_executable_ir.md) (historical; code removed 2026-11-12)
 - [Reference Catalog](../../docs/design/workflow_lisp_reference_catalog.md)
 - [Type Catalog](../../docs/design/workflow_lisp_type_catalog.md)
 - [Effect Graph](../../docs/design/workflow_lisp_effect_graph.md)
 - [Proof Graph](../../docs/design/workflow_lisp_proof_graph.md)
-- [State Layout](../../docs/design/workflow_lisp_state_layout.md)
+- [State Layout](../../docs/design/workflow_lisp_state_layout.md) (historical; code removed 2026-11-12)
 - [Source Map](../../docs/design/workflow_lisp_source_map.md)
 - [Runtime Migration Foundation](../../docs/design/workflow_lisp_runtime_migration_foundation.md)
 - [Post-Foundation Composition And Stdlib Migration](../../docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md)

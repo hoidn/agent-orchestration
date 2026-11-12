@@ -10,6 +10,7 @@ import json
 from typing import Any
 
 from .check import CheckedFormError, validate
+from .node_walk import _value_nodes
 from .sites import _ast_nodes, _definition_order
 
 
@@ -113,38 +114,35 @@ def strip_provenance(node: Any) -> Any:
             if isinstance(definition, Mapping)
         )
     for body in bodies:
-        if not isinstance(body, dict):
-            continue
-        for ast_node in _ast_nodes(body):
-            ast_node.pop("@", None)
-            if ast_node.get("k") == "case":
-                for arm in ast_node.get("arms", ()):
-                    if isinstance(arm, dict):
-                        arm.pop("@", None)
-            elif ast_node.get("k") == "select":
-                for branch_name in ("then", "else"):
-                    branch = ast_node.get(branch_name)
-                    if not isinstance(branch, dict):
-                        continue
-                    branch.pop("@", None)
-                    for row in branch.get("prefix", ()):
-                        if isinstance(row, dict):
-                            row.pop("@", None)
+        if isinstance(body, dict):
+            _strip_positions(_ast_nodes(body))
     return result
 
 
+def strip_node_provenance(node: Mapping[str, Any]) -> dict[str, Any]:
+    """Copy one perform node as `strip_provenance` leaves it inside its program: no `@` at any schema row."""
+
+    result = deepcopy(dict(node))
+    _strip_positions(_value_nodes(result))
+    return result
 
 
-
-
-
-
-
-
-
-
-
-
+def _strip_positions(nodes) -> None:
+    for ast_node in nodes:
+        ast_node.pop("@", None)
+        if ast_node.get("k") == "case":
+            for arm in ast_node.get("arms", ()):
+                if isinstance(arm, dict):
+                    arm.pop("@", None)
+        elif ast_node.get("k") == "select":
+            for branch_name in ("then", "else"):
+                branch = ast_node.get(branch_name)
+                if not isinstance(branch, dict):
+                    continue
+                branch.pop("@", None)
+                for row in branch.get("prefix", ()):
+                    if isinstance(row, dict):
+                        row.pop("@", None)
 
 
 def _sites_from_nodes(tree: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:

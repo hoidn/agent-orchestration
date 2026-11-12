@@ -746,8 +746,8 @@ These rules apply across `.orc`, generated Core AST, the JSON-rendered
 
 For evaluated execution, the checked closed program is execution authority and
 the memo owns committed effect results. State, runtime plans, source maps,
-summaries and reports are views. Semantic/Executable IR retain their component
-contracts for older compiler routes; they do not replace evaluated authority.
+summaries and reports are views. Semantic/Executable IR described older compiler
+routes; their code was removed on 2026-11-12 (local tag `archive/old-ir-stack-2026-11-12`).
 
 ### 3.1 Structured State Is Authority
 
@@ -1496,8 +1496,11 @@ its executable route is retired, with no evaluated capture port selected.
 
 Status: allocation, turns, recovery, C8 guards and instance views are implemented
 at target 2.38. The [qualification record](reports/2026-10-14-agent-sessions-pq1a-qualification.md)
-contains deterministic proofs and bounded adapter smokes; the clean and failed/resumed
-comparison (PQ-1c) has not run and requires separate owner authorization. The
+contains deterministic proofs and bounded adapter smokes. The clean and failed/resumed
+comparison (PQ-1c) ran once per cell on a four-turn pattern: both variants completed and
+resumed, the agent variant cost 1.4 to 1.7 times the plain handoff, and a committed agent
+turn could not be invalidated ([result](../experiments/pq1c/README.md#result)). It made no
+quality claim. The
 [Agent Sessions design](design/workflow_lisp_agent_sessions.md) owns the contract.
 
 Choose an agent when later calls should continue the same native conversation; use independent
@@ -1587,7 +1590,7 @@ replay needs no native session. See the normative
 [resume contract](../specs/cli.md#evaluated-execution-target-235) and
 [Agent persistence/recovery limits](design/workflow_lisp_agent_sessions.md#persistence-recovery-and-invalidation)
 for refusal/invalidation rules. This example remains opt-in with bounded evidence;
-the recipe earns no further qualification or PQ-1c acceptance. REPL remains
+the recipe earns no further qualification, and the PQ-1c comparison made no quality claim for it. REPL remains
 2.35/2.36; use `report` here.
 
 Refused at compile time:
@@ -2493,7 +2496,7 @@ authority before exposing it:
 | --- | --- | --- |
 | `public_authored` | The caller genuinely chooses the value: steering doc, target design, explicit output root | Keep public |
 | `compatibility_bridge` | Historical state/artifact path retained for a supported persisted consumer | Keep only while that consumer contract remains, labeled with a retirement route |
-| `runtime_derived` | Derivable from run context, resource identity, or `StateLayout` | Bind internally; not a public input |
+| `runtime_derived` | Derivable from run context or resource identity | Bind internally; not a public input |
 | `generated_internal` | Compiler/runtime-owned bundle, write root, temp, or sidecar | Allocate privately |
 | `materialized_view` | Deterministic rendering of a typed value | Allocate as a view; never semantic authority |
 
@@ -2538,7 +2541,7 @@ Before adding a path field, decide who semantically owns that path:
 | Public authored input | target design doc, baseline design doc, steering doc, explicit output root | Keep as a typed public input when the caller genuinely chooses it. |
 | Source or context document | prompt context doc, design reference doc, check-command spec | Model as a typed path value or typed request field. |
 | Provider/command result bundle | structured `provider-result` or `command-result` bundle | Let the runtime bind the output target and validate the declared bundle. |
-| Generated internal path | write root, checkpoint path, temp path, result-bundle sidecar | Allocate through `StateLayout`; never expose as ordinary public input. |
+| Generated internal path | write root, checkpoint path, temp path, result-bundle sidecar | Let the runtime place it under the run root ([State](../specs/state.md#attempt-directories)); never expose as ordinary public input. |
 | Public report or summary | drain summary, review report, operator-facing artifact | Prefer boundary publication policy or observability rendering over body plumbing. |
 | Prompt rendering | provider prompt input text | Pass supported scalar, record, relpath, exact `Value`, closed union, or recursively renderer-admitted `List[T]` values in `:inputs`; use `:prompt-dependencies` when the provider also needs a relpath target's body. Other composite shapes require an implemented checked route. |
 | Compatibility file | YAML-era pointer, selection bundle, legacy ledger view | Declare a labeled bridge with owner, source value, renderer/schema, and retirement condition. |
@@ -2554,7 +2557,7 @@ If the only way to compute a path is string concatenation such as
 usually one of:
 
 - move the value into a typed request record;
-- derive it from private context through `StateLayout`;
+- derive it from private context (the runtime owns generated paths);
 - make it a provider/command structured-output target;
 - publish it at the boundary;
 - declare it as a compatibility bridge; or
@@ -3071,20 +3074,18 @@ Procedural abstraction must not hide effects.
   ...)
 ```
 
-Effect kinds include:
+The compiler accepts exactly these effect kinds and refuses any other with
+`unsupported procedure effect kind`:
 
 - `reads`
 - `writes`
-- `moves`
-- `updates-ledger`
+- `publishes`
 - `updates-state`
 - `uses-provider`
-- `executes-command`
+- `uses-command`
 - `calls-workflow`
-- `captures-snapshot`
-- `commits-bundle`
-- `publishes`
-- `materializes-artifact`
+- `runs-ref` (one child workflow name)
+- `host-input` (no subject)
 
 If a procedure's effects are hard to explain, the procedure is probably too
 broad.
@@ -3118,8 +3119,9 @@ stdout/stderr and validated result bundles. The complete lifecycle recipe and
 [State contract](../specs/state.md#evaluated-execution-persistence-profile-target-235)
 own their exact layout and authority.
 
-Older Core/Semantic/Executable IR and `expanded.debug.yaml` are retained
-historical projections/read formats. Their emitters/executors are retired;
+Older Core/Semantic/Executable IR and `expanded.debug.yaml` are historical
+projections. Their emitters/executors are retired, and the Core/Semantic/Executable
+IR code was removed on 2026-11-12 (local tag `archive/old-ir-stack-2026-11-12`);
 inspect current checked artifacts and memo evidence rather than requesting an
 old flat build.
 

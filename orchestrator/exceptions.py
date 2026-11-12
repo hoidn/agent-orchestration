@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Mapping
+from typing import Mapping
 
 
 @dataclass
@@ -55,20 +55,3 @@ class ValidationError:
     subject_refs: tuple[ValidationSubjectRef, ...] = ()
 
 
-class WorkflowValidationError(Exception):
-    """Raised when workflow validation fails.
-
-    Validation stages raise this exception with structured errors so callers,
-    including the CLI, can report them and map the appropriate exit code.
-    """
-
-    def __init__(self, errors: List[ValidationError]):
-        self.errors = errors
-        self.exit_code = 2  # Default validation exit code
-
-        # Construct error message
-        messages = []
-        for error in errors:
-            messages.append(f"Validation error: {error.message}")
-
-        super().__init__("\n".join(messages))

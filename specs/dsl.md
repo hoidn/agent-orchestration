@@ -467,31 +467,9 @@ YAML-fenced snippets are structural notation, not authored workflow files.
         - `kind: scalar` artifacts never write pointer files and use the typed value directly
         - compiler-classified executable-private artifacts resolve from `private_artifact_versions`, commit freshness to `private_artifact_consumes`, and expose resolved native values through the same `_resolved_consumes` semantic handoff used by provider prompt composition and consume-bundle materialization
       - v2.10 `provider_session.mode: resume` reserves one consume for runtime `${SESSION_ID}` binding rather than prompt or consume-bundle output
-    - `managed_jobs` (optional; v2.13+; provider steps only)
-      - step modifier for runtime-owned managed-job interception, audit, recovery, and resume semantics
-      - initial shape:
-        ```yaml
-        managed_jobs:
-          policy: workflows/managed_jobs/policy.json
-          watch_roots:
-            - scripts/training
-          backend: auto
-          poll_budget_sec: 82800
-          on:
-            complete: Review
-            failed: Fix
-            invalid: Fix
-            outstanding: fail_resumable
-        ```
-      - `policy` and `watch_roots` are relative paths governed by the normal path-safety model.
-      - `backend` is `auto`, `local`, or `slurm` in the first tranche.
-      - `poll_budget_sec` is a positive integer and must not exceed `timeout_sec` when the step declares one.
-      - `managed_jobs.on.complete`, `.failed`, and `.invalid` are validated like ordinary goto targets.
-      - `managed_jobs.on.outstanding` is the literal `fail_resumable` in the first tranche.
-      - The first tranche rejects `managed_jobs` on non-provider steps, adjudicated provider steps, steps with `retries`, and steps with ordinary `on` handlers.
-      - The policy file referenced by `managed_jobs.policy` is external JSON that classifies provider-launched payloads. It is not provider-template configuration and does not change prompt delivery.
-      - Policy entries use `mode: force_managed|auto_managed|force_local|unmanaged`. Managed entries must provide `job` metadata or a named `extractor`; unmanaged and force-local entries bypass managed launch.
-      - Explicit `job` metadata includes `name_template`, `state_root_template`, optional `output_root_arg`, `verify_files`, `snapshot_roots`, and optional `config_globs`. See `providers.md` for the policy JSON contract and shim behavior.
+    - `managed_jobs` (v2.13, provider steps): removed on 2026-11-12 with its runtime,
+      `orchestrator/managed_jobs/`; no `.orc` form or provider template reaches it. The local git
+      tag `archive/old-ir-stack-2026-11-12` holds the code.
     - `pre_snapshot` (optional; v2.14+; provider, adjudicated-provider, and command producer steps):
       - Captures bounded `sha256` evidence for named candidate relpath artifacts immediately before the producer executes.
       - Snapshot records are durable under `root.steps.<Step>.snapshots.<name>` and are not ordinary artifacts.

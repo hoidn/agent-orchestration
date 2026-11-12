@@ -1,11 +1,13 @@
 """The retired executor packages and their commands are gone, and nothing still imports them.
 
-Also the modules of the bundle-era IR stack that nothing imported (Lane D stage 3, tag
-`archive/old-ir-stack-2026-11-12`)."""
+Also the modules of the bundle-era IR stack, removed in Lane D stage 3 (2026-11-12, local tag
+`archive/old-ir-stack-2026-11-12`): first the ones nothing imported, then the core chain from
+`loaded_bundle` to `state_layout`."""
 
 from __future__ import annotations
 
 import ast
+from functools import cache
 import importlib
 from pathlib import Path
 
@@ -35,6 +37,20 @@ REMOVED_PACKAGES = [
     "orchestrator.workflow_lisp.observability_summaries",
     "orchestrator.workflow_lisp.consumer_rendering_census",
     "orchestrator.managed_jobs",
+    "orchestrator.workflow.loaded_bundle",
+    "orchestrator.workflow.semantic_ir",
+    "orchestrator.workflow.core_ast",
+    "orchestrator.workflow.runtime_plan",
+    "orchestrator.workflow.transition_contract",
+    "orchestrator.workflow.state_projection",
+    "orchestrator.workflow.runtime_step",
+    "orchestrator.workflow.executor_runtime",
+    "orchestrator.workflow.executable_ir",
+    "orchestrator.workflow.surface_ast",
+    "orchestrator.workflow.provider_context",
+    "orchestrator.workflow.statements",
+    "orchestrator.workflow.identity",
+    "orchestrator.workflow.state_layout",
 ]
 # A module that held one former public name of each removed package or module.
 FORMER_PUBLIC_MODULES = [
@@ -59,6 +75,20 @@ FORMER_PUBLIC_MODULES = [
     "orchestrator.workflow_lisp.consumer_rendering_census",
     # No row for orchestrator.managed_jobs: a stale editable install that predates its removal
     # still maps the package by name, so an import can succeed from another tree.
+    "orchestrator.workflow.loaded_bundle",
+    "orchestrator.workflow.semantic_ir",
+    "orchestrator.workflow.core_ast",
+    "orchestrator.workflow.runtime_plan",
+    "orchestrator.workflow.transition_contract",
+    "orchestrator.workflow.state_projection",
+    "orchestrator.workflow.runtime_step",
+    "orchestrator.workflow.executor_runtime",
+    "orchestrator.workflow.executable_ir",
+    "orchestrator.workflow.surface_ast",
+    "orchestrator.workflow.provider_context",
+    "orchestrator.workflow.statements",
+    "orchestrator.workflow.identity",
+    "orchestrator.workflow.state_layout",
 ]
 REMOVED_COMMANDS = [
     ["peer-ready"], ["peer-send", "b", "m"], ["peer-ack", "m1"], ["peer-finish"],
@@ -66,17 +96,31 @@ REMOVED_COMMANDS = [
 ]
 
 
-def _imported_modules(path: Path) -> set[str]:
+@cache  # every row scans the same files: parse each file once per session, keep only the names
+def _scan(path: Path) -> tuple[frozenset[str], frozenset[str]]:
+    """The modules a file imports, and its `orchestrator.*` string constants (names it could load by string)."""
     package = list(path.relative_to(REPO).parent.parts)
-    names: set[str] = set()
+    imported: set[str] = set()
+    strings: set[str] = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
-            names.update(alias.name for alias in node.names)
+            imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             base = package[: len(package) - node.level + 1] if node.level else []
             module = ".".join(base + ([node.module] if node.module else []))
-            names.update([module, *(f"{module}.{alias.name}" for alias in node.names)])
-    return names
+            imported.update([module, *(f"{module}.{alias.name}" for alias in node.names)])
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith("orchestrator."):
+            strings.add(node.value)
+    return frozenset(imported), frozenset(strings)
+
+
+def _imported_modules(path: Path) -> frozenset[str]:
+    return _scan(path)[0]
+
+
+def _named_modules(path: Path) -> frozenset[str]:
+    """Dotted module names a file can load by string, as in `importlib.import_module("...")`."""
+    return _scan(path)[1]
 
 
 @pytest.mark.parametrize("package", REMOVED_PACKAGES)
@@ -101,6 +145,19 @@ def test_nothing_imports_removed_packages(package: str) -> None:
         if any(
             name == package or name.startswith(package + ".")
             for name in _imported_modules(path)
+        )
+    ]
+    assert importers == []
+
+
+@pytest.mark.parametrize("package", REMOVED_PACKAGES)
+def test_no_orchestrator_module_imports_or_names_removed_packages(package: str) -> None:
+    importers = [
+        str(path.relative_to(REPO))
+        for path in sorted((REPO / "orchestrator").rglob("*.py"))
+        if any(
+            name == package or name.startswith(package + ".")
+            for name in _imported_modules(path) | _named_modules(path)
         )
     ]
     assert importers == []

@@ -177,6 +177,23 @@ git tag `archive/retired-run-readers-2026-11-11`.
 
 ## Tokens And Cost Of A Run
 
+To record what a run costs, bind its provider steps to metered templates in
+the provider manifest and, to stop a run before it overspends, give `run` or
+`resume` a cap:
+
+```bash
+# providers.json, beside the source: {"providers.review": "claude_metered"}
+orchestrator run review.orc --max-cost-usd 2
+```
+
+Under a cap, a provider step is refused before it starts
+(`spend_cap_unmetered`, with the cause and its fix) when its template is not
+a metered one, its `:model` is an alias or missing rather than a priced model
+id, or it is a phased step or a run reference. The cap is checked before each
+call, so one running call can pass it; it is not stored with the run. Rules:
+[CLI](../specs/cli.md) and
+[metered templates](../specs/providers.md#metered-templates-and-usage).
+
 `orchestrator report --run-id <run_id>` shows, for each provider step, the
 tokens its attempts reported and their list-price cost, and a `## Usage`
 section with the run total and the price table's source and date

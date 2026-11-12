@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import io
 import os
@@ -11,6 +12,7 @@ import stat
 import weakref
 from pathlib import Path
 
+from .._common.io_atomic import RenameNoreplaceError, rename_noreplace_at
 from .._common.safe_tree import open_directory, remove_tree_contents
 
 _NOFOLLOW_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
@@ -356,6 +358,38 @@ class WorkspaceFiles:
         mode: int | None = 0o600,
     ) -> None:
         self.write_from_fileobj(path, io.BytesIO(content), mode=mode)
+
+    def publish_new(self, path: str | Path, content: bytes, *, mode: int = 0o600) -> None:
+        """Durably publish a new file; ``FileExistsError`` when the name is taken.
+
+        Temporary file, sync, rename without replace, directory sync. Never
+        replaces: without renameat2(RENAME_NOREPLACE) its error propagates.
+        """
+        parent_fd, leaf = self._parent(path, create=True, sync_parents=True)
+        temporary = f".{leaf}.{secrets.token_hex(8)}.tmp"
+        try:
+            descriptor = os.open(
+                temporary, _NOFOLLOW_WRITE | os.O_CREAT | os.O_EXCL, mode, dir_fd=parent_fd
+            )
+            try:
+                os.fchmod(descriptor, mode)
+                _write_bytes(descriptor, content)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            try:
+                rename_noreplace_at(parent_fd, temporary, parent_fd, leaf)
+            except RenameNoreplaceError as exc:
+                if exc.errno != errno.EEXIST:
+                    raise
+                raise FileExistsError(exc.errno, "result path already exists", os.fspath(path)) from exc
+            os.fsync(parent_fd)
+        except BaseException:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(temporary, dir_fd=parent_fd)
+            raise
+        finally:
+            os.close(parent_fd)
 
     def ensure_directory(self, path: str | Path) -> None:
         parent_fd, leaf = self._parent(path, create=True)

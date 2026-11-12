@@ -464,12 +464,3 @@ def test_parallel_map_items_are_rows_with_item_index(tmp_path):
     assert all(len(directory) == 1 for directory in attempts)
     assert len(set.union(*attempts)) == 3
     assert _tree_bytes(tmp_path) == before
-
-
-def test_dashboard_and_report_do_not_load_the_bundle_stack():
-    stack = ("loaded_bundle", "core_ast", "semantic_ir", "runtime_plan", "state_projection")
-    probe = ("import sys, orchestrator.dashboard.server, orchestrator.cli.commands.report; "
-             f"print(sorted(m for m in sys.modules if m.rsplit('.', 1)[-1] in {stack!r}))")
-    result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True,
-                            env={**os.environ, "PYTHONPATH": os.getcwd()})
-    assert result.stdout.strip() == "[]"

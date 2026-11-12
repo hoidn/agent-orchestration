@@ -188,6 +188,9 @@ For v2.10 provider-session steps, treat the session handle as runtime-owned data
 **Historical scope:** `retired_yaml_translation`
 **New-author route:** [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
 
+Its runtime, `orchestrator/managed_jobs/`, was removed on 2026-11-12 (local git tag
+`archive/old-ir-stack-2026-11-12`).
+
 The historical `managed_jobs` mapping represented a provider that could launch
 long-running local, Slurm, or training-style jobs requiring audit, recovery,
 and resume without relaunching the provider. Use the mapping below only to
