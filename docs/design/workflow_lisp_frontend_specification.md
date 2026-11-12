@@ -405,9 +405,8 @@ are historical records.
     flat identities remain metadata/type history only, without a backend or resume path.
 
 12. [Frontend Standard Library Lowering](workflow_lisp_stdlib_lowering.md)
-    Exact lowering contracts for `provider-result`, `produce-one-of`,
-    `run-provider-phase`, `resume-or-start`, `review-revise-loop`,
-    `resource-transition`, `finalize-selected-item`, and `backlog-drain`.
+    Historical: lowering contracts of the standard forms, most of them removed
+    on 2026-11-12; the `review-revise-loop` route is §27 here.
 
 13. [Legacy Adapter](workflow_lisp_legacy_adapter.md)
     Rules for quarantined markdown parsing, old scripts, pointer conventions,
@@ -2209,6 +2208,8 @@ They must be:
 
 ### 18.1 Materialized Value Views
 
+Removed on 2026-11-12 (`materialize-view`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
+
 `materialize-view` renders a typed value to a deterministic file
 representation for a consumer that cannot consume the typed value directly.
 The typed value remains semantic authority. The rendered file is a view,
@@ -3014,6 +3015,8 @@ by the runtime migration foundation.
 
 ## 24. Produced Outcome
 
+Removed on 2026-11-12 (`produce-one-of` and its `provider` producer; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
+
 Some producers create candidate files rather than a canonical structured bundle.
 For those, use a higher-level form:
 
@@ -3076,8 +3079,8 @@ Have the provider/command produce blocker-class in the structured output bundle.
 
 Status scope: versioned library/type contracts and explicitly marked design
 sketches. Module availability does not admit every reachable effect. The
-review/revise schemas in §27 are current; old reusable-state/resource/drain
-backends below are historical unless their evaluated owner admits the effect.
+review/revise schemas in §27 are current; §26 and §28–§31 describe forms removed
+on 2026-11-12 (git tag `archive/pre-one-target-2026-11-12`) and are historical.
 The projection diagram records the old backend and supplies no launch authority.
 
 The standard library is the compression layer. Its forms are not privileged
@@ -3126,6 +3129,8 @@ flowchart TB
 ```
 
 ## 26. `run-provider-phase`
+
+Removed on 2026-11-12 (`run-provider-phase`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
 
 High-level phase execution.
 
@@ -3257,6 +3262,8 @@ state.
 
 ## 28. `resume-or-start`
 
+Removed on 2026-11-12 (`resume-or-start`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
+
 ```lisp
 (resume-or-start plan-gate
   :ctx ctx
@@ -3283,6 +3290,8 @@ Meaning:
 This replaces brittle recovery gates.
 
 ## 29. `resource-transition`
+
+Removed on 2026-11-12 (`resource-transition`, `defresource` and `deftransition`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
 
 ```lisp
 (resource-transition
@@ -3358,6 +3367,8 @@ overclaim atomicity.
 
 ## 30. `finalize-selected-item`
 
+Removed on 2026-11-12 (`finalize-selected-item`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
+
 ```lisp
 (finalize-selected-item
   :ctx ctx
@@ -3384,6 +3395,8 @@ for the same behavior are compatibility surfaces and are not part of the
 current stdlib contract.
 
 ## 31. `backlog-drain`
+
+Removed on 2026-11-12 (`backlog-drain`, with `std/drain` and `std/resource`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
 
 ```lisp
 (backlog-drain neurips

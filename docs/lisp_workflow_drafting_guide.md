@@ -2281,8 +2281,8 @@ Better:
 
 Use direct `command-result :adapter` only for non-resource, non-resume
 certified adapters with declared typed fields. Resource transitions and
-reusable-state helpers remain unavailable at evaluated targets; do not hide
-those semantics in an arbitrary command workaround.
+reusable-state helpers were removed ([Section 13.1](#131-removed-forms)); do not
+hide those semantics in an arbitrary command workaround.
 
 ## 9A. Pure Computation And Typed Projection
 
