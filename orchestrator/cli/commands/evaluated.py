@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import replace
 import os
+import time
 import hashlib
 import logging
 from argparse import Namespace
@@ -421,8 +422,8 @@ def _execute_reported(reporter: TerminalReporter, execute, authority, inputs, *,
         reporter.error(exc, header=authority.header, stored_program=stored_program, snapshot=_memo_or_none(authority))
 
     try:
-        exit_code, value = execute(replace(authority, observer=reporter.record, spend_cap_usd=spend_cap_usd), inputs,
-                                   on_error=on_error, **kwargs)
+        exit_code, value = execute(replace(authority, observer=reporter.record, spend_cap_usd=spend_cap_usd,
+                                           invocation_started_at=time.time()), inputs, on_error=on_error, **kwargs)
     except KeyboardInterrupt:
         reporter.run_failed()
         raise

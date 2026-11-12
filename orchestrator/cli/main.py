@@ -20,7 +20,7 @@ def _hide_flags(parser: argparse.ArgumentParser, prefixes: tuple[str, ...]) -> N
             action.help = argparse.SUPPRESS
 
 
-def _cost_usd(value: str) -> float:
+def usd(value: str) -> float:
     cost = float(value)
     if not math.isfinite(cost) or cost < 0:
         raise argparse.ArgumentTypeError("must be a finite number of USD, zero or more")
@@ -30,7 +30,7 @@ def _cost_usd(value: str) -> float:
 def _add_spend_cap(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--max-cost-usd',
-        type=_cost_usd,
+        type=usd,
         metavar='USD',
         help='Stop before a provider call once the priced usage of the run reaches USD (metered templates only)'
     )

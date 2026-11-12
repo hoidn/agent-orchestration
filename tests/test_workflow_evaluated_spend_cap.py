@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
 
-from tests.test_workflow_evaluated_provider_usage import _attempts, _memo, _orchestrator, _workspace
+from tests.test_workflow_evaluated_provider_usage import _attempts, _env, _memo, _orchestrator, _workspace
 
-# One stand-in call (11 input, 7 output, 5 cache-read, 3 cache-write tokens of claude-haiku-5-5) prices at
-# 5.25e-6 USD with the packaged table; a cap of 5e-6 is reached after one call.
-ONE_CALL = 5.25e-6
+# One stand-in Claude call reports 0.25 USD (above its highest-tier price); a cap of 5e-6 is reached after one call.
 BELOW_ONE_CALL = "0.000005"
 
 TWO_CALLS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
@@ -86,22 +89,59 @@ def test_cap_stops_before_the_next_provider_call_and_a_higher_cap_resumes(tmp_pa
     stopped = _run(root, "--max-cost-usd", BELOW_ONE_CALL)
     assert (stopped.returncode, _calls(root), [row["record"] for row in _memo(root)]) == (
         1, 1, ["started", "committed", "started", "committed"]), stopped.stderr
-    assert "[spend_cap_reached]" in stopped.stderr and f"resume {_run_id(root)} --max-cost-usd" in stopped.stderr
+    assert "[spend_cap_reached]" in stopped.stderr
+    suggested = stopped.stderr.split(f"resume {_run_id(root)} --max-cost-usd ")[1].split()[0]
+    assert float(suggested) > float(BELOW_ONE_CALL)
     resumed = _orchestrator(root, "resume", _run_id(root), "--max-cost-usd", "1")
     assert (resumed.returncode, _calls(root), _memo(root)[-1]["outcome"]) == (0, 2, "completed"), resumed.stderr
 
 
-def test_cap_reached_refusal_names_spent_and_cap(tmp_path):
-    root = _capped(tmp_path)
-    stopped = _run(root, "--max-cost-usd", BELOW_ONE_CALL)
-    assert f"spent {ONE_CALL:.6g} USD of a {float(BELOW_ONE_CALL):.6g} USD cap" in stopped.stderr
-
-
-def test_cap_with_an_unmetered_attempt_stops_before_the_next_call(tmp_path):
+def test_cap_refuses_a_plain_template_before_its_first_call(tmp_path):
     root = _capped(tmp_path, template="claude")
     stopped = _run(root, "--max-cost-usd", "1")
-    assert (stopped.returncode, _calls(root), "[spend_cap_unmetered]" in stopped.stderr) == (1, 1, True), stopped.stderr
-    assert "_metered" in stopped.stderr       # the refusal says how a capped run gets metered usage
+    assert (stopped.returncode, _calls(root), _memo(root), "[spend_cap_unmetered]" in stopped.stderr) == (
+        1, 0, [], True), stopped.stderr
+    assert "claude_metered" in stopped.stderr       # the refusal names the metered template to bind
+
+
+def test_cap_refuses_an_unpriced_model_before_its_call(tmp_path):
+    root = _capped(tmp_path, template="codex_metered", source=TWO_CALLS.replace("claude-haiku-5-5", "gpt-5.5"))
+    stopped = _run(root, "--max-cost-usd", "1")
+    assert (stopped.returncode, _calls(root), "[spend_cap_unmetered]" in stopped.stderr) == (1, 0, True), stopped.stderr
+
+
+def test_cap_refuses_every_unmeterable_parallel_item(tmp_path):
+    root = _capped(tmp_path, template="claude", source=PARALLEL)
+    for item in "abc":
+        (root / item / "work").mkdir(parents=True)
+    stopped = _run(root, "--max-cost-usd", "1")
+    assert (stopped.returncode, _calls(root), "[spend_cap_unmetered]" in stopped.stderr) == (1, 0, True), stopped.stderr
+
+
+def test_killed_call_stops_its_own_retry_under_a_cap(tmp_path):
+    root = _capped(tmp_path)
+    process = subprocess.Popen([sys.executable, "-m", "orchestrator", "run", "main.orc", "--source-root", ".",
+                                "--provider-externs-file", "providers.json", "--prompt-externs-file", "prompts.json",
+                                "--command-boundaries-file", "commands.json", "--input", "message=hi"],
+                               cwd=root, env=_env(root, mode="hang"), stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, start_new_session=True)
+    try:
+        deadline = time.monotonic() + 60
+        while _calls(root) < 1 and time.monotonic() < deadline:
+            time.sleep(0.05)
+    finally:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+    assert _calls(root) == 1
+    resumed = _orchestrator(root, "resume", _run_id(root), "--max-cost-usd", "1")
+    assert (resumed.returncode, _calls(root), "[spend_cap_unmetered]" in resumed.stderr) == (1, 1, True), resumed.stderr
+
+
+def test_cap_of_zero_never_suggests_the_same_cap(tmp_path):
+    root = _capped(tmp_path)
+    stopped = _run(root, "--max-cost-usd", "0")
+    assert ("[spend_cap_reached]" in stopped.stderr, "--max-cost-usd 0" in stopped.stderr,
+            f"resume {_run_id(root)}" in stopped.stderr) == (True, False, True), stopped.stderr
 
 
 def test_commands_run_under_a_reached_cap(tmp_path):
@@ -116,8 +156,8 @@ def test_parallel_batch_overshoots_only_by_calls_already_started(tmp_path):
         (root / item / "work").mkdir(parents=True)
     stopped = _run(root, "--max-cost-usd", BELOW_ONE_CALL, barrier="2", barrier_file=str(root / "started.log"))
     records = [row["record"] for row in _memo(root)]
-    assert (stopped.returncode, _calls(root), records.count("started"), records.count("committed")) == (
-        1, 2, 2, 2), stopped.stderr
+    assert (stopped.returncode, _calls(root), records.count("started"), records.count("committed"),
+            "[spend_cap_reached]" in stopped.stderr) == (1, 2, 2, 2, True), stopped.stderr
 
 
 def test_run_without_cap_ignores_unknown_usage(tmp_path):
@@ -134,3 +174,31 @@ def test_cap_counts_a_run_recorded_before_metering_as_unmetered(tmp_path):
     (_attempts(root)[0] / "usage.json").unlink()
     resumed = _orchestrator(root, "resume", _run_id(root), "--max-cost-usd", "1")
     assert (resumed.returncode, _calls(root), "[spend_cap_unmetered]" in resumed.stderr) == (1, 1, True)
+
+
+def test_run_reference_under_a_cap_stops_before_its_child(tmp_path):
+    from tests.test_workflow_evaluated_cli import _run_cli
+    from tests.test_workflow_evaluated_run_ref import _public_fixture
+
+    parent, source, refs = _public_fixture(tmp_path)
+    result = _run_cli(parent, str(source), "--run-ref-root", str(refs), "--max-cost-usd", "1")
+    children = list(refs.rglob("child-request.json")) if refs.exists() else []
+    assert (result.returncode, "[spend_cap_unmetered]" in result.stderr, children) == (1, True, []), result.stderr
+
+
+def test_completed_pending_agent_turn_recovers_under_a_cap(tmp_path, monkeypatch):
+    from tests.agent_session_shims import install_agent_shims, shim_requests
+    from tests.test_workflow_evaluated_agent_turn_recovery import STOP_AFTER_RECEIPT, _stopped
+    from tests.test_workflow_evaluated_agent_turns import PLAN, fixture, memo_of, turns
+    from tests.test_workflow_evaluated_invalidate import _cli
+
+    install_agent_shims(tmp_path / "bin", monkeypatch, codex_home=tmp_path / "codex", claude_home=tmp_path / "claude",
+                        plan=PLAN)
+    _stopped(tmp_path, STOP_AFTER_RECEIPT, {"STOP_AT_COMPLETION": "completed", "STOP_TURN": "/ b1"}, "run",
+             *fixture(tmp_path))
+    run_root, _authority, _classes, _memo_before = memo_of(tmp_path)
+    resumed = _cli(tmp_path, "resume", run_root.name, "--max-cost-usd", "1000")
+    _root, _authority, classes, after = memo_of(tmp_path)
+    # b1 commits at its first attempt without a launch; the next turn (an unpriced model) is refused before its call.
+    assert (turns(after, classes)["b1"]["attempt"], len(shim_requests(tmp_path)),
+            "[spend_cap_unmetered]" in resumed.stderr) == (1, 2, True), resumed.stderr

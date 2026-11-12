@@ -217,9 +217,11 @@ def _not_repeatable(exc, context: _Context) -> list[str]:
 
 
 def _spend_cap_reached(exc, context: _Context) -> list[str]:
-    higher = f"{max(getattr(exc, 'spent_usd', 0.0), getattr(exc, 'cap_usd', 0.0)) * 2:.6g}"
+    higher = max(getattr(exc, "spent_usd", 0.0), getattr(exc, "cap_usd", 0.0)) * 2
+    if higher <= 0:
+        return ["no provider call started; to continue, resume without a cap:", context.resume()]
     return ["no provider call started; to continue, resume with a higher cap:",
-            context.command("resume", context.run_id, "--max-cost-usd", higher)]
+            context.command("resume", context.run_id, "--max-cost-usd", f"{higher:.6g}")]
 
 
 def _spend_cap_unmetered(exc, context: _Context) -> list[str]:

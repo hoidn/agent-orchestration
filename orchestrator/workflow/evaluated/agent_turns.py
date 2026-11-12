@@ -36,6 +36,7 @@ from .attempts import allocate_attempt
 from .authority import _require_retained_root
 from .commands import workspace_relative_path
 from .memo import MemoError, append_record, read_memo
+from .spend_cap import check_spend_cap
 from .providers import ProviderPerformerError, launch_provider, provider_delivery_name_for_template, provider_result, resolve_provider_input
 
 
@@ -208,6 +209,7 @@ def prepare_agent_attempt(authority, node, operands, identity, snapshot, *, ordi
             return recovered
     else:
         restart_failed_turn(authority, identity, snapshot, context)
+    check_spend_cap(authority, snapshot, node, policy=resolved.provider.policy, template=resolved.template)
     _head_or_refuse(resolved)
     started = dict(record="started", identity=identity, attempt=ordinal, input_digest=canonical_sha256(parts), input_parts=parts,
                    implementation_files=implementation_files, result_path=result_path, time=time.time())

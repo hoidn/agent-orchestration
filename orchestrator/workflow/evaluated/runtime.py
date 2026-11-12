@@ -383,13 +383,13 @@ def prepare_effect(
     if commit is not None:
         return _reuse_reached_commit(authority, node, identity, parts, input_digest,
             dependencies, resolved, workspace, commit, snapshot, site_classes)
-    check_spend_cap(authority, node, snapshot)
     if node['class'] == 'agent_turn':
         return agent_turns.prepare_agent_attempt(authority, node, operands, identity, snapshot, ordinal=ordinal,
             attempt_directory=attempt_directory, result_path=result_path, resolved=resolved, parts=parts,
             implementation_files=implementation_files, dependencies=dependencies, context=dict(run_files=run_files,
             workspace=workspace, workspace_files=workspace_files, site_classes=site_classes, reader=reader,
             provider_executor=provider_executor, launch_cwd=launch_cwd, stream_output=stream_output, views=views))
+    check_spend_cap(authority, snapshot, node, executor=provider_executor, policy=getattr(resolved, "policy", None))
     if baseline is not None and node.get("repeat") == "never":
         raise effect_inputs._PreflightRefusal("lexical_restore_pending_effect_unsafe",
             f"{identity}: effect declares that it must not be repeated", identity=identity)

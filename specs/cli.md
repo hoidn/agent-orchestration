@@ -411,21 +411,33 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   value.
 - Spend cap. `--max-cost-usd USD` (on `run`, `py run` and `resume`; a finite
   number, zero or more) is a limit of this invocation only: it is not stored,
-  and a later `resume` without it has none. Before the `started` row of a
-  provider, phased provider or agent-turn effect, the run prices every
-  provider attempt's `usage.json` with the packaged price table
-  ([providers, "Metered templates and usage"](providers.md#metered-templates-and-usage)).
-  Priced usage at or over the cap stops the run with `spend_cap_reached`;
-  an earlier provider attempt whose usage is unknown or unpriced (a plain
-  template, a phased provider, an unpriced model, an interrupted call, a run
-  recorded before usage existed) stops it with `spend_cap_unmetered`, so a
-  capped run needs metered templates (`<name>_metered`) for its provider
-  steps. Neither writes a memo row: the run stops without a terminal and
-  `resume` continues. Attempts still running are not counted, so a parallel
-  batch overshoots the cap by at most the calls already started; command
-  effects and replayed commits are never stopped. Without the flag no usage
-  is read. The cap applies to the run's own attempts, not to a run
-  reference's child run.
+  a later `resume` without it has none, and the REPL's `:run` and the Python
+  SDK `orchestrator.py.run()` take no cap. Without the flag no usage is read.
+  With it, before the `started` row of a provider, phased provider, agent-turn
+  or run-reference effect (an agent turn: where a new attempt would be
+  allocated, so a completed pending turn is still recovered), the run stops
+  with `spend_cap_unmetered` when that call cannot be metered: its template
+  reports no usage (a built-in plain template; bind `<name>_metered`), it is a
+  phased provider step, its model (the step's `:model` or the template
+  default) has no complete rates in the packaged price table, or it is a run
+  reference, whose child run is not capped. Otherwise the run sums the spend
+  of its provider attempts
+  ([providers, "Metered templates and usage"](providers.md#metered-templates-and-usage)):
+  every attempt with a `usage.json` is counted, pending or not; an attempt
+  without one is skipped only while this invocation started it and it is
+  still running. Any counted attempt whose usage is unknown, `complete: false`
+  (a lower bound, e.g. a killed, timed-out or terminated turn) or unpriced, and
+  any attempt without a `usage.json` that an earlier invocation started (a
+  call cut off by a kill: its own retry stops), stops the run with
+  `spend_cap_unmetered`. Spend at or over the cap stops it with
+  `spend_cap_reached`. The cap prices conservatively: an attempt's figure is
+  the larger of the CLI's reported cost and the price at the model's highest
+  listed tier (a long-context rate where the table has one), so it can stop
+  earlier than the list price of short prompts would. Neither refusal writes
+  a memo row: the run stops without a terminal and `resume` continues. In a
+  parallel batch every item is checked before it starts, so no unmeterable
+  item starts and a batch overshoots the cap by at most the metered calls
+  already running; command effects and replayed commits are never stopped.
 - Terminal lines of `run` and `resume`. The command-line `run`, `resume` and
   `py run`, and the REPL's `:run`, print them; the Python SDK
   `orchestrator.py.run()` prints none and leaves the caller's streams
@@ -698,8 +710,8 @@ the `resume` command.
 | `evaluated_execution_unavailable` | the reason in one sentence | a fresh `run` |
 | `lexical_restore_pending_effect_unsafe` | the step that must not repeat, and that a new run performs it again, so whether the interrupted attempt took effect should be checked first | a fresh `run` |
 | `resume_request_missing` | that the run has no rebuild recipe | none |
-| `spend_cap_reached` | the spent and cap amounts (USD), and that no provider call started | `resume` with `--max-cost-usd` at twice the larger of the two |
-| `spend_cap_unmetered` | how many earlier provider attempts have no priced usage (the first by attempt directory), and that a capped run needs `<name>_metered` templates | `resume` without a cap |
+| `spend_cap_reached` | the spent and cap amounts (USD), and that no provider call started | `resume` with `--max-cost-usd` at twice the larger of the two; `resume` without a cap when both are 0 |
+| `spend_cap_unmetered` | why the next call cannot be metered (its template, phased step, unpriced model or run reference), or how many earlier provider attempts have no complete priced usage (the first by attempt directory), and that a capped run needs `<name>_metered` templates | `resume` without a cap |
 
 | Code | Raised by | Exit | Effect on evidence |
 | --- | --- | --- | --- |
@@ -725,7 +737,7 @@ the `resume` command.
 | `resume_run_ref_root_missing` | a run reference reached in replay; reached after continuation | 2; later 1 | Preflight: none. Later: failed terminal where the journal permits; prior commits kept |
 | `result_root_missing` | a result-path form reached in replay (header without `result_root`); reached after continuation | 2; later 1 | As above; read-only replay stops at the form with no error row |
 | `run_already_active`, `workspace_run_already_active` | `run`, `resume` | 2 | None |
-| `spend_cap_reached`, `spend_cap_unmetered` | `run`, `py run`, `resume` with `--max-cost-usd`, before a provider-class `started` | 1 | No row; stops without a terminal; prior commits kept |
+| `spend_cap_reached`, `spend_cap_unmetered` | `run`, `py run`, `resume` with `--max-cost-usd`, before a provider, phased provider, agent-turn or run-reference `started` | 1 | No row; stops without a terminal; prior commits kept |
 | `memo_busy` | `invalidate` | 2 | None |
 | `invalidate_not_committed`, `invalidate_coordinator_committed` | `invalidate` | 2 | None |
 | `agent_session_unavailable`, `agent_session_diverged`, `agent_policy_mismatch` | a reached agent turn (target 2.38) before its `started` and dispatch of a new turn | 1 during execution; 2 in `resume` preflight | No dispatch; failed terminal where the journal permits |
