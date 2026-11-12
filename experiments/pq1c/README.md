@@ -11,6 +11,46 @@ Only `run_cell.sh` spends provider calls, and only when
 `PQ1C_SPEND_AUTHORIZED=yes` is set after the owner approves the tranche.
 `readout.py` and a rehearsal call no model.
 
+## Result
+
+Run on 2026-11-12: runtime `bac6f00d`, Claude CLI 2.1.322, every call
+`claude-haiku-5-5`, manifest SHA-256
+`22974744964c7f179e713c203ddbb7fdfbe5be9903e0738cab497dfa63c47211`. All four
+cells are valid observations and no retry was used: 16 calls, USD 0.333.
+
+| Cell | Completed | Native sessions | Elapsed | Metered cost |
+| --- | --- | --- | --- | --- |
+| `variant-clean` | yes | 2 | 381 s | USD 0.120 |
+| `baseline-clean` | yes | 4 | 349 s | USD 0.069 |
+| `variant-resumed` | yes (stopped with exit 75 after two turns, resumed) | 2 | 253 s | USD 0.083 |
+| `baseline-resumed` | yes (stopped with exit 75 after two turns, resumed) | 4 | 296 s | USD 0.061 |
+
+- No committed turn was dispatched again, no attempt started twice, and usage
+  was recorded for every call.
+- Invalidating the feedback step: refused in the variant (exit 2,
+  `invalidate_coordinator_committed`, bytes unchanged); done in the baseline
+  (exit 0).
+- Cost ratio, variant over baseline: 1.74 clean, 1.38 resumed. The first two
+  turns cost about the same in both arms; the variant's two later turns run
+  in a session that already holds the earlier turns, and read more cached
+  tokens and wrote more output.
+- **Outcome by the frozen criterion: Retire, by cost** (both ratios at or
+  above 1.25).
+- **Owner judgment: Agent Sessions is kept.** Its value is the workflow
+  patterns it allows, which a comparison on one pattern that both arms can
+  express does not measure
+  ([roadmap decision 11](../../docs/plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#owner-decisions)).
+  The figures above are the known price of using a session.
+
+These are measure-free figures from one run per cell: no judge, no quality
+claim. They decide nothing about retained context, document quality, elapsed
+time or failure rates. The approval is used up; do not run a cell again
+without a new one. The raw run roots are outside the repository
+(`/home/ollie/pq1c-results`; `readout.json` there has SHA-256
+`8ec99942997cb9671d8fcaa40cca5dfd6c97f366d0fe35c386b245f59237ac6b`); the
+[plan ledger](../../docs/plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#ledger)
+has one row per cell.
+
 ## The protocol in brief
 
 Four cells, one run each: the variant

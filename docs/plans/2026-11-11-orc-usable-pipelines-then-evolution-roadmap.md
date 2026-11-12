@@ -201,7 +201,8 @@ full designs.
   - make generated binder names stable under insertion. Done for the Python
     surface only: the `.orc` site rule is unchanged, because prefix reuse
     (Phase 3) does not match effects by name;
-  - run the Agent Sessions comparison (PQ-1c) as its plan defines it: four
+  - run the Agent Sessions comparison (PQ-1c) as its plan defines it (done;
+    [result](../../experiments/pq1c/README.md#result)): four
     cells, three outcomes, models inside the Sonnet/Terra cap unless the owner
     authorizes otherwise. One run per cell decides measure-free axes only.
 - **Headline exit test:** a parallel best-of-N run survives a kill and
@@ -267,7 +268,7 @@ full designs.
 ### Phase 4: Python additions pulled by the consumer
 
 - **Work:** only what the friction log names, from: `parallel_map`; `Agent`
-  (if PQ-1c and the consumer keep Agent Sessions); procedure references, which
+  (Agent Sessions is kept, decision 11; opened when the consumer asks for it); procedure references, which
   need a revision of the
   [Python frontend design](../design/python_workflow_frontend.md) that
   excludes them today; `invalidate` accepting a readable name.
@@ -409,7 +410,7 @@ Phase 3 is larger than the table says: the accepted plan for 3b alone estimates
 
 | Existing record | Proposed disposition |
 | --- | --- |
-| [Evaluated-execution delivery plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md) | Keep as owner of its remaining Phase 5 work, its consumer migration and PQ-1c; correct its stale Phase 4 text |
+| [Evaluated-execution delivery plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md) | Keep as owner of its remaining Phase 5 work, its consumer migration; PQ-1c ran under the Phase 2 plan (decision 11); correct its stale Phase 4 text |
 | [Evolution follow-on roadmap](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md) | Keep the axis lifecycle; close the workstream ledger. The agent-authoring baseline trial becomes the Phase 1 authoring check |
 | [Checked evaluation of generated source](../design/workflow_lisp_checked_program_evaluation.md) | Park; reopen on a positive H-E result that needs generation inside a workflow |
 | [Structural search roadmap](2026-10-18-orc-structural-search-roadmap.md) and cumulative campaign plan | Stay closed; code handled as Phase 6 states |
