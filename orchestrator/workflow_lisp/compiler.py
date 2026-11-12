@@ -821,6 +821,7 @@ def _diagnostic_workflow_name(diagnostic: LispFrontendDiagnostic) -> str | None:
 def _collect_stage3_required_lint_diagnostics(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
+    typed_procedures: tuple[TypedProcedureDef, ...] = (),
     workflow_catalog: WorkflowCatalog | None = None,
     type_env: FrontendTypeEnvironment | None = None,
     bridge_backing_input_names: frozenset[str] = frozenset(),
@@ -905,7 +906,36 @@ def _collect_stage3_required_lint_diagnostics(
                         form_path=signature.form_path,
                     )
                 )
+    diagnostics.extend(_loop_missing_on_exhausted_diagnostics((*typed_workflows, *typed_procedures)))
     return tuple(diagnostics)
+
+
+def _loop_missing_on_exhausted_diagnostics(
+    definitions: tuple[TypedWorkflowDef | TypedProcedureDef, ...],
+) -> list[LispFrontendDiagnostic]:
+    """Warn once, at the loop, for each `loop/recur` without `:on-exhausted` in these bodies.
+
+    A specialization repeats a generic body that its defining module already
+    lints, so it is skipped. A loop that carries its own exhaustion code (the
+    loop `list/map-effect` lowers to) is not an authored `loop/recur`, so it is
+    skipped too.
+    """
+
+    return [
+        required_lint_diagnostic(
+            "loop_missing_on_exhausted",
+            message="`loop/recur` has no :on-exhausted; reaching :max fails the run with `loop_exhausted`",
+            span=node.span,
+            form_path=node.form_path,
+            expansion_stack=node.expansion_stack,
+        )
+        for definition in definitions
+        if definition.specialization is None
+        for node in walk_expr(definition.typed_body.expr)
+        if isinstance(node, LoopRecurExpr)
+        and node.on_exhausted_result_expr is None
+        and node.exhaustion_diagnostic_code is None
+    ]
 
 
 def _validate_family_profile_typed_prompt_input_rows(
@@ -2274,6 +2304,7 @@ def _compile_stage3_graph(
         )
         diagnostics = _collect_stage3_required_lint_diagnostics(
             typed_workflows,
+            typed_procedures=tuple(typed_procedures),
             workflow_catalog=workflow_catalog,
             type_env=type_env,
             bridge_backing_input_names=frozenset(

@@ -11,8 +11,6 @@ import stat
 from typing import Any, Literal, Mapping, Protocol
 import unicodedata
 
-from jsonschema import Draft202012Validator
-
 from orchestrator._common.io_atomic import (
     RenameNoreplaceError,
     RenameNoreplaceUnavailableError,
@@ -2181,6 +2179,8 @@ def _file_identity(
 
 
 def _canonical_validated_journal(document: Mapping[str, Any]) -> bytes:
+    from jsonschema import Draft202012Validator
+
     schema = load_provider_isolation_schema(_TRANSFER_SCHEMA_RESOURCE)
     errors = sorted(
         Draft202012Validator(schema).iter_errors(document),

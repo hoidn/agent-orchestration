@@ -29,11 +29,13 @@ from tests.test_workflow_evaluated_providers import _orchestrate_snapshot, _requ
 from tests.test_workflow_evaluated_public_context import (
     PROVIDER_PATH_SOURCE, _assert_provider_commit, _provider_files,
 )
-from tests.test_workflow_evaluated_run_ref_root import _completed_run
 from tests.workflow_evaluated_run_ref_helpers import _build_path_fixture
 from tests.workflow_evaluated_context_helpers import public_context_run
 from tests.workflow_evaluated_totality_helpers import (
-    checked_run, compile_public, pause_public, public_run,
+    checked_run, pause_public, public_run,
+)
+from tests.workflow_inprocess_cli_helpers import (
+    cli_inprocess, compile_public_inprocess as compile_public,
 )
 
 
@@ -71,6 +73,14 @@ with open("echo.log", "a") as log:
     log.write(sys.argv[1] + "\\n")
 Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(sys.argv[1]))
 '''
+
+
+def _completed_run(root):
+    source, _program = _build(root)
+    result = cli_inprocess(root, "run", str(source), "--input", "score=0.75")
+    assert result.returncode == 0, result.stderr
+    (run_root,) = (root / ".orchestrate" / "runs").iterdir()
+    return run_root
 
 
 def _x4_workspace(root, monkeypatch, source=PROVIDER_PATH_SOURCE, commands=None):
@@ -299,7 +309,7 @@ def test_changed_result_root_relationship_refuses_before_memo(tmp_path, monkeypa
     workspace = tmp_path / "ws"
     source, _program = _build(workspace)
     extra = ("--state-dir", state_dir) if state_dir else ()
-    assert _run_cli(workspace, str(source), "--input", "score=0.75", *extra).returncode == 0
+    assert cli_inprocess(workspace, "run", str(source), "--input", "score=0.75", *extra).returncode == 0
     runs_root = (workspace / state_dir).resolve() if state_dir else workspace / ".orchestrate" / "runs"
     run_root = _only_run(runs_root)
     monkeypatch.chdir(workspace)

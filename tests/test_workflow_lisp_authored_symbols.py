@@ -176,7 +176,7 @@ def test_projection_emits_all_ten_direct_kinds_with_exact_name_spans(
         "    ()\n"
         "    -> ReviewState\n"
         "    (loop/recur\n"
-        "      :max 1\n"
+        "      :max 1 :on-exhausted state\n"
         "      :state (record ReviewState\n"
         '               :status "ready")\n'
         "      (fn (state)\n"

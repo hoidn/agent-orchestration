@@ -10,11 +10,11 @@ from importlib import resources
 import json
 import posixpath
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 import unicodedata
 
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import ValidationError
+if TYPE_CHECKING:
+    from jsonschema.exceptions import ValidationError
 
 
 POLICY_SCHEMA_RESOURCE = "provider-phase-isolation-v1.schema.json"
@@ -225,6 +225,8 @@ def validate_provider_phase_isolation_policy(
     expected_policy_digest: str | None = None,
 ) -> tuple[ProviderIsolationIssue, ...]:
     """Return every deterministic schema, semantic, and identity issue."""
+
+    from jsonschema import Draft202012Validator
 
     schema = load_provider_isolation_schema(POLICY_SCHEMA_RESOURCE)
     validator = Draft202012Validator(schema)

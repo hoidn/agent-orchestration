@@ -20,13 +20,13 @@ from tests.test_workflow_evaluated_invalidate import _completed_run, _cli, _tree
 from tests.test_workflow_evaluated_resume_kills import _write_command_case, _run_root
 from tests.test_workflow_evaluated_view_publication import _live_writer, _wait_marker
 from tests.test_workflow_evaluated_views import _forbid_mutable_paths
-from tests.test_workflow_evaluated_providers import _fixture, _cli as _provider_cli, _requests
+from tests.test_workflow_evaluated_providers import _fixture, _requests
 from tests.test_workflow_evaluated_view_publication import _provider_env
 from tests.test_workflow_evaluated_dashboard import _corrupt_authority, _outputs, _detail as _dashboard_detail, _forbid_legacy
 from tests.test_workflow_evaluated_run_ref import _public_fixture
 from tests.test_workflow_evaluated_run_ref_settlement import _commit_gap
 from tests.test_run_lock import _subprocess_writer
-from tests.test_workflow_evaluated_cli import _run_cli
+from tests.workflow_inprocess_cli_helpers import cli_inprocess
 from orchestrator.dashboard.scanner import RunScanner
 from orchestrator.dashboard.server import DashboardApp
 
@@ -163,7 +163,11 @@ def test_monitor_provider_retry_uses_latest_error_streams_and_preserves_old_atte
     binary = tmp_path / "bin" / "codex"
     binary.write_text(binary.read_text().replace('b"complete stderr\\n"',
         '("stream-" + mode + (" rate limit old" if mode == "nonzero" else " clean latest") + "\\n").encode()'))
-    assert _provider_cli(tmp_path, fixture, mode="nonzero").returncode == 1
+    _provider_env(monkeypatch, tmp_path, "nonzero")
+    source, providers, prompts, _request = fixture
+    assert cli_inprocess(tmp_path, "run", str(source), "--source-root", str(source.parent),
+        "--provider-externs-file", str(providers), "--prompt-externs-file", str(prompts),
+        "--input", "message=typed input").returncode == 1
     run_root = _run_root(tmp_path)
     _forbid_mutable_paths(monkeypatch)
     _forbid_prompt_session_reads(monkeypatch)
@@ -204,7 +208,7 @@ def _branch_run(workspace):
     (workspace / "choice.txt").write_text("true")
     commands = workspace / "commands.json"
     commands.write_text(json.dumps({name: {"stable_command": ["python", f"{name}.py"], "closure": [f"{name}.py"]} for name in scripts}))
-    result = _cli(workspace, "run", str(source), "--command-boundaries-file", str(commands))
+    result = cli_inprocess(workspace, "run", str(source), "--command-boundaries-file", str(commands))
     assert result.returncode == 0, result.stderr
     return _run_root(workspace)
 
@@ -215,9 +219,9 @@ def test_monitor_terminal_skips_old_invalidated_branch_streams(tmp_path, monkeyp
     choose, stale = initial.state["steps"]
     old_root = run_root / Path(initial.state["steps"][stale]["result_path"]).parent
     old = _tree_bytes(old_root)
-    assert _cli(tmp_path, "invalidate", run_root.name, choose).returncode == 0
+    assert cli_inprocess(tmp_path, "invalidate", run_root.name, choose).returncode == 0
     (tmp_path / "choice.txt").write_text("false")
-    assert _cli(tmp_path, "resume", run_root.name).returncode == 0
+    assert cli_inprocess(tmp_path, "resume", run_root.name).returncode == 0
     _forbid_mutable_paths(monkeypatch)
     before = _tree_bytes(tmp_path)
     run, event = _observe(tmp_path, "completed")
@@ -234,7 +238,7 @@ def test_monitor_stream_redaction_and_caps_use_real_command_output(tmp_path, mon
     script = tmp_path / "reader.py"
     script.write_text(script.read_text() + '\nimport sys\nprint("api_key=unconfigured-sensitive-value")\nprint("normal-env-credential-value")\nprint("stdout-visible" + "x" * 9000 + "stdout-beyond-cap")\nprint("stderr-visible" + "y" * 9000 + "stderr-beyond-cap", file=sys.stderr)\n')
     monkeypatch.setenv("SMTP_PASSWORD", "normal-env-credential-value")
-    result = _cli(tmp_path, "run", str(source), "--command-boundaries-file", str(commands))
+    result = cli_inprocess(tmp_path, "run", str(source), "--command-boundaries-file", str(commands))
     assert result.returncode == 0, result.stderr
     _forbid_mutable_paths(monkeypatch)
     before = _tree_bytes(tmp_path)
@@ -309,7 +313,7 @@ def test_monitor_validates_pure_failure_terminal_without_sources(tmp_path, monke
     source = tmp_path / "failure.orc"
     source.write_text("""(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule failure) (export run) (defworkflow run ((divisor Float)) -> Float (/ 1.0 divisor)))""")
-    result = _run_cli(tmp_path, str(source), "--input", "divisor=0")
+    result = cli_inprocess(tmp_path, "run", str(source), "--input", "divisor=0")
     assert result.returncode == 1, result.stderr
     source.unlink()
     _forbid_mutable_paths(monkeypatch)
@@ -325,7 +329,7 @@ def test_monitor_validates_pure_failure_terminal_without_sources(tmp_path, monke
 def test_monitor_invalidated_current_identity_has_no_historical_attempt_or_streams(tmp_path, monkeypatch):
     run_root = _branch_run(tmp_path)
     choose = next(iter(_scan(tmp_path).state["steps"]))
-    assert _cli(tmp_path, "invalidate", run_root.name, choose).returncode == 0
+    assert cli_inprocess(tmp_path, "invalidate", run_root.name, choose).returncode == 0
     _forbid_mutable_paths(monkeypatch)
     before = _tree_bytes(tmp_path)
     run, event = _observe(tmp_path, "interrupted")
@@ -422,7 +426,11 @@ print(render_event_email(event, _config(workspace)).get_content(), flush=True)
 @pytest.mark.parametrize("target_kind", ["prompt", "session"])
 def test_monitor_attempt_stream_cannot_export_in_root_prompt_or_session(tmp_path, monkeypatch, target_kind):
     fixture = _fixture(tmp_path)
-    assert _provider_cli(tmp_path, fixture).returncode == 0
+    _provider_env(monkeypatch, tmp_path, "success")
+    source, providers, prompts, _request = fixture
+    assert cli_inprocess(tmp_path, "run", str(source), "--source-root", str(source.parent),
+        "--provider-externs-file", str(providers), "--prompt-externs-file", str(prompts),
+        "--input", "message=typed input").returncode == 0
     run_root = _run_root(tmp_path)
     row = next(iter(_scan(tmp_path).state["steps"].values()))
     attempt = run_root / Path(row["result_path"]).parent

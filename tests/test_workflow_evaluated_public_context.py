@@ -25,6 +25,16 @@ from tests.workflow_evaluated_context_helpers import (
 )
 from tests.test_workflow_lisp_closed_program_elaboration import _BIND_PROC_CAPTURE_SOURCE
 from tests.test_workflow_evaluated_cli import _run_cli
+from tests import workflow_evaluated_context_helpers as context_helpers
+from tests import workflow_evaluated_totality_helpers as totality_helpers
+from tests.workflow_inprocess_cli_helpers import compile_public_inprocess
+
+
+@pytest.fixture(autouse=True)
+def _fast_compile(monkeypatch):
+    for module in (totality_helpers, context_helpers):
+        monkeypatch.setattr(module, "compile_public", compile_public_inprocess)
+    monkeypatch.setitem(globals(), "compile_public", compile_public_inprocess)
 
 
 PROVIDER_PATH_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")

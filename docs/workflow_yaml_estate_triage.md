@@ -129,6 +129,9 @@ This table preserves the original 110-path Stage-6 routing projection. All five 
 
 ## Reproduction
 
+The third command names a test module that was removed on 2026-11-11 (it
+only replayed this finished migration's evidence); the first two still run.
+
 ```bash
 find workflows -type f \( -name "*.yaml" -o -name "*.yml" \) | sort
 python -m json.tool docs/plans/2026-07-13-procedure-first-reuse-inventory.json >/dev/null

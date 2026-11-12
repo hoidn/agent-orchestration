@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from unittest import mock
 
 import pytest
 
@@ -94,8 +95,18 @@ def _python(script, *arguments):
     return result
 
 
+def _prepare(script, *arguments):
+    """Run a compiler-side preparation script in this process.
+
+    The process boundary under test is the compiler-blocked `_python` run that follows;
+    the preparation only writes the files that run reads.
+    """
+    with mock.patch.object(sys, "argv", ["-c", *(str(value) for value in arguments)]):
+        exec(compile(script, "<prepare>", "exec"), {"__name__": "__main__"})
+
+
 def test_compiled_artifact_load_check_and_pure_evaluation_without_compiler(tmp_path):
-    _python('''
+    _prepare('''
 from pathlib import Path
 import sys
 from tests.test_workflow_evaluated_cli import _build
@@ -148,7 +159,7 @@ assert not any(name.startswith("orchestrator.workflow_lisp") for name in sys.mod
 
 
 def test_real_command_performer_and_readers_without_compiler(tmp_path):
-    _python('''
+    _prepare('''
 from pathlib import Path
 import sys
 from tests.test_workflow_evaluated_cli import test_public_run_dispatches_command_once_and_commits_typed_result
@@ -193,7 +204,7 @@ assert not any(name.startswith("orchestrator.workflow_lisp") for name in sys.mod
 
 
 def test_real_provider_transport_binding_and_freshness_without_compiler(tmp_path):
-    _python(PREPARE_IO + '''
+    _prepare(PREPARE_IO + '''
 from pathlib import Path
 import sys, json
 from tests.test_workflow_evaluated_providers import _fixture, _cli
@@ -236,7 +247,7 @@ assert not any(name.startswith("orchestrator.workflow_lisp") for name in sys.mod
 
 
 def test_imported_reader_routes_and_binding_refusals_without_compiler(tmp_path):
-    _python(PREPARE_IO + '''
+    _prepare(PREPARE_IO + '''
 from pathlib import Path
 import sys, json
 from tests.test_workflow_evaluated_provider_io import _stages, _typed, _checked, WREF
@@ -282,7 +293,7 @@ assert not any(name.startswith("orchestrator.workflow_lisp") for name in sys.mod
 @pytest.mark.parametrize("child_target", ["2.35", "2.36"])
 @pytest.mark.parametrize("operation", ["settle", "reconcile"])
 def test_real_child_parent_settlement_without_compiler(tmp_path, child_target, operation):
-    _python('''
+    _prepare('''
 from pathlib import Path
 import sys, json
 from pytest import MonkeyPatch
@@ -364,7 +375,7 @@ assert not any(name.startswith("orchestrator.workflow_lisp") for name in sys.mod
 
 
 def test_shared_compile_diagnostics_and_structural_failure_without_compiler(tmp_path):
-    _python('''
+    _prepare('''
 from pathlib import Path
 import json, sys
 from unittest.mock import patch

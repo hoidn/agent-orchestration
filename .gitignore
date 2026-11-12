@@ -12,3 +12,6 @@ artifacts/
 state/
 logs/
 tmp/
+
+# Seed of the last sampled test run that did not pass (pytest --sample)
+.pytest-sample-seed.json

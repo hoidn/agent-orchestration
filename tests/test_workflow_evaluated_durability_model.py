@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -319,10 +320,17 @@ def test_public_sync_failure_aborts_before_dispatch(tmp_path, topology):
     syncs = [op for op in trace if op["op"] == "fsync"]
     assert syncs and all("error" not in op for op in syncs)
     named = 0
-    for ordinal, synced in enumerate(syncs, start=1):
+
+    def attempt(ordinal: int):
         case = tmp_path / f"fail-{ordinal:02d}"
         workspace = _copy(template, case)
         result, failed_trace = record_public_run(workspace, case / "control", argv, fail_fsync=ordinal)
+        return workspace, result, failed_trace
+
+    # Each injected-failure run owns its directory, so the subprocess runs overlap; assertions stay serial.
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        runs = list(pool.map(attempt, range(1, len(syncs) + 1)))
+    for synced, (workspace, result, failed_trace) in zip(syncs, runs):
         _assert_failed_sync(workspace, result, failed_trace, synced["kind"])
         named += _assert_post_publication_code(workspace, template, result)
     assert named, "no sync failure happened after the first journal record"

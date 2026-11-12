@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import atexit
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -23,8 +26,36 @@ def _pure_run(root: Path) -> Path:
     return run_root
 
 
+_PRISTINE: dict = {}
+
+
+def _pristine_copy(root: Path, key, build) -> Path:
+    """Run `build(dir)` once per process for `key`; give `root` a copy with the workspace path rewritten.
+
+    The run is the same public CLI run, only not repeated for each test that mutates its own copy.
+    """
+    if key not in _PRISTINE:
+        base = Path(tempfile.mkdtemp(prefix="pristine-run-"))
+        atexit.register(shutil.rmtree, base, ignore_errors=True)
+        _PRISTINE[key] = (base / "w", build(base / "w"))
+    pristine, run_root = _PRISTINE[key]
+    shutil.copytree(pristine, root, symlinks=True, dirs_exist_ok=True)
+    old, new = str(pristine).encode(), str(root).encode()
+    for path in root.rglob("*"):
+        if path.is_file() and not path.is_symlink() and old in (data := path.read_bytes()):
+            path.write_bytes(data.replace(old, new))
+    return root / run_root.relative_to(pristine)
+
+
+def _pure_run_cached(root: Path) -> Path:
+    def build(base: Path) -> Path:
+        base.mkdir()
+        return _pure_run(base)
+    return _pristine_copy(root, "pure", build)
+
+
 def test_report_reads_evaluated_root_without_state(tmp_path, capsys):
-    run_root = _pure_run(tmp_path)
+    run_root = _pure_run_cached(tmp_path)
     (run_root / "state.json").unlink(missing_ok=True)
     before = _tree_bytes(tmp_path)
 
@@ -39,7 +70,7 @@ def test_report_reads_evaluated_root_without_state(tmp_path, capsys):
 
 
 def test_state_manager_reconstructs_before_reading_contradictory_view(tmp_path):
-    run_root = _pure_run(tmp_path)
+    run_root = _pure_run_cached(tmp_path)
     (run_root / "state.json").write_text('{"status":"failed","result_persistence_profile":"unknown"}')
     before = _tree_bytes(tmp_path)
 
@@ -69,12 +100,19 @@ def _scalar_run(root, returns, expression):
     return run_root
 
 
+def _scalar_run_cached(root, returns, expression):
+    def build(base):
+        base.mkdir()
+        return _scalar_run(base, returns, expression)
+    return _pristine_copy(root, ("scalar", returns, expression), build)
+
+
 @pytest.mark.parametrize("returns,expression,value", [
     ("Int", "7", 7), ("Bool", "false", False), ("List[Int]", "(list 1 2)", [1, 2]),
     ("Optional[Int]", "null", None), ("List[Int]", "(list)", []),
 ])
 def test_report_markdown_preserves_direct_json_outputs(tmp_path, capsys, returns, expression, value):
-    run_root = _scalar_run(tmp_path, returns, expression)
+    run_root = _scalar_run_cached(tmp_path, returns, expression)
     before = _tree_bytes(tmp_path)
 
     assert report_workflow(run_root.name, runs_root=str(run_root.parent), format="md") == 0
@@ -90,7 +128,7 @@ def test_report_markdown_preserves_direct_json_outputs(tmp_path, capsys, returns
 
 @pytest.mark.parametrize("view", [None, "invalid json", '{"status":"failed"}'])
 def test_report_reconstructs_missing_stale_and_invalid_views(tmp_path, capsys, view):
-    run_root = _pure_run(tmp_path)
+    run_root = _pure_run_cached(tmp_path)
     if view is not None:
         (run_root / "state.json").write_text(view)
     else:
@@ -105,7 +143,7 @@ def test_report_reconstructs_missing_stale_and_invalid_views(tmp_path, capsys, v
 
 @pytest.mark.parametrize("fields", [(), ("resume_request",), ("run_ref_root",), ("resume_request", "run_ref_root")])
 def test_historical_optional_authority_still_loads_without_sources(tmp_path, fields):
-    run_root = _pure_run(tmp_path)
+    run_root = _pure_run_cached(tmp_path)
     header_path = run_root / "run.json"
     header = json.loads(header_path.read_bytes())
     for name in fields:
@@ -119,7 +157,7 @@ def test_historical_optional_authority_still_loads_without_sources(tmp_path, fie
 
 @pytest.mark.parametrize("change", ["profile", "schema", "missing_header", "artifact", "digest", "inputs", "recipe", "root"])
 def test_authority_corruption_refuses_before_state_fallback(tmp_path, capsys, change):
-    run_root = _pure_run(tmp_path)
+    run_root = _pure_run_cached(tmp_path)
     header_path = run_root / "run.json"
     header = json.loads(header_path.read_bytes())
     mutations = {"profile": ("result_persistence_profile", "unknown"), "schema": ("schema_version", "2.1"),
@@ -145,7 +183,7 @@ def test_authority_corruption_refuses_before_state_fallback(tmp_path, capsys, ch
 
 
 def test_public_report_subprocess_reconstructs_without_source_or_state(tmp_path):
-    run_root = _pure_run(tmp_path)
+    run_root = _pure_run_cached(tmp_path)
     (run_root / "state.json").unlink(missing_ok=True)
     assert not (run_root / "state.json").exists()
     (tmp_path / "evaluated" / "inputs.orc").unlink()
@@ -183,7 +221,7 @@ def test_monitor_reads_evaluated_root_without_state(tmp_path, monkeypatch, capsy
 
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    run_root = _pure_run(workspace)
+    run_root = _pure_run_cached(workspace)
     (run_root / "state.json").unlink()
     config = _write_config(tmp_path, workspace)
     ledger = tmp_path / "notifications.json"

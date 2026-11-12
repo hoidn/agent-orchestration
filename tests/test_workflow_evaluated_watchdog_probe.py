@@ -12,7 +12,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from tests.test_workflow_evaluated_readers import _pure_run, _scalar_run
+from tests.test_workflow_evaluated_readers import _pure_run_cached as _pure_run, _scalar_run_cached as _scalar_run
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
 from tests.test_workflow_evaluated_resume_kills import _write_command_case
 from tests.test_workflow_evaluated_view_publication import _live_writer, _wait_marker

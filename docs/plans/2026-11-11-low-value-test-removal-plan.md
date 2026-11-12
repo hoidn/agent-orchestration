@@ -1,6 +1,6 @@
 # Low-Value Test Removal Plan
 
-**Status: Plan, in execution.** Owner instruction of 2026-11-11: remove about
+**Status: Plan, executed 2026-11-11.** Owner instruction of 2026-11-11: remove about
 8,000 low-value tests. This is the test half of Lane D of the
 [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#lane-d-delete-and-unify-background-time-boxed),
 taken early. It deletes tests only; no runtime, language or spec behavior
@@ -57,3 +57,6 @@ above plus the removal record, not a coverage comparison.
 | Date | Entry |
 | --- | --- |
 | 2026-11-11 | Owner instruction received; inventory taken (18,567 items, 661 modules). Interpretation recorded: 8,000 means collected items; low value is defined by the table above. |
+| 2026-11-11 | Classified by six reviewers plus a second pass of 25 cheaper reviewers on the owner's suggestion. 3,356 items met the rule; 337 were held back (historical-run views pending an owner decision, major-project script tests, security tests on dead code). The second pass added 116 items, all confirmed before removal. |
+| 2026-11-11 | Removed 3,134 items (18,491 to 15,357 on a clean tree), 204 files changed, about 75,000 lines deleted. Two reviewer rows were found wrong during removal and skipped. The pruned suite's failures were within the baseline; merged as `439361d9`. The shortfall against 8,000 is reported, not filled: the rest of the suite is mostly kill and resume, confinement, checker and validation tests. |
+| 2026-11-11 | Not done here: 908 closed-campaign tests are skipped by default instead of deleted (`ORCHESTRATE_CAMPAIGN_TESTS=1` runs them); about 220 historical-run tests wait on the owner's decision about the dashboard and `report`. The removal records per group are session scratch; the list of removed tests is recoverable from `git diff f0005f17 a32cef14 -- tests`. |

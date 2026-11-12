@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields as dataclass_fields, is_dataclass, replace
 
 from ..conditionals import (
+    _EFFECT_NODE_TYPES,
     _contains_effect,
     fold_pure_short_circuit,
     _normalize_operand,
@@ -2092,7 +2093,7 @@ def _bind_effectful_loop_state_fields(
     value_env: Mapping[str, TypeRef],
     compile_time_bindings: Mapping[str, object],
 ) -> LetStarExpr | None:
-    """Bind each effectful `loop-state :like` field before `continue`, as `let*` would.
+    """Bind an effectful `continue` state, or each effectful `loop-state :like` field, as `let*` would.
 
     This returns ``(let* ((g1 e1) ...) (continue (loop-state
     :like base ... :f g1 ...)))`` with one generated binding per field that
@@ -2101,15 +2102,37 @@ def _bind_effectful_loop_state_fields(
     around it, and differs from every identifier in scope and inside `expr`, so
     it captures no authored reference. It returns None when no field has an
     effect; the loop lowerer then projects the state as pure.
+
+    An effect given directly as the state, ``(continue e)``, becomes
+    ``(let* ((g e)) (continue g))``. Other effectful states (``if``, ``let*``,
+    arithmetic) are left alone: they already lower, and binding them would
+    change their program digest.
     """
 
     state = expr.state_expr
+    # `request-input` is an effect here but not in the shared `_EFFECT_NODE_TYPES`.
+    direct_effect = isinstance(state, (*_EFFECT_NODE_TYPES, RequestInputExpr)) and not isinstance(
+        state, ResourceTransitionExpr
+    )
     if not (
-        (isinstance(state, LoopStateUpdateExpr)) and (any(_contains_effect(field_expr) for _, field_expr in state.overrides))
+        direct_effect
+        or (isinstance(state, LoopStateUpdateExpr) and any(_contains_effect(field_expr) for _, field_expr in state.overrides))
     ):
         return None
     reserved = reserved_identifiers(expr, value_env=value_env, compile_time_bindings=compile_time_bindings)
     naming_scope = generated_name_scope(scope)
+    if direct_effect:
+        binding_name = fresh_name(_generated_effect_binding_name_from_scope(naming_scope, role="state"), reserved)
+        state_name = NameExpr(
+            name=binding_name, span=state.span, form_path=state.form_path, expansion_stack=state.expansion_stack
+        )
+        return LetStarExpr(
+            bindings=((binding_name, state),),
+            body=replace(expr, state_expr=state_name),
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
     bindings: list[tuple[str, object]] = []
     overrides: list[tuple[str, object]] = []
     for field_name, field_expr in state.overrides:

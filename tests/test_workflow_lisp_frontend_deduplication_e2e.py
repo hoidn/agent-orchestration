@@ -13,6 +13,7 @@ from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow.evaluated.authority import load_run_authority
 from tests.test_workflow_evaluated_resume_retry import _public_env, _start_and_kill
 from tests.test_workflow_host_input_e2e import _cli, _run_files, _snapshot
+from tests.workflow_inprocess_cli_helpers import cli_inprocess
 
 
 def fixture_source(expanded: bool, fields: tuple[str, str] = ("second", "first")) -> str:
@@ -95,11 +96,11 @@ def _start(root: Path, expanded: bool, fields=("second", "first")) -> Path:
     (root / "artifacts/evidence.txt").write_text("verified evidence\n", encoding="utf-8")
     arguments = [str(root / "deduplication.orc"), "--source-root", str(root),
                  "--command-boundaries-file", str(root / "commands.json")]
-    compiled = _cli(root, "compile", *arguments)
+    compiled = cli_inprocess(root, "compile", *arguments)
     assert compiled.returncode == 0, compiled.stderr
     summary = json.loads(compiled.stdout)
     assert (Path(summary["build_root"]) / "closed_program.json").is_file()
-    started = _cli(root, "run", *arguments, "--quiet")
+    started = cli_inprocess(root, "run", *arguments, "--quiet")
     assert started.returncode == 0, started.stderr
     run_root, = (root / ".orchestrate/runs").iterdir()
     assert [row["operation"] for row in _dispatches(root)] == [*fields, "read"]

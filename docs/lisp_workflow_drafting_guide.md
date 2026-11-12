@@ -2865,6 +2865,13 @@ Every loop must have:
 
 Exhaustion should be a typed result when it is part of workflow semantics.
 
+Give every loop `:on-exhausted`. Its expression is the loop's value when the
+loop reaches `:max` without `done`, so it has the loop's result type; the
+loop binder is in scope there and holds the last state (the first example
+below builds its result from `state`). Without it, the compiler warns with
+`loop_missing_on_exhausted` at the loop, and a run that reaches `:max` fails
+with `loop_exhausted` instead of returning a value.
+
 Loop state carries typed values, not file-path authority. Counters are `Int`
 fields updated in-language; statuses and reasons are typed values; durable
 state is a typed result or resource reference, not a `state/...` path
@@ -2877,6 +2884,9 @@ surface makes the value-carrying shape direct:
   :state (record CounterState
            :count 0
            :label "seed")
+  :on-exhausted (record CounterResult
+                  :count state.count
+                  :label state.label)
   (fn (state)
     (if (< state.count 3)
       (continue
@@ -2900,6 +2910,7 @@ does not deserve a top-level reusable `defrecord`.
   :state (loop-state
            (report ReviewReportPath report_path)
            (done Bool false))
+  :on-exhausted current.report
   (fn (current)
     (if current.done
       (done current.report)
