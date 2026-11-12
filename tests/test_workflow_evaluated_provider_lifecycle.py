@@ -24,6 +24,7 @@ from tests.test_workflow_evaluated_providers import (
     SOURCE, _assert_cli_resume_refusal, _assert_retry_request_parity, _cache_snapshot,
     _cli, _fixture, _orchestrate_snapshot, _requests, _spy_provider_prepare,
 )
+from tests.agent_session_shims import closed_path
 
 
 class _Interrupted(BaseException):
@@ -34,7 +35,7 @@ class _Interrupted(BaseException):
 def _run(root, monkeypatch, source=SOURCE, *, prompt_kind="asset_file", inputs=None):
     fixture = _fixture(root, source, prompt_kind=prompt_kind)
     built = build_closed_program_bundle(fixture[3])
-    monkeypatch.setenv("PATH", str(root / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(root / "bin"))
     with publish_run_authority(root / ".state" / "run-1", built.program,
         run_id="run-1", workflow_file="main.orc", workflow_checksum="sha256:" + sha256(source.encode()).hexdigest(),
         resume_request={"source_roots": [], "entry_workflow": None,
@@ -210,7 +211,7 @@ def test_public_failed_provider_retry_uses_next_attempt_and_preserves_evidence(t
     state = _capture_public_failed_provider(tmp_path)
     from tests.test_workflow_evaluated_resume import _resume_cli
 
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     monkeypatch.setenv("PROVIDER_SHIM_MODE", "success")
     monkeypatch.setenv("PROVIDER_SHIM_RESULT", '{"ok":true,"extra":7}')
     resumed = _resume_cli(tmp_path, state["run_root"].name)
@@ -362,7 +363,7 @@ def test_public_provider_raw_c6_changes_refuse_readonly_with_causal_parts(
     fixture = _fixture(tmp_path, source, prompt_kind=kind)
     _write_raw_c6_variant(target, source_case, changed=False)
     extra = ("--input", "note=artifacts/note.md") if source_case == "dependency-tail" else ()
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     result = _cli(tmp_path, fixture, extra=extra)
     assert result.returncode == 0, result.stderr
 

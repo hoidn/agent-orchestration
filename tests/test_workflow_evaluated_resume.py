@@ -13,6 +13,7 @@ from pathlib import Path
 from orchestrator.cli.commands.resume import resume_workflow
 from tests.test_workflow_evaluated_cli import _build, _run_cli
 from orchestrator.workflow.evaluated.memo import read_memo
+from tests.agent_session_shims import closed_path
 
 
 def _snapshot(root: Path) -> dict[str, bytes | None]:
@@ -380,7 +381,7 @@ def test_c3_checks_all_emitted_interpreters_before_memo(tmp_path, monkeypatch, c
     interpreter = tools / 'resume-tool'
     interpreter.write_text('#!/bin/sh\nexit 0\n')
     interpreter.chmod(0o755)
-    monkeypatch.setenv('PATH', str(tools) + os.pathsep + os.environ['PATH'])
+    monkeypatch.setenv('PATH', closed_path(tools))
     (tmp_path / 'commands.json').write_text(json.dumps({'unused': {
         'stable_command': ['resume-tool', 'probe.py'], 'closure': ['probe.py']}}))
     result = _run_cli(tmp_path, str(source), '--command-boundaries-file', 'commands.json')

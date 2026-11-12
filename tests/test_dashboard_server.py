@@ -24,6 +24,7 @@ from tests.test_workflow_evaluated_invalidate import _completed_run, _tree_bytes
 from tests.test_workflow_evaluated_readers import _pure_run, _scalar_run
 from tests.test_run_lock import _subprocess_writer
 from tests.workflow_inprocess_cli_helpers import cli_inprocess
+from tests.agent_session_shims import closed_path
 
 
 FAILING_SOURCE = '''\
@@ -176,7 +177,7 @@ def _hostile_error_run(workspace: Path, monkeypatch) -> Path:
     program.parent.mkdir()
     program.write_bytes(b"\x00\x01 not an executable format")
     program.chmod(0o700)
-    monkeypatch.setenv("PATH", str(program.parent) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(program.parent))
     (workspace / "hostile.orc").write_text(HOSTILE_ERROR_SOURCE, encoding="utf-8")
     (workspace / "hostile_commands.json").write_text(
         json.dumps({"hostile": {"stable_command": ["<script>boom"], "closure": []}}), encoding="utf-8")

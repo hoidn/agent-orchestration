@@ -25,6 +25,7 @@ from tests.workflow_evaluated_consumer_sources import (
     Program, assert_request_lineage, current_route, install, install_shims, requests,
 )
 from tests.workflow_evaluated_totality_helpers import checked_run
+from tests.agent_session_shims import closed_path
 
 
 SCORE = Program("experiments/compare/score.orc", "score::score", "experiments/compare",
@@ -317,7 +318,7 @@ def test_control_means_runs_through_prepare_orchestrator_summary_and_c1(tmp_path
         plan.write_text(json.dumps({"ratings": rating_by_path}), encoding="utf-8")
         inputs = json.loads((pool / f"records/score-inputs-{judge}.json").read_text(encoding="utf-8"))
         (judge_home / "inputs.json").write_text(json.dumps(inputs), encoding="utf-8")
-        monkeypatch.setenv("PATH", f"{Path(__file__).parents[1] / 'experiments/compare/shim'}:{os.environ['PATH']}")
+        monkeypatch.setenv("PATH", closed_path(Path(__file__).parents[1] / 'experiments/compare/shim'))
         monkeypatch.setenv("FAKE_SCORE_PLAN", str(plan))
         monkeypatch.setenv("FAKE_SCORE_CALLS", "/tmp/local-provider-calls.jsonl")
         monkeypatch.setenv("COMPARE_ROOT", str(pool / "records/judges" / judge))
@@ -453,7 +454,7 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
                        check=True)
 
     env = {**os.environ,
-           "PATH": f"{world.runtime / 'experiments/compare/shim'}:{world.fakebin}:{os.environ['PATH']}",
+           "PATH": closed_path(world.runtime / 'experiments/compare/shim', world.fakebin),
            "TASK_DIFFICULTY_PLAN": str(plan), "TASK_DIFFICULTY_CALLS": "/tmp/task-difficulty-calls.jsonl"}
     records, captured_rows, views, events, attempts = [], {}, {}, [], {}
     for arm, model, number in (("direct_task", models["direct_task"], 1),
@@ -566,7 +567,7 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
     _local_rating_provider(world.fakebin)
     score_inputs = json.loads((pool / f"records/score-inputs-{judge}.json").read_text(encoding="utf-8"))
     (judge_home / "inputs.json").write_text(json.dumps(score_inputs), encoding="utf-8")
-    monkeypatch.setenv("PATH", f"{world.runtime / 'experiments/compare/shim'}:{world.fakebin}:{os.environ['PATH']}")
+    monkeypatch.setenv("PATH", closed_path(world.runtime / 'experiments/compare/shim', world.fakebin))
     monkeypatch.setenv("FAKE_SCORE_PLAN", str(rating_plan))
     monkeypatch.setenv("FAKE_SCORE_CALLS", "/tmp/rating-calls.jsonl")
     monkeypatch.setenv("COMPARE_ROOT", str(pool / "records/judges" / judge))

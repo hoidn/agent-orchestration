@@ -5,7 +5,9 @@ admitted evaluated program. Path-mode run references retain their pure-child
 and typed result/delta/accounting contracts under [evaluated execution](workflow_lisp_evaluated_execution.md).
 Named static workflow confinement has its separate [2.38 owner](workflow_lisp_run_ref_expression_environments.md)
 and command-only/public-provider qualification boundary. Historical E1 workspace
-preparation is not the confinement provisioning route.
+preparation is not the confinement provisioning route. The design decisions of
+the retired `trial` form worth reusing are in the
+[salvage record](trial_and_adjudication_salvage.md).
 
 Current availability amendment (2026-10-13): the
 [selected retirement](workflow_lisp_executor_retirement.md) removes `trial`,
