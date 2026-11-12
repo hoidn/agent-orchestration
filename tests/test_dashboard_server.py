@@ -578,3 +578,14 @@ def test_elapsed_column_is_start_to_last_record_or_to_request_time_while_running
     assert "<td>running</td>" in pages[59]
     assert {seconds: _elapsed_cell(body, running.name) for seconds, body in pages.items()} == {
         59: "59s", 3725: "1h 2m"}
+
+
+def test_scan_errors_on_the_run_list_are_capped(tmp_path: Path):
+    runs = os.fsencode(_pure_run(tmp_path).parent)
+    for index in range(53):
+        os.mkdir(os.path.join(runs, b"bad%02d\xff" % index))
+
+    body = _app(tmp_path).handle("GET", "/runs").body.decode()
+
+    assert body.count("not UTF-8; not listed") == 50
+    assert "and 3 more scan errors" in body

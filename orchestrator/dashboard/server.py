@@ -96,7 +96,7 @@ class DashboardApp:
             "<main>",
             "<h1>Workflow Runs</h1>",
             '<p><a href="/runs">Refresh</a></p>',
-            *warnings_section(scan.errors),
+            *warnings_section(_capped(scan.errors)),
             "<table>",
             "<thead><tr><th>Workspace</th><th>Run</th><th>State Run ID</th><th>Workflow</th><th>Status</th><th>Cursor</th><th>Started</th><th>Elapsed</th><th>Updated</th><th>Read time</th><th>Failure</th></tr></thead>",
             "<tbody>",
@@ -300,6 +300,15 @@ class DashboardApp:
             return f"{minutes}m {seconds}s"
         hours, minutes = divmod(minutes, 60)
         return f"{hours}h {minutes}m"
+
+
+SCAN_ERROR_LIMIT = 50
+
+
+def _capped(errors: list[str]) -> list[str]:
+    """The first `SCAN_ERROR_LIMIT` scan errors, then one line counting the rest."""
+    rest = len(errors) - SCAN_ERROR_LIMIT
+    return errors[:SCAN_ERROR_LIMIT] + ([f"and {rest} more scan errors"] if rest > 0 else [])
 
 
 def host_allowed(host_header: Optional[str], bound_host: str, bound_port: int) -> bool:
