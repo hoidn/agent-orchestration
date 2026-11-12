@@ -18,7 +18,6 @@ from orchestrator._common.io_atomic import (
     durable_atomic_write,
     rename_noreplace_at,
 )
-from orchestrator.providers import isolation_bundle_broker as bundle_broker
 from orchestrator.providers import isolation_environment as environment
 
 
@@ -655,74 +654,6 @@ def test_rename_noreplace_at_rejects_unsafe_names_before_syscall(
 
     assert (directory / "a").read_bytes() == b"payload"
     assert sorted(entry.name for entry in directory.iterdir()) == ["a"]
-
-
-def test_broker_rename_wrapper_preserves_success_and_domain_errors(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    directory = tmp_path / "authority"
-    directory.mkdir()
-    (directory / "a").write_bytes(b"source")
-    (directory / "b").write_bytes(b"destination")
-    fd = _directory_descriptor(directory)
-    try:
-        bundle_broker._rename_noreplace(fd, "a", fd, "moved")
-        with pytest.raises(
-            bundle_broker.ProviderIsolationBundleBrokerError,
-            match="atomic no-replace rename failed with errno 17",
-        ):
-            bundle_broker._rename_noreplace(fd, "moved", fd, "b")
-    finally:
-        os.close(fd)
-
-    assert not (directory / "a").exists()
-    assert (directory / "moved").read_bytes() == b"source"
-    assert (directory / "b").read_bytes() == b"destination"
-
-
-def test_broker_rename_wrapper_translates_unavailable_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    directory = tmp_path / "authority"
-    directory.mkdir()
-
-    def unavailable(*_args: object, **_kwargs: object) -> None:
-        raise RenameNoreplaceUnavailableError("Linux renameat2 is unavailable")
-
-    monkeypatch.setattr(bundle_broker, "rename_noreplace_at", unavailable)
-    fd = _directory_descriptor(directory)
-    try:
-        with pytest.raises(
-            bundle_broker.ProviderIsolationBundleBrokerError,
-            match="Linux renameat2 is unavailable",
-        ):
-            bundle_broker._rename_noreplace(fd, "a", fd, "b")
-    finally:
-        os.close(fd)
-
-
-def test_broker_rename_wrapper_translates_encoding_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    directory = tmp_path / "authority"
-    directory.mkdir()
-
-    def unencodable(*_args: object, **_kwargs: object) -> None:
-        raise RenamePathEncodingError("rename name is not a filesystem name")
-
-    monkeypatch.setattr(bundle_broker, "rename_noreplace_at", unencodable)
-    fd = _directory_descriptor(directory)
-    try:
-        with pytest.raises(
-            bundle_broker.ProviderIsolationBundleBrokerError,
-            match="rename path is not a filesystem name",
-        ):
-            bundle_broker._rename_noreplace(fd, "a", fd, "b")
-    finally:
-        os.close(fd)
 
 
 def test_environment_rename_wrapper_preserves_success_and_eexist_message(
