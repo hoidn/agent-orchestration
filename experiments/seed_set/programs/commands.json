@@ -1,0 +1,4 @@
+{
+  "dev-check": {"stable_command": ["python", "dev_check.py"], "closure": ["dev_check.py"]},
+  "reset-clone": {"stable_command": ["python", "reset_clone.py"], "closure": ["reset_clone.py"]}
+}

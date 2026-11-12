@@ -1,0 +1,7 @@
+{
+  "direct": {"source": "direct.orc", "entry": "direct::run", "model": "claude-haiku-5-5", "effort": "medium", "max_calls": 1},
+  "direct_sonnet": {"source": "direct.orc", "entry": "direct::run", "model": "claude-sonnet-5-5", "effort": "medium", "max_calls": 1},
+  "retry_until_check": {"source": "retry_until_check.orc", "entry": "retry_until_check::run", "model": "claude-haiku-5-5", "effort": "medium", "max_calls": 3},
+  "implement_check_repair": {"source": "implement_check_repair.orc", "entry": "implement_check_repair::run", "model": "claude-haiku-5-5", "effort": "medium", "max_calls": 3},
+  "implement_review_revise": {"source": "implement_review_revise.orc", "entry": "implement_review_revise::run", "model": "claude-haiku-5-5", "effort": "medium", "max_calls": 3}
+}
