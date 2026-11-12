@@ -89,7 +89,7 @@ def execute_pure_run(
     if not isinstance(authority, RunAuthority):
         raise TypeError("authority must be a checked RunAuthority")
     if authority.confined and confined is None and site_classes(authority.program):
-        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED), on_error)
+        return _reported_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED), on_error)
     workspace = Path(workspace).resolve(strict=True)
     checked_site_classes = site_classes(authority.program)
     run_files = authority.run_files or WorkspaceFiles(authority.run_root)
@@ -181,6 +181,13 @@ def execute_pure_run(
             run_files.close()
 
 
+def _reported_refusal(exc, on_error):
+    result = _resume_refusal(exc)
+    if on_error is not None:
+        on_error(exc)
+    return result
+
+
 def _execution_handler(handle, authority, inputs, run_id, workspace, provider_io,
                        site_classes, run_files, workspace_files, stream_output, confined=None):
     from .parallel import ParallelCoordinator, has_parallel
@@ -215,9 +222,13 @@ def execute_pure_resume(
     if not isinstance(authority, RunAuthority):
         raise TypeError("authority must be a checked RunAuthority")
     if authority.confined and confined is None and site_classes(authority.program):
-        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED), on_error)
+        return _reported_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED), on_error)
     workspace = Path(workspace).resolve(strict=True)
     checked_site_classes = site_classes(authority.program)
+
+    def refuse(exc):
+        return _reported_refusal(exc, on_error)
+
     try:
         snapshot, commits, consumed, value, reached_boundary = _replay_resume_prefix(
             authority, inputs, run_id=run_id, workspace=workspace, provider_io=provider_io,
@@ -226,10 +237,10 @@ def execute_pure_resume(
     except Exception as exc:
         if confined is not None:
             confined.resume_error = exc
-        return _resume_refusal(exc, on_error)
+        return refuse(exc)
     if consumed != len(commits):
-        return _resume_refusal(MemoError("memo_inconsistent", "active commits remain after replay"), on_error)
-    terminal_result = _replayed_halt_result(snapshot, value, reached_boundary, on_error)
+        return refuse(MemoError("memo_inconsistent", "active commits remain after replay"))
+    terminal_result = _replayed_halt_result(snapshot, value, reached_boundary, refuse)
     if terminal_result is not None:
         if terminal_result[0] == 0:
             from .run_ref import retry_evaluated_cleanup
@@ -240,13 +251,13 @@ def execute_pure_resume(
                 if pending:
                     return 2, terminal_result[1]
             except Exception as exc:
-                return _resume_refusal(exc, on_error)
+                return refuse(exc)
         return terminal_result
     if snapshot.tail:
         try:
             repair_torn_tail(authority.memo_path, snapshot, run_files=authority.run_files)
         except Exception as exc:
-            return _resume_refusal(exc, on_error)
+            return refuse(exc)
     result = execute_pure_run(
         authority, inputs, run_id=run_id, workspace=workspace, provider_io=provider_io,
         stream_output=stream_output, confined=confined, expire_host_input=True, on_error=on_error,
@@ -261,7 +272,7 @@ def execute_pure_resume(
             if pending:
                 return 2, result[1]
         except Exception as exc:
-            return _resume_refusal(exc, on_error)
+            return refuse(exc)
     return result
 
 

@@ -84,24 +84,23 @@ def _validate_discovered_prefix(authority, prefix, snapshot, workspace, site_cla
         raise prefix.fault
 
 
-def _resume_refusal(exc: Exception, on_error=None) -> tuple[int, None]:
+def _resume_refusal(exc: Exception) -> tuple[int, None]:
     code = getattr(exc, "code", "resume_preflight_failed")
     logger.error("[%s] %s", code, str(exc) or code)
-    if on_error is not None:
-        on_error(exc)
     return 2, None
 
 
-def _replayed_halt_result(snapshot, value, reached_boundary, on_error=None):
+def _replayed_halt_result(snapshot, value, reached_boundary, refuse=None):
+    refuse = refuse or _runtime()._resume_refusal
     if reached_boundary:
         return None
     if snapshot.pending_starts:
-        return _runtime()._resume_refusal(
-            MemoError("memo_inconsistent", "evaluated halt leaves active effect evidence unsettled"), on_error
+        return refuse(
+            MemoError("memo_inconsistent", "evaluated halt leaves active effect evidence unsettled")
         )
     terminal = snapshot.terminal
     if terminal is None or terminal.data["outcome"] != "completed":
         return None
     if canonical_sha256(value) != canonical_sha256(terminal.data["value"]):
-        return _runtime()._resume_refusal(MemoError("memo_inconsistent", "completed terminal differs from evaluated halt"), on_error)
+        return refuse(MemoError("memo_inconsistent", "completed terminal differs from evaluated halt"))
     return 0, terminal.data["value"]
