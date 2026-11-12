@@ -13,8 +13,9 @@ registered source targets 2.35–2.40 throughout the dependency graph, including
 retained typed-program capsules. Historical
 feature-introduction versions do not restore old-source admission; retained
 data readers remain independent of source compilation.
-Targets 2.35/2.36 are admitted for their supported classes; 2.37 parallelism has
-bounded qualification. The bounded 2.38 [Agent Sessions](workflow_lisp_agent_sessions.md)
+Targets 2.35/2.36 are admitted for their supported classes; 2.37 bounded parallel
+map is qualified through the public command line with stand-ins, not yet with a
+real provider. The bounded 2.38 [Agent Sessions](workflow_lisp_agent_sessions.md)
 and [command-only confined children](workflow_lisp_run_ref_expression_environments.md)
 do not open public confined providers. See [CLI admission](../../specs/cli.md#executable-support-boundary)
 and [retirement](workflow_lisp_executor_retirement.md). Target 2.39 adds

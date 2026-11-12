@@ -1120,8 +1120,9 @@ The owner selected **2.37** for evaluated-execution Phase 5 parallel map on
 Target 2.37 is registered, and parallel checked-program compilation/read-back
 is qualified ([bounded record](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1c--checked-compilation-and-read-back)).
 Bounded parallel execution is implemented and reviewed ([Task 4 record](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-4--bounded-workers-and-coordinator));
-full public qualification and phase delivery remain pending. Parallel source is
-not yet a copy-safe authoring surface. Existing
+its public command-line qualification with stand-in providers and commands is
+recorded in the [execution record's addendum](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification),
+which lists what remains open; no real provider has run it. Existing
 2.35/2.36 contracts remain unchanged.
 
 Target **2.38** is registered for run-ref confined workflow children
