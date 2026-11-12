@@ -385,7 +385,11 @@ the latter does not admit providers or Agent operations inside the child.
 
 Values are evaluated in lexical scope; they are not stored as generated steps.
 Effects execute in source order and are recorded in `memo.jsonl`. A committed
-effect is reused on resume. The public shape evidence lives in
+effect is reused on resume. An effect's identity includes its `let*` binder; an effect
+with no binder is numbered `#1`, `#2` in its scope, and an unnamed effect
+inserted before it renumbers it and so changes its recorded identity. The
+compiler warns with `effect_site_positional` at the second such effect; bind
+each effect with `let*`. The public shape evidence lives in
 [`tests/test_workflow_evaluated_totality.py`](../tests/test_workflow_evaluated_totality.py)
 and [`tests/test_workflow_evaluated_programs.py`](../tests/test_workflow_evaluated_programs.py),
 not in the historical flat-route workaround catalogue.

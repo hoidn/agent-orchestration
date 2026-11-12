@@ -61,6 +61,7 @@ from .diagnostics import (
 from .expression_traversal import iter_child_exprs, walk_expr
 from .family_profiles import WorkflowFamilyProfileCatalog
 from .lints import LINT_PROFILE_DEFAULT, required_lint_diagnostic
+from .site_lint import effect_site_positional_diagnostics
 from .phase_family_boundary import (
     classify_phase_family_boundary,
     is_structural_pure_projection_effect_summary,
@@ -907,6 +908,7 @@ def _collect_stage3_required_lint_diagnostics(
                     )
                 )
     diagnostics.extend(_loop_missing_on_exhausted_diagnostics((*typed_workflows, *typed_procedures)))
+    diagnostics.extend(effect_site_positional_diagnostics(typed_workflows, typed_procedures))
     return tuple(diagnostics)
 
 

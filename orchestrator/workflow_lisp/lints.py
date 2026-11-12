@@ -136,6 +136,17 @@ REQUIRED_LINT_REGISTRY: dict[str, RequiredLintRule] = {
         primary_surface="typed_ast",
         replacement_hint="add :on-exhausted with the value the loop returns when it reaches :max",
     ),
+    "effect_site_positional": RequiredLintRule(
+        code="effect_site_positional",
+        summary="two unnamed effects in one scope get positional site labels that an insertion renames",
+        owning_pass="contract",
+        authority_layer="frontend",
+        default_severity="warn",
+        strict_severity="error",
+        surface_status="active",
+        primary_surface="typed_ast",
+        replacement_hint="bind each effect with `let*` so its site label is its binder",
+    ),
     "macro_hidden_effect": RequiredLintRule(
         code="macro_hidden_effect",
         summary="macros cannot hide workflow effects",

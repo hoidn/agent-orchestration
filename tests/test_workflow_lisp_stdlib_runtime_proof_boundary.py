@@ -176,7 +176,11 @@ def test_shared_callable_strict_lint_rejects_low_level_boundary_variant(
         if item.code == "low_level_state_path_in_high_level_module"
     ]
     assert len(findings) == 1
-    assert excinfo.value.diagnostics == tuple(findings)
+    # The std/drain `backlog-drain` expansion also binds two effects to
+    # macro-renamed binders, which strict `effect_site_positional` refuses.
+    assert {item.code for item in excinfo.value.diagnostics} == {
+        "low_level_state_path_in_high_level_module", "effect_site_positional",
+    }
     _assert_low_level_boundary_diagnostic(findings[0], expected_severity="error")
 
 
@@ -195,7 +199,10 @@ def test_dedicated_runtime_proof_strict_lint_rejects_low_level_boundary_variant(
         if item.code == "low_level_state_path_in_high_level_module"
     ]
     assert len(findings) == 1
-    assert excinfo.value.diagnostics == tuple(findings)
+    # As above: the std/drain `backlog-drain` expansion is also refused.
+    assert {item.code for item in excinfo.value.diagnostics} == {
+        "low_level_state_path_in_high_level_module", "effect_site_positional",
+    }
     _assert_low_level_boundary_diagnostic(findings[0], expected_severity="error")
 
 
