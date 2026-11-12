@@ -47,13 +47,9 @@ def pool_records(task, pool, results, patch_sha, models, judged):
     for cid, clone in results["clones"].items():
         role = anchor_role(clone["labels"][0]) if clone["arm"] == "anchor" else "candidate"
         rated.add(clone["run"])
-        bound = {judge: judged.get(judge, {}).get(cid) for judge in clone["ratings"]}
         records.append({"task": task, "pool": pool, "role": role, "arm": clone["arm"], "model": models.get(clone["arm"]),
                         "run": clone["run"], "patch": patch_sha[cid], "hidden": clone["hidden"],
-                        "scores": {judge: rating["quality"] for judge, rating in clone["ratings"].items()
-                                   if bound[judge] == patch_sha[cid]},
-                        "judged": bound, "unbound": sorted(j for j, sha in bound.items() if sha != patch_sha[cid]),
-                        "status": "rated", "reason": None})
+                        **bound_scores(clone["ratings"], judged, cid, patch_sha[cid]), "status": "rated", "reason": None})
     for row in results["runs"]:
         if row["run"] not in rated:
             records.append({"task": task, "pool": pool, "role": "candidate", "arm": row["arm"],
@@ -61,6 +57,13 @@ def pool_records(task, pool, results, patch_sha, models, judged):
                             "scores": {}, "status": "excluded" if row["excluded"] else "failed",
                             "reason": row["excluded"] or (row["failure"] or {}).get("code")})
     return records, {"task": task, "pool": pool, "excluded_judges": dict(results["excluded_judges"])}
+
+
+def bound_scores(ratings, judged, cid, patch):
+    """{"scores", "judged", "unbound"}: a rating counts only when its judge read the pooled patch `patch`."""
+    bound = {judge: judged.get(judge, {}).get(cid) for judge in ratings}
+    return {"scores": {judge: rating["quality"] for judge, rating in ratings.items() if bound[judge] == patch},
+            "judged": bound, "unbound": sorted(judge for judge, sha in bound.items() if sha != patch)}
 
 
 def score(record, judge):

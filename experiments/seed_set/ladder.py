@@ -138,6 +138,14 @@ def adjacent(rung, rungs, results):
                default=None)
 
 
+def draw_plan(answer, rungs, results):
+    """[(rung, quota or None)]: ten from each side of a split, or the chosen rung and its adjacent one."""
+    if "split" in answer:
+        return [(rung, SPLIT) for rung in answer["split"]]
+    fill = adjacent(answer["chosen"], rungs, results)
+    return [(answer["chosen"], None)] + ([(fill, None)] if fill else [])
+
+
 def choose(rows, answer, results, self_share, rungs):
     """[(task, rung)] the calibration draws for a chosen or split answer: at most 20, in seed order within each rung,
     never two packages of one commit. A split takes ten from each side; a chosen rung takes its tasks, filled from
@@ -147,10 +155,8 @@ def choose(rows, answer, results, self_share, rungs):
     first = answer.get("split") or [answer["chosen"]]
     switch = (self_share is not None and self_share >= SELF_CHECK_SHARE
               and any(r in ("T1", "T2", "T3", "T4") for r in first))
-    plan = ([(r, SPLIT) for r in first] if "split" in answer
-            else [(first[0], None)] + [(r, None) for r in [adjacent(first[0], rungs, results)] if r])
     by_id, picked, seen = {p["id"]: p for p in packages(rows)}, [], set()
-    for rung, quota in plan:
+    for rung, quota in draw_plan(answer, rungs, results):
         used, taken = withheld_rung(rung) if switch else rung, 0
         for task in rung_tasks(rows, used):
             if taken != quota and not by_id[task]["commits"] & seen:

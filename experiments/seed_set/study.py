@@ -357,6 +357,12 @@ def summarize_pools(study, kind, tasks):
         shutil.rmtree(out / "clones")
 
 
+def judged_of(directory):
+    """{judge: {clone id: sha256 of the patch it read}} from a summarized pool's study-<judge>.json files."""
+    return {path.stem.removeprefix("study-"): load(path).get("judged_patches", {})
+            for path in directory.glob("study-*.json")}
+
+
 def load_records(study, models, tasks):
     """Records of every summarized pool (results.json and its pooled patches) with each pool incident, plus every
     run that no first pool holds: a natural failure (a failed outcome or a timeout) or an incident."""
@@ -370,9 +376,7 @@ def load_records(study, models, tasks):
             continue
         results = load(directory / "results.json")
         hashes = {cid: sha256_file(directory / "patches" / f"{cid}.diff") for cid in results["clones"]}
-        judged = {path.stem.removeprefix("study-"): load(path).get("judged_patches", {})
-                  for path in directory.glob("study-*.json")}
-        found, info = gates.pool_records(task, kind, results, hashes, models, judged)
+        found, info = gates.pool_records(task, kind, results, hashes, models, judged_of(directory))
         records += found
         pools.append(info)
     pooled = {r["run"] for r in records if r["pool"] == "first"}
