@@ -463,7 +463,7 @@ is manual. Phase plans are linked here as they start:
 - Phase 2, in execution: [qualification, metering and stable names plan](2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md).
   The headline exit test passes on `main`; the closeout and the Agent Sessions comparison are open.
 - Phase 3, spike done: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
-  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md), accepted as the basis for a plan.
+  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; its first task proves the design's open claims before any feature code.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
 - Lane D, dashboard, done: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).
