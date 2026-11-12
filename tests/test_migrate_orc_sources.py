@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -180,8 +181,8 @@ def test_loop_with_effects_in_max_then_state_is_compared_and_left(tmp_path: Path
 
     result = _migrate(path)
 
-    assert (path.read_text(encoding="utf-8"), f"left in fn form {path}:7: the program hash changes" in result.stdout) == (
-        BUDGET_FIRST, True), result.stdout
+    assert (path.read_text(encoding="utf-8"), f"left in fn form {path}:7: [reorder]" in result.stdout,
+            "program hash changes" in result.stdout) == (BUDGET_FIRST, True, True), result.stdout
 
 
 def test_loop_outside_the_rule_is_rewritten_when_its_hash_is_equal(tmp_path: Path) -> None:
@@ -241,20 +242,21 @@ def _parameterized(source: str) -> str:
     return source.replace('"2.40"', '"{TARGET}"')
 
 
-def test_python_plain_fstring_and_parameterized_strings_are_rewritten(tmp_path: Path) -> None:
+def test_python_plain_and_fstring_sources_are_rewritten_and_format_templates_left(tmp_path: Path) -> None:
     plain = f'PLAIN = """{NESTED_FN}"""'
     fstring = 'FSTRING = f"""' + _parameterized(NESTED_FN).replace("(done outer)", "(done {RESULT})") + '"""'
-    parameter = 'PARAMETER = """' + _parameterized(NESTED_FN) + '""".format(TARGET=TARGET)'
-    path = _write(tmp_path / "test_sample.py", _python_module(plain, fstring, parameter))
+    template = 'TEMPLATE = """' + _parameterized(NESTED_FN) + '""".format(TARGET=TARGET)'
+    path = _write(tmp_path / "test_sample.py", _python_module(plain, fstring, template))
 
     result = _migrate(path)
 
     expected = _python_module(
         f'PLAIN = """{NESTED_BINDER}"""',
         'FSTRING = f"""' + _parameterized(NESTED_BINDER).replace("(done outer)", "(done {RESULT})") + '"""',
-        'PARAMETER = """' + _parameterized(NESTED_BINDER) + '""".format(TARGET=TARGET)',
+        template,
     )
-    assert (path.read_text(encoding="utf-8"), result.stdout.count("is a parameter, left to the caller")) == (expected, 2), result.stdout
+    assert (path.read_text(encoding="utf-8"), "header `{TARGET}` is a parameter" in result.stdout,
+            result.stdout.count("[substitution] operand of `.format(`")) == (expected, True, 2), result.stdout
 
 
 def test_fstring_field_as_operand_is_unknown(tmp_path: Path) -> None:
@@ -332,3 +334,194 @@ def test_a_directory_skips_the_tools_own_fixtures_unless_named(tmp_path: Path) -
         (_python_module(f'S = """{NESTED_FN}"""'), _python_module(f'S = """{NESTED_BINDER}"""')),
         _python_module(f'S = """{NESTED_BINDER}"""'),
     )
+
+
+# --- review fixes ---------------------------------------------------------------------------
+
+def _tool():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("migrate_orc_sources_under_test", SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses resolve their module by name
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_verify_reports_a_mismatch_under_an_unsound_rule(tmp_path: Path, monkeypatch, capsys) -> None:
+    tool = _tool()
+    monkeypatch.setattr(tool, "syntactic_rule", lambda loop: True)
+    path = _write(tmp_path / "probe.orc", BUDGET_FIRST)
+
+    code = tool.main(["--check", "--verify", str(path)])
+
+    output = capsys.readouterr().out
+    assert (code, "0 syntactic rewrites compiled with equal hash" in output, "1 mismatches" in output,
+            "[mismatch]" in output) == (2, True, True, True), output
+
+
+@pytest.mark.parametrize("before", [
+    "(loop/recur :max (budget limit) :state (seed x) (fn (s) (done s)))",
+    "(loop/recur :max lim{x} :state (seed 0) (fn (s) (done s)))",
+])
+def test_a_call_of_symbols_or_a_field_inside_a_symbol_is_not_an_atom(tmp_path: Path, before: str) -> None:
+    module = _python_module(f'LOOP = f"{before}"')
+    path = _write(tmp_path / "test_sample.py", module)
+
+    _migrate(path)
+
+    assert path.read_text(encoding="utf-8") == module
+
+
+def test_dedent_needs_every_later_line_at_least_as_deep_as_the_body(tmp_path: Path) -> None:
+    source = "(loop/recur :max 2 :state 0\n  (fn (s)\n    (if (< 1 s)\n   (done s) (continue s))))\n"
+    path = _write(tmp_path / "fragment.orc", source)
+
+    result = _migrate(path)
+
+    assert (path.read_text(encoding="utf-8"), "1 bodies kept their indentation" in result.stdout) == (
+        "(loop/recur ((s 0)) :max 2\n  (if (< 1 s)\n   (done s) (continue s)))\n", True), result.stdout
+
+
+def test_a_multiline_state_is_reindented_by_the_distance_it_moves(tmp_path: Path) -> None:
+    source = ("(loop/recur\n  :max 4\n  :state (record S\n           :round 1)\n  (fn (s) (done s)))\n")
+    path = _write(tmp_path / "fragment.orc", source)
+
+    _migrate(path)
+
+    assert path.read_text(encoding="utf-8") == (
+        "(loop/recur ((s (record S\n                  :round 1)))\n  :max 4\n  (done s))\n")
+
+
+def test_a_loop_in_a_macro_template_is_compared_by_compiling(tmp_path: Path) -> None:
+    source = _source("(grow 1)").replace(
+        "  (defworkflow run",
+        "  (defmacro grow (x) (let* ((tmp (seed x))) (loop/recur :max 2 :state tmp :on-exhausted s\n"
+        "      (fn (s) (if (< 1 s) (done s) (continue (step s)))))))\n  (defworkflow run")
+    path = _write(tmp_path / "probe.orc", source)
+
+    result = _migrate(path)
+
+    assert (path.read_text(encoding="utf-8"), "1 rewritten with equal hash" in result.stdout) == (source.replace(
+        "(loop/recur :max 2 :state tmp :on-exhausted s\n      (fn (s) (if (< 1 s) (done s) (continue (step s)))))",
+        "(loop/recur ((s tmp)) :max 2 :on-exhausted s\n      (if (< 1 s) (done s) (continue (step s))))"), True), result.stdout
+
+
+def test_a_loop_in_a_macro_template_that_cannot_be_compiled_is_left(tmp_path: Path) -> None:
+    source = "(defmacro grow (x) (let* ((tmp (seed x))) (loop/recur :max 1 :state tmp (fn (s) (done s)))))\n"
+    path = _write(tmp_path / "fragment.orc", source)
+
+    result = _migrate(path)
+
+    assert (path.read_text(encoding="utf-8"), "[macro]" in result.stdout) == (source, True), result.stdout
+
+
+OLD_SOURCE = NESTED_FN.replace('"2.40"', '"2.35"').replace(
+    "(defproc seed ((n Int)) -> Int", "(defproc seed ((n Int)) -> Int :lowering inline")
+
+
+def test_a_header_split_from_its_clauses_is_left_and_reported(tmp_path: Path) -> None:
+    head, rest = OLD_SOURCE.split("\n", 1)
+    module = _python_module("SOURCE = \"\\n\".join([\n    " + repr(head) + ",\n    '''" + rest + "''',\n])")
+    path = _write(tmp_path / "test_sample.py", module)
+
+    result = _migrate(path)
+
+    assert (path.read_text(encoding="utf-8"), "[partial-source]" in result.stdout) == (module, True), result.stdout
+
+
+@pytest.mark.parametrize("module", [
+    # tests/test_workflow_evaluated_public_identity.py: count, then a header replace
+    "assert source.count('(:target-dsl \"2.35\")') == 1\n"
+    "path.write_text(source.replace('(:target-dsl \"2.35\")', '(:target-dsl \"2.36\")', 1))",
+    # tests/test_workflow_lisp_host_input.py: pairs handed to a replacing helper
+    "_confined(tmp_path, ('(:target-dsl \"2.38\")', '(:target-dsl \"2.40\")'), ('(export run)', '(export run)'))",
+    # tests/test_phase2_exit_e2e.py: a count and an f-string replacement
+    "assert source.count(SERIAL_MAP) == 1 and source.count('(:target-dsl \"2.35\")') == 1\n"
+    "root.write_text(source.replace('(:target-dsl \"2.35\")', f'(:target-dsl \"{NEWEST}\")'))",
+    # tests/test_workflow_evaluated_parallel_consumers.py: the same with a variable target
+    "root.write_text(source.replace('(:target-dsl \"2.35\")', f'(:target-dsl \"{target}\")').replace(A, B))",
+    # a fn-form loop used as a replacement needle, through a name
+    "OLD = '(loop/recur :max 1 :state 0 (fn (s) (done s)))'\nsource = source.replace(OLD, NEW)",
+    # a complete old source used as a `.replace` subject
+    f"derived = '''{NESTED_FN.replace(chr(34) + '2.40' + chr(34), chr(34) + '2.35' + chr(34))}'''.replace('a', 'b')",
+])
+def test_text_patterns_and_partial_headers_are_never_touched(tmp_path: Path, module: str) -> None:
+    text = _python_module(module)
+    path = _write(tmp_path / "test_sample.py", text)
+
+    _migrate(path)
+
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_a_complete_old_source_in_one_literal_is_migrated(tmp_path: Path) -> None:
+    path = _write(tmp_path / "test_sample.py", _python_module(f"SOURCE = '''{OLD_SOURCE}'''"))
+
+    _migrate(path)
+
+    assert path.read_text(encoding="utf-8") == _python_module(
+        "SOURCE = '''" + NESTED_BINDER + "'''")
+
+
+def test_docstrings_and_expected_text_are_left(tmp_path: Path) -> None:
+    text = _python_module(
+        'def test_x():\n    """Rewrites (loop/recur :max 3 :state 0 (fn (s) (done s)))."""\n'
+        '    assert render() == "(loop/recur :max 3 :state 0 (fn (s) (done s)))"')
+    path = _write(tmp_path / "test_sample.py", text)
+
+    result = _migrate(path)
+
+    assert (path.read_text(encoding="utf-8"), "[docstring]" in result.stdout, "[comparison]" in result.stdout) == (
+        text, True, True), result.stdout
+
+
+def test_an_unreadable_orc_source_is_left_whole(tmp_path: Path) -> None:
+    source = OLD_SOURCE.replace("(defproc seed ((n Int)) -> Int :lowering inline", "(defproc seed ((n Int)) -> Int :effects (")
+    path = _write(tmp_path / "probe.orc", source)
+
+    result = _migrate(path)
+
+    assert (path.read_text(encoding="utf-8"), "[reader]" in result.stdout) == (source, True), result.stdout
+
+
+def test_clause_words_inside_strings_and_comments_stay(tmp_path: Path) -> None:
+    extra = ('  ; a comment that says :lowering inline\n'
+             '  (defproc label ((n Int)) -> String ":lowering inline :effects (x)")\n  (defworkflow run')
+    path = _write(tmp_path / "probe.orc", OLD_SOURCE.replace("  (defworkflow run", extra))
+
+    _migrate(path)
+
+    assert path.read_text(encoding="utf-8") == NESTED_BINDER.replace("  (defworkflow run", extra)
+
+
+def test_crlf_line_endings_are_kept(tmp_path: Path) -> None:
+    path = tmp_path / "probe.orc"
+    path.write_bytes(NESTED_FN.replace("\n", "\r\n").encode("utf-8"))
+
+    _migrate(path)
+
+    assert path.read_bytes() == NESTED_BINDER.replace("\n", "\r\n").encode("utf-8")
+
+
+def test_an_unreadable_file_is_reported_and_the_run_continues(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.orc"
+    bad.write_bytes(b"\xff\xfe(loop/recur")
+    good = _write(tmp_path / "probe.orc", NESTED_FN)
+
+    result = _migrate(bad, tmp_path / "missing.orc", good)
+
+    assert (good.read_text(encoding="utf-8"), result.stdout.count("error "), result.returncode) == (NESTED_BINDER, 2, 2), result.stdout
+
+
+def test_report_lists_changed_files_and_hand_work(tmp_path: Path) -> None:
+    good = _write(tmp_path / "probe.orc", NESTED_FN)
+    left = _write(tmp_path / "budget.orc", BUDGET_FIRST.replace("(defmodule probe)", "(defmodule budget)"))
+    report = tmp_path / "report.json"
+
+    _migrate("--check", "--report", report, good, left)
+
+    document = json.loads(report.read_text(encoding="utf-8"))
+    assert ([row["path"] for row in document["changed"]],
+            [(row["path"], row["line"], row["kind"], row["category"]) for row in document["hand_work"]]) == (
+        [str(good)], [(str(left), 7, "loop", "reorder")])

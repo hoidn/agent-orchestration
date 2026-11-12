@@ -263,8 +263,9 @@ def test_run_started_under_fn_form_resumes_from_binder_source(tmp_path: Path) ->
 
 
 # A frozen Python build compares its pin with the hash of the emitted `.orc` text, so the emitter
-# keeps the `fn` form until the release that removes it (surface coherence I2b). This is the text
-# `main`'s emitter wrote for this program when I2a was made; a pin made then must still build.
+# keeps the `fn` form until the release that removes it (surface coherence I2b). This pins the text
+# `main`'s emitter wrote for this program when I2a was made: an emitter change fails the text
+# assertion here, as it would fail `python_frozen_changed` for a pin made before it.
 PINNED_PYTHON_LOOP = '''from __future__ import annotations
 from orchestrator.py import *
 
@@ -287,7 +288,7 @@ PINNED_EMITTED_TEXT = '''(workflow-lisp
 '''
 
 
-def test_a_frozen_python_pin_made_before_the_binder_form_still_builds(tmp_path: Path) -> None:
+def test_python_frontend_keeps_the_fn_form_text_a_frozen_pin_hashes(tmp_path: Path) -> None:
     from orchestrator.py.build import build as build_python
 
     source = tmp_path / "count.py"
