@@ -605,7 +605,7 @@ def validate_semantic_command_adapter_usage(
         and not allow_migration_backend_call
     ):
         raise_error(
-            "resource movement must use `resource-transition` or a certified resource_transition adapter",
+            "resource movement needs a certified adapter whose transition binding is a `migration_backend`; the `resource-transition` form was removed",
             code="resource_move_without_transition",
             span=expr.span,
             form_path=expr.form_path,
@@ -613,7 +613,7 @@ def validate_semantic_command_adapter_usage(
         )
     if "resume_state_reuse" in effects or binding.behavior_class == "resume_state_reuse":
         raise_error(
-            "reusable-state gating must use `resume-or-start` instead of a raw `command-result` adapter call",
+            "reusable-state gating through a raw `command-result` adapter call is refused; the `resume-or-start` form was removed",
             code="recovery_gate_without_resume_or_start",
             span=expr.span,
             form_path=expr.form_path,
