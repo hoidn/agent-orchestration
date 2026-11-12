@@ -10,8 +10,8 @@ the file the prompt's last `- path:` line names:
   and S0 for an unchanged one;
 - an implementer (the prompt holds a task's marker): counts its attempt in the tree's ignored `.orchestrate/`
   (which a clone reset keeps); from the plan's first fixing attempt for this model on, applies the reference
-  patch in its working directory when it still applies and runs the visible check there (inside the sandbox);
-  reports a `Change`;
+  patch in its working directory when it still applies and runs the visible check there (inside the sandbox),
+  logging that command as a Bash tool use in its session; reports a `Change`;
 - a reviewer (any other prompt): APPROVE when its working tree has changes, else REQUEST_CHANGES.
 """
 
@@ -52,6 +52,9 @@ else:
         subprocess.run(["git", "apply", "--binary", "-"], input=entry["patch"], text=True, check=True)
         check = subprocess.run(entry["visible"], capture_output=True, text=True)
         print(f"visible check exit {{check.returncode}}")
+        with session.open("a") as log:  # the transcript row the self-check detector reads
+            log.write(json.dumps({{"type": "assistant", "message": {{"model": model, "content": [{{
+                "type": "tool_use", "name": "Bash", "input": {{"command": " ".join(entry["visible"])}}}}]}}}}) + "\\n")
     result = {{"summary": f"attempt {{attempt}}", "account": "applied the reference fix" if fixes else "none"}}
 Path(re.findall(r"^- path: (.+)$", prompt, re.M)[-1]).write_text(json.dumps(result))
 """

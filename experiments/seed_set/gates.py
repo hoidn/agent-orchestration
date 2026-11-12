@@ -231,7 +231,7 @@ def tests_primary(table):
             "gap_ok": None not in (rate_h, rate_s) and rate_s - rate_h >= 10}
 
 
-def calibration(records, pools, tasks, retest_tasks, redrawn=False):
+def calibration(records, pools, tasks, retest_tasks):
     """The judge gate for both judges, the selected judge, its task gates and the decision."""
     judges = {judge: judge_gate(records, judge, tasks, retest_tasks) for judge in JUDGES}
     passing = [judge for judge in JUDGES if judges[judge]["passed"]]
@@ -251,7 +251,7 @@ def calibration(records, pools, tasks, retest_tasks, redrawn=False):
     elif all(gates[g]["passed"] for g in ("G1", "G2", "G3")):
         decision = "qualified"
     else:
-        decision = "stop: a gate still fails after the redraw; no quality claim" if redrawn else "redraw"
+        decision = "stop: a gate fails and the ladder probe was the one redraw; no quality claim"
     return {"judges": judges, "selected": selected, "insensitive": insensitive, **result, "decision": decision}
 
 

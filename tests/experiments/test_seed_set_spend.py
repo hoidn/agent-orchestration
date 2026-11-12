@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from experiments.compare.repos import sha256_file
 from experiments.seed_set import host, layout, rules, spend, study, units
 
 H, S = spend.HAIKU, spend.SONNET
@@ -111,8 +112,11 @@ def runner(tmp_path):
     for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rt"]):
         subprocess.run(["git", "-C", str(runtime), *args], check=True)
     tasks = tmp_path / "tasks.jsonl"
-    tasks.write_text("".join(json.dumps({"id": i, "set": s, "commit": "f" * 40}) + "\n"
+    tasks.write_text("".join(json.dumps({"id": i, "set": s, "commit": "f" * 40, "tier": "T3", "form": "in-tree"}) + "\n"
                              for i, s in (("t1", "drawn"), ("t2", "drawn"), ("r1", "reserve"), ("r2", "reserve"))))
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / layout.CHOSEN).write_text(json.dumps({"tasks": [{"id": "t1", "rung": "T3"},
+                                                                            {"id": "t2", "rung": "T3"}]}))
     criterion = tmp_path / "judge-calibration.json"
     criterion.write_text(json.dumps({"judges": [H, S], "rubric": layout.RUBRIC}))
     (tmp_path / "criterion.json").write_text(json.dumps({"plan": "frozen"}))
@@ -120,11 +124,15 @@ def runner(tmp_path):
                         tmp_path / "state")
 
 
-def ready(runner, smoke=True):
-    """The ledger as the calibration needs it: a freeze and, unless told otherwise, a passed smoke."""
+def ready(runner, smoke=True, chosen=True):
+    """The ledger as the calibration needs it: a freeze and, unless told otherwise, a passed smoke and the probe
+    readout's hash of the chosen tasks (t1 and t2)."""
     rules.record_freeze(runner)
     if smoke:
         spend.record(runner.ledger, "smoke", passed=True)
+    if chosen:
+        spend.record(runner.ledger, "probe_readout", answer={"chosen": "T3"},
+                     chosen_sha256=sha256_file(runner.results / layout.CHOSEN))
 
 
 def run_dir(runner, arm="direct", k=1, calls=0, **facts):
@@ -163,7 +171,7 @@ def test_judges_without_authorization_refuse(runner, monkeypatch):
     ("calibration", "retry_until_check", ["t1"], "not retry_until_check"),
     ("calibration", "direct", ["r1"], "takes tasks among"),
     ("smoke", "direct", ["r1"], "takes tasks among"),  # the smoke runs on the last reserve task only
-    ("redraw", "direct", ["r2"], "takes tasks among"),
+    ("redraw", "direct", ["t1"], "ladder probe only"),
 ])
 def test_a_run_outside_the_tranches_plan_refuses(runner, monkeypatch, tranche, arm, tasks, match):
     monkeypatch.setenv(AUTH, tranche)
@@ -241,20 +249,19 @@ def test_no_calibration_without_a_passed_smoke(runner, monkeypatch):
         study.candidates(runner, "calibration", "direct", ["t1"])
 
 
-def test_no_redraw_without_a_redraw_decision(runner, monkeypatch):
-    monkeypatch.setenv(AUTH, "redraw")
-    ready(runner)
-    spend.record(runner.ledger, "decision", decision="qualified")
-    with pytest.raises(SystemExit, match="decided"):
-        study.candidates(runner, "redraw", "direct", ["r1"])
+def test_no_calibration_before_the_probe_readout_chose_its_tasks(runner, monkeypatch):
+    monkeypatch.setenv(AUTH, "calibration")
+    ready(runner, chosen=False)
+    with pytest.raises(SystemExit, match="no chosen calibration tasks"):
+        study.candidates(runner, "calibration", "direct", ["t1"])
 
 
-def test_no_redraw_with_fewer_than_ten_unused_reserve_tasks(runner, monkeypatch):
-    monkeypatch.setenv(AUTH, "redraw")
+def test_no_calibration_once_the_chosen_list_was_edited(runner, monkeypatch):
+    monkeypatch.setenv(AUTH, "calibration")
     ready(runner)
-    spend.record(runner.ledger, "decision", decision="redraw")
-    with pytest.raises(SystemExit, match="needs 10 unused reserve tasks, 1 exist"):
-        study.candidates(runner, "redraw", "direct", ["r1"])
+    (runner.results / layout.CHOSEN).write_text(json.dumps({"tasks": [{"id": "t1", "rung": "T3"}]}))
+    with pytest.raises(SystemExit, match="no chosen calibration tasks"):
+        study.candidates(runner, "calibration", "direct", ["t1"])
 
 
 def test_nothing_starts_after_a_stop(ledger):

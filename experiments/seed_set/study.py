@@ -2,6 +2,12 @@
 
   study.py record-freeze                                  hashes of criterion.json, judge-calibration.json and the
                                                           runtime commit into the ledger (needed before any start)
+  study.py probe [--rung R ...]                           the ladder probe (`probing.py`, redraw cap): direct on
+                                                          Haiku once on four tasks of each rung the answer asks for
+  study.py probe-readout                                  the probe figures and the answer: the next rung, the 20
+                                                          chosen calibration tasks (written once), or the stop
+  study.py record-transcripts --fault yes|no --note N [RUN ...]  after an all-too-hard probe: transcripts read
+  study.py early-look                                     the early judge look on the first three chosen tasks
   study.py candidates --tranche T --arm ARM TASK ...      prepare, launch (four at a time), collect, scan, session
                                                           audit, visible check, metering; delete the agents' tree
   study.py settle RECORDS ...                             settle runs whose runner was interrupted
@@ -13,8 +19,8 @@
   study.py readout                                        anchors first, then V1-V4, G1-G4, incidents, baselines
   study.py ledger                                         calls reserved and made, and the events
 
-Every harness step is the harness's own. Every provider start passes `rules.enforce` (freeze, smoke pass, redraw
-decision, a sound ledger, no stop) and `spend.reserve` (authorization, caps, planned runs per task and arm, never
+Every harness step is the harness's own. Every provider start passes `rules.enforce` (freeze, smoke pass, chosen
+tasks, a sound ledger, no stop) and `spend.reserve` (authorization, caps, planned runs per task and arm, never
 a relaunch), and runs with `COMPARE_MAX_CALLS` at its reservation and `COMPARE_CLAUDE_MODELS` at its exact model;
 the harness's resume scripts are disabled (the study never resumes). Candidate code runs on the host only behind
 `host.guarded`. A forbidden-model answer, three contaminated tasks or too many incidents record a stop. The spend
@@ -38,19 +44,41 @@ from experiments.compare.repos import dump, load, sha256_file
 from experiments.orc_structural_search import metering
 from experiments.seed_set import gates, host, readout, rules, selection, spend, units
 from experiments.seed_set.layout import (
-    PLANNED, RETESTS, Study, load_arms, load_criterion, require_free, require_tasks, study_runs,
+    PLANNED, RETESTS, Study, chosen, load_arms, load_criterion, require_free, require_tasks, study_runs,
     task_dir, task_rows, tranche_tasks,
 )
 
 BOUNDARIES = ("dev_check.py", "reset_clone.py")  # copied into the clone and excluded from its patch
 INPUTS = ("task", "intent", "repo", "model", "effort")
-WIDTH, MAX_POOLS = 4, 2
+WIDTH, FIRST_WAVE, MAX_POOLS = 4, 2, 2  # a tranche's first wave runs two at a time
 CALL_SEC, JUDGE_SEC, SLACK_SEC = 1200, 3600, 600  # the programs' and score_functional.orc's :timeout-sec
 
 
-def launch_env(model, calls):
-    return {**os.environ, "COMPARE_CLAUDE_MODELS": model, "COMPARE_MAX_CALLS": str(calls),
-            "PYTHONDONTWRITEBYTECODE": "1"}
+def launch_env(model, calls, package=None):
+    """The launch environment; a check-withheld package's `withheld/` is named for dev_check.py, which runs on the
+    host as a command boundary (the agents' sandbox never sees it)."""
+    env = {**os.environ, "COMPARE_CLAUDE_MODELS": model, "COMPARE_MAX_CALLS": str(calls),
+           "PYTHONDONTWRITEBYTECODE": "1"}
+    env.pop("SEED_SET_WITHHELD", None)
+    if package is not None and (Path(package) / "withheld").is_dir():
+        env["SEED_SET_WITHHELD"] = str(Path(package) / "withheld")
+    return env
+
+
+def waves(jobs, started):
+    """The jobs in launch waves: a tranche's first wave (no run of it started yet) two at a time."""
+    return [(FIRST_WAVE, jobs[:FIRST_WAVE]), (WIDTH, jobs[FIRST_WAVE:])] if not started else [(WIDTH, jobs)]
+
+
+def run_jobs(study, tranche, jobs, one):
+    started = any(load(path)["tranche"] == tranche for path in study_runs(study))
+    done = []
+    for width, wave in waves(jobs, started):
+        with ThreadPoolExecutor(width) as workers:
+            done += list(workers.map(one, wave))
+    for records, facts in done:
+        print(f"{records}: {facts.get('incident') or facts.get('outcome')}, {facts['calls']} calls")
+    return done
 
 
 def launch(command, env, log, timeout):
@@ -70,22 +98,26 @@ def launch(command, env, log, timeout):
 
 
 def candidates(study, tranche, arm, tasks):
-    """Launch the planned runs of `arm` not yet started on each task, four at a time."""
+    """Launch the planned runs of `arm` not yet started on each task, four at a time (the first wave two)."""
     spend.authorize(tranche)
+    if tranche == "redraw":
+        raise SystemExit("the redraw cap serves the ladder probe only: use `probe`")
     tasks = list(dict.fromkeys(tasks))
     fixes = require_tasks(study, tranche, tasks)
     if arm not in PLANNED[tranche]:
         raise SystemExit(f"{tranche} runs {sorted(PLANNED[tranche])}, not {arm}")
     rules.enforce(study, tranche)
     spec, entries = load_arms(study)[arm], spend.starts(spend.rows(study.ledger))
-    jobs = [task for task in tasks for _ in range(PLANNED[tranche][arm] - sum(
-        (row["tranche"], row.get("task"), row.get("arm")) == (tranche, task, arm) for row in entries))]
+    def started(task, where):
+        return sum((row["tranche"], row.get("task"), row.get("arm")) == (where, task, arm) for row in entries)
+
+    # a probe run of a chosen package (the same id is the same form) is the first of its Haiku direct runs
+    limits = {task: PLANNED[tranche][arm] - (started(task, "redraw") if tranche == "calibration" else 0)
+              for task in tasks}
+    jobs = [task for task in tasks for _ in range(limits[task] - started(task, tranche))]
     spend.check(study.ledger, tranche, "candidate", spec["model"], spec["max_calls"] * len(jobs))
-    with ThreadPoolExecutor(WIDTH) as workers:
-        done = list(workers.map(lambda task: one_run(study, tranche, arm, spec, task, fixes[task]), jobs))
-    for records, facts in done:
-        print(f"{records}: {facts.get('incident') or facts.get('outcome')}, {facts['calls']} calls")
-    return done
+    return run_jobs(study, tranche, jobs, lambda task: one_run(study, tranche, arm, spec, task, fixes[task],
+                                                               limit=limits[task]))
 
 
 def boundaries(study, cand):
@@ -95,10 +127,11 @@ def boundaries(study, cand):
         exclude.write("".join(f"/{name}\n" for name in BOUNDARIES))
 
 
-def one_run(study, tranche, arm, spec, task, fix):
-    """Prepare one run, reserve it, launch it, settle it; return (records, the facts in its study.json)."""
+def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
+    """Prepare one run, reserve it (at most `limit` starts of its tranche, task, arm and step), launch it, settle
+    it; return (records, the facts in its study.json). `extra` facts (a probe's step and rung) join them."""
     require_free(study, study.work)
-    env, programs = launch_env(spec["model"], spec["max_calls"]), study.programs
+    env, programs = launch_env(spec["model"], spec["max_calls"], task_dir(study, task)), study.programs
     arm_spec = prepare.ArmSpec(programs / spec["source"], spec["entry"], programs, programs / "providers.json",
                                INPUTS, command_boundaries=programs / "commands.json")
     records = prepare.run_arm(task_dir(study, task), arm, study.work, study.runtime, spec=arm_spec,
@@ -110,11 +143,11 @@ def one_run(study, tranche, arm, spec, task, fix):
         raise SystemExit(f"{records}: prepared for {record['claude_model']}, not {spec['model']}; nothing started")
     boundaries(study, Path(record["candidates"][0]))
     facts = {"tranche": tranche, "task": task, "arm": arm, "model": spec["model"], "effort": spec["effort"],
-             "max_calls": spec["max_calls"]}
+             "max_calls": spec["max_calls"], **extra}
     dump(records / "study.json", facts)  # before the reservation: every reserved run has its facts file
     try:
         spend.reserve(study.ledger, tranche, "candidate", spec["model"], spec["max_calls"], records,
-                      limit=PLANNED[tranche][arm], task=task, arm=arm)
+                      limit=limit, task=task, arm=arm, **extra)
     except SystemExit:
         (records / "study.json").unlink()  # refused: nothing started, nothing left on disk
         shutil.rmtree(record["tree"])
@@ -157,7 +190,8 @@ def settle(study, records, task, fix, cap, model, status):
     if reason:
         out["incident"] = f"session audit: {reason}"
     if out.get("outcome") == "completed" and "final" in collected["patches"]:
-        out["visible"] = host.visible_check(task, records / collected["patches"]["final"], study.runtime)
+        out["final_patch"] = str(records / collected["patches"]["final"])
+        out["visible"] = host.visible_check(task, Path(out["final_patch"]), study.runtime)
     receipt = metering.receipts(records, tree=Path(record["tree"]), since=record["created_at"],
                                 home=Path(record["sandbox"]["home"]))
     dump(records / "metering.json", receipt)
@@ -217,6 +251,7 @@ def judge(study, tranche, kind, tasks):
     spend.authorize(tranche)
     fixes = require_tasks(study, tranche, tasks, kind)
     rules.enforce(study, tranche)
+    rules.require_early_look(study, tranche, kind, tasks)
     for task in dict.fromkeys(tasks):
         out = study.pools / task / kind
         if not out.exists():
@@ -304,7 +339,7 @@ def summarize_pools(study, kind, tasks):
         shutil.rmtree(out / "clones")
 
 
-def load_records(study, models):
+def load_records(study, models, tasks):
     """Records of every summarized pool (results.json and its pooled patches) with each pool incident, plus every
     run that no first pool holds: a natural failure (a failed outcome or a timeout) or an incident."""
     records, pools, facts = [], [], {str(path.parent): load(path) for path in study_runs(study)}
@@ -322,7 +357,7 @@ def load_records(study, models):
         pools.append(info)
     pooled = {r["run"] for r in records if r["pool"] == "first"}
     for run, row in facts.items():
-        if run not in pooled and row["tranche"] != "smoke":
+        if run not in pooled and row["tranche"] != "smoke" and row["task"] in tasks:
             failed = "incident" not in row and (row.get("outcome") == "failed" or row.get("exit") == "timeout")
             records.append({"task": row["task"], "pool": "first", "role": "candidate", "arm": row["arm"],
                             "model": row["model"], "run": run, "patch": None, "hidden": None, "scores": {},
@@ -330,13 +365,6 @@ def load_records(study, models):
     return records, pools
 
 
-def calibration_tasks(study):
-    """(tasks, retest tasks, redrawn): the drawn tasks and any redraw tasks, in seed order."""
-    rows = task_rows(study)
-    drawn = tranche_tasks(rows, "calibration")
-    used = {load(path)["task"] for path in study_runs(study) if load(path)["tranche"] == "redraw"}
-    redraw = [task for task in tranche_tasks(rows, "redraw") if task in used]
-    return drawn + redraw, drawn[:RETESTS["calibration"]] + redraw[:RETESTS["redraw"]], bool(redraw)
 
 
 def write_readout(study):
@@ -344,13 +372,14 @@ def write_readout(study):
     models = {name: arm["model"] for name, arm in arms.items()}
     programs = {name: {"source": arm["source"], "lines": selection.program_lines(study.programs / arm["source"])}
                 for name, arm in arms.items()}
-    tasks, retests, redrawn = calibration_tasks(study)
-    records, pools = load_records(study, models)
+    tasks = tranche_tasks(study, "calibration")
+    retests, rungs = tasks[:RETESTS["calibration"]], sorted({task["rung"] for task in chosen(study)})
+    records, pools = load_records(study, models, tasks)
     runs = {str(path.parent): load(path) | {"wall_clock_sec": load(path.parent / "record.json").get(
         "wall_clock_sec")} for path in study_runs(study)}
-    planned = rules.planned_runs(study, "calibration") + (rules.planned_runs(study, "redraw") if redrawn else 0)
-    report = readout.report(records, pools, tasks, retests, redrawn, runs, spend.totals(study.ledger), programs,
-                            planned)
+    runs = {run: facts for run, facts in runs.items() if facts["task"] in tasks}  # probe runs of other tasks out
+    report = readout.report(records, pools, tasks, retests, rungs, runs, spend.totals(study.ledger), programs,
+                            rules.planned_runs(study, "calibration"))
     study.results.mkdir(parents=True, exist_ok=True)
     dump(study.results / "calibration.json", report)
     (study.results / "readout.md").write_text(readout.markdown(report))
@@ -399,8 +428,13 @@ def parser():
             command.add_argument("--kind", choices=("first", "retest"), required=True)
         command.add_argument("tasks", nargs="+")
     sub.add_parser("settle").add_argument("runs", nargs="+", help="records directories")
-    for name in ("record-freeze", "smoke-check", "readout", "ledger"):
+    for name in ("record-freeze", "smoke-check", "probe-readout", "early-look", "readout", "ledger"):
         sub.add_parser(name)
+    sub.add_parser("probe").add_argument("--rung", action="append", help="repeatable; default: the readout's next")
+    transcripts = sub.add_parser("record-transcripts")
+    transcripts.add_argument("--fault", choices=("yes", "no"), required=True)
+    transcripts.add_argument("--note", required=True)
+    transcripts.add_argument("runs", nargs="*", help="records directories of runs a fault failed: incidents")
     return top
 
 
@@ -412,6 +446,7 @@ def study_of(a):
 
 
 def main(argv=None):
+    from experiments.seed_set import probing  # it builds on this module's launch steps
     a = parser().parse_args(argv)
     study = study_of(a)
     commands = {
@@ -422,6 +457,11 @@ def main(argv=None):
         "summarize": lambda: summarize_pools(study, a.kind, a.tasks),
         "record-freeze": lambda: print(json.dumps(rules.record_freeze(study))),
         "smoke-check": lambda: print(json.dumps(rules.smoke_check(study), indent=2)),
+        "probe": lambda: probing.probe(study, a.rung),
+        "probe-readout": lambda: print(json.dumps(probing.probe_readout(study), indent=2)),
+        "record-transcripts": lambda: print(json.dumps(probing.record_transcripts(study, a.fault == "yes", a.note,
+                                                                                  a.runs))),
+        "early-look": lambda: print(json.dumps(rules.early_look(study), indent=2)),
         "readout": lambda: write_readout(study),
         "ledger": lambda: ledger_report(study),
     }

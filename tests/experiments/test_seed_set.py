@@ -112,19 +112,20 @@ def test_a_qualified_task_set_passes_every_gate():
     assert (result["selected"], result["decision"], len(result["survivors"])) == (H, "qualified", 16)
 
 
-def test_a_task_set_that_is_too_easy_has_no_survivors_and_is_redrawn():
+def test_a_task_set_that_is_too_easy_has_no_survivors_and_stops_without_a_later_redraw():
     records, pools = world(haiku=(7, 8, 8, 7), sonnet=8)
     result = gates.calibration(records, pools, *tasks_of())
     g = result["gates"]
-    assert (g["G1"]["passed"], g["G2"]["haiku_mean"], g["G2"]["passed"], result["decision"]) == (False, 7.5, False, "redraw")
+    assert (g["G1"]["passed"], g["G2"]["haiku_mean"], g["G2"]["passed"], result["decision"]) == (
+        False, 7.5, False, "stop: a gate fails and the ladder probe was the one redraw; no quality claim")
 
 
-def test_a_task_set_that_is_too_hard_fails_g2_and_stops_after_the_redraw():
+def test_a_task_set_that_is_too_hard_fails_g2_and_stops():
     records, pools = world(haiku=(0, 1, 0, 1), sonnet=2, passes=lambda s: s >= 1)
-    result = gates.calibration(records, pools, *tasks_of(), redrawn=True)
+    result = gates.calibration(records, pools, *tasks_of())
     g = result["gates"]
     assert (g["G1"]["survivors"], g["G2"]["passed"], result["decision"]) == (
-        0, False, "stop: a gate still fails after the redraw; no quality claim")
+        0, False, "stop: a gate fails and the ladder probe was the one redraw; no quality claim")
 
 
 def test_the_cheaper_judge_is_skipped_when_it_fails_its_gate():
@@ -321,7 +322,7 @@ def test_the_decision_states_when_v4_was_not_assessed_for_the_selected_judge():
     from experiments.seed_set import readout
     records, pools = world(passes=lambda s: True)
     tasks, retests = tasks_of()
-    report = readout.report(records, pools, tasks, retests, False, {}, {}, {}, 100)
+    report = readout.report(records, pools, tasks, retests, ["T3"], {}, {}, {}, 100)
     decision = readout.markdown(report).split("Decision: ", 1)[1].splitlines()[0]
     assert ("V4" in decision and "not assessed" in decision, report["calibration"]["v4_note"] is not None) == (True, True)
 
@@ -330,7 +331,7 @@ def test_the_decision_carries_no_v4_statement_when_v4_was_assessed():
     from experiments.seed_set import readout
     records, pools = world()
     tasks, retests = tasks_of()
-    assert readout.report(records, pools, tasks, retests, False, {}, {}, {}, 100)["calibration"]["v4_note"] is None
+    assert readout.report(records, pools, tasks, retests, ["T3"], {}, {}, {}, 100)["calibration"]["v4_note"] is None
 
 
 def test_incidents_over_a_tenth_of_the_planned_runs_make_the_decision_a_stop():
@@ -340,7 +341,7 @@ def test_incidents_over_a_tenth_of_the_planned_runs_make_the_decision_a_stop():
     runs = {f"r{k}": {"tranche": "calibration", "task": "t00", "arm": "direct", "outcome": "failed",
                     "incident": "provider: 429"}
             for k in range(11)}
-    decision = readout.report(records, pools, tasks, retests, False, runs, {}, {}, 100)["calibration"]["decision"]
+    decision = readout.report(records, pools, tasks, retests, ["T3"], runs, {}, {}, 100)["calibration"]["decision"]
     assert decision.startswith("stop: 11 of 100 planned runs are incidents")
 
 

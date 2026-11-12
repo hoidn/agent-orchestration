@@ -37,10 +37,27 @@ def guarded(argv, cwd=None, timeout=None):
         return done, log.read_text().splitlines() if log.is_file() else []
 
 
+def in_tree_view(task, directory):
+    """A check-withheld package (one with `withheld/`) as the in-tree package it was made from: the withheld test
+    files back in `seed/` and no `withheld` flag, so the catalog's trusted check runs the same test. Else `task`."""
+    task = Path(task)
+    if not (task / "withheld").is_dir():
+        return task
+    view = Path(directory) / task.name
+    shutil.copytree(task, view)
+    shutil.copytree(task / "withheld", view / "seed", dirs_exist_ok=True)
+    config = json.loads((view / "seed" / "dev-check.json").read_text())
+    config.pop("withheld")
+    (view / "seed" / "dev-check.json").write_text(json.dumps(config))
+    return view
+
+
 def visible_check(task, patch, runtime):
     """evaluation.check_first_attempt run behind the guard; a logged provider attempt fails the check."""
-    done, attempts = guarded([sys.executable, "-m", "experiments.orc_structural_search.evaluation", "check",
-                              "--task", str(task), "--patch", str(patch), "--runtime", str(runtime)])
+    with tempfile.TemporaryDirectory(prefix="seed-set-view-") as directory:
+        done, attempts = guarded([sys.executable, "-m", "experiments.orc_structural_search.evaluation", "check",
+                                  "--task", str(in_tree_view(task, directory)), "--patch", str(patch),
+                                  "--runtime", str(runtime)])
     if attempts:
         print(f"PROVIDER ATTEMPT in the visible check of {patch}: {attempts}", file=sys.stderr)
         return {"passed": False, "failing": ["the candidate's code attempted a provider call"], "excerpt": "",
@@ -48,6 +65,34 @@ def visible_check(task, patch, runtime):
     if done.returncode:
         raise SystemExit(f"visible check of {patch} failed to run: {done.stderr[-2000:]}")
     return json.loads(done.stdout)
+
+
+def hidden_check(task, patch, runtime):
+    """The task's hidden set on the patch applied to a fresh base clone, behind the guard: {"passed", "failing"}.
+    A provider attempt fails it."""
+    done, attempts = guarded([sys.executable, "-m", "experiments.seed_set.host", str(task), str(patch), str(runtime)])
+    if attempts:
+        print(f"PROVIDER ATTEMPT in the hidden tests of {patch}: {attempts}", file=sys.stderr)
+        return {"passed": False, "failing": ["the candidate's code attempted a provider call"],
+                "provider_attempts": attempts}
+    if done.returncode:
+        raise SystemExit(f"hidden tests of {patch} failed to run: {done.stderr[-2000:]}")
+    return json.loads(done.stdout)
+
+
+def _hidden(task, patch, runtime):
+    from experiments.compare.repos import build_candidate, git
+    from experiments.compare.summarize import hidden_failures
+    task, nodes = Path(task), (Path(task) / "hidden_tests.txt").read_text().split()
+    base = git(runtime, "rev-parse", "--verify", (task / "base_commit").read_text().strip() + "^{commit}")
+    with tempfile.TemporaryDirectory(prefix="seed-set-hidden-") as directory:
+        clone = Path(directory) / "candidate"
+        build_candidate(Path(runtime), base, task / "seed", clone)
+        if Path(patch).stat().st_size and subprocess.run(["git", "-C", str(clone), "apply", "--binary", str(patch)],
+                                                         capture_output=True).returncode:
+            return {"passed": False, "failing": ["the patch does not apply"]}
+        failing = hidden_failures(clone, task, nodes, sys.executable)
+    return {"passed": not failing, "failing": failing}
 
 
 def summarize(pool, criterion):
@@ -59,3 +104,7 @@ def summarize(pool, criterion):
     if done.returncode:
         raise SystemExit(f"summarize refused {pool}: {(done.stderr or done.stdout).strip()[-2000:]}")
     return json.loads((Path(pool) / "records" / "results.json").read_text())
+
+
+if __name__ == "__main__":  # the guarded hidden check: python -m experiments.seed_set.host TASK PATCH RUNTIME
+    print(json.dumps(_hidden(*sys.argv[1:4])))

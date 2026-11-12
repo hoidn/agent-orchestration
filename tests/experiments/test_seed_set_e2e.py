@@ -3,9 +3,12 @@ with both anchors, both judges, the retest pools, summaries with hidden tests, t
 the comparison harness's real shims, Bubblewrap sandbox, model guard and scan, with the scripted `claude` of
 seed_set_offline_support.py standing in for the agent and the judges. No provider is called.
 
-Two drawn toy tasks on a tiny repository: on `add` every run fixes the bug, on `mul` only the Sonnet run does. So
-the first task is too easy and the second too hard, and the gates must ask for a redraw. The smoke runs every
-program once on the reserve task `sub`, where Haiku fixes the bug from its second attempt on.
+Four toy tasks on a tiny repository form the ladder rung T3: on `add` and `mx` every run fixes the bug, on `mul` and
+`mn` only the Sonnet run does. The probe runs `direct` once on the four and must find two passes of four, with the
+agent running the visible test itself on the passing two. The calibration takes `add` and `mul` as its chosen
+tasks: the first is too easy and the second too hard, so the gates fail and the study stops (the probe was the one
+redraw). The smoke runs every program once on the reserve task `sub`, where Haiku fixes the bug from its second
+attempt on.
 """
 
 import json
@@ -19,7 +22,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from experiments.seed_set import host, layout, rules, spend, study
+from experiments.compare.repos import sha256_file
+from experiments.seed_set import host, layout, probing, rules, spend, study
 from tests.experiments.compare_harness_support import (
     OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up, skip_without_sandbox, write_test_sandbox_config,
 )
@@ -28,14 +32,18 @@ from tests.experiments.seed_set_offline_support import STUB
 REPO = Path(__file__).resolve().parents[2]
 H, S = spend.HAIKU, spend.SONNET
 SYNCED = ("experiments/compare", "experiments/seed_set/programs", "experiments/orc_structural_search/seeds")
-BUGS = {"add": "return a - b", "mul": "return a + b", "sub": "return a + b"}
+BUGS = {"add": "return a - b", "mul": "return a + b", "sub": "return a + b", "mx": "return min(a, b)",
+        "mn": "return max(a, b)"}
 BASE = {"pkg/__init__.py": "", "pkg/calc.py": "".join(f"def {f}(a, b):\n    {body}\n\n\n" for f, body in BUGS.items()),
         ".gitignore": ".orchestrate/\n", "tests/test_base.py": "def test_base():\n    pass\n"}
 # id: (function, fix, visible check, hidden checks (the last passes on the base too), set, Haiku's first fixing attempt)
 TASKS = {"a0a0a0a0a0": ("add", "return a + b", "add(2, 3) == 5", "add(10, 5) == 15", "add(0, 0) == 0", "drawn", 1),
          "b1b1b1b1b1": ("mul", "return a * b", "mul(2, 3) == 6", "mul(4, 5) == 20", "mul(2, 2) == 4", "drawn", None),
-         "c2c2c2c2c2": ("sub", "return a - b", "sub(3, 1) == 2", "sub(5, 3) == 2", "sub(0, 0) == 0", "reserve", 2)}
+         "c2c2c2c2c2": ("sub", "return a - b", "sub(3, 1) == 2", "sub(5, 3) == 2", "sub(0, 0) == 0", "reserve", 2),
+         "d3d3d3d3d3": ("mx", "return max(a, b)", "mx(2, 3) == 3", "mx(5, 1) == 5", "mx(2, 2) == 2", "drawn", 1),
+         "e4e4e4e4e4": ("mn", "return min(a, b)", "mn(2, 3) == 2", "mn(5, 1) == 1", "mn(2, 2) == 2", "drawn", None)}
 DRAWN, SMOKE = ["a0a0a0a0a0", "b1b1b1b1b1"], "c2c2c2c2c2"
+RUNG = ["a0a0a0a0a0", "b1b1b1b1b1", "d3d3d3d3d3", "e4e4e4e4e4"]  # T3 in-tree, in seed order
 
 
 def runtime_of(tmp_path, task_repo, refs):
@@ -74,7 +82,8 @@ def write_task(root, task, base, fix, task_repo, row):
     for relative, text in files.items():
         (package / relative).parent.mkdir(parents=True, exist_ok=True)
         (package / relative).write_text(text)
-    return {"id": task, "set": listed, "commit": fix, "base_commit": base}, {
+    tier = {"tier": "T3", "form": "in-tree"} if listed == "drawn" else {}
+    return {"id": task, "set": listed, "commit": fix, "base_commit": base, **tier}, {
         "marker": f"Make {name} correct.", "patch": upstream, "visible": argv, "fix": {H: haiku, S: 1}}
 
 
@@ -140,6 +149,12 @@ def calls_before_reservation(rows):
     return late
 
 
+def choose(s, tasks):
+    s.results.mkdir(parents=True, exist_ok=True)
+    (s.results / layout.CHOSEN).write_text(json.dumps({"tasks": [{"id": t, "rung": "T3"} for t in tasks]}))
+    spend.record(s.ledger, "probe_readout", answer={"chosen": "T3"}, chosen_sha256=sha256_file(s.results / layout.CHOSEN))
+
+
 def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkeypatch):
     s, tasks = world.study, DRAWN
     with pytest.raises(SystemExit, match="provider spend refused"):
@@ -147,6 +162,7 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     assert (s.work.exists(), spend.starts(spend.rows(s.ledger))) == (False, [])  # unauthorized: nothing started
 
     monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, tasks)  # as probe-readout writes them (its 20-task rule is unit-tested)
     with pytest.raises(SystemExit, match="no passed smoke"):
         study.candidates(s, "calibration", "direct", tasks)
     spend.record(s.ledger, "smoke", passed=True)  # the smoke itself is the next test
@@ -154,6 +170,10 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     study.candidates(s, "calibration", "direct_sonnet", tasks)
     for kind in ("first", "retest"):
         study.build_pools(s, "calibration", kind, tasks)
+        if kind == "retest":
+            with pytest.raises(SystemExit, match="before the early judge look"):
+                study.judge(s, "calibration", kind, tasks)
+            assert rules.early_look(s)["passed"] is True  # the reference scores 8 above the base on both tasks
         study.judge(s, "calibration", kind, tasks)
         study.summarize_pools(s, kind, tasks)
     report = study.write_readout(s)
@@ -163,7 +183,9 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     assert {kind: {model: (row["reserved"], row.get("made")) for model, row in models.items()}
             for kind, models in totals.items()} == {"candidate": {H: (8, 8), S: (2, 2)}, "judge": {H: (4, 4), S: (4, 4)}}
     assert calls_before_reservation(spend.starts(rows)) == []
-    assert study.candidates(s, "calibration", "direct", tasks) == [] and spend.rows(s.ledger) == rows  # no relaunch
+    with pytest.raises(SystemExit, match="the study is stopped"):  # the readout's stop decision
+        study.candidates(s, "calibration", "direct", tasks)
+    assert spend.rows(s.ledger) == rows
 
     runs = [json.loads(path.read_text()) for path in study.study_runs(s)]
     assert sorted((r["task"], r["model"], r["outcome"], r["scan_hits"], r["visible"]["passed"]) for r in runs) == sorted(
@@ -189,11 +211,13 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     c = report["calibration"]
     assert (report["anchor_failures"], c["selected"], c["judges"][H]["V3"]["clones"], c["judges"][H]["V3"]["mean_abs"],
             c["gates"]["G1"]["survivors"], c["gates"]["G2"]["haiku_mean"], c["gates"]["G3"]["gap"], c["decision"]) == (
-        [], H, 14, 0, 0, 4, 4, "redraw")
-    (line,) = [x for x in (s.results / "readout.md").read_text().splitlines() if x.startswith("Decision:")]
-    assert (line.startswith("Decision: redraw"), "V4 (agreement with the hidden tests) was not assessed" in line) == (
-        True, True)  # 2 toy tasks: too few candidates per hidden class, and the decision says so
-    assert [e["event"] for e in study.ledger_report(s)["events"]] == ["freeze", "smoke", "decision"]
+        [], H, 14, 0, 0, 4, 4, "stop: a gate fails and the ladder probe was the one redraw; no quality claim")
+    text = (s.results / "readout.md").read_text()
+    (line,) = [x for x in text.splitlines() if x.startswith("Decision:")]
+    assert (line.startswith("Decision: stop"), "V4 (agreement with the hidden tests) was not assessed" in line,
+            "Tasks: 2 from T3 in-tree" in text) == (True, True, True)  # too few candidates per hidden class
+    assert [e["event"] for e in study.ledger_report(s)["events"]] == [
+        "freeze", "probe_readout", "smoke", "early_look", "decision", "stop"]
     resume = next(s.work.glob("records/*/run-*/resume.sh"))
     assert subprocess.run(["bash", str(resume)], capture_output=True).returncode == 64  # no unit ever resumes
 
@@ -234,3 +258,23 @@ def test_offline_visible_check_fails_a_patch_whose_code_calls_a_provider(world):
     patch.parent.mkdir(parents=True)
     patch.write_text(calling)
     assert host.visible_check(package, patch, s.runtime)["provider_attempts"]
+
+
+def test_offline_probe_of_one_rung_runs_hidden_tests_and_detects_self_checks(world, monkeypatch):
+    s = world.study
+    spend.record(s.ledger, "smoke", passed=True, bisect=False)
+    monkeypatch.setenv(spend.AUTHORIZATION, "redraw")
+    assert probing.answer(s)["probe"] == ["T3"]  # the only rung with four tasks
+    probing.probe(s)
+
+    runs = {r["task"]: r for r in (json.loads(p.read_text()) for p in study.study_runs(s))}
+    assert {t: (r["step"], r["rung"], r["outcome"], r["hidden"]["passed"], r["self_check"]) for t, r in runs.items()} == {
+        "a0a0a0a0a0": ("first", "T3", "completed", True, True), "b1b1b1b1b1": ("first", "T3", "completed", False, False),
+        "d3d3d3d3d3": ("first", "T3", "completed", True, True), "e4e4e4e4e4": ("first", "T3", "completed", False, False)}
+    assert (probing.results(s, "first")[0], probing.answer(s)) == (
+        {"T3": 2}, {"phase": "first", "bisect": False, "chosen": "T3"})
+    rows = spend.starts(spend.rows(s.ledger))
+    assert ({(r["tranche"], r["model"], r["calls"], r["step"]) for r in rows}, study.ledger_report(s)["redraw"][
+        "candidate"][H]) == ({("redraw", H, 1, "first")}, {"reserved": 4, "cap": 40, "made": 4})
+    with pytest.raises(SystemExit, match="nothing to probe now"):
+        probing.probe(s, ["T3"])

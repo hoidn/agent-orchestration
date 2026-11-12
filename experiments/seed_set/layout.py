@@ -3,6 +3,10 @@
 `Study` names the frozen runtime, the work root (agents' trees and run records), the pools root, the results
 directory, the task list, the judge-calibration criterion (the freeze's `criterion.json` lies beside it) and the
 state directory holding the spend ledger (`~/.local/state/seed-set` for the command line; tests pass their own).
+
+Tranches: the smoke runs on the last reserve task; the redraw cap serves the ladder probe only (plan, "Ladder
+probe": the probe is the plan's one redraw), on the rows that carry a `tier`; the calibration runs on the 20 tasks
+`probe-readout` wrote to `results/calibration-tasks.json` (`CHOSEN`), whose hash the ledger holds.
 """
 
 import json
@@ -18,9 +22,9 @@ EFFORT = "medium"
 # runs per task and arm, per tranche: the smoke runs every program once on the last reserve task
 PLANNED = {"smoke": dict.fromkeys(("direct", "direct_sonnet", "retry_until_check", "implement_check_repair",
                                    "implement_review_revise"), 1),
-           "calibration": {"direct": 4, "direct_sonnet": 1}, "redraw": {"direct": 4, "direct_sonnet": 1}}
-RETESTS = {"smoke": 0, "calibration": 10, "redraw": 5}  # the first tasks of the tranche, in seed order
-REDRAW_TASKS = 10  # coordinator ruling 2026-11-11: no scaled-down redraw
+           "calibration": {"direct": 4, "direct_sonnet": 1}, "redraw": {"direct": 1}}  # redraw: one per probe step
+RETESTS = {"smoke": 0, "calibration": 10, "redraw": 0}  # the first tasks of the tranche, in its order
+CHOSEN = "calibration-tasks.json"  # under the results directory
 MIN_FREE = 20 * 10**9
 RUBRIC = {"workflow": "score_functional.orc", "entry": "score_functional::score", "criteria": ["quality"],
           "reference": None}
@@ -58,17 +62,27 @@ def task_dir(study, task):
     return study.tasks_file.parent / "tasks" / task
 
 
-def tranche_tasks(rows, tranche):
-    """The tasks a tranche may run, in seed order: the last reserve task for the smoke, the other reserve tasks
-    for the redraw, the drawn tasks for the calibration."""
-    reserve = [row["id"] for row in rows if row["set"] == "reserve"]
-    return {"smoke": reserve[-1:], "redraw": reserve[:-1]}.get(
-        tranche, [row["id"] for row in rows if row["set"] == "drawn"])
+def chosen(study):
+    """The calibration's chosen tasks [{"id", "rung"}] as probe-readout wrote them, or [] before it did."""
+    path = study.results / CHOSEN
+    return load(path)["tasks"] if path.is_file() else []
+
+
+def tranche_tasks(study, tranche):
+    """The tasks a tranche may run, in order: the last reserve task for the smoke, every laddered task but the
+    smoke's for the probe, the chosen tasks for the calibration."""
+    rows = task_rows(study)
+    smoke = [row["id"] for row in rows if row.get("set") == "reserve"][-1:]
+    if tranche == "smoke":
+        return smoke
+    if tranche == "redraw":
+        return [row["id"] for row in rows if row.get("tier") and row["id"] not in smoke]
+    return [task["id"] for task in chosen(study)]
 
 
 def require_tasks(study, tranche, tasks, kind="first"):
     """{task: fix commit}; refuse tasks outside the tranche (or outside its retest tasks)."""
-    allowed = tranche_tasks(task_rows(study), tranche)
+    allowed = tranche_tasks(study, tranche)
     if kind == "retest":
         allowed = allowed[:RETESTS[tranche]]
     if not tasks or set(tasks) - set(allowed):

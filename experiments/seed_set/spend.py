@@ -11,7 +11,8 @@ It holds starts and events. Every provider start goes through `reserve` before i
 - the unit (a candidate run's records directory, or `<pool>#<judge>`) must not be in the ledger already: a unit
   is launched once, never retried or relaunched;
 - the calls reserved so far for (tranche, kind, model) plus this unit's maximum must stay within the cap, and with
-  `limit`, the starts so far for (tranche, task, arm) must stay under it (the plan's runs per task and arm).
+  `limit`, the starts so far for (tranche, task, arm, step) must stay under it (the plan's runs per task and
+  arm; a probe step runs a task once).
 
 Rows are appended and fsynced under an exclusive lock, so a crash after the append cannot lose a start and two
 study processes cannot both take the last call or the last planned run. A unit reserves its maximum calls, which
@@ -128,7 +129,7 @@ def _append(stream, entries, row):
 
 def reserve(ledger, tranche, kind, model, calls, unit, environ=None, limit=None, **facts):
     """Append one start of `unit` with its maximum `calls`, fsynced, before the caller launches; return the row.
-    With `limit`, refuse a start beyond `limit` starts of the same (tranche, task, arm)."""
+    With `limit`, refuse a start beyond `limit` starts of the same (tranche, task, arm, step)."""
     authorize(tranche, environ)
     check_model(model)
     if type(calls) is not int or calls < 1:
@@ -137,8 +138,8 @@ def reserve(ledger, tranche, kind, model, calls, unit, environ=None, limit=None,
         refuse_stopped(entries)
         if any(row.get("unit") == str(unit) for row in entries):
             raise SystemExit(f"{unit} was already started; a unit is never retried or relaunched")
-        if limit is not None and sum((row["tranche"], row.get("task"), row.get("arm")) == (
-                tranche, facts.get("task"), facts.get("arm")) for row in starts(entries)) >= limit:
+        if limit is not None and sum((row["tranche"], row.get("task"), row.get("arm"), row.get("step")) == (
+                tranche, facts.get("task"), facts.get("arm"), facts.get("step")) for row in starts(entries)) >= limit:
             raise SystemExit(f"{tranche} {facts.get('arm')} on {facts.get('task')}: all {limit} planned runs started")
         left = remaining(entries, tranche, kind, model)
         if calls > left:

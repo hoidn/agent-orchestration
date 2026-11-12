@@ -7,7 +7,7 @@ measure-free figures only (runs, outcomes, calls, wall clock, visible-check pass
 
 from statistics import mean
 
-from experiments.seed_set import gates, selection
+from experiments.seed_set import gates, ladder, selection
 
 
 def measure_free(runs):
@@ -60,15 +60,21 @@ def v4_note(calibration):
             "tests and passed its gate on V1-V3 alone (coordinator ruling)")
 
 
-def report(records, pools, tasks, retests, redrawn, runs, totals, programs, planned):
+def rungs(names):
+    """The chosen rungs in words: tier and form (`T3w` is T3 in the check-withheld form)."""
+    words = [f"{n.rstrip('w')} {ladder.tier_form(n)[1]}" for n in names]
+    return ", ".join(words) if words else "no chosen rung"
+
+
+def report(records, pools, tasks, retests, rungs, runs, totals, programs, planned):
     """`programs` maps each arm to its program's {"source", "lines"}; `planned` counts the gated tranches' runs."""
-    out = {"tasks": tasks, "retest_tasks": retests, "redrawn": redrawn, "spend": totals, "programs": programs,
+    out = {"tasks": tasks, "retest_tasks": retests, "rungs": rungs, "spend": totals, "programs": programs,
            "measure_free": measure_free(runs), "anchor_failures": gates.anchor_failures(records, pools, tasks),
            "missing_pools": gates.missing_pools(pools, tasks, retests), "unusual_runs": unusual_runs(runs, tasks),
            "calibration": None, "baselines": None}
     if out["anchor_failures"]:
         return out
-    out["calibration"] = calibration = gates.calibration(records, pools, tasks, retests, redrawn)
+    out["calibration"] = calibration = gates.calibration(records, pools, tasks, retests)
     incidents = sum(1 for row in out["unusual_runs"] if row["incident"])
     if incidents > 0.10 * planned:
         calibration["decision"] = f"stop: {incidents} of {planned} planned runs are incidents, over 10%"
@@ -123,7 +129,7 @@ def gate_lines(gates_):
 
 def markdown(r):
     lines = ["# Seed-set calibration readout", "",
-             f"Tasks: {len(r['tasks'])} ({'with' if r['redrawn'] else 'no'} redraw); retest: {len(r['retest_tasks'])}.",
+             f"Tasks: {len(r['tasks'])} from {rungs(r['rungs'])}; retest: {len(r['retest_tasks'])}.",
              "", "## Runs (measure-free)", "",
              "| tranche/arm | runs | completed | failed | incidents | calls | wall clock s | visible passed | metered |",
              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]

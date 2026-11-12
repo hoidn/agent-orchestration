@@ -1,9 +1,10 @@
 """Order and stop rules of the seed-set study, the physical audit of its ledger, and the smoke check (plan Step 2,
 Stop rules, Ledger).
 
-Order: no start before a `freeze` event whose criterion, judge-criterion and runtime commit still match; no
-calibration start before a passing `smoke` event; no redraw start before a `redraw` decision and with fewer than
-ten unused reserve tasks (coordinator ruling). Stops (a `stop` event, after which `spend.reserve` refuses
+Order: no start before a `freeze` event whose criterion, judge-criterion and runtime commit still match; no probe
+(the redraw cap) or calibration start before a passing `smoke` event; no calibration start before a `probe_readout`
+event whose chosen list still matches `results/calibration-tasks.json`; no calibration judge outside the early judge
+look's three first pools before a passed `early_look` event, and none after a failed one. Stops (a `stop` event, after which `spend.reserve` refuses
 everything): a forbidden-model answer in a run or a judge, three tasks with a contaminated run or judgment, more
 than 10% of a tranche's planned runs ending as incidents, and a `stop:` decision of the readout. The audit refuses
 when a unit made calls the ledger does not hold (a missing or foreign ledger) or more calls than it reserved.
@@ -12,8 +13,8 @@ when a unit made calls the ledger does not hold (a missing or foreign ledger) or
 from pathlib import Path
 
 from experiments.compare.repos import load, runtime_commit, sha256_file
-from experiments.seed_set import layout, spend, units
-from experiments.seed_set.layout import PLANNED, REDRAW_TASKS, study_runs, task_rows, tranche_tasks
+from experiments.seed_set import gates, layout, ladder, spend, units
+from experiments.seed_set.layout import CHOSEN, PLANNED, study_runs, tranche_tasks
 
 JUDGE_EFFORT = "high"  # score_functional.orc's fixed judge effort
 
@@ -40,16 +41,15 @@ def require_order(study, tranche):
     current = frozen_identity(study)
     if any(freeze[key] != value for key, value in current.items()):
         raise SystemExit(f"the criterion or runtime changed since the freeze: {current} against {freeze}")
-    smoke, decision = spend.latest(entries, "smoke"), spend.latest(entries, "decision")
-    if tranche == "calibration" and not (smoke and smoke["passed"]):
+    smoke, readout = spend.latest(entries, "smoke"), spend.latest(entries, "probe_readout")
+    if tranche in ("redraw", "calibration") and not (smoke and smoke["passed"]):
         raise SystemExit("no passed smoke in the ledger: run the smoke and smoke-check first")
-    if tranche == "redraw":
-        if not (decision and decision["decision"] == "redraw"):
-            raise SystemExit("the redraw starts only after a readout decided \"redraw\"")
-        unused = tranche_tasks(task_rows(study), "redraw")
-        if len(unused) < REDRAW_TASKS:
-            raise SystemExit(f"the redraw needs {REDRAW_TASKS} unused reserve tasks, {len(unused)} exist: mine more "
-                             "tasks first (coordinator ruling: no scaled-down redraw)")
+    if tranche == "calibration":
+        path = study.results / CHOSEN
+        if not (readout and readout.get("chosen_sha256")) or not path.is_file() or sha256_file(path) != readout[
+                "chosen_sha256"]:
+            raise SystemExit(f"no chosen calibration tasks: probe-readout writes {path} and its hash in the ledger "
+                             "(plan, Ladder probe)")
 
 
 def audit_ledger(study):
@@ -78,7 +78,49 @@ def contaminated_tasks(study):
 
 
 def planned_runs(study, tranche):
-    return sum(PLANNED[tranche].values()) * len(tranche_tasks(task_rows(study), tranche))
+    """The runs the tranche plans: the smoke's five, the flat probe's 20, the calibration's five per chosen task."""
+    if tranche == "redraw":
+        return len(ladder.FLAT) * ladder.PROBE_TASKS
+    return sum(PLANNED[tranche].values()) * len(tranche_tasks(study, tranche))
+
+
+EARLY_TASKS, EARLY_MARGIN = 3, 4  # plan, Early judge look
+
+
+def require_early_look(study, tranche, kind, tasks):
+    """Calibration judges: only the first pools of the first three chosen tasks before the early judge look has
+    passed, and none after it failed."""
+    if tranche != "calibration":
+        return
+    look = spend.latest(spend.rows(study.ledger), "early_look")
+    if look and not look["passed"]:
+        raise SystemExit(f"the early judge look failed ({look['tasks_below']}): no further judge call; report to "
+                         "the owner (plan, Early judge look)")
+    first = tranche_tasks(study, "calibration")[:EARLY_TASKS]
+    if not look and (kind != "first" or set(tasks) - set(first)):
+        raise SystemExit(f"before the early judge look only the first pools of {first} are judged; then early-look")
+
+
+def early_look(study):
+    """Reference minus base per judge on the first three chosen tasks' first pools (an incident pool counts as
+    below the margin); failed when, for both judges, it is under 4 points on two of the three. Recorded."""
+    first = tranche_tasks(study, "calibration")[:EARLY_TASKS]
+    below = {judge: [] for judge in gates.JUDGES}
+    for task in first:
+        path = study.results / "pools" / f"{task}-first" / "results.json"
+        if not path.is_file() and not path.with_name("incident.json").is_file():
+            raise SystemExit(f"{task}: its first pool is not summarized yet; judge and summarize the first three")
+        anchors = {c["labels"][0].removeprefix(f"{task}-"): c.get("ratings", {})
+                   for c in (load(path)["clones"].values() if path.is_file() else []) if c["arm"] == "anchor"}
+        for judge in gates.JUDGES:
+            try:
+                gap = anchors["upstream"][judge]["quality"] - anchors["base"][judge]["quality"]
+            except (KeyError, TypeError):
+                gap = None
+            if gap is None or gap < EARLY_MARGIN:
+                below[judge].append(task)
+    passed = not all(len(tasks) >= 2 for tasks in below.values())
+    return spend.record(study.ledger, "early_look", passed=passed, tasks=first, tasks_below=below)
 
 
 def stop_reasons(study):
@@ -138,7 +180,7 @@ def smoke_units(study, task):
 
 def smoke_check(study):
     """The mechanical part of the smoke checklist; records pass or fail in the ledger and returns it."""
-    (task,) = tranche_tasks(task_rows(study), "smoke")
+    (task,) = tranche_tasks(study, "smoke")
     found = smoke_units(study, task)
     runs = [f for name, _, _, _, f in found if not name.startswith("judge")]
     results_path = study.results / "pools" / f"{task}-first" / "results.json"
@@ -160,7 +202,20 @@ def smoke_check(study):
     figures = {name: {"calls": units.physical_calls(r), "tokens": tokens(r), "wall_clock_sec_per_call":
                       _per_call(f, r)} for name, r, _, _, f in found}
     passed = all(checks.values()) and len(found) == len(PLANNED["smoke"]) + 2
-    return spend.record(study.ledger, "smoke", passed=passed, checks=checks, figures=figures)
+    return spend.record(study.ledger, "smoke", passed=passed, checks=checks, figures=figures,
+                        **bisect_from_start([(f, r) for name, r, _, _, f in found if name == "direct"]))
+
+
+def bisect_from_start(direct):
+    """The median wall time and CLI-reported cost of the smoke's Haiku `direct` runs [(facts, records)], and
+    whether either is above the plan's line for bisecting the ladder from the start (15 minutes, USD 0.50)."""
+    walls = sorted(w for f, r in direct if (w := _per_call(f, r)) is not None)
+    costs = sorted(c for _, r in direct if (c := units.cli_cost(load(Path(r) / "record.json")["sandbox"]["home"]))
+                   is not None)
+    wall = walls[len(walls) // 2] if walls else None
+    cost = costs[len(costs) // 2] if costs else None
+    return {"direct_median_wall_sec": wall, "direct_median_cli_cost_usd": cost if cost is not None else "unavailable",
+            "bisect": (wall or 0) > ladder.BISECT_WALL_SEC or (cost or 0) > ladder.BISECT_COST_USD}
 
 
 def unit_of(records):

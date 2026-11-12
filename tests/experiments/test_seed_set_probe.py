@@ -1,0 +1,267 @@
+"""The ladder probe's steps (experiments/seed_set/probing.py), the early judge look and the apparatus measures
+(rules.py, study.py, host.py) on synthetic run records: no provider process is launched here."""
+
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from experiments.compare.repos import load
+from experiments.seed_set import host, ladder, layout, probing, rules, spend, study
+
+H, S = spend.HAIKU, spend.SONNET
+ROOT = Path(__file__).resolve().parents[2]
+SIZES = {"T0": 8, "T1": 12, "T2": 12, "T3": 12, "T4": 12, "T5": 8, "T6": 8, "T1w": 12, "T2w": 12, "T3w": 12,
+         "T4w": 12}
+
+
+@pytest.fixture
+def s(tmp_path, monkeypatch):
+    """A study with a full ladder of task rows, a freeze and a passed smoke; the redraw tranche authorized."""
+    runtime = tmp_path / "runtime"
+    shutil.copytree(ROOT / layout.PROGRAMS, runtime / layout.PROGRAMS, ignore=shutil.ignore_patterns("__pycache__"))
+    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rt"]):
+        subprocess.run(["git", "-C", str(runtime), *args], check=True)
+    rows = [{"id": f"{rung}-{k:02d}", "tier": ladder.tier_form(rung)[0], "form": ladder.tier_form(rung)[1],
+             "set": "drawn", "commit": "f" * 40} for rung, n in SIZES.items() for k in range(n)]
+    rows.append({"id": "smoke", "set": "reserve", "commit": "f" * 40})
+    (tmp_path / "tasks.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    criterion = tmp_path / "judge-calibration.json"
+    criterion.write_text(json.dumps({"judges": [H, S], "rubric": layout.RUBRIC}))
+    (tmp_path / "criterion.json").write_text(json.dumps({"plan": "frozen"}))
+    study_ = layout.Study(runtime, tmp_path / "work", tmp_path / "pools", tmp_path / "results",
+                          tmp_path / "tasks.jsonl", criterion, tmp_path / "state")
+    rules.record_freeze(study_)
+    spend.record(study_.ledger, "smoke", passed=True, bisect=False)
+    monkeypatch.setenv(spend.AUTHORIZATION, "redraw")
+    return study_
+
+
+def probed(s, phase, passes, self_check=False):
+    """Checked probe runs, each reserved: `passes[rung]` of the rung's four probe tasks pass their hidden set."""
+    for rung, count in passes.items():
+        for k, task in enumerate(ladder.probe_tasks(layout.task_rows(s), rung)):
+            records = s.work / "records" / "direct" / f"run-{phase}-{task}"
+            records.mkdir(parents=True)
+            withheld = ladder.tier_form(rung)[1] == ladder.WITHHELD
+            (records / "study.json").write_text(json.dumps({
+                "tranche": "redraw", "task": task, "arm": "direct", "model": H, "effort": "medium", "max_calls": 1,
+                "step": phase, "rung": rung, "calls": 1, "outcome": "completed", "hidden": {"passed": k < count},
+                "self_check": None if withheld else self_check}))
+            (records / "record.json").write_text("{}")
+            spend.reserve(s.ledger, "redraw", "candidate", H, 1, records, task=task, arm="direct", step=phase)
+
+
+FLAT_IN_BAND = {"T1": 4, "T2": 4, "T3": 2, "T4": 1, "T5": 0}
+
+
+def test_the_first_probe_is_the_flat_five(s):
+    assert probing.answer(s) == {"phase": "first", "bisect": False, "probe": ["T1", "T2", "T3", "T4", "T5"]}
+
+
+def test_a_smoke_that_calls_for_bisection_starts_at_the_middle_of_t0_to_t6(s):
+    spend.record(s.ledger, "smoke", passed=True, bisect=True)
+    assert probing.answer(s)["probe"] == ["T3"]
+
+
+def test_a_tier_in_band_writes_the_chosen_tasks_and_their_hash(s):
+    probed(s, "first", FLAT_IN_BAND)
+    out = probing.probe_readout(s)
+    row = spend.latest(spend.rows(s.ledger), "probe_readout")
+    assert ({t["rung"] for t in out["chosen"]}, len(out["chosen"]), bool(row["chosen_sha256"])) == (
+        {"T3", "T4"}, 20, True)
+
+
+def test_the_chosen_tasks_become_the_calibration_tasks(s):
+    probed(s, "first", FLAT_IN_BAND)
+    probing.probe_readout(s)
+    rules.require_order(s, "calibration")  # no refusal
+    assert layout.tranche_tasks(s, "calibration")[:2] == ["T3-00", "T3-01"]
+
+
+def test_tiers_straddling_the_band_split_ten_and_ten(s):
+    probed(s, "first", {"T1": 4, "T2": 4, "T3": 4, "T4": 0, "T5": 0})
+    assert ladder.choose(layout.task_rows(s), probing.answer(s), probing.results(s, "first")[0], 0.0)[9:11] == [
+        ("T3-09", "T3"), ("T4-00", "T4")]
+
+
+def test_agents_running_the_test_themselves_switch_the_chosen_tier_to_withheld(s):
+    probed(s, "first", FLAT_IN_BAND, self_check=True)
+    assert {t["rung"] for t in probing.probe_readout(s)["chosen"]} == {"T3w", "T4w"}
+
+
+def test_all_too_easy_bisects_the_easy_extension(s):
+    probed(s, "first", dict.fromkeys(ladder.FLAT, 4))
+    assert probing.answer(s) == {"phase": "extension", "first": "all_easy", "probe": ["T3w"]}
+
+
+def test_all_too_hard_waits_for_the_transcripts_and_writes_no_list(s):
+    probed(s, "first", dict.fromkeys(ladder.FLAT, 0))
+    out = probing.probe_readout(s)
+    assert ("await" in out["answer"], (s.results / layout.CHOSEN).exists()) == (True, False)
+
+
+def test_the_extension_probe_refuses_until_the_transcripts_were_read(s):
+    probed(s, "first", dict.fromkeys(ladder.FLAT, 0))
+    with pytest.raises(SystemExit, match="nothing to probe now"):
+        probing.probe(s, ["T0"])
+
+
+def test_recorded_transcripts_open_t0_and_t1_again(s):
+    probed(s, "first", dict.fromkeys(ladder.FLAT, 0))
+    probing.record_transcripts(s, False, "runs sound: the agent edited the wrong function", [])
+    assert probing.answer(s) == {"phase": "extension", "first": "all_hard", "probe": ["T0"]}
+
+
+def test_runs_a_fault_failed_become_incidents_and_count_toward_the_stop_rule(s):
+    probed(s, "first", dict.fromkeys(ladder.FLAT, 0))
+    runs = sorted((s.work / "records" / "direct").glob("run-first-T1-*"))[:3]
+    probing.record_transcripts(s, True, "pytest could not start in the sandbox", runs)
+    assert (load(runs[0] / "study.json")["incident"], spend.latest(spend.rows(s.ledger), "stop") is not None) == (
+        "apparatus fault: pytest could not start in the sandbox", True)  # 3 of 20 planned: over 10%
+
+
+def test_an_extension_that_still_misses_stops_every_later_start(s):
+    probed(s, "first", dict.fromkeys(ladder.FLAT, 4))
+    probed(s, "extension", {"T3w": 4, "T4w": 4, "T6": 4})
+    probing.probe_readout(s)
+    with pytest.raises(SystemExit, match="the whole ladder missed"):
+        spend.reserve(s.ledger, "calibration", "candidate", H, 1, "/w/x", {spend.AUTHORIZATION: "calibration"})
+
+
+def test_an_extension_in_band_chooses_from_the_extension_rungs(s):
+    probed(s, "first", dict.fromkeys(ladder.FLAT, 4))
+    probed(s, "extension", {"T3w": 2})
+    assert {t["rung"] for t in probing.probe_readout(s)["chosen"]} >= {"T3w"}
+
+
+def test_the_extension_is_used_once_nothing_more_probes_after_its_answer(s):
+    probed(s, "first", dict.fromkeys(ladder.FLAT, 4))
+    probed(s, "extension", {"T3w": 2})
+    probing.probe_readout(s)
+    with pytest.raises(SystemExit, match="nothing to probe now"):
+        probing.probe(s)
+
+
+def test_a_probe_step_already_started_launches_nothing_again(s):
+    for task in ladder.probe_tasks(layout.task_rows(s), "T1"):
+        spend.reserve(s.ledger, "redraw", "candidate", H, 1, f"/w/{task}", task=task, arm="direct", step="first")
+    assert probing.probe(s, ["T1"]) == []
+
+
+def test_the_probe_refuses_a_rung_the_answer_does_not_ask_for(s):
+    with pytest.raises(SystemExit, match="takes"):
+        probing.probe(s, ["T6"])
+
+
+def test_the_probe_refuses_without_a_passed_smoke(s):
+    spend.record(s.ledger, "smoke", passed=False)
+    with pytest.raises(SystemExit, match="no passed smoke"):
+        probing.probe(s)
+
+
+def test_the_probe_is_charged_to_the_redraw_cap_only(s, monkeypatch):
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    with pytest.raises(SystemExit, match="provider spend refused"):
+        probing.probe(s)
+
+
+def test_budget_arithmetic_fits_the_caps():
+    caps, tasks = spend.CAPS, ladder.CALIBRATION_TASKS
+    assert ((len(ladder.FLAT) + len(ladder.EASY_EXTENSION)) * ladder.PROBE_TASKS,
+            tasks * layout.PLANNED["calibration"]["direct"], tasks * layout.PLANNED["calibration"]["direct_sonnet"],
+            tasks + layout.RETESTS["calibration"]) == (
+        caps["redraw"]["candidate"][H], caps["calibration"]["candidate"][H], caps["calibration"]["candidate"][S],
+        caps["calibration"]["judge"][H])  # 40, 80, 20, 30: the early look judges three of the 20 first pools
+
+
+def test_the_41st_probe_call_refuses(s):
+    for k in range(40):
+        spend.reserve(s.ledger, "redraw", "candidate", H, 1, f"/w/{k}", task=f"x{k}", arm="direct", step="first")
+    with pytest.raises(SystemExit, match="cap reached"):
+        spend.reserve(s.ledger, "redraw", "candidate", H, 1, "/w/40", task="x40", arm="direct", step="extension")
+
+
+def test_a_probed_task_that_is_drawn_keeps_its_probe_run_as_a_first_haiku_run(s, monkeypatch):
+    probed(s, "first", FLAT_IN_BAND)
+    probing.probe_readout(s)
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    for k in range(3):  # T3-00 was probed: three more Haiku runs complete its four
+        spend.reserve(s.ledger, "calibration", "candidate", H, 1, f"/w/c{k}", task="T3-00", arm="direct")
+    assert study.candidates(s, "calibration", "direct", ["T3-00"]) == []
+
+
+def early_pool(s, task, base, upstream):
+    directory = s.results / "pools" / f"{task}-first"
+    directory.mkdir(parents=True)
+    clones = {f"c{k}": {"arm": "anchor", "labels": [f"{task}-{name}"], "ratings": {
+        H: {"quality": score}, S: {"quality": score}}} for k, (name, score) in enumerate(
+        (("base", base), ("upstream", upstream)))}
+    (directory / "results.json").write_text(json.dumps({"clones": clones}))
+
+
+def chosen_world(s):
+    probed(s, "first", FLAT_IN_BAND)
+    probing.probe_readout(s)
+    return layout.tranche_tasks(s, "calibration")
+
+
+def test_before_the_early_look_only_the_first_three_first_pools_are_judged(s):
+    tasks = chosen_world(s)
+    rules.require_early_look(s, "calibration", "first", tasks[:3])
+    with pytest.raises(SystemExit, match="before the early judge look"):
+        rules.require_early_look(s, "calibration", "first", tasks[3:4])
+
+
+def test_an_early_look_with_the_reference_under_four_points_on_two_of_three_stops_the_judges(s):
+    tasks = chosen_world(s)
+    for task, (base, upstream) in zip(tasks[:3], ((0, 3), (1, 4), (0, 8))):
+        early_pool(s, task, base, upstream)
+    assert rules.early_look(s)["passed"] is False
+    with pytest.raises(SystemExit, match="early judge look failed"):
+        rules.require_early_look(s, "calibration", "first", tasks[3:4])
+
+
+def test_a_passed_early_look_opens_the_other_judges(s):
+    tasks = chosen_world(s)
+    for task, (base, upstream) in zip(tasks[:3], ((0, 3), (0, 8), (0, 8))):
+        early_pool(s, task, base, upstream)
+    assert rules.early_look(s)["passed"] is True
+    rules.require_early_look(s, "calibration", "retest", tasks[3:4])  # no refusal
+
+
+def test_the_first_wave_runs_two_at_a_time():
+    assert (study.waves([1, 2, 3, 4, 5], False), study.waves([1, 2, 3], True)) == (
+        [(2, [1, 2]), (4, [3, 4, 5])], [(4, [1, 2, 3])])
+
+
+def test_a_withheld_package_names_its_tests_for_the_check_only(tmp_path):
+    (tmp_path / "withheld" / "tests").mkdir(parents=True)
+    assert (study.launch_env(H, 1, tmp_path)["SEED_SET_WITHHELD"], "SEED_SET_WITHHELD" in study.launch_env(H, 1)) == (
+        str(tmp_path / "withheld"), False)
+
+
+def test_the_host_checks_a_withheld_package_through_its_in_tree_view(tmp_path):
+    package = tmp_path / "pkg"
+    (package / "withheld" / "tests").mkdir(parents=True)
+    (package / "withheld" / "tests" / "test_v.py").write_text("def test_v(): pass\n")
+    (package / "seed").mkdir()
+    (package / "seed" / "dev-check.json").write_text(json.dumps({"argv": ["pytest"], "timeout_sec": 9,
+                                                                 "withheld": True}))
+    view = host.in_tree_view(package, tmp_path / "view")
+    assert ((view / "seed" / "tests" / "test_v.py").is_file(), json.loads((view / "seed" / "dev-check.json").read_text())) == (
+        True, {"argv": ["pytest"], "timeout_sec": 9})
+
+
+@pytest.mark.parametrize("wall, cost, bisect", [(600, None, False), (901, None, True), (600, 0.51, True)])
+def test_the_smoke_calls_for_bisection_above_15_minutes_or_half_a_dollar(tmp_path, wall, cost, bisect):
+    home = tmp_path / "home"
+    (home / ".claude" / "projects" / "p").mkdir(parents=True)
+    if cost is not None:
+        (home / ".claude" / "projects" / "p" / "s.jsonl").write_text(json.dumps({"costUSD": cost}) + "\n")
+    (tmp_path / "calls" / "1").mkdir(parents=True)
+    (tmp_path / "calls" / "1" / "prompt.txt").write_text("p")
+    (tmp_path / "record.json").write_text(json.dumps({"wall_clock_sec": wall, "sandbox": {"home": str(home)}}))
+    assert rules.bisect_from_start([({}, tmp_path)])["bisect"] is bisect

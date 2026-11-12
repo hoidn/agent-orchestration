@@ -84,3 +84,13 @@ def audit_sessions(home, tree, made, model):
 def disable_resume(*scripts):
     for script in scripts:
         Path(script).write_text(REFUSAL)
+
+
+def cli_cost(home):
+    """The cost a Claude CLI reported in its session transcripts under `home` (`costUSD` or `total_cost_usd`
+    fields), or None when it reported none: the study's `claude -p` text output carries no cost line."""
+    found = []
+    for path in Path(home).glob(".claude/projects/**/*.jsonl"):
+        for line in path.read_text(errors="replace").splitlines():
+            found += [float(v) for v in re.findall(r'"(?:costUSD|total_cost_usd)":\s*([0-9.]+)', line)]
+    return sum(found) if found else None
