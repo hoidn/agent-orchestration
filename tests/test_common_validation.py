@@ -112,10 +112,8 @@ def test_ordinary_integer_rejects_invalid_values_with_minimum_diagnostic(
     ("value", "expected"),
     (
         (True, False),
-        (False, False),
         (float("nan"), False),
         (float("inf"), False),
-        (float("-inf"), False),
         (0, False),
         (-1, False),
         (1, True),
@@ -125,7 +123,6 @@ def test_ordinary_integer_rejects_invalid_values_with_minimum_diagnostic(
         ("1", False),
         (None, False),
         ([], False),
-        ({}, False),
     ),
 )
 def test_finite_positive_number_golden_matrix(

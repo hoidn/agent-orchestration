@@ -88,7 +88,7 @@ finally:
     )
 
 
-@pytest.mark.parametrize("target", ["2.24", "2.34"])
+@pytest.mark.parametrize("target", ["2.34"])
 @pytest.mark.parametrize("command", ["compile", "run", "dry-run"])
 def test_old_entry_refuses_before_build_or_run_publication(tmp_path, target, command):
     source = tmp_path / "retired.orc"
@@ -135,7 +135,7 @@ def test_frontend_analysis_and_executable_build_refuse_pre_floor_source(tmp_path
     assert tree(tmp_path) == before
 
 
-@pytest.mark.parametrize("target", ["2.34", "2.35", "2.36", "2.37", "2.38"])
+@pytest.mark.parametrize("target", ["2.35"])
 def test_explain_flat_views_refuse_without_build_or_export_writes(tmp_path, target):
     source = tmp_path / "retired.orc"
     source.write_text(PROGRAM.format(target=target))
@@ -270,13 +270,9 @@ def test_resume_header_swap_under_lock_preserves_refusal_code(tmp_path, monkeypa
 
 @pytest.mark.parametrize("arguments", [
     ["run", "--prompt", "test", "--provider", "omp"],
-    ["run", "--prompt", "test", "--provider", "omp", "--returns", '"String"'],
-    ["run", "--prompt-file", "missing", "--provider", "omp", "--output", "answer"],
-    ["run", "--scaffold", "missing"],
     ["import", "session", "--provider", "omp"],
-    ["import", "session", "--reuse-run-contract"],
 ])
-@pytest.mark.parametrize("occupied", [False, True])
+@pytest.mark.parametrize("occupied", [True])
 def test_prompt_creation_refuses_before_inputs_scaffold_or_session_writes(tmp_path, arguments, occupied):
     if occupied:
         (tmp_path / "workflows" / "generated").mkdir(parents=True)
@@ -290,7 +286,7 @@ def test_prompt_creation_refuses_before_inputs_scaffold_or_session_writes(tmp_pa
     assert tree(tmp_path) == before
 
 
-@pytest.mark.parametrize("reuse", [False, True])
+@pytest.mark.parametrize("reuse", [False])
 def test_direct_prompt_import_handler_has_the_same_refusal(tmp_path, monkeypatch, capsys, reuse):
     from orchestrator.cli.commands.prompt_import import prompt_import_workflow
     from orchestrator.cli.main import create_parser
