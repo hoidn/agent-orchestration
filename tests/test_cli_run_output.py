@@ -12,6 +12,7 @@ import sys
 import pytest
 
 from tests.workflow_evaluated_host_input_helpers import build as build_host_input
+from tests.agent_session_shims import closed_path
 
 REPO = Path(__file__).parents[1]
 
@@ -43,7 +44,7 @@ IDENTITIES = [f"workflow:main::run / {name}" for name in ("a", "b", "c")]
 def env() -> dict[str, str]:
     return {
         **os.environ,
-        "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"],
+        "PATH": closed_path(Path(sys.executable).parent),
         "PYTHONPATH": str(REPO),
         "PYTHONDONTWRITEBYTECODE": "1",
     }

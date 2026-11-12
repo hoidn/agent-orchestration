@@ -22,6 +22,7 @@ import subprocess
 import sys
 
 import pytest
+from tests.agent_session_shims import closed_path
 
 REPO = Path(__file__).resolve().parents[1]
 TUTORIAL = REPO / "docs" / "tutorial_first_pipeline.md"
@@ -79,7 +80,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
     subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(venv)], check=True, timeout=TIMEOUT)
     subprocess.run([str(venv / "bin" / "python"), "-m", "pip", "install", "--quiet", "--no-index", "--no-deps",
                     "--no-build-isolation", str(source)], check=True, env=env, cwd=root, timeout=TIMEOUT)
-    env["PATH"] = str(venv / "bin") + os.pathsep + env["PATH"]
+    env["PATH"] = closed_path(venv / "bin")
     located = subprocess.run(["python", "-c", "import orchestrator; print(orchestrator.__file__)"], cwd=root,
                              env=env, capture_output=True, text=True, check=True, timeout=TIMEOUT).stdout.strip()
     assert Path(located).resolve().is_relative_to(venv.resolve()), located

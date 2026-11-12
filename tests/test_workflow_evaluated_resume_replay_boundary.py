@@ -15,6 +15,7 @@ from tests.test_workflow_evaluated_resume_retry import (
     _run_root,
     _start_and_kill,
 )
+from tests.agent_session_shims import closed_path
 
 
 def _create_two_command_run(tmp_path: Path) -> Path:
@@ -283,7 +284,7 @@ def test_public_pending_retry_uses_pinned_path_after_path_and_bytes_change(tmp_p
         "stable_command": ["resume-tool"], "closure": []
     }}), encoding="utf-8")
     env = _public_env()
-    env["PATH"] = str(first_bin) + os.pathsep + env["PATH"]
+    env["PATH"] = closed_path(first_bin)
     _start_and_kill(
         [sys.executable, "-m", "orchestrator", "run", str(source),
          "--command-boundaries-file", str(boundaries)],

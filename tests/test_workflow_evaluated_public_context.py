@@ -28,6 +28,7 @@ from tests.test_workflow_evaluated_cli import _run_cli
 from tests import workflow_evaluated_context_helpers as context_helpers
 from tests import workflow_evaluated_totality_helpers as totality_helpers
 from tests.workflow_inprocess_cli_helpers import compile_public_inprocess
+from tests.agent_session_shims import closed_path
 
 
 @pytest.fixture(autouse=True)
@@ -74,7 +75,7 @@ def _assert_provider_commit(root, authority, entry):
 def test_public_provider_bundle_path_matches_committed_workspace_path(tmp_path, monkeypatch):
     files, inputs = _provider_files(tmp_path)
     compile_public(files)
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     monkeypatch.chdir(tmp_path)
     pause = pause_public(files, monkeypatch, inputs)
     authority, before = checked_run(tmp_path)
@@ -101,7 +102,7 @@ def test_public_provider_bundle_path_matches_committed_workspace_path(tmp_path, 
 def test_public_provider_bundle_path_fresh_execution(tmp_path, monkeypatch):
     files, inputs = _provider_files(tmp_path)
     compile_public(files)
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     monkeypatch.chdir(tmp_path)
     assert public_run(files, inputs).exit_code == 0
     authority, snapshot = checked_run(tmp_path)
@@ -299,7 +300,7 @@ def test_public_item_carried_run_and_explicit_phase_keep_all_fields(tmp_path, ex
 
 def test_public_imports_select_producer_assets_policies_and_argv(tmp_path, monkeypatch):
     files, inputs = prepare_public_producers(tmp_path)
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     monkeypatch.setenv("PROVIDER_SHIM_RESULTS", json.dumps(["11", "13"]))
     compile_public(files)
     monkeypatch.chdir(tmp_path)
@@ -328,7 +329,7 @@ def test_independent_library_import_maps_execute_and_replay_real_producers(tmp_p
 
     source, program, io = prepare_library_producers(tmp_path)
     assert_library_configuration(program)
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     monkeypatch.setenv("PROVIDER_SHIM_RESULTS", json.dumps(["11", "13"]))
     # Truthful publication plumbing only: these independent in-memory maps
     # cannot be reconstructed by a CLI recipe with the current manifest API.
@@ -390,7 +391,7 @@ def test_public_named_phase_targets_reach_real_provider_in_named_order(tmp_path,
     monkeypatch.setenv("PROVIDER_SHIM_RESULT", json.dumps(payload))
     root = tmp_path / "2.35"
     files, input_file = prepare_phase_provider(root, source.replace("TARGET", "2.35"), inputs)
-    monkeypatch.setenv("PATH", str(root / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(root / "bin"))
     monkeypatch.chdir(root)
     output = _paused_phase_provider_value(root, files, input_file, monkeypatch)
     (request,) = _requests(root)

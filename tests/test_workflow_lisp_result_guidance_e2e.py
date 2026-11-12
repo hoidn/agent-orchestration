@@ -15,6 +15,7 @@ from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.workflow_lisp.result_guidance import normalized_result_guidance_payload
+from tests.agent_session_shims import closed_path
 
 
 FIXTURE = Path(__file__).parent / "fixtures/workflow_lisp/valid/native_bool_return_guidance.orc"
@@ -101,7 +102,7 @@ def _fixture(root: Path, source: str, *, module: str, result: object, commands=F
     binary.chmod(0o700)
     env = {**os.environ, "PYTHONPATH": str(Path(__file__).parents[1]),
            "PYTHONDONTWRITEBYTECODE": "1", "GUIDANCE_RESULT": json.dumps(result),
-           "PATH": str(binary.parent) + os.pathsep + os.environ["PATH"]}
+           "PATH": closed_path(binary.parent)}
     request = FrontendBuildRequest(source_path=path, source_roots=(root,), workspace_root=root,
         provider_externs_path=providers, prompt_externs_path=prompts,
         command_boundaries_path=command_manifest)
