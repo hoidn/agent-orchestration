@@ -30,6 +30,7 @@ use the capability matrix to determine what is implemented and qualified.
 | Ask for a durable decision | [Host-input recipe](lisp_workflow_drafting_guide.md#durable-host-input) and [approval example](../workflows/examples/durable_host_input/README.md) | Target 2.40 typed settlement, evidence and explicit resume |
 | Choose a reusable helper | [Library reference](lisp_library_reference.md) | Typed inputs, outputs, composition and examples |
 | Copy a complete example | [Workflow catalog](../workflows/README.md#which-example-should-i-copy) | Route readiness and copy safety; a compile check alone is not live-provider qualification |
+| Write a first pipeline | [Tutorial](tutorial_first_pipeline.md) | Start here if you have not used the tool; no model is called |
 | Compile, run, resume or invalidate | [Lifecycle](runtime_execution_lifecycle.md) and [CLI contract](../specs/cli.md) | Evaluated execution is the sole current workflow runtime; old profiles remain read-only |
 | Change a prompt in the middle of a run | [Edit a prompt and continue](runtime_execution_lifecycle.md#edit-a-prompt-and-continue) | Works for prompts kept in files and bound through the prompt manifest; an inline prompt edit changes the program and refuses resume |
 | Inspect or monitor a run | [Monitoring](workflow_monitoring.md), [observability](../specs/observability.md) and [dashboard design](design/dashboard_observability_summary_gui.md) | Reports and dashboards are views, not execution authority |
@@ -159,6 +160,7 @@ reusing instructions. Plans can contain active obligations as well as history.
 | --- | --- |
 | <a id="readme---project-overview"></a>[README](../README.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="orchestration-start-here"></a>[Orchestration Start Here](orchestration_start_here.md) | Guide or reference; prerequisites and limits at destination |
+| <a id="tutorial-first-pipeline"></a>[Tutorial: Your First Pipeline](tutorial_first_pipeline.md) | Current guide for a new author: one provider-free pipeline from an empty directory with the installed CLI (wrap a script, run, read a failure, resume, report, a bounded loop, invalidate); its blocks are executed as written by `tests/test_first_hour_e2e.py` |
 | <a id="runtime-execution-lifecycle"></a>[Runtime Execution Lifecycle](runtime_execution_lifecycle.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="workflow-monitoring"></a>[Workflow Monitoring](workflow_monitoring.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="workflow-drafting-guide"></a>[Workflow Drafting Guide](workflow_drafting_guide.md) | Historical YAML interpretation; current authoring uses the Lisp or Python guide |
