@@ -48,7 +48,8 @@ FEATURE = re.compile(r"^feat(\([^)]*\))?!?:")
 SCOPE = re.compile(r"^\w+\(([^)]+)\)!?:")
 ORDER = ("T1", "T2", "T4", "T5", "T6")
 WITHHELD_ONLY = ("T5", "T6")
-PASSED = (None, "admitted", "source file already in two admitted tasks", "beyond the 40-task cap")
+PASSED = (None, "admitted", "source file already in two admitted tasks", "beyond the 40-task cap", "beyond the tier's cap",
+          "not evaluated: tier full")  # the last two: a ladder screening read as prior
 NEW_CHECKS = ("check-withheld form", "tests attempt a provider call", "leak audit")
 CHUNK = 6
 

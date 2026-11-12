@@ -53,6 +53,11 @@ def test_carried_keeps_only_statement_independent_rejections():
     assert [tiers.carried(r) for r in rows] == ["1 fail-to-pass function(s), need 2", None, None, None]
 
 
+@pytest.mark.parametrize("reason", ["beyond the tier's cap", "not evaluated: tier full"])
+def test_a_ladder_builds_unreached_or_capped_candidate_is_not_a_rejection(reason):  # a ladder screening as prior
+    assert tiers.carried({"reason": reason}) is None
+
+
 def commit(repo, files, message, date="2026-08-01T00:00:00+0000"):
     for path, text in files.items():
         (repo / path).parent.mkdir(parents=True, exist_ok=True)
