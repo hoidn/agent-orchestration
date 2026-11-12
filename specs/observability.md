@@ -105,7 +105,10 @@ derives solely from the validated `.orc` executable and `state.json`.
 - Status/report surfaces
   - `report` and the dashboard read evaluated runs only: the checked authority
     (`run.json`, `closed_program.json`, `memo.jsonl`) and the view derived from
-    it, without reopening the workflow source. A run directory with a
+    it, without reopening the workflow source. The view reads nothing under
+    `effects/`; `report` additionally reads only `attempt-<n>/usage.json` of
+    provider-class steps ([usage](#report-usage)), never a recipe, prompt,
+    stdout or result file. A run directory with a
     `state.json` entry and no evaluated authority was written by the retired
     runtime; both refuse it with `workflow_execution_profile_retired` and the
     git tag `archive/retired-run-readers-2026-11-11` that keeps the old readers (see
@@ -141,6 +144,45 @@ derives solely from the validated `.orc` executable and `state.json`.
     or populate the run-level error. No completed cleanup history is required
     in this projection. Rendering the report is not a full revalidation of
     export bytes; settlement and resume retain that responsibility.
+  - <a id="report-usage"></a>Token usage and cost (`report`). Each
+    provider-class step (`provider`, `provider_phased`, `agent_turn`,
+    `run_ref`) has `usage`, summed over all its attempts (`attempt-1` to its
+    latest, beside its `result_path`), and the run has `run.usage`, the same sum
+    over every such step's attempts plus `price_table: {source, date}` of the
+    table used:
+    `{"tokens": {"input", "output", "cache_read", "cache_write"} | null,
+    "cost_usd": float | null, "attempts": n, "unknown_attempts": k,
+    "partial": bool}`. Other steps have no `usage`; a run with no
+    provider-class step has no `run.usage` key and its markdown no `## Usage`
+    section.
+    - Unknown attempts: an attempt whose `usage.json` is absent (killed before
+      writing it, still running, or recorded before `usage.json` existed, so
+      a run recorded before metering shows `unknown` for every provider step),
+      not a readable regular file, `unknown`, or not well-formed `reported`
+      usage counts in `unknown_attempts`, never as zero. A `run_ref` step's
+      attempts always do, since its child run's spend is in the child's own
+      report.
+    - `tokens` sums the reported attempts; null when none reported.
+    - `cost_usd` is the list-price equivalent at the table's ordinary rates
+      (`pricing.priced`), summed over the attempts that can be priced: an
+      attempt whose model has no rates adds nothing, and a reported attempt
+      with no token rows but a positive `reported_cost_usd` (Claude's `result`
+      line with an empty `modelUsage`) adds that cost, as the spend cap does.
+      It is null only when no attempt could be priced, or when the sum leaves
+      the float range (JSON never carries `Infinity` or `NaN`). The ordinary
+      rates understate a request priced at a model's `long_context` tier; the
+      spend cap prices conservatively instead (the larger of the CLI's cost
+      and the highest tier, [providers](providers.md#metered-templates-and-usage)),
+      so the two figures differ by design.
+    - `partial` is true when the figures are a lower bound: some attempt is
+      unknown, unpriced, priced from `reported_cost_usd` alone, or its usage
+      is `complete: false`.
+    - Markdown prints a step's `usage` line and a `## Usage` section with the
+      run total and the table's source and date: `unknown` when no attempt
+      reported, `cost_usd unknown` when nothing could be priced, a leading `≥`
+      on partial figures, and never `0` for an unmetered step.
+    - `usage` is a view of the attempt files, not memo authority
+      ([providers](providers.md#metered-templates-and-usage)).
   - The executor-session accounting fields (`run.active_runtime_ms` and its
     siblings) and the v2.10 `provider_attempt_interrupted_rerun` and
     `output.provider_session` projections came from the retired-run report;

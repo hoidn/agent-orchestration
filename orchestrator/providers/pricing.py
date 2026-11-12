@@ -27,23 +27,38 @@ def number(value, *, positive=False):
         return False
 
 
+MAX_USD_PER_TOKEN = 1.0   # thousands of times any list price; a table above it is a unit error, not a price
+
+
 def validate(table):
-    """Reject malformed price tables; never guess model aliases or missing cache rates."""
+    """Reject malformed price tables; never guess model aliases or missing cache rates.
+
+    Rates must be finite, nonnegative and at most `MAX_USD_PER_TOKEN` per token, with `tokens_per_unit` >= 1,
+    so a priced row stays finite.
+    """
     if not isinstance(table, Mapping):
         raise ValueError('criterion price_table required')
-    if table.get('currency') != 'USD' or not number(table.get('tokens_per_unit'), positive=True):
-        raise ValueError('price_table requires USD and a positive finite tokens_per_unit')
+    unit = table.get('tokens_per_unit')
+    if table.get('currency') != 'USD' or not number(unit, positive=True) or unit < 1:
+        raise ValueError('price_table requires USD and a finite tokens_per_unit of at least 1')
     if not isinstance(table.get('source'), str) or not table['source'].strip():
         raise ValueError('price_table source required')
     validate_date(table.get('date'))
     if not isinstance(table.get('models'), Mapping) or not table['models']:
         raise ValueError('price_table models required')
     for model, rates in table['models'].items():
-        if not isinstance(model, str) or not model.strip() or not valid_rates(rates):
-            raise ValueError('each price_table model needs four finite nonnegative rates')
-        if 'long_context' in rates and not valid_tier(rates['long_context']):
-            raise ValueError(f'{model}: long_context needs a positive above_input_tokens and four rates')
+        _validate_model(model, rates, unit)
     return table
+
+
+def _validate_model(model, rates, unit):
+    if not isinstance(model, str) or not model.strip() or not valid_rates(rates):
+        raise ValueError('each price_table model needs four finite nonnegative rates')
+    if 'long_context' in rates and not valid_tier(rates['long_context']):
+        raise ValueError(f'{model}: long_context needs a positive above_input_tokens and four rates')
+    tiers = (rates, rates.get('long_context', {}))
+    if any(tier[key] / unit > MAX_USD_PER_TOKEN for tier in tiers for key in FIELDS if key in tier):
+        raise ValueError(f'{model}: a rate above {MAX_USD_PER_TOKEN:g} USD per token')
 
 
 def valid_tier(tier):
@@ -130,7 +145,17 @@ def priced(rows: list[dict], table: Mapping) -> float | None:
     return value
 
 
-def load_price_table() -> dict:
-    """The packaged, validated price table."""
-    text = resources.files(__package__).joinpath('price_table.json').read_text(encoding='utf-8')
-    return validate(json.loads(text))
+def load_price_table(path=None) -> dict:
+    """The packaged price table, or the one at `path`, validated.
+
+    Raises OSError when `path` cannot be read and ValueError when it is not a valid table.
+    """
+    if path is None:
+        text = resources.files(__package__).joinpath('price_table.json').read_text(encoding='utf-8')
+    else:
+        with open(path, encoding='utf-8') as stream:
+            text = stream.read()
+    try:
+        return validate(json.loads(text))
+    except RecursionError as error:
+        raise ValueError('price_table nesting too deep') from error

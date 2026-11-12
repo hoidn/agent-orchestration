@@ -646,6 +646,11 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         help='Optional output file path'
     )
+    report_parser.add_argument(
+        '--price-table',
+        type=str,
+        help='Price table JSON used instead of the packaged one'
+    )
 
     dashboard_parser = subparsers.add_parser('dashboard', help='Serve local workflow dashboard')
     dashboard_parser.add_argument(
@@ -781,6 +786,7 @@ def main(args: Optional[list] = None) -> int:
             runs_root=parsed_args.runs_root,
             format=parsed_args.format,
             output=parsed_args.output,
+            price_table=parsed_args.price_table,
         )
     elif parsed_args.command == 'dashboard':
         from orchestrator.cli.commands import dashboard_workflow

@@ -565,7 +565,11 @@ prompt audits or heartbeat, and no step-name keys.
 
 Projection is one read-only pure replay of the checked program over the
 active commits, using stored values only: it performs no fresh build,
-locator IO, C4 or C6 preparation, dispatch, reconciliation or tail repair.
+locator IO, C4 or C6 preparation, dispatch, reconciliation or tail repair,
+and it reads nothing under `effects/`. `report_snapshot` additionally reads
+only `effects/<sha>/attempt-<n>/usage.json` of provider-class steps (the
+[usage rules](observability.md#report-usage)), never a recipe, prompt,
+stdout or result file.
 A completed terminal must agree with replay's `halt` value and every
 coordinator commit must be settled, else the reader reports
 `memo_inconsistent` (V3) with no outputs; a replay that stops at a pure

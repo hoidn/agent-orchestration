@@ -1149,7 +1149,8 @@ unchanged. Like the rest of the run tree it is trusted as found: a hand-edited `
 what a spend cap counts; a `usage.json` that is not a regular file reads as unmetered. It holds either
 `{"status": "reported", "source", "reported_cost_usd", "complete", "rows": [{"model", "tokens": {"input", "output", "cache_read", "cache_write"}}]}`
 or `{"status": "unknown", "reason": "no_transport" | "no_usage_event" | "malformed"}`. Unknown usage
-is never zero, and `complete: false` marks a lower bound, not a total.
+is never zero, and `complete: false` marks a lower bound, not a total. `report` sums these files per step and
+per run ([observability](observability.md#report-usage)).
 
 - Opt-in. Built-in plain templates (`claude`, `codex`, ... and `gemini`) print plain text and record
   `unknown` / `no_transport`, as do OMP and phased providers. A workflow meters a provider step by
@@ -1186,7 +1187,9 @@ is never zero, and `complete: false` marks a lower bound, not a total.
   rates twice, output one and a half times). A usage row sums its requests, so `priced` uses the
   ordinary rates and is low for long prompts; the spend cap uses `cap_cost`, the larger of the CLI's
   `reported_cost_usd` and the price at the highest tier. A model without four rates (for example
-  `gpt-5.5`, `gpt-5.4`, or an alias such as `haiku`) prices as `None`, never 0.
+  `gpt-5.5`, `gpt-5.4`, or an alias such as `haiku`) prices as `None`, never 0. A table is refused unless
+  every rate is finite, nonnegative and at most USD 1 per token (`MAX_USD_PER_TOKEN`) and
+  `tokens_per_unit` is at least 1.
 
 Exit code mapping:
 - 0 = Success
