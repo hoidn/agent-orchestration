@@ -10,10 +10,6 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
 
-FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
-VALID_RESOURCE_TRANSITION_EFFECTS_FIXTURE = FIXTURES / "valid" / "resource_transition_effects.orc"
-
-
 def _compile(path: Path, *, tmp_path: Path):
     return compile_stage3_module(
         path,
@@ -28,7 +24,7 @@ def _write_effect_module(path: Path, *, effect_kind: str) -> Path:
             f"""
             (workflow-lisp
               (:language "0.1")
-              (:target-dsl "2.35")
+              (:target-dsl "2.40")
               (defrecord Result
                 (ok Bool))
               (defproc sample
@@ -36,7 +32,6 @@ def _write_effect_module(path: Path, *, effect_kind: str) -> Path:
                 -> Result
                 :effects
                   (({effect_kind} backlog.item))
-                :lowering inline
                 (record Result
                   :ok true))
               (defworkflow orchestrate
@@ -54,15 +49,6 @@ def _write_effect_module(path: Path, *, effect_kind: str) -> Path:
 def test_internal_promoted_effect_atoms_render_deterministically() -> None:
     effects_module = importlib.import_module("orchestrator.workflow_lisp.effects")
 
-    moves_resource = getattr(effects_module, "MovesResourceEffect")(
-        subject=("queue", "item"),
-        from_queue=("Queue", "active"),
-        to_queue=("Queue", "in_progress"),
-    )
-    updates_ledger = getattr(effects_module, "UpdatesLedgerEffect")(
-        subject=("queue", "item"),
-        event_name=("LedgerEvent", "SELECTED"),
-    )
     captures_snapshot = getattr(effects_module, "CapturesSnapshotEffect")(
         subject=("phase", "implementation"),
         snapshot_kind=("before",),
@@ -74,12 +60,6 @@ def test_internal_promoted_effect_atoms_render_deterministically() -> None:
         representation_role=("artifact_pointer",),
     )
 
-    assert effects_module.render_effect_atom(moves_resource) == (
-        "moves-resource(queue.item, from=Queue.active, to=Queue.in_progress)"
-    )
-    assert effects_module.render_effect_atom(updates_ledger) == (
-        "updates-ledger(queue.item, event=LedgerEvent.SELECTED)"
-    )
     assert effects_module.render_effect_atom(captures_snapshot) == (
         "captures-snapshot(phase.implementation, kind=before, candidates=summary|run_state)"
     )
@@ -113,24 +93,15 @@ def test_effect_summary_merge_preserves_promoted_atoms() -> None:
     summary = effects_module.merge_effect_summaries(
         effects_module.effect_summary_from_direct(
             direct_effects=(
-                getattr(effects_module, "MovesResourceEffect")(
-                    subject=("queue", "item"),
-                    from_queue=("Queue", "active"),
-                    to_queue=("Queue", "in_progress"),
-                ),
-                getattr(effects_module, "UpdatesLedgerEffect")(
-                    subject=("queue", "item"),
-                    event_name=("LedgerEvent", "SELECTED"),
-                ),
-            )
-        ),
-        effects_module.effect_summary_from_direct(
-            direct_effects=(
                 getattr(effects_module, "CapturesSnapshotEffect")(
                     subject=("phase", "implementation"),
                     snapshot_kind=("before",),
                     candidate_names=("summary",),
                 ),
+            )
+        ),
+        effects_module.effect_summary_from_direct(
+            direct_effects=(
                 getattr(effects_module, "MaterializesPointerEffect")(
                     subject=("artifact", "selected_item_summary"),
                     pointer_path=("state", "selected-item-summary.json"),
@@ -140,38 +111,11 @@ def test_effect_summary_merge_preserves_promoted_atoms() -> None:
         ),
     )
 
-    assert len(summary.direct_effects) == 4
+    assert len(summary.direct_effects) == 2
     assert summary.transitive_effects == summary.direct_effects
     assert effects_module.render_effect_set(summary.direct_effects) == (
         "("
         "captures-snapshot(phase.implementation, kind=before, candidates=summary), "
-        "materializes-pointer(artifact.selected_item_summary, path=state.selected-item-summary.json, role=artifact_pointer), "
-        "moves-resource(queue.item, from=Queue.active, to=Queue.in_progress), "
-        "updates-ledger(queue.item, event=LedgerEvent.SELECTED)"
+        "materializes-pointer(artifact.selected_item_summary, path=state.selected-item-summary.json, role=artifact_pointer)"
         ")"
-    )
-
-
-def test_resource_transition_infers_promoted_effects(tmp_path: Path) -> None:
-    effects_module = importlib.import_module("orchestrator.workflow_lisp.effects")
-    result = _compile(VALID_RESOURCE_TRANSITION_EFFECTS_FIXTURE, tmp_path=tmp_path)
-    workflow = next(
-        typed_workflow
-        for typed_workflow in result.typed_workflows
-        if typed_workflow.definition.name == 'entry::move-selected-item'
-    )
-
-    assert workflow.effect_summary.transitive_effects == frozenset(
-        {
-            effects_module.UsesCommandEffect(subject=("apply_resource_transition",)),
-            getattr(effects_module, "MovesResourceEffect")(
-                subject=("backlog-item",),
-                from_queue=("Queue", "active"),
-                to_queue=("Queue", "in_progress"),
-            ),
-            getattr(effects_module, "UpdatesLedgerEffect")(
-                subject=("backlog-item",),
-                event_name=("SELECTED",),
-            ),
-        }
     )

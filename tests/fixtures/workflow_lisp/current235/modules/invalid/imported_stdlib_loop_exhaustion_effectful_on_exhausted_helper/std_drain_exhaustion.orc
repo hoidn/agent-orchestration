@@ -20,8 +20,6 @@
     :kind relpath
     :under "state"
     :must-exist true)
-  (defrecord SummaryValue
-    (variant String))
   (defunion DrainTerminalResult
     (EXHAUSTED
       (report WorkReport)
@@ -31,20 +29,11 @@
     ((report_path WorkReport)
      (run_state StateExisting))
     -> DrainTerminalResult
-    :effects ((writes terminal-summary))
+    :effects ((uses-command run_checks))
     :lowering inline
-    (let* ((rendered
-             (materialize-view terminal-summary
-               :value (record SummaryValue
-                        :variant "EXHAUSTED")
-               :renderer canonical-json
-               :renderer-version 1
-               :target report_path
-               :returns WorkReport)))
-      (variant DrainTerminalResult EXHAUSTED
-        :report rendered
-        :run_state run_state
-        :blocker_class BlockerClass.unrecoverable_after_fix_attempt)))
+    (command-result run_checks
+      :argv ("python" "scripts/run_checks.py" report_path run_state)
+      :returns DrainTerminalResult))
   (defproc pure-exhausted-terminal
     ((report_path WorkReport)
      (run_state StateExisting))

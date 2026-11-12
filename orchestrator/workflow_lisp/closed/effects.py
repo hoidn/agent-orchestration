@@ -113,12 +113,6 @@ def require_closed_perform(builder: Any, perform: WccPerform) -> None:
             "provider_result": "provider-result",
             "run_ref": "run-ref",
             "request_input": "request-input",
-            "run_provider_phase": "run-provider-phase",
-            "produce_one_of": "produce-one-of",
-            "resume_or_start": "resume-or-start",
-            "finalize_selected_item": "finalize-selected-item",
-            "resource_transition": "resource-transition",
-            "materialize_view": "materialize-view",
             "with_live_providers": "with-live-providers",
             "with_live_provider_peers": "with-live-provider-peers",
         }

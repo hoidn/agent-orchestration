@@ -1,6 +1,12 @@
 # Workflow Lisp Frontend Standard Library Lowering
 
-Status: current stdlib composition/invariant contract with historical flat projections
+Status: Historical. `run-provider-phase`, `produce-one-of`, `resume-or-start`, `resource-transition`,
+`finalize-selected-item`, `backlog-drain` and `materialize-view`, with `std/drain` and
+`std/resource`, were removed on 2026-11-12 (local git tag `archive/pre-one-target-2026-11-12`); each head refuses with
+`form_retired`. The body below is preserved as written and selects no work. Current owners: the
+`review-revise-loop` route is in the [frontend specification](workflow_lisp_frontend_specification.md),
+the stdlib authoring rules are in [section 13 of the drafting guide](../lisp_workflow_drafting_guide.md#13-standard-high-level-forms),
+and admission is in [evaluated execution](workflow_lisp_evaluated_execution.md).
 Depends on: `docs/design/workflow_lisp_core_stmt_taxonomy.md`,
 `docs/design/workflow_lisp_semantic_workflow_ir.md`,
 `docs/design/workflow_command_adapter_contract.md`

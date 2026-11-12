@@ -52,13 +52,8 @@ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 MODULE_FIXTURES = FIXTURES / "modules"
 STRUCTURED_RESULTS_FIXTURE = FIXTURES / "valid" / "structured_results.orc"
 REMAP_FIXTURE = FIXTURES / "current235" / "invalid" / "shared_validation_remap.orc"
-PHASE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
-TYPED_PROMPT_INPUT_FIXTURE = FIXTURES / "valid" / "typed_prompt_input_phase.orc"
 GENERIC_FAMILY_PROFILE_FIXTURE = (
     FIXTURES / "family_profiles" / "generic_phase_family_profile.json"
-)
-LOCAL_REQUEST_TYPED_PROMPT_INPUT_FIXTURE = (
-    FIXTURES / "valid" / "typed_prompt_input_local_request_record.orc"
 )
 LOOP_RECUR_UNION_RESULT_MISSING_ACTIVE_FIELD_FIXTURE = (
     FIXTURES / "current235" / "invalid" / "loop_recur_union_result_missing_active_field.orc"
@@ -67,9 +62,6 @@ ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE = (
     FIXTURES / "valid" / "design_delta_item_ctx_child_phase_reuse.orc"
 )
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-
 
 
 def _walk_dataclass_values(node: object):
@@ -104,7 +96,7 @@ def _write_provider_bundle_projection_module(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 f"  (defmodule {module_name})",
                 "  (import std/phase :only (with-phase))",
                 f"  (export {workflow_name})",
@@ -167,7 +159,7 @@ def _write_provider_bundle_projection_module(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 f"  (defmodule {module_name})",
                 f"  (export {workflow_name})",
                 "  (defpath DesignDocPath",
@@ -201,12 +193,6 @@ def _write_provider_bundle_projection_module(
             ]
         )
     return _write_module(tmp_path / f"{module_name.replace('/', '_')}.orc", body + "\n")
-
-
-
-
-
-
 
 
 def _walk_lowered_steps(steps: list[dict[str, object]]):
@@ -248,7 +234,7 @@ def _write_workflow_param_default_module(path: Path) -> Path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defenum Status",
                 "    ready",
                 "    blocked)",
@@ -288,7 +274,7 @@ def test_typed_root_guidance_preserves_provider_and_command_contracts(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defworkflow guided-provider ()",
                 '    -> (result Bool :description "Public provider decision." :example true)',
                 "    (provider-result providers.execute",
@@ -347,7 +333,7 @@ def test_typed_root_guidance_covers_record_union_and_private_procedures(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord ReviewResult",
                 '    (approved Bool :description "Payload approval." :example true))',
                 "  (defunion Decision",
@@ -359,8 +345,6 @@ def test_typed_root_guidance_covers_record_union_and_private_procedures(
                 '    -> (result ReviewResult :description "Private review result."',
                 '      :format-hint "Complete review object."',
                 '      :example (record ReviewResult :approved true))',
-                "    :effects ((uses-command decide))",
-                "    :lowering private-workflow",
                 "    (command-result decide",
                 '      :argv ("python" "scripts/decide.py")',
                 "      :returns ReviewResult))",
@@ -469,7 +453,7 @@ def test_provider_bundle_path_projection_non_path_target(tmp_path: Path) -> None
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule provider_bundle_projection_non_path_target)",
                 "  (export project-non-path)",
                 "  (defpath DesignDocPath",
@@ -535,32 +519,6 @@ def test_provider_bundle_path_projection_path_escape(tmp_path: Path) -> None:
         )
 
 
-def test_typed_provider_phase_preserves_prompt_input_types(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        TYPED_PROMPT_INPUT_FIXTURE,
-        provider_externs={"providers.execute": "fake-execute"},
-        prompt_externs={
-            "prompts.implementation.execute": "prompts/implementation/execute.md",
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-        family_profile_catalog=load_workflow_family_profile_catalog(
-            (GENERIC_FAMILY_PROFILE_FIXTURE,)
-        ),
-    )
-
-    program = _select_and_finalize_typed_program(result, entry_path=TYPED_PROMPT_INPUT_FIXTURE,
-        entry_workflow='run-typed-prompt-phase-demo')
-    body = Builder(program)._workflow_wcc_body(program.entry, program)
-    providers = [row for row in _walk_dataclass_values(body)
-        if isinstance(row, WccPerform) and row.perform_kind in {"provider_result", "run_provider_phase"}]
-    assert providers
-    assert providers[0].positional_args
-    assert [row.metadata.type_ref.name for row in providers[0].positional_args] == ["PhaseCtx", "PromptContext"]
-
-
 def test_typed_provider_inputs_preserve_binding_order_types_and_default_renderers(
     tmp_path: Path,
 ) -> None:
@@ -569,7 +527,7 @@ def test_typed_provider_inputs_preserve_binding_order_types_and_default_renderer
         """
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule typed_carriage)
   (export PhaseOneResult TrialResult run)
   (defpath TaskFile
@@ -637,7 +595,7 @@ def test_typed_provider_record_input_uses_canonical_default_renderer(
         """
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule typed_record_carriage)
   (export PromptRequest TrialResult run)
   (defrecord PromptRequest
@@ -687,7 +645,7 @@ def test_typed_provider_inputs_preserve_types_with_distinct_renderer_eligibility
         """
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule mixed_typed_carriage)
   (export TrialResult run)
   (defrecord TrialResult
@@ -736,7 +694,7 @@ def test_typed_provider_literal_inputs_preserve_types_values_and_order(
         """
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule literal_typed_carriage)
   (export TrialResult run)
   (defrecord TrialResult
@@ -782,7 +740,7 @@ def test_typed_provider_profile_configuration_retains_list_input(
         """
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule profile_list_carriage)
   (export TrialResult run)
   (defrecord TrialResult
@@ -854,82 +812,6 @@ def test_typed_provider_profile_configuration_retains_list_input(
     assert len(values) == 1
     assert values[0].name == "items"
     assert values[0].metadata.type_ref.name == "List[Int]"
-    assert select_prompt_fragment_renderer(values[0].metadata.type_ref,
-        kind="value") == "canonical-json"
-
-
-def test_typed_phase_stdlib_preserves_provider_input_operands(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        PHASE_STDLIB_FIXTURE,
-        provider_externs={
-            "providers.execute": "fake-execute",
-            "providers.review": "fake-review",
-            "providers.fix": "fake-fix",
-        },
-        prompt_externs={
-            "prompts.implementation.execute": "prompts/implementation/execute.md",
-            "prompts.implementation.review": "prompts/implementation/review.md",
-            "prompts.implementation.fix": "prompts/implementation/fix.md",
-        },
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            ),
-            "resolve_plan_gate": ExternalToolBinding(
-                name="resolve_plan_gate",
-                stable_command=("python", "scripts/resolve_plan_gate.py"),
-            ),
-            "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
-                name="load_canonical_phase_result__ChecksResult",
-                stable_command=(
-                    "python",
-                    "-m",
-                    "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
-                ),
-            ),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    program = _select_and_finalize_typed_program(result, entry_path=PHASE_STDLIB_FIXTURE,
-        entry_workflow='run-provider-phase-demo')
-    body = Builder(program)._workflow_wcc_body(program.entry, program)
-    providers = [row for row in _walk_dataclass_values(body)
-        if isinstance(row, WccPerform) and row.perform_kind in {"provider_result", "run_provider_phase"}]
-    assert providers
-    assert providers[0].positional_args
-
-
-def test_typed_phase_request_preserves_one_typed_prompt_input_binding(
-    tmp_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        LOCAL_REQUEST_TYPED_PROMPT_INPUT_FIXTURE,
-        provider_externs={"providers.execute": "fake-execute"},
-        prompt_externs={
-            "prompts.implementation.execute": "prompts/implementation/execute.md",
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-        family_profile_catalog=load_workflow_family_profile_catalog(
-            (GENERIC_FAMILY_PROFILE_FIXTURE,)
-        ),
-    )
-
-    program = _select_and_finalize_typed_program(result, entry_path=LOCAL_REQUEST_TYPED_PROMPT_INPUT_FIXTURE,
-        entry_workflow='run-local-request-record-demo')
-    body = Builder(program)._workflow_wcc_body(program.entry, program)
-    providers = [row for row in _walk_dataclass_values(body)
-        if isinstance(row, WccPerform) and row.perform_kind in {"provider_result", "run_provider_phase"}]
-    assert providers
-    values = providers[0].positional_args[1:]
-    assert len(values) == 1
-    assert values[0].name == "request"
-    assert values[0].metadata.type_ref.name == "ImplementationRequest"
     assert select_prompt_fragment_renderer(values[0].metadata.type_ref,
         kind="value") == "canonical-json"
 
@@ -1052,7 +934,7 @@ def test_typed_loop_plans_preserve_root_and_nested_collection_descriptors(tmp_pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Task",
                 "    (task_id String))",
                 "  (defunion TaskOutcome",
@@ -1122,7 +1004,7 @@ def test_lowering_rich_list_union_exhaustion_return_keeps_typed_outcome(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Task (task_id String))",
                 "  (defunion TaskOutcome (PENDING (task Task)) (BLOCKED (reason String)))",
                 "  (defrecord Progress (remaining List[TaskOutcome]) (label String))",
@@ -1158,7 +1040,6 @@ def test_lowering_rich_list_union_exhaustion_return_keeps_typed_outcome(
     assert set(workflow.signature.return_type_ref.variant_field_types) == {"INCOMPLETE", "COMPLETE"}
 
 
-
 def test_lowering_outer_record_exhaustion_variant_keeps_typed_result(
     tmp_path: Path,
 ) -> None:
@@ -1168,7 +1049,7 @@ def test_lowering_outer_record_exhaustion_variant_keeps_typed_result(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Task (task_id String))",
                 "  (defrecord Progress (remaining List[Task]))",
                 "  (defunion Outcome",
@@ -1200,7 +1081,6 @@ def test_lowering_outer_record_exhaustion_variant_keeps_typed_result(
     assert workflow.signature.return_type_ref.field_types["outcome"].name == "Outcome"
 
 
-
 @pytest.mark.parametrize("list_type", ("List[Task]", "List[Optional[Task]]"))
 def test_lowering_nested_rich_loop_state_keeps_typed_tasks(
     tmp_path: Path,
@@ -1212,7 +1092,7 @@ def test_lowering_nested_rich_loop_state_keeps_typed_tasks(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Task (task_id String))",
                 f"  (defrecord Progress (tasks {list_type}))",
                 "  (defworkflow legacy-nested ((tasks " + list_type + ") (finish Bool)) -> Progress",
@@ -1228,7 +1108,6 @@ def test_lowering_nested_rich_loop_state_keeps_typed_tasks(
     result = compile_stage3_module(workflow_path, validate_shared=True, workspace_root=tmp_path)
     [workflow] = result.typed_workflows
     assert workflow.signature.return_type_ref.field_types["tasks"].name == list_type
-
 
 
 @pytest.mark.parametrize(
@@ -1250,7 +1129,7 @@ def test_lowering_rich_return_admission_retains_unsupported_leaf_refusals(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defunion InnerChoice (YES (value String)) (NO))",
                 "  (defunion OuterChoice (NESTED (choice InnerChoice)) (PLAIN))",
                 f"  (defrecord Summary (prior_choice OuterChoice) (notes List[String]) (work List[{bad_type}]))",
@@ -1372,7 +1251,7 @@ def test_typed_effect_inference_descends_through_if_expr(tmp_path: Path) -> None
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1411,12 +1290,6 @@ def test_typed_effect_inference_descends_through_if_expr(tmp_path: Path) -> None
     assert provider.prompt.name == "prompts.implementation.execute"
 
 
-
-
-
-
-
-
 def test_derived_phase_context_eligibility_refuses_generic_caller_without_item_ctx(
     tmp_path: Path,
 ) -> None:
@@ -1426,7 +1299,7 @@ def test_derived_phase_context_eligibility_refuses_generic_caller_without_item_c
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule generic_child_phase_context_without_item_ctx)",
                 "  (import std/phase :only (with-phase))",
                 "  (export entry)",
@@ -1502,72 +1375,6 @@ def test_derived_phase_context_eligibility_refuses_generic_caller_without_item_c
     assert "item-context-first route" in diagnostic.diagnostic_message
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_non_exported_workflow(
-    tmp_path: Path,
-) -> None:
-    source_root = tmp_path / "src"
-    workflow_path = source_root / "promoted_pkg" / "entry.orc"
-    workflow_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_module(
-        workflow_path,
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
-                "  (defmodule promoted_pkg/entry)",
-                "  (import library/phase_stdlib_resume_or_start_promoted_entry_bootstrap_helper",
-                "    :as bootstrap",
-                "    :only (ResumeInputs PlanGateWrapperSurfaceResult resume-plan-gate-wrapper))",
-                "  (export promoted-entry-resume-plan-gate-wrapper)",
-                "  (defworkflow promoted-entry-resume-plan-gate-wrapper",
-                "    ((inputs bootstrap.ResumeInputs))",
-                "    -> bootstrap.PlanGateWrapperSurfaceResult",
-                "    (call bootstrap.resume-plan-gate-wrapper",
-                "      :inputs inputs))",
-                "  (defworkflow helper-wrapper",
-                "    ((inputs bootstrap.ResumeInputs))",
-                "    -> bootstrap.PlanGateWrapperSurfaceResult",
-                "    (call bootstrap.resume-plan-gate-wrapper",
-                "      :inputs inputs)))",
-            ]
-        ),
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            workflow_path,
-            source_roots=(source_root, FIXTURES / "valid"),
-            command_boundaries={
-                "resolve_plan_gate": ExternalToolBinding(
-                    name="resolve_plan_gate",
-                    stable_command=("python", "scripts/resolve_plan_gate.py"),
-                ),
-            },
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "workflow_signature_mismatch"
-    assert "phase-ctx" in diagnostic.message
-
-
 def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unselected_exported_entry_workflow(
     tmp_path: Path,
 ) -> None:
@@ -1577,7 +1384,7 @@ def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unselecte
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule selected_later_exported_entry)",
                 "  (import std/phase :only (with-phase))",
                 "  (export first-entry second-entry helper ResumeInputs WorkflowOutput PhaseCtx RunCtx WorkReport)",
@@ -1642,7 +1449,7 @@ def test_compile_stage3_entrypoint_rejects_hidden_context_omission_for_unselecte
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule leak_hidden_context)",
                 "  (import std/phase :only (with-phase))",
                 "  (export run-entry selected-entry helper ResumeInputs WorkflowOutput PhaseCtx RunCtx WorkReport)",
@@ -1707,7 +1514,7 @@ def test_compile_stage3_entrypoint_names_the_denied_gate_for_unexported_non_magi
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule entry_bootstrap_gate_diagnostic_probe)",
                 "  (import std/phase :only (with-phase))",
                 "  (export helper ResumeInputs WorkflowOutput PhaseCtx RunCtx WorkReport)",
@@ -1765,18 +1572,6 @@ def test_compile_stage3_entrypoint_names_the_denied_gate_for_unexported_non_magi
     assert "docs/plans/2026-07-23-refusal-diagnosability-fixes-plan.md" in denial_note
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 def test_evaluated_result_boundary_rejects_authored_path_under_escape(tmp_path: Path) -> None:
     result = compile_stage3_module(REMAP_FIXTURE,
         command_boundaries={"run_checks": ExternalToolBinding(name="run_checks", stable_command=("python", "scripts/run_checks.py"))},
@@ -1816,7 +1611,7 @@ def test_shared_result_contract_rejects_unsupported_collection_element_types(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 *field_defs,
                 "  (defrecord InvalidResult",
                 f"    (payloads List[{field_type}]))",
@@ -1927,7 +1722,7 @@ def test_compile_stage3_module_supports_helper_match_after_provider_binding(tmp_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defenum BlockerClass",
                 "    missing_resource",
                 "    unavailable_hardware)",
@@ -1984,7 +1779,7 @@ def test_compile_stage3_module_supports_helper_alias_then_match_lowering(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defenum BlockerClass",
                 "    missing_resource",
                 "    unavailable_hardware)",
@@ -2040,7 +1835,7 @@ def test_lower_workflow_definitions_distinguish_forwarded_proc_ref_bindings_with
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -2052,16 +1847,12 @@ def test_lower_workflow_definitions_distinguish_forwarded_proc_ref_bindings_with
                 "  (defproc helper-a",
                 "    ((input WorkflowInput))",
                 "    -> WorkflowOutput",
-                "    :effects ((uses-command run_checks))",
-                "    :lowering private-workflow",
                 "    (command-result run_checks",
                 '      :argv ("python" "scripts/run_checks.py" input.report "a")',
                 "      :returns WorkflowOutput))",
                 "  (defproc helper-b",
                 "    ((input WorkflowInput))",
                 "    -> WorkflowOutput",
-                "    :effects ((uses-command run_checks))",
-                "    :lowering private-workflow",
                 "    (command-result run_checks",
                 '      :argv ("python" "scripts/run_checks.py" input.report "b")',
                 "      :returns WorkflowOutput))",
@@ -2069,8 +1860,6 @@ def test_lower_workflow_definitions_distinguish_forwarded_proc_ref_bindings_with
                 "    ((runner ProcRef[WorkflowInput -> WorkflowOutput])",
                 "     (input WorkflowInput))",
                 "    -> WorkflowOutput",
-                "    :effects ()",
-                "    :lowering inline",
                 "    (runner input))",
                 "  (defworkflow first",
                 "    ((input WorkflowInput))",
@@ -2120,7 +1909,7 @@ def test_lower_workflow_definitions_distinguish_forwarded_proc_ref_bindings_with
 ), ids=("record", "union"))
 def test_shared_result_contract_accepts_nested_collection_payloads(tmp_path: Path, definition: str) -> None:
     source = _write_module(tmp_path / "nested_result.orc",
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         + definition + ' (defrecord Result (payloads List[NestedPayload])) '
         '(defworkflow run () -> Result (provider-result p :prompt q :inputs () :returns Result)))')
     result = compile_stage3_module(source, provider_externs={"p": "test"},

@@ -13,7 +13,6 @@ scope this compiler coordinates.
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -26,8 +25,6 @@ from orchestrator.contracts.closed_program.targets import DEFAULT_LOWERING_SCHEM
 
 from .command_boundaries import (
     CertifiedAdapterBinding,
-    CertifiedAdapterInputField,
-    PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
 )
 from .context_classification import (
     classify_structural_private_exec_context,
@@ -39,11 +36,9 @@ from .definitions import (
     PathDef,
     RecordDef,
     RecordField,
-    ResourceDef,
     SchemaDef,
     UnionDef,
     UnionVariant,
-    TransitionDef,
     WorkflowLispModule,
     _expand_schema_fields,
     elaborate_definition_module,
@@ -69,18 +64,12 @@ from .expressions import (
     CommandResultExpr,
     ContinueExpr,
     DoneExpr,
-    LetStarExpr,
     LoopRecurExpr,
-    MatchExpr,
     NameExpr,
     ProcedureCallExpr,
-    ProduceOneOfExpr,
     ProviderResultExpr,
     RecordExpr,
-    ResumeOrStartExpr,
-    RunProviderPhaseExpr,
     UnionVariantExpr,
-    WithPhaseExpr,
     elaborate_expression,
 )
 from .functions import (
@@ -182,7 +171,6 @@ from .validation import (
 from .workflows import (
     AuthoredDirectCall,
     CertifiedAdapterBinding,
-    CommandBoundaryEnvironment,
     ExternalToolBinding,
     ExpressionCompileContext,
     PromptExtern,
@@ -198,8 +186,6 @@ from .workflows import (
     build_extern_environment,
     build_workflow_catalog,
     elaborate_workflow_definitions,
-    prompt_extern_legacy_bindings,
-    prompt_extern_source_bindings_payload,
     typecheck_workflow_definitions,
 )
 
@@ -439,8 +425,6 @@ def _linked_module_type_environment(
 
     export_surfaces = compile_result.graph.export_surfaces_by_name
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
-    exported_resource_defs_by_module: dict[str, dict[str, ResourceDef]] = {}
-    exported_transition_defs_by_module: dict[str, dict[str, TransitionDef]] = {}
     retained_enum_origins: dict[int, tuple[PrimitiveTypeRef, str, str]] = {}
     rebuilt_by_name: dict[str, tuple[WorkflowLispModule, ModuleImportScope, FrontendTypeEnvironment]] = {}
 
@@ -461,22 +445,12 @@ def _linked_module_type_environment(
                 cloned_enum_origins=imported_enum_origins,
             ),
             imported_enum_origins_by_type_ref_id=imported_enum_origins,
-            imported_resource_defs=_imported_resource_defs(import_scope, exported_resource_defs_by_module),
-            imported_transition_defs=_imported_transition_defs(import_scope, exported_transition_defs_by_module),
         )
         rebuilt_by_name[current_module_name] = (current_module, import_scope, type_env)
         exported_type_refs_by_module[current_module_name] = _exported_type_refs(
             current_module,
             export_surfaces[current_module_name],
             type_env,
-        )
-        exported_resource_defs_by_module[current_module_name] = _exported_resource_defs(
-            current_module,
-            export_surfaces[current_module_name],
-        )
-        exported_transition_defs_by_module[current_module_name] = _exported_transition_defs(
-            current_module,
-            export_surfaces[current_module_name],
         )
 
     try:
@@ -615,7 +589,6 @@ def compile_stage3_entrypoint(
     if compile_result is not None:
         additional_diagnostics = (
             *_filter_profile_checked_linked_diagnostics(compile_result),
-            *_collect_declared_transition_binding_diagnostics_for_linked_result(compile_result),
         )
     diagnostics = _finalize_stage3_diagnostics(
         results,
@@ -794,7 +767,6 @@ def _collect_stage3_required_lint_diagnostics(
     typed_procedures: tuple[TypedProcedureDef, ...] = (),
     workflow_catalog: WorkflowCatalog | None = None,
     type_env: FrontendTypeEnvironment | None = None,
-    bridge_backing_input_names: frozenset[str] = frozenset(),
 ) -> tuple[LispFrontendDiagnostic, ...]:
     diagnostics: list[LispFrontendDiagnostic] = []
 
@@ -831,17 +803,12 @@ def _collect_stage3_required_lint_diagnostics(
                 ),
             )
             exposes_low_level_state_path = bool(
-                [
-                    name
-                    for name in classification.unclassified_low_level_inputs
-                    if name not in bridge_backing_input_names
-                ]
+                classification.unclassified_low_level_inputs
             ) or _type_ref_contains_low_level_state_path(signature.return_type_ref)
         else:
             exposes_low_level_state_path = any(
                 _type_ref_contains_low_level_state_path(type_ref)
-                and name not in bridge_backing_input_names
-                for name, type_ref in signature.params
+                for _name, type_ref in signature.params
             ) or _type_ref_contains_low_level_state_path(signature.return_type_ref)
         if exposes_low_level_state_path:
             diagnostics.append(
@@ -970,12 +937,6 @@ def _collect_workflow_provider_bindings(
         if isinstance(expr, ProviderResultExpr):
             if isinstance(expr.provider, NameExpr):
                 provider_bindings.add(expr.provider.name)
-        elif isinstance(expr, RunProviderPhaseExpr):
-            if isinstance(expr.provider, NameExpr):
-                provider_bindings.add(expr.provider.name)
-        elif isinstance(expr, ProduceOneOfExpr):
-            if isinstance(expr.producer.provider_expr, NameExpr):
-                provider_bindings.add(expr.producer.provider_expr.name)
         if isinstance(expr, ProcedureCallExpr):
             for child in iter_child_exprs(expr):
                 walk(child)
@@ -991,121 +952,6 @@ def _collect_workflow_provider_bindings(
 
     walk(typed_workflow.typed_body.expr)
     return provider_bindings
-
-
-def _command_boundary_validation_span() -> SourceSpan:
-    position = SourcePosition(path="<command-boundaries>", line=1, column=1, offset=0)
-    return SourceSpan(start=position, end=position)
-
-
-def _collect_declared_transition_binding_diagnostics_for_linked_result(
-    compile_result: LinkedStage3CompileResult,
-) -> tuple[LispFrontendDiagnostic, ...]:
-    modules = tuple(
-        compiled_result.module
-        for compiled_result in compile_result.compiled_results_by_name.values()
-        if compiled_result.module is not None
-    )
-    return _collect_declared_transition_binding_diagnostics(
-        modules=modules,
-        command_boundary_environment=compile_result.entry_result.command_boundary_environment,
-    )
-
-
-def _collect_declared_transition_binding_diagnostics(
-    *,
-    modules: tuple[WorkflowLispModule, ...],
-    command_boundary_environment,
-) -> tuple[LispFrontendDiagnostic, ...]:
-    if command_boundary_environment is None or not modules:
-        return ()
-
-    transition_registry = _transition_binding_registry(modules)
-    diagnostics: list[LispFrontendDiagnostic] = []
-    for binding_name, binding in command_boundary_environment.bindings_by_name.items():
-        if not isinstance(binding, CertifiedAdapterBinding) or binding.transition_binding is None:
-            continue
-        transition_binding = binding.transition_binding
-        if transition_binding.contract_role != "migration_backend":
-            diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="command_adapter_missing_contract",
-                    message=(
-                        f"certified adapter `{binding_name}` must keep transition_binding contract_role "
-                        "`migration_backend`"
-                    ),
-                    span=_command_boundary_validation_span(),
-                    phase="typecheck",
-                )
-            )
-            continue
-        if transition_binding.backend_selector != binding_name:
-            diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="command_adapter_missing_contract",
-                    message=(
-                        f"certified adapter `{binding_name}` transition_binding backend selector "
-                        f"`{transition_binding.backend_selector}` must match the binding name"
-                    ),
-                    span=_command_boundary_validation_span(),
-                    phase="typecheck",
-                )
-            )
-            continue
-        transition = transition_registry.get(transition_binding.transition_name)
-        if transition is None:
-            diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="command_adapter_missing_contract",
-                    message=(
-                        f"certified adapter `{binding_name}` references unknown declared transition "
-                        f"`{transition_binding.transition_name}`"
-                    ),
-                    span=_command_boundary_validation_span(),
-                    phase="typecheck",
-                )
-            )
-            continue
-        if transition.resource_name != transition_binding.resource_kind:
-            diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="command_adapter_missing_contract",
-                    message=(
-                        f"certified adapter `{binding_name}` transition_binding resource_kind "
-                        f"`{transition_binding.resource_kind}` does not match declared transition resource "
-                        f"`{transition.resource_name}`"
-                    ),
-                    span=_command_boundary_validation_span(),
-                    phase="typecheck",
-                )
-            )
-            continue
-        if transition.backend_kind != binding_name:
-            diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="command_adapter_missing_contract",
-                    message=(
-                        f"certified adapter `{binding_name}` transition_binding backend "
-                        f"`{transition_binding.backend_selector}` does not match declared transition backend "
-                        f"`{transition.backend_kind}`"
-                    ),
-                    span=_command_boundary_validation_span(),
-                    phase="typecheck",
-                )
-            )
-    return tuple(diagnostics)
-
-
-def _transition_binding_registry(
-    modules: tuple[WorkflowLispModule, ...],
-) -> dict[str, TransitionDef]:
-    registry: dict[str, TransitionDef] = {}
-    for module in modules:
-        for transition in module.transitions:
-            registry.setdefault(transition.name, transition)
-            if module.module_name is not None:
-                registry[canonical_callable_key(module.module_name, transition.name)] = transition
-    return registry
 
 
 def _type_ref_contains_low_level_state_path(type_ref: TypeRef) -> bool:
@@ -1406,104 +1252,6 @@ def _stable_json(value: object) -> object:
     return value
 
 
-def _stable_json_digest(value: object) -> str:
-    encoded = json.dumps(_stable_json(value), sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _command_boundary_fingerprint_payload(
-    binding: ExternalToolBinding | CertifiedAdapterBinding,
-) -> Mapping[str, object]:
-    payload: dict[str, object] = {
-        "name": binding.name,
-        "stable_command": list(binding.stable_command),
-    }
-    if binding.must_not_repeat:
-        payload["must_not_repeat"] = True
-    if isinstance(binding, CertifiedAdapterBinding):
-        payload.update(
-            {
-                "kind": "certified_adapter",
-                "output_type_name": binding.output_type_name,
-                "effects": list(binding.effects),
-                "path_safety": dict(binding.path_safety),
-                "source_map_behavior": binding.source_map_behavior,
-                "behavior_class": binding.behavior_class,
-                "input_signature": [
-                    {
-                        "name": field.name,
-                        "type_name": field.type_name,
-                        "required": field.required,
-                        "transport_key": field.transport_key,
-                    }
-                    for field in binding.input_signature
-                ],
-                "artifact_contracts": list(binding.artifact_contracts),
-                "state_writes": list(binding.state_writes),
-                "error_codes": list(binding.error_codes),
-                "owner_module": binding.owner_module,
-                "replacement_path": binding.replacement_path,
-                "invocation_protocol": binding.invocation_protocol,
-                "transition_binding": (
-                    {
-                        "transition_name": binding.transition_binding.transition_name,
-                        "resource_kind": binding.transition_binding.resource_kind,
-                        "contract_role": binding.transition_binding.contract_role,
-                        "backend_selector": binding.transition_binding.backend_selector,
-                    }
-                    if binding.transition_binding is not None
-                    else None
-                ),
-                "declared_promoted_fields": sorted(binding.declared_promoted_fields),
-            }
-        )
-    else:
-        payload["kind"] = "external_tool"
-    return payload
-
-
-def _derive_reusable_state_producer_context(
-    *,
-    definition_module: WorkflowLispModule,
-    source_file_digests: Mapping[str, str],
-    provider_externs: Mapping[str, str] | None,
-    prompt_externs: Mapping[str, PromptExternValue] | None,
-    command_boundary_environment: CommandBoundaryEnvironment,
-) -> Mapping[str, object]:
-    provider_extern_bindings = dict(sorted((provider_externs or {}).items()))
-    prompt_extern_bindings = prompt_extern_legacy_bindings(prompt_externs)
-    prompt_extern_source_bindings = prompt_extern_source_bindings_payload(prompt_externs)
-    command_boundary_bindings = {
-        name: _command_boundary_fingerprint_payload(binding)
-        for name, binding in sorted(command_boundary_environment.bindings_by_name.items())
-    }
-    imported_workflow_fingerprints = {}
-    lowering_options = {
-        "language_version": definition_module.language_version,
-        "target_dsl_version": definition_module.target_dsl_version,
-    }
-    compile_inputs_fingerprint = _stable_json_digest(
-        {
-            "source_file_digests": source_file_digests,
-            "provider_extern_bindings": provider_extern_bindings,
-            "prompt_extern_source_bindings": prompt_extern_source_bindings,
-            "command_boundary_bindings": command_boundary_bindings,
-            "imported_workflow_fingerprints": imported_workflow_fingerprints,
-            "lowering_options": lowering_options,
-        }
-    )
-    return {
-        "source_file_digests": source_file_digests,
-        "provider_extern_bindings": provider_extern_bindings,
-        "prompt_extern_bindings": prompt_extern_bindings,
-        "prompt_extern_source_bindings": prompt_extern_source_bindings,
-        "command_boundary_bindings": command_boundary_bindings,
-        "imported_workflow_fingerprints": imported_workflow_fingerprints,
-        "lowering_options": lowering_options,
-        "compile_inputs_fingerprint": compile_inputs_fingerprint,
-    }
-
-
 def _compile_stage3_graph(
     graph: LinkedModuleGraph,
     *,
@@ -1546,8 +1294,6 @@ def _compile_stage3_graph(
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
-    exported_resource_defs_by_module: dict[str, dict[str, ResourceDef]] = {}
-    exported_transition_defs_by_module: dict[str, dict[str, TransitionDef]] = {}
     exported_macro_defs_by_module: dict[str, dict[str, object]] = {}
     exported_function_signatures_by_module: dict[str, dict[str, FunctionSignature]] = {}
     exported_procedure_signatures_by_module: dict[str, dict[str, ProcedureSignature]] = {}
@@ -1601,8 +1347,7 @@ def _compile_stage3_graph(
         },
     )
     aggregate_diagnostics: list[LispFrontendDiagnostic] = []
-    # Certified stdlib adapter bindings (builtin command adapters and
-    # `resume-or-start` reusable-state adapters) must stay installed for every
+    # Certified stdlib adapter bindings must stay installed for every
     # module that can lower an imported stdlib-backed workflow, so usage
     # evidence accumulates across the graph in dependency order.
     graph_adapter_expressions: list[object] = []
@@ -1636,7 +1381,6 @@ def _compile_stage3_graph(
             _definition_only_from_expanded_syntax_module(expanded_syntax),
             import_scope=import_scope,
             imported_schemas=imported_schema_defs,
-            compiler_session=compiler_session,
         )
         _validate_definition_module(definition_module, import_scope=import_scope)
 
@@ -1658,14 +1402,6 @@ def _compile_stage3_graph(
             import_scope=import_scope,
             imported_schema_defs=imported_schema_defs,
         )
-        exported_resource_defs_by_module[module_name] = _exported_resource_defs(
-            definition_module,
-            export_surfaces[module_name],
-        )
-        exported_transition_defs_by_module[module_name] = _exported_transition_defs(
-            definition_module,
-            export_surfaces[module_name],
-        )
         visible_procedure_names_by_module[module_name] = frozenset(
             procedure.name for procedure in raw_procedure_defs
         )
@@ -1684,15 +1420,11 @@ def _compile_stage3_graph(
             enum_owner_facts=enum_owner_facts,
             cloned_enum_origins=imported_enum_origins,
         )
-        imported_resource_defs = _imported_resource_defs(import_scope, exported_resource_defs_by_module)
-        imported_transition_defs = _imported_transition_defs(import_scope, exported_transition_defs_by_module)
         type_env = FrontendTypeEnvironment.from_module(
             definition_module,
             import_scope=import_scope,
             imported_type_refs=imported_type_refs,
             imported_enum_origins_by_type_ref_id=imported_enum_origins,
-            imported_resource_defs=imported_resource_defs,
-            imported_transition_defs=imported_transition_defs,
             session_state=compiler_session.typecheck,
         )
         enum_owner_facts.update(type_env.retained_enum_origins)
@@ -1846,9 +1578,6 @@ def _compile_stage3_graph(
         )
         module_externs[module_name] = dict(extern_environment.bindings_by_name)
         command_boundary_environment = build_command_boundary_environment(command_boundaries)
-        command_boundary_environment = _augment_resource_transition_command_boundaries(
-            command_boundary_environment,
-        )
         graph_adapter_expressions.extend(
             tuple(workflow.body for workflow in workflow_defs)
             + tuple(procedure.body for procedure in procedure_defs)
@@ -1868,28 +1597,11 @@ def _compile_stage3_graph(
             expressions=tuple(graph_adapter_expressions),
             call_triggers_only=True,
         )
-        command_boundary_environment = _augment_resume_command_boundaries(
-            command_boundary_environment,
-            expressions=tuple(graph_adapter_expressions),
-        )
         module_command_boundaries[module_name] = dict(
             command_boundary_environment.bindings_by_name
         )
         module_command_boundary_origins[module_name] = dict(
             command_boundary_environment.origins_by_name
-        )
-        reusable_state_producer_context = _derive_reusable_state_producer_context(
-            definition_module=definition_module,
-            source_file_digests={
-                imported_module_name: _sha256_path(
-                    imported_module_source.path,
-                    source_read_trace=source_read_trace,
-                )
-                for imported_module_name, imported_module_source in sorted(graph.modules_by_name.items())
-            },
-            provider_externs=provider_externs,
-            prompt_externs=prompt_externs,
-            command_boundary_environment=command_boundary_environment,
         )
         local_function_resolver = _function_name_resolver(
             module_name,
@@ -1980,7 +1692,6 @@ def _compile_stage3_graph(
                 local_raw_names=frozenset(procedure.name for procedure in raw_procedure_defs),
                 visible_procedure_names_by_module=visible_procedure_names_by_module,
             ),
-            reusable_state_producer_context=reusable_state_producer_context,
             selected_entry_workflow_name=(
                 entry_workflow if module_name == graph.entry_module_name else None
             ),
@@ -2164,7 +1875,6 @@ def _compile_stage3_graph(
                     ),
                     visible_procedure_names_by_module=visible_procedure_names_by_module,
                 ),
-                reusable_state_producer_context=reusable_state_producer_context,
                 selected_entry_workflow_name=(
                     entry_workflow if module_name == graph.entry_module_name else None
                 ),
@@ -2241,11 +1951,6 @@ def _compile_stage3_graph(
             typed_procedures=tuple(typed_procedures),
             workflow_catalog=workflow_catalog,
             type_env=type_env,
-            bridge_backing_input_names=frozenset(
-                resource.backing_path_input
-                for resource in definition_module.resources
-                if resource.backing_kind == "bridge" and resource.backing_path_input
-            ),
         )
         from .closed.frontend import (
             local_definition_keys_for_module,
@@ -2831,30 +2536,6 @@ def _imported_schema_defs(
     return imported
 
 
-def _imported_resource_defs(
-    import_scope: ModuleImportScope,
-    exported_resource_defs_by_module: Mapping[str, Mapping[str, ResourceDef]],
-) -> dict[str, ResourceDef]:
-    imported: dict[str, ResourceDef] = {}
-    for binding in dict(import_scope.resource_bindings).values():
-        resource_def = exported_resource_defs_by_module.get(binding.module_name, {}).get(binding.member_name)
-        if resource_def is not None:
-            imported[binding.canonical_name] = resource_def
-    return imported
-
-
-def _imported_transition_defs(
-    import_scope: ModuleImportScope,
-    exported_transition_defs_by_module: Mapping[str, Mapping[str, TransitionDef]],
-) -> dict[str, TransitionDef]:
-    imported: dict[str, TransitionDef] = {}
-    for binding in dict(import_scope.transition_bindings).values():
-        transition_def = exported_transition_defs_by_module.get(binding.module_name, {}).get(binding.member_name)
-        if transition_def is not None:
-            imported[binding.canonical_name] = transition_def
-    return imported
-
-
 def _exported_type_refs(
     module: WorkflowLispModule,
     export_surface: ModuleExportSurface,
@@ -2906,30 +2587,6 @@ def _exported_schema_defs(
             span=schema.span,
         )
     return exported
-
-
-def _exported_resource_defs(
-    module: WorkflowLispModule,
-    export_surface: ModuleExportSurface,
-) -> dict[str, ResourceDef]:
-    local_resources = {resource.name: resource for resource in module.resources}
-    return {
-        binding.member_name: local_resources[binding.member_name]
-        for binding in export_surface.resources_by_name.values()
-        if binding.member_name in local_resources
-    }
-
-
-def _exported_transition_defs(
-    module: WorkflowLispModule,
-    export_surface: ModuleExportSurface,
-) -> dict[str, TransitionDef]:
-    local_transitions = {transition.name: transition for transition in module.transitions}
-    return {
-        binding.member_name: local_transitions[binding.member_name]
-        for binding in export_surface.transitions_by_name.values()
-        if binding.member_name in local_transitions
-    }
 
 
 def _imported_procedure_signatures(
@@ -3643,161 +3300,6 @@ def _expanded_syntax_module(path: Path) -> WorkflowLispSyntaxModule:
     return expand_module_forms(syntax_module, catalog=catalog)
 
 
-def _augment_resume_command_boundaries(
-    command_boundary_environment,
-    *,
-    expressions,
-):
-    """Install resume/state-reuse adapters only when code uses `resume-or-start`."""
-
-    bindings = dict(command_boundary_environment.bindings_by_name)
-    origins = dict(command_boundary_environment.origins_by_name)
-    resume_exprs = list(expressions)
-    if not any(_workflow_contains_resume_or_start(expr) for expr in resume_exprs):
-        return command_boundary_environment
-    fixed_bindings = _fixed_resume_command_boundary_bindings()
-    bindings.update(fixed_bindings)
-    origins.update({name: "package:orchestrator" for name in fixed_bindings})
-    for return_type_name in sorted(
-        {
-            return_type_name
-            for expr in resume_exprs
-            for return_type_name in _resume_return_type_names(expr)
-        }
-    ):
-        loader_name = f"load_canonical_phase_result__{return_type_name}"
-        bindings[loader_name] = CertifiedAdapterBinding(
-            name=loader_name,
-            stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.load_canonical_phase_result"),
-            closure=(".",),
-            input_contract={"type": "object"},
-            output_type_name=return_type_name,
-            effects=("structured_result",),
-            path_safety={"kind": "workspace_relpath"},
-            source_map_behavior="step",
-            fixture_ids=(f"resume_state_load_{return_type_name}",),
-            negative_fixture_ids=("resume_state_loader_schema_invalid",),
-            behavior_class="resume_state_reuse",
-            owner_module="std/phase",
-            replacement_path="resume-or-start",
-        )
-        origins[loader_name] = "package:orchestrator"
-    return build_command_boundary_environment(bindings, origins_by_name=origins)
-
-
-def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBinding]:
-    """Return the fixed certified adapter bindings required by `resume-or-start`."""
-
-    return {
-        "validate_reusable_phase_state": CertifiedAdapterBinding(
-            name="validate_reusable_phase_state",
-            stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state"),
-            closure=(".",),
-            input_contract={"type": "object"},
-            output_type_name="ResumeReuseDecision",
-            effects=("resume_state_reuse", "structured_result"),
-            path_safety={"kind": "workspace_relpath"},
-            source_map_behavior="step",
-            fixture_ids=("resume_state_reuse_valid",),
-            negative_fixture_ids=(
-                "resume_state_pointer_authority_forbidden",
-                "resume_state_contract_fingerprint_mismatch",
-                "resume_state_bundle_schema_invalid",
-            ),
-            behavior_class="resume_state_reuse",
-            owner_module="std/phase",
-            replacement_path="resume-or-start",
-        ),
-        "write_reusable_phase_state_v1": CertifiedAdapterBinding(
-            name="write_reusable_phase_state_v1",
-            stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1"),
-            closure=(".",),
-            input_contract={"type": "object"},
-            output_type_name="ReusablePhaseStateWriteAck",
-            effects=("resume_state_reuse", "structured_result"),
-            path_safety={"kind": "workspace_relpath"},
-            source_map_behavior="step",
-            fixture_ids=("resume_state_write_v1",),
-            negative_fixture_ids=(
-                "resume_state_path_unsafe",
-                "resume_state_required_artifact_missing",
-            ),
-            behavior_class="resume_state_reuse",
-            owner_module="std/phase",
-            replacement_path="resume-or-start",
-        ),
-    }
-
-
-def _augment_resource_transition_command_boundaries(command_boundary_environment):
-    """Register the default adapter used by `resource-transition`.
-
-    The frontend form lowers through a named command boundary. This helper adds
-    the repository's built-in adapter when the caller did not provide an
-    override, including the declared output type, effects, path-safety policy,
-    and fixture ids required for certification.
-    """
-
-    bindings = dict(command_boundary_environment.bindings_by_name)
-    origins = dict(command_boundary_environment.origins_by_name)
-    if "apply_resource_transition" in bindings:
-        return command_boundary_environment
-    bindings["apply_resource_transition"] = CertifiedAdapterBinding(
-        name="apply_resource_transition",
-        stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.apply_resource_transition"),
-        closure=(".",),
-        input_contract={"type": "object"},
-        output_type_name="ResourceTransitionResult",
-        effects=("resource_transition", "ledger_update"),
-        path_safety={"kind": "workspace_relpath"},
-        source_map_behavior="step",
-        fixture_ids=("resource_transition_ok",),
-        negative_fixture_ids=("resource_transition_bad",),
-        behavior_class="resource_transition",
-        input_signature=(
-            CertifiedAdapterInputField(
-                name="resource_id",
-                type_name="String",
-                required=True,
-                transport_key="resource_id",
-            ),
-            CertifiedAdapterInputField(
-                name="from",
-                type_name="Queue",
-                required=True,
-                transport_key="from",
-            ),
-            CertifiedAdapterInputField(
-                name="to",
-                type_name="Queue",
-                required=True,
-                transport_key="to",
-            ),
-            CertifiedAdapterInputField(
-                name="new_path",
-                type_name="BacklogInProgressPath",
-                required=True,
-                transport_key="new_path",
-            ),
-            CertifiedAdapterInputField(
-                name="transition_id",
-                type_name="String",
-                required=True,
-                transport_key="transition_id",
-            ),
-        ),
-        artifact_contracts=("resource_transition_result",),
-        state_writes=("state/resource-ledger.json",),
-        error_codes=("resource_transition_bad",),
-        owner_module="std/resource",
-        replacement_path="resource-transition",
-        invocation_protocol="json_object_positional_arg",
-        declared_promoted_fields=PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
-    )
-    origins["apply_resource_transition"] = "package:orchestrator"
-    return build_command_boundary_environment(bindings, origins_by_name=origins)
-
-
 def _augment_builtin_command_boundaries(
     command_boundary_environment,
     *,
@@ -3909,62 +3411,6 @@ def _builtin_call_trigger_binding_names_in_expr(expr) -> frozenset[str]:
     if isinstance(expr, ProcedureCallExpr):
         return frozenset(STDLIB_CERTIFIED_ADAPTER_TRIGGER_NAMES.get(expr.callee_name, ()))
     return frozenset()
-
-
-def _workflow_contains_resume_or_start(expr) -> bool:
-    """Return whether an expression tree contains a `resume-or-start` form."""
-
-    if isinstance(expr, SyntaxNode):
-        return _workflow_contains_resume_or_start(syntax_node_datum(expr))
-    if isinstance(expr, SyntaxList):
-        if syntax_head_name(expr) == "resume-or-start":
-            return True
-        return any(_workflow_contains_resume_or_start(item) for item in expr.items)
-    if isinstance(expr, ResumeOrStartExpr):
-        return True
-    if isinstance(expr, LetStarExpr):
-        return any(_workflow_contains_resume_or_start(binding_expr) for _, binding_expr in expr.bindings) or _workflow_contains_resume_or_start(expr.body)
-    if isinstance(expr, MatchExpr):
-        return _workflow_contains_resume_or_start(expr.subject) or any(_workflow_contains_resume_or_start(arm.body) for arm in expr.arms)
-    if isinstance(expr, WithPhaseExpr):
-        return _workflow_contains_resume_or_start(expr.body)
-    return False
-
-
-def _resume_return_type_names(expr) -> tuple[str, ...]:
-    """Collect result types that require resume-state loader adapters."""
-
-    if isinstance(expr, SyntaxNode):
-        return _resume_return_type_names(syntax_node_datum(expr))
-    if isinstance(expr, SyntaxList):
-        names: list[str] = []
-        if syntax_head_name(expr) == "resume-or-start":
-            for index, item in enumerate(expr.items[:-1]):
-                if getattr(item, "value", None) != ":returns":
-                    continue
-                return_identifier = syntax_identifier(expr.items[index + 1])
-                if return_identifier is not None:
-                    names.append(return_identifier.resolved_name)
-                break
-        for item in expr.items:
-            names.extend(_resume_return_type_names(item))
-        return tuple(names)
-    if isinstance(expr, ResumeOrStartExpr):
-        return (expr.returns_type_name,)
-    if isinstance(expr, LetStarExpr):
-        names: list[str] = []
-        for _, binding_expr in expr.bindings:
-            names.extend(_resume_return_type_names(binding_expr))
-        names.extend(_resume_return_type_names(expr.body))
-        return tuple(names)
-    if isinstance(expr, MatchExpr):
-        names = list(_resume_return_type_names(expr.subject))
-        for arm in expr.arms:
-            names.extend(_resume_return_type_names(arm.body))
-        return tuple(names)
-    if isinstance(expr, WithPhaseExpr):
-        return _resume_return_type_names(expr.body)
-    return ()
 
 
 def _validate_local_callable_name_collisions(
@@ -4631,7 +4077,6 @@ def _infer_stage3_effect_summaries(
     visible_typed_procedures_by_name: Mapping[str, TypedProcedureDef] | None = None,
     visible_procedure_type_envs_by_name: Mapping[str, FrontendTypeEnvironment] | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
-    reusable_state_producer_context: Mapping[str, object] | None = None,
     selected_entry_workflow_name: str | None = None,
     function_body_normalizer=None,
     allow_provisional_procedure_calls: bool = False,
@@ -4847,7 +4292,6 @@ def _infer_stage3_effect_summaries(
                 workflow_name_resolver=workflow_name_resolver,
                 prompt_catalog=prompt_catalog,
                 proc_ref_resolution_context=proc_ref_resolution_context,
-                reusable_state_producer_context=reusable_state_producer_context,
                 selected_entry_workflow_name=selected_entry_workflow_name,
                 compiler_session=compiler_session,
                 session_artifact_entry_workflow_allowed=(
@@ -4991,7 +4435,6 @@ def _infer_stage3_effect_summaries(
             workflow_name_resolver=workflow_name_resolver,
             prompt_catalog=prompt_catalog,
             proc_ref_resolution_context=proc_ref_resolution_context,
-            reusable_state_producer_context=reusable_state_producer_context,
             selected_entry_workflow_name=selected_entry_workflow_name,
             compiler_session=compiler_session,
             session_artifact_entry_workflow_allowed=(
