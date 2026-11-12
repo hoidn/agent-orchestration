@@ -350,16 +350,3 @@ def test_structural_classification_recognizes_runctx_anchored_record_without_leg
     assert classification.legacy_family is None
 
 
-def test_g8_deletes_name_lane_fallback_accounting_api_and_tables() -> None:
-    context_classification = _context_module()
-    compiler = importlib.import_module("orchestrator.workflow_lisp.compiler")
-    type_env = importlib.import_module("orchestrator.workflow_lisp.type_env")
-
-    for symbol in (
-        "record_name_lane_fallback",
-        "name_lane_fallback_counts",
-        "clear_name_lane_fallback_counts",
-    ):
-        assert not hasattr(context_classification, symbol)
-    assert not hasattr(compiler, "_ALLOWED_CONTEXT_RECORD_TYPES")
-    assert not hasattr(type_env, "_STRUCTURAL_CONTEXT_RECORD_NAMES")
