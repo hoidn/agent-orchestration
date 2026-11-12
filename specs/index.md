@@ -6,8 +6,8 @@ Current admission: source compilation, transitive source imports, retained
 typed-program capsules, REPL loading and LSP analysis accept only registered
 targets 2.35–2.40 throughout the dependency graph. All use evaluated execution;
 individual effects retain their own admission and qualification gates.
-Pre-2.35 source and old-profile resume/invalidation are retired. Historical
-report/dashboard data access does not compile old source. See
+Pre-2.35 source and old-profile resume/invalidation are retired. `report` and the
+dashboard read evaluated runs only and refuse historical ones. See
 [versioning](versioning.md#executable-support-and-historical-version-gates) and
 [CLI admission](cli.md#executable-support-boundary).
 
@@ -60,11 +60,12 @@ report/dashboard data access does not compile old source. See
     [version contract](versioning.md#versioning-and-migration-normative) and
     [W3 contract](../docs/design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
     own the rules.
-  - Target 2.37 parallel-map compilation and bounded execution have scoped
-    acceptance; full public qualification and phase delivery remain pending.
-    Follow [versioning](versioning.md#version-gating-summary) and the
-    [Phase 5 status](../docs/plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)
-    for its limits; it is not yet a copy-safe authoring surface.
+  - Target 2.37 parallel map is qualified through the public command line
+    with stand-in providers and commands, not yet with a real provider
+    ([addendum](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification)).
+    Copy it from the [drafting guide recipe](../docs/lisp_workflow_drafting_guide.md#173-parallel-map-target-237),
+    which states its limits; [versioning](versioning.md#version-gating-summary)
+    owns the target gate.
   - Target 2.38 admits command-only confined run-ref children and the
     independent bounded Agent surface: run-local allocation and sequential
     native turns with typed results and memo commits. Public confined providers

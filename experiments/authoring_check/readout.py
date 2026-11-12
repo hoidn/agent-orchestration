@@ -81,7 +81,11 @@ def _tool_reasons(rows: list[dict], meta: dict) -> list[str]:
     if any(NESTED_CLI.search(value) for value in values) or any(
             set(MODEL_ID.findall(text)) - {meta["model"]} for text in inputs):
         reasons.append("nested_cli")
-    texts = inputs + [json.dumps(result.get("content"), ensure_ascii=False) for result in results]
+    # The CLI saves an oversized tool output under its own project store and names that path in
+    # the result; that is this session's store, not another session's.
+    own_store = ".claude/projects/" + re.sub(r"[^A-Za-z0-9]", "-", str(meta.get("work_during_session", "")))
+    texts = [text.replace(own_store, "") for text in
+             inputs + [json.dumps(result.get("content"), ensure_ascii=False) for result in results]]
     reasons += [name for name, pattern in _forbidden(meta) if any(pattern.search(text) for text in texts)]
     return reasons
 

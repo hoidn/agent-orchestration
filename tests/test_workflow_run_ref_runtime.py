@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 import orchestrator.workflow.run_ref.runtime as runtime_module
-from orchestrator.workflow.executable_ir import RunRefStepConfig, StepCommonConfig
+from orchestrator.workflow.run_ref.step_config import RunRefStepConfig, StepCommonConfig
 from orchestrator.workflow.run_ref.config import (
     ArrayBinding,
     BundleProgram,

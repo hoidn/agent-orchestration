@@ -243,11 +243,11 @@ authoring changes do not introduce a new result-acceptance profile.
       preparation failure publishes the closed
       `workflow_prompt_fragment_preparation_failure.functional.v1` record;
       either publication failure launches no provider.
-    - `orchestrator report` JSON always includes the additive top-level
-      `prompt_context` object, including for older targets and unqualified
-      runs. Its Markdown projection contains status labels, role digests, and
-      fixed comparison classifications only; neither report projection is a
-      provider result or execution/resume input.
+    - `orchestrator report` JSON has exactly `run`, `progress` and `steps`; it
+      no longer includes a `prompt_context` object or its Markdown projection,
+      which read only runs of the retired runtime (kept at the git tag
+      `archive/retired-run-readers-2026-11-11`). Report output is never a provider result or
+      execution/resume input.
   - Result-file freshness (every target):
     - Before each command call, and each provider call with composed delivery,
       that has `output_bundle.path` or `variant_output.path`, including each
@@ -279,55 +279,12 @@ authoring changes do not introduce a new result-acceptance profile.
     - These calls keep their own rule instead: a provider call with phased
       delivery rejects a pre-existing bundle file with
       `candidate_path_preexisting` (an exact rerun of an interrupted attempt
-      first discards that attempt's own candidates); provider-supervision and
-      provider-peer-group invocations below require their provisional paths to
-      be absent, and a pre-existing file fails before launch.
-  - Provider-supervision IO (v2.16):
-    - Provider stdin/stdout/stderr, the selected metadata codec, and validated
-      output bundles remain the execution and result transports. Observation
-      panes, display bytes, transcripts, raw logs, cancellation records, and
-      timing metadata are observability evidence only.
-    - Worker-fresh, supervisor-directive, and optional worker-resume
-      invocations each receive a distinct visit/member/turn-qualified
-      provisional bundle path under the run root. The runtime requires the
-      file to be absent and creates its parent before launch; a pre-existing
-      file is a prelaunch failure. No member writes the group result directly.
-    - `CONTINUE` validates the supervisor directive and fresh-worker bundle.
-      `STEER` validates the directive and resumed-worker bundle; it never
-      reads, promotes, or infers success from the fresh worker's business
-      bundle.
-    - Only the selected worker value and validated directive enter the pure
-      settlement expression. The validated settlement value alone becomes
-      the node result and ordinary artifacts/dataflow publication.
-  - Provider-peer-group IO (v2.17):
-    - Each member invocation receives one distinct attempt-qualified
-      `provisional-result.json` path under the group visit root and the
-      runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding for that exact
-      path. The file must be absent before launch. A pre-existing file or
-      member/path mismatch fails before provider execution.
-    - Every member bundle is a direct JSON root value: the provider writes the
-      JSON encoding of its declared transportable return value directly,
-      whether that value is a scalar, enum, relpath, optional, list, map,
-      record, or union. The compiler-owned internal result name does not
-      introduce a `{"result": ...}` or `{"value": ...}` wire envelope.
-    - Provider stdout/stderr, interactive pane bytes, transcripts, peer
-      receipts, message text, and ledger rows are execution or observability
-      evidence only. They are never parsed or promoted as a member's typed
-      result.
-    - An eligible `peer-finish` reads and validates only the exact bound bundle
-      against that member's declared result contract, verifies its bytes
-      remain unchanged during validation, and freezes those exact bytes and
-      their digest in coordinator-owned memory/evidence. Later path mutation
-      cannot change the frozen member value.
-    - No member writes the group result directly. After every member has a
-      complete natural-shutdown proof, the coordinator evaluates the pure
-      settlement over the authored-order frozen member values, validates the
-      settlement's transportable type, and commits only that settlement as the
-      node result and ordinary artifacts/dataflow publication.
-    - Any invalid/missing member bundle, bundle mutation, non-natural member
-      exit, peer-protocol failure, failed delivery, failed close, or failed
-      cleanup fails the whole node. Provisional member bundles and message
-      ledgers remain run evidence and no settlement is published.
+      first discards that attempt's own candidates).
+  - Provider-supervision IO (v2.16) and provider-peer-group IO (v2.17): the
+    executors that owned this IO were removed on 2026-11-11 (git tag
+    `archive/dead-executors-2026-11-11`); the closed build refuses both forms
+    with `[closed_program_gap]`. See the
+    [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
   - Reusable-call boundary:
     - `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and all deterministic `relpath` outputs stay workspace-relative whether a workflow runs top-level or under `call`.
     - `call` namespaces runtime-owned identities, provenance, and logs; it does not namespace authored output paths.
@@ -815,20 +772,10 @@ run-reference IO above is unchanged. Authority:
 
 ## Adjudicated Provider IO (v2.11)
 
-Historical execution contract: adjudicated workflow execution/promotion and
-its old-profile recovery are retired, with no evaluated port selected. Shared
-validation helpers retain their admitted callers; this format is not a launch
-or repair recipe for the current package.
-
-- Candidate output validation runs in the candidate workspace. Downstream workflow state is not updated from candidate outputs until selection and promotion complete.
-- Selected-output promotion copies only declared deterministic outputs:
-  - non-`relpath` `expected_outputs`: the candidate value file at `expected_outputs.path`
-  - `relpath` `expected_outputs`: the path-only value file and, when `must_exist_target: true`, the candidate target file named by that value
-  - `output_bundle`: the bundle JSON file and, for required bundle `relpath` fields, the candidate target file named by the extracted field value
-- Promotion is a staged transaction: prepare a manifest, stage source files, reject duplicate destinations with different sources/roles, compare parent destinations against baseline preimages, replace files with same-filesystem temp-file renames, revalidate the parent output contract, and mark the manifest `committed` only after parent validation succeeds.
-- If parent output validation fails after commit, the runtime rolls back files touched by the transaction using recorded backups or absent-destination tombstones. Unsafe rollback conflicts fail with `promotion_rollback_conflict`.
-- Resume interprets promotion manifests by state: `prepared` repeats preimage checks and commits, `committing` treats already-staged destinations as committed when hashes match, `rolling_back` completes rollback, `failed` returns the recorded failure without publishing, and `committed` revalidates parent outputs before publication.
-- Candidate and evaluator stdout/stderr are runtime-owned logs and sidecars. Adjudicated steps do not populate `output`, `lines`, `json`, `truncated`, or `debug.json_parse_error` from those streams.
+The adjudicated-provider executor, its candidate validation and its promotion were removed on
+2026-11-12. Its packages are kept at git tag `archive/dead-executors-2026-11-11`; the last tree
+with the whole runtime is commit `08cdd59b`. See the
+[salvage record](../docs/design/trial_and_adjudication_salvage.md).
 
 ## Evaluated Host Input IO (Target 2.40)
 

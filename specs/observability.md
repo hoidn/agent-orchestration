@@ -11,10 +11,9 @@
   - Provider observation writes invocation-local normalized display streams
     and finalized transcripts under `RUN_ROOT/provider-observation/display/`
     and `RUN_ROOT/provider-observation/transcripts/`.
-  - v2.17 provider-peer-group visits write exact attempt ledgers, member
-    evidence, provisional bundles, and terminal group evidence under
-    `RUN_ROOT/provider-peer-group/`. These are run-owned evidence, not
-    additional workflow results.
+  - v2.17 provider-peer-group visit evidence under `RUN_ROOT/provider-peer-group/`
+    was removed with its executor on 2026-11-11 (git tag
+    `archive/dead-executors-2026-11-11`).
 
 - Provider observation (v2.16)
   - Ordinary provider observation is attempted by default at both workflow and
@@ -23,12 +22,6 @@
   - Ordinary manager creation, pane allocation, append, health, finalization,
     and teardown failures are best-effort observability failures and cannot
     change provider transport, timeout, metadata, bundle, or result semantics.
-  - A `provider_supervision` node's two initial panes are load-bearing until a
-    validated supervisor directive is committed to the serialized arbiter.
-    Initial allocation failure or pre-directive observation loss fails the
-    group and triggers member cleanup. The optional resume-turn pane and
-    post-directive mirror/teardown are best effort because they cannot change
-    the already selected control path.
   - Session-aware panes mirror normalized assistant text, never raw session
     JSONL. Claude and Codex session transports additionally display bounded
     tool-activity notices (tool name/kind and started, completed or error status)
@@ -41,8 +34,7 @@
     stdout and never enters a workflow result. Pane bytes and transcripts remain
     display evidence; parsers and result validation continue to consume the
     authoritative provider transport and declared output bundle.
-  - Live tmux socket and target values are process-local. They may occur in the
-    supervisor's composed prompt and debug prompt evidence but never enter
+  - Live tmux socket and target values are process-local. They never enter
     workflow values, `state.json`, stable status records, checkpoints, or
     resume selection.
   - An evaluated run whose checked program contains `agent`/`agent_turn`
@@ -73,34 +65,10 @@
     exit information or violations ([State](state.md#memo-records)); ordinary
     provider failure diagnostics retain their existing detail.
 
-- Provider peer-group evidence (v2.17)
-  - The `interactive_terminal_turn_queue.v1` adapter pane owns the actual
-    provider client and is part of execution lifecycle, not a writable
-    observation pane. Pane text, normalized display text, transcripts, and
-    provider stdout/stderr remain non-authoritative views; typed direct-root
-    bundle validation is result authority.
-  - Each receiver attempt has one append-only
-    `injected-messages.jsonl`. A durable header binds the exact group visit and
-    receiver attempt even when no messages are sent. Canonical sequenced rows
-    record `recorded`, `offered` or `offer_failed`, and
-    `receiver_acknowledged` lifecycle events.
-  - Ledger claims are intentionally narrow: `recorded` means validation
-    passed and the receiver row is durable; `offered` means the exact adapter
-    submitted literal input to the exact provider client; and
-    `receiver_acknowledged` means the exact receiver returned the message id
-    through its ordinary tool channel. No event or report may rename these
-    claims as `seen`, `model_seen`, `understood`, or `applied`.
-  - Terminal group evidence uses
-    `provider_peer_group_terminal_evidence.v1` and reports the exact visit,
-    authored-order member attempt identities, terminal member lifecycles,
-    ledger digests/counts, frozen bundle digests, natural-shutdown or
-    failed-cleanup evidence, endpoint drain/close/worker-join proofs, and
-    either a settlement digest or bounded failure.
-  - Endpoint paths, endpoint instance ids, opaque sender bindings, tmux
-    targets, and live pane/server handles are process-local. They may appear in
-    transient runtime diagnostics but never become workflow values, ordinary
-    artifacts, stable report fields, checkpoint identity, or resume
-    authority. A completed cleanup leaves no endpoint or adapter socket.
+- Provider peer-group evidence (v2.17): its executor, adapter pane lifecycle
+  and message ledgers were removed on 2026-11-11 (git tag
+  `archive/dead-executors-2026-11-11`); see the
+  [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
 - Error context (normative)
   - On step failure, record message, exit code, tails of stdout/stderr, and error context details (undefined variables, missing deps, substituted command, missing secrets, etc.).
@@ -135,17 +103,22 @@ JSON files. They are for observability and external tooling only; control flow
 derives solely from the validated `.orc` executable and `state.json`.
 
 - Status/report surfaces
-  - Reports and dashboards may project persisted legacy-run state without
-    reopening the recorded workflow source. A non-`.orc` workflow path selects
-    state-only compatibility: no authored YAML parsing, source-derived
-    structure, or workflow execution is permitted.
-  - Dashboard status projection is advisory and read-only: it may expose both persisted `state.status` and dashboard-derived `display_status`, but it must not reconcile stale running state, write `context.status_reconciled_*`, or otherwise mutate `state.json`.
-  - The existing `orchestrate report` command may continue to self-heal stale running state when it derives a terminal status; dashboard routes must reuse only pure projection helpers, not the mutating report command path.
+  - `report` and the dashboard read evaluated runs only: the checked authority
+    (`run.json`, `closed_program.json`, `memo.jsonl`) and the view derived from
+    it, without reopening the workflow source. The view reads nothing under
+    `effects/`; `report` additionally reads only `attempt-<n>/usage.json` of
+    provider-class steps ([usage](#report-usage)), never a recipe, prompt,
+    stdout or result file. A run directory with a
+    `state.json` entry and no evaluated authority was written by the retired
+    runtime; both refuse it with `workflow_execution_profile_retired` and the
+    git tag `archive/retired-run-readers-2026-11-11` that keeps the old readers (see
+    [the CLI contract](cli.md#evaluated-readers)). Its `state.json` is not read
+    beyond the view-hint check.
+  - Dashboard status projection is advisory and read-only: it shows the derived
+    view's status and never writes to a run directory.
   - Dashboard run identity is the resolved workspace root plus the scanned run directory name. `state.run_id` is display metadata and mismatch context only.
   - Dashboard index and detail pages may support an optional `refresh=<seconds>` query parameter using page-level meta refresh. Invalid or out-of-range values are ignored, and refresh support must not add background workers or route-triggered state changes.
   - Dashboard file previews are observability views over existing artifacts and logs only; missing prompt audits, stdout/stderr spill files, provider-session files, and backups are display states rather than run failures.
-  - Dashboard summary pages are read-only GUI views over `RUN_ROOT/summaries/index.json`, `RUN_ROOT/summaries/run-summary.md`, and request-time run state. They may link to detailed summary, snapshot, error, provider-session, and transport files through existing run-scoped file routes, but they must not parse summary prose as workflow state or execute recovery/control actions.
-  - The dashboard summary live endpoint (`/runs/<workspace_id>/<run_dir>/summaries/live.json`) reports current-step metadata, summary index facts, and generated live-note artifacts when present. It may expose links to generated observability artifacts, but provider calls for live narration belong in runtime-side observers or sidecars, not dashboard page requests.
   - Step snapshots may include normalized `output.outcome` fields when present in `state.json`.
   - The normalized outcome surface is intended for human-readable reports and typed routing; it does not replace the underlying `status`, `exit_code`, or `error` fields.
   - v1.7 scalar bookkeeping steps report distinct kinds (`set_scalar`, `increment_scalar`) and expose their local produced values through the normal `output.artifacts` surface.
@@ -171,34 +144,60 @@ derives solely from the validated `.orc` executable and `state.json`.
     or populate the run-level error. No completed cleanup history is required
     in this projection. Rendering the report is not a full revalidation of
     export bytes; settlement and resume retain that responsibility.
-  - Status/report snapshots may expose `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, `run.current_executor_session`, `run.excluded_suspended_ms`, and `run.suspended_gap_excluded` when executor-session accounting is available.
-  - v2.10 status/report snapshots may expose:
-    - bounded `provider_attempt_interrupted_rerun` context for a validated
-      interrupted provider-session visit; it is a recovery diagnostic, not a
-      run-level failure
-    - `output.provider_session` step summaries including `mode`, `session_id`, `metadata_path`, and `publication_state`
-  - v2.11 adjudicated provider snapshots may expose selected candidate id, selected score or null score, selection reason, run-local score ledger path, workspace-visible score ledger mirror path, promotion status, and adjudication failure type. Candidate workspaces, evaluator packets, and ledgers are observability sidecars, not ordinary artifact lineage.
-  - v2.16 provider-supervision snapshots render one outer step with kind
-    `provider_supervision`. Its ordinary artifacts are the settlement result;
-    debug projection may expose only the selected worker-attempt and directive-
-    attempt references plus bounded terminal metadata. Interrupted-visit
-    recovery may expose `provider_attempt_interrupted_rerun` plus the discarded
-    visit and fresh-visit coordinates, but member panes, targets, provisional
-    bundles, and transcripts are not result or resume authority.
-  - v2.17 provider-peer-group snapshots render one outer step with kind
-    `provider_peer_group`. Its ordinary `output.artifacts` are the settlement
-    projection. `output.debug.provider_peer_group` may expose only
-    `terminal_evidence_path`, `terminal_evidence_schema_version`, and
-    `outcome`; detailed members, ledgers, bundles, and lifecycle proof remain
-    in the referenced run-owned evidence. Interrupted-visit recovery may
-    expose `provider_attempt_interrupted_rerun` plus the discarded visit and
-    fresh-visit coordinates. Message bodies, endpoint/binding handles, pane
-    targets, and provisional member values are not stable report or result
-    fields.
-  - Target-2.23 phased recovery and v2.11 adjudication recovery may expose only
-    their bounded named diagnostic, recovery family/mismatch class, and old/new
-    visit coordinates. Prompt, candidate, score packet, ledger, and partial
-    result content remain sidecar evidence and never report authority.
+  - <a id="report-usage"></a>Token usage and cost (`report`). Each
+    provider-class step (`provider`, `provider_phased`, `agent_turn`,
+    `run_ref`) has `usage`, summed over all its attempts (`attempt-1` to its
+    latest, beside its `result_path`), and the run has `run.usage`, the same sum
+    over every such step's attempts plus `price_table: {source, date}` of the
+    table used:
+    `{"tokens": {"input", "output", "cache_read", "cache_write"} | null,
+    "cost_usd": float | null, "attempts": n, "unknown_attempts": k,
+    "partial": bool}`. Other steps have no `usage`; a run with no
+    provider-class step has no `run.usage` key and its markdown no `## Usage`
+    section.
+    - Unknown attempts: an attempt whose `usage.json` is absent (killed before
+      writing it, still running, or recorded before `usage.json` existed, so
+      a run recorded before metering shows `unknown` for every provider step),
+      not a readable regular file, `unknown`, or not well-formed `reported`
+      usage counts in `unknown_attempts`, never as zero. A `run_ref` step's
+      attempts always do, since its child run's spend is in the child's own
+      report.
+    - `tokens` sums the reported attempts; null when none reported.
+    - `cost_usd` is the list-price equivalent at the table's ordinary rates
+      (`pricing.priced`), summed over the attempts that can be priced: an
+      attempt whose model has no rates adds nothing, and a reported attempt
+      with no token rows but a positive `reported_cost_usd` (Claude's `result`
+      line with an empty `modelUsage`) adds that cost, as the spend cap does.
+      It is null only when no attempt could be priced, or when the sum leaves
+      the float range (JSON never carries `Infinity` or `NaN`). The ordinary
+      rates understate a request priced at a model's `long_context` tier; the
+      spend cap prices conservatively instead (the larger of the CLI's cost
+      and the highest tier, [providers](providers.md#metered-templates-and-usage)),
+      so the two figures differ by design.
+    - `partial` is true when the figures are a lower bound: some attempt is
+      unknown, unpriced, priced from `reported_cost_usd` alone, or its usage
+      is `complete: false`.
+    - Markdown prints a step's `usage` line and a `## Usage` section with the
+      run total and the table's source and date: `unknown` when no attempt
+      reported, `cost_usd unknown` when nothing could be priced, a leading `≥`
+      on partial figures, and never `0` for an unmetered step.
+    - `usage` is a view of the attempt files, not memo authority
+      ([providers](providers.md#metered-templates-and-usage)).
+  - The executor-session accounting fields (`run.active_runtime_ms` and its
+    siblings) and the v2.10 `provider_attempt_interrupted_rerun` and
+    `output.provider_session` projections came from the retired-run report;
+    `report` no longer produces them (kept at the git tag `archive/retired-run-readers-2026-11-11`).
+  - v2.11 adjudicated provider snapshots: no step of this kind can be produced since its
+    executor was removed on 2026-11-12 (see the
+    [salvage record](../docs/design/trial_and_adjudication_salvage.md)).
+  - v2.16 provider-supervision and v2.17 provider-peer-group snapshots: no
+    step of either kind can be produced since their executors were removed on
+    2026-11-11 (see the
+    [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md)).
+  - Target-2.23 phased recovery may expose only its bounded named diagnostic,
+    recovery family/mismatch class, and old/new visit coordinates. Prompt, ledger,
+    and partial result content remain sidecar evidence and never report authority.
+    The v2.11 adjudication recovery was removed with its executor on 2026-11-12.
 
 - Workflow monitor notifications
   - `orchestrator monitor` is a read-only observer over configured workspace roots. It enumerates run directories under `.orchestrate/runs/` and must not mutate `state.json`, reconcile run status, resume runs, kill processes, or execute workflow control.
@@ -251,180 +250,23 @@ derives solely from the validated `.orc` executable and `state.json`.
 
 ## Target 2.25 Trial Observability (Historical)
 
-The detailed trial projection and its report/Markdown/dashboard rendering are
-withdrawn from the current package: no admitted 2.35+ producer or public
-state-reader path supplies the typed authority they require. The rules below
-preserve the historical format contract, not current rendering support.
+The trial executor, its run-owned sidecars and its projections were removed on 2026-11-12. Its
+packages are kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime is commit `08cdd59b`. See the
+[salvage record](../docs/design/trial_and_adjudication_salvage.md).
+`report` and the dashboard refuse a retained trial run with
+`workflow_execution_profile_retired`; the old state-only report is kept at the git tag
+`archive/retired-run-readers-2026-11-11`.
 
-The CLI retains its state-only historical report: trial rows expose identity,
-kind and status with empty input/output payloads. It does not reconstruct
-detailed budgets, scores, rankings or verdict joins. Dashboard generic raw/debug
-inspection remains a separate read-only surface and does not promise the CLI
-redaction. Raw run state, output suppression, trial configuration/ledger and
-settlement validators, and frozen JSON remain supported only for their actual
-data consumers. None of these readers restores trial execution or supplies
-recovery evidence for another release. See the
-[family disposition](../docs/design/workflow_lisp_executor_retirement.md#trial-observability-disposition).
+## Workflow Lisp Judgment Views (Historical)
 
-- A reached target-2.25 trial owns one run/frame/step/visit directory below
-  `RUN_ROOT/trials/`. Run-owned ledgers, bounded evidence snapshots, check
-  receipts, evaluator-attempt receipts, score rows, and terminal verdict
-  evidence are observability sidecars. The validated `StepResult.trial` and
-  typed verdict artifact remain result authority; sidecars and reports are
-  non-authoritative and cannot settle, route, retry, promote, or repair a run.
-- Status and report snapshots render one outer step with kind `trial`. While
-  active, the view is current-only and may expose the frozen cell count,
-  terminal completed/failed counts, active child and evaluator counts,
-  configured concurrency ceilings, exact budget counters, current phase, and
-  bounded named failure diagnostics. It must not infer a cell result from a
-  child directory or present a prepared row as committed.
-- Before scoring completes, snapshots expose opaque cell counts and digests
-  only. Authored arm IDs may appear only after the unblinded verdict join and
-  only in the validated terminal outcome/verdict projection. A terminal view
-  may expose authored-order outcomes, aggregate scores, ranking, nullable
-  selected arm, success-rule disposition, verdict digest and relpath, evidence
-  freeze digest, and complete budget accounting.
-- The sealed opaque-label map, source/program identities, workspace paths,
-  provider/model identities, completion timing/order, packet bodies, evaluator
-  prompt/output bodies, mutable logs, `.orchestrate` child sidecars, and score
-  summaries remain absent from stable status fields. Debug access to permitted
-  run-owned evidence never adds those bytes to a workflow value, checkpoint,
-  result, verdict artifact, or evaluator packet.
-- Under `derived_pure_replay.v1`, status and persisted step summaries show the
-  exact value-free completion shell for eligible pure trial projections, never
-  a reconstructed ordering, median, ranking, packet view, or report value. The
-  outer trial effect and verdict keep their ordinary durable result views.
-- The public SDK and CLI project the same closed versioned terminal summary:
-  run ID, terminal status, verdict digest and path, and a bounded failure
-  diagnostic. They expose no executable config, sealed mapping, child state,
-  packet content, provider transcript, or privileged control. Ordinary
-  non-trial runs perform no trial projection work and create zero trial
-  sidecars.
-
-## Workflow Lisp Judgment Views
-
-- Every JSON report has the exact additive top-level sibling below, including
-  runs with no eligible result. The nested object and every row described in
-  this section are closed; unknown keys and schema versions fail report
-  validation.
-
-  ```json
-  {
-    "judgment_views": {
-      "schema_version": "workflow_judgment_views.v1",
-      "judgments": [],
-      "matrices": [],
-      "disagreements": [],
-      "iteration_series": []
-    }
-  }
-  ```
-
-  Markdown reports derive a sibling `Judgment views` section from the same
-  validated projection.
-- Every judgment coordinate is the closed object with exact fields
-  `root_workflow_identity`, `call_frame_path`, `runtime_step_id`,
-  `enclosing_step_id`, `enclosing_visit`, and `loop`.
-  `root_workflow_identity` is the root state's canonical `workflow_checksum`;
-  `call_frame_path` is the exact outermost-to-innermost array of persisted,
-  non-empty call-frame IDs; and the step/visit values come from the validated
-  provider-attempt scope. `loop` is null or the closed object with exact fields
-  `kind`, `step_id`, and `iteration`, where `kind` is `for_each` or
-  `repeat_until` and `iteration` is nonnegative. Coordinates are never
-  reconstructed from display names, runtime-step spelling, or filesystem
-  paths.
-- An available judgment is the closed
-  `workflow_judgment_inspection.v1` object with exact fields
-  `schema_version`, `status: "available"`, `coordinate`,
-  `attempt_ordinal`, `result`, and `provenance`.
-  - `result` has exactly `declared_shape`, `contract_sha256`,
-    `value_sha256`, `value`, and `comparison`.
-    `declared_shape` is `root_value`, `record_value`, or `union_value`;
-    `value` is the authoritative reached-state value revalidated against the
-    exact persisted result contract. `comparison` is null or the closed
-    `{kind, value}` object, whose kind is `canonical_value` or
-    `union_variant`.
-  - `provenance` has exactly `evidence_record_sha256`,
-    `identity_schema_version`, `role_sha256`, `final_prompt_sha256`,
-    `composition_sha256`, and `comparison`.
-    `identity_schema_version` is exact
-    `workflow_prompt_attempt_identity.v1`; `role_sha256` has exactly
-    `fragment_program`, `resolved_bindings`, `injected_dependencies`,
-    `runtime_contributions`, and `provider_policy`; and `comparison` reuses
-    the closed Q3 comparison schema and reason set byte-for-byte.
-- An unavailable judgment is the closed
-  `workflow_judgment_inspection.v1` object with exactly
-  `schema_version`, `status: "unavailable"`, `coordinate`, and `reason`.
-  Its reason is exactly one of
-  `judgment_result_binding_missing`, `judgment_result_binding_invalid`,
-  `judgment_result_binding_ambiguous`, `judgment_result_scope_mismatch`,
-  `judgment_result_attempt_mismatch`, `judgment_result_evidence_invalid`,
-  `judgment_result_contract_mismatch`, `judgment_result_value_mismatch`,
-  `judgment_result_coordinate_invalid`, or
-  `judgment_view_group_invalid`. Unavailable rows remain ordered members but
-  never count as votes.
-- Comparison keys are structural. Exact `Bool`, `Int`, `Float`, `String`, and
-  enum roots compare by canonical value; unions compare by selected variant
-  name. Records, lists, maps, paths, `Value`, and other structured roots have
-  no comparison key and are `not_comparable`; their canonical result digests
-  remain visible. Conventional field names such as `decision`, `score`, or
-  `approved` have no semantic role.
-- Rows group only by `(root workflow identity, runtime step ID)`. A closed
-  `workflow_judgment_matrix.v1` matrix has exactly `schema_version`, `group`,
-  and `members`; `group` has exactly `root_workflow_identity` and
-  `runtime_step_id`. Each member has exactly `coordinate`, `status`,
-  `comparison`, `result_value_sha256`, `evidence_record_sha256`, and `reason`.
-  Its status is:
-  - `comparable`, with a non-null comparison, both digests, and null reason;
-  - `not_comparable`, with null comparison, both digests, and null reason; or
-  - `unavailable`, with null comparison and digests plus one closed Q4 reason.
-- Each matrix has one closed `workflow_judgment_disagreement.v1` row with
-  exactly `schema_version`, `group`, `status`, `available_member_count`,
-  `comparable_member_count`, `not_comparable_member_count`,
-  `unavailable_member_count`, and `distinct_comparison_key_count`.
-  Classification is total in this order: fewer than two available rows is
-  `insufficient_members`; otherwise any available row without a key is
-  `not_comparable`; otherwise one distinct key is `agree`; otherwise two or
-  more distinct keys is `disagree`. Unavailable members are counted only by
-  `unavailable_member_count`. The `disagreements` array has exactly one row per
-  matrix in matrix order.
-- A closed `workflow_judgment_iteration_series.v1` row has exactly
-  `schema_version`, `scope_sha256`, `coordinate`, and `attempts`. Each attempt
-  has exactly `attempt_ordinal`, `record_status`, `record_sha256`,
-  `comparison`, and `committed_result_status`, reusing Q3's closed record
-  status, digest, and comparison contracts. `committed_result_status` is:
-  - `bound` only for the one ordinal selected by a fully validated result
-    binding;
-  - `not_bound` only when another ordinal is validly bound in that scope or
-    reached state proves the scope has no committed provider result; or
-  - `unknown_pre_q4` for every ordinal when an otherwise-compatible pre-Q4
-    reached result has no binding.
-  At most one ordinal is `bound`, and the projector never infers a committing
-  attempt from the newest record.
-- Deterministic order is independent of discovery, filesystem enumeration, and
-  provider completion timing. Judgments and matrix members sort by:
-  root-workflow-identity bytes; runtime-step-ID UTF-8 bytes; canonical JSON
-  UTF-8 bytes of `call_frame_path` using `ensure_ascii=False` and separators
-  `(",", ":")`; enclosing-step-ID UTF-8 bytes; enclosing visit; loop kind
-  then loop-step-ID UTF-8 bytes with non-loop before loop; loop iteration;
-  attempt ordinal with missing before positive; and result-digest bytes with
-  missing before present. Matrices sort by their two group coordinates.
-  Attempts sort by ascending ordinal; iteration series sort by the full
-  coordinate order and then scope-digest bytes.
-- State-only and bundle-backed reports use the same
-  `orchestrator.dashboard.compiled_workflow.load_persisted_compiled_workflow_surface`
-  path, anchored by
-  `state.runtime_observability.compiled_frontend.persisted_workflow_surface`,
-  to resolve the exact run-bound, content-addressed result contract. They
-  produce the same projection without recompiling retained/current source or
-  trusting an unbound live bundle. A missing, ambiguous, digest-invalid, or
-  coordinate-inconsistent persisted surface makes only the affected judgment
-  unavailable.
-- Judgment views are pure, read-only, and non-authoritative. Execution,
-  resume, workflow parsers, and workflows do not consume them; they cannot
-  route, retry, settle, score, promote, or mutate a workflow. Association,
-  validation, grouping, ordering, and rendering are deterministic
-  runtime/report obligations and add no provider-prompt instruction or input.
+The read-only judgment views that `report` derived from the old runtime's
+state (the `judgment_views` JSON sibling and the Markdown `Judgment views`
+section) are removed: they read only runs the retired runtime wrote, which
+`report` now refuses. No evaluated producer supplies their inputs. The
+contract and its implementation are kept at the git tag
+`archive/retired-run-readers-2026-11-11`
+(`specs/observability.md` and `orchestrator/workflow/judgment_views.py` there).
 
 ## Error Context (shape)
 

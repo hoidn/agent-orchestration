@@ -71,29 +71,30 @@ def test_match_requires_exact_cases_and_scopes_binders(tmp_path):
     Outcome = Good | Bad
 
     @workflow
-    def run(_case0: str, _e0: str, value: Outcome) -> str:
-        return match(value,
-            Good=lambda good: good.text,
-            Bad=lambda bad: bad.reason)
+    def run(_case0: str, _match: str, value: Outcome) -> str:
+        # Both parameters are read after the generated binders that would shadow them.
+        return concat(match(value,
+            Good=lambda good: concat(good.text, _case0),
+            Bad=lambda bad: bad.reason), _match)
     '''
     _, _, built = compile_source(tmp_path / "valid", source)
     assert evaluate_closed_program(
         built.program,
-        {"_case0": "authored-case", "_e0": "authored-effect",
+        {"_case0": "authored-case", "_match": "authored-effect",
          "value": {"variant": "Good", "text": "done"}},
-    ).value == "done"
+    ).value == "doneauthored-caseauthored-effect"
     assert evaluate_closed_program(
         built.program,
-        {"_case0": "authored-case", "_e0": "authored-effect",
+        {"_case0": "authored-case", "_match": "authored-effect",
          "value": {"variant": "Bad", "reason": "blocked"}},
-    ).value == "blocked"
+    ).value == "blockedauthored-effect"
 
     with pytest.raises(PythonFrontendError, match="python_match_cases"):
         compile_source(tmp_path / "missing", source.replace(",\n            Bad=lambda bad: bad.reason", ""))
     with pytest.raises(PythonFrontendError, match="python_match_cases"):
         compile_source(tmp_path / "extra", source.replace(
-            "Bad=lambda bad: bad.reason)",
-            "Bad=lambda bad: bad.reason, Other=lambda other: \"other\")"))
+            "Bad=lambda bad: bad.reason), _match)",
+            "Bad=lambda bad: bad.reason, Other=lambda other: \"other\"), _match)"))
 
     wrong_arm_field = source.replace("good.text", "good.reason")
     with pytest.raises(PythonFrontendError, match="python_symbolic_attribute"):

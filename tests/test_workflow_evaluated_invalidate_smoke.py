@@ -13,6 +13,7 @@ from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from tests.test_workflow_evaluated_providers import _fixture, _requests
 from tests.test_workflow_evaluated_resume import _snapshot
+from tests.agent_session_shims import closed_path
 
 
 SOURCE = '''\
@@ -43,7 +44,7 @@ Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(
 def _cli(root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
-        "PATH": str(root / "bin") + os.pathsep + os.environ["PATH"],
+        "PATH": closed_path(root / "bin"),
         "PYTHONPATH": str(Path(__file__).parents[1]),
         "PYTHONDONTWRITEBYTECODE": "1",
         "PROVIDER_SHIM_MODE": "success",

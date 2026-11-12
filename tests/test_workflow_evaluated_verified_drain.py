@@ -19,6 +19,7 @@ from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_invalidate import _cli, _tree_bytes
 from tests.test_workflow_evaluated_providers import workspace_relative
 from tests.test_workflow_evaluated_resume import _resume_cli
+from tests.agent_session_shims import closed_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -145,7 +146,7 @@ def _fixture(root: Path, monkeypatch, plan: dict[str, object]) -> list[str]:
     for name in ("codex", "claude"):
         (root / "bin" / name).write_text(f"#!{sys.executable}\n" + SHIM, encoding="utf-8")
         (root / "bin" / name).chmod(0o700)
-    monkeypatch.setenv("PATH", str(root / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(root / "bin"))
     monkeypatch.setenv("DRAIN_SHIM_PLAN", json.dumps(plan))
     return [str(root / SOURCE), "--entry-workflow", ENTRY, "--source-root", str(root / "workflows/library"),
             "--provider-externs-file", str(root / "manifests/providers.json"),

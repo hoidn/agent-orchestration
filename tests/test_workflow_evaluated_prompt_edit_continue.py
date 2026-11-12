@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from tests.agent_session_shims import closed_path
 
 STEP = '''(provider-result providers.review :prompt {prompt}
                   :model "m" :effort "low"{returns})'''
@@ -68,7 +69,7 @@ def _fixture(root: Path, *, inline_two: bool = False) -> None:
 
 
 def _orchestrator(root: Path, *argv: str, fail_call: int | None = None) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "PATH": str(root / "bin") + os.pathsep + os.environ["PATH"],
+    env = {**os.environ, "PATH": closed_path(root / "bin"),
            "PYTHONPATH": str(Path(__file__).parents[1]), "PYTHONDONTWRITEBYTECODE": "1"}
     env.pop("SHIM_FAIL_CALL", None)
     if fail_call is not None:

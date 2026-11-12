@@ -122,7 +122,7 @@ def test_views_evaluate_workspace_data_without_cwd_or_closure_resolution(tmp_pat
         assert view['workflow_outputs'] == [0, 1, 2, 3]
 
 
-def test_live_parallel_execution_is_still_refused(tmp_path):
+def test_bare_evaluator_without_parallel_handler_refuses_par_map(tmp_path):
     with replay_case(tmp_path) as authority:
         with pytest.raises(ValueError, match='unsupported body kind'):
             evaluate_closed_program(authority.program, {})

@@ -43,7 +43,7 @@ def typed(source=FORM, *, target="2.37", values=None, expr=None):
     signature = WorkflowSignature("child", (("value", string),), string, expr.span, expr.form_path)
     return typecheck_expression(
         expr, type_env=env, value_env=values or {"repos": ListTypeRef("List[String]", string)},
-        workflow_catalog=WorkflowCatalog({"child": signature}, {}, {}), compiler_session=CompilerSession(),
+        workflow_catalog=WorkflowCatalog({"child": signature}, {}), compiler_session=CompilerSession(),
     )
 
 

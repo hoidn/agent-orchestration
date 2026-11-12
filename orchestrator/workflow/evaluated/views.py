@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 from orchestrator._common.safe_tree import SafeTreeRejectionError
 
+from orchestrator.providers.pricing import load_price_table
+from orchestrator.providers.usage import run_usage
 from orchestrator.run_lock import ReservedRunRootError, run_writer_active
 from orchestrator.workflow.evaluated.authority import (
     HEADER_FILENAME, MEMO_FILENAME, PROGRAM_FILENAME, PROFILE, SCHEMA_VERSION, RunAuthorityError,
@@ -19,6 +21,16 @@ from orchestrator.workflow.evaluated.memo import MemoError, _DYNAMIC_INDEX, redu
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .replay import MissingCommit as _MissingCommit, discover_prefix
+from .spend_cap import CAPPED_CLASSES as PROVIDER_CLASSES
+
+
+RETIRED_READERS_TAG = "archive/retired-run-readers-2026-11-11"
+
+
+def retired_run_refusal(run_id: str) -> str:
+    """The one line `report` and the dashboard give for a run written by the retired runtime."""
+    return (f"workflow_execution_profile_retired: run {run_id} was written by the retired runtime; "
+            f"report and the dashboard read evaluated runs only (old readers: git tag {RETIRED_READERS_TAG})")
 
 
 def has_evaluated_authority(run_root: Path, *, run_files: WorkspaceFiles | None = None) -> bool:
@@ -89,14 +101,21 @@ class ViewPublicationError(OSError):
     code = "view_write_failed"
 
 
-def publish_evaluated_view(authority, entry):
-    """Publish exactly the synchronized prefix using the writer's borrowed owner."""
+def publish_evaluated_view(authority, entry, *, start_reached=False):
+    """Publish exactly the synchronized prefix using the writer's borrowed owner.
+
+    ``start_reached`` is the writer's statement that ``entry`` is a ``started`` row its own
+    evaluation of this program reached over these commits (``runtime.prepare_effect``). The
+    replay could then only find that start pending: no value, no halt, and a ``next_effect``
+    that ``_view`` clears for the in-flight start, so the view is published without it.
+    """
     try:
         files = authority.run_files
         snapshot = reduce_memo(files.read(MEMO_FILENAME)[:entry.end], site_classes(authority.program))
         if snapshot.complete_bytes != entry.end or snapshot.entries[-1] != entry:
             raise MemoError("memo_inconsistent", "published prefix differs from synchronized append")
-        value, next_effect, halted = _replay(authority, snapshot)
+        reached = start_reached and entry.data["record"] == "started"
+        value, next_effect, halted = (None, None, False) if reached else _replay(authority, snapshot)
         terminal = _checked_terminal(snapshot, value, halted)
         publishing_host_reply = entry.data.get('effect_class') == 'request_input' and entry.data.get('host_reply', {}).get('origin') == 'host'
         view = _view(authority, snapshot, terminal, next_effect, halted, not publishing_host_reply)
@@ -219,14 +238,25 @@ def _update_effect_row(target, row, snapshot):
         target.update(status="failed", error={"type": row["code"], "code": row["code"], "exit_info": exit_info})
 
 
-def report_snapshot(view: dict[str, Any], run_root: Path) -> dict[str, Any]:
-    """Adapt real effect rows to the existing public report envelope."""
+def report_snapshot(view: dict[str, Any], run_root: Path, table: dict | None = None) -> dict[str, Any]:
+    """Adapt real effect rows to the existing public report envelope.
+
+    Provider-class steps gain `usage` and, when there is one, the run `run.usage`, read from the attempts' `usage.json`
+    (`run_usage`) and priced with `table` (default: the packaged price table); the view stays memo-only.
+    """
+    table = load_price_table() if table is None else table
     run = {key: value for key, value in view.items() if key != "steps"}
     run["run_root"] = str(run_root)
     steps = [{**row, "kind": row.get("effect_class", "unknown"),
               "output": {"output_preview": repr(row.get("output")),
                          "duration_ms": row.get("duration_ms")}}
              for row in view["steps"].values()]
+    metered = [step for step in steps if step["kind"] in PROVIDER_CLASSES]
+    per_step, total = run_usage(run_root, metered, table)
+    for step in metered:
+        step["usage"] = per_step[step["identity"]]
+    if metered:     # a run without provider-class steps has no `run.usage`
+        run["usage"] = {**total, "price_table": {"source": table["source"], "date": table["date"]}}
     progress = {status: sum(row["status"] == status for row in steps)
                 for status in ("completed", "running", "failed", "pending", "skipped", "settling", "suspended", "invalidated")}
     progress["total"] = len(steps)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import math
@@ -87,15 +86,6 @@ ROLE_SCHEMAS = MappingProxyType(
         ),
     }
 )
-ROLE_CLASSIFICATIONS = MappingProxyType(
-    {
-        "fragment_program": "instruction_drift",
-        "resolved_bindings": "input_drift",
-        "injected_dependencies": "dependency_content_drift",
-        "runtime_contributions": "runtime_prelude_drift",
-        "provider_policy": "provider_policy_drift",
-    }
-)
 
 _COMPILED_FRAGMENT_IDENTITY_SCHEMAS = {
     "compiled_prompt_fragment_identity.v1",
@@ -114,33 +104,6 @@ _CONTRIBUTION_KINDS = (
     "output_positions",
     "structured_result",
 )
-_COMPARISON_OUTCOMES = {
-    "v2_snapshot",
-    "v3_snapshot",
-    "legacy_snapshot",
-    "invalid_snapshot",
-    "missing_snapshot",
-    "preparation_failure",
-    "failure",
-    "allocation_only",
-}
-_SNAPSHOT_OUTCOMES = {
-    "v2_snapshot",
-    "v3_snapshot",
-    "legacy_snapshot",
-    "invalid_snapshot",
-    "missing_snapshot",
-}
-_UNAVAILABLE_REASONS = {
-    "no_predecessor",
-    "current_record_missing",
-    "current_record_invalid",
-    "previous_record_invalid",
-    "legacy_snapshot_only",
-    "provider_policy_unresolved",
-    "prompt_identity_composition_mismatch",
-    "identity_version_mismatch",
-}
 _V1_FRAGMENT_KEYS = {
     "schema",
     "record_kind",
@@ -1963,227 +1926,16 @@ def validate_prompt_fragment_preparation_failure(
     return _freeze_json(record)
 
 
-@dataclass(frozen=True)
-class PromptComparisonRecord:
-    """One immutable validation outcome supplied to the pure comparator."""
-
-    scope: ProviderAttemptScope
-    ordinal: int
-    outcome: str
-    prompt_attempt_identity: Mapping[str, Any] | None = None
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.scope, ProviderAttemptScope):
-            raise TypeError("PromptComparisonRecord scope is invalid")
-        _integer(
-            self.ordinal,
-            context="PromptComparisonRecord ordinal",
-            minimum=1,
-        )
-        if self.outcome not in _COMPARISON_OUTCOMES:
-            raise ValueError("PromptComparisonRecord outcome is invalid")
-        if self.outcome in {"v2_snapshot", "v3_snapshot"}:
-            if not isinstance(self.prompt_attempt_identity, Mapping):
-                raise ValueError(
-                    "snapshot comparison record requires an identity"
-                )
-            expected_identity_version = (
-                PROMPT_ATTEMPT_IDENTITY_VERSION
-                if self.outcome == "v2_snapshot"
-                else PROMPT_ATTEMPT_IDENTITY_V2_VERSION
-            )
-            if (
-                self.prompt_attempt_identity.get("schema_version")
-                != expected_identity_version
-            ):
-                raise ValueError(
-                    "snapshot comparison record identity version "
-                    "does not match evidence outcome"
-                )
-            object.__setattr__(
-                self,
-                "prompt_attempt_identity",
-                _freeze_json(self.prompt_attempt_identity),
-            )
-        elif self.prompt_attempt_identity is not None:
-            raise ValueError(
-                "non-v2 comparison record forbids an identity"
-            )
 
 
-def _unavailable(reason: str) -> Mapping[str, Any]:
-    if reason not in _UNAVAILABLE_REASONS:
-        raise ValueError("comparison unavailable reason is invalid")
-    return _freeze_json(
-        {
-            "status": "unavailable",
-            "previous_attempt_ordinal": None,
-            "classifications": [],
-            "reason": reason,
-        }
-    )
 
 
-def _current_unavailability(
-    current: PromptComparisonRecord,
-) -> str | None:
-    if current.outcome in {"invalid_snapshot", "missing_snapshot"}:
-        return "current_record_invalid"
-    if current.outcome == "legacy_snapshot":
-        return "legacy_snapshot_only"
-    if current.outcome == "preparation_failure":
-        return "provider_policy_unresolved"
-    if current.outcome in {"failure", "allocation_only"}:
-        return "current_record_missing"
-    return None
 
 
-def _previous_unavailability(
-    previous: PromptComparisonRecord,
-) -> str | None:
-    if previous.outcome in {"invalid_snapshot", "missing_snapshot"}:
-        return "previous_record_invalid"
-    if previous.outcome == "legacy_snapshot":
-        return "legacy_snapshot_only"
-    if previous.outcome not in {"v2_snapshot", "v3_snapshot"}:
-        return "previous_record_invalid"
-    return None
 
 
-def compare_prompt_attempt_records(
-    current: PromptComparisonRecord,
-    previous: PromptComparisonRecord,
-) -> Mapping[str, Any]:
-    """Compare one strictly later record with one same-scope predecessor."""
-
-    if (
-        not isinstance(current, PromptComparisonRecord)
-        or not isinstance(previous, PromptComparisonRecord)
-    ):
-        raise TypeError("prompt comparison records are required")
-    if (
-        current.scope != previous.scope
-        or current.ordinal <= previous.ordinal
-    ):
-        raise ValueError(
-            "prompt comparison scope or ordinal is invalid"
-        )
-    reason = _current_unavailability(current)
-    if reason is not None:
-        return _unavailable(reason)
-    reason = _previous_unavailability(previous)
-    if reason is not None:
-        return _unavailable(reason)
-    if current.prompt_attempt_identity is None:
-        return _unavailable("current_record_invalid")
-    if previous.prompt_attempt_identity is None:
-        return _unavailable("previous_record_invalid")
-    try:
-        current_identity = validate_prompt_attempt_identity(
-            current.prompt_attempt_identity
-        )
-    except (TypeError, ValueError):
-        return _unavailable("current_record_invalid")
-    try:
-        previous_identity = validate_prompt_attempt_identity(
-            previous.prompt_attempt_identity
-        )
-    except (TypeError, ValueError):
-        return _unavailable("previous_record_invalid")
-    if (
-        current_identity["schema_version"]
-        != previous_identity["schema_version"]
-    ):
-        return _unavailable("identity_version_mismatch")
-    classifications = tuple(
-        ROLE_CLASSIFICATIONS[role_key]
-        for role_key in ROLE_ORDER
-        if (
-            current_identity["roles"][role_key]["sha256"]
-            != previous_identity["roles"][role_key]["sha256"]
-        )
-    )
-    if not classifications:
-        version = current_identity["schema_version"]
-        composition_field = (
-            "canonical_composed"
-            if version == PROMPT_ATTEMPT_IDENTITY_V2_VERSION
-            else "final_prompt"
-        )
-        if _thaw_json(
-            current_identity[composition_field]
-        ) != _thaw_json(previous_identity[composition_field]):
-            return _unavailable(
-                "prompt_identity_composition_mismatch"
-            )
-        if (
-            version == PROMPT_ATTEMPT_IDENTITY_V2_VERSION
-            and (
-                _thaw_json(current_identity["actual_deliveries"])
-                != _thaw_json(previous_identity["actual_deliveries"])
-                or current_identity["composition_sha256"]
-                != previous_identity["composition_sha256"]
-            )
-        ):
-            classifications = ("actual_delivery_drift",)
-        else:
-            classifications = ("prompt_context_unchanged",)
-    return _freeze_json(
-        {
-            "status": "available",
-            "previous_attempt_ordinal": previous.ordinal,
-            "classifications": list(classifications),
-            "reason": None,
-        }
-    )
 
 
-def compare_prompt_attempt_history(
-    current: PromptComparisonRecord | None,
-    candidates: Sequence[PromptComparisonRecord],
-) -> Mapping[str, Any]:
-    """Select the greatest earlier same-scope snapshot, then compare it."""
-
-    if current is None:
-        return _unavailable("current_record_missing")
-    if not isinstance(current, PromptComparisonRecord):
-        raise TypeError("current prompt comparison record is invalid")
-    if not isinstance(candidates, (tuple, list)):
-        raise TypeError("prompt comparison candidates must be an array")
-    reason = _current_unavailability(current)
-    if reason is not None:
-        return _unavailable(reason)
-    if current.prompt_attempt_identity is None:
-        return _unavailable("current_record_invalid")
-    try:
-        validate_prompt_attempt_identity(
-            current.prompt_attempt_identity
-        )
-    except (TypeError, ValueError):
-        return _unavailable("current_record_invalid")
-    eligible: list[PromptComparisonRecord] = []
-    for candidate in candidates:
-        if not isinstance(candidate, PromptComparisonRecord):
-            raise TypeError("prompt comparison candidate is invalid")
-        if (
-            candidate.scope == current.scope
-            and candidate.ordinal < current.ordinal
-            and candidate.outcome in _SNAPSHOT_OUTCOMES
-        ):
-            eligible.append(candidate)
-    if not eligible:
-        return _unavailable("no_predecessor")
-    greatest_ordinal = max(candidate.ordinal for candidate in eligible)
-    greatest = [
-        candidate
-        for candidate in eligible
-        if candidate.ordinal == greatest_ordinal
-    ]
-    if len(greatest) != 1:
-        raise ValueError(
-            "prompt comparison predecessor ordinal is ambiguous"
-        )
-    return compare_prompt_attempt_records(current, greatest[0])
 
 
 __all__ = [
@@ -2196,8 +1948,6 @@ __all__ = [
     "PROMPT_FRAGMENT_SNAPSHOT_V1_SCHEMA",
     "PROMPT_FRAGMENT_SNAPSHOT_V2_SCHEMA",
     "PROVIDER_POLICY_V2_SCHEMA",
-    "PromptComparisonRecord",
-    "ROLE_CLASSIFICATIONS",
     "ROLE_ORDER",
     "ROLE_SCHEMAS",
     "build_fragment_program_role",
@@ -2212,8 +1962,6 @@ __all__ = [
     "build_runtime_contributions_role",
     "canonical_json_bytes",
     "canonical_sha256",
-    "compare_prompt_attempt_history",
-    "compare_prompt_attempt_records",
     "prompt_fragment_record_sha256",
     "prompt_fragment_transport_value_sha256",
     "validate_prompt_attempt_identity",

@@ -13,8 +13,10 @@ replays, repairs and translates none of those profiles. Public resume (including
 restart/repair) and invalidation refuse them before locks or mutation; they
 do not proceed to the historical checksum, projection or numeric validators.
 
-Historical report/dashboard readers interpret stored evidence without source
-compilation or rewriting original data. Shared result/provider IO contracts
+`report` and the dashboard read evaluated runs only and refuse a run these
+profiles wrote with `workflow_execution_profile_retired`, reading nothing of it
+beyond the view-hint check; the old readers are kept at the git tag
+`archive/retired-run-readers-2026-11-11`. Original data is never rewritten. Shared result/provider IO contracts
 remain applicable where used by admitted evaluated effects. A historical
 provider family or host-input format does not confer evaluated admission.
 Recovery is qualified only for the exact retained complete release/environment
@@ -130,13 +132,8 @@ and demonstrated family, under the [retirement recovery policy](../docs/design/w
     - runtime-owned audit and recovery sidecars live under `.orchestrate/runs/<run_id>/managed_jobs/<step-id-or-name>/`
     - managed provider step results may expose `steps.<Step>.managed_jobs = {phase, audit_path, outcome, recovery_status, jobs, ...}`
     - outstanding managed jobs leave the provider step in a resumable recovery state so `resume <run_id>` re-enters recovery without relaunching the provider
-  - v2.17 provider-peer-group evidence:
-    - visit metadata lives under
-      `.orchestrate/runs/<run_id>/provider-peer-group/<encoded-node>/visit-metadata/<visit>.json`
-    - exact member attempt records live under
-      `.orchestrate/runs/<run_id>/provider-peer-group/<encoded-node>/visits/<visit>/members/<member>/attempt-<ordinal>/`
-    - terminal group evidence lives at the corresponding
-      `visits/<visit>/evidence.json`
+  - v2.17 provider-peer-group evidence: removed with its executor on
+    2026-11-11 (git tag `archive/dead-executors-2026-11-11`).
   - v2.14 declared resource-transition sidecars:
     - runtime-native resource/state transitions may own private generated `resource_state` documents outside `state.json`; native documents carry `transition_schema_version`, a runtime version token, resource identity metadata, and the typed resource state payload
     - resource transitions may also own append-only private generated `transition_audit` JSONL ledgers; audit rows record committed, replayed, rejected, and partial-failure outcomes together with idempotency evidence and request digest
@@ -382,7 +379,7 @@ truncates it, after its preflight. Exactly these record kinds and keys:
 | --- | --- | --- |
 | `started` | `identity`, `attempt`, `input_digest`, `input_parts`, `implementation_files`, `result_path`, `time`; `host_request` only, and always, for `request_input` | Reserves ordinal `attempt`, the next for the identity counting failed and invalidated attempts, synchronized before the attempt directory exists; not proof of a launch |
 | `committed` | `identity`, `attempt`, `input_digest`, `input_parts`, `value`, `result_path`, `result_digest`, `implementation_files`, `depends_on`, `effect_class`, `time`; `host_reply` only, and always, for `request_input`; `proof` only, and always, when the class is a coordinator (`run_ref`: `{settled_result, artifacts}`; `agent_turn`: `{adapter, locator, position {turn_id, end_line}, predecessor, agent, config_digest}`, `agent` naming the active allocation commit, `predecessor` the previous active committed turn of that agent or `null`, `config_digest` equal to the allocation's pinned configuration) | The validated typed `value` is the result; `result_digest` is the sha256 of the attempt's result file (for `request_input`, the canonical inline reply instead); `input_digest`, `input_parts`, `implementation_files` and `result_path` equal the matching `started`; `depends_on` lists identities with active commits whose values the resolved input read (C9: computed per value, a superset of the parts actually read), plus, for an `agent_turn`, its predecessor turn even when the prompt does not consume its result; `effect_class` ∈ `command`, `provider`, `run_ref`, `agent`, `agent_turn`, `request_input` and must agree with the checked site |
-| `failed` | `identity`, `attempt`, `code`, `exit_info`; optional `violations` | Closes the pending attempt without a result; forbidden for `request_input`, which only suspends, commits or is invalidated. `exit_info` is `{exit_code, error}` for `command_exit_nonzero`, `provider_exit_nonzero` and `provider_timeout`, `{error}` for `provider_preparation_failed`, `{errno}` for `effect_attempt_path_exists` and `effect_attempt_allocation_failed`, otherwise `{}`; `violations` accompanies ordinary-provider `provider_result_invalid` and a command result that fails its contract (code `evaluated_execution_failed`). Agent invalid-result failures use `exit_info {}` and omit `violations` (including first-turn `provider_result_invalid`). No timestamp |
+| `failed` | `identity`, `attempt`, `code`, `exit_info`; optional `violations`; optional `closure` | Closes the pending attempt without a result; forbidden for `request_input`, which only suspends, commits or is invalidated. `exit_info` is `{exit_code, error}` for `command_exit_nonzero`, `provider_exit_nonzero` and `provider_timeout`, `{error}` for `provider_preparation_failed`, `{errno}` for `effect_attempt_path_exists` and `effect_attempt_allocation_failed`, otherwise `{}`; `violations` accompanies ordinary-provider `provider_result_invalid` and a command result that fails its contract (code `evaluated_execution_failed`). Agent invalid-result failures use `exit_info {}` and omit `violations` (including first-turn `provider_result_invalid`). `closure` is `unchanged` or `changed`, only on a host command's dispatched attempt. `unchanged` proves exactly: when the attempt failed, no same-user process whose environment carries an `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` under this run's `effects/` was alive (read from `/proc`; any attempt of the run counts), and the declared files, rehashed after that check, equal its `started` evidence. Otherwise `changed`, also when the rehash cannot complete or the platform has no `/proc`. It does not prove that nothing the run started is running: a process whose initial environment lacks the variable or whose `/proc` entry this user cannot read: one started with a scrubbed environment (`env -i`), work handed to an already-running service that never inherited the attempt's environment (a `tmux` server, `systemd-run`, `at`, a container runtime, a build daemon), a same-user process that made itself non-dumpable, or a process of another user is outside this proof; absent on an allocation failure, in a confined child and for every other class. No timestamp |
 | `settled` | `identity`, `attempt`, `by` ∈ `settle`, `reconcile` | A coordinator's final commit, after its `committed` |
 | `invalidated` | `from_commit`, `time` | The byte offset of the first byte of an active `committed` record: cancels that commit and every later active commit in one record and reopens a terminal; no identity or dependent list |
 | `terminal` | `outcome: "completed"`, `value`; or `outcome: "failed"`, `code`, `message` | `completed` only after `halt` with every reached effect committed and every coordinator settled; `failed` only with no pending start and no unsettled coordinator |
@@ -393,6 +390,12 @@ The [phased-provider extension](#evaluated-phased-provider-attempts-target-239) 
 The additive classes `agent`/`agent_turn` appear only in journals of
 target-2.38 programs; the profile, schema and representation are unchanged,
 and journals of earlier targets reduce exactly as before.
+
+The optional `closure` of `failed` also leaves the profile, schema and
+representation unchanged. Journals are read forward only: a build that
+predates the field answers `memo_inconsistent` for a journal in which a host
+command failed under a build that writes it, and journals without the field
+reduce as before ([versioning](versioning.md)).
 
 For Agent typed-result validation failures (`provider_result_invalid` on a first turn,
 `agent_turn_result_invalid` on a later turn), the public diagnostic contains only logical
@@ -405,7 +408,8 @@ Reducer rules (`orchestrator/workflow/evaluated/memo.py`): after a terminal
 only `started` (after a `failed` terminal) or `invalidated` is accepted, and
 each clears the terminal; `started` refuses an identity with an active commit
 or a non-next ordinal; `committed` and `failed` require the matching pending
-`started`; an ordinary effect may not carry `proof`; a coordinator is a
+`started`; a `failed` row's `closure` must be `unchanged` or `changed` and
+is refused on any site that is not a `command`; an ordinary effect may not carry `proof`; a coordinator is a
 `run_ref` or `agent_turn` site; `settled` requires an unsettled coordinator
 commit of either class with that identity and attempt; an invalidation
 anchor must be an active commit and its suffix must contain no coordinator
@@ -561,7 +565,11 @@ prompt audits or heartbeat, and no step-name keys.
 
 Projection is one read-only pure replay of the checked program over the
 active commits, using stored values only: it performs no fresh build,
-locator IO, C4 or C6 preparation, dispatch, reconciliation or tail repair.
+locator IO, C4 or C6 preparation, dispatch, reconciliation or tail repair,
+and it reads nothing under `effects/`. `report_snapshot` additionally reads
+only `effects/<sha>/attempt-<n>/usage.json` of provider-class steps (the
+[usage rules](observability.md#report-usage)), never a recipe, prompt,
+stdout or result file.
 A completed terminal must agree with replay's `halt` value and every
 coordinator commit must be settled, else the reader reports
 `memo_inconsistent` (V3) with no outputs; a replay that stops at a pure
@@ -703,7 +711,7 @@ creates or asks a replacement question.
     ambiguous, or checksum-incompatible state still fails closed.
 
 - State backups and cleanup
-  - When `--backup-state` is enabled or `--debug` is set, copy `state.json` to `state.json.step_<Step>.bak` before each step (keep last 3).
+  - `--backup-state` and `--debug` are accepted and write no state backups.
   - `clean --older-than <duration>` removes old run directories (see `cli.md`).
 
 - Logs directory (see `observability.md`)
@@ -737,8 +745,8 @@ creates or asks a replacement question.
 
 ## Provider Prompt-Dependency Attempt State And Resume
 
-- Provider attempts are at-least-once across ordinary, session, supervision,
-  peer-group, and phased provider execution. An exact interrupted in-flight
+- Provider attempts are at-least-once across ordinary, session, and phased
+  provider execution. An exact interrupted in-flight
   visit is marked `interrupted` where truthful evidence is available, its
   partial result authority is discarded, and ordinary dispatch allocates a
   fresh attempt. The runtime emits the named operator-visible diagnostic
@@ -747,7 +755,7 @@ creates or asks a replacement question.
 - A Workflow Lisp provider boundary with a typed prompt-dependency contract
   allocates its attempt ordinal in root `RunState.provider_attempt_allocations`.
   The member is omitted while empty. It is root-owned across ordinary, loop,
-  call-frame, phased, supervision, peer-group, and adjudicated execution;
+  call-frame and phased execution;
   nested state managers do not maintain competing counters.
 - Each allocation entry is a plain monotonic counter: its closed current form
   contains the exact scope plus `last_allocated_ordinal`, and a Q3-bound scope
@@ -860,8 +868,7 @@ creates or asks a replacement question.
   prompt, compiled fragment, document rows, shown groups, and injection.
   Content sealing and report-time loading both fail closed on a
   malformed, open, tampered, or mismatched record.
-- Attempt identity records, role digests, comparisons, and `prompt_context`
-  reports are non-authoritative. Compatible completed-result reuse uses the
+- Attempt identity records and role digests are non-authoritative. Compatible completed-result reuse uses the
   existing source, root, call-frame, bound-input, checkpoint,
   result-contract, and completed-boundary guards without reading Q3 evidence.
   A pending or failed boundary allocates a fresh attempt and evidence record.
@@ -1029,8 +1036,7 @@ defines the closed proof and attempt-receipt fields.
   `provider_phased_protocol_frame.v1`,
   `workflow_prompt_fragment_snapshot.functional.v3`,
   `provider_phased_candidate_digest_manifest.v1`,
-  `provider_phased_delivery_diagnostic.v1`, and
-  `workflow_prompt_context_report.v2`. They are validated evidence or report
+  and `provider_phased_delivery_diagnostic.v1`. They are validated evidence
   schemas, not persisted provider-configuration/checkpoint carriers and not
   workflow-state authority. Missing, malformed, downgraded, or mixed-version
   evidence fails its owning validation boundary closed.
@@ -1039,12 +1045,10 @@ defines the closed proof and attempt-receipt fields.
   delivery until its durable receipt proves delivery. Functional-v3 evidence
   is content-free and validates this distinction; it never stores prompt,
   candidate, result, submit, command, or environment bytes.
-- `workflow_prompt_context_report.v2` projects validated v1 attempts through
-  nullable `legacy_final_prompt_sha256` and validated v2 attempts through
-  `canonical_composed` plus ordered `actual_deliveries`. Comparison is
-  version-strict and may report `actual_delivery_drift`; it never substitutes
-  canonical composition for a delivered prompt. Reports remain
-  non-authoritative.
+- Historical: `workflow_prompt_context_report.v2`, the report's projection of
+  v1 and v2 attempts and their comparison, is no longer produced; `report`
+  reads evaluated runs only. Its contract and producer are kept at the git tag
+  `archive/retired-run-readers-2026-11-11`.
 - Each phased attempt owns one append-only
   `provider_prompt_phase_ledger.v1` JSONL sidecar. Its header is sequence zero,
   subsequent events are contiguous, and terminal rows close the grammar.
@@ -1595,71 +1599,10 @@ actual boundary; it does not establish terminality by itself.
 
 ## Target 2.25 Trial State, Settlement, And Replay
 
-- Target-2.25 `trial` is additive under `schema_version: "2.1"`. One
-  append-only `trial_event_ledger.v1` lives at the exact
-  run/frame/step/visit scope below
-  `RUN_ROOT/trials/<frame-scope>/<step-id>/<visit>/`. The ledger header binds
-  the static config, runtime request, evaluation, budget, result-contract, and
-  compiler/runtime identity digests plus the frozen authored-order
-  `(arm, rep)` cell domain. Sequence numbers are contiguous and rows use a
-  closed event grammar.
-- The ledger records only validated effect and public-boundary facts: each
-  cell allocation and disjoint trial-scoped E1 root/ledger; prepared E1
-  settlement and committed-edge digests; completed or failed cell settlement;
-  one sealed opaque-label map and digest; the frozen admitted evidence-set
-  digest; deterministic check results; packet, scorer-attempt, and score
-  digests; aggregation-input, verdict, verdict-artifact, and outer-parent
-  settlement digests; terminal status; and exact launch, evaluator-attempt,
-  elapsed-time, token, and cost counters. Missing facts remain absent rather
-  than receiving default values.
-- The trial coordinator is the sole writer of the trial ledger, every
-  trial-scoped E1 ledger, and parent state. Workers may perform blocking child
-  stages and emit immutable lifecycle events, but they cannot allocate
-  ordinals, append rows, settle a cell, write parent state, or finalize an E1
-  edge. Each child remains an ordinary E1 run with its own state root and
-  run-lifetime writer lock.
-- Per-cell settlement has one order: allocate the cell and fresh E1 ordinal;
-  validate and acknowledge each E1 lifecycle event; receive the prepared E1
-  settlement; append the exact cell settlement bound to that pending E1 row;
-  then append the adjacent E1 `committed` transition. A cell settled before
-  that adjacent transition is reconciled from the exact validated trial row
-  with zero launch. A child or E1 attempt that completed before cell settlement
-  remains incomplete and non-authoritative: retain available incident facts,
-  discard only its exact workspace, and rerun the cell with a fresh ordinal.
-- After every admitted cell is terminal, the coordinator appends the frozen
-  admitted evidence-set digest before any check or evaluator dispatch. It then
-  commits checks in authority order, packet/scorer attempts and scores,
-  aggregation inputs, the unblinded verdict, and the existing verdict artifact.
-  A terminal prepared-trial row binds the exact result, verdict, artifact, and
-  budget digests. One atomic outer parent transition stores
-  `StepResult.trial` plus typed artifacts and clears `current_step`; only then
-  is the adjacent outer-parent `committed` event appended. A crash in that
-  final gap reconciles from the exact parent result and prepared row without
-  launching a child, check, or evaluator again.
-- Resume validates the source/executable/projection, parent run/frame/visit,
-  `TrialStaticConfig`, runtime request, ordered cell domain, E1 roots and rows,
-  sealed map, evidence freeze, check/score/verdict chain, result contract, and
-  artifact digests before reuse. An exact settled cell is reused with no child
-  launch. Missing, corrupt, ambiguous, escaping, cross-cell, or multiply bound
-  authority fails closed without mutation or launch. A failed cell is a
-  durable `TrialArmOutcome.Failed` value and never causes an otherwise valid
-  sibling settlement to be removed or rerun.
-- The outer lexical checkpoint policy is
-  `reuse_validated_trial_result`. It retains every existing root, callee,
-  bound-input, checkpoint, visit, result-contract, and completed-effect guard.
-  The trial result is a durable effect/public-boundary fact; replay never
-  recomputes or substitutes it from a report, packet, score summary, or
-  verdict view.
-- M2's `derived_pure_replay.v1` boundary applies without exception. Pure
-  ordering, median and ranking, rendered packet views, and report projections
-  are reconstructed transiently from validated durable facts. An eligible
-  successful compiler-generated pure projection persists the exact value-free
-  completion shell and no value-bearing row, bundle, private lineage value, or
-  pure checkpoint. Trial state creates no second derived-value cache, no
-  effect-identity memo key, no memo-first path, no cross-run memo, and no
-  persisted optimizer state. Failed/skipped pure rows, E1 effects, checks,
-  evaluator attempts, scores, the verdict artifact, and the outer trial
-  settlement keep their owning durable contracts.
+The trial executor, its ledger, settlement and replay state were removed on 2026-11-12. Its
+packages are kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime is commit `08cdd59b`. See the
+[salvage record](../docs/design/trial_and_adjudication_salvage.md).
 
 ## Workflow Lisp Typed Prompt-Input Evidence
 
@@ -1755,99 +1698,19 @@ actual boundary; it does not establish terminality by itself.
 
 ## Provider-Supervision State And Resume (v2.16)
 
-- State schema remains `2.1`. One running supervision group owns one ordinary
-  live cursor whose `current_step` has `type: "provider_supervision"`, the
-  generated step id, status `running`, and its visit count. The group is one
-  atomic workflow step; its members do not publish independent workflow
-  results or checkpoints.
-- The group visit is not a provider attempt. Worker-fresh and
-  supervisor-directive invocations each allocate a distinct root-owned
-  root-owned provider-attempt ordinal; `STEER` allocates a third ordinal for
-  the worker resume turn only after the prior boundary is validated. Attempt
-  scopes are derived from group step id, visit, member id, and turn ordinal.
-- Visit evidence lives below
-  `provider-supervision/<encoded-node>/visits/<visit>/`. Its
-  `metadata.json` progresses from pending/running evidence to a terminal
-  disposition such as `committed_terminal_result`; provisional member bundles
-  and transcripts remain secondary evidence. A completed node exposes only
-  the selected worker-attempt and directive-attempt references in debug state,
-  not member values or live targets as competing state authorities.
-- The coordinator alone commits the validated settlement result, artifact and
-  dataflow publications, terminal step result, selected-attempt references,
-  and exact matching `current_step` clearance as one state transaction.
-- If ordinary resume finds a matching running supervision visit without that
-  visit's terminal group result, it first applies every ordinary integrity and
-  projection guard. It then marks available visit evidence `interrupted`,
-  clears only the exact matching `current_step`, preserves older terminal
-  results, emits `provider_attempt_interrupted_rerun`, and enters a fresh group
-  visit through ordinary dispatch. No member session, attempt, pane, or
-  provisional result from the interrupted visit is reused.
-- A mismatched or malformed supervision cursor/visit relationship fails with
-  `provider_supervision_resume_state_integrity_error`. Ordinary resume never
-  reuses an interrupted visit's member sessions. Existing root, callee,
-  checkpoint, and projection-integrity guards remain unchanged.
+The provider-supervision executor and its state were removed on 2026-11-11. Its packages are
+kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime, including its step-executor bindings, is commit `08cdd59b`. The closed
+build refuses the `with-live-providers` form with `[closed_program_gap]`; see the
+[salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
 ## Provider-Peer-Group State And Resume (v2.17)
 
-- State schema remains `2.1`. One running peer group owns one ordinary live
-  cursor whose `current_step` has `type: "provider_peer_group"`, the generated
-  step id, status `running`, and its visit count. The group is one atomic
-  workflow step; members, messages, ledgers, and endpoints do not publish
-  independent workflow results or checkpoints.
-- The group visit is not a provider attempt. Every member allocates one
-  distinct root-owned provider-attempt ordinal in authored order
-  before member launch. Attempt scopes derive from the group step identity,
-  visit, and member id. A peer group has no member resume turn and no
-  fresh-to-resume attempt transition.
-- The runtime preflights the complete visit root before allocation and the
-  exact attempt-qualified path set after allocation. Each member attempt owns
-  one immutable prompt-dependency snapshot, one append-only
-  `injected-messages.jsonl` ledger with a durable header even when empty, one
-  member terminal `evidence.json`, and one `provisional-result.json`.
-  Preimages, collisions, missing identities, and authored-order/path-set
-  mismatches fail closed.
-- Receiver ledgers contain canonical monotonically sequenced `recorded`,
-  `offered` or `offer_failed`, and `receiver_acknowledged` rows. Their terminal
-  summaries bind the exact receiver attempt, canonical digest, row count, and
-  lifecycle counts. Message content stays in the receiver ledger; it is not
-  copied into `state.json`, result artifacts, Semantic IR, checkpoint
-  identity, or prompt-dependency snapshots.
-- Terminal group evidence uses
-  `provider_peer_group_terminal_evidence.v1`. Completed evidence binds the
-  exact visit, authored-order member attempts, each member's terminal
-  lifecycle, ledger summary, frozen-bundle digest, complete natural-shutdown
-  proof, endpoint drain/close/worker-join proofs, and settlement digest. Failed
-  evidence has no settlement digest, carries a bounded failure code/message,
-  and records available failed-cleanup proof instead of reclassifying forced
-  cleanup as natural completion.
-- On successful settlement, `steps.<Step>.artifacts` contains only the
-  validated settlement projection. When the coordinator can close terminal
-  group evidence, `steps.<Step>.debug.provider_peer_group` contains only the
-  run-root-relative terminal evidence path, terminal evidence schema version,
-  and `completed|failed` outcome. Endpoint paths/bindings, pane targets,
-  message bodies, provisional member values, and member bundle paths are not
-  competing state or resume authorities.
-- For a reportable terminal group, the coordinator alone commits the validated
-  settlement (when successful), ordinary artifact/dataflow publications,
-  terminal step result, bounded evidence reference, and exact matching
-  `current_step` clearance as one state transaction. Any
-  member/protocol/delivery/bundle/settlement/endpoint/cleanup failure publishes
-  no settlement. A startup cleanup failure that cannot truthfully construct
-  complete terminal peer evidence propagates after cleaning all known
-  resources; it must not fabricate a terminal evidence record.
-- If ordinary resume finds a matching running peer-group visit without that
-  visit's terminal group result, it first applies every ordinary integrity and
-  projection guard. It then preserves partial ledgers as audit-only evidence,
-  marks available visit evidence `interrupted`, clears only the exact matching
-  `current_step`, emits `provider_attempt_interrupted_rerun`, and enters a
-  fresh group visit through ordinary dispatch. No member attempt, endpoint,
-  pane, bundle, provisional result, or settlement from the interrupted visit
-  is reused.
-- A mismatched or malformed peer-group cursor/visit relationship fails with
-  `provider_peer_group_resume_state_integrity_error`. Ordinary resume never
-  reuses an interrupted visit's attempts, endpoint, panes, bundles, or ledgers.
-  Root/callee checksums, lexical checkpoint validation, and
-  projection-integrity guards remain unchanged.
+The provider-peer-group executor and its state were removed on 2026-11-11. Its packages are
+kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime, including its step-executor bindings, is commit `08cdd59b`. The closed
+build refuses the `with-live-provider-peers` form with `[closed_program_gap]`; see the
+[salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
 ## Reusable-Call State Contract (v2.5)
 
@@ -2073,26 +1936,10 @@ Schema boundary note:
 
 ## Adjudicated Provider State (v2.11)
 
-- State schema remains `2.1`; adjudication state is an additive `steps.<Step>.adjudication` payload plus run-root sidecars.
-- Normal artifact lineage contains only promoted selected outputs. Candidate outputs are not published as ordinary artifacts.
-- `steps.<Step>.adjudication` records selected candidate id, selected score or `null`, selection reason, promotion status, scorer identity, evaluator prompt hash, evidence confidentiality, score ledger paths, scorer snapshot path, promotion manifest path, and per-candidate terminal metadata.
-- Candidate/evaluator stdout-derived state is absent: `output`, `lines`, `json`, `truncated`, and `debug.json_parse_error` are not populated for adjudicated provider steps.
-- Run-local score ledgers live under `.orchestrate/runs/<run_id>/adjudication/<frame_scope>/<step_id>/<visit_count>/candidate_scores.jsonl`. Workspace-visible ledgers configured by `score_ledger_path` are terminal mirrors only.
-- Ledger rows are keyed by `candidate_run_key` and `score_run_key` and include candidate provider/model/prompt identity, scorer identity or scorer-unavailable metadata, packet hash when present, score status, selection status, promotion status, and attempt counts.
-- Resume reconciles the baseline manifest, candidate metadata, scorer snapshot
-  or scorer-unavailable metadata, evaluation packets, ledger rows, and
-  promotion manifests. A fully consistent completed visit is reused without
-  provider invocation. When inconsistent state can be bound to one exact
-  run-owned step/visit scope, the runtime discards only that visit's partial
-  adjudication state and sidecars, emits
-  `adjudication_state_mismatch_rerun`, and re-enters ordinary adjudicated-step
-  dispatch with fresh identities. Unknown, ambiguous, escaping, aliased, or
-  otherwise unprovable cleanup scope fails closed without mutation or provider
-  launch. Before removing one visit across its run-owned roots, the runtime
-  writes a frame/step-scoped cleanup guard bound to the discarded and next
-  visit coordinates. Successful cleanup removes that guard before dispatch; a
-  surviving guard proves cleanup was interrupted and blocks later provider
-  dispatch or publication with `adjudication_state_integrity_error`.
+The adjudicated-provider executor and its state were removed on 2026-11-12. Its
+packages are kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime is commit `08cdd59b`. See the
+[salvage record](../docs/design/trial_and_adjudication_salvage.md).
 
 ## Evaluated Durable Host Input (Target 2.40)
 

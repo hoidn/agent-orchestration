@@ -25,7 +25,6 @@ from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import RunsRefEffect, UsesCommandEffect, UsesProviderEffect
 from orchestrator.workflow_lisp.workflows import PromptExtern
-from tests.test_workflow_lisp_trial import _trial_source
 from tests.workflow_lisp_closed_program_helpers import BOUNDARIES, PROMPTS, install
 
 HELPER = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
@@ -362,9 +361,6 @@ EFFECT_REFUSALS = {
         _child("bad", "(let* ((c (provider-result providers.review :prompt prompts.base :inputs (seed) "
                       ":capture-context :portable :returns Verdict))) seed)"),
         "run_ref_environment_effect_unsupported"),
-    "trial": ('(defworkflow first () -> String "a") (defworkflow second () -> String "b")'
-              + _child("bad", f"(let* ((t {_trial_source()})) seed)"),
-              "run_ref_environment_effect_unsupported"),
     "parallel-map-through-call": (
         _child("fan", '(let* ((xs (list/map-effect ((repo (list "a"))) :max 1 :parallel 1 '
                       ':workspace repo (call leaf :value repo)))) seed)') + _child("bad", "(call fan :seed seed)"),

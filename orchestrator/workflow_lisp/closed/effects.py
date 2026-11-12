@@ -113,7 +113,6 @@ def require_closed_perform(builder: Any, perform: WccPerform) -> None:
             "provider_result": "provider-result",
             "run_ref": "run-ref",
             "request_input": "request-input",
-            "trial": "trial",
             "run_provider_phase": "run-provider-phase",
             "produce_one_of": "produce-one-of",
             "resume_or_start": "resume-or-start",

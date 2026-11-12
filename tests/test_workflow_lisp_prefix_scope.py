@@ -272,6 +272,15 @@ DIRECT_CONTINUES = {
     "let-bound": "(let* ((next (revise state))) (continue next))",
 }
 
+# A `match` whose subject is pure and whose REVISE arm runs `revise`, given directly or let-bound.
+ARM_MATCH = (
+    '(match (if (< state.score 5) (variant Decision REVISE :feedback (record Feedback :note "go"))'
+    ' (variant Decision APPROVE :evidence (record Feedback :note "stop")))'
+    " ((REVISE r) (revise state)) ((APPROVE a) state) ((BLOCKED b) state))"
+)
+DIRECT_CONTINUES["match"] = f"(continue {ARM_MATCH})"
+DIRECT_CONTINUES["let-bound-match"] = f"(let* ((next {ARM_MATCH})) (continue next))"
+
 DIRECT_EXPECTED = (0, {"title": "draft+r+r", "score": 2}, ([], ["draft tidy fb", "draft+r tidy fb"], []))
 
 
@@ -285,7 +294,7 @@ def test_an_effect_given_directly_to_continue_runs_as_the_let_bound_form(
     assert _run(tmp_path, monkeypatch, probes) == DIRECT_EXPECTED
 
 
-@pytest.mark.parametrize("form", ["command", "procedure"])
+@pytest.mark.parametrize("form", ["command", "procedure", "match"])
 def test_resume_after_a_commit_inside_direct_continue_never_repeats_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str
 ) -> None:
@@ -294,6 +303,27 @@ def test_resume_after_a_commit_inside_direct_continue_never_repeats_it(
     body = DIRECT_LOOP.replace("CONTINUE", DIRECT_CONTINUES[form])
     probes = _write_program(tmp_path, body=body, returns="Candidate", seed="draft")
     _assert_committed_prefix_resume(tmp_path, monkeypatch, probes, DIRECT_EXPECTED)
+
+
+# The subject runs `review`; the arms are pure, so the `match` is effectful only through its subject.
+SUBJECT_MATCH = (
+    "(match (review state) ((REVISE r) (record Candidate :title r.feedback.note :score (+ state.score 1)))"
+    " ((APPROVE a) state) ((BLOCKED b) state))"
+)
+SUBJECT_MATCH_CONTINUES = {
+    "direct": f"(continue {SUBJECT_MATCH})",
+    "let-bound": f"(let* ((next {SUBJECT_MATCH})) (continue next))",
+}
+
+
+@pytest.mark.parametrize("form", list(SUBJECT_MATCH_CONTINUES))
+def test_a_match_with_pure_arms_given_directly_to_continue_runs_as_the_let_bound_form(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str
+) -> None:
+    body = DIRECT_LOOP.replace("CONTINUE", SUBJECT_MATCH_CONTINUES[form])
+    probes = _write_program(tmp_path, body=body, returns="Candidate", seed="draft")
+
+    assert _run(tmp_path, monkeypatch, probes) == (0, {"title": "fb0", "score": 2}, (["draft tidy", "fb0 tidy"], [], []))
 
 
 HOST_INPUT_CONTINUES = {

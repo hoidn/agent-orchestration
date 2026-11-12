@@ -105,7 +105,6 @@ def _catalog(expr: RunRefExpr, *, params=(), return_type=None, defaults=()):
     return WorkflowCatalog(
         signatures_by_name={"child": signature},
         definitions_by_name={},
-        imported_bundles_by_name={},
     )
 
 
@@ -1359,7 +1358,6 @@ def test_run_ref_mode_one_rejects_selected_private_boundary_state(
     catalog = WorkflowCatalog(
         signatures_by_name={"child": signature},
         definitions_by_name={},
-        imported_bundles_by_name={},
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -1402,7 +1400,6 @@ def test_run_ref_mode_one_rejects_selected_hidden_boundary_state(
     catalog = WorkflowCatalog(
         signatures_by_name={"child": signature},
         definitions_by_name={},
-        imported_bundles_by_name={},
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -2253,7 +2250,6 @@ def test_run_ref_generated_name_binds_site_program_and_value_type() -> None:
                 )
             },
             definitions_by_name={},
-            imported_bundles_by_name={},
         )
         typed = typecheck_expression(
             expr,

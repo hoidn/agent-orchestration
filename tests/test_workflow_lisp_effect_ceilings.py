@@ -473,14 +473,11 @@ def test_absent_clause_does_not_make_effectful_function_pure(tmp_path):
     assert caught.value.diagnostics[0].code == "pure_function_has_effect"
 
 
-@pytest.mark.parametrize("kind", ["run-ref", "trial"])
 @pytest.mark.parametrize("specialized", [False, True])
-def test_omitted_child_work_wrapper_cannot_enter_pure_function(tmp_path, kind, specialized):
+def test_omitted_child_work_wrapper_cannot_enter_pure_function(tmp_path, specialized):
     from tests.test_workflow_lisp_run_ref_workflow_program import PATH_RUN_REF
-    from tests.test_workflow_lisp_trial import _trial_source
 
-    effect = (PATH_RUN_REF if kind == "run-ref" else _trial_source()
-        .replace('"scorer"', '"providers.allowed"').replace('"rubrics/trial.md"', '"prompt.md"'))
+    effect = PATH_RUN_REF
     dispatch = "(forward (proc-ref leaf))" if specialized else "(leaf)"
     declarations = f'''(defworkflow first () -> String "a")
       (defworkflow second () -> String "b")
@@ -491,8 +488,7 @@ def test_omitted_child_work_wrapper_cannot_enter_pure_function(tmp_path, kind, s
     with pytest.raises(LispFrontendCompileError) as caught:
         _compile(tmp_path, declarations)
     diagnostic = caught.value.diagnostics[0]
-    assert diagnostic.code == ("run_ref_placement_invalid" if kind == "run-ref"
-        else "trial_nested_unsupported")
+    assert diagnostic.code == "run_ref_placement_invalid"
     assert "pure function" in diagnostic.message
 
 

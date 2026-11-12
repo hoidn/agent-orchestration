@@ -1,0 +1,109 @@
+{
+  "study": "PQ-1c: Agent Sessions variant against the plain baseline of design-review-execute",
+  "protocol": "docs/plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#pq-1c-protocol",
+  "claims": "measure-free figures only: no judge, no calibration, no quality claim, no claim about better",
+  "model": "claude-haiku-5-5",
+  "cells": [
+    "variant-clean",
+    "variant-resumed",
+    "baseline-clean",
+    "baseline-resumed"
+  ],
+  "pairs": {
+    "clean": [
+      "variant-clean",
+      "baseline-clean"
+    ],
+    "resumed": [
+      "variant-resumed",
+      "baseline-resumed"
+    ]
+  },
+  "turns_per_run": 4,
+  "fixture_commit": "1f4f0e6d93081249e13d26fd5ac205c85d183da7",
+  "isolation": {
+    "flags": "--setting-sources project --strict-mcp-config --disable-slash-commands (cell_claude.sh)",
+    "builtin_agents": [
+      "claude",
+      "Explore",
+      "general-purpose",
+      "Plan",
+      "statusline-setup"
+    ],
+    "rule": "every provider attempt has exactly one stream-json init event with the keys plugins, mcp_servers, skills, slash_commands, agents, model and session_id; it lists no plugin but built-in ones (path builtin, source ending @builtin), no MCP server, skill or slash command, no agent outside builtin_agents, and model claude-haiku-5-5; the built-in set is the one a real isolated 2.1.322 session lists on this host"
+  },
+  "sessions": "the CLI's native transcripts for the cell's workspace (~/.claude/projects/<workspace path with every non-alphanumeric character replaced by ->/: each <id>.jsonl transcript and each <id>/ folder, which is all a call without session persistence leaves) are exactly the sessions the attempts' init events name: 2 for a variant cell, 4 for a baseline cell when every turn ran; another count means a CLI ran outside the journal; this detects such spend, it cannot prevent it",
+  "spend": {
+    "per_call_ceiling_usd": 0.5,
+    "per_run_cap_usd": 10,
+    "paid_calls_at_most": 20,
+    "ceiling_usd_under_the_caps": 10,
+    "why_the_run_cap_is_10": "the run cap prices every token at the model's highest tier, five times Haiku's ordinary rate, so four calls at the USD 0.5 per-call ceiling price at USD 10; a lower cap would stop a run before the per-call ceilings, which bound real spend at USD 2 per run",
+    "overshoot": "the CLI documents that spend can pass --max-budget-usd by the request in flight; that overshoot is not bounded by the kit",
+    "retry": "one infrastructure retry in all (one cell, 4 calls), only of a first attempt that finished as an infrastructure failure or died without filing its record; a cost stop is never retried"
+  },
+  "axes": {
+    "completion": "report run.status is completed with four committed typed results (provider or agent_turn commits of four identities), and no stop by the spend cap (spend_cap_reached) or the per-call budget (error_max_budget_usd)",
+    "no_repeated_paid_work": "every turn identity has one started row, and no log of the cell has an effect_rerun or agent_bootstrap_restarted line",
+    "committed_turn_redispatched": "a turn identity has a started row after its committed row",
+    "usage_recorded": "every provider attempt (an attempt directory holding prompt.txt) has a usage.json that is reported and complete",
+    "cost": "report run.usage.cost_usd, variant over baseline, per pair, computed only when both cells of the pair completed; a pair with a cell that did not complete, a partial or unknown cost (cost_usd null, partial true or unknown_attempts above 0), or a cost that is not a finite number above zero makes that pair's ratio undetermined, never a number",
+    "invalidate": "on a copy of each clean run, invalidate <run> <feedback identity>: the variant exits 2 with invalidate_coordinator_committed and unchanged run-tree bytes, the baseline exits 0; reported, decides no outcome",
+    "elapsed_time": "seconds of the run and resume invocations; reported, decides nothing"
+  },
+  "thresholds": {
+    "retire_cost_ratio_at_or_above": 1.25,
+    "retain_cost_ratio_at_or_below": 0.8
+  },
+  "outcomes": {
+    "Retire": "a variant cell does not complete while its baseline cell does, or a committed turn of a variant cell is dispatched again, or the cost ratio is at or above 1.25 in both pairs",
+    "Retain": "all four cells complete, no paid work repeats in any cell, and the cost ratio is at or below 0.8 in both pairs",
+    "Improve": "anything else; Agent Sessions stays opt-in at target 2.38, the Python Agent item is not opened, and no further spend follows unless the consumer thread names a need"
+  },
+  "readings": [
+    "a repeated dispatch of a committed turn counts toward Retire only in variant cells",
+    "a resumed run that fails at the workflow level before the stop counts as not completed",
+    "a pair's cost ratio exists only when both of its cells completed: a baseline that failed is never a cheap baseline",
+    "providers.codex is bound to claude_unrestricted_workspace_metered, not claude_unrestricted_workspace, because a capped run needs metered templates",
+    "a stop by the run's spend cap (spend_cap_reached) or by the per-call budget (error_max_budget_usd) is a cost outcome, not infrastructure: the cell did not complete, it is never retried, and its recorded partial cost is reported"
+  ],
+  "refusal": "readout.py refuses to read out (exit 2, no outcome) when a file listed in manifest.json (this criterion, readout.py, run_cell.sh, cell_claude.sh, inputs.json, providers.json) differs from its listed SHA-256; when a cell ran with another manifest; or when a cell has a retry although its first attempt is not an infrastructure failure",
+  "infrastructure_failure": [
+    "the cell's record is missing, unreadable or incomplete: no cell.json, no readable report.json or a nonzero report exit, no run tree, or cell.json naming another cell",
+    "no turn committed, unless the cell stopped for cost",
+    "the cap could not meter a call (spend_cap_unmetered)",
+    "a provider attempt whose usage is not reported or reports no output tokens: the model produced nothing (launch, login or CLI failure) or the metering failed",
+    "codex was called, or a claude was started inside the cell (nested-calls.log)",
+    "a call ended with an API error: an is_error result carrying api_error_status, or result text starting 'API Error' (overloaded, 5xx, rate limit, login); a failure the model produced is not one",
+    "a hook event in a call's stream (SessionStart and Setup hook events are always in stream-json output), or a hook record (an attachment with hookEvent or a hook_ type) in the cell's session transcripts",
+    "a provider attempt's init event is missing, lacks a key the isolation rule reads, or lists what isolation should have removed",
+    "the CLI's sessions for the workspace (each <id>.jsonl transcript and each <id>/ folder) differ from the sessions the attempts name",
+    "the fixture commit is not the pinned one",
+    "a resumed cell without the evidence of its stop and resume: the wrapper exit 75 right after the reviewer's first turn with nothing in flight, and a resume invocation; or a resumed cell that ran to the end without stopping"
+  ],
+  "decision_order": [
+    "undetermined: a cell is missing or is an infrastructure failure; cells mix rehearsal and real runs; cells differ in runtime commit, fixture commit, CLI version, Python version, price table or source digest of an arm; a real cell ran on a runtime with uncommitted changes; a recorded usage model or bound model input is not claude-haiku-5-5",
+    "Retire by completion or a redispatched committed variant turn, whatever the cost",
+    "Retire by cost when both ratios are known and at or above 1.25",
+    "undetermined when a ratio is unknown and the known ratios do not already exclude Retire by cost",
+    "Retain when all cells complete, nothing repeats and both ratios are known and at or below 0.8",
+    "undetermined when completion and no repetition hold and a ratio is unknown that could still give Retain",
+    "Improve otherwise"
+  ],
+  "can_decide": [
+    "completion",
+    "repeated dispatch",
+    "the invalidate behavior",
+    "whether usage was recorded",
+    "a cost difference outside the 0.8 to 1.25 band"
+  ],
+  "cannot_decide": [
+    "retained context",
+    "document quality",
+    "elapsed time",
+    "a cost difference inside the band",
+    "how often a cell fails"
+  ],
+  "owner_judgment": "whether what was observed justifies losing the ability to invalidate feedback",
+  "anchor": "manifest.json lists the SHA-256 of this criterion and of every file that defines a cell; its own SHA-256 is recorded in the plan's ledger, and run_cell.sh refuses unless PQ1C_MANIFEST_SHA256 equals it"
+}

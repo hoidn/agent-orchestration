@@ -5,6 +5,7 @@ Implements provider template storage, lookup, and parameter merging per specs/pr
 """
 
 import logging
+from dataclasses import replace
 from typing import Any, Dict, List, Optional
 
 from .omp_templates import omp_templates
@@ -19,6 +20,31 @@ from .types import (
 
 
 logger = logging.getLogger(__name__)
+
+# Structured-output flags per CLI, inserted after the subcommand prefix (`claude -p`, `codex exec`).
+_TRANSPORTS = {
+    "claude": (2, ("--output-format", "stream-json", "--verbose"),
+               ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value),
+    "codex": (2, ("--json",), ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value),
+}
+
+
+def metered_templates(builtins: Dict[str, ProviderTemplate]) -> Dict[str, ProviderTemplate]:
+    """`<name>_metered` for each plain built-in `claude`/`codex` template: the same call, printing transport JSON.
+
+    The plain command gains its CLI's structured-output flags and `command_metadata_mode`, so the
+    attempt's `usage.json` reports tokens; everything else is the original template's.
+    """
+    metered = {}
+    for name, template in builtins.items():
+        transport = _TRANSPORTS.get(template.command[0])
+        if transport is None or template.command_metadata_mode is not None:
+            continue
+        at, flags, mode = transport
+        command = [*template.command[:at], *flags, *template.command[at:]]
+        metered[f"{name}_metered"] = replace(template, name=f"{name}_metered", command=command,
+                                             command_metadata_mode=mode)
+    return metered
 
 
 class ProviderRegistry:
@@ -132,7 +158,7 @@ class ProviderRegistry:
                 },
             )
 
-        return {
+        builtins = {
             "claude": claude_provider("claude", "claude-opus-4-6"),
             "claude_sonnet_summary": claude_provider(
                 "claude_sonnet_summary", "claude-sonnet-4-6"
@@ -227,6 +253,8 @@ class ProviderRegistry:
             ),
             **omp_templates(),
         }
+        builtins.update(metered_templates(builtins))
+        return builtins
 
     @staticmethod
     def _raise_if_invalid(provider: ProviderTemplate) -> None:

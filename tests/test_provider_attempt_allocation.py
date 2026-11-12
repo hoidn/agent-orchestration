@@ -324,14 +324,14 @@ def test_provider_attempt_scope_prefix_like_legacy_ids_remain_opaque_and_canonic
     base = attempts.ProviderAttemptScope.from_dict(
         _direct_scope_payload(root)
     )
-    qualified = attempts.derive_provider_attempt_member_turn_scope(
-        base,
+    qualified = attempts._encode_member_turn_runtime_step_id(
+        runtime_step_id=base.runtime_step_id,
         member_id="worker",
         turn_ordinal=0,
     )
     legacy_runtime_step_ids = (
         "provider_attempt_member_turn.v1:not*base64",
-        qualified.runtime_step_id + "=",
+        qualified + "=",
     )
 
     for runtime_step_id in legacy_runtime_step_ids:

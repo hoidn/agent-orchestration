@@ -54,7 +54,6 @@ from .expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     RunRefExpr,
-    TrialExpr,
     UnionVariantExpr,
     UnionVariantTagExpr,
     WithLiveProviderPeersExpr,
@@ -252,10 +251,9 @@ _EFFECT_EXPRS: tuple[type, ...] = (
 # Scope/lifecycle owners are handled by dedicated rebuilders below, never by
 # the generic effect traversal: their body/arm/start bindings must stay inside
 # the owner that supplies their names/lifecycle rather than hoist to the
-# enclosing condition prefix. `TrialExpr`/`ResumeOrStartExpr` cannot be
-# exact-``Bool`` (a generated trial-result record and a record/union,
-# respectively), but their run-ref input and start-branch children may still
-# contain condition-owned Bool projections and are rebuilt scope-preservingly.
+# enclosing condition prefix. `ResumeOrStartExpr` cannot be exact-``Bool`` (it
+# is a record/union), but its start-branch children may still contain
+# condition-owned Bool projections and are rebuilt scope-preservingly.
 
 # Composite value/call expressions traversed for nested `and`/`or`. Loop-control
 # terminals (`continue`/`done`) are normalized in place: their state/result
@@ -299,7 +297,6 @@ _LEAF_EXPRS: tuple[type, ...] = (
 # subtree reaches any of these must not be folded without bindings (the fold
 # would emit a raw effect condition that WCC's value consumer cannot route).
 _EFFECT_NODE_TYPES: tuple[type, ...] = _EFFECT_EXPRS + (
-    TrialExpr,
     ResumeOrStartExpr,
     WithLiveProvidersExpr,
     WithLiveProviderPeersExpr,
@@ -316,7 +313,6 @@ _LOOP_SPINE_EXPRS: tuple[type, ...] = (
     LetStarExpr,
     MatchExpr,
     LoopRecurExpr,
-    TrialExpr,
     ResumeOrStartExpr,
     WithLiveProvidersExpr,
     WithLiveProviderPeersExpr,
@@ -394,8 +390,6 @@ def _normalize_operand(
         return _normalize_with_live_providers(expr, path=path, closed_program=closed_program)
     if isinstance(expr, WithLiveProviderPeersExpr):
         return _normalize_with_live_provider_peers(expr, path=path, closed_program=closed_program)
-    if isinstance(expr, TrialExpr):
-        return _normalize_trial(expr, path=path, closed_program=closed_program)
     if isinstance(expr, ResumeOrStartExpr):
         return _normalize_resume_or_start(expr, path=path, closed_program=closed_program)
     if isinstance(expr, WithPhaseExpr):
@@ -945,31 +939,6 @@ def _normalize_with_live_provider_peers(
     closed_program: bool = False,
 ) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
     return _normalize_live_provider_owner(expr, path=path, closed_program=closed_program)
-
-
-def _normalize_trial(
-    expr: TrialExpr,
-    *,
-    path: tuple[int, ...],
-    closed_program: bool = False,
-) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
-    # Each arm's run-ref is a lifecycle child owned by the trial: keep the
-    # run-ref node itself as the arm (trial static config digests it), while
-    # its input projections evaluate in the enclosing scope and fold any
-    # condition-owned Bool `and`/`or` there.
-    hoisted: list[tuple[str, ExprNode]] = []
-    new_arms = []
-    for index, arm in enumerate(expr.arms):
-        arm_prefix, rebuilt_run_ref = _normalize_composite(
-            arm.run_ref,
-            path=path + (index,),
-            closed_program=closed_program,
-        )
-        hoisted.extend(arm_prefix)
-        new_arms.append(dataclasses.replace(arm, run_ref=rebuilt_run_ref))
-    rebuilt = dataclasses.replace(expr, arms=tuple(new_arms))
-    binding_name = _condition_binding_name(expr, role="effect", path=path)
-    return (*hoisted, (binding_name, rebuilt)), _name_expr(binding_name, expr)
 
 
 def _normalize_resume_or_start(

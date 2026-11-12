@@ -10,7 +10,7 @@ import pytest
 
 from orchestrator.cli.commands.compile import compile_workflow
 from orchestrator.cli.commands.run import run_workflow
-from orchestrator.cli.main import create_parser, main
+from orchestrator.cli.main import create_parser
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.contracts.closed_program.program import ClosedProgram
@@ -949,128 +949,6 @@ def test_orc_commands_report_invalid_manifest_entry_schema_as_frontend_diagnosti
     assert f"[{expected_code}]" in caplog.text
     assert expected_message in caplog.text
     assert "Traceback" not in caplog.text
-
-
-@pytest.mark.parametrize(
-    ("argv", "expected"),
-    [
-        (["peer-ready"], {"command": "peer-ready"}),
-        (
-            ["peer-send", "target-binding", "hello peer"],
-            {
-                "command": "peer-send",
-                "target_binding": "target-binding",
-                "message": "hello peer",
-            },
-        ),
-        (
-            ["peer-ack", "message-1"],
-            {"command": "peer-ack", "message_id": "message-1"},
-        ),
-        (["peer-finish"], {"command": "peer-finish"}),
-    ],
-)
-def test_peer_cli_parser_exposes_only_bound_member_arguments(
-    argv: list[str],
-    expected: dict[str, str],
-) -> None:
-    parser = create_parser()
-    command_action = next(
-        action for action in parser._actions if action.dest == "command"
-    )
-
-    assert {
-        name for name in command_action.choices if name.startswith("peer-")
-    } == {"peer-ready", "peer-send", "peer-ack", "peer-finish"}
-    assert vars(parser.parse_args(argv)) == expected
-    assert {
-        option
-        for action in command_action.choices[argv[0]]._actions
-        for option in action.option_strings
-    } == {"-h", "--help"}
-
-
-@pytest.mark.parametrize(
-    ("argv", "handler_name", "expected_kwargs"),
-    [
-        (["peer-ready"], "peer_ready_workflow", {}),
-        (
-            ["peer-send", "target-binding", "hello peer"],
-            "peer_send_workflow",
-            {"target_binding": "target-binding", "message": "hello peer"},
-        ),
-        (
-            ["peer-ack", "message-1"],
-            "peer_ack_workflow",
-            {"message_id": "message-1"},
-        ),
-        (["peer-finish"], "peer_finish_workflow", {}),
-    ],
-)
-def test_peer_cli_dispatches_to_thin_client_handler(
-    argv: list[str],
-    handler_name: str,
-    expected_kwargs: dict[str, str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[dict[str, str]] = []
-
-    def fake_handler(**kwargs: str) -> int:
-        calls.append(kwargs)
-        return 23
-
-    monkeypatch.setattr(
-        f"orchestrator.cli.commands.{handler_name}",
-        fake_handler,
-    )
-
-    assert main(argv) == 23
-    assert calls == [expected_kwargs]
-
-
-def test_peer_cli_handler_prints_the_coordinator_receipt(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    from orchestrator.cli.commands import peer as peer_commands
-    from orchestrator.workflow.provider_peer_group.models import (
-        PeerReadyReceipt,
-    )
-
-    monkeypatch.setattr(
-        peer_commands,
-        "peer_ready",
-        lambda *, request_id: PeerReadyReceipt(request_id),
-    )
-
-    assert peer_commands.peer_ready_workflow() == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload == {
-        "schema_version": "provider_peer_protocol.v1",
-        "kind": "ready",
-        "request_id": payload["request_id"],
-        "status": "active",
-    }
-    assert payload["request_id"].startswith("peer-client-")
-
-
-def test_peer_cli_handler_maps_a_closed_endpoint_to_nonzero(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    from orchestrator.cli.commands import peer as peer_commands
-    from orchestrator.workflow.provider_peer_group.protocol import (
-        PeerProtocolClosedError,
-    )
-
-    def closed(*, request_id: str):
-        del request_id
-        raise PeerProtocolClosedError("closed")
-
-    monkeypatch.setattr(peer_commands, "peer_ready", closed)
-
-    assert peer_commands.peer_ready_workflow() == 2
-    assert "peer request failed: closed" in capsys.readouterr().err
 
 
 def test_build_service_infers_single_exported_entry_workflow(tmp_path: Path) -> None:

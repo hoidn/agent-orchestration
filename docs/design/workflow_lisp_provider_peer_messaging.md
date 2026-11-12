@@ -5,6 +5,8 @@ The target-2.16/2.17 group and target-2.23 phased execution routes are retired;
 new calls, old-profile replay and old-profile mutation are unavailable in this
 package. [Executor retirement](workflow_lisp_executor_retirement.md) and
 [CLI](../../specs/cli.md) govern refusal and demonstrated exact-release recovery.
+The design decisions worth reusing in a port to evaluated execution are in the
+[salvage record](live_provider_supervision_and_peers_salvage.md).
 
 Structural `interactive_terminal_turn_queue.v1` validation, adapter start/offer/close/join/abort and receipt integrity remain owned by [Providers](../../specs/providers.md). Retaining an adapter does not admit a peer-group coordinator.
 

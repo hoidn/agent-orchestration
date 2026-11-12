@@ -3,6 +3,7 @@
 from orchestrator.workflow.evaluated.machine import evaluate_closed_program
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from tests.test_workflow_lisp_phased_239 import _compile
+from tests.agent_session_shims import closed_path
 
 
 def local_executor(workspace, *, command=("local-provider", "${PROMPT}")):
@@ -126,7 +127,7 @@ def public_case(root, *, mode="success", attempts=2):
     binary.chmod(0o700)
     (root / "outputs").mkdir()
     env = {**os.environ, "PYTHONPATH": str(repo), "PYTHONDONTWRITEBYTECODE": "1",
-        "PATH": str(binary.parent) + os.pathsep + os.environ["PATH"], "ORC_FAKE_PHASED_MODE": mode}
+        "PATH": closed_path(binary.parent), "ORC_FAKE_PHASED_MODE": mode}
     assert shutil.which("codex", path=env["PATH"]) == str(binary)
     args = ["run", str(source), "--entry-workflow", "main::run", "--source-root", str(directory),
         "--provider-externs-file", str(directory / "providers.json"),

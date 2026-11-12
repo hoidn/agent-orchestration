@@ -16,7 +16,6 @@ from .effects import (
     MaterializesPointerEffect,
     MovesResourceEffect,
     RunsRefEffect,
-    RunsTrialEffect,
     UpdatesLedgerEffect,
     UpdatesStateEffect,
     UsesProviderEffect,
@@ -974,7 +973,6 @@ def _typecheck_mode_one(expr, *, context, recurse):
 
 _FORBIDDEN_CHILD_ATOMS = (
     RunsRefEffect,
-    RunsTrialEffect,
     HostInputEffect,
     LiveSupervisionEffect,
     LivePeerMessagingEffect,
@@ -985,13 +983,12 @@ _FORBIDDEN_CHILD_ATOMS = (
     MaterializesPointerEffect,
 )
 _PROVIDER_ATOMS = (UsesProviderEffect, LiveSupervisionEffect, LivePeerMessagingEffect)
-# Effect forms a confined child cannot perform (design: nested run-ref, trial,
+# Effect forms a confined child cannot perform (design: nested run-ref,
 # parallel effects, human input, sessions/context, resources).  The language
 # has no dynamic-evaluation form at this target, so there is none to list.
 _FORBIDDEN_CHILD_FORMS = {
     ex.RunRefExpr: "nested run-ref",
     ex.AgentExpr: "agent allocation",
-    ex.TrialExpr: "trial",
     ex.WithLiveProvidersExpr: "parallel live providers",
     ex.WithLiveProviderPeersExpr: "parallel live provider peers",
     ex.RequestInputExpr: "human input",

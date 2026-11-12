@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.experiments.orc_structural_search_support import SCRIPTED, script
+from tests.agent_session_shims import closed_path
 
 REPO = Path(__file__).resolve().parents[2]
 PARENT = REPO / "experiments" / "orc_structural_search" / "three_arm" / "python"
@@ -50,7 +51,7 @@ def world(tmp_path):
 def run_parent(world, *argv):
     """Run the parent (or `argv`, given) in the workspace; return its exit status and terminal.json."""
     argv = argv or (str(world.candidate / "direct.py"),)
-    env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "PYTHONPATH": str(REPO),
+    env = {**os.environ, "PATH": closed_path(world.fakebin), "PYTHONPATH": str(REPO),
            "SCRIPTED_RESULTS_FILE": str(world.results)}
     done = subprocess.run([sys.executable, *argv, str(world.inputs)], cwd=world.workspace, env=env,
                           capture_output=True, text=True)

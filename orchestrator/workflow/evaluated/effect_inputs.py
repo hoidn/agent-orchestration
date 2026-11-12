@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from orchestrator.workflow.evaluated.attempts import attempt_paths
+from orchestrator.workflow.evaluated.attempts import _retry_baseline, attempt_paths, retry_change_admitted
 from orchestrator.workflow.evaluated.closure import ClosureEvidenceError, resolve_command_evidence
 from orchestrator.workflow.evaluated.commands import (
     CommandPerformerError,
@@ -19,7 +19,7 @@ from orchestrator.workflow.evaluated.commands import (
     workspace_relative_path,
 )
 from orchestrator.workflow.evaluated.confined_dispatch import image_implementation_files
-from orchestrator.workflow.evaluated.memo import JournalEntry, MemoSnapshot
+from orchestrator.workflow.evaluated.memo import MemoSnapshot
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
@@ -35,18 +35,23 @@ from .run_ref import require_run_ref_root, resolve_run_ref_input, validate_evalu
 
 
 class _PreflightRefusal(RuntimeError):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, *, identity: str | None = None) -> None:
         self.code = code
         self.preflight = True
+        self.identity = identity
         super().__init__(message)
 
 
 class _EffectInputDiverged(_PreflightRefusal):
-    def __init__(self, identity: str, detail: str) -> None:
+    """`changed_files` are implementation-file keys; whether the step is committed is read from the memo."""
+
+    def __init__(self, identity: str, detail: str, *, changed_parts=(), changed_files=()) -> None:
         super().__init__(
             "effect_input_diverged",
             f"{identity}: effect input diverged ({detail})",
+            identity=identity,
         )
+        self.changed_parts, self.changed_files = list(changed_parts), list(changed_files)
 
 
 def _replay_committed_effect(authority, node, operands, identity, reader, commit, workspace, snapshot, owner, *,
@@ -61,7 +66,8 @@ def _replay_committed_effect(authority, node, operands, identity, reader, commit
     if node["class"] == "agent_turn":
         dependencies = list(turn_dependencies(resolved, dependencies))
     result = _reuse_effect_commit(
-        authority, commit, node, identity, parts, canonical_sha256(parts), dependencies
+        authority, commit, node, identity, parts, canonical_sha256(parts), dependencies,
+        implementation_files=_implementation_files,
     )
     settled = (identity, commit.data["attempt"]) in snapshot.settlements
     if node["class"] == "run_ref":
@@ -213,7 +219,7 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
         _resolve_effect_input(
             authority, node, operands, identity, workspace, reader,
             None, baseline, attempt_directory, result_path, owner=owner,
-            check_command_destinations=False, launch_cwd=launch_cwd, confined=confined,
+            check_command_destinations=False, launch_cwd=launch_cwd, confined=confined, snapshot=snapshot,
         )
     elif (node["class"] == "provider" and identity in snapshot.pending_starts
             or node["class"] == "provider_phased"):
@@ -230,6 +236,7 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
         raise _PreflightRefusal(
             "lexical_restore_pending_effect_unsafe",
             f"{identity}: effect declares that it must not be repeated",
+            identity=identity,
         )
 
 
@@ -267,7 +274,7 @@ def _resolve_effect_input(
     if node["class"] == "command":
         resolved, parts, implementation_files = _resolve_command_input(authority, node, operands, identity, owner, workspace,
             commit, baseline, attempt_directory, result_path, workspace_files, check_command_destinations, launch_cwd,
-            confined)
+            confined, snapshot)
     else:
         resolved, parts = _resolve_external_input(authority, node, operands, identity, workspace, reader,
             commit, result_path, launch_cwd, snapshot)
@@ -392,7 +399,7 @@ def _ensure_effect_can_start(snapshot: MemoSnapshot, identity: str, *, allow_uns
 
 def _resolve_command_input(authority, node, operands, identity, owner, workspace,
     commit, baseline, attempt_directory, result_path, workspace_files, check_destinations, launch_cwd=None,
-    confined=None):
+    confined=None, snapshot=None):
     previous = commit if commit is not None else baseline
     external = command_binding_kind(authority.program, owner, node["boundary"]) == "external_tool"
     if confined is not None and commit is not None:
@@ -411,7 +418,7 @@ def _resolve_command_input(authority, node, operands, identity, owner, workspace
     else:
         implementation_files = _resolve_command_implementation(node, workspace, identity,
             None if previous is None else previous.data["implementation_files"], destinations, launch_cwd)
-    _check_retry_implementation(identity, baseline, implementation_files)
+    _check_retry_implementation(identity, baseline, implementation_files, snapshot, authority.accept_changes)
     parts = _command_input_parts(node, argv, implementation_files, document)
     if external and document is not None:
         parts["input_contract"] = canonical_sha256(contract)
@@ -480,14 +487,19 @@ def _resolve_command_implementation(node, workspace, identity, previous, destina
         raise
 
 
-def _check_retry_implementation(identity, baseline, implementation_files) -> None:
+def _check_retry_implementation(identity, baseline, implementation_files, snapshot=None, accept_changes=False) -> None:
+    """Changed retry evidence refuses unless §8.1 accepts it; without `snapshot` nothing proves the attempt clean."""
     if baseline is None or implementation_files == baseline.data["implementation_files"]:
         return
+    if retry_change_admitted(snapshot, baseline, accept_changes):
+        return
     changed = _changed_evidence(baseline.data["implementation_files"], implementation_files)
-    raise _EffectInputDiverged(identity, f"retry implementation files changed: {changed}")
+    raise _EffectInputDiverged(identity, f"retry implementation files changed: {changed}",
+                               changed_files=changed)
 
 
-def _reuse_effect_commit(authority, commit, node, identity, parts, input_digest, dependencies):
+def _reuse_effect_commit(authority, commit, node, identity, parts, input_digest, dependencies,
+                         implementation_files=None):
     row = commit.data
     changed_parts = sorted(
         name for name in set(parts) | set(row["input_parts"])
@@ -498,6 +510,8 @@ def _reuse_effect_commit(authority, commit, node, identity, parts, input_digest,
         raise _EffectInputDiverged(
             identity,
             f"input parts changed: {changed_parts}; dependency identities changed: {dependency_changed}; previous {row['input_digest']}, current {input_digest}",
+            changed_parts=changed_parts, changed_files=() if implementation_files is None else
+            _changed_evidence(row.get("implementation_files") or {}, implementation_files),
         )
     return coerce_evaluated_value(
         row["value"],
@@ -506,34 +520,6 @@ def _reuse_effect_commit(authority, commit, node, identity, parts, input_digest,
         committed_result_path=workspace_result_locator(authority.header, row["result_path"]),
         context=f"committed {node['class']} result",
     )
-
-
-def _retry_baseline(
-    snapshot: MemoSnapshot,
-    identity: str,
-    latest_start: JournalEntry | None,
-) -> JournalEntry | None:
-    if latest_start is None:
-        return None
-    row = latest_start.data
-    commit = next(
-        (
-            entry
-            for entry in reversed(snapshot.entries)
-            if entry.data.get("record") == "committed"
-            and entry.data.get("identity") == identity
-            and entry.data.get("attempt") == row["attempt"]
-        ),
-        None,
-    )
-    if commit is not None and any(
-        entry.offset > commit.offset
-        and entry.data.get("record") == "invalidated"
-        and entry.data.get("from_commit", commit.offset + 1) <= commit.offset
-        for entry in snapshot.entries
-    ):
-        return None
-    return latest_start
 
 
 def _command_destinations(

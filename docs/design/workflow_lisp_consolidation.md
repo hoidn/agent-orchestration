@@ -57,7 +57,8 @@ Phase 5 D1 target 2.37 on
 2026-10-12; [checked parallel compilation/read-back](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1c--checked-compilation-and-read-back)
 is qualified; bounded workers also have independent contract/quality PASS
 ([Task 4 record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-4--bounded-workers-and-coordinator)).
-Full public qualification and phase delivery remain pending. Preserve
+Parallel map is qualified through the public command line with stand-ins, not
+yet with a real provider ([addendum](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification)). Preserve
 currently supported behavior and APIs throughout extraction.
 
 Excluded: Rust, licensing or packaging-product changes, a Python frontend,

@@ -12,7 +12,7 @@ schema notation, not authored workflow files.
 
 - Provider attempt lifecycle
   - At-least-once recovery applies to a validated interrupted in-flight
-    ordinary, session, supervision, peer-group, or phased provider visit.
+    ordinary, session, or phased provider visit.
     Ordinary dispatch uses the next unused attempt ordinal and never reuses
     partial attempt content. Compatible completed-result reuse remains
     invocation-free.
@@ -655,7 +655,7 @@ schema notation, not authored workflow files.
 - Workflow Lisp provider prompt dependencies
   - `provider-result :prompt-dependencies (:required ... :optional ...)` contributes typed required and optional exact workspace `relpath` operands to the ordinary workspace-dependency composition stage. Position defaults to `prepend`; `append` is the only alternative; an optional instruction is literal text and never provider-parameter substitution.
   - The composition pipeline first builds the base prompt plus source-relative `asset_depends_on`, applies the per-attempt dependency block at its declared position, then applies typed prompt inputs, consumed-artifact injection under its own position policy, and the output-contract suffix. Pipeline order does not override a stage's explicit prepend/append policy.
-  - Ordinary and adjudicated provider execution use the same snapshot/render owner. Each relevant attempt receives exactly one immutable dependency snapshot shared by rendering and prompt finalization; no stage reopens a dependency. Each retry takes a fresh snapshot before provider preparation.
+  - Ordinary provider execution uses one snapshot/render owner (the adjudicated executor that shared it was removed on 2026-11-12). Each relevant attempt receives exactly one immutable dependency snapshot shared by rendering and prompt finalization; no stage reopens a dependency. Each retry takes a fresh snapshot before provider preparation.
   - The completed provider result and its lexical checkpoint include the compiled dependency contract. Compatible completed-result reuse returns the committed structured result without reopening current dependency files. A pending or failed provider boundary takes a new snapshot for its new attempt.
   - The exact UTF-8 dependency block is limited to `262144` bytes as specified by `dependencies.md`; truncation is deterministic and explicit.
   - Prompt-dependency evidence is narrower than snapshot/render reuse: only an ordinary typed Workflow Lisp attempt carrying the validated compiler contract derives Workflow Lisp prompt-dependency evidence. Adjudicated paths without that ordinary typed carrier emit no such evidence; their existing debug/state output is separate. Historical YAML content-injection behavior remains comparison evidence only and is not reachable through fresh workflow execution.
@@ -844,25 +844,17 @@ schema notation, not authored workflow files.
     reserved compiler-owned `ProviderSteeringDirective`, whose only accepted
     wire objects are exactly `{"variant":"CONTINUE"}` and
     `{"variant":"STEER","guidance":<non-empty string>}`. Unknown fields,
-    missing or cross-variant fields, and empty guidance are rejected. Runtime
-    control interprets only the validated discriminant; guidance remains
-    free-form provider content.
+    missing or cross-variant fields, and empty guidance are rejected.
   - The settlement body is pure over the two validated member values, and the
-    form returns that body's type. The compiler lowers the whole form to one
-    `provider_supervision.v1` executable node with bounded initial overlap,
-    one workflow-state/result boundary, and `max_steers: 1`.
-  - Static and runtime validation both require the worker's resolved template
-    to have valid `turn_boundary_resume: true` support and use the cancellable
-    provider process-group lifecycle. The supervisor needs no session
-    capability. `STEER` may launch exactly one resume turn only after the
-    codec and process lifecycle prove the accepted boundary and exact
-    same-session identity; otherwise the group fails closed.
-  - The runtime composes the supervisor's structural observation injection
-    after ordinary source/dependency/input/consume composition and before the
-    output-contract suffix. Its tmux socket and worker target are
-    process-local execution data: they may occur in debug prompt evidence but
-    never become workflow values, output bundles, persisted state, or resume
-    authority.
+    form returns that body's type.
+  - **Executor removed 2026-11-11.** The runtime that executed this form
+    (the `provider_supervision.v1` executable node, its coordinator, state and
+    observation injection) was deleted; its packages are kept at git tag
+    `archive/dead-executors-2026-11-11`, and the last tree with the whole runtime,
+    including the step-executor bindings that hosted it, is commit `08cdd59b`.
+    The frontend still parses, checks and elaborates the form, and the closed build refuses it with
+    `[closed_program_gap]` wherever the selected entry reaches it. Future
+    direction: [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
 - Workflow Lisp live-provider peer groups (v2.17)
   - `with-live-provider-peers` is a `.orc`-only form with a literal,
@@ -874,177 +866,26 @@ schema notation, not authored workflow files.
     are rejected.
   - Every member result may be any transportable type. The settlement body is
     pure, may read exactly the complete member-result environment, and must
-    produce a transportable value. The compiler lowers the form to one closed
-    `provider_peer_group.v1` executable node with messaging policy
-    `all_other_members`, `interactive_session_schema_version:
-    "interactive_terminal_turn_queue.v1"`, and `max_steers: 0`.
-  - Static and runtime validation require every resolved member provider to
-    declare the exact structural `interactive_session_support` capability.
-    Providers without it remain valid outside a peer-group member position.
-    The interactive adapter owns the provider client pane; the observation
-    manager and its display pane are not an input path.
-  - One runtime endpoint is created per group visit and is bound to the exact
-    run, step, node, visit, and endpoint instance. After root-owned monotonic
-    member attempt allocation, each provider receives an opaque binding that
-    resolves server-side to one exact member id, attempt scope, attempt
-    ordinal, and endpoint instance. The endpoint and opaque bindings are
-    process-local handles, not workflow values, result state, checkpoint
-    identity, or reusable evidence.
-  - The member-visible client surface is exactly:
-    `orchestrator peer-ready`, `orchestrator peer-send <target-binding>
-    <message>`, `orchestrator peer-ack <message-id>`, and
-    `orchestrator peer-finish`. Clients submit one bounded request through
-    their runtime-provided endpoint/binding and return its receipt; they cannot
-    choose a sender, run root, arbitrary endpoint, state path, ledger path, or
-    pane, and cannot write state, ledgers, bundles, or terminal results.
-    Messages are non-empty UTF-8 of at most 65,536 encoded bytes; newlines and
-    ordinary Unicode are preserved.
-  - `peer-ready` is an all-members barrier. Only after every exact member
-    attempt is ready does one coordinator transition make the group active.
-    Sends while the group is not active, self sends, and sends involving
-    stale, closing, terminal, unknown, ambiguous, or cross-group
-    member/attempt identities fail without delivery.
-  - For an accepted send, the single-writer coordinator durably appends the
-    receiver's `recorded` ledger row before asking the exact receiver adapter
-    to offer the message at its next natural turn boundary. It then durably
-    appends `offered` or `offer_failed`; client success requires `offered`.
-    `peer-ack` appends `receiver_acknowledged` only for the exact receiver
-    attempt and message id. Exact request-id replay returns the prior durable
-    receipt; reuse with a different payload fails closed.
-  - `peer-finish` is cooperative and separate from messaging. It is retryable
-    with `pending_messages` while any accepted incoming message lacks an
-    acknowledgement. Once eligible, it validates and freezes the member's
-    exact typed bundle bytes, offers the declared graceful-close command, and
-    returns success so the current provider turn can finish naturally. A
-    member is terminal only after the client, pane, helper, and process
-    boundary are joined with a complete natural-shutdown proof.
-  - A peer message cannot cancel, resume, steer, replace, select, settle, or
-    directly publish a member. There is no peer-group forcing edge,
-    provider-session resume delivery, dynamic membership, cross-run messaging,
-    or YAML spelling. Any member, protocol, delivery, bundle, deadline,
-    endpoint, or cleanup failure fails the whole group, performs failed
-    cleanup, and publishes no settlement.
+    produce a transportable value.
+  - **Executor removed 2026-11-11.** The runtime that executed this form
+    (the `provider_peer_group.v1` executable node, its coordinator, state and
+    the member commands `peer-ready`, `peer-send`, `peer-ack` and
+    `peer-finish`) was deleted; its packages are kept at git tag
+    `archive/dead-executors-2026-11-11`, and the last tree with the whole runtime,
+    including the step-executor bindings that hosted it, is commit `08cdd59b`.
+    The frontend still parses, checks and elaborates the form, and the closed build refuses it with
+    `[closed_program_gap]` wherever the selected entry reaches it. Future
+    direction: [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md).
 
 - Adjudicated provider prompt and evaluator delivery (v2.11)
-  - Each candidate uses the ordinary provider prompt composition contract, including step-wide `asset_depends_on`, `depends_on`, `consumes` injection, and deterministic output-contract suffixes. A candidate `asset_file` or `input_file` override replaces only the base prompt source.
-  - Candidate provider commands run with `cwd` set to that candidate's isolated workspace. Provider templates, provider params, env, secrets, and prompt transport otherwise follow the normal provider contract.
-  - The evaluator prompt is composed from the declared evaluator prompt source plus one runtime-built `Evaluator Packet` block. The evaluator output is strict JSON and does not use the adjudicated step's `output_capture`, `allow_parse_error`, `expected_outputs`, or `output_bundle` settings.
-  - Evaluator scoring uses the persisted scorer snapshot and complete embedded score-critical evidence only: rendered candidate prompt, declared output value files, required relpath targets, bundle JSON and required bundle targets, optional rubric content, and selected consume values plus consume relpath target content when applicable.
-  - Candidate-prompt consume rendering modes do not weaken evaluator evidence. After reserved-session exclusion and `prompt_consumes` filtering choose the selected consume rows, evaluator packets continue to carry the normalized selected consume values and any selected relpath target file content even when the candidate prompt rendered a row as `reference` or suppressed it with `none`.
-  - Evaluators must not depend on reading candidate or parent workspace files, bounded prompt previews, candidate stdout/stderr, transport logs, or other non-scoring sidecars. Those paths may be retained for audit, but they are not score-critical evidence.
+  - The adjudicated-provider executor and its evaluator delivery were removed on 2026-11-12
+    (packages kept at git tag `archive/dead-executors-2026-11-11`; the whole runtime: commit
+    `08cdd59b`). See the [salvage record](../docs/design/trial_and_adjudication_salvage.md).
 
 - Workflow Lisp trial evaluator delivery (target 2.25)
-  - Evaluation begins only after the coordinator freezes the complete admitted
-    `(arm, rep)` outcome set and its digest. Deterministic checks then run in
-    declared authority order before any judgment call. The runtime constructs
-    one closed `trial.evaluation_packet.v1` for each opaque evaluation label;
-    neither authored prompts nor evaluator behavior may construct, widen, or
-    filter score-critical evidence.
-  - A packet contains only the observation members explicitly selected from
-    `task_spec`, `validated_result`, `workspace_delta`, `check_results`,
-    `declared_artifacts`, and `failure_evidence`. A completed cell may include
-    its validated result, bounded normalized E1 workspace delta, permitted
-    declared artifacts, and deterministic check results. A failed cell
-    includes only explicit failure evidence and other selected facts that
-    actually exist. In v1, a selected `task_spec` is the exact resolved input
-    mapping common to every arm; if those mappings differ, packet construction
-    fails closed rather than exposing an arm-specific task view. Every item has
-    one unique citable ID.
-  - Packet projection always excludes treatment and authored arm IDs; the
-    authored `run-ref` source locator, program selector, workflow source text,
-    and authored workflow filenames that identify an arm; proposer and
-    candidate lineage; child or evaluator completion order; mutable run logs;
-    `.orchestrate` state and sidecars; previous scores; and provider/model
-    identity. This exclusion does not redact normalized changed-file paths,
-    diff content, or declared-artifact relpaths carried inside a selected,
-    bounded `workspace_delta` or `declared_artifacts` member: those bytes are
-    the evidence being judged and remain subject to the closed packet schema
-    and byte limits. Full lineage and the opaque label binding stay sealed in
-    the trial ledger and are joined only after score settlement.
-    `reveal-provider-identity` is false in v1 and cannot override these
-    exclusions.
-  - Canonical UTF-8 packet items must not exceed `max_item_bytes`; the complete
-    canonical packet must not exceed `max_packet_bytes`, and the packet limit
-    is at least the item limit. Oversize, malformed, excluded, duplicate, or
-    uncitable evidence fails closed before provider launch. Every evaluator
-    citation must name a citable item in that exact packet; an unknown or
-    cross-packet citation fails as `trial_packet_citation_invalid`.
-  - One resolved provider, rubric asset, persisted scorer snapshot, and
-    `same_trust_boundary` confidentiality declaration apply to every cell.
-    The evaluator instruction is one versioned platform-owned structured
-    contract block derived by the runtime; trial authors select neither an
-    evaluator prompt source nor evaluator provider parameters. The provider
-    registry and authored rubric asset remain the only resolved judgment
-    inputs.
-    Scorer identity reuses the adjudication scorer-identity algorithm and
-    binds provider policy, evaluator prompt and rubric identities, strict
-    output contract, packet schema, evidence limits, confidentiality, and
-    secret-detection policy. Reusing these primitives does not reuse
-    candidate fan-out, single-winner selection, candidate-shaped packet rows,
-    or artifact promotion.
-  - Evaluator stdout is one strict JSON object containing `candidate_id`, a
-    finite numeric `score` in `[0.0, 1.0]`, a non-empty `summary`, and a
-    `citations` string list. `candidate_id` must equal the packet's opaque
-    evaluation label. The runtime validates JSON, label, score, summary, and
-    citations before recording the closed `trial.score.v1` row. That row
-    contains only trial-request, evaluation-label, packet, scorer, score,
-    summary, and citation facts; it contains no arm/treatment, source,
-    provider/model, candidate, promotion, or completion-order field.
-  - Repetitions combine by median only when an arm has exactly `reps` valid
-    scores; otherwise that arm's aggregate is null. Failures remain outcomes
-    and are not dropped from the required repetition set. Score-bearing arms
-    rank by descending median, with authored-order breaking equal-median ties;
-    arms with null aggregates follow in authored-order. The leader is compared
-    with the rank-2 strongest score-bearing alternative, never with an
-    authored-position control. Fewer than two score-bearing arms yields
-    `insufficient_scored_arms`.
-  - A final trial cell is `Completed` only when its child has one validated
-    committed result, every required deterministic check has status
-    `COMPLETED` and exit code `0`, and evaluation has one valid settled score.
-    Every other final cell is `Failed`; an optional-check failure alone does
-    not change completion. For a failed cell, a valid evaluator score remains
-    audit evidence only: the repetition score is null and cannot enter the
-    median, ranking, success-rule disposition, or selection. Higher-authority
-    child or required-check failures remain primary; later lower-authority
-    failures are ordered secondary causes.
-  - `child_attempts` counts validated durable E1 `launched` transitions, not
-    allocations or cells. Budget `elapsed_ms` is the sum of durable charged
-    E1-attempt durations and evaluator-attempt settlement durations. Failed
-    and discarded E1 attempts therefore persist their duration; absence is a
-    validation failure and is never replaced by zero or inferred from event
-    timestamps. Token and cost totals use only validated bound facts; any
-    missing or `UNKNOWN` charged fact makes the corresponding total `UNKNOWN`.
-  - A leader/alternative cost comparison is known only when every charged
-    child and evaluator cost fact for both arms is present, marked known,
-    finite, nonnegative, and expressed in one common currency. Any absent,
-    `UNKNOWN`, non-finite, or negative fact yields `cost_unknown`; complete
-    known facts with differing currencies yield `cost_incomparable`.
-  - The success rule evaluates `superior` first. The leader is superior only
-    when its median exceeds the alternative's by at least
-    `min_abs_improvement` and its cost divided by the alternative's cost is at
-    most `max_cost_ratio`. When the alternative cost is zero, this cost
-    condition passes only when the leader cost is also zero, with the ratio
-    defined as `1`. Otherwise the rule evaluates
-    `non_inferior_lower_cost`: the leader's median must be no lower and its
-    proportional cost reduction against a positive-cost alternative must be
-    at least `min_cost_reduction`; a zero-cost alternative cannot satisfy this
-    rule.
-  - The closed verdict dispositions are `superior`,
-    `non_inferior_lower_cost`, `no_material_advantage`,
-    `insufficient_scored_arms`, `cost_unknown`, and `cost_incomparable`.
-    `selected_arm` names the leader only for `superior` or
-    `non_inferior_lower_cost`; it is null for every other disposition.
-  - The total evaluator-attempt and evaluator-concurrency limits are runtime
-    ceilings: once the attempt ceiling or trial deadline is exhausted,
-    pending evaluations settle as failures, while already running evaluator
-    attempts finish and remain charged. A late result never erases its cost or
-    displaces a previously committed score row.
-  - Packet construction, exclusion, canonical byte limits, scorer identity,
-    strict output parsing, citation validation, attempt accounting,
-    aggregation, and the sealed join are deterministic runtime obligations,
-    not provider instructions. Source promotion is excluded: E2 emits one
-    validated verdict artifact and publishes no candidate workspace or source
-    change.
+  - The trial executor and its evaluator delivery were removed on 2026-11-12 (packages kept at
+    git tag `archive/dead-executors-2026-11-11`; the whole runtime: commit `08cdd59b`). See the
+    [salvage record](../docs/design/trial_and_adjudication_salvage.md).
 
 - Reusable-call provider boundary
   - `asset_file` and `asset_depends_on` resolve relative to the authored workflow file and must stay within that workflow source tree.
@@ -1294,6 +1135,61 @@ steps:
 | gemini | `gemini -p ${PROMPT}` | argv | Model selection may not be supported via CLI; rely on CLI configuration if applicable. |
 | codex | `codex exec --dangerously-bypass-approvals-and-sandbox --model ${model} --config model_reasoning_effort=${reasoning_effort}` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Built-in defaults are `model: gpt-5.5`, `reasoning_effort: high` (can be overridden in workflow/defaults/provider_params). Use only for trusted workflow workspaces because it disables Codex's own approval and sandbox layer. |
 | claude_unrestricted_workspace | `claude -p --model ${model} --effort ${effort} --permission-mode bypassPermissions` (prompt via stdin) | stdin | Session-capable (`claude_stream_json_stdout`); used by agent sessions at 2.38. |
+| `<name>_metered` | the plain `claude*`/`codex*` command plus `--output-format stream-json --verbose` (Claude) or `--json` (Codex) | as `<name>` | One per built-in plain `claude*`/`codex*` template (`claude_metered`, `codex_metered`, ...); records usage. See [Metered templates and usage](#metered-templates-and-usage). |
+
+## Metered templates and usage
+
+Every evaluated provider, agent-turn and phased attempt writes `usage.json` beside its `stdout.txt`
+in `effects/<sha>/attempt-<n>/`, failed attempts included, with two exceptions: an attempt whose
+process was killed before its evidence was written (it holds only `prompt.txt`), and one whose
+`usage.json` write failed (logged as `provider_usage_unrecorded`; the call's own outcome stands).
+Either reads as unmetered under a spend cap. The file is a view: no memo row, input part, effect
+identity or program digest refers to it, and a run recorded before it existed has none and resumes
+unchanged. Like the rest of the run tree it is trusted as found: a hand-edited `usage.json` changes
+what a spend cap counts; a `usage.json` that is not a regular file reads as unmetered. It holds either
+`{"status": "reported", "source", "reported_cost_usd", "complete", "rows": [{"model", "tokens": {"input", "output", "cache_read", "cache_write"}}]}`
+or `{"status": "unknown", "reason": "no_transport" | "no_usage_event" | "malformed"}`. Unknown usage
+is never zero, and `complete: false` marks a lower bound, not a total. `report` sums these files per step and
+per run ([observability](observability.md#report-usage)).
+
+- Opt-in. Built-in plain templates (`claude`, `codex`, ... and `gemini`) print plain text and record
+  `unknown` / `no_transport`, as do OMP and phased providers. A workflow meters a provider step by
+  binding its provider extern to the metered template, e.g. `{"providers.review": "claude_metered"}`
+  in the `--provider-externs-file` manifest. Each `<name>_metered` is `<name>` with its CLI's
+  structured-output flags and a plain-call `command_metadata_mode` (`claude_stream_json_stdout` or
+  `codex_exec_jsonl_stdout`); defaults, input mode and call-policy bindings are unchanged. Agent-turn
+  attempts already use a transport and record usage from it.
+- A metered attempt's `stdout.txt` is the raw transport JSON. The terminal shows what the decoder
+  streams: every assistant message as it arrives, joined without a separator, and tool activity lines
+  (`Tool started: <name>`), never the transport lines; a plain template shows only the CLI's final
+  message. A missing-result diagnostic quotes the decoded assistant text.
+- Unreadable transport (a line that is not JSON, valid JSON of the wrong shape, nesting too deep to
+  decode, a failed turn marker) never fails a metered call that exited 0 and wrote its result; its
+  usage is `malformed`. The exit code and the result file decide.
+- Sources (`source`):
+  - `result.modelUsage`, `complete: true`: Claude's terminal `result` line, one row per model, and its
+    `total_cost_usd` as `reported_cost_usd`. An empty `modelUsage` with a cost keeps the cost with no rows.
+  - `assistant.message.usage`, `complete: false`: a Claude turn without a usable `result` line (killed,
+    timed out, terminated, or a CLI release that drops `modelUsage`), from the last line per message
+    id. It is a lower bound on output tokens: stream-json assistant lines carry the output count of
+    the first streamed chunk, so recorded turns showed tens of output tokens where the `result` line
+    showed thousands; input and cache counts matched.
+  - `turn.completed.usage`, `complete: true`: Codex's last `turn.completed`. The model is the call's
+    policy model, and charged input is input minus cached and cache-write tokens (`turn.completed`
+    reports no total; the rule is unverified for nonzero cache writes).
+  - `not_dispatched`, `complete: true`, no rows: preparation failed and nothing was launched.
+- Prices: `orchestrator/providers/price_table.json` (`orchestrator.providers.pricing`) is a frozen copy
+  of the vendors' public list prices, with its `source`, `date` and `notes`; it is a list-price
+  equivalent, not billed spend. Claude `cache_write` is the 1-hour cache-write rate (what Claude Code
+  writes); OpenAI `cache_write` is the 30-minute rate. A model's optional `long_context` holds the
+  rates above `above_input_tokens` prompt tokens per request: Claude Haiku 5.5 above 100,000 tokens
+  (five times its ordinary rates) and the OpenAI models above 272K input tokens (input and cache
+  rates twice, output one and a half times). A usage row sums its requests, so `priced` uses the
+  ordinary rates and is low for long prompts; the spend cap uses `cap_cost`, the larger of the CLI's
+  `reported_cost_usd` and the price at the highest tier. A model without four rates (for example
+  `gpt-5.5`, `gpt-5.4`, or an alias such as `haiku`) prices as `None`, never 0. A table is refused unless
+  every rate is finite, nonnegative and at most USD 1 per token (`MAX_USD_PER_TOKEN`) and
+  `tokens_per_unit` is at least 1.
 
 Exit code mapping:
 - 0 = Success

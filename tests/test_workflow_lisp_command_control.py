@@ -189,7 +189,7 @@ def _imported_snapshot_control_facts(caller, builder, summary):
         local_type_bindings=dict(entry.signature.params), typed_procedures=caller.procedures,
         workflow_catalog=WorkflowCatalog(signatures_by_name={**{name: item.signature for name, item in caller.workflows.items()},
                 **caller.module_workflow_signatures[caller.entry_module]},
-            definitions_by_name={name: item.definition for name, item in caller.workflows.items()}, imported_bundles_by_name={}),
+            definitions_by_name={name: item.definition for name, item in caller.workflows.items()}),
         workflows_by_name=caller.workflows, procedure_type_envs=caller.procedure_type_envs,
         workflow_name=entry.definition.name,
         procedure_catalog=ProcedureCatalog(signatures_by_name={name: item.signature for name, item in caller.procedures.items()},

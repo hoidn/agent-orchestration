@@ -261,7 +261,7 @@ def test_public_drain_work_retry_keeps_the_failed_attempt_files(tmp_path, monkey
 
     assert resumed.returncode == 0, resumed.stderr
     first, second = rows(tmp_path, "started", failed["identity"])
-    assert (attempt_files(authority, first), sorted(evidence)) == (evidence, ["prompt.txt", "stderr.txt", "stdout.txt"])
+    assert (attempt_files(authority, first), sorted(evidence)) == (evidence, ["prompt.txt", "stderr.txt", "stdout.txt", "usage.json"])
     assert (second["attempt"], sorted(attempt_files(authority, second))) == (
-        2, ["prompt.txt", "result.json", "stderr.txt", "stdout.txt"])
+        2, ["prompt.txt", "result.json", "stderr.txt", "stdout.txt", "usage.json"])
     assert [row["role"] for row in drain._requests(tmp_path)] == ["worker", "worker", "done_review"]

@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from orchestrator._common.safe_tree import resolve_path_preserving_fd
-from orchestrator.workflow.surface_ast import SurfaceStep
 from .command_boundaries import (
     CertifiedAdapterBinding,
     CertifiedAdapterInputField,
@@ -1064,15 +1063,6 @@ def _json_data(value: Any) -> Any:
             if field.metadata.get("json_omit_legacy"):
                 continue
             if field.metadata.get("json_omit_always"):
-                continue
-            # ``request_input`` did not exist in the frozen pre-2.32 Surface
-            # carrier.  Preserve those canonical build bytes while retaining
-            # the field for the only active request-input shape.
-            if (
-                isinstance(value, SurfaceStep)
-                and field.name == "request_input"
-                and not item
-            ):
                 continue
             if field.metadata.get("json_omit_if_none") and item is None:
                 continue

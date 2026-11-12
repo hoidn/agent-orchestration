@@ -15,7 +15,7 @@
 - Lifecycle ownership
   - Orchestrator does not automatically move/archive/delete task files.
   - Workflows should author explicit steps to move items to `processed/{timestamp}/` or `failed/{timestamp}/`.
-  - Helpers `--clean-processed`, `--archive-processed` are provided but do not act on individual items.
+  - The flags `--clean-processed` and `--archive-processed` are accepted and have no effect.
 
 - Wait-for (blocking primitive)
   - `wait_for: { glob, timeout_sec=300, poll_ms=500, min_count=1 }`.
@@ -76,7 +76,7 @@ Ownership clarification:
 - The orchestrator does not automatically move, archive, or delete task files.
 - Queue directories and `*.task` files are conventions used by workflows; authors are responsible for file lifecycle via explicit steps.
 - The runtime does not provide a generic queue manager or task-publication API.
-- The orchestrator provides blocking (`wait_for`) and safe CLI helpers (`--clean-processed`, `--archive-processed`) but never moves individual tasks on step success/failure.
+- The orchestrator provides blocking (`wait_for`) but never moves individual tasks on step success/failure; `--clean-processed` and `--archive-processed` are accepted and have no effect.
 
 Authored directory-convention defaults:
 ```yaml
@@ -86,5 +86,5 @@ failed_dir: "failed"
 task_extension: ".task"
 ```
 
-These fields configure workflow conventions and the independent CLI
-processed-directory operations; they do not instantiate a queue-manager API.
+These fields configure workflow conventions; they do not instantiate a
+queue-manager API or any CLI processed-directory operation.

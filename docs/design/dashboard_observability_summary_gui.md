@@ -1,6 +1,6 @@
 # Dashboard Observability Summary GUI
 
-Status: current read-only dashboard design; [Observability](../../specs/observability.md) owns runtime artifacts and [CLI dashboard contract](../../specs/cli.md) owns operator use
+Status: Historical. The Summary Hub and live summary endpoint this design added were removed when the dashboard came to read evaluated runs only ([dashboard migration plan](../plans/2026-11-11-dashboard-evaluated-runs-migration-plan.md)); nothing writes their inputs for evaluated runs. The code is kept at the git tag `archive/retired-run-readers-2026-11-11`. The body below is preserved as written and selects no work. Current dashboard behavior is owned by the [CLI dashboard contract](../../specs/cli.md#evaluated-readers).
 
 ## Goal
 

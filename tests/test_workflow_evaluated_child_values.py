@@ -13,7 +13,7 @@ from orchestrator.cli.commands.evaluated import bind_program_inputs
 from orchestrator.workflow.evaluated.authority import publish_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes, site_nodes
 from orchestrator.workflow.evaluated.memo import append_record, read_memo
-from orchestrator.workflow.executable_ir import RunRefStepConfig, StepCommonConfig
+from orchestrator.workflow.run_ref.step_config import RunRefStepConfig, StepCommonConfig
 from orchestrator.workflow.run_ref import ledger, runtime
 from orchestrator.workflow.run_ref import evaluated_child
 from orchestrator.workflow.run_ref.config import decode_run_ref_static_config

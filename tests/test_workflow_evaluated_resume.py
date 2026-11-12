@@ -13,6 +13,7 @@ from pathlib import Path
 from orchestrator.cli.commands.resume import resume_workflow
 from tests.test_workflow_evaluated_cli import _build, _run_cli
 from orchestrator.workflow.evaluated.memo import read_memo
+from tests.agent_session_shims import closed_path
 
 
 def _snapshot(root: Path) -> dict[str, bytes | None]:
@@ -354,11 +355,12 @@ def test_present_malformed_recipe_is_not_a_historical_header(tmp_path, monkeypat
     assert _snapshot(tmp_path / '.orchestrate') == before
 
 
-def test_program_comparison_precedes_invalid_file_inputs_and_artifact(tmp_path, monkeypatch, caplog, configured_tree):
+@pytest.mark.parametrize('artifact', ['corrupt', '[' * 200000], ids=['corrupt', 'deeply-nested'])
+def test_program_comparison_precedes_invalid_file_inputs_and_artifact(tmp_path, monkeypatch, caplog, configured_tree, artifact):
     source, result, file = _configured_completed(tmp_path, monkeypatch, configured_tree)
     source.write_text(source.read_text().replace('(threshold Float :default 0.5)', '(threshold Float :default 0.6)'))
     file.unlink()
-    (result.run_root / 'closed_program.json').write_text('corrupt')
+    (result.run_root / 'closed_program.json').write_text(artifact)
     (result.run_root / 'memo.jsonl').write_text('corrupt')
     def forbidden(*args, **kwargs):
         pytest.fail('artifact loaded before program comparison')
@@ -379,7 +381,7 @@ def test_c3_checks_all_emitted_interpreters_before_memo(tmp_path, monkeypatch, c
     interpreter = tools / 'resume-tool'
     interpreter.write_text('#!/bin/sh\nexit 0\n')
     interpreter.chmod(0o755)
-    monkeypatch.setenv('PATH', str(tools) + os.pathsep + os.environ['PATH'])
+    monkeypatch.setenv('PATH', closed_path(tools))
     (tmp_path / 'commands.json').write_text(json.dumps({'unused': {
         'stable_command': ['resume-tool', 'probe.py'], 'closure': ['probe.py']}}))
     result = _run_cli(tmp_path, str(source), '--command-boundaries-file', 'commands.json')

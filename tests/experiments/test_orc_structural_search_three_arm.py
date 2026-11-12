@@ -30,6 +30,7 @@ from tests.experiments.orc_structural_search_support import (  # noqa: F401 (pyr
 from tests.experiments.test_orc_structural_search_adaptive import JUDGES, add_anchors, scripted_judge
 from tests.experiments.test_orc_structural_search_driver import sandboxed  # noqa: F401 (fixture)
 from tests.experiments.test_orc_structural_search_i3 import CODEX_EDIT, CODEX_MUTATOR
+from tests.agent_session_shims import closed_path
 
 CRITERION = REPO / "experiments" / "orc_structural_search" / "criteria" / "three_arm.json"
 PARENTS = REPO / "experiments" / "orc_structural_search" / "three_arm"
@@ -107,7 +108,7 @@ def configure(world, criterion):
 
 
 def env_of(world):
-    return {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
+    return {**os.environ, "PATH": closed_path(world.fakebin), "SCRIPTED_RESULTS_FILE": str(world.results)}
 
 
 def criterion_for(world, tasks):

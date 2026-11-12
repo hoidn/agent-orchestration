@@ -24,6 +24,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.agent_session_shims import closed_path
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "watch_workflow_usage_limit.sh"
 POLL_SECONDS = 1
@@ -83,7 +85,7 @@ def watcher(tmp_path: Path):
         WORKSPACE=str(tmp_path / "workspace"), LOG=str(tmp_path / "watch.log"), POLL_SECONDS=str(POLL_SECONDS),
         RESUME_LOCK_WAIT_SECONDS="60", CONDA_SH=str(conda), CONDA_ENV="none",
         AGENT_ORCHESTRATION=str(orchestrator.parent), PROVIDER_SHIM_PATH=str(tmp_path / "stand-ins"),
-        CLAUDE_BIN=str(claude), PROBE_RETRY_SECONDS="1",
+        CLAUDE_BIN=str(claude), PROBE_RETRY_SECONDS="1", PATH=closed_path(),
     )
 
     def tmux(*args: str) -> None:

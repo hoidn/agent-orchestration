@@ -31,6 +31,7 @@ include = ["orchestrator*"]
 exclude = ["orchestrator.demo", "orchestrator.demo.*"]
 
 [tool.setuptools.package-data]
+"orchestrator.providers" = ["price_table.json"]
 "orchestrator.providers.schemas" = ["*.json"]
 "orchestrator.providers.inference_assets" = ["*.json"]
 "orchestrator.workflow_lisp" = ["stdlib_modules/**/*.orc"]

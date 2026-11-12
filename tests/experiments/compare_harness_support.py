@@ -17,6 +17,7 @@ from types import SimpleNamespace
 import pytest
 
 from experiments.compare import pool as pooling, prepare, sandbox
+from tests.agent_session_shims import closed_path
 
 REPO = Path(__file__).resolve().parents[2]
 SHIM = REPO / "experiments" / "compare" / "shim"
@@ -185,7 +186,7 @@ def start(world, arm, candidates=None, sets=(), task=None, root=None, apply=None
 
 def call(world, record, script, binary="claude", args=None):
     args = args if args is not None else (("exec",) if binary == "codex" else ("-p",))
-    env = {**os.environ, "PATH": f"{SHIM}:{world.fakebin}:{os.environ['PATH']}", "COMPARE_ROOT": record["records"],
+    env = {**os.environ, "PATH": closed_path(SHIM, world.fakebin), "COMPARE_ROOT": record["records"],
            "COMPARE_TREE": record["tree"], "COMPARE_BASE": record["compare_base"], "PYTHONPATH": str(world.runtime),
            "OLDPWD": str(world.runtime), "COMPARE_SANDBOX": record["sandbox"]["declaration"]}
     return subprocess.run([str(SHIM / binary), *args], input=script, text=True, capture_output=True,

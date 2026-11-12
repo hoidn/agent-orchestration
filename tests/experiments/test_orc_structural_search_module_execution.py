@@ -18,6 +18,7 @@ from experiments.orc_structural_search.driver import archive, episode_workspace
 from experiments.orc_structural_search.config import load_config
 from tests.experiments.orc_structural_search_support import world  # noqa: F401
 from tests.experiments.test_orc_structural_search_driver import config_of, sandboxed  # noqa: F401
+from tests.agent_session_shims import closed_path
 
 
 def module_config():
@@ -93,7 +94,7 @@ def test_claude_guard_checks_explicit_default_fallback_and_forced_subagent(tmp_p
     (real / "claude").write_text("#!/bin/sh\nexit 0\n")
     (real / "claude").chmod(0o755)
     done = subprocess.run([str(guard / "claude"), *args], capture_output=True, text=True,
-                          env={**os.environ, "PATH": f"{guard}:{real}:{os.environ['PATH']}",
+                          env={**os.environ, "PATH": closed_path(guard, real),
                                "ORC_ALLOWED_CLAUDE_MODELS": allowed, "CLAUDE_CODE_SUBAGENT_MODEL": forced})
     assert done.returncode == status, done.stderr
 
@@ -181,7 +182,7 @@ def test_evaluation_hash_cannot_be_spoofed_and_snapshot_still_has_candidate_id(s
     cid, root = archive(world.candidate, evidence, world.runtime)
     row = evaluate_and_scan(root, launch_config(world, config), task=world.task, replicate=1, work_root=world.outside / "work",
                             evidence_root=evidence, runtime=world.runtime,
-                            env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}",
+                            env={**os.environ, "PATH": closed_path(world.fakebin),
                                  "SCRIPTED_RESULTS_FILE": str(world.results)}, timeout_sec=600,
                             solutions={world.task.name: world.solution}, holdouts=(),
                             fields={"criterion_sha256": "spoofed"}, call_cap=160, criterion=world.criterion)
@@ -359,7 +360,7 @@ def test_truncated_native_session_does_not_abort_episode_settlement(sandboxed, w
     config = replace(module_config(), episode_wall_clock_sec=5 if exhausted else 120)
     row = run_episode(parent, launch_config(world, config), interface="I1", mode="unguided", agent_cmd=[provider, "exec" if provider == "codex" else "-p"],
                       work_root=world.outside / "work", evidence_root=evidence, episode_index=0,
-                      runtime=world.runtime, env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"},
+                      runtime=world.runtime, env={**os.environ, "PATH": closed_path(world.fakebin)},
                       solutions={world.task.name: world.solution}, call_cap=160, criterion=world.criterion)
     assert (row["outcome"], row["provider_calls"], row["scan_hits"], row["scan_pending"], row["consumption"]) == (
         "exhausted" if exhausted else "incident", 1, "unavailable", True, "unavailable")
@@ -389,7 +390,7 @@ def test_truncated_native_session_turns_completed_evaluation_into_unpoolable_inc
     _, parent = archive(world.candidate, evidence, world.runtime)
     row = evaluate_and_scan(parent, launch_config(world, config), task=world.task, replicate=1, work_root=world.outside / "work",
                             evidence_root=evidence, runtime=world.runtime,
-                            env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}",
+                            env={**os.environ, "PATH": closed_path(world.fakebin),
                                  "SCRIPTED_RESULTS_FILE": str(world.results)}, timeout_sec=600,
                             solutions={world.task.name: world.solution}, holdouts=(), fields={}, call_cap=160, criterion=world.criterion)
     assert (row["outcome"], row["provider_calls"], row["scan_hits"], row["scan_pending"], row["consumption"]) == (
@@ -432,7 +433,7 @@ def test_quota_keeps_priority_over_timeout_and_incomplete_scan(sandboxed, world,
     row = run_episode(parent, launch_config(world, replace(module_config(), episode_wall_clock_sec=5)), interface="I1", mode="three_arm",
                       agent_cmd=["claude", "-p"], work_root=world.outside / "work", evidence_root=evidence,
                       episode_index=0, runtime=world.runtime,
-                      env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"},
+                      env={**os.environ, "PATH": closed_path(world.fakebin)},
                       solutions={world.task.name: world.solution}, call_cap=160, fields={"arm": "I1"}, criterion=world.criterion)
     assert (row["outcome"], quota_reason(row), outcome(row), three_arm.non_quota([row], evidence)["I1"]) == (
         "incident", quota, "quota_incident", 0)
@@ -467,7 +468,7 @@ def test_evaluation_beyond_reserved_maximum_fails_at_shim_and_settles_refused_ca
     monkeypatch.setattr(ledger, "planned_calls", lambda *args, **kwargs: 1)
     row = driver.evaluate_and_scan(root, launch_config(world, module_config()), task=world.task, replicate=1,
         work_root=world.outside / "work", evidence_root=world.evidence, runtime=world.runtime,
-        env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)},
+        env={**os.environ, "PATH": closed_path(world.fakebin), "SCRIPTED_RESULTS_FILE": str(world.results)},
         timeout_sec=60, solutions={world.task.name: world.solution}, holdouts=(), fields={"candidate_id": cid}, call_cap=10, criterion=world.criterion)
     assert row["outcome"] == "failed", row
     assert not any("quota" in incident for incident in row["incidents"])

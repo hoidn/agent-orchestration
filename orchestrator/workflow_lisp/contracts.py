@@ -11,11 +11,10 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from orchestrator import __version__ as ORCHESTRATOR_VERSION
 from orchestrator.exceptions import ValidationSubjectRef, serialize_validation_subject_ref
-from orchestrator.workflow.surface_ast import SurfaceContract
 from orchestrator.workflow.type_descriptor import transport_schema_for_descriptor
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -52,6 +51,17 @@ _NON_SEMANTIC_CONTRACT_PROVENANCE_KEYS = frozenset(
         "result_guidance",
     }
 )
+
+
+@dataclass(frozen=True)
+class SurfaceContract:
+    """Typed contract wrapper used on authored workflow boundaries."""
+
+    name: str
+    kind: Optional[str]
+    value_type: Optional[str]
+    definition: Mapping[str, Any]
+    from_ref: Any = None
 
 
 def is_review_findings_type(type_ref: TypeRef) -> bool:
@@ -478,23 +488,6 @@ def derive_workflow_signature_contracts(
     outputs: dict[str, SurfaceContract] = {}
     flattened_inputs: list[FlattenedContractField] = []
     flattened_outputs: list[FlattenedContractField] = []
-    allow_compiler_direct_result = False
-    direct_result_digest = getattr(
-        signature,
-        "compiler_direct_result_contract_digest",
-        None,
-    )
-    if isinstance(direct_result_digest, str):
-        from .trial_result_contract import derive_trial_result_contract
-
-
-        contract = derive_trial_result_contract(
-            signature.return_type_ref,
-            type_env=type_env,
-        )
-        if contract.digest != direct_result_digest:
-            raise ValueError("compiler direct result contract digest changed")
-        allow_compiler_direct_result = True
 
     for param_name, type_ref in signature.params:
         for flattened_field in derive_workflow_boundary_fields(
@@ -529,7 +522,6 @@ def derive_workflow_signature_contracts(
             source_path=("return",),
             span=signature.span,
             form_path=signature.form_path,
-            allow_transportable_value=allow_compiler_direct_result,
             type_env=type_env,
         )
         return_union_metadata = derive_union_workflow_output_metadata(

@@ -1,6 +1,8 @@
 # Workflow Lisp Judgment Views
 
-Reader scope: original locator/schema validation, content-sealed attempt
+Scope notice: the report projection of judgment views was removed with the retired-run readers ([dashboard migration plan](../plans/2026-11-11-dashboard-evaluated-runs-migration-plan.md)); `report` now refuses the runs it read. The implementation is kept at the git tag `archive/retired-run-readers-2026-11-11`. The rest of this page is historical.
+
+Reader scope (historical): original locator/schema validation, content-sealed attempt
 provenance, result-plus-evidence joins and non-authoritative report projection
 remain retained contracts. Historical step/iteration/result locators must not be
 reinterpreted as an evaluated memo schema. Current profiles require their own

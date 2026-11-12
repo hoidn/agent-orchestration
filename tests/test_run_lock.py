@@ -105,27 +105,10 @@ def test_distinct_runs_can_hold_writer_locks_independently(tmp_path: Path) -> No
 def test_read_only_report_remains_available_while_writer_lock_is_held(
     tmp_path: Path,
 ) -> None:
-    runs_root = tmp_path / "runs"
-    run_root = runs_root / "reportable-run"
-    run_root.mkdir(parents=True)
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "2.1",
-                "run_id": "reportable-run",
-                "workflow_file": "workflow.orc",
-                "status": "failed",
-                "started_at": "2026-07-30T00:00:00+00:00",
-                "updated_at": "2026-07-30T00:00:01+00:00",
-                "steps": {},
-                "error": {
-                    "type": "synthetic_failure",
-                    "message": "read-only report fixture",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
+    from tests.test_workflow_evaluated_readers import _pure_run
+
+    run_root = _pure_run(tmp_path)
+    runs_root = run_root.parent
     report_script = """
 import sys
 
@@ -142,7 +125,7 @@ raise SystemExit(
                 sys.executable,
                 "-c",
                 report_script,
-                "reportable-run",
+                run_root.name,
                 str(runs_root),
             ],
             cwd=_REPOSITORY_ROOT,
@@ -154,5 +137,5 @@ raise SystemExit(
 
     assert completed.returncode == 0, completed.stderr
     report = json.loads(completed.stdout)
-    assert report["run"]["run_id"] == "reportable-run"
-    assert report["run"]["status"] == "failed"
+    assert report["run"]["run_id"] == run_root.name
+    assert report["run"]["status"] == "completed"

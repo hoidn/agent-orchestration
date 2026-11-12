@@ -35,10 +35,6 @@ from orchestrator.providers.interactive_terminal import (
     PhasedFailedCleanupEvidence,
     project_phased_failed_cleanup_evidence,
 )
-from orchestrator.workflow.provider_peer_group.models import (
-    FrozenPeerMemberResult,
-    PeerAttemptIdentity,
-)
 from tests.e2e.conftest import skip_if_no_cli, skip_if_no_e2e
 
 
@@ -685,11 +681,6 @@ def test_real_adapter_phased_adapter_feasibility_two_successive_offers(
         )
     ).resolve()
     assert trusted_checkout.is_dir()
-    receiver_attempt = PeerAttemptIdentity(
-        member_id="receiver",
-        attempt_scope_key="real-adapter-receiver-scope",
-        attempt_ordinal=1,
-    )
     runtime_root = workspace / ".orchestrate" / "provider-peer-real"
     transport_temp = tempfile.TemporaryDirectory(prefix="orc-peer-e2e-")
     transport_root = Path(transport_temp.name)
@@ -761,9 +752,9 @@ def test_real_adapter_phased_adapter_feasibility_two_successive_offers(
             context={},
             prompt_content=prompt,
             invocation_id="real-adapter-invocation",
-            member_id=receiver_attempt.member_id,
-            attempt_scope_key=receiver_attempt.attempt_scope_key,
-            attempt_ordinal=receiver_attempt.attempt_ordinal,
+            member_id="receiver",
+            attempt_scope_key="real-adapter-receiver-scope",
+            attempt_ordinal=1,
             cwd=trusted_checkout,
             env={
                 "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": str(bundle_path),
@@ -854,14 +845,6 @@ def test_real_adapter_phased_adapter_feasibility_two_successive_offers(
         bundle_value = json.loads(exact_bundle_bytes.decode("utf-8"))
         assert bundle_value == _EXPECTED_VALUE
         assert bundle_path.read_bytes() == exact_bundle_bytes
-        frozen = FrozenPeerMemberResult.create(
-            attempt=receiver_attempt,
-            exact_bundle_bytes=exact_bundle_bytes,
-            value=bundle_value,
-        )
-        assert frozen.value == _EXPECTED_VALUE
-        assert frozen.exact_bundle_bytes == exact_bundle_bytes
-        assert frozen.bundle_sha256 == _sha256(exact_bundle_bytes)
 
         close_receipt = adapter.offer_close(
             handle,

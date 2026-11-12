@@ -6,7 +6,9 @@ from hashlib import sha256
 import json
 import os
 from pathlib import Path
+import re
 import shutil
+import stat
 
 import pytest
 
@@ -37,6 +39,7 @@ from tests.workflow_evaluated_totality_helpers import (
 from tests.workflow_inprocess_cli_helpers import (
     cli_inprocess, compile_public_inprocess as compile_public,
 )
+from tests.agent_session_shims import closed_path
 
 
 NESTED = ".orchestrate/runs/custom"
@@ -88,7 +91,7 @@ def _x4_workspace(root, monkeypatch, source=PROVIDER_PATH_SOURCE, commands=None)
     if commands is not None:
         files["commands"].write_text(json.dumps(commands))
     compile_public(files)
-    monkeypatch.setenv("PATH", str(root / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(root / "bin"))
     monkeypatch.chdir(root)
     return files, inputs
 
@@ -193,20 +196,46 @@ def test_nested_state_dir_returns_actual_workspace_path(tmp_path, monkeypatch, p
     _assert_resumes_readonly(lambda: _x4_evidence(tmp_path), run_root.name, state_dir=NESTED)
 
 
-def test_source_free_view_load_reads_no_recipe_or_result(tmp_path, monkeypatch, capsys):
+_SOURCE_FREE = lambda spelling: spelling.endswith((".orc", "result.json", *_MANIFESTS))  # noqa: E731
+_USAGE_FILE = re.compile(r"(?:^|/)effects/[0-9a-f]{64}/attempt-[1-9][0-9]*/usage\.json\Z")
+
+
+def _source_free_run(tmp_path, monkeypatch):
+    """A completed provider run with its sources and manifests deleted; its value and authority."""
     files, inputs = _x4_workspace(tmp_path, monkeypatch)
     assert public_run(files, inputs).exit_code == 0
     authority, snapshot = checked_run(tmp_path)
-    expected = snapshot.terminal.data["value"]
     for path in [*tmp_path.rglob("*.orc"), *(tmp_path / name for name in _MANIFESTS)]:
         path.unlink()
+    return authority, snapshot.terminal.data["value"]
+
+
+def test_source_free_view_load_reads_nothing_under_effects(tmp_path, monkeypatch):
+    authority, expected = _source_free_run(tmp_path, monkeypatch)
     (authority.run_root / "effects").rename(tmp_path / "effects-aside")
-    capsys.readouterr()
-    _guard_path_io(monkeypatch, lambda spelling: spelling.endswith((".orc", "result.json", *_MANIFESTS))
-                   or "effects/" in spelling)
+    _guard_path_io(monkeypatch, lambda spelling: _SOURCE_FREE(spelling) or "effects/" in spelling)
     assert load_evaluated_view(authority.run_root)["workflow_outputs"] == expected
+
+
+def test_source_free_report_reads_only_attempt_usage_files(tmp_path, monkeypatch, capsys):
+    """`report` reads, under `effects/`, only each provider attempt's regular `usage.json`: no recipe,
+    prompt, stdout or result."""
+    authority, expected = _source_free_run(tmp_path, monkeypatch)
+    real_lstat, usage_reads = os.lstat, []
+
+    def forbidden(spelling):
+        if _USAGE_FILE.search(spelling) and stat.S_ISREG(real_lstat(spelling).st_mode):
+            usage_reads.append(spelling)
+            return False
+        return _SOURCE_FREE(spelling) or "effects/" in spelling
+
+    capsys.readouterr()
+    _guard_path_io(monkeypatch, forbidden)
     assert report_workflow(authority.run_root.name, runs_root=str(authority.run_root.parent), format="json") == 0
-    assert json.loads(capsys.readouterr().out)["run"]["workflow_outputs"] == expected
+    report = json.loads(capsys.readouterr().out)
+    assert report["run"]["workflow_outputs"] == expected
+    provider_attempts = sum(step["usage"]["attempts"] for step in report["steps"] if "usage" in step)
+    assert len(usage_reads) == provider_attempts == 1
 
 
 def test_whole_workspace_relocation_keeps_result_root(tmp_path, monkeypatch):
@@ -233,7 +262,7 @@ def test_paused_workspace_relocation_dispatches_under_the_moved_root(tmp_path, m
     moved = tmp_path / "moved"
     shutil.move(tmp_path / "ws", moved)
     monkeypatch.chdir(moved)
-    monkeypatch.setenv("PATH", str(moved / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(moved / "bin"))
     assert resume_workflow(run_id) == 0
     _, snapshot = checked_run(moved)
     second = max(snapshot.active_commits.values(), key=lambda entry: entry.offset).data

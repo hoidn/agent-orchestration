@@ -32,6 +32,7 @@ from tests.test_workflow_evaluated_public_context import _provider_files
 from tests.test_workflow_evaluated_resume import _resume_cli
 from tests.workflow_evaluated_context_helpers import public_context_run
 from tests.workflow_evaluated_totality_helpers import checked_run, compile_public
+from tests.agent_session_shims import closed_path
 
 
 PROVIDER = ('(provider-result providers.review :prompt prompts.base :inputs ({operand}) '
@@ -70,7 +71,7 @@ def _provider_path_workspace(root, monkeypatch):
     (root / "artifacts").mkdir()
     (root / REPORT).write_text(REPORT_SENTINEL + "\n")
     compile_public(files)
-    monkeypatch.setenv("PATH", str(root / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(root / "bin"))
     monkeypatch.chdir(root)
     return files, inputs
 

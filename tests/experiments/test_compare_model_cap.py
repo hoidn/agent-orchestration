@@ -12,6 +12,7 @@ from experiments.compare import scan
 from tests.experiments.compare_harness_support import (
     REPO, call, configure_test_sandbox, skip_without_sandbox, start, world,
 )  # noqa: F401
+from tests.agent_session_shims import closed_path
 
 SONNET = "claude-sonnet-5-5"
 TERRA = "gpt-5.6-terra"
@@ -37,7 +38,7 @@ def guarded(tmp_path):
 
     def run(name, args=(), **env):
         return subprocess.run([str(guard / name), *args], input="prompt\n", text=True, capture_output=True,
-                              env={**os.environ, "PATH": f"{guard}:{real}:{os.environ['PATH']}", **env})
+                              env={**os.environ, "PATH": closed_path(guard, real), **env})
     return run
 
 
@@ -203,7 +204,7 @@ def test_public_orchestrator_cli_runs_scripted_provider_through_cap(world, monke
         "--entry-workflow", "control/direct_task::direct-task", "--source-root", str(h),
         "--provider-externs-file", str(h / "control/direct_task.providers.json"), "--input-file", str(inputs),
     ], cwd=record["cwd"], capture_output=True, text=True, timeout=30,
-        env={**os.environ, "PYTHONPATH": str(REPO), "PATH": f"{SHIM}:{world.fakebin}:{os.environ['PATH']}",
+        env={**os.environ, "PYTHONPATH": str(REPO), "PATH": closed_path(SHIM, world.fakebin),
              **({"COMPARE_CLAUDE_MODELS": ""} if no_claude else {}),
              "SCRIPTED_RESULTS_FILE": str(results), "COMPARE_ROOT": str(records),
              "COMPARE_TREE": record["tree"], "COMPARE_BASE": record["compare_base"],

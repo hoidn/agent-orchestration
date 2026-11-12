@@ -5,6 +5,8 @@ The target-2.16/2.17 group and target-2.23 phased execution routes are retired;
 new calls, old-profile replay and old-profile mutation are unavailable in this
 package. [Executor retirement](workflow_lisp_executor_retirement.md) and
 [CLI](../../specs/cli.md) govern refusal and demonstrated exact-release recovery.
+The design decisions worth reusing in a port to evaluated execution are in the
+[salvage record](live_provider_supervision_and_peers_salvage.md).
 
 Provider capability validation (`turn_boundary_resume`), ordinary provider execution, bounded cleanup and native session codecs remain owned by [Providers](../../specs/providers.md) and its retained adapter services.
 

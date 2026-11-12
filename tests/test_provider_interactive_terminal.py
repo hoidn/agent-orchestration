@@ -2487,11 +2487,6 @@ def test_interactive_adapter_never_uses_v1_control_or_observation_surfaces(
         "orchestrator.providers.observation.ProviderObservationManager.open_observation",
         forbidden,
     )
-    monkeypatch.setattr(
-        "orchestrator.workflow.provider_supervision.directive."
-        "ProviderSteeringDirective.from_dict",
-        forbidden,
-    )
     backend = _FakeInteractiveBackend()
     adapter = _interactive_adapter(tmp_path, backend)
     handle = _started_handle(

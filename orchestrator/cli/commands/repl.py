@@ -305,6 +305,7 @@ def _run(session: ReplSession, tail: list[str]) -> None:
     parsed = _parse_command(create_parser(), argv)
     if parsed is None:
         return
+    parsed.terminal_lines = True  # the REPL is interactive: `:run` prints the run's terminal lines
     result = run_workflow(parsed)
     if result.run_id is not None and result.run_root is not None:
         try:

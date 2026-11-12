@@ -49,6 +49,7 @@ def _runtime_args(args: Namespace, result: PythonBuildResult) -> Namespace:
     request = result.request
     runtime_args = Namespace(**vars(args))
     runtime_args.workflow = str(request.source_path)
+    runtime_args.compile_warnings_shown = True
     runtime_args.entry_workflow = request.entry_workflow
     runtime_args.source_root = [str(path) for path in request.source_roots]
     runtime_args.provider_externs_file = (

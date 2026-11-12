@@ -16,6 +16,7 @@ from tests.experiments.orc_structural_search_support import world, synthetic_rec
 from tests.experiments.test_orc_structural_search_driver import sandboxed, CONFIG, ANSWERS  # noqa: F401
 from tests.experiments.qualification_support import qualified_v2, sha, write
 from tests.experiments.test_orc_structural_search_adaptive import UPSTREAM
+from tests.agent_session_shims import closed_path
 
 TERRA = 'gpt-5.6-terra'
 
@@ -99,7 +100,7 @@ def setup(world, monkeypatch, synthetic_receipts, request):
         'condition': 'module', 'models': {TERRA: ['medium', 'high']},
         'per_call_timeout_sec': 5400, 'criterion_sha256': sha(q.criterion)})
     seeds = Path(__file__).resolve().parents[2] / 'experiments/orc_structural_search/seeds/capped'
-    env = {**os.environ, 'PATH': f'{world.fakebin}:{os.environ["PATH"]}', 'SCRIPTED_MUTATOR_FILE': str(mutator),
+    env = {**os.environ, 'PATH': closed_path(world.fakebin), 'SCRIPTED_MUTATOR_FILE': str(mutator),
            'SCRIPTED_RESULTS_FILE': str(world.results)}
     world.results.write_text(json.dumps(ANSWERS))
     store = campaign.open_store(world.outside / 'S', writer=True)

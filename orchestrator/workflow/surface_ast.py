@@ -7,16 +7,12 @@ from enum import Enum
 from pathlib import Path
 import re
 from types import MappingProxyType
-from typing import Any, ClassVar, Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from orchestrator.providers.types import validate_phased_delivery_carriage
 from orchestrator.workflow.run_ref.config import (
     RunRefStaticConfig,
     validate_run_ref_static_config_authority,
-)
-from orchestrator.workflow.trial.config import (
-    TrialStaticConfig,
-    validate_trial_static_config_authority,
 )
 
 from .prompt_dependency_contract import CompilerPromptDependencyContract
@@ -330,7 +326,6 @@ class SurfaceStep:
             "json_value_attr": "record",
         },
     )
-    trial: ClassVar[TrialStaticConfig | None] = None
     wait_for: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     set_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     resource_transition: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
@@ -371,18 +366,6 @@ class SurfaceStep:
                     "run_ref conflicts with operation carrier(s): "
                     + ", ".join(conflicting_carriers)
                 )
-        if (self.kind is SurfaceStepKind.TRIAL) != (self.trial is not None):
-            raise ValueError("trial kind/config pairing is invalid")
-        if self.trial is not None:
-            validate_trial_static_config_authority(self.trial)
-            conflicting_carriers = _run_ref_conflicting_carriers(self)
-            if self.run_ref is not None:
-                conflicting_carriers = (*conflicting_carriers, "run_ref")
-            if conflicting_carriers:
-                raise ValueError(
-                    "trial conflicts with operation carrier(s): "
-                    + ", ".join(conflicting_carriers)
-                )
         validate_compiler_prompt_fragment_pair(
             self.compiler_prompt_fragment_contract,
             self.compiled_prompt_fragment_identity,
@@ -401,17 +384,6 @@ class SurfaceStep:
                 self.prompt_attempt_identity_version
             ),
         )
-
-
-@dataclass(frozen=True, kw_only=True)
-class TrialSurfaceStep(SurfaceStep):
-    """Target-2.25 trial carrier without widening ordinary step bytes."""
-
-    trial: TrialStaticConfig = field(
-        metadata={
-            "json_value_attr": "record",
-        },
-    )
 
 
 @dataclass(frozen=True)
@@ -454,11 +426,6 @@ class SurfaceWorkflow:
                 and not _target_dsl_at_least(self.version, (2, 24))
             ):
                 raise ValueError("run_ref surface requires target DSL 2.24 or later")
-            if (
-                step.kind is SurfaceStepKind.TRIAL
-                and not _target_dsl_at_least(self.version, (2, 25))
-            ):
-                raise ValueError("trial surface requires target DSL 2.25 or later")
             if step.kind is not SurfaceStepKind.PROVIDER:
                 continue
             validate_compiler_prompt_attempt_pair(

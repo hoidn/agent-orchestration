@@ -6,7 +6,7 @@ import base64
 import json
 from pathlib import Path
 
-from orchestrator.workflow.executable_ir import RunRefStepConfig, StepCommonConfig
+from orchestrator.workflow.run_ref.step_config import RunRefStepConfig, StepCommonConfig
 from orchestrator.workflow.run_ref.config import decode_run_ref_static_config
 from orchestrator.workflow.run_ref.confined_config import (
     RUN_REF_CONFINED_STATIC_CONFIG_SCHEMA,

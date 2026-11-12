@@ -8,9 +8,10 @@ import logging
 import sys
 from pathlib import Path
 import time
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
-from orchestrator.workflow.evaluated.attempts import allocate_attempt, attempt_paths
+from orchestrator.workflow.evaluated.attempts import (allocate_attempt, attempt_paths, changed_files_note,
+    closure_after_failure)
 from orchestrator.workflow.evaluated.commands import CommandPerformerError, command_result  # noqa: F401 (re-export)
 from orchestrator.workflow.evaluated.confined_dispatch import EFFECT_UNSUPPORTED, ConfinedDispatchRefusal, require_confinable
 from orchestrator.workflow.evaluated.memo import (
@@ -26,7 +27,8 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
-from .providers import provider_result
+from .providers import provider_result, provider_transport
+from .spend_cap import check_spend_cap
 from .agent_sessions import allocation_result
 from . import effect_execution
 from .effect_execution import PreparedAttempt, ExternalOutcome, perform_external
@@ -79,6 +81,7 @@ def execute_pure_run(
     stream_output: bool = False,
     confined: Any = None,
     expire_host_input: bool = False,
+    on_error: Callable[[Exception], None] | None = None,
 ) -> tuple[int, Any]:
     """Evaluate the checked table and persist its terminal outcome under its writer lock.
 
@@ -88,7 +91,7 @@ def execute_pure_run(
     if not isinstance(authority, RunAuthority):
         raise TypeError("authority must be a checked RunAuthority")
     if authority.confined and confined is None and site_classes(authority.program):
-        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED))
+        return _reported_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED), on_error)
     workspace = Path(workspace).resolve(strict=True)
     checked_site_classes = site_classes(authority.program)
     run_files = authority.run_files or WorkspaceFiles(authority.run_root)
@@ -155,6 +158,8 @@ def execute_pure_run(
             code = getattr(exc, "code", "evaluated_execution_failed")
             message = str(exc) or code
             logger.error("[%s] %s", code, message)
+            if on_error is not None:
+                on_error(exc)
             if _can_append_failure_terminal(exc):
                 if confined is not None:
                     confined.record_failure(authority, exc)
@@ -168,12 +173,21 @@ def execute_pure_run(
         code = getattr(exc, "code", "evaluated_execution_failed")
         message = str(exc) or code
         logger.error("[%s] %s", code, message)
+        if on_error is not None:
+            on_error(exc)
         return 1, None
     finally:
         views.close()
         workspace_files.close()
         if owns_run_files:
             run_files.close()
+
+
+def _reported_refusal(exc, on_error):
+    result = _resume_refusal(exc)
+    if on_error is not None:
+        on_error(exc)
+    return result
 
 
 def _execution_handler(handle, authority, inputs, run_id, workspace, provider_io,
@@ -200,14 +214,23 @@ def execute_pure_resume(
     provider_io: ProviderIOContext | None = None,
     stream_output: bool = False,
     confined: Any = None,
+    on_error: Callable[[Exception], None] | None = None,
 ) -> tuple[int, Any]:
-    """Replay committed effects before allowing resume to repair or continue."""
+    """Replay committed effects before allowing resume to repair or continue.
+
+    `on_error` (here and in `execute_pure_run`) receives each exception turned into exit 1 or 2,
+    after it is logged.
+    """
     if not isinstance(authority, RunAuthority):
         raise TypeError("authority must be a checked RunAuthority")
     if authority.confined and confined is None and site_classes(authority.program):
-        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED))
+        return _reported_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED), on_error)
     workspace = Path(workspace).resolve(strict=True)
     checked_site_classes = site_classes(authority.program)
+
+    def refuse(exc):
+        return _reported_refusal(exc, on_error)
+
     try:
         snapshot, commits, consumed, value, reached_boundary = _replay_resume_prefix(
             authority, inputs, run_id=run_id, workspace=workspace, provider_io=provider_io,
@@ -216,10 +239,10 @@ def execute_pure_resume(
     except Exception as exc:
         if confined is not None:
             confined.resume_error = exc
-        return _resume_refusal(exc)
+        return refuse(exc)
     if consumed != len(commits):
-        return _resume_refusal(MemoError("memo_inconsistent", "active commits remain after replay"))
-    terminal_result = _replayed_halt_result(snapshot, value, reached_boundary)
+        return refuse(MemoError("memo_inconsistent", "active commits remain after replay"))
+    terminal_result = _replayed_halt_result(snapshot, value, reached_boundary, refuse)
     if terminal_result is not None:
         if terminal_result[0] == 0:
             from .run_ref import retry_evaluated_cleanup
@@ -230,16 +253,16 @@ def execute_pure_resume(
                 if pending:
                     return 2, terminal_result[1]
             except Exception as exc:
-                return _resume_refusal(exc)
+                return refuse(exc)
         return terminal_result
     if snapshot.tail:
         try:
             repair_torn_tail(authority.memo_path, snapshot, run_files=authority.run_files)
         except Exception as exc:
-            return _resume_refusal(exc)
+            return refuse(exc)
     result = execute_pure_run(
         authority, inputs, run_id=run_id, workspace=workspace, provider_io=provider_io,
-        stream_output=stream_output, confined=confined, expire_host_input=True,
+        stream_output=stream_output, confined=confined, expire_host_input=True, on_error=on_error,
     )
     if result[0] == 0:
         from .run_ref import retry_evaluated_cleanup
@@ -251,7 +274,7 @@ def execute_pure_resume(
             if pending:
                 return 2, result[1]
         except Exception as exc:
-            return _resume_refusal(exc)
+            return refuse(exc)
     return result
 
 
@@ -367,12 +390,10 @@ def prepare_effect(
             implementation_files=implementation_files, dependencies=dependencies, context=dict(run_files=run_files,
             workspace=workspace, workspace_files=workspace_files, site_classes=site_classes, reader=reader,
             provider_executor=provider_executor, launch_cwd=launch_cwd, stream_output=stream_output, views=views))
+    check_spend_cap(authority, snapshot, node, executor=provider_executor, policy=getattr(resolved, "policy", None))
     if baseline is not None and node.get("repeat") == "never":
         raise effect_inputs._PreflightRefusal("lexical_restore_pending_effect_unsafe",
-            f"{identity}: effect declares that it must not be repeated")
-    if baseline is not None:
-        code = "provider_attempt_interrupted_rerun" if node['class'] == 'provider_phased' else "effect_rerun"
-        logger.warning("[%s] %s attempts=%s", code, identity, list(range(1, ordinal)))
+            f"{identity}: effect declares that it must not be repeated", identity=identity)
     if node['class'] == 'run_ref':
         validate_evaluated_run_ref_start(authority, resolved, identity, ordinal, workspace)
     leaf_context = None if confined is None else confined.leaf_context()  # after the snapshot copy (R3)
@@ -382,8 +403,14 @@ def prepare_effect(
     if confined is not None:
         confined.check_evidence(extra_bytes=len(canonical_json_bytes(started)) + 1)
     _require_retained_root(run_files)
-    attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority,
-        before_failure=None if confined is None else lambda exc: confined.record_failure(authority, exc))
+    code = "provider_attempt_interrupted_rerun" if node['class'] == 'provider_phased' else "effect_rerun"
+    # the evaluator reached this site and the preflight refused other pending work: no replay needed
+    attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority, start_reached=True,
+        before_failure=None if confined is None else lambda exc: confined.record_failure(authority, exc),
+        # logged once `started` is durable, so the terminal's `run` and `start` lines come before it
+        after_started=None if baseline is None else lambda: logger.warning(
+            "[%s] %s attempts=%s%s", code, identity, list(range(1, ordinal)),
+            changed_files_note(baseline.data["implementation_files"], implementation_files)))
     return PreparedAttempt(authority, node, identity, ordinal, result_path, input_digest,
         parts, implementation_files, tuple(dependencies), resolved, workspace, workspace_files,
         site_classes, provider_executor, attempt_files, launch_cwd, stream_output, confined=leaf_context, views=views,
@@ -481,7 +508,8 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
         if projected:
             raise agent_turns.unresolved_after_projection(attempt, exc) from exc
         publication_error = _fail_started_effect(
-            authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc)
+            authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc,
+            closure=closure_after_failure(attempt))
         _raise_if_publication_fatal(publication_error, fatal_publication)
         raise
     finally:
@@ -532,11 +560,12 @@ def _validate_attempt_outcome(attempt, outcome):
             workspace_files=attempt.workspace_files, result_path=outcome.result_path)
     else:
         result, digest = provider_result(attempt.node, attempt.resolved, attempt.attempt_files,
-            attempt.workspace_files, outcome.result_path)
+            attempt.workspace_files, outcome.result_path,
+            transport=provider_transport(attempt.provider_executor, attempt.node))
     return result, digest, None, None
 
 
-def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> Exception | None:
+def _fail_started_effect(authority, identity, ordinal, site_classes, exc, *, closure=None) -> Exception | None:
     try:
         after = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
         pending = after.pending_starts.get(identity)
@@ -551,6 +580,8 @@ def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> Exc
             violations = getattr(exc, "violations", None)
             if violations is not None:
                 failure["violations"] = violations
+            if closure is not None:
+                failure["closure"] = closure
             append_record(authority.memo_path, failure, run_files=authority.run_files, checked_authority=authority)
     except ViewPublicationError:
         raise

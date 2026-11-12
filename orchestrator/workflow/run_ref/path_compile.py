@@ -10,7 +10,7 @@ import re
 import stat
 from typing import Any, Mapping
 
-from orchestrator.workflow.executable_ir import RunRefStepConfig
+from orchestrator.workflow.run_ref.step_config import RunRefStepConfig
 from orchestrator.workflow_lisp.compile_diagnostics import (
     build_rejected_compile_diagnostics_document,
 )

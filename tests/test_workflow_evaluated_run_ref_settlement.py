@@ -25,6 +25,7 @@ from tests.test_workflow_evaluated_run_ref import (
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_resume import _resume_cli
+from tests.agent_session_shims import closed_path
 
 
 def _service_run(monkeypatch, parent, source, refs, *extra):
@@ -178,7 +179,7 @@ def _mixed_fixture(tmp_path, monkeypatch, *, later="command", smoke=False):
     extra = ["--command-boundaries-file", str(boundaries)]
     if smoke or later == "provider":
         _source, providers, prompts, _request = _fixture(parent)
-        monkeypatch.setenv("PATH", str(parent / "bin") + os.pathsep + os.environ["PATH"])
+        monkeypatch.setenv("PATH", closed_path(parent / "bin"))
         extra.extend(["--provider-externs-file", str(providers), "--prompt-externs-file", str(prompts)])
     return parent, source, refs, extra
 

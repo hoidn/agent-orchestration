@@ -4,10 +4,6 @@ from pathlib import Path
 import pytest
 
 import orchestrator.workflow_lisp.syntax as syntax
-from orchestrator.observability.report import build_status_snapshot
-from tests.fixtures.historical_observability_bundles import HISTORICAL_OBSERVABILITY_BUNDLES
-from orchestrator.dashboard.models import RunRecord, WorkspaceRecord
-from orchestrator.dashboard.projection import RunProjector
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     compile_stage1_module,
@@ -122,8 +118,6 @@ def test_value_type_is_installed_for_current_source() -> None:
         span=probe.span,
         form_path=probe.form_path,
     ) == VALUE_TYPE
-
-
 
 
 @pytest.mark.parametrize("target_dsl", ("2.35", "2.36"))
@@ -377,8 +371,6 @@ def test_value_contract_derives_value_kind_at_workflow_boundary() -> None:
     assert projection.return_kind == "root"
 
 
-
-
 def test_value_contract_nested_descriptors_cover_collections_record_and_union() -> None:
     string_type = PrimitiveTypeRef(name="String")
     cases = (
@@ -489,8 +481,6 @@ def test_value_contract_transportability_keeps_nontransportable_types_and_refs_f
     )
 
 
-
-
 def test_value_contract_fingerprint_preserves_literal_value_descriptor() -> None:
     value_contract = derive_structured_result_contract(
         VALUE_TYPE,
@@ -598,25 +588,6 @@ def test_value_contract_compiles_inline_procedure_workflow_call_and_public_pass_
     assert "value_pass_through::child" in result.typed_program.workflows
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_transportable_value_typed_prompt_rendering_is_canonical_and_opaque() -> None:
     entry = normalize_typed_prompt_input_entry(
         {
@@ -657,50 +628,3 @@ def test_transportable_value_typed_prompt_rendering_is_canonical_and_opaque() ->
     assert evidence[0]["value_type_name"] == "Value"
     assert evidence[0]["renderer"]["accepted_shape"] == "any_pure_value"
     assert "rendered_bytes" not in evidence[0]
-
-
-def test_transportable_value_report_and_dashboard_preserve_payload(
-    tmp_path: Path,
-) -> None:
-    bundle = HISTORICAL_OBSERVABILITY_BUNDLES["obs-test"]
-    [node_id, *_] = bundle.projection.ordered_execution_node_ids()
-    presentation_name = bundle.projection.entries_by_node_id[node_id].presentation_key
-    payload = {
-        "decision": "APPROVE",
-        "metrics": {"correctness": 0.95},
-        "attempt_ids": [1, 2],
-        "owner": None,
-    }
-    state = {
-        "run_id": "value-projection",
-        "status": "completed",
-        "steps": {
-            presentation_name: {
-                "status": "completed",
-                "exit_code": 0,
-                "artifacts": {"__result__": payload},
-            }
-        },
-        "workflow_outputs": {"__result__": payload},
-    }
-
-    snapshot = build_status_snapshot(bundle, state, tmp_path)
-    assert snapshot["steps"][0]["output"]["artifacts"]["__result__"] == payload
-    assert snapshot["run"]["workflow_outputs"]["__result__"] == payload
-
-    workspace = WorkspaceRecord(id="w0", root=tmp_path, label="workspace")
-    run_root = tmp_path / ".orchestrate" / "runs" / "value-projection"
-    run_root.mkdir(parents=True)
-    detail = RunProjector().project_detail(
-        RunRecord(
-            workspace=workspace,
-            run_dir_id="value-projection",
-            run_root=run_root,
-            state_path=run_root / "state.json",
-            state=state,
-            state_run_id="value-projection",
-        )
-    )
-    assert detail.steps[0].artifacts["__result__"] == payload
-    assert detail.workflow_outputs["__result__"] == payload
-    assert detail.state["steps"][presentation_name]["artifacts"]["__result__"] == payload

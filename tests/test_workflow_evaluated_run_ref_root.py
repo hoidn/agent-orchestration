@@ -12,6 +12,7 @@ from orchestrator.cli.run_ref_root import resolve_run_ref_root
 from orchestrator.workflow.evaluated.authority import RunAuthorityError, load_run_header
 from tests.test_workflow_evaluated_cli import _build, _run_cli
 from tests.test_workflow_evaluated_invalidate import _tree_bytes
+from tests.agent_session_shims import closed_path
 
 
 def test_new_header_fixes_default_without_creating_root(tmp_path, monkeypatch):
@@ -221,7 +222,7 @@ def _root_frontier_fixture(tmp_path, monkeypatch, kind, selected):
     parent, source, refs = _public_fixture(tmp_path, body=body, definitions=definitions)
     if kind == "provider":
         _path, providers, prompts, _request = _fixture(parent)
-        monkeypatch.setenv("PATH", str(parent / "bin") + os.pathsep + os.environ["PATH"])
+        monkeypatch.setenv("PATH", closed_path(parent / "bin"))
         monkeypatch.setenv("PROVIDER_SHIM_RESULT", json.dumps({"ok": selected}))
         extra = ("--provider-externs-file", str(providers), "--prompt-externs-file", str(prompts))
     else:

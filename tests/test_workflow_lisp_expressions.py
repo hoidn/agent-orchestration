@@ -9,7 +9,7 @@ import pytest
 from orchestrator.workflow_lisp.compiler import PRELUDE_TYPE_NAMES, compile_stage1_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.parametric_constraints import SharedUnionFieldCapability
-from orchestrator.workflow_lisp.expressions import AgentExpr, BindProcExpr, CommandResultExpr, CondExpr, ContinueExpr, EnumMemberExpr, FinalizeSelectedItemExpr, FieldAccessExpr, FunctionCallExpr, IfExpr, LetProcExpr, LetProcBinding, LetStarExpr, ListExpr, ListMapEffectExpr, ListMapExpr, LiteralExpr, LoopBodyFnExpr, LoopRecurExpr, LoopStateSeedExpr, LoopStateUpdateExpr, MaterializeViewExpr, MatchArm, MatchExpr, NameExpr, ProcedureCallExpr, ProduceOneOfExpr, ProviderResultExpr, RecordExpr, DoneExpr, ResourceTransitionExpr, ResumeOrStartExpr, RunRefExpr, TrialExpr, RunProviderPhaseExpr, UnionVariantExpr, UnionVariantTagExpr, WithLiveProviderPeersExpr, WithLiveProvidersExpr, WithPhaseExpr, WorkflowRefLiteralExpr, ProcRefLiteralExpr, PhaseTargetExpr, PathJoinUnderExpr, ProviderBundlePathExpr, PureOpExpr, RecordUpdateExpr, GeneratedRelpathSeedExpr, CallExpr, CompilerListNonemptyHeadExpr, elaborate_expression
+from orchestrator.workflow_lisp.expressions import AgentExpr, BindProcExpr, CommandResultExpr, CondExpr, ContinueExpr, EnumMemberExpr, FinalizeSelectedItemExpr, FieldAccessExpr, FunctionCallExpr, IfExpr, LetProcExpr, LetProcBinding, LetStarExpr, ListExpr, ListMapEffectExpr, ListMapExpr, LiteralExpr, LoopBodyFnExpr, LoopRecurExpr, LoopStateSeedExpr, LoopStateUpdateExpr, MaterializeViewExpr, MatchArm, MatchExpr, NameExpr, ProcedureCallExpr, ProduceOneOfExpr, ProviderResultExpr, RecordExpr, DoneExpr, ResourceTransitionExpr, ResumeOrStartExpr, RunRefExpr, RunProviderPhaseExpr, UnionVariantExpr, UnionVariantTagExpr, WithLiveProviderPeersExpr, WithLiveProvidersExpr, WithPhaseExpr, WorkflowRefLiteralExpr, ProcRefLiteralExpr, PhaseTargetExpr, PathJoinUnderExpr, ProviderBundlePathExpr, PureOpExpr, RecordUpdateExpr, GeneratedRelpathSeedExpr, CallExpr, CompilerListNonemptyHeadExpr, elaborate_expression
 from orchestrator.workflow_lisp.phase_stdlib import (
     ProduceOneOfCandidateFieldSpec,
     ProduceOneOfCandidateSpec,
@@ -737,7 +737,6 @@ def test_expression_traversal_direct_child_classification_matches_exprnode_union
         ResourceTransitionExpr,
         FinalizeSelectedItemExpr,
         RunRefExpr,
-        TrialExpr,
     }
 
     expr_types = set(get_args(expressions.ExprNode))

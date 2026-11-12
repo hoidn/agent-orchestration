@@ -600,18 +600,6 @@ _FORM_SPECS = (
         rationale="Pinned child-run effects elaborate through one closed compiler path.",
     ),
     _spec(
-        "trial",
-        kind=FormKind.CORE_EFFECT,
-        owner_module="expressions",
-        introduced_in="workflow_lisp_trial_runs_e2",
-        remove_by=None,
-        macro_bindable=False,
-        admitted_top_level=False,
-        elaboration_route="trial",
-        feature_tags=("bounded_static_trial",),
-        rationale="Bounded static trials elaborate through one closed compiler path.",
-    ),
-    _spec(
         "review-revise-loop",
         kind=FormKind.STDLIB_EXTENSION,
         owner_module="stdlib_modules/std/phase.orc",
@@ -828,6 +816,11 @@ def target_dsl_version_at_least(
     except (AttributeError, TypeError, ValueError):
         return False
     return target >= minimum_version
+
+
+# Forms removed from the language: head -> what it was. Elaboration refuses them with `form_retired`.
+RETIRED_FORMS = {"trial": "blinded trials"}
+RETIRED_FORMS_TAG = "archive/dead-executors-2026-11-11"
 
 
 def get_form_spec(

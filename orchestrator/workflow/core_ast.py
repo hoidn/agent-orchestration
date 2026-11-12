@@ -26,10 +26,6 @@ from .run_ref.config import (
     RunRefStaticConfig,
     validate_run_ref_static_config_authority,
 )
-from .trial.config import (
-    TrialStaticConfig,
-    validate_trial_static_config_authority,
-)
 from .state_layout import GeneratedPathAllocation
 from .surface_ast import (
     ImportedWorkflowMetadata,
@@ -41,7 +37,6 @@ from .surface_ast import (
     SurfaceRepeatUntilBlock,
     SurfaceStep,
     SurfaceStepKind,
-    TrialSurfaceStep,
     SurfaceWorkflow,
     WorkflowProvenance,
     empty_frozen_mapping,
@@ -183,22 +178,6 @@ class CoreProviderStep:
 
 
 @dataclass(frozen=True)
-class CoreProviderSupervisionStep:
-    meta: CoreStmtMeta
-    common: Any
-    provider_supervision: Any
-    _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
-
-
-@dataclass(frozen=True)
-class CoreProviderPeerGroupStep:
-    meta: CoreStmtMeta
-    common: Any
-    provider_peer_group: Any
-    _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
-
-
-@dataclass(frozen=True)
 class CoreRunRefStep:
     meta: CoreStmtMeta
     common: Any
@@ -213,23 +192,6 @@ class CoreRunRefStep:
         if self.meta.step_kind != SurfaceStepKind.RUN_REF.value:
             raise ValueError("run_ref core step kind must be run_ref")
         validate_run_ref_static_config_authority(self.run_ref)
-
-
-@dataclass(frozen=True)
-class CoreTrialStep:
-    meta: CoreStmtMeta
-    common: Any
-    trial: TrialStaticConfig
-    _surface_step: SurfaceStep | None = field(
-        default=None,
-        repr=False,
-        compare=False,
-    )
-
-    def __post_init__(self) -> None:
-        if self.meta.step_kind != SurfaceStepKind.TRIAL.value:
-            raise ValueError("trial core step kind must be trial")
-        validate_trial_static_config_authority(self.trial)
 
 
 @dataclass(frozen=True)
@@ -543,32 +505,6 @@ def validate_core_workflow_ast(
                         ),
                     )
                 )
-        if isinstance(statement, CoreTrialStep):
-            if statement.meta.step_kind != SurfaceStepKind.TRIAL.value:
-                errors.append(
-                    ValidationError(
-                        message="core_workflow_ast_invalid: trial step kind must be trial",
-                        subject_refs=_subject_refs_for_meta(
-                            core_workflow_ast.workflow_name,
-                            meta,
-                        ),
-                    )
-                )
-            try:
-                validate_trial_static_config_authority(statement.trial)
-            except (TypeError, ValueError) as exc:
-                errors.append(
-                    ValidationError(
-                        message=(
-                            "core_workflow_ast_invalid: "
-                            f"trial config authority is invalid: {exc}"
-                        ),
-                        subject_refs=_subject_refs_for_meta(
-                            core_workflow_ast.workflow_name,
-                            meta,
-                        ),
-                    )
-                )
         if isinstance(statement, CoreCallStep):
             alias = statement.call_alias
             if isinstance(alias, str) and alias and alias not in core_workflow_ast.imports and alias not in imports:
@@ -753,32 +689,11 @@ def _build_statement(
             ),
             _surface_step=step,
         )
-    if step.kind is SurfaceStepKind.PROVIDER_SUPERVISION:
-        return CoreProviderSupervisionStep(
-            meta=meta,
-            common=step.common,
-            provider_supervision=step.provider_supervision,
-            _surface_step=step,
-        )
-    if step.kind is SurfaceStepKind.PROVIDER_PEER_GROUP:
-        return CoreProviderPeerGroupStep(
-            meta=meta,
-            common=step.common,
-            provider_peer_group=step.provider_peer_group,
-            _surface_step=step,
-        )
     if step.kind is SurfaceStepKind.RUN_REF:
         return CoreRunRefStep(
             meta=meta,
             common=step.common,
             run_ref=step.run_ref,
-            _surface_step=step,
-        )
-    if step.kind is SurfaceStepKind.TRIAL:
-        return CoreTrialStep(
-            meta=meta,
-            common=step.common,
-            trial=step.trial,
             _surface_step=step,
         )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
@@ -1218,14 +1133,8 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
                 statement.compiler_prompt_attempt_binding_plan
             ),
         )
-    elif isinstance(statement, CoreProviderSupervisionStep):
-        kwargs["provider_supervision"] = statement.provider_supervision
-    elif isinstance(statement, CoreProviderPeerGroupStep):
-        kwargs["provider_peer_group"] = statement.provider_peer_group
     elif isinstance(statement, CoreRunRefStep):
         kwargs["run_ref"] = statement.run_ref
-    elif isinstance(statement, CoreTrialStep):
-        kwargs["trial"] = statement.trial
     elif isinstance(statement, CoreAdjudicatedProviderStep):
         kwargs["adjudicated_provider"] = statement.adjudicated_provider
     elif isinstance(statement, CoreRequestInputStep):
@@ -1279,10 +1188,7 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
         kwargs["repeat_until"] = _surface_repeat_until_from_core(statement)
     else:
         raise TypeError(f"Unsupported core statement type `{type(statement).__name__}`")
-    surface_step_type = (
-        TrialSurfaceStep if isinstance(statement, CoreTrialStep) else SurfaceStep
-    )
-    return surface_step_type(**kwargs)
+    return SurfaceStep(**kwargs)
 
 
 def _normalized_surface_step_id(step_id: str) -> str:
@@ -1445,41 +1351,12 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
                 )
             )
         return payload
-    if isinstance(statement, CoreProviderSupervisionStep):
-        payload.update(
-            {
-                "kind": "provider_supervision",
-                "provider_supervision": _json_data(
-                    statement.provider_supervision
-                ),
-            }
-        )
-        return payload
-    if isinstance(statement, CoreProviderPeerGroupStep):
-        payload.update(
-            {
-                "kind": "provider_peer_group",
-                "provider_peer_group": _provider_peer_group_to_json(
-                    statement.provider_peer_group
-                ),
-            }
-        )
-        return payload
     if isinstance(statement, CoreRunRefStep):
         validate_run_ref_static_config_authority(statement.run_ref)
         payload.update(
             {
                 "kind": "run_ref",
                 "run_ref": statement.run_ref.record,
-            }
-        )
-        return payload
-    if isinstance(statement, CoreTrialStep):
-        validate_trial_static_config_authority(statement.trial)
-        payload.update(
-            {
-                "kind": "trial",
-                "trial": statement.trial.record,
             }
         )
         return payload
@@ -1650,21 +1527,3 @@ def _json_data(value: Any) -> Any:
             if not key.startswith("_")
         }
     return repr(value)
-
-
-def _provider_peer_group_to_json(value: Any) -> dict[str, Any]:
-    """Serialize only the new peer config without changing v1 Core bytes."""
-
-    from .executable_ir import (
-        ProviderPeerGroupStepConfig,
-        provider_peer_group_config_to_runtime_dict,
-    )
-
-    if not isinstance(value, ProviderPeerGroupStepConfig):
-        raise TypeError(
-            "provider_peer_group core statement requires a typed config"
-        )
-    return {
-        "common": _json_data(value.common),
-        **provider_peer_group_config_to_runtime_dict(value),
-    }

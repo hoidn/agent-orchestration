@@ -39,7 +39,7 @@ def _compile(tmp_path, body, *, params="", returns="Result", declarations="", ta
     facts = dict(
         signature=entry.signature, type_env=inputs["type_env"], local_type_bindings=inputs["value_env"],
         typed_procedures=program.procedures, workflows_by_name=program.workflows,
-        workflow_catalog=WorkflowCatalog(signatures_by_name={name: item.signature for name, item in program.workflows.items()}, definitions_by_name={name: item.definition for name, item in program.workflows.items()}, imported_bundles_by_name={}),
+        workflow_catalog=WorkflowCatalog(signatures_by_name={name: item.signature for name, item in program.workflows.items()}, definitions_by_name={name: item.definition for name, item in program.workflows.items()}),
         procedure_catalog=ProcedureCatalog(signatures_by_name={name: item.signature for name, item in program.procedures.items()}, definitions_by_name={name: item.definition for name, item in program.procedures.items()}, call_graph={}),
         procedure_type_envs=program.procedure_type_envs, workflow_name=entry.definition.name,
         procedure_owners=builder.procedure_owners, base_workflow_return_types=builder.workflow_return_types,

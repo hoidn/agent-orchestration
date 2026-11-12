@@ -16,6 +16,7 @@ from tests.test_workflow_evaluated_providers import _fixture, _requests
 from tests.test_workflow_evaluated_resume import _resume_cli, _snapshot
 from tests.test_workflow_evaluated_providers import SOURCE
 from orchestrator.workflow.evaluated.views import load_evaluated_view
+from tests.agent_session_shims import closed_path
 
 
 def _public_env() -> dict[str, str]:
@@ -275,7 +276,7 @@ def test_public_pending_certified_package_helper_preflights_and_retries_from_cop
 def _start_pending_provider_c6(tmp_path: Path, monkeypatch, c6_failure: str):
     fixture = _fixture(tmp_path)
     source, providers, prompts, _request = fixture
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     monkeypatch.setenv("PROVIDER_SHIM_MODE", "timeout")
     argv = [sys.executable, "-B", "-m", "orchestrator", "run", str(source),
             "--source-root", str(source.parent), "--provider-externs-file", str(providers),
@@ -355,7 +356,7 @@ def _start_pending_required_dependency(tmp_path: Path, monkeypatch, dependency_f
     dependency.parent.mkdir()
     dependency.write_text("initial required dependency\n", encoding="utf-8")
     source_path, providers, prompts, _request = fixture
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     monkeypatch.setenv("PROVIDER_SHIM_MODE", "timeout")
     argv = [sys.executable, "-B", "-m", "orchestrator", "run", str(source_path),
             "--source-root", str(source_path.parent), "--provider-externs-file", str(providers),

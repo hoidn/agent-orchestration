@@ -2,32 +2,38 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from orchestrator.dashboard.commands import CommandBuilder
-from orchestrator.dashboard.scanner import RunScanner
+from orchestrator.dashboard.models import RunRecord, WorkspaceRecord
 
 
-def _write_run(workspace: Path, run_dir_id: str, state_run_id: str | None = None) -> None:
-    run_dir = workspace / ".orchestrate" / "runs" / run_dir_id
-    run_dir.mkdir(parents=True)
-    (run_dir / "state.json").write_text(
-        json.dumps({"run_id": state_run_id or run_dir_id, "status": "completed"}),
-        encoding="utf-8",
+def _record(
+    workspace: Path,
+    run_dir_id: str,
+    *,
+    state_run_id: str | None = None,
+    runs_root: Path | None = None,
+    state: dict | None = None,
+) -> RunRecord:
+    """A scanned run as `RunScanner` reports it: resolved workspace, scanned run directory."""
+    root = workspace.resolve()
+    run_root = (runs_root or root / ".orchestrate" / "runs") / run_dir_id
+    return RunRecord(
+        workspace=WorkspaceRecord(id="w0", root=root, label=root.name),
+        run_dir_id=run_dir_id,
+        run_root=run_root,
+        state_path=run_root / "state.json",
+        state=state or {"run_id": state_run_id or run_dir_id, "status": "completed"},
+        state_run_id=state_run_id or run_dir_id,
     )
-
-
-def _scan_one(workspace: Path):
-    return RunScanner([workspace]).scan().runs[0]
 
 
 def test_command_builder_uses_scanned_workspace_and_run_directory_id(tmp_path: Path):
     workspace = tmp_path / "workspace with spaces"
     workspace.mkdir()
-    _write_run(workspace, "run 1")
 
-    commands = CommandBuilder().build(_scan_one(workspace))
+    commands = CommandBuilder().build(_record(workspace, "run 1"))
 
     assert commands.report is not None
     assert commands.resume is not None
@@ -40,9 +46,7 @@ def test_command_builder_uses_scanned_workspace_and_run_directory_id(tmp_path: P
 
 
 def test_command_builder_suppresses_resume_on_run_id_mismatch(tmp_path: Path):
-    _write_run(tmp_path, "dir-run", "state-run")
-
-    commands = CommandBuilder().build(_scan_one(tmp_path))
+    commands = CommandBuilder().build(_record(tmp_path, "dir-run", state_run_id="state-run"))
 
     assert commands.report is not None
     assert commands.resume is None
@@ -51,16 +55,9 @@ def test_command_builder_suppresses_resume_on_run_id_mismatch(tmp_path: Path):
 
 def test_command_builder_adds_non_default_runs_root_flags(tmp_path: Path):
     workspace = tmp_path / "workspace"
-    custom_runs = workspace / "custom-runs"
-    run_dir = custom_runs / "run1"
-    run_dir.mkdir(parents=True)
-    (run_dir / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "completed"}),
-        encoding="utf-8",
-    )
-    run = RunScanner([workspace])._read_run(RunScanner([workspace]).workspaces[0], run_dir, run_dir / "state.json")
+    custom_runs = workspace.resolve() / "custom-runs"
 
-    commands = CommandBuilder().build(run)
+    commands = CommandBuilder().build(_record(workspace, "run1", runs_root=custom_runs))
 
     assert commands.report is not None
     assert commands.resume is not None
@@ -82,14 +79,9 @@ def test_command_builder_adds_non_default_runs_root_flags(tmp_path: Path):
 
 
 def test_command_builder_never_uses_state_provided_run_root(tmp_path: Path):
-    run_dir = tmp_path / ".orchestrate" / "runs" / "run1"
-    run_dir.mkdir(parents=True)
-    (run_dir / "state.json").write_text(
-        json.dumps({"run_id": "run1", "run_root": "/tmp/outside", "status": "completed"}),
-        encoding="utf-8",
-    )
+    state = {"run_id": "run1", "run_root": "/tmp/outside", "status": "completed"}
 
-    commands = CommandBuilder().build(_scan_one(tmp_path))
+    commands = CommandBuilder().build(_record(tmp_path, "run1", state=state))
 
     assert "/tmp/outside" not in commands.report.shell_text
     assert commands.tmux == []

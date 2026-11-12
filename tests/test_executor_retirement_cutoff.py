@@ -322,7 +322,7 @@ def test_staged_child_refuses_before_decode_stage_or_execution(tmp_path):
     assert tree(tmp_path) == before
 
 
-def test_retired_python_execution_exports_and_trial_sdk(tmp_path):
+def test_retired_python_execution_exports(tmp_path):
     import importlib.util
     import orchestrator.workflow as workflow
     import orchestrator.workflow_lisp as frontend
@@ -331,22 +331,11 @@ def test_retired_python_execution_exports_and_trial_sdk(tmp_path):
     assert not hasattr(workflow, "WorkflowExecutor")
     assert "lower_workflow_definitions" not in frontend.__all__
     assert not hasattr(frontend, "lower_workflow_definitions")
-    assert importlib.util.find_spec("orchestrator.workflow.trial.sdk") is None
     assert importlib.util.find_spec("orchestrator.workflow.executor") is None
     assert not hasattr(StateManager, "initialize")
 
 
-def test_trial_cli_refuses_before_source_reads_or_publication(tmp_path):
-    before = tree(tmp_path)
-    result = cli(tmp_path, "trial", "missing.orc", "--entry-workflow", "run",
-                 "--run-ref-root", str(tmp_path / "children"))
-    assert result.returncode == 2, result.stdout + result.stderr
-    assert "workflow_execution_target_retired" in result.stderr
-    assert "Traceback" not in result.stderr
-    assert tree(tmp_path) == before
-
-
-def test_public_historical_report_derives_status_without_self_healing(tmp_path):
+def test_public_historical_report_refuses_without_self_healing(tmp_path):
     from datetime import datetime, timedelta, timezone
     run = tmp_path / ".orchestrate" / "runs" / "historical"
     run.mkdir(parents=True)
@@ -357,8 +346,9 @@ def test_public_historical_report_derives_status_without_self_healing(tmp_path):
     (run / "state.json").chmod(0o640)
     before = tree(tmp_path)
     result = cli(tmp_path, "report", "--run-id", "historical", "--format", "json")
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["run"]["status"] == "failed"
+    assert result.returncode == 2, result.stderr
+    assert result.stdout == ""
+    assert result.stderr.startswith("Error: workflow_execution_profile_retired: run historical ")
     assert tree(tmp_path) == before
 
 
@@ -478,15 +468,14 @@ for label, profile in expected.items():
 
 from orchestrator.cli.main import main
 for label in expected:
-    output = StringIO()
-    with redirect_stdout(output), redirect_stderr(StringIO()):
+    output, errors = StringIO(), StringIO()
+    with redirect_stdout(output), redirect_stderr(errors):
         status = main(["report", "--run-id", "historical-" + label,
             "--runs-root", str(root / ".orchestrate" / "runs"), "--format", "json"])
-    assert status == 0
-    report = json.loads(output.getvalue())
-    assert report["run"]["run_id"] == "historical-" + label
-    assert report["run"]["status"] == "completed"
-    assert report["steps"][0]["name"] == "Kept"
+    assert status == 2
+    assert output.getvalue() == ""
+    assert errors.getvalue().startswith("Error: workflow_execution_profile_retired: run historical-" + label + " ")
+    assert "retained" not in errors.getvalue()
 ''')
     assert tree(tmp_path) == before
     assert result.returncode == 0, result.stdout + result.stderr

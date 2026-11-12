@@ -180,7 +180,6 @@ def typecheck_with_live_providers_expr(
             raise_run_ref_placement_invalid(
                 typed_member.expr,
                 reason="is not permitted in a live-provider evaluation body",
-                effect_summary=typed_member.effect_summary,
             )
 
     directive_type = context.type_env.resolve_type(
@@ -233,7 +232,6 @@ def typecheck_with_live_providers_expr(
         raise_run_ref_placement_invalid(
             typed_body.expr,
             reason="is not permitted in a live-provider settlement body",
-            effect_summary=body_effects,
         )
     if (
         body_effects.direct_effects
@@ -302,7 +300,6 @@ def typecheck_with_live_provider_peers_expr(
             raise_run_ref_placement_invalid(
                 typed_member.expr,
                 reason="is not permitted in a provider-peer evaluation body",
-                effect_summary=typed_member.effect_summary,
             )
 
     from .contracts import is_transportable_result_type
@@ -338,7 +335,6 @@ def typecheck_with_live_provider_peers_expr(
         raise_run_ref_placement_invalid(
             typed_body.expr,
             reason="is not permitted in a provider-peer settlement body",
-            effect_summary=body_effects,
         )
     if (
         body_effects.direct_effects
@@ -1302,7 +1298,8 @@ def typecheck_command_result_expr(
         command_binding = context.command_boundary_environment.bindings_by_name.get(binding_name)
         if command_binding is None:
             raise_error(
-                f"`command-result` `{binding_name}` is missing command boundary metadata",
+                f"`command-result` `{binding_name}` is missing command boundary metadata. "
+                "Add it to commands.json beside the source, or name the manifest with --command-boundaries-file",
                 code="command_adapter_missing_contract",
                 span=expr.span,
                 form_path=expr.form_path,

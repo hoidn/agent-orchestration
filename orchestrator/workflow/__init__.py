@@ -1,5 +1,3 @@
 """Workflow execution module."""
 
-from .pointers import PointerResolver
-
-__all__ = ['PointerResolver']
+__all__: list[str] = []

@@ -1,15 +1,21 @@
 # Provider Step Token Usage Accounting
 
+> **2026-11-12 disposition: implemented** by Lane 2 of the
+> [Phase 2 plan](../../plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#lane-2-token-and-cost-metering):
+> every evaluated provider, agent-turn and phased attempt writes `usage.json`
+> ([providers](../../../specs/providers.md#metered-templates-and-usage); opt-in `<name>_metered`
+> templates report tokens), `--max-cost-usd` caps a run's spend, and `report`
+> shows tokens and cost per provider step and for the run
+> ([observability](../../../specs/observability.md#report-usage)). Not taken from the proposal
+> below: the stderr `tokens used` fallback, per-step statistics, matching calls to the CLIs'
+> session stores, and fields in run state (usage is a view beside each attempt, not memo authority).
+> The notices below are history.
+
 > **2026-11-11 disposition:** moved to [Phase 2](../../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-2-qualification-metering-and-stable-names) of the
 > [current roadmap](../../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions); the rest of the backlog is archived.
 
-Current disposition: **unselected structured usage-accounting proposal.**
+Current disposition: **implemented (2026-11-12, see the notice above).**
 
-Per-visit usage/aggregation remains an unselected goal. The original absence statement is historical: current gateway and OMP codec expose bounded usage, without proving every proposed Codex/state/report requirement.
-
-Gate retained: No pricing/model calls or generalized accounting implementation selected.
-This is a documentation disposition, not evidence of implementation completion
-or authorization for new execution, spend, prompt edits or runtime work.
 Current owners: [lisp workflow drafting guide](../../lisp_workflow_drafting_guide.md), [workflow lisp evaluated execution](../../design/workflow_lisp_evaluated_execution.md), [cli](../../../specs/cli.md), [workflow lisp provider prompt dependencies](../../design/workflow_lisp_provider_prompt_dependencies.md), [workflow lisp provider call policy](../../design/workflow_lisp_provider_call_policy.md).
 [Backlog status inventory](../README.md).
 

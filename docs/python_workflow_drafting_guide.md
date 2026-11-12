@@ -99,13 +99,24 @@ continuation, completion and exhaustion. Branch callbacks are traced at build
 time; only the selected generated branch performs runtime effects. The example
 shows these controls without provider spend.
 
+Generated step names follow the callee: the first `work(...)` call in a
+function binds `_work`, the next `_work_2`. Inserting a call of another callee
+leaves these names, and the steps' recorded identities, unchanged. Pass
+`name="x"` to an effect call, `when`, `match`, `loop` or `ask` to fix a step's
+name against any insertion. A called workflow or procedure that has its own
+parameter `name` takes `name=` as that argument instead. The
+[design](design/python_workflow_frontend.md#branches-matching-and-loops)
+owns the rule and its refusals.
+
 The module's `TARGET` defaults to 2.39; admitted targets are 2.35–2.40.
 Procedures infer effects at 2.39 and later. Older targets require explicit effect
 descriptors and emit inline lowering; imported definitions keep their own rules.
 Supply repeatable `--source-root` paths for additional source libraries, select
 an exported entry with `--entry-workflow`, and supply the relevant provider,
-prompt, command or imported-bundle manifests. There are no default extern
-bindings. The [design](design/python_workflow_frontend.md#public-authoring-surface)
+prompt, command or imported-bundle manifests. When a manifest flag is absent,
+a file named `commands.json`, `providers.json` or `prompts.json` beside the
+source is used (an explicit flag wins; the CLI prints `using <file> beside
+<source>`). The [design](design/python_workflow_frontend.md#public-authoring-surface)
 documents the declaration API and concrete `.orc` imports.
 
 ## Ask For A Durable Decision

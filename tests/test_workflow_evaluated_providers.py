@@ -22,6 +22,7 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
 from orchestrator.contracts.prompt_json_shape import render_json_shape_contract_block
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
+from tests.agent_session_shims import closed_path
 
 
 SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
@@ -87,7 +88,7 @@ def _cli(root: Path, fixture, *, mode="success", extra=(), payload='{"ok":true,"
         "--source-root", str(source.parent),
         "--provider-externs-file", str(providers), "--prompt-externs-file", str(prompts),
         "--input", "message=typed input", *extra], cwd=root,
-        env={**os.environ, "PATH": str(root / "bin") + os.pathsep + os.environ["PATH"],
+        env={**os.environ, "PATH": closed_path(root / "bin"),
              "PYTHONPATH": str(Path(__file__).parents[1]), "PYTHONDONTWRITEBYTECODE": "1",
              "PROVIDER_SHIM_MODE": mode, "PROVIDER_SHIM_RESULT": payload},
         capture_output=True, text=True, check=False)
@@ -201,7 +202,7 @@ def test_public_provider_that_changes_directory_still_writes_the_pinned_attempt(
 
 def test_public_completed_provider_resume_is_readonly_through_service_and_cli(tmp_path, monkeypatch):
     fixture = _fixture(tmp_path)
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     result = _cli(tmp_path, fixture)
     assert result.returncode == 0, result.stderr
     (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()

@@ -24,6 +24,7 @@ from tests.test_workflow_evaluated_run_ref import _public_fixture, _authority
 from tests.test_workflow_evaluated_run_ref_settlement import _commit_gap, _service_run
 from tests.test_workflow_evaluated_providers import _fixture, _requests
 from tests.test_workflow_evaluated_readers import _pure_run
+from tests.agent_session_shims import closed_path
 
 
 def test_pure_failure_after_commit_preserves_ordinary_failed_terminal(tmp_path):
@@ -243,7 +244,7 @@ def _provider_args(root, fixture):
 
 
 def _provider_env(monkeypatch, root, mode):
-    monkeypatch.setenv("PATH", str(root / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(root / "bin"))
     monkeypatch.setenv("PROVIDER_SHIM_MODE", mode)
 
 

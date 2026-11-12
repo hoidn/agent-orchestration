@@ -15,6 +15,7 @@ from orchestrator.workflow.evaluated.authority import load_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from tests.test_workflow_evaluated_providers import _fixture, _requests
+from tests.agent_session_shims import closed_path
 
 
 _COMMIT_GATE = '''\
@@ -75,7 +76,7 @@ def _env(root: Path, *, provider: bool = False) -> dict[str, str]:
         "PYTHONDONTWRITEBYTECODE": "1",
     }
     if provider:
-        env["PATH"] = str(root / "bin") + os.pathsep + env["PATH"]
+        env["PATH"] = closed_path(root / "bin")
         env["PROVIDER_SHIM_MODE"] = "success"
         env["PROVIDER_SHIM_RESULT"] = '{"ok":true}'
     return env

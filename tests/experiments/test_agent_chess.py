@@ -13,6 +13,7 @@ import pytest
 from orchestrator.workflow.evaluated.authority import load_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
+from tests.agent_session_shims import closed_path
 
 
 REPO = Path(__file__).parents[2]
@@ -75,7 +76,7 @@ def _workspace(tmp_path: Path, *, bad_call: int | None = None, bad_output: str =
         binary.chmod(0o700)
     env = {
         **os.environ,
-        "PATH": str(binary_dir) + os.pathsep + os.environ["PATH"],
+        "PATH": closed_path(binary_dir),
         "PYTHONPATH": str(REPO),
         "PYTHONDONTWRITEBYTECODE": "1",
         "CHESS_BOARD_PATH": str(root / BOARD_PATH),

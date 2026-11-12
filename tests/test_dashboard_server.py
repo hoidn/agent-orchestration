@@ -2,34 +2,81 @@
 
 from __future__ import annotations
 
+import html
+import http.client
 import json
+import threading
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
+from urllib.parse import quote
 from pathlib import Path
 
 
+import pytest
+
+from orchestrator.dashboard.projection import RunProjector
 from orchestrator.dashboard.scanner import RunScanner
-from orchestrator.dashboard.server import DashboardApp
+from orchestrator.dashboard.server import DashboardApp, make_dashboard_server
+from orchestrator.workflow.evaluated.views import load_evaluated_view
+from tests.test_workflow_evaluated_cli import _run_cli
+from tests.test_workflow_evaluated_invalidate import _completed_run, _tree_bytes
+from tests.test_workflow_evaluated_readers import _pure_run, _scalar_run
+from tests.test_run_lock import _subprocess_writer
+from tests.workflow_inprocess_cli_helpers import cli_inprocess
+from tests.agent_session_shims import closed_path
 
 
-def _write_yaml(path: Path, payload: dict) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, sort_keys=False), encoding="utf-8")
-    return path
+FAILING_SOURCE = '''\
+(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule fresh_flow) (export run)
+  (defworkflow run () -> String
+    (let* ((shown (command-result shown :argv ("python" "shown.py") :returns String))
+           (fail (command-result fail :argv ("python" "fail.py") :returns Int)))
+      shown)))
+'''
 
 
-def _write_run(workspace: Path, run_dir_id: str, state: dict) -> None:
-    run_dir = workspace / ".orchestrate" / "runs" / run_dir_id
-    run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+def _run_names(workspace: Path) -> set[str]:
+    runs = workspace / ".orchestrate" / "runs"
+    return {path.name for path in runs.iterdir()} if runs.exists() else set()
+
+
+def _new_run(workspace: Path, before: set[str]) -> Path:
+    (run_root,) = [path for path in (workspace / ".orchestrate" / "runs").iterdir() if path.name not in before]
+    return run_root
+
+
+def _failing_run(workspace: Path, exit_code: int = 3) -> Path:
+    """A real evaluated run: `shown` commits an HTML-bearing string, then `fail` exits `exit_code`."""
+    (workspace / "fresh_flow.orc").write_text(FAILING_SOURCE, encoding="utf-8")
+    (workspace / "shown.py").write_text(
+        'import json, os\nprint("<svg><script>log</script></svg>")\n'
+        'open(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"], "w").write(json.dumps("<b>bad</b><img src=x>"))\n',
+        encoding="utf-8")
+    (workspace / "fail.py").write_text(
+        f'import sys\nprint("<script>boom</script>", file=sys.stderr)\nsys.exit({exit_code})\n', encoding="utf-8")
+    (workspace / "fail_commands.json").write_text(json.dumps({
+        name: {"stable_command": ["python", f"{name}.py"], "closure": [f"{name}.py"]} for name in ("shown", "fail")
+    }), encoding="utf-8")
+    before = _run_names(workspace)
+    result = cli_inprocess(workspace, "run", "fresh_flow.orc", "--command-boundaries-file", "fail_commands.json")
+    assert result.returncode == 1, result.stderr
+    return _new_run(workspace, before)
+
+
+def _step(workspace: Path, run_root: Path, suffix: str):
+    record = next(run for run in RunScanner([workspace]).scan().runs if run.run_root == run_root)
+    return next(step for step in RunProjector().project_detail(record).steps if step.ref.endswith(suffix))
 
 
 def _app(workspace: Path) -> DashboardApp:
     return DashboardApp(RunScanner([workspace]))
 
 
-def _write_state_json_symlink_escape(workspace: Path) -> Path:
+def _write_state_json_symlink_escape(workspace: Path) -> tuple[Path, Path]:
+    """A real evaluated run whose derived `state.json` is replaced by a symlink leaving the workspace."""
+    run_root = _pure_run(workspace)
     outside = workspace.parent / f"{workspace.name}-outside"
     outside.mkdir()
     external_state = outside / "state.json"
@@ -43,10 +90,9 @@ def _write_state_json_symlink_escape(workspace: Path) -> Path:
         ),
         encoding="utf-8",
     )
-    run_dir = workspace / ".orchestrate" / "runs" / "run1"
-    run_dir.mkdir(parents=True)
-    (run_dir / "state.json").symlink_to(external_state)
-    return outside
+    (run_root / "state.json").unlink()
+    (run_root / "state.json").symlink_to(external_state)
+    return outside, run_root
 
 
 def test_root_redirects_to_runs(tmp_path: Path):
@@ -57,115 +103,40 @@ def test_root_redirects_to_runs(tmp_path: Path):
 
 
 def test_runs_index_returns_html_with_security_headers_and_escaped_fields(tmp_path: Path):
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "flow.yaml",
-        {
-            "version": "1.3",
-            "name": "<script>flow</script>",
-            "steps": [{"name": "StepA", "command": ["bash", "-lc", "true"]}],
-        },
-    )
-    _write_run(
-        tmp_path,
-        "run1",
-        {
-            "run_id": "<script>run</script>",
-            "status": "completed",
-            "workflow_file": str(workflow.relative_to(tmp_path)),
-        },
-    )
+    workspace = tmp_path / "ws<script>run"
+    workspace.mkdir()
+    run_root = _pure_run(workspace)
+    before = _tree_bytes(workspace)
 
-    response = _app(tmp_path).handle("GET", "/runs")
+    response = _app(workspace).handle("GET", "/runs")
 
     assert response.status == 200
     body = response.body.decode("utf-8")
     assert response.headers["Content-Type"] == "text/html; charset=utf-8"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert "default-src 'none'" in response.headers["Content-Security-Policy"]
-    assert "workflows/flow.yaml" in body
-    assert "&lt;script&gt;flow&lt;/script&gt;" not in body
-    assert "&lt;script&gt;run&lt;/script&gt;" in body
-    assert 'href="/runs/w0/run1"' in body
+    assert "evaluated/inputs.orc" in body
+    assert "ws&lt;script&gt;run" in body
+    assert "<script>run" not in body
+    assert f'href="/runs/w0/{run_root.name}"' in body
     assert "file://" not in body
     assert f'href="{tmp_path}' not in body
+    assert _tree_bytes(workspace) == before
 
 
 def test_runs_index_orders_entries_by_most_recent_updated_at_first(tmp_path: Path):
-    _write_run(
-        tmp_path,
-        "aaa-old",
-        {
-            "run_id": "aaa-old",
-            "status": "completed",
-            "updated_at": "2026-04-13T10:00:00+00:00",
-        },
-    )
-    _write_run(
-        tmp_path,
-        "zzz-new",
-        {
-            "run_id": "zzz-new",
-            "status": "completed",
-            "updated_at": "2026-04-13T12:00:00+00:00",
-        },
-    )
+    older = _pure_run(tmp_path)
+    before = _run_names(tmp_path)
+    result = _run_cli(tmp_path, str(tmp_path / "evaluated" / "inputs.orc"), "--input", "score=0.75")
+    assert result.returncode == 0, result.stderr
+    newer = _new_run(tmp_path, before)
+    assert load_evaluated_view(newer)["updated_at"] > load_evaluated_view(older)["updated_at"]
 
     response = _app(tmp_path).handle("GET", "/runs")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
-    assert body.index('href="/runs/w0/zzz-new"') < body.index('href="/runs/w0/aaa-old"')
-
-
-def test_runs_index_renders_cursor_freshness_and_availability_fields(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    (run_root / "logs").mkdir(parents=True)
-    (run_root / "provider_sessions").mkdir()
-    (run_root / "logs" / "Step.prompt.txt").write_text("prompt", encoding="utf-8")
-    (run_root / "logs" / "Step.stdout").write_text("stdout", encoding="utf-8")
-    (run_root / "logs" / "Step.stderr").write_text("stderr", encoding="utf-8")
-    (run_root / "provider_sessions" / "root.step__v1.json").write_text("{}", encoding="utf-8")
-    (run_root / "state.json.step_Step.bak").write_text("{}", encoding="utf-8")
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "running",
-                "started_at": "2026-04-13T12:00:00+00:00",
-                "updated_at": "2026-04-13T12:02:00+00:00",
-                "current_step": {
-                    "name": "Step",
-                    "step_id": "root.step",
-                    "started_at": "2026-04-13T12:01:00+00:00",
-                    "last_heartbeat_at": "2026-04-13T12:01:30+00:00",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = DashboardApp(
-        RunScanner([tmp_path]),
-        now="2026-04-13T12:02:30+00:00",
-    ).handle("GET", "/runs")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Cursor" in body
-    assert "Step" in body
-    assert "Started" in body
-    assert "Elapsed" in body
-    assert "2m 30s" in body
-    assert "Current step start" in body
-    assert "2026-04-13T12:01:00+00:00" in body
-    assert "State mtime" in body
-    assert "Read time" in body
-    assert "Heartbeat" in body
-    assert "1m 0s" in body
-    assert "Availability" in body
-    assert "prompt_audits" in body
-    assert "provider_sessions" in body
-    assert "state_backups" in body
+    assert body.index(f'href="/runs/w0/{newer.name}"') < body.index(f'href="/runs/w0/{older.name}"')
 
 
 def test_unknown_route_returns_404(tmp_path: Path):
@@ -174,2625 +145,101 @@ def test_unknown_route_returns_404(tmp_path: Path):
     assert response.status == 404
 
 
-def test_summary_provider_flow_orders_design_gap_architecture_before_plan(tmp_path: Path):
-    app = _app(tmp_path)
-    review_plan_loop = {
-        "label": "PlanReviewLoop",
-        "kind": "repeat_until max=12",
-        "provider": False,
-        "children": [
-            {"label": "ReviewPlan", "kind": "provider", "provider": True, "children": []},
-            {
-                "label": "RoutePlanDecision",
-                "kind": "match",
-                "provider": False,
-                "children": [
-                    {"label": "case APPROVE", "kind": "case", "provider": False, "children": []},
-                    {
-                        "label": "case REVISE",
-                        "kind": "case",
-                        "provider": False,
-                        "children": [
-                            {"label": "RevisePlan", "kind": "provider", "provider": True, "children": []}
-                        ],
-                    },
-                ],
-            },
-        ],
-    }
-    architecture_loop = {
-        "label": "ArchitectureReviewLoop",
-        "kind": "repeat_until max=8",
-        "provider": False,
-        "children": [
-            {
-                "label": "ReviewDesignGapArchitecture",
-                "kind": "provider",
-                "provider": True,
-                "children": [],
-            },
-            {
-                "label": "RouteArchitectureDecision",
-                "kind": "match",
-                "provider": False,
-                "children": [
-                    {"label": "case APPROVE", "kind": "case", "provider": False, "children": []},
-                    {
-                        "label": "case REVISE",
-                        "kind": "case",
-                        "provider": False,
-                        "children": [
-                            {
-                                "label": "ReviseDesignGapArchitecture",
-                                "kind": "provider",
-                                "provider": True,
-                                "children": [],
-                            }
-                        ],
-                    },
-                ],
-            },
-        ],
-    }
-    nodes = [
-        {
-            "label": "DrainLispFrontendWork",
-            "kind": "repeat_until max=60",
-            "provider": False,
-            "children": [
-                {"label": "SelectNextWork", "kind": "provider", "provider": True, "children": []},
-                {
-                    "label": "RouteSelection",
-                    "kind": "match",
-                    "provider": False,
-                    "children": [
-                        {
-                            "label": "case SELECT_BACKLOG_ITEM",
-                            "kind": "case",
-                            "provider": False,
-                            "children": [review_plan_loop],
-                        },
-                        {
-                            "label": "case DRAFT_DESIGN_GAP",
-                            "kind": "case",
-                            "provider": False,
-                            "children": [
-                                {
-                                    "label": "DraftDesignGapArchitecture",
-                                    "kind": "provider",
-                                    "provider": True,
-                                    "children": [],
-                                },
-                                architecture_loop,
-                                review_plan_loop,
-                            ],
-                        },
-                    ],
-                },
-            ],
-        }
-    ]
-
-    html = app._provider_flow_mermaid_html(nodes)
-    normalized_html = html.replace("<wbr>", "")
-
-    assert normalized_html.index("SelectNextWork") < normalized_html.index("DraftDesignGapArchitecture")
-    assert normalized_html.index("ArchitectureReviewLoop") < normalized_html.index("PlanReviewLoop")
-
-
 def test_runs_index_filters_by_status_workflow_recency_and_search(tmp_path: Path):
-    fresh_workflow = _write_yaml(
-        tmp_path / "workflows" / "fresh.yaml",
-        {"version": "1.3", "name": "fresh-flow", "steps": []},
-    )
-    old_workflow = _write_yaml(
-        tmp_path / "workflows" / "old.yaml",
-        {"version": "1.3", "name": "old-flow", "steps": []},
-    )
-    _write_run(
-        tmp_path,
-        "fresh-run",
-        {
-            "run_id": "fresh-run",
-            "status": "failed",
-            "workflow_file": str(fresh_workflow.relative_to(tmp_path)),
-            "updated_at": "2026-04-13T12:00:00+00:00",
-            "error": {"message": "needle failure"},
-        },
-    )
-    _write_run(
-        tmp_path,
-        "old-run",
-        {
-            "run_id": "old-run",
-            "status": "completed",
-            "workflow_file": str(old_workflow.relative_to(tmp_path)),
-            "updated_at": "2026-04-01T12:00:00+00:00",
-        },
-    )
-    app = DashboardApp(RunScanner([tmp_path]), now="2026-04-13T13:00:00+00:00")
+    old_run = _completed_run(tmp_path)
+    fresh_run = _failing_run(tmp_path)
+    updated = datetime.fromisoformat(load_evaluated_view(fresh_run)["updated_at"])
+    app = DashboardApp(RunScanner([tmp_path]), now=updated + timedelta(hours=1))
 
     response = app.handle(
         "GET",
-        "/runs?status=failed&workflow=fresh&recency=2h&search=needle",
+        "/runs?status=failed&workflow=fresh&recency=2h&search=exit%20code%203",
     )
 
     body = response.body.decode("utf-8")
-    assert "fresh-run" in body
-    assert "old-run" not in body
+    assert fresh_run.name in body
+    assert old_run.name not in body
+    stale = DashboardApp(RunScanner([tmp_path]), now=updated + timedelta(hours=3)).handle("GET", "/runs?recency=2h")
+    assert fresh_run.name not in stale.body.decode("utf-8")
 
 
-def test_run_detail_route_shows_cursor_commands_lineage_and_warnings(tmp_path: Path):
-    artifact = tmp_path / "artifacts" / "result.txt"
-    artifact.parent.mkdir()
-    artifact.write_text("ok", encoding="utf-8")
-    _write_run(
-        tmp_path,
-        "dir-run",
-        {
-            "run_id": "state-run",
-            "status": "running",
-            "workflow_file": "missing.yaml",
-            "current_step": {"name": "ReviewLoop", "step_id": "root.review_loop"},
-            "bound_inputs": {"goal": "ship"},
-            "workflow_outputs": {"report": "artifacts/result.txt"},
-            "repeat_until": {"ReviewLoop": {"current_iteration": 1}},
-            "finalization": {"status": "running", "workflow_outputs_status": "pending"},
-            "steps": {
-                "ReviewLoop": {
-                    "status": "running",
-                    "step_id": "root.review_loop",
-                    "artifacts": {"result": "artifacts/result.txt"},
-                }
-            },
-            "artifact_versions": {
-                "result": [{"version": 1, "value": "artifacts/result.txt", "producer": "ReviewLoop"}]
-            },
-        },
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/dir-run")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "state.run_id mismatch" in body
-    assert "orchestrate report --run-id dir-run" in body
-    assert "orchestrate resume dir-run" not in body
-    assert "ReviewLoop" in body
-    assert "repeat_until" in body
-    assert "workflow_outputs_status" in body
-    assert "goal" in body
-    assert "artifact_versions" in body
+HOSTILE_ERROR_SOURCE = '''\
+(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule hostile) (export run)
+  (defworkflow run () -> Int
+    (command-result hostile :argv ("<script>boom" "x") :returns Int)))
+'''
 
 
-def test_run_detail_links_run_local_observability_files(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    logs = run_root / "logs"
-    provider_sessions = run_root / "provider_sessions"
-    logs.mkdir(parents=True)
-    provider_sessions.mkdir()
-    (logs / "Step.prompt.txt").write_text("masked prompt", encoding="utf-8")
-    (logs / "Step.stdout").write_text("stdout", encoding="utf-8")
-    (logs / "Step.stderr").write_text("stderr", encoding="utf-8")
-    (provider_sessions / "root.step__v1.json").write_text(
-        '{"step_status":"completed"}',
-        encoding="utf-8",
-    )
-    (provider_sessions / "root.step__v1.transport.log").write_text(
-        "transport",
-        encoding="utf-8",
-    )
-    (run_root / "state.json.step_Step.bak").write_text("{}", encoding="utf-8")
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "steps": {
-                    "Step": {
-                        "status": "completed",
-                        "step_id": "root.step",
-                        "visit_count": 1,
-                        "debug": {
-                            "provider_session": {
-                                "metadata_path": str(provider_sessions / "root.step__v1.json"),
-                                "transport_spool_path": str(
-                                    provider_sessions / "root.step__v1.transport.log"
-                                ),
-                                "publication_state": "published",
-                            }
-                        },
-                    }
-                },
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+def _hostile_error_run(workspace: Path, monkeypatch) -> Path:
+    """A real run whose failed effect's error carries hostile text: the launcher's exec error names the program."""
+    program = workspace / "bin" / "<script>boom"
+    program.parent.mkdir()
+    program.write_bytes(b"\x00\x01 not an executable format")
+    program.chmod(0o700)
+    monkeypatch.setenv("PATH", closed_path(program.parent))
+    (workspace / "hostile.orc").write_text(HOSTILE_ERROR_SOURCE, encoding="utf-8")
+    (workspace / "hostile_commands.json").write_text(
+        json.dumps({"hostile": {"stable_command": ["<script>boom"], "closure": []}}), encoding="utf-8")
+    before = _run_names(workspace)
+    result = cli_inprocess(workspace, "run", "hostile.orc", "--command-boundaries-file", "hostile_commands.json")
+    assert result.returncode == 1, result.stderr
+    return _new_run(workspace, before)
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
+
+def test_step_detail_route_resolves_by_name_and_escapes_payloads(tmp_path: Path, monkeypatch):
+    run_root = _failing_run(tmp_path)
+    hostile_root = _hostile_error_run(tmp_path, monkeypatch)
+    shown, failed = _step(tmp_path, run_root, "/ shown"), _step(tmp_path, run_root, "/ fail")
+    hostile = _step(tmp_path, hostile_root, "")  # the run's one effect
+    assert "<script>boom" in json.dumps(hostile.error)
+    before = _tree_bytes(tmp_path)
+    app = _app(tmp_path)
+
+    response = app.handle("GET", f"/runs/w0/{run_root.name}/steps/{quote(shown.name, safe='')}")
+    error_page = app.handle("GET", f"/runs/w0/{hostile_root.name}/steps/{quote(hostile.name, safe='')}")
+    stderr = app.handle("GET", f"/runs/w0/{run_root.name}/files/run/{failed.file_refs['stderr.txt'].route_path}")
 
     body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Prompt Audits" in body
-    assert "masked debug prompt file" in body
-    assert 'href="/runs/w0/run1/files/run/logs/Step.prompt.txt"' in body
-    assert "Execution Logs" in body
-    assert "less-masked execution log" in body
-    assert 'href="/runs/w0/run1/files/run/logs/Step.stdout"' in body
-    assert 'href="/runs/w0/run1/files/run/logs/Step.stderr"' in body
-    assert "Provider Sessions" in body
-    assert "provider transport log" in body
-    assert 'href="/runs/w0/run1/files/run/provider_sessions/root.step__v1.json"' in body
-    assert (
-        'href="/runs/w0/run1/files/run/provider_sessions/root.step__v1.transport.log"'
-        in body
-    )
-    assert "State Backups" in body
-    assert 'href="/runs/w0/run1/files/run/state.json.step_Step.bak"' in body
-
-
-def test_run_detail_links_summary_hub_when_index_exists(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "completed"}),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Summary Hub" in body
-    assert 'href="/runs/w0/run1/summaries"' in body
-    assert 'href="/runs/w0/run1/files/run/summaries/index.json"' in body
-
-
-def test_summary_hub_route_renders_entries_and_escaped_rollup(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    frame_root = "call_frames/root.loop#0/frame1"
-    frame_summaries = run_root / frame_root / "summaries"
-    summaries.mkdir(parents=True)
-    frame_summaries.mkdir(parents=True)
-    (frame_summaries / "SelectNextWork.provider.summary.md").write_text(
-        "# Summary\n<script>bad</script>\n",
-        encoding="utf-8",
-    )
-    (frame_summaries / "SelectNextWork.provider.snapshot.json").write_text(
-        '{"step":{"name":"SelectNextWork"}}',
-        encoding="utf-8",
-    )
-    (summaries / "run-summary.md").write_text(
-        (
-            "# Rollup\n\n"
-            "## Generated Summaries\n\n"
-            "- SelectNextWork (provider): completed - "
-            "[summary](../call_frames/root.loop#0/frame1/summaries/SelectNextWork.provider.summary.md)\n\n"
-            "<script>rollup</script>\n"
-        ),
-        encoding="utf-8",
-    )
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {
-                        "step_name": "SelectNextWork",
-                        "kind": "provider",
-                        "profile": "phase-performance",
-                        "status": "completed",
-                        "duration_ms": 1234,
-                        "frame_root": frame_root,
-                        "summary_path": f"{frame_root}/summaries/SelectNextWork.provider.summary.md",
-                        "snapshot_path": f"{frame_root}/summaries/SelectNextWork.provider.snapshot.json",
-                        "error_path": None,
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "completed"}),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert response.headers["X-Content-Type-Options"] == "nosniff"
-    assert "Summary Hub" in body
-    assert "SelectNextWork" in body
-    assert "provider" in body
-    assert "phase-performance" in body
-    assert "completed" in body
-    assert "1234 ms" in body
-    assert (
-        'href="/runs/w0/run1/files/run/call_frames/root.loop%230/frame1/summaries/SelectNextWork.provider.summary.md"'
-        in body
-    )
-    assert (
-        'href="/runs/w0/run1/files/run/call_frames/root.loop%230/frame1/summaries/SelectNextWork.provider.snapshot.json"'
-        in body
-    )
-    assert '<article class="markdown-preview run-summary-preview">' in body
-    assert "<h1>Rollup</h1>" in body
-    assert "<h2>Generated Summaries</h2>" in body
-    assert "[summary](" not in body
-    assert (
-        '<li>SelectNextWork (provider): completed - '
-        '<a href="/runs/w0/run1/files/run/call_frames/root.loop%230/frame1/summaries/'
-        'SelectNextWork.provider.summary.md">summary</a></li>'
-        in body
-    )
-    assert (
-        'href="/runs/w0/run1/files/run/call_frames/root.loop%230/frame1/summaries/SelectNextWork.provider.summary.md"'
-        in body
-    )
-    assert "&lt;script&gt;rollup&lt;/script&gt;" in body
-    assert "<script>rollup</script>" not in body
-    assert str(run_root) not in body
-
-
-def test_summary_hub_renders_provider_visit_stats(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    first = run_root / "call_frames" / "root.loop#0.review__visit__1" / "summaries"
-    second = run_root / "call_frames" / "root.loop#1.review__visit__1" / "summaries"
-    third = run_root / "call_frames" / "root.loop#1.fix__visit__1" / "summaries"
-    for directory in (summaries, first, second, third):
-        directory.mkdir(parents=True)
-    (first / "ReviewImplementation.provider.summary.md").write_text("first", encoding="utf-8")
-    (second / "ReviewImplementation.provider.error.json").write_text("{}", encoding="utf-8")
-    (third / "FixImplementation.provider.summary.md").write_text("fix", encoding="utf-8")
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {
-                        "step_name": "ReviewImplementation",
-                        "kind": "provider",
-                        "status": "completed",
-                        "frame_root": "call_frames/root.loop#0.review__visit__1",
-                        "summary_path": (
-                            "call_frames/root.loop#0.review__visit__1/"
-                            "summaries/ReviewImplementation.provider.summary.md"
-                        ),
-                    },
-                    {
-                        "step_name": "ReviewImplementation",
-                        "kind": "provider",
-                        "status": "error",
-                        "frame_root": "call_frames/root.loop#1.review__visit__1",
-                        "error_path": (
-                            "call_frames/root.loop#1.review__visit__1/"
-                            "summaries/ReviewImplementation.provider.error.json"
-                        ),
-                    },
-                    {
-                        "step_name": "FixImplementation",
-                        "kind": "provider",
-                        "status": "completed",
-                        "frame_root": "call_frames/root.loop#1.fix__visit__1",
-                        "summary_path": (
-                            "call_frames/root.loop#1.fix__visit__1/"
-                            "summaries/FixImplementation.provider.summary.md"
-                        ),
-                    },
-                    {
-                        "step_name": "ImplementationReviewLoop",
-                        "kind": "phase",
-                        "status": "completed",
-                    },
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "completed"}),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Provider Visit Stats" in body
-    assert "ReviewImplementation" in body
-    assert "2 visits" in body
-    assert "1 completed" in body
-    assert "1 error" in body
-    assert "FixImplementation" in body
-    assert "1 visit" in body
-    assert "ImplementationReviewLoop</a>" not in body
-    assert 'href="/runs/w0/run1/files/run/call_frames/root.loop%230.review__visit__1/summaries/ReviewImplementation.provider.summary.md"' in body
-    assert 'href="/runs/w0/run1/files/run/call_frames/root.loop%231.review__visit__1/summaries/ReviewImplementation.provider.error.json"' in body
-
-
-def test_summary_hub_links_tmux_session_when_monitor_metadata_exists(
-    tmp_path: Path,
-    monkeypatch,
-):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (run_root / "monitor_process.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator-monitor-process/v1",
-                "pid": 222,
-                "started_at": "2026-04-13T12:00:00+00:00",
-                "tmux": "/tmp/test-dashboard.sock,999,0",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "running"}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        DashboardApp,
-        "_resolve_tmux_target",
-        lambda self, socket, pid: "lisp-run:0.0",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert 'id="tmux-session"' in body
-    assert "lisp-run:0.0" in body
-    assert "tmux -S /tmp/test-dashboard.sock attach -t lisp-run:0.0" in body
-    assert 'href="/runs/w0/run1/tmux"' in body
-    assert "tmux://attach" not in body
-
-
-def test_tmux_viewer_renders_captured_pane_from_monitor_metadata(
-    tmp_path: Path,
-    monkeypatch,
-):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    run_root.mkdir(parents=True)
-    (run_root / "monitor_process.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator-monitor-process/v1",
-                "pid": 222,
-                "started_at": "2026-04-13T12:00:00+00:00",
-                "tmux": "/tmp/test-dashboard.sock,999,0",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "running"}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(
-        DashboardApp,
-        "_resolve_tmux_target",
-        lambda self, socket, pid: "lisp-run:0.0",
-    )
-    monkeypatch.setattr(
-        DashboardApp,
-        "_capture_tmux_pane",
-        lambda self, socket, target, lines=240: "agent output\n<script>bad</script>\n",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/tmux")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Tmux Pane" in body
-    assert "lisp-run:0.0" in body
-    assert "agent output" in body
-    assert "&lt;script&gt;bad&lt;/script&gt;" in body
-    assert "<script>bad</script>" not in body
-
-
-def test_summary_hub_degrades_legacy_workflow_to_observed_summary_sequence(
-    tmp_path: Path,
-):
-    prompt = tmp_path / "workflows" / "prompts" / "select.md"
-    context = tmp_path / "workflows" / "prompts" / "context.md"
-    input_file = tmp_path / "docs" / "operator-input.md"
-    for path, body in (
-        (prompt, "select prompt"),
-        (context, "context"),
-        (input_file, "input"),
-    ):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(body, encoding="utf-8")
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "structured.yaml",
-        {
-            "version": "2.7",
-            "name": "StructuredWorkflow",
-            "artifacts": {
-                "review_state": {
-                    "kind": "scalar",
-                    "type": "enum",
-                    "allowed": ["APPROVE", "REVISE"],
-                }
-            },
-            "steps": [
-                {
-                    "name": "SelectNextWork",
-                    "provider": "selector",
-                    "asset_file": "prompts/select.md",
-                    "asset_depends_on": ["prompts/context.md"],
-                },
-                {
-                    "name": "ReadOperatorInput",
-                    "provider": "selector",
-                    "input_file": "docs/operator-input.md",
-                },
-                {
-                    "name": "RunReviewLoop",
-                    "id": "run_review_loop",
-                    "repeat_until": {
-                        "id": "review_iteration",
-                        "max_iterations": 3,
-                        "outputs": {
-                            "review_state": {
-                                "kind": "scalar",
-                                "type": "enum",
-                                "allowed": ["APPROVE", "REVISE"],
-                                "from": {
-                                    "ref": "self.steps.RouteDecision.artifacts.review_state"
-                                },
-                            }
-                        },
-                        "condition": {
-                            "compare": {
-                                "left": {"ref": "self.outputs.review_state"},
-                                "op": "eq",
-                                "right": "APPROVE",
-                            }
-                        },
-                        "steps": [
-                            {
-                                "name": "Review",
-                                "id": "review",
-                                "provider": "reviewer",
-                                "expected_outputs": [
-                                    {
-                                        "name": "decision",
-                                        "path": "state/review-decision.txt",
-                                        "type": "enum",
-                                        "allowed": ["APPROVE", "REVISE"],
-                                    }
-                                ],
-                            },
-                            {
-                                "name": "RouteDecision",
-                                "id": "route_decision",
-                                "match": {
-                                    "ref": "self.steps.Review.artifacts.decision",
-                                    "cases": {
-                                        "APPROVE": {
-                                            "id": "approve_path",
-                                            "outputs": {
-                                                "review_state": {
-                                                    "kind": "scalar",
-                                                    "type": "enum",
-                                                    "allowed": ["APPROVE", "REVISE"],
-                                                    "from": {
-                                                        "ref": "self.steps.PublishApproval.artifacts.review_state"
-                                                    },
-                                                }
-                                            },
-                                            "steps": [
-                                                {
-                                                    "name": "PublishApproval",
-                                                    "id": "publish_approval",
-                                                    "set_scalar": {
-                                                        "artifact": "review_state",
-                                                        "value": "APPROVE",
-                                                    },
-                                                }
-                                            ]
-                                        },
-                                        "REVISE": {
-                                            "id": "revise_path",
-                                            "outputs": {
-                                                "review_state": {
-                                                    "kind": "scalar",
-                                                    "type": "enum",
-                                                    "allowed": ["APPROVE", "REVISE"],
-                                                    "from": {
-                                                        "ref": "self.steps.WriteRevision.artifacts.review_state"
-                                                    },
-                                                }
-                                            },
-                                            "steps": [
-                                                {"name": "Fix", "provider": "fixer"},
-                                                {
-                                                    "name": "WriteRevision",
-                                                    "id": "write_revision",
-                                                    "set_scalar": {
-                                                        "artifact": "review_state",
-                                                        "value": "REVISE",
-                                                    },
-                                                },
-                                            ],
-                                        },
-                                    },
-                                },
-                            },
-                        ],
-                    },
-                },
-                {"name": "Finalize", "command": ["python", "finalize.py"]},
-            ],
-        },
-    )
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {"step_name": "SelectNextWork", "kind": "provider"},
-                    {"step_name": "ReadOperatorInput", "kind": "provider"},
-                    {"step_name": "Review", "kind": "provider"},
-                    {"step_name": "Fix", "kind": "provider"},
-                    {"step_name": "Finalize", "kind": "phase"},
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "workflow_file": str(workflow.relative_to(tmp_path)),
-                "steps": {
-                    "SelectNextWork": {"status": "completed"},
-                    "ReadOperatorInput": {"status": "completed"},
-                    "Review": {"status": "completed"},
-                    "Fix": {"status": "completed"},
-                    "Finalize": {"status": "completed"},
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert body.index("Current Step") < body.index("Workflow Structure")
-    assert (
-        "Observed summary sequence. authored workflow typed surface is unavailable."
-        in body
-    )
-    assert "Workflow: StructuredWorkflow" not in body
-    assert "Provider Flow" in body
-    assert '<div class="provider-flow-strip"' in body
-    assert '<svg class="provider-flow-svg"' not in body
-    assert "provider-flow-provider-card" in body
-    assert '<details class="provider-flow-source">' in body
-    assert "<summary>Mermaid source</summary>" in body
-    assert "flowchart TD" in body
-    assert "SelectNextWork" in body
-    assert "Review" in body
-    assert "Fix" in body
-    assert "classDef provider" in body
-    assert 'class="workflow-node provider observed"' in body
-    assert "<details class=\"workflow-card\">" in body
-    assert "<details class=\"workflow-card\" open>" not in body
-    assert "<summary class=\"workflow-title\">" in body
-    assert "Finalize" in body
-    assert "RunReviewLoop" not in body
-    assert 'href="/runs/w0/run1/files/workspace/workflows/prompts/select.md"' not in body
-    assert str(tmp_path) not in body
-
-
-def test_summary_hub_does_not_reclassify_legacy_steps_from_authored_source(
-    tmp_path: Path,
-):
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "typed-structure.yaml",
-        {
-            "version": "1.1",
-            "name": "TypedStructure",
-            "steps": [
-                {
-                    "name": "VisitItems",
-                    "for_each": {
-                        "items": ["one"],
-                        "as": "item",
-                        "steps": [
-                            {"name": "Visit", "command": ["echo", "${item}"]},
-                        ],
-                    },
-                }
-            ],
-        },
-    )
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [{"step_name": "Visit", "kind": "phase"}],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "workflow_file": str(workflow.relative_to(tmp_path)),
-                "steps": {"Visit": {"status": "completed"}},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Observed summary sequence" in body
-    assert '<span class="workflow-name">Visit</span>' in body
-    assert '<span class="workflow-kind">observed</span>' in body
-    assert '<span class="workflow-kind">for_each</span>' not in body
-    assert '<span class="workflow-kind">command</span>' not in body
-
-
-def test_summary_hub_falls_back_to_observed_sequence_when_typed_surface_is_unavailable(
-    tmp_path: Path,
-):
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "invalid-call.yaml",
-        {
-            "version": "2.14",
-            "name": "invalid-call",
-            "steps": [{"name": "InvalidCall", "call": "missing_import"}],
-        },
-    )
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {"step_name": "SelectNextWork", "kind": "provider"},
-                    {"step_name": "SelectNextWork", "kind": "phase"},
-                    {"step_name": "ExecuteImplementation", "kind": "provider"},
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "workflow_file": str(workflow.relative_to(tmp_path)),
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Observed summary sequence" in body
-    assert "SelectNextWork" in body
-    assert "ExecuteImplementation" in body
-    assert "InvalidCall" not in body
-    assert body.count('<span class="workflow-name">SelectNextWork</span>') == 1
-    assert 'class="workflow-node provider observed"' in body
-
-
-def test_summary_hub_uses_observed_steps_and_persisted_call_frame_artifacts(
-    tmp_path: Path,
-):
-    prompt = tmp_path / "workflows" / "library" / "prompts" / "selector" / "select.md"
-    steering = tmp_path / "docs" / "steering.md"
-    selection = tmp_path / "state" / "selection.json"
-    for path, body in (
-        (prompt, "select prompt"),
-        (steering, "steering"),
-        (selection, "{}"),
-    ):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(body, encoding="utf-8")
-    child = _write_yaml(
-        tmp_path / "workflows" / "library" / "selector.yaml",
-        {
-            "version": "2.14",
-            "name": "selector",
-            "inputs": {"state_root": {"type": "relpath", "under": "state"}},
-            "steps": [
-                {
-                    "name": "MaterializeInputs",
-                    "command": ["python", "materialize.py"],
-                    "publishes": [{"artifact": "steering", "from": "steering_path"}],
-                },
-                {
-                    "name": "SelectNextWork",
-                    "provider": "codex",
-                    "asset_file": "prompts/selector/select.md",
-                    "consumes": [{"artifact": "steering"}],
-                    "output_bundle": {
-                        "path": "${inputs.state_root}/selection.json",
-                        "fields": [
-                            {
-                                "name": "selection_bundle_path",
-                                "json_pointer": "/selection_bundle_path",
-                                "type": "relpath",
-                            }
-                        ],
-                    },
-                },
-            ],
-        },
-    )
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "examples" / "top.yaml",
-        {
-            "version": "2.14",
-            "name": "top",
-            "imports": {"selector": "../library/selector.yaml"},
-            "steps": [
-                {
-                    "name": "CallSelector",
-                    "id": "call_selector",
-                    "call": "selector",
-                    "with": {"state_root": "state"},
-                }
-            ],
-        },
-    )
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {"step_name": "CallSelector", "kind": "phase"},
-                    {
-                        "step_name": "SelectNextWork",
-                        "kind": "provider",
-                        "frame_root": "call_frames/root.call_selector__visit__1",
-                    },
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "workflow_file": str(workflow.relative_to(tmp_path)),
-                "steps": {"CallSelector": {"status": "completed"}},
-                "call_frames": {
-                    "root.call_selector::visit::1": {
-                        "state": {
-                            "workflow_file": str(child.relative_to(tmp_path)),
-                            "status": "completed",
-                            "steps": {
-                                "MaterializeInputs": {
-                                    "status": "completed",
-                                    "artifacts": {"steering_path": "docs/steering.md"},
-                                },
-                                "SelectNextWork": {
-                                    "status": "completed",
-                                    "artifacts": {"selection_bundle_path": "state/selection.json"},
-                                },
-                            },
-                            "artifact_versions": {
-                                "steering": [
-                                    {"version": 1, "value": "docs/steering.md", "producer": "MaterializeInputs"}
-                                ],
-                                "selection_bundle": [
-                                    {
-                                        "version": 1,
-                                        "value": "state/selection.json",
-                                        "producer": "SelectNextWork",
-                                    }
-                                ]
-                            },
-                            "artifact_consumes": {"SelectNextWork": {"steering": 1}},
-                        }
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Observed summary sequence" in body
-    assert "CallSelector" in body
-    assert "SelectNextWork" in body
-    assert 'href="/runs/w0/run1/files/workspace/workflows/library/prompts/selector/select.md"' not in body
-
-    detail_body = _app(tmp_path).handle("GET", "/runs/w0/run1").body.decode("utf-8")
-    assert 'href="/runs/w0/run1/files/workspace/docs/steering.md"' in detail_body
-    assert 'href="/runs/w0/run1/files/workspace/state/selection.json"' in detail_body
-
-
-def test_summary_hub_step_details_include_summary_artifact_links(tmp_path: Path):
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "flow.yaml",
-        {
-            "version": "2.14",
-            "name": "flow",
-            "steps": [{"name": "ProviderStep", "provider": "codex"}],
-        },
-    )
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "ProviderStep.provider.summary.md").write_text("summary", encoding="utf-8")
-    (summaries / "ProviderStep.provider.snapshot.json").write_text("{}", encoding="utf-8")
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {
-                        "step_name": "ProviderStep",
-                        "kind": "provider",
-                        "profile": "phase-performance",
-                        "status": "completed",
-                        "duration_ms": 123,
-                        "frame_root": "call_frames/root.loop#2.run_provider__visit__4",
-                        "summary_path": "summaries/ProviderStep.provider.summary.md",
-                        "snapshot_path": "summaries/ProviderStep.provider.snapshot.json",
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "workflow_file": str(workflow.relative_to(tmp_path)),
-                "steps": {"ProviderStep": {"status": "completed"}},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Observed summary sequence" in body
-    assert '<span class="workflow-name">ProviderStep</span>' in body
-    assert "Step summary artifacts" not in body
-    assert "ProviderStep <span class=\"summary-context\">loop iteration 2 / visit 4</span>" in body
-    assert 'href="/runs/w0/run1/files/run/summaries/ProviderStep.provider.summary.md"' in body
-    assert 'href="/runs/w0/run1/files/run/summaries/ProviderStep.provider.snapshot.json"' in body
-
-
-def test_run_detail_links_persisted_provider_dependencies_and_outputs_for_legacy_state(
-    tmp_path: Path,
-):
-    prompt = tmp_path / "workflows" / "library" / "prompts" / "review.md"
-    prompt.parent.mkdir(parents=True)
-    prompt.write_text("review", encoding="utf-8")
-    steering = tmp_path / "docs" / "steering.md"
-    steering.parent.mkdir()
-    steering.write_text("# Steering\n", encoding="utf-8")
-    review = tmp_path / "artifacts" / "review" / "architecture-review.md"
-    review.parent.mkdir(parents=True)
-    review.write_text("# Review\n", encoding="utf-8")
-    state_root = tmp_path / "state" / "item"
-    state_root.mkdir(parents=True)
-    (state_root / "architecture_review_report_path.txt").write_text(
-        "artifacts/review/architecture-review.md\n",
-        encoding="utf-8",
-    )
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "library" / "review.yaml",
-        {
-            "version": "2.14",
-            "name": "review",
-            "inputs": {
-                "state_root": {"type": "relpath", "under": "state"},
-                "steering_path": {"type": "relpath"},
-            },
-            "steps": [
-                {
-                    "name": "ReviewArchitecture",
-                    "provider": "codex",
-                    "asset_file": "prompts/review.md",
-                    "depends_on": {"required": ["${inputs.steering_path}"]},
-                    "expected_outputs": [
-                        {
-                            "name": "architecture_review_report_path",
-                            "path": "${inputs.state_root}/architecture_review_report_path.txt",
-                            "type": "relpath",
-                            "under": "artifacts/review",
-                            "must_exist_target": True,
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "workflow_file": str(workflow.relative_to(tmp_path)),
-                "bound_inputs": {
-                    "state_root": "state/item",
-                    "steering_path": "docs/steering.md",
-                },
-                "workflow_outputs": {
-                    "architecture_review_report_path": "artifacts/review/architecture-review.md",
-                },
-                "artifact_versions": {
-                    "steering_path": [
-                        {
-                            "version": 1,
-                            "value": "docs/steering.md",
-                            "producer": "MaterializeInputs",
-                        }
-                    ]
-                },
-                "steps": {
-                    "ReviewArchitecture": {
-                        "status": "completed",
-                        "artifacts": {
-                            "architecture_review_report_path": "artifacts/review/architecture-review.md",
-                        },
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Inputs" in body
-    assert "Outputs" in body
-    assert 'href="/runs/w0/run1/files/workspace/docs/steering.md"' in body
-    assert (
-        'href="/runs/w0/run1/files/workspace/artifacts/review/architecture-review.md"'
-        in body
-    )
-    assert "/files/workspace/state/item/architecture_review_report_path.txt" not in body
-
-
-def test_run_detail_links_persisted_relpath_fields_from_legacy_output_state(
-    tmp_path: Path,
-):
-    architecture = tmp_path / "docs" / "plans" / "arch.md"
-    architecture.parent.mkdir(parents=True)
-    architecture.write_text("# Architecture\n", encoding="utf-8")
-    state_root = tmp_path / "state" / "item"
-    state_root.mkdir(parents=True)
-    (state_root / "bundle.json").write_text(
-        json.dumps({"architecture_path": "docs/plans/arch.md", "status": "DRAFTED"}),
-        encoding="utf-8",
-    )
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "draft.yaml",
-        {
-            "version": "2.14",
-            "name": "draft",
-            "inputs": {"state_root": {"type": "relpath", "under": "state"}},
-            "steps": [
-                {
-                    "name": "DraftArchitecture",
-                    "provider": "codex",
-                    "output_bundle": {
-                        "path": "${inputs.state_root}/bundle.json",
-                        "fields": [
-                            {
-                                "name": "architecture_path",
-                                "json_pointer": "/architecture_path",
-                                "type": "relpath",
-                            },
-                            {
-                                "name": "status",
-                                "json_pointer": "/status",
-                                "type": "enum",
-                                "allowed": ["DRAFTED"],
-                            },
-                        ],
-                    },
-                }
-            ],
-        },
-    )
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "workflow_file": str(workflow.relative_to(tmp_path)),
-                "bound_inputs": {"state_root": "state/item"},
-                "steps": {
-                    "DraftArchitecture": {
-                        "status": "completed",
-                        "artifacts": {
-                            "bundle_path": "state/item/bundle.json",
-                            "architecture_path": "docs/plans/arch.md",
-                            "status": "DRAFTED",
-                        },
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert 'href="/runs/w0/run1/files/workspace/state/item/bundle.json"' in body
-    assert 'href="/runs/w0/run1/files/workspace/docs/plans/arch.md"' in body
-
-
-def test_run_detail_links_persisted_root_result_from_legacy_output_state(
-    tmp_path: Path,
-):
-    architecture = tmp_path / "docs" / "plans" / "arch.md"
-    architecture.parent.mkdir(parents=True)
-    architecture.write_text("# Architecture\n", encoding="utf-8")
-    state_root = tmp_path / "state" / "item"
-    state_root.mkdir(parents=True)
-    (state_root / "bundle.json").write_text(
-        json.dumps("docs/plans/arch.md"),
-        encoding="utf-8",
-    )
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "draft.yaml",
-        {
-            "version": "2.14",
-            "name": "draft",
-            "steps": [
-                {
-                    "name": "DraftArchitecture",
-                    "provider": "codex",
-                    "output_bundle": {
-                        "path": "state/item/bundle.json",
-                        "fields": [
-                            {
-                                "name": "__result__",
-                                "json_pointer": "",
-                                "type": "relpath",
-                            }
-                        ],
-                    },
-                }
-            ],
-        },
-    )
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "running",
-                "workflow_file": str(workflow.relative_to(tmp_path)),
-                "steps": {
-                    "DraftArchitecture": {
-                        "status": "running",
-                        "artifacts": {
-                            "bundle_path": "state/item/bundle.json",
-                            "__result__": "docs/plans/arch.md",
-                        },
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert 'href="/runs/w0/run1/files/workspace/state/item/bundle.json"' in body
-    assert 'href="/runs/w0/run1/files/workspace/docs/plans/arch.md"' in body
-
-
-def test_summary_hub_lists_repeated_legacy_step_summaries_without_authored_invocations(
-    tmp_path: Path,
-):
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "flow.yaml",
-        {
-            "version": "2.14",
-            "name": "flow",
-            "steps": [{"name": "ProviderStep", "provider": "codex"}],
-        },
-    )
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    first = run_root / "call_frames" / "root.loop#0.provider__visit__1" / "summaries"
-    second = run_root / "call_frames" / "root.loop#1.provider__visit__1" / "summaries"
-    for directory in (summaries, first, second):
-        directory.mkdir(parents=True)
-    (first / "ProviderStep.provider.summary.md").write_text("first", encoding="utf-8")
-    (second / "ProviderStep.provider.summary.md").write_text("second", encoding="utf-8")
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {
-                        "step_name": "ProviderStep",
-                        "kind": "provider",
-                        "status": "completed",
-                        "frame_root": "call_frames/root.loop#0.provider__visit__1",
-                        "summary_path": (
-                            "call_frames/root.loop#0.provider__visit__1/"
-                            "summaries/ProviderStep.provider.summary.md"
-                        ),
-                    },
-                    {
-                        "step_name": "ProviderStep",
-                        "kind": "provider",
-                        "status": "completed",
-                        "frame_root": "call_frames/root.loop#1.provider__visit__1",
-                        "summary_path": (
-                            "call_frames/root.loop#1.provider__visit__1/"
-                            "summaries/ProviderStep.provider.summary.md"
-                        ),
-                    },
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "workflow_file": str(workflow.relative_to(tmp_path)),
-                "steps": {"ProviderStep": {"status": "completed"}},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Observed summary sequence" in body
-    assert '<span class="workflow-name">ProviderStep</span>' in body
-    assert "Invocation 1" not in body
-    assert "Invocation 2" not in body
-    assert 'href="/runs/w0/run1/files/run/call_frames/root.loop%230.provider__visit__1/summaries/ProviderStep.provider.summary.md"' in body
-    assert 'href="/runs/w0/run1/files/run/call_frames/root.loop%231.provider__visit__1/summaries/ProviderStep.provider.summary.md"' in body
-
-
-def test_run_detail_links_matching_persisted_legacy_call_frame_artifacts(
-    tmp_path: Path,
-):
-    child = _write_yaml(
-        tmp_path / "workflows" / "library" / "child.yaml",
-        {
-            "version": "2.14",
-            "name": "child",
-            "inputs": {"state_root": {"type": "relpath", "under": "state"}},
-            "steps": [
-                {
-                    "name": "ReviewArchitecture",
-                    "provider": "codex",
-                    "expected_outputs": [
-                        {
-                            "name": "review_report_path",
-                            "path": "${inputs.state_root}/review_report_path.txt",
-                            "type": "relpath",
-                            "under": "artifacts/review",
-                            "must_exist_target": True,
-                        }
-                    ],
-                }
-            ],
-        },
-    )
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "top.yaml",
-        {
-            "version": "2.14",
-            "name": "top",
-            "imports": {"child": "library/child.yaml"},
-            "steps": [
-                {
-                    "name": "CallChild",
-                    "id": "call_child",
-                    "call": "child",
-                    "with": {"state_root": "state/default"},
-                }
-            ],
-        },
-    )
-    first_state_root = tmp_path / "state" / "first"
-    second_state_root = tmp_path / "state" / "second"
-    first_state_root.mkdir(parents=True)
-    second_state_root.mkdir(parents=True)
-    (first_state_root / "review_report_path.txt").write_text("artifacts/review/first.md\n", encoding="utf-8")
-    (second_state_root / "review_report_path.txt").write_text("artifacts/review/second.md\n", encoding="utf-8")
-    first_report = tmp_path / "artifacts" / "review" / "first.md"
-    second_report = tmp_path / "artifacts" / "review" / "second.md"
-    first_report.parent.mkdir(parents=True)
-    first_report.write_text("# First\n", encoding="utf-8")
-    second_report.write_text("# Second\n", encoding="utf-8")
-
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    first_summary = run_root / "call_frames" / "root.call_child__visit__1" / "summaries"
-    second_summary = run_root / "call_frames" / "root.call_child__visit__2" / "summaries"
-    for directory in (summaries, first_summary, second_summary):
-        directory.mkdir(parents=True)
-    (first_summary / "ReviewArchitecture.provider.summary.md").write_text("first summary", encoding="utf-8")
-    (second_summary / "ReviewArchitecture.provider.summary.md").write_text("second summary", encoding="utf-8")
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {
-                        "step_name": "ReviewArchitecture",
-                        "kind": "provider",
-                        "status": "completed",
-                        "frame_root": "call_frames/root.call_child__visit__1",
-                        "summary_path": (
-                            "call_frames/root.call_child__visit__1/"
-                            "summaries/ReviewArchitecture.provider.summary.md"
-                        ),
-                    },
-                    {
-                        "step_name": "ReviewArchitecture",
-                        "kind": "provider",
-                        "status": "completed",
-                        "frame_root": "call_frames/root.call_child__visit__2",
-                        "summary_path": (
-                            "call_frames/root.call_child__visit__2/"
-                            "summaries/ReviewArchitecture.provider.summary.md"
-                        ),
-                    },
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "workflow_file": str(workflow.relative_to(tmp_path)),
-                "steps": {"CallChild": {"status": "completed"}},
-                "call_frames": {
-                    "root.call_child::visit::1": {
-                        "state": {
-                            "workflow_file": str(child.relative_to(tmp_path)),
-                            "bound_inputs": {"state_root": "state/first"},
-                            "artifact_versions": {
-                                "review_report_pointer": [
-                                    {
-                                        "version": 1,
-                                        "value": "state/first/review_report_path.txt",
-                                        "producer": "ReviewArchitecture",
-                                    }
-                                ],
-                                "review_report_path": [
-                                    {
-                                        "version": 1,
-                                        "value": "artifacts/review/first.md",
-                                        "producer": "ReviewArchitecture",
-                                    }
-                                ],
-                            },
-                            "steps": {
-                                "ReviewArchitecture": {
-                                    "status": "completed",
-                                    "artifacts": {"review_report_path": "artifacts/review/first.md"},
-                                }
-                            },
-                        }
-                    },
-                    "root.call_child::visit::2": {
-                        "state": {
-                            "workflow_file": str(child.relative_to(tmp_path)),
-                            "bound_inputs": {"state_root": "state/second"},
-                            "artifact_versions": {
-                                "review_report_pointer": [
-                                    {
-                                        "version": 1,
-                                        "value": "state/second/review_report_path.txt",
-                                        "producer": "ReviewArchitecture",
-                                    }
-                                ],
-                                "review_report_path": [
-                                    {
-                                        "version": 1,
-                                        "value": "artifacts/review/second.md",
-                                        "producer": "ReviewArchitecture",
-                                    }
-                                ],
-                            },
-                            "steps": {
-                                "ReviewArchitecture": {
-                                    "status": "completed",
-                                    "artifacts": {"review_report_path": "artifacts/review/second.md"},
-                                }
-                            },
-                        }
-                    },
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Observed summary sequence" in body
-    assert "Invocation 1" not in body
-    assert 'href="/runs/w0/run1/files/run/call_frames/root.call_child__visit__1/summaries/ReviewArchitecture.provider.summary.md"' in body
-    assert 'href="/runs/w0/run1/files/run/call_frames/root.call_child__visit__2/summaries/ReviewArchitecture.provider.summary.md"' in body
-
-    detail_body = _app(tmp_path).handle("GET", "/runs/w0/run1").body.decode("utf-8")
-    assert (
-        "root.call_child::visit::1.review_report_pointer: "
-        '<a href="/runs/w0/run1/files/workspace/state/first/review_report_path.txt">'
-        in detail_body
-    )
-    assert (
-        "root.call_child::visit::1.review_report_path: "
-        '<a href="/runs/w0/run1/files/workspace/artifacts/review/first.md">'
-        in detail_body
-    )
-    assert (
-        "root.call_child::visit::2.review_report_pointer: "
-        '<a href="/runs/w0/run1/files/workspace/state/second/review_report_path.txt">'
-        in detail_body
-    )
-    assert (
-        "root.call_child::visit::2.review_report_path: "
-        '<a href="/runs/w0/run1/files/workspace/artifacts/review/second.md">'
-        in detail_body
-    )
-
-
-def test_summary_hub_collapses_same_named_legacy_call_and_provider_to_observed_provider(
-    tmp_path: Path,
-):
-    child = _write_yaml(
-        tmp_path / "workflows" / "library" / "child.yaml",
-        {
-            "version": "2.14",
-            "name": "child",
-            "steps": [{"name": "DraftDesignGapArchitecture", "provider": "codex"}],
-        },
-    )
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "top.yaml",
-        {
-            "version": "2.14",
-            "name": "top",
-            "imports": {"child": "library/child.yaml"},
-            "steps": [
-                {
-                    "name": "DraftDesignGapArchitecture",
-                    "id": "draft_design_gap_architecture",
-                    "call": "child",
-                }
-            ],
-        },
-    )
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    frame_summaries = run_root / "call_frames" / "root.draft_design_gap_architecture__visit__1" / "summaries"
-    summaries.mkdir(parents=True)
-    frame_summaries.mkdir(parents=True)
-    (frame_summaries / "DraftDesignGapArchitecture.provider.summary.md").write_text("summary", encoding="utf-8")
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {
-                        "step_name": "DraftDesignGapArchitecture",
-                        "kind": "provider",
-                        "status": "completed",
-                        "frame_root": "call_frames/root.draft_design_gap_architecture__visit__1",
-                        "summary_path": (
-                            "call_frames/root.draft_design_gap_architecture__visit__1/"
-                            "summaries/DraftDesignGapArchitecture.provider.summary.md"
-                        ),
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "workflow_file": str(workflow.relative_to(tmp_path)),
-                "steps": {"DraftDesignGapArchitecture": {"status": "completed"}},
-                "call_frames": {
-                    "root.draft_design_gap_architecture::visit::1": {
-                        "state": {
-                            "workflow_file": str(child.relative_to(tmp_path)),
-                            "steps": {"DraftDesignGapArchitecture": {"status": "completed"}},
-                        }
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Observed summary sequence" in body
-    assert '<span class="workflow-kind">call child</span>' not in body
-    assert body.count('<span class="workflow-kind">provider</span>') == 1
-    assert "Step summary artifacts" not in body
-    assert 'href="/runs/w0/run1/files/run/call_frames/root.draft_design_gap_architecture__visit__1/summaries/DraftDesignGapArchitecture.provider.summary.md"' in body
-
-
-def test_summary_live_endpoint_includes_current_step_iteration_and_visit(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "running",
-                "current_step": {
-                    "name": "DrainLoop",
-                    "step_id": "root.drain_loop",
-                    "visit_count": 3,
-                    "started_at": "2026-04-13T12:01:00+00:00",
-                },
-                "steps": {
-                    "DrainLoop": {
-                        "debug": {
-                            "structured_repeat_until": {
-                                "current_iteration": 7,
-                            }
-                        }
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    payload = json.loads(_app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json").body.decode("utf-8"))
-
-    assert payload["current_step"]["name"] == "DrainLoop"
-    assert payload["current_step"]["iteration"] == 7
-    assert payload["current_step"]["visit_count"] == 3
-    assert payload["current_step"]["context_label"] == "DrainLoop iteration 7 / visit 3"
-    assert payload["current_step"]["display_name"] == "DrainLoop (DrainLoop iteration 7 / visit 3)"
-
-
-def test_summary_context_label_uses_scoped_call_frame_iterations(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {
-                        "step_name": "ReviewImplementation",
-                        "kind": "provider",
-                        "profile": "phase-performance",
-                        "status": "completed",
-                        "frame_root": (
-                            "call_frames/root.drain_lisp_frontend_work#0."
-                            "route_selection.design_gap_path.run_design_gap_work_item__visit__1/"
-                            "call_frames/root.run_implementation_phase__visit__1"
-                        ),
-                        "summary_path": (
-                            "call_frames/root.drain_lisp_frontend_work#0."
-                            "route_selection.design_gap_path.run_design_gap_work_item__visit__1/"
-                            "call_frames/root.run_implementation_phase__visit__1/"
-                            "summaries/ReviewImplementation.provider.summary.md"
-                        ),
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "completed", "workflow_file": "workflow.yaml", "steps": {}}),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "ReviewImplementation <span class=\"summary-context\">drain_lisp_frontend_work iteration 0 / visit 1 / run_implementation_phase visit 1</span>" in body
-
-
-def test_summary_context_label_prefers_loop_step_id_iteration_over_visit_one(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {
-                        "step_name": "ReviewImplementation",
-                        "kind": "provider",
-                        "profile": "phase-performance",
-                        "status": "completed",
-                        "step_id": "root.implementation_review_loop#3.implementation_review_iteration.route_iteration_work.completed_iteration_path.review_implementation",
-                        "visit_count": 1,
-                        "frame_root": (
-                            "call_frames/root.drain_lisp_frontend_work#0."
-                            "route_selection.design_gap_path.run_design_gap_work_item__visit__1/"
-                            "call_frames/root.run_implementation_phase__visit__1"
-                        ),
-                        "summary_path": "summaries/ReviewImplementation.provider.summary.md",
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "completed", "workflow_file": "workflow.yaml", "steps": {}}),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "implementation_review_loop iteration 3" in body
-    assert "implementation_review_loop iteration 3 / visit 1" not in body
-
-
-def test_summary_live_endpoint_returns_current_step_and_latest_summary(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    logs = run_root / "call_frames" / "root.loop#0" / "logs"
-    summaries.mkdir(parents=True)
-    logs.mkdir(parents=True)
-    (summaries / "ExecuteImplementation.provider.summary.md").write_text("summary", encoding="utf-8")
-    (summaries / "live-current-step.md").write_text("The agent is editing the implementation.\n", encoding="utf-8")
-    (logs / "PreviousProvider.prompt.txt").write_text("older prompt", encoding="utf-8")
-    (logs / "PreviousProvider.stderr").write_text("completed", encoding="utf-8")
-    (logs / "ReviewDesignGapArchitecture.prompt.txt").write_text("current prompt", encoding="utf-8")
-    (summaries / "live-current-step.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_live_agent_note/v1",
-                "step_name": "ExecuteImplementation",
-                "step_id": "root.execute",
-                "visit_count": 1,
-                "provider": "cheap_summary",
-                "generated_at": "2026-04-13T12:03:00+00:00",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {
-                        "step_name": "ExecuteImplementation",
-                        "kind": "provider",
-                        "profile": "phase-performance",
-                        "status": "completed",
-                        "duration_ms": 1234,
-                        "summary_path": "summaries/ExecuteImplementation.provider.summary.md",
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "running",
-                "current_step": {
-                    "name": "ExecuteImplementation",
-                    "step_id": "root.execute",
-                    "started_at": "2026-04-13T12:01:00+00:00",
-                    "last_heartbeat_at": "2026-04-13T12:02:00+00:00",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-    app = DashboardApp(RunScanner([tmp_path]), now="2026-04-13T12:03:30+00:00")
-
-    response = app.handle("GET", "/runs/w0/run1/summaries/live.json")
-
-    payload = json.loads(response.body.decode("utf-8"))
-    assert response.status == 200
-    assert response.headers["Content-Type"] == "application/json; charset=utf-8"
-    assert payload["schema"] == "dashboard_summary_live/v1"
-    assert payload["run"]["display_status"] == "running"
-    assert payload["current_step"]["name"] == "ExecuteImplementation"
-    assert payload["current_step"]["step_id"] == "root.execute"
-    assert payload["current_step"]["age_text"] == "2m 30s"
-    assert payload["current_step"]["heartbeat_age_text"] == "1m 30s"
-    assert payload["summaries"]["total"] == 1
-    assert payload["summaries"]["counts"] == {"provider": 1}
-    assert payload["summaries"]["current_step_latest"]["summary_href"] == (
-        "/runs/w0/run1/files/run/summaries/ExecuteImplementation.provider.summary.md"
-    )
-    assert payload["current_provider_step"]["name"] == "ReviewDesignGapArchitecture"
-    assert payload["current_provider_step"]["status"] == "in_progress"
-    assert payload["current_provider_step"]["prompt_href"] == (
-        "/runs/w0/run1/files/run/call_frames/root.loop%230/logs/ReviewDesignGapArchitecture.prompt.txt"
-    )
-    assert payload["current_provider_step"]["stderr_href"] is None
-    assert payload["live_note"]["text"] == "The agent is editing the implementation.\n"
-    assert payload["live_note"]["summary_href"] == "/runs/w0/run1/files/run/summaries/live-current-step.md"
-    assert payload["live_note"]["metadata_href"] == "/runs/w0/run1/files/run/summaries/live-current-step.json"
-    assert payload["live_note"]["provider"] == "cheap_summary"
-    assert str(run_root) not in json.dumps(payload)
-
-
-def test_summary_live_endpoint_falls_back_to_most_recent_provider_step(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    logs = run_root / "logs"
-    summaries = run_root / "summaries"
-    logs.mkdir(parents=True)
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (logs / "OlderProvider.prompt.txt").write_text("older prompt", encoding="utf-8")
-    (logs / "OlderProvider.stderr").write_text("older done", encoding="utf-8")
-    (logs / "RouteReview.REVISE.ReviseDesign.prompt.txt").write_text("new prompt", encoding="utf-8")
-    (logs / "RouteReview.REVISE.ReviseDesign.stderr").write_text("new done", encoding="utf-8")
-    (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "running", "current_step": {"name": "ReviewLoop"}}),
-        encoding="utf-8",
-    )
-
-    payload = json.loads(_app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json").body.decode("utf-8"))
-
-    assert payload["current_provider_step"]["name"] == "ReviseDesign"
-    assert payload["current_provider_step"]["qualified_name"] == "RouteReview.REVISE.ReviseDesign"
-    assert payload["current_provider_step"]["status"] == "most_recent"
-    assert payload["current_provider_step"]["prompt_href"] == (
-        "/runs/w0/run1/files/run/logs/RouteReview.REVISE.ReviseDesign.prompt.txt"
-    )
-    assert payload["current_provider_step"]["stderr_href"] == (
-        "/runs/w0/run1/files/run/logs/RouteReview.REVISE.ReviseDesign.stderr"
-    )
-
-
-def test_summary_live_endpoint_accepts_note_for_active_nested_provider(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    logs = run_root / "call_frames" / "root.loop#0" / "logs"
-    summaries = run_root / "summaries"
-    logs.mkdir(parents=True)
-    summaries.mkdir(parents=True)
-    (logs / "DraftPlan.prompt.txt").write_text("current prompt", encoding="utf-8")
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (summaries / "live-current-step.md").write_text("The planner is drafting.\n", encoding="utf-8")
-    (summaries / "live-current-step.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_live_agent_note/v1",
-                "step_name": "DraftPlan",
-                "step_id": "root.draft_plan",
-                "visit_count": 2,
-                "provider": "claude_haiku_summary",
-                "generated_at": "2026-04-13T12:03:00+00:00",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "running",
-                "current_step": {
-                    "name": "DrainLispFrontendWork",
-                    "step_id": "root.drain_lisp_frontend_work",
-                    "started_at": "2026-04-13T12:01:00+00:00",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    payload = json.loads(_app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json").body.decode("utf-8"))
-
-    assert payload["current_provider_step"]["name"] == "DraftPlan"
-    assert payload["current_provider_step"]["status"] == "in_progress"
-    assert payload["live_note"]["available"] is True
-    assert payload["live_note"]["text"] == "The planner is drafting.\n"
-
-
-def test_summary_live_endpoint_accepts_note_for_nested_provider_state_without_prompt_log(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (summaries / "live-current-step.md").write_text("The architect is drafting.\n", encoding="utf-8")
-    (summaries / "live-current-step.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_live_agent_note/v1",
-                "step_name": "DraftDesignGapArchitecture",
-                "step_id": "root.draft_design_gap_architecture",
-                "visit_count": 1,
-                "provider": "claude_haiku_summary",
-                "generated_at": "2026-04-13T12:03:00+00:00",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "running",
-                "current_step": {
-                    "name": "DrainLispFrontendWork",
-                    "step_id": "root.drain_lisp_frontend_work",
-                    "type": "repeat_until",
-                    "status": "running",
-                },
-                "call_frames": {
-                    "root.drain_lisp_frontend_work#0.draft_design_gap_architecture::visit::1": {
-                        "state": {
-                            "status": "running",
-                            "current_step": {
-                                "name": "DraftDesignGapArchitecture",
-                                "step_id": "root.draft_design_gap_architecture",
-                                "type": "provider",
-                                "status": "running",
-                                "visit_count": 1,
-                                "started_at": "2026-04-13T12:01:00+00:00",
-                                "last_heartbeat_at": "2026-04-13T12:02:00+00:00",
-                            },
-                        }
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    payload = json.loads(_app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json").body.decode("utf-8"))
-
-    assert payload["current_provider_step"]["name"] == "DraftDesignGapArchitecture"
-    assert payload["current_provider_step"]["status"] == "in_progress"
-    assert payload["current_provider_step"]["prompt_href"] is None
-    assert payload["live_note"]["available"] is True
-    assert payload["live_note"]["text"] == "The architect is drafting.\n"
-
-
-def test_summary_live_endpoint_uses_live_note_metadata_when_nested_provider_state_is_absent(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (summaries / "live-current-step.md").write_text("The reviewer is checking the architecture.\n", encoding="utf-8")
-    (summaries / "live-current-step.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_live_agent_note/v1",
-                "step_name": "ReviewDesignGapArchitecture",
-                "step_id": "root.architecture_review_loop#0.architecture_review_iteration.review_design_gap_architecture",
-                "visit_count": 1,
-                "provider": "claude_haiku_summary",
-                "generated_at": "2026-04-13T12:03:00+00:00",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "running",
-                "observability": {
-                    "step_summaries": {
-                        "live_agent_notes": {
-                            "enabled": True,
-                            "provider": "claude_haiku_summary",
-                        }
-                    }
-                },
-                "current_step": {
-                    "name": "DrainLispFrontendWork",
-                    "step_id": "root.drain_lisp_frontend_work",
-                    "type": "repeat_until",
-                    "status": "running",
-                },
-                "call_frames": {
-                    "root.drain_lisp_frontend_work#0.draft_design_gap_architecture::visit::1": {
-                        "state": {
-                            "status": "running",
-                            "current_step": {
-                                "name": "ArchitectureReviewLoop",
-                                "step_id": "root.architecture_review_loop",
-                                "type": "repeat_until",
-                                "status": "running",
-                                "visit_count": 1,
-                            },
-                        }
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    payload = json.loads(_app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json").body.decode("utf-8"))
-
-    assert payload["current_provider_step"]["name"] == "ReviewDesignGapArchitecture"
-    assert payload["current_provider_step"]["step_id"] == (
-        "root.architecture_review_loop#0.architecture_review_iteration.review_design_gap_architecture"
-    )
-    assert payload["current_provider_step"]["status"] == "most_recent"
-    assert payload["current_provider_step"]["prompt_href"] is None
-    assert payload["live_note"]["available"] is True
-    assert payload["live_note"]["text"] == "The reviewer is checking the architecture.\n"
-
-
-def test_summary_live_endpoint_prefers_newer_live_note_over_stale_provider_log(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    old_logs = run_root / "call_frames" / "old" / "logs"
-    summaries.mkdir(parents=True)
-    old_logs.mkdir(parents=True)
-    old_prompt = old_logs / "RouteIterationWork.COMPLETED.ReviewImplementation.prompt.txt"
-    old_prompt.write_text("old review prompt\n", encoding="utf-8")
-    old_stderr = old_logs / "RouteIterationWork.COMPLETED.ReviewImplementation.stderr"
-    old_stderr.write_text("", encoding="utf-8")
-    old_time = datetime(2026, 4, 13, 12, 2, tzinfo=timezone.utc).timestamp()
-    os.utime(old_prompt, (old_time, old_time))
-    os.utime(old_stderr, (old_time, old_time))
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (summaries / "live-current-step.error.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_live_agent_note_error/v1",
-                "step_name": "RouteIterationWork.COMPLETED.ReviewImplementation",
-                "step_id": "root.old_review",
-                "visit_count": 1,
-                "provider": "claude_haiku_summary",
-                "generated_at": "2026-04-13T12:03:00+00:00",
-                "stage": "execute",
-                "error": {"message": "live note provider exited 1"},
-            }
-        ),
-        encoding="utf-8",
-    )
-    (summaries / "live-current-step.md").write_text("The reviewer is checking the current design.\n", encoding="utf-8")
-    (summaries / "live-current-step.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_live_agent_note/v1",
-                "step_name": "ReviewDesignGapArchitecture",
-                "step_id": "root.current_review",
-                "visit_count": 1,
-                "provider": "claude_haiku_summary",
-                "generated_at": "2026-04-13T12:04:00+00:00",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "running",
-                "observability": {
-                    "step_summaries": {
-                        "live_agent_notes": {
-                            "enabled": True,
-                            "provider": "claude_haiku_summary",
-                        }
-                    }
-                },
-                "current_step": {
-                    "name": "DrainLispFrontendWork",
-                    "step_id": "root.drain_lisp_frontend_work",
-                    "type": "repeat_until",
-                    "status": "running",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    payload = json.loads(_app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json").body.decode("utf-8"))
-
-    assert payload["current_provider_step"]["name"] == "ReviewDesignGapArchitecture"
-    assert payload["live_note"]["available"] is True
-    assert payload["live_note"]["text"] == "The reviewer is checking the current design.\n"
-    assert "error_href" not in payload["live_note"]
-
-
-def test_summary_live_endpoint_explains_missing_live_note_when_not_enabled(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "running",
-                "observability": {
-                    "step_summaries": {
-                        "enabled": True,
-                        "mode": "async",
-                    }
-                },
-                "current_step": {
-                    "name": "DrainLoop",
-                    "type": "repeat_until",
-                    "step_id": "root.drain_loop",
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json")
-
-    payload = json.loads(response.body.decode("utf-8"))
-    assert response.status == 200
-    assert payload["live_note"]["available"] is False
-    assert "not enabled" in payload["live_note"]["reason"]
-
-
-def test_summary_live_endpoint_reports_live_note_provider_errors(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (summaries / "live-current-step.error.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_live_agent_note_error/v1",
-                "step_name": "ExecuteImplementation",
-                "step_id": "root.execute",
-                "visit_count": 1,
-                "provider": "claude_haiku_summary",
-                "generated_at": "2026-04-13T12:04:00+00:00",
-                "stage": "execute",
-                "error": {"message": "You've hit your limit · resets 2:50am"},
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "running",
-                "observability": {
-                    "step_summaries": {
-                        "enabled": True,
-                        "live_agent_notes": {
-                            "enabled": True,
-                            "provider": "claude_haiku_summary",
-                        },
-                    }
-                },
-                "current_step": {
-                    "name": "ExecuteImplementation",
-                    "step_id": "root.execute",
-                    "visit_count": 1,
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json")
-
-    payload = json.loads(response.body.decode("utf-8"))
-    assert response.status == 200
-    assert payload["live_note"]["available"] is False
-    assert payload["live_note"]["stage"] == "execute"
-    assert payload["live_note"]["provider"] == "claude_haiku_summary"
-    assert "You've hit your limit" in payload["live_note"]["reason"]
-    assert payload["live_note"]["error_href"] == "/runs/w0/run1/files/run/summaries/live-current-step.error.json"
-
-
-def test_summary_live_endpoint_ignores_error_superseded_by_newer_live_note(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (summaries / "live-current-step.error.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_live_agent_note_error/v1",
-                "step_name": "ExecuteImplementation",
-                "step_id": "root.execute",
-                "visit_count": 1,
-                "provider": "claude_haiku_summary",
-                "generated_at": "2026-04-13T12:02:00+00:00",
-                "stage": "execute",
-                "error": {"message": "live note provider exited 1"},
-            }
-        ),
-        encoding="utf-8",
-    )
-    (summaries / "live-current-step.md").write_text("The agent recovered after a transient note error.\n", encoding="utf-8")
-    (summaries / "live-current-step.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_live_agent_note/v1",
-                "step_name": "ExecuteImplementation",
-                "step_id": "root.execute",
-                "visit_count": 1,
-                "provider": "claude_haiku_summary",
-                "generated_at": "2026-04-13T12:03:00+00:00",
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "running",
-                "observability": {
-                    "step_summaries": {
-                        "enabled": True,
-                        "live_agent_notes": {
-                            "enabled": True,
-                            "provider": "claude_haiku_summary",
-                        },
-                    }
-                },
-                "current_step": {
-                    "name": "ExecuteImplementation",
-                    "step_id": "root.execute",
-                    "visit_count": 1,
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    payload = json.loads(_app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json").body.decode("utf-8"))
-
-    assert payload["live_note"]["available"] is True
-    assert payload["live_note"]["text"] == "The agent recovered after a transient note error.\n"
-    assert "error_href" not in payload["live_note"]
-
-
-def test_summary_hub_page_contains_live_panel_and_nonce_script(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "running", "current_step": {"name": "StepA"}}),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    nonce_match = re.search(r"<script nonce=\"([^\"]+)\"", body)
-    assert response.status == 200
-    assert 'id="live-current-step"' in body
-    assert 'data-live-url="/runs/w0/run1/summaries/live.json"' in body
-    assert 'class="live-note-text"' in body
-    assert 'data-live-field="live-note"' in body
-    assert 'data-live-field="provider-step"' in body
-    assert 'data-live-link="provider-prompt"' in body
-    assert nonce_match is not None
-    assert f"script-src 'nonce-{nonce_match.group(1)}'" in response.headers["Content-Security-Policy"]
-
-
-def test_summary_hub_missing_or_invalid_index_is_safe(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    run_root.mkdir(parents=True)
-    (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "completed"}),
-        encoding="utf-8",
-    )
-
-    missing = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-    assert missing.status == 200
-    assert "No summary hub is available" in missing.body.decode("utf-8")
-
-    summaries = run_root / "summaries"
-    summaries.mkdir()
-    (summaries / "index.json").write_text("{invalid", encoding="utf-8")
-    invalid = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-    body = invalid.body.decode("utf-8")
-    assert invalid.status == 200
-    assert "Summary index is invalid" in body
-    assert 'href="/runs/w0/run1/files/run/summaries/index.json"' in body
-
-
-def test_summary_hub_surfaces_typed_terminal_summary_and_live_payload(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "typed-terminal-summary.json").write_text(
-        json.dumps(
-            {
-                "schema_id": "workflow_lisp_observability_summary.v1",
-                "authority": "observability_only",
-                "paths": {
-                    "json": "summaries/typed-terminal-summary.json",
-                    "markdown": "summaries/typed-terminal-summary.md",
-                    "report": "summaries/observability_summary_report.json",
-                },
-                "terminal_value": {"status": "BLOCKED", "selected_item": "docs/design/example.md"},
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    (summaries / "typed-terminal-summary.md").write_text("typed terminal summary\n", encoding="utf-8")
-    (summaries / "observability_summary_report.json").write_text(
-        json.dumps(
-            {
-                "schema_id": "workflow_lisp_observability_summary_report.v1",
-                "status": "pass",
-                "diagnostics": {"errors": [], "warnings": []},
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {
-                        "step_name": "workflow-terminal",
-                        "kind": "typed_terminal",
-                        "profile": "workflow-lisp-c2",
-                        "status": "completed",
-                        "authority": "observability_only",
-                        "summary_path": "summaries/typed-terminal-summary.md",
-                        "snapshot_path": "summaries/typed-terminal-summary.json",
-                        "report_path": "summaries/observability_summary_report.json",
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    state_file = run_root / "state.json"
-    state_file.write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "workflow_file": "workflow.yaml",
-                "workflow_outputs": {"status": "BLOCKED"},
-                "steps": {},
-            }
-        ),
-        encoding="utf-8",
-    )
-    before = state_file.read_text(encoding="utf-8")
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "workflow-terminal" in body
-    assert "typed-terminal-summary.md" in body
-    assert "typed-terminal-summary.json" in body
-    assert "observability_summary_report.json" in body
-
-    live_response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json")
-    payload = json.loads(live_response.body.decode("utf-8"))
-    assert live_response.status == 200
-    assert payload["summaries"]["counts"]["typed_terminal"] == 1
-    latest = payload["summaries"]["current_step_latest"]
-    if latest is not None:
-        assert latest["kind"] == "typed_terminal"
-    assert state_file.read_text(encoding="utf-8") == before
-
-
-def test_summary_hub_does_not_link_unsafe_index_paths(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    summaries = run_root / "summaries"
-    summaries.mkdir(parents=True)
-    (summaries / "index.json").write_text(
-        json.dumps(
-            {
-                "schema": "orchestrator_summary_index/v1",
-                "entries": [
-                    {
-                        "step_name": "UnsafeStep",
-                        "kind": "provider",
-                        "status": "completed",
-                        "summary_path": "../outside.md",
-                        "snapshot_path": "summaries/safe.json",
-                        "error_path": None,
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps({"run_id": "run1", "status": "completed"}),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "UnsafeStep" in body
-    assert "unsafe path" in body
-    assert "../outside.md" not in body
-    assert "/files/run/../outside.md" not in body
-
-
-def test_step_detail_route_resolves_by_name_and_escapes_payloads(tmp_path: Path):
-    _write_run(
-        tmp_path,
-        "run1",
-        {
-            "run_id": "run1",
-            "status": "failed",
-            "steps": {
-                "StepA": {
-                    "status": "failed",
-                    "step_id": "root.step_a",
-                    "output": "<b>bad</b>",
-                    "error": {"message": "<script>boom</script>"},
-                    "debug": {"payload": "<img src=x>"},
-                }
-            },
-        },
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/steps/StepA")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
+    assert response.status == 200 and error_page.status == 200
     assert "&lt;b&gt;bad&lt;/b&gt;" in body
-    assert "&lt;script&gt;boom&lt;/script&gt;" in body
-    assert "&lt;img src=x&gt;" in body
-
-
-def test_step_detail_shows_visit_duration_outcome_and_observability_refs(tmp_path: Path):
-    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
-    logs = run_root / "logs"
-    provider_sessions = run_root / "provider_sessions"
-    logs.mkdir(parents=True)
-    provider_sessions.mkdir()
-    (logs / "Step.prompt.txt").write_text("prompt", encoding="utf-8")
-    (logs / "Step.stdout").write_text("stdout", encoding="utf-8")
-    (logs / "Step.stderr").write_text("stderr", encoding="utf-8")
-    (provider_sessions / "root.step__v3.json").write_text(
-        '{"publication_state":"published"}',
-        encoding="utf-8",
-    )
-    (provider_sessions / "root.step__v3.transport.log").write_text(
-        "transport",
-        encoding="utf-8",
-    )
-    (run_root / "state.json").write_text(
-        json.dumps(
-            {
-                "run_id": "run1",
-                "status": "completed",
-                "steps": {
-                    "Step": {
-                        "status": "completed",
-                        "step_id": "root.step",
-                        "duration_ms": 123,
-                        "visit_count": 3,
-                        "outcome": {
-                            "status": "completed",
-                            "phase": "execution",
-                            "class": "completed",
-                        },
-                        "debug": {
-                            "provider_session": {
-                                "metadata_path": str(provider_sessions / "root.step__v3.json"),
-                                "transport_spool_path": str(
-                                    provider_sessions / "root.step__v3.transport.log"
-                                ),
-                                "publication_state": "published",
-                            }
-                        },
-                    }
-                },
-            },
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/steps/Step")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "Visit count: 3" in body
-    assert "Duration: 123 ms" in body
-    assert "Outcome" in body
-    assert "published" in body
-    assert "Provider Session" in body
-    assert 'href="/runs/w0/run1/files/run/logs/Step.prompt.txt"' in body
-    assert 'href="/runs/w0/run1/files/run/logs/Step.stdout"' in body
-    assert 'href="/runs/w0/run1/files/run/logs/Step.stderr"' in body
-    assert 'href="/runs/w0/run1/files/run/provider_sessions/root.step__v3.json"' in body
-    assert (
-        'href="/runs/w0/run1/files/run/provider_sessions/root.step__v3.transport.log"'
-        in body
-    )
+    assert "&lt;img src=x&gt;" in body and "<img src=x>" not in body
+    error_body = error_page.body.decode("utf-8")
+    assert "&lt;script&gt;boom" in error_body and "<script>boom" not in error_body
+    assert "&lt;script&gt;boom&lt;/script&gt;" in stderr.body.decode("utf-8")
+    assert _tree_bytes(tmp_path) == before
 
 
 def test_state_preview_route_uses_capped_escaped_json_preview(tmp_path: Path):
-    _write_run(
-        tmp_path,
-        "run1",
-        {"run_id": "run1", "status": "completed", "context": {"html": "<script>x</script>"}},
-    )
+    run_root = _scalar_run(tmp_path, "String", '"<script>x</script>"')
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/state")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/state")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
     assert "&lt;script&gt;x&lt;/script&gt;" in body
+    assert "<script>x" not in body
     assert response.headers["X-Content-Type-Options"] == "nosniff"
 
 
 def test_file_preview_route_escapes_workspace_and_run_files(tmp_path: Path):
     artifact = tmp_path / "artifacts" / "payload.html"
-    run_log = tmp_path / ".orchestrate" / "runs" / "run1" / "logs" / "Step.stderr"
     artifact.parent.mkdir()
-    run_log.parent.mkdir(parents=True)
     artifact.write_text("<script>artifact</script>", encoding="utf-8")
-    run_log.write_text("<svg><script>log</script></svg>", encoding="utf-8")
-    _write_run(
-        tmp_path,
-        "run1",
-        {
-            "run_id": "run1",
-            "status": "completed",
-            "steps": {"Step": {"status": "completed", "artifacts": {"payload": "artifacts/payload.html"}}},
-        },
-    )
+    run_root = _failing_run(tmp_path)
+    run_log = _step(tmp_path, run_root, "/ shown").file_refs["stdout.txt"].route_path
 
     workspace_response = _app(tmp_path).handle(
         "GET",
-        "/runs/w0/run1/files/workspace/artifacts/payload.html",
+        f"/runs/w0/{run_root.name}/files/workspace/artifacts/payload.html",
     )
-    run_response = _app(tmp_path).handle("GET", "/runs/w0/run1/files/run/logs/Step.stderr")
+    run_response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/files/run/{run_log}")
 
     assert workspace_response.status == 200
     assert "&lt;script&gt;artifact&lt;/script&gt;" in workspace_response.body.decode("utf-8")
     assert "&lt;svg&gt;&lt;script&gt;log&lt;/script&gt;&lt;/svg&gt;" in run_response.body.decode("utf-8")
     assert workspace_response.headers["X-Content-Type-Options"] == "nosniff"
+    assert run_response.headers["X-Content-Type-Options"] == "nosniff"
 
 
 def test_markdown_file_preview_renders_safe_markdown_html(tmp_path: Path):
@@ -2802,9 +249,9 @@ def test_markdown_file_preview_renders_safe_markdown_html(tmp_path: Path):
         "# Rendered Note\n\nA **strong** point with <script>bad()</script>.\n\n- first\n- second\n",
         encoding="utf-8",
     )
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    run_root = _pure_run(tmp_path)
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/files/workspace/docs/note.md")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/files/workspace/docs/note.md")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
@@ -2821,11 +268,11 @@ def test_file_raw_route_forces_attachment_text_plain(tmp_path: Path):
     artifact = tmp_path / "artifacts" / "payload.svg"
     artifact.parent.mkdir()
     artifact.write_text("<svg><script>x</script></svg>", encoding="utf-8")
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    run_root = _pure_run(tmp_path)
 
     response = _app(tmp_path).handle(
         "GET",
-        "/runs/w0/run1/files/workspace/artifacts/payload.svg?raw=1",
+        f"/runs/w0/{run_root.name}/files/workspace/artifacts/payload.svg?raw=1",
     )
 
     assert response.status == 200
@@ -2835,10 +282,10 @@ def test_file_raw_route_forces_attachment_text_plain(tmp_path: Path):
 
 
 def test_file_route_rejects_traversal_and_displays_missing_state(tmp_path: Path):
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    run_root = _pure_run(tmp_path)
 
-    traversal = _app(tmp_path).handle("GET", "/runs/w0/run1/files/workspace/../secret.txt")
-    missing = _app(tmp_path).handle("GET", "/runs/w0/run1/files/workspace/missing.txt")
+    traversal = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/files/workspace/../secret.txt")
+    missing = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/files/workspace/missing.txt")
 
     assert traversal.status == 400
     assert missing.status == 200
@@ -2846,32 +293,23 @@ def test_file_route_rejects_traversal_and_displays_missing_state(tmp_path: Path)
 
 
 def test_detail_links_artifacts_through_dashboard_file_routes(tmp_path: Path):
-    artifact = tmp_path / "artifacts" / "payload.txt"
-    artifact.parent.mkdir()
-    artifact.write_text("ok", encoding="utf-8")
-    _write_run(
-        tmp_path,
-        "run1",
-        {
-            "run_id": "run1",
-            "status": "completed",
-            "steps": {"Step": {"status": "completed", "artifacts": {"payload": "artifacts/payload.txt"}}},
-        },
-    )
+    run_root = _completed_run(tmp_path)
+    stdout = _step(tmp_path, run_root, "/ prefix").file_refs["stdout.txt"]
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}")
 
     body = response.body.decode("utf-8")
-    assert 'href="/runs/w0/run1/files/workspace/artifacts/payload.txt"' in body
-    assert str(artifact) not in body
+    assert f'href="/runs/w0/{run_root.name}/files/run/{stdout.route_path}"' in body
+    assert str(stdout.absolute_path) not in body
+    assert f'href="{tmp_path}' not in body
 
 
 def test_index_and_detail_support_safe_meta_refresh(tmp_path: Path):
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    run_root = _pure_run(tmp_path)
     app = _app(tmp_path)
 
     index = app.handle("GET", "/runs?refresh=5")
-    detail = app.handle("GET", "/runs/w0/run1?refresh=5")
+    detail = app.handle("GET", f"/runs/w0/{run_root.name}?refresh=5")
 
     assert '<meta http-equiv="refresh" content="5">' in index.body.decode("utf-8")
     assert '<meta http-equiv="refresh" content="5">' in detail.body.decode("utf-8")
@@ -2879,7 +317,7 @@ def test_index_and_detail_support_safe_meta_refresh(tmp_path: Path):
 
 
 def test_invalid_refresh_value_is_ignored_and_escaped(tmp_path: Path):
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    _pure_run(tmp_path)
 
     response = _app(tmp_path).handle("GET", "/runs?refresh=%3Cscript%3E")
 
@@ -2888,89 +326,15 @@ def test_invalid_refresh_value_is_ignored_and_escaped(tmp_path: Path):
     assert "<script>" not in body
 
 
-def test_runs_index_uses_request_time_for_freshness(tmp_path: Path):
-    _write_run(
-        tmp_path,
-        "run1",
-        {
-            "run_id": "run1",
-            "status": "running",
-            "updated_at": "2026-04-13T11:59:00+00:00",
-            "current_step": {
-                "name": "Step",
-                "started_at": "2026-04-13T11:56:00+00:00",
-                "last_heartbeat_at": "2026-04-13T11:56:00+00:00",
-            },
-        },
-    )
-    request_times = iter(
-        [
-            "2026-04-13T12:00:00+00:00",
-            "2026-04-13T12:02:00+00:00",
-        ]
-    )
-    app = DashboardApp(RunScanner([tmp_path]), now=lambda: next(request_times))
-
-    first = app.handle("GET", "/runs").body.decode("utf-8")
-    second = app.handle("GET", "/runs?refresh=5").body.decode("utf-8")
-
-    assert "running" in first
-    assert "stale_running_step_heartbeat_timeout" not in first
-    assert "stale_running_step_heartbeat_timeout" in second
-    assert "6m 0s" in second
-
-
-def test_run_detail_renders_call_frame_local_artifact_lineage(tmp_path: Path):
-    artifact = tmp_path / "artifacts" / "frame.txt"
-    artifact.parent.mkdir()
-    artifact.write_text("ok", encoding="utf-8")
-    _write_run(
-        tmp_path,
-        "run1",
-        {
-            "run_id": "run1",
-            "status": "running",
-            "current_step": {"name": "Call", "step_id": "root.call"},
-            "call_frames": {
-                "root.call::visit::1": {
-                    "step_id": "root.call",
-                    "state": {
-                        "artifact_versions": {
-                            "frame_result": [
-                                {
-                                    "version": 1,
-                                    "value": "artifacts/frame.txt",
-                                    "producer": "Nested",
-                                }
-                            ]
-                        },
-                        "artifact_consumes": {"Nested": {"frame_result": 1}},
-                    },
-                }
-            },
-        },
-    )
-
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
-
-    body = response.body.decode("utf-8")
-    assert response.status == 200
-    assert "call_frame_artifact_versions" in body
-    assert "root.call::visit::1" in body
-    assert "frame_result" in body
-    assert "artifacts/frame.txt" in body
-    assert "call_frame_artifact_consumes" in body
-
-
 def test_file_preview_route_displays_truncated_large_files(tmp_path: Path):
     large = tmp_path / "artifacts" / "large.log"
     large.parent.mkdir()
     large.write_text("a" * (70 * 1024), encoding="utf-8")
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    run_root = _pure_run(tmp_path)
 
     response = _app(tmp_path).handle(
         "GET",
-        "/runs/w0/run1/files/workspace/artifacts/large.log",
+        f"/runs/w0/{run_root.name}/files/workspace/artifacts/large.log",
     )
 
     body = response.body.decode("utf-8")
@@ -2981,24 +345,27 @@ def test_file_preview_route_displays_truncated_large_files(tmp_path: Path):
 def test_rejected_state_json_symlink_detail_does_not_render_outside_commands(
     tmp_path: Path,
 ):
-    outside = _write_state_json_symlink_escape(tmp_path)
+    outside, run_root = _write_state_json_symlink_escape(tmp_path)
+    before = _tree_bytes(tmp_path)
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
-    assert "state.json resolves outside workspace" in body
-    assert "Commands unavailable" in body
-    assert "orchestrate report" not in body
-    assert "orchestrate resume" not in body
+    outputs = re.search(r"<h2>Outputs</h2>\s*<pre>(.*?)</pre>", body, re.S).group(1)
+    assert json.loads(html.unescape(outputs)) == {"accepted": True, "score": 0.75}
+    assert f"orchestrate report --run-id {run_root.name}" in body
+    assert "external-run" not in body
     assert str(outside) not in body
     assert "outside-secret" not in body
+    assert _tree_bytes(tmp_path) == before
 
 
 def test_rejected_state_json_symlink_state_preview_is_not_served(tmp_path: Path):
-    outside = _write_state_json_symlink_escape(tmp_path)
+    outside, run_root = _write_state_json_symlink_escape(tmp_path)
+    before = _tree_bytes(tmp_path)
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/state")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/state")
 
     body = response.body.decode("utf-8")
     assert response.status == 400
@@ -3006,17 +373,220 @@ def test_rejected_state_json_symlink_state_preview_is_not_served(tmp_path: Path)
     assert "external-run" not in body
     assert "outside-secret" not in body
     assert str(outside) not in body
+    assert _tree_bytes(tmp_path) == before
 
 
 def test_rejected_state_json_symlink_file_route_uses_scanned_run_root(
     tmp_path: Path,
 ):
-    outside = _write_state_json_symlink_escape(tmp_path)
+    outside, run_root = _write_state_json_symlink_escape(tmp_path)
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/files/run/foo")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/files/run/foo")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
     assert "missing" in body
     assert "outside-secret" not in body
     assert str(outside) not in body
+
+
+@pytest.mark.parametrize("authority", ["run.json", "closed_program.json", "memo.jsonl"])
+def test_symlinked_authority_file_leaving_workspace_is_unreadable_and_not_served(tmp_path: Path, authority: str):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_root = _pure_run(workspace)
+    outside = tmp_path / f"outside-{authority}"
+    outside.write_bytes((run_root / authority).read_bytes() + b"\nOUTSIDE-AUTHORITY-MARKER\n")
+    (run_root / authority).unlink()
+    (run_root / authority).symlink_to(outside)
+    before = _tree_bytes(tmp_path)
+    app = _app(workspace)
+
+    index = app.handle("GET", "/runs").body.decode("utf-8")
+    page = app.handle("GET", f"/runs/w0/{run_root.name}")
+    preview = app.handle("GET", f"/runs/w0/{run_root.name}/files/run/{authority}")
+    raw = app.handle("GET", f"/runs/w0/{run_root.name}/files/run/{authority}?raw=1")
+
+    row = next(line for line in index.splitlines() if f'href="/runs/w0/{run_root.name}"' in line)
+    assert "<td>unreadable</td>" in row
+    body = page.body.decode("utf-8")
+    assert page.status == 200 and "memo_inconsistent" in body and "0.75" not in body
+    assert preview.status == raw.status == 400
+    for response_body in (index, body, preview.body.decode("utf-8"), raw.body.decode("utf-8")):
+        assert "OUTSIDE-AUTHORITY-MARKER" not in response_body and str(outside) not in response_body
+    assert _tree_bytes(tmp_path) == before
+
+
+def test_removed_routes_return_404(tmp_path: Path):
+    run_root = _pure_run(tmp_path)
+    (run_root / "summaries").mkdir()
+    (run_root / "summaries" / "index.json").write_text('{"schema": "orchestrator_summary_index/v1", "entries": []}')
+    retired = tmp_path / ".orchestrate" / "runs" / "retired-run"
+    retired.mkdir()
+    (retired / "state.json").write_text('{"run_id": "retired-run", "status": "running"}')
+    before = _tree_bytes(tmp_path)
+    app = _app(tmp_path)
+
+    for run_dir_id in (run_root.name, retired.name):
+        for route in ("summaries", "summaries/live.json", "tmux"):
+            assert app.handle("GET", f"/runs/w0/{run_dir_id}/{route}").status == 404
+    assert _tree_bytes(tmp_path) == before
+
+
+def _retired_state(run_dir: Path, outside: Path, kind: str) -> None:
+    marker = '{"run_id": "RETIRED-MARKER", "status": "completed", "workflow_file": "RETIRED-MARKER.yaml"}'
+    state = run_dir / "state.json"
+    if kind == "regular":
+        state.write_text(marker)
+    elif kind == "malformed":
+        state.write_text("RETIRED-MARKER {not json")
+    elif kind == "symlink-outside":
+        outside.write_text(marker)
+        state.symlink_to(outside)
+    else:
+        state.symlink_to(outside / "missing-RETIRED-MARKER.json")
+
+
+@pytest.mark.parametrize("kind", ["regular", "malformed", "symlink-outside", "broken-symlink"])
+def test_dashboard_lists_retired_run_as_one_line_refusal(tmp_path: Path, kind: str):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_root = _pure_run(workspace)
+    retired = workspace / ".orchestrate" / "runs" / "20250101T000000Z-retired"
+    retired.mkdir()
+    _retired_state(retired, tmp_path / "outside-state.json", kind)
+    before = _tree_bytes(tmp_path)
+    app = _app(workspace)
+
+    index = app.handle("GET", "/runs").body.decode("utf-8")
+    page = app.handle("GET", f"/runs/w0/{retired.name}")
+    below = [app.handle("GET", f"/runs/w0/{retired.name}/{route}")
+             for route in ("state", "steps/x", "files/run/state.json", "files/run/state.json?raw=1")]
+
+    refusal = f"workflow_execution_profile_retired: run {retired.name} was written by the retired runtime"
+    assert f'href="/runs/w0/{run_root.name}"' in index and f'href="/runs/w0/{retired.name}"' in index
+    row = next(line for line in index.splitlines() if f'href="/runs/w0/{retired.name}"' in line)
+    assert "<td>retired</td>" in row and refusal in row
+    assert page.status == 200 and refusal in page.body.decode("utf-8")
+    assert "git tag archive/retired-run-readers-2026-11-11" in page.body.decode("utf-8")
+    assert [response.status for response in below] == [404] * 4
+    assert all(refusal in response.body.decode("utf-8") for response in below)
+    for body in [index, page.body.decode("utf-8"), *(response.body.decode("utf-8") for response in below)]:
+        assert "RETIRED-MARKER" not in body
+    assert _tree_bytes(tmp_path) == before
+
+
+def _http_get(port: int, path: str, host_header):
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+    try:
+        connection.putrequest("GET", path, skip_host=True)
+        if host_header is not None:
+            connection.putheader("Host", host_header)
+        connection.endheaders()
+        response = connection.getresponse()
+        return response.status, response.read()
+    finally:
+        connection.close()
+
+
+def test_real_http_server_refuses_foreign_host_headers_before_any_route(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_root = _pure_run(workspace)
+    before = _tree_bytes(workspace)
+    server = make_dashboard_server(scanner=RunScanner([workspace]), host="127.0.0.1", port=0)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    raw_path = f"/runs/w0/{quote(run_root.name)}/files/run/run.json?raw=1"
+    try:
+        accepted = {host: _http_get(port, raw_path, host)
+                    for host in (f"127.0.0.1:{port}", f"localhost:{port}", f"LOCALHOST:{port}", f"[::1]:{port}")}
+        refused = {host: _http_get(port, raw_path, host)
+                   for host in (f"evil.example:{port}", "evil.example", f"127.0.0.1:{port + 1}", "127.0.0.1",
+                                f"[::2]:{port}", None)}
+    finally:
+        server.shutdown()
+        server.server_close()
+    run_json = (run_root / "run.json").read_bytes()
+    assert {host: status for host, (status, _) in accepted.items()} == dict.fromkeys(accepted, 200)
+    assert all(body == run_json for _, body in accepted.values())
+    assert {host: status for host, (status, _) in refused.items()} == dict.fromkeys(refused, 421)
+    assert not any(run_json in body or run_root.name.encode() in body for _, body in refused.values())
+    assert _tree_bytes(workspace) == before
+
+
+def test_run_directory_with_non_utf8_name_is_skipped_with_a_warning(tmp_path: Path):
+    run_root = _pure_run(tmp_path)
+    bad = os.path.join(os.fsencode(run_root.parent), b"bad\xff")
+    os.mkdir(bad)
+    with open(os.path.join(bad, b"state.json"), "wb") as handle:
+        handle.write(b'{"status": "running"}')
+    before = _tree_bytes(tmp_path)
+
+    response = _app(tmp_path).handle("GET", "/runs")
+
+    body = response.body.decode()
+    assert response.status == 200
+    assert f">{run_root.name}</a>" in body
+    assert "bad\\xff" in body and "not UTF-8" in body
+    assert _tree_bytes(tmp_path) == before
+
+
+def _elapsed_cell(body: str, run_name: str) -> str:
+    match = re.search(rf'>{re.escape(run_name)}</a></td>(?:<td>[^<]*</td>){{5}}<td>(?P<elapsed>[^<]*)</td>', body)
+    assert match is not None
+    return match.group("elapsed")
+
+
+def test_runs_with_the_same_name_in_two_workspaces_are_kept_apart(tmp_path: Path):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    run_root = _completed_run(first)
+    retired = second / ".orchestrate" / "runs" / run_root.name
+    retired.mkdir(parents=True)
+    (retired / "state.json").write_text('{"status": "running"}', encoding="utf-8")
+    app = DashboardApp(RunScanner([first, second]))
+
+    index = app.handle("GET", "/runs").body.decode()
+    pages = {workspace_id: app.handle("GET", f"/runs/{workspace_id}/{quote(run_root.name)}").body.decode()
+             for workspace_id in ("w0", "w1")}
+
+    assert index.count(f">{run_root.name}</a>") == 2
+    assert f'href="/runs/w0/{quote(run_root.name)}"' in index and f'href="/runs/w1/{quote(run_root.name)}"' in index
+    assert "<dt>Status</dt><dd>completed</dd>" in pages["w0"] and str(first.resolve()) in pages["w0"]
+    assert "<dt>Status</dt><dd>retired</dd>" in pages["w1"] and str(second.resolve()) in pages["w1"]
+
+
+def test_elapsed_column_is_start_to_last_record_or_to_request_time_while_running(tmp_path: Path):
+    (tmp_path / "done").mkdir()
+    (tmp_path / "live").mkdir()
+    completed = _completed_run(tmp_path / "done")
+    view = load_evaluated_view(completed)
+    started = datetime.fromisoformat(view["started_at"])
+    finished = int((datetime.fromisoformat(view["updated_at"]) - started).total_seconds())
+    later = DashboardApp(RunScanner([tmp_path / "done"]), now=started + timedelta(hours=5))
+    assert _elapsed_cell(later.handle("GET", "/runs").body.decode(), completed.name) == f"{finished}s"
+
+    running = _completed_run(tmp_path / "live")
+    memo = running / "memo.jsonl"
+    memo.write_bytes(b"".join(memo.read_bytes().splitlines(keepends=True)[:3]))   # a crash after one start
+    start = datetime.fromisoformat(load_evaluated_view(running)["started_at"])
+    with _subprocess_writer(running):
+        pages = {seconds: DashboardApp(RunScanner([tmp_path / "live"]), now=start + timedelta(seconds=seconds))
+                 .handle("GET", "/runs").body.decode() for seconds in (59, 3725)}
+    assert "<td>running</td>" in pages[59]
+    assert {seconds: _elapsed_cell(body, running.name) for seconds, body in pages.items()} == {
+        59: "59s", 3725: "1h 2m"}
+
+
+def test_scan_errors_on_the_run_list_are_capped(tmp_path: Path):
+    runs = os.fsencode(_pure_run(tmp_path).parent)
+    for index in range(53):
+        os.mkdir(os.path.join(runs, b"bad%02d\xff" % index))
+
+    body = _app(tmp_path).handle("GET", "/runs").body.decode()
+
+    assert body.count("not UTF-8; not listed") == 50
+    assert "and 3 more scan errors" in body

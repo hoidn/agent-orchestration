@@ -32,6 +32,17 @@ from ..wcc.model import (
 )
 from .names import canonical_type_descriptor
 from orchestrator.contracts.closed_program.program import _canonical_json
+from ..definitions import RecordDef, RecordField
+from ..effects import EffectSummary
+from ..spans import SourcePosition, SourceSpan
+from ..syntax import HelperExpansionFrame
+
+# Exact types whose values cannot reach a WCC operand: scalars, source provenance, effect
+# summaries and type-level facts. The demand walk stops at them. Matched by exact type, so a
+# subclass is walked; tests/test_workflow_lisp_closed_demand_walk.py fails when a field of one
+# of these types (transitively) could hold anything else.
+_DEMAND_FREE_TYPES = frozenset({type(None), str, int, float, bool, SourcePosition, SourceSpan,
+    EffectSummary, RecordDef, RecordField, HelperExpansionFrame, *TypeRef.__args__})
 
 def prepare_frontend_value(builder: Any, expr: Any, d: Any, env: Mapping[str, TypeRef]):
     from ..effects import EMPTY_EFFECT_SUMMARY
@@ -87,7 +98,7 @@ class ControlFacts:
 
 def _direct_outputs_available(expr: Any, *, result_type: Any, facts: ControlFacts, local_values: Mapping[str, Any]) -> bool:
     fields = inline_output_boundary_fields(
-        expr, type_ref=result_type, type_env=facts.type_env, signature=facts.signature,
+        expr, type_ref=result_type, type_env=facts.type_env,
     )
     return direct_output_leaves_available(
         is_direct_reference(inline_expr_field_value(
@@ -265,7 +276,7 @@ def _suffix_outputs_available(expr: Any, bindings: tuple[Any, ...], *, result_ty
     if not bindings:
         return _direct_outputs_available(expr.body, result_type=result_type, facts=facts, local_values=local_values)
     boundaries = inline_output_boundary_fields(
-        expr, type_ref=result_type, type_env=facts.type_env, signature=facts.signature,
+        expr, type_ref=result_type, type_env=facts.type_env,
     )
     return direct_output_leaves_available(is_direct_reference(inline_let_field_value(
         bindings, body=expr.body, field_path=boundary.source_path[1:], local_values=local_values, retain_expression_facts=True,
@@ -287,7 +298,7 @@ def _let_control_fact(expr: Any, *, result_type: Any, facts: ControlFacts, local
             facts = replace(facts, local_type_bindings={**facts.local_type_bindings, name: type_ref})
         if _suffix_outputs_available(expr, expr.bindings[index + 1:], result_type=result_type, facts=facts, local_values=values):
             return False, tuple(boundary.generated_name for boundary in inline_output_boundary_fields(
-                expr.body, type_ref=result_type, type_env=facts.type_env, signature=facts.signature,
+                expr.body, type_ref=result_type, type_env=facts.type_env,
             ))
     return _expression_control_fact(expr.body, result_type=result_type, facts=facts, local_values=values)
 
@@ -469,20 +480,16 @@ def helper_capture_names(expr: Any, *, local_type_bindings: Mapping[str, Any]) -
     return tuple(name for name in local_type_bindings if name in used_names)
 
 
-def inline_output_boundary_fields(expr: Any, *, type_ref: Any, type_env: Any, signature: Any):
+def inline_output_boundary_fields(expr: Any, *, type_ref: Any, type_env: Any):
     from dataclasses import replace
     from ..contracts import derive_workflow_boundary_fields, root_workflow_boundary_field
 
     from ..type_env import RecordTypeRef
 
-    allow_direct = (
-        (type_ref == signature.return_type_ref) and (isinstance(getattr(signature, "compiler_direct_result_contract_digest", None), str))
-    )
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         return derive_workflow_boundary_fields(
             type_ref, generated_name="return", source_path=("return",),
-            span=expr.span, form_path=expr.form_path,
-            allow_transportable_value=allow_direct, type_env=type_env,
+            span=expr.span, form_path=expr.form_path, type_env=type_env,
         )
     return (replace(root_workflow_boundary_field(
         type_ref, span=expr.span, form_path=expr.form_path, type_env=type_env,
@@ -646,6 +653,8 @@ def _wcc_continuation_binding_demands(
     def value_demand(
         value: object,
     ) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+        if type(value) in _DEMAND_FREE_TYPES:
+            return empty
         if isinstance(value, w.WccListMap):
             body = tuple(names - {value.binder_name} for names in body_demand(value.body))
             return merge(value_demand(value.source), body)

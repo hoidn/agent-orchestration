@@ -32,7 +32,6 @@ from .spans import SourceSpan
 from .type_env import RecordTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
 
 if TYPE_CHECKING:
-    from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
     from .procedures import TypedProcedureDef
     from .workflows import TypedWorkflowDef, WorkflowCatalog, WorkflowSignature
 
@@ -192,10 +191,8 @@ def resolve_workflow_ref_name(
             span=span,
             form_path=form_path,
         )
-    imported_bundle = workflow_catalog.imported_bundles_by_name.get(signature.name)
     extern_rebinding_plan = _extern_rebinding_plan_for_target(
         workflow_name=signature.name,
-        imported_bundle=imported_bundle,
         typed_workflows_by_name=typed_workflows_by_name or {},
     )
     if not allow_extern_rebinding and not extern_rebinding_plan.is_empty:
@@ -212,12 +209,11 @@ def resolve_workflow_ref_name(
                 ),
             )
         )
-    authority_kind = "imported_bundle" if imported_bundle is not None else "linked_workflow"
     return ResolvedWorkflowRef(
         workflow_name=signature.name,
         signature_params=signature.params,
         return_type_ref=signature.return_type_ref,
-        authority_source=WorkflowRefAuthoritySource(kind=authority_kind, workflow_name=signature.name),
+        authority_source=WorkflowRefAuthoritySource(kind="linked_workflow", workflow_name=signature.name),
         extern_rebinding_plan=extern_rebinding_plan,
     )
 
@@ -331,11 +327,8 @@ def collect_workflow_extern_names(expr: Any) -> tuple[set[str], set[str]]:
 def _extern_rebinding_plan_for_target(
     *,
     workflow_name: str,
-    imported_bundle: "LoadedWorkflowBundle | None",
     typed_workflows_by_name: Mapping[str, "TypedWorkflowDef"],
 ) -> WorkflowExternRebindingPlan:
-    if imported_bundle is not None:
-        return WorkflowExternRebindingPlan(provider_bindings={}, prompt_bindings={})
     typed_workflow = typed_workflows_by_name.get(workflow_name)
     if typed_workflow is None:
         return WorkflowExternRebindingPlan(provider_bindings={}, prompt_bindings={})

@@ -1,5 +1,6 @@
 """Real public lifecycle fixtures for serial durable host requests."""
 from pathlib import Path
+import copy
 import json
 
 from orchestrator.cli.commands.run import run_workflow
@@ -47,7 +48,8 @@ def snapshot(run_root):
 
 
 def rows(run_root):
-    return [entry.data for entry in snapshot(run_root).entries]
+    """Copies of the memo rows: callers edit them to forge journals, and the reducer's cache shares the originals."""
+    return [copy.deepcopy(entry.data) for entry in snapshot(run_root).entries]
 
 
 def resume(run_root, state_dir=None):

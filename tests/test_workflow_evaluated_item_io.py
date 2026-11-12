@@ -24,6 +24,7 @@ from tests.test_workflow_evaluated_attempt_cwd import STRING
 from tests.test_workflow_evaluated_command_lifecycle import _publish
 from tests.test_workflow_evaluated_providers import _fixture
 from tests.workflow_lisp_closed_program_helpers import build
+from tests.agent_session_shims import closed_path
 
 
 ADAPTER = 'orchestrator.workflow_lisp.adapters.validate_review_findings_v1'
@@ -145,7 +146,7 @@ artifact.write_text('{"items":[]}')
 Path('provider-location.json').write_text(json.dumps({'cwd': str(Path.cwd()), 'root': str(root), 'prompt': prompt}))
 Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']).write_text(json.dumps({'schema_version': 'ReviewFindings.v1', 'items_path': 'artifacts/work/provider.json'}))
 ''')
-    monkeypatch.setenv('PATH', str(binary.parent) + os.pathsep + os.environ['PATH'])
+    monkeypatch.setenv('PATH', closed_path(binary.parent))
     reached = reached_serial(built.program, {'message': 'artifacts/work/findings.json'}, provider_io=built.provider_io)
     with _publish(tmp_path, built.program, inputs={'message': 'artifacts/work/findings.json'}) as authority, closing(WorkspaceFiles(tmp_path)) as files:
         executor = ProviderExecutor(tmp_path, ProviderRegistry(), provider_observation_enabled=False)
