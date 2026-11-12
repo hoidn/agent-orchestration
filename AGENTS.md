@@ -12,8 +12,9 @@ Repo expectations:
 - Read `docs/index.md` before deciding what docs or specs govern the task.
 - Use the `tmux` skill when launching long-running commands.
 - After narrow selectors, run the broad check as a random tenth of the suite by
-  default: `pytest -q -n 16 --dist=worksteal --sample 10` (about two minutes; the
-  summary prints the seed, and `--sample-seed N` reruns the same tests). Run the
+  default: `pytest -q -n 16 --dist=worksteal --sample 10` (about two minutes). A run
+  that fails keeps its seed, so the next `--sample` run repeats the same tests;
+  a passing run draws a new seed for the next one. Run the
   whole suite, the same command without `--sample` (about eight minutes), before
   merging to `main` and at roadmap phase gates; keep long runs in tmux.
 - When executing plans, use Subagent-Driven execution without asking for confirmation
