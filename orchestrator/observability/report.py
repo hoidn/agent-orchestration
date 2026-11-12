@@ -35,7 +35,9 @@ def _usage_text(usage: Mapping[str, Any]) -> str:
     return f"{bound}{tokens}; cost_usd {cost}; {attempts}"
 
 
-def _render_run_usage(usage: Mapping[str, Any]) -> list[str]:
+def _render_run_usage(usage: Mapping[str, Any] | None) -> list[str]:
+    if usage is None:       # no provider-class step
+        return []
     table = usage["price_table"]
     return ["## Usage", _render_kv_lines([("total", _usage_text(usage)),
                                           ("price_table", f"{table['source']} ({table['date']})")]), ""]
@@ -77,7 +79,7 @@ def _render_evaluated_status_markdown(snapshot: Dict[str, Any]) -> str:
         for pending in run['run_ref_cleanup']:
             lines.append(_render_kv_lines(pending.items()))
             lines.append('')
-    lines.extend(_render_run_usage(run["usage"]))
+    lines.extend(_render_run_usage(run.get("usage")))
     lines.extend(["## Progress", _render_kv_lines(snapshot["progress"].items()), "", "## Steps"])
     for step in snapshot["steps"]:
         lines.extend([f"### {step['name']} ({step['status']})", _render_kv_lines(

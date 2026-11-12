@@ -24,18 +24,20 @@ STEPS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> Result
     (let* ((first (provider-result providers.first :prompt prompts.base
-                    :inputs (message) :model "MODEL" :effort "high" :returns Result))
+                    :inputs (message) :model "FIRST_MODEL" :effort "high" :returns Result))
            (built (command-result build :argv ("python" "command.py" message) :returns String))
            (second (provider-result providers.second :prompt prompts.base
-                     :inputs (message built) :model "MODEL" :effort "high" :returns Result)))
+                     :inputs (message built) :model "SECOND_MODEL" :effort "high" :returns Result)))
       second)))'''
 TOKENS = CLAUDE_USAGE["rows"][0]["tokens"]
 ONE_CALL = priced(CLAUDE_USAGE["rows"], load_price_table())     # the ordinary price, not the CLI's 0.25
 
 
-def _steps_workspace(tmp_path: Path, first: str, second: str, model: str = "claude-haiku-5-5") -> Path:
+def _steps_workspace(tmp_path: Path, first: str, second: str, model: str = "claude-haiku-5-5",
+                     second_model: str | None = None) -> Path:
     root = _workspace(tmp_path / "w", first)
-    (root / "main.orc").write_text(STEPS.replace("MODEL", model), encoding="utf-8")
+    (root / "main.orc").write_text(STEPS.replace("FIRST_MODEL", model).replace("SECOND_MODEL", second_model or model),
+                                   encoding="utf-8")
     (root / "providers.json").write_text(json.dumps({"providers.first": first, "providers.second": second}),
                                          encoding="utf-8")
     (root / "command.py").write_text(COMMAND, encoding="utf-8")
@@ -116,12 +118,60 @@ def test_retried_step_sums_every_attempt(tmp_path):
 
 
 def test_unpriced_model_shows_tokens_and_no_cost(tmp_path):
-    root = _steps_workspace(tmp_path, "codex_metered", "codex_metered", model="gpt-5.5")
+    """An unpriced attempt counts like an unknown one: the priced rest is summed and marked partial."""
+    root = _steps_workspace(tmp_path, "codex_metered", "codex_metered", model="gpt-5.5", second_model="gpt-5.6-terra")
     assert _run(root).returncode == 0
     report = _report(root)
-    assert _usage_by_step(report)[FIRST]["tokens"] == CODEX_USAGE["rows"][0]["tokens"]
-    assert (_usage_by_step(report)[FIRST]["cost_usd"], report["run"]["usage"]["cost_usd"]) == (None, None)
-    assert "cost_usd unknown" in _report(root, fmt="md")
+    codex = CODEX_USAGE["rows"][0]["tokens"]
+    terra = priced([{"model": "gpt-5.6-terra", "tokens": codex}], load_price_table())
+    first, total = _usage_by_step(report)[FIRST], report["run"]["usage"]
+    assert (first["tokens"], first["cost_usd"], first["unknown_attempts"], first["partial"]) == (codex, None, 0, True)
+    assert (total["tokens"], total["cost_usd"], total["unknown_attempts"], total["partial"]) == (
+        _times(codex, 2), pytest.approx(terra), 0, True)
+    markdown = _report(root, fmt="md")
+    assert "- usage: `≥ input 6, output 7, cache_read 5, cache_write 0; cost_usd unknown; attempts 1`" in markdown
+    assert f"- total: `≥ input 12, output 14, cache_read 10, cache_write 0; cost_usd ≥ {terra:.6g}; " \
+           "attempts 2`" in markdown
+
+
+def test_reported_cost_without_token_rows_is_a_partial_figure(tmp_path):
+    """Claude's `result` line with an empty `modelUsage` and a cost: the cost counts, as the spend cap counts it."""
+    root = _workspace(tmp_path / "w", "claude_metered")
+    (root / "main.orc").write_text(SOURCE.replace("MODEL", "claude-haiku-5-5"), encoding="utf-8")
+    assert _run_one(root).returncode == 0
+    (attempt,) = _attempts(root)
+    (attempt / "usage.json").write_text(json.dumps({**CLAUDE_USAGE, "rows": []}), encoding="utf-8")
+    (usage,) = _usage_by_step(_report(root)).values()
+    assert (usage["cost_usd"], usage["unknown_attempts"], usage["partial"]) == (0.25, 0, True)
+    assert "- usage: `≥ input 0, output 0, cache_read 0, cache_write 0; cost_usd ≥ 0.25; attempts 1`" in _report(
+        root, fmt="md")
+
+
+def test_run_without_provider_steps_has_no_usage(tmp_path):
+    root = _steps_workspace(tmp_path, "claude_metered", "claude_metered")
+    (root / "main.orc").write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule main) (export run)
+  (defworkflow run ((message String)) -> String
+    (command-result build :argv ("python" "command.py" message) :returns String)))''', encoding="utf-8")
+    assert _run(root).returncode == 0
+    assert ("usage" in _report(root)["run"], "## Usage" in _report(root, fmt="md")) == (False, False)
+
+
+def test_report_json_never_prints_a_non_finite_cost(tmp_path):
+    """Two attempts each priced at 1e308 USD sum past the float range: the cost is withheld, not `Infinity`."""
+    root = _steps_workspace(tmp_path, "claude_metered", "claude_metered")
+    assert _run(root).returncode == 0
+    for attempt in _attempts(root):
+        huge = {**CLAUDE_USAGE, "rows": [{"model": "claude-haiku-5-5", "tokens": {
+            "input": 10 ** 308, "output": 0, "cache_read": 0, "cache_write": 0}}]}
+        (attempt / "usage.json").write_text(json.dumps(huge), encoding="utf-8")
+    own = {**load_price_table(), "tokens_per_unit": 1,
+           "models": {"claude-haiku-5-5": {"input": 1, "output": 0, "cache_read": 0, "cache_write": 0}}}
+    (tmp_path / "prices.json").write_text(json.dumps(own), encoding="utf-8")
+    result = _orchestrator(root, "report", "--format", "json", "--price-table", str(tmp_path / "prices.json"))
+    assert result.returncode == 0, result.stderr
+    total = json.loads(result.stdout, parse_constant=lambda name: pytest.fail(f"report printed {name}"))["run"]["usage"]
+    assert (total["cost_usd"], total["partial"]) == (None, True)
 
 
 def test_report_names_the_price_table_source_and_date(tmp_path):
@@ -138,7 +188,18 @@ def test_report_names_the_price_table_source_and_date(tmp_path):
         {"source": "a test table", "date": "2020-01-02"}, pytest.approx(2 * 26 / 1e6))
 
 
-@pytest.mark.parametrize("text", ["{", '{"currency": "EUR"}', "[]"], ids=["not-json", "invalid", "not-an-object"])
+def _table_text(**change) -> str:
+    table = load_price_table()
+    rates = {**table["models"]["claude-haiku-5-5"], **change.pop("rates", {})}
+    return json.dumps({**table, **change, "models": {"claude-haiku-5-5": rates}})
+
+
+@pytest.mark.parametrize("text", [
+    "{", '{"currency": "EUR"}', "[]", _table_text(rates={"input": -1}),
+    _table_text(rates={"output": 9e6}),                     # USD 9 per token
+    _table_text(tokens_per_unit=1e-300),
+    _table_text(rates={"input": 1}).replace('"input": 1,', '"input": NaN,', 1),
+], ids=["not-json", "invalid", "not-an-object", "negative", "absurd-rate", "absurd-unit", "nan"])
 def test_malformed_price_table_is_refused(tmp_path, text):
     root = _steps_workspace(tmp_path, "claude_metered", "claude_metered")
     assert _run(root).returncode == 0

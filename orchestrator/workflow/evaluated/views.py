@@ -234,7 +234,7 @@ def _update_effect_row(target, row, snapshot):
 def report_snapshot(view: dict[str, Any], run_root: Path, table: dict | None = None) -> dict[str, Any]:
     """Adapt real effect rows to the existing public report envelope.
 
-    Provider-class steps gain `usage` and the run `run.usage`, read from the attempts' `usage.json`
+    Provider-class steps gain `usage` and, when there is one, the run `run.usage`, read from the attempts' `usage.json`
     (`run_usage`) and priced with `table` (default: the packaged price table); the view stays memo-only.
     """
     table = load_price_table() if table is None else table
@@ -248,7 +248,8 @@ def report_snapshot(view: dict[str, Any], run_root: Path, table: dict | None = N
     per_step, total = run_usage(run_root, metered, table)
     for step in metered:
         step["usage"] = per_step[step["identity"]]
-    run["usage"] = {**total, "price_table": {"source": table["source"], "date": table["date"]}}
+    if metered:     # a run without provider-class steps has no `run.usage`
+        run["usage"] = {**total, "price_table": {"source": table["source"], "date": table["date"]}}
     progress = {status: sum(row["status"] == status for row in steps)
                 for status in ("completed", "running", "failed", "pending", "skipped", "settling", "suspended", "invalidated")}
     progress["total"] = len(steps)

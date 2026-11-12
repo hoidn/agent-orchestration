@@ -2,10 +2,14 @@
 
 The installed CLI (`installed` of `tests/test_first_hour_e2e.py`: a non-editable install outside the
 checkout) runs the best-of-N copy of `tests/test_workflow_evaluated_parallel_consumers.py`
-(`:parallel 2 :workspace repo`, absolute repository paths) with both provider aliases bound to the
-metered `claude_unrestricted_workspace_metered`. The stand-in is the recovery helpers' `SHIM` (answers by
-request identity), followed by the transport lines of the metering stand-in with its fixed usage; during
-the first run it holds the coders of the last two repositories. `PATH` is closed (`closed_path`), so no
+(`:parallel 2 :workspace repo`, absolute repository paths) with the program's own provider bindings
+switched to their metered templates: the coders on `claude_unrestricted_workspace_metered`, the judge on
+`codex_unrestricted_workspace_metered`, with the program's own models (`claude-sonnet-5-5` and
+`gpt-6-sol`; the source fixes them at each call, so no binding can change them). The stand-in is the
+recovery helpers' `SHIM` (answers by request identity), followed by the metering stand-in's transport lines:
+fixed counts, with the model the call asked for (Claude) or the call's policy model (Codex). During the
+first run it holds the coders of the last two repositories after they log their request, in place of the
+plan's `kill_at` gate: the same W6 window, held by the stand-in. `PATH` is closed (`closed_path`), so no
 real provider can run.
 """
 
@@ -27,12 +31,14 @@ from tests.test_first_hour_e2e import installed  # noqa: F401  (the module-scope
 from tests.test_workflow_evaluated_parallel_consumers import (
     JUDGE, NEWEST, PARALLEL_MAP, PROGRAM, REPOS, SERIAL_MAP, _answers, coder, repos, selection,
 )
-from tests.test_workflow_evaluated_provider_usage import CLAUDE_USAGE
+from tests.test_workflow_evaluated_provider_usage import CLAUDE_USAGE, CODEX_USAGE
 from tests.workflow_evaluated_consumer_sources import CANDIDATES, ROOT, git, install, jsonl
 from tests.workflow_evaluated_recovery_helpers import SHIM
 
 TIMEOUT = 120
-METERED = "claude_unrestricted_workspace_metered"
+BINDINGS = {"providers.coder": "claude_unrestricted_workspace_metered",
+            "providers.judge": "codex_unrestricted_workspace_metered"}
+CODER_MODEL, JUDGE_MODEL = "claude-sonnet-5-5", "gpt-6-sol"
 HELD = ("gamma", "delta")       # the coders of the last two repositories, in flight when the run is killed
 HOLD = '''hold("W6", bundle)
 if os.environ.get("EXIT_HOLD") and Path.cwd().name in ''' + repr(HELD) + ''':
@@ -41,18 +47,27 @@ if os.environ.get("EXIT_HOLD") and Path.cwd().name in ''' + repr(HELD) + ''':
         signal.pause()
 '''
 TRANSPORT = '''
-_sid = "00000000-0000-4000-8000-000000000001"
-_rows = [{"type": "system", "subtype": "init", "session_id": _sid},
-         {"type": "assistant", "session_id": _sid, "message": {"id": "msg_0", "model": "claude-haiku-5-5",
-          "content": [{"type": "text", "text": "done"}], "usage": {"input_tokens": 11, "output_tokens": 1,
-          "cache_read_input_tokens": 5, "cache_creation_input_tokens": 3}}},
-         {"type": "result", "subtype": "success", "is_error": False, "result": "done", "session_id": _sid,
-          "total_cost_usd": 0.25, "modelUsage": {"claude-haiku-5-5": {"inputTokens": 11, "outputTokens": 7,
-          "cacheReadInputTokens": 5, "cacheCreationInputTokens": 3, "costUSD": 0.25}}}]
+_argv = sys.argv[1:]
+if Path(sys.argv[0]).name == "claude":
+    _model, _sid = _argv[_argv.index("--model") + 1], "00000000-0000-4000-8000-000000000001"
+    _rows = [{"type": "system", "subtype": "init", "session_id": _sid},
+             {"type": "assistant", "session_id": _sid, "message": {"id": "msg_0", "model": _model,
+              "content": [{"type": "text", "text": "done"}], "usage": {"input_tokens": 11, "output_tokens": 1,
+              "cache_read_input_tokens": 5, "cache_creation_input_tokens": 3}}},
+             {"type": "result", "subtype": "success", "is_error": False, "result": "done", "session_id": _sid,
+              "total_cost_usd": 0.25, "modelUsage": {_model: {"inputTokens": 11, "outputTokens": 7,
+              "cacheReadInputTokens": 5, "cacheCreationInputTokens": 3, "costUSD": 0.25}}}]
+else:
+    _rows = [{"type": "thread.started", "thread_id": "00000000-0000-4000-8000-000000000002"},
+             {"type": "turn.started"},
+             {"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": "done"}},
+             {"type": "turn.completed", "usage": {"input_tokens": 11, "cached_input_tokens": 5,
+              "cache_write_input_tokens": 0, "output_tokens": 7, "reasoning_output_tokens": 0}}]
 sys.stdout.write("".join(json.dumps(row) + "\\n" for row in _rows))
 sys.stdout.flush()
 '''
-TOKENS = CLAUDE_USAGE["rows"][0]["tokens"]      # what one completed stand-in call reports
+TOKENS = CLAUDE_USAGE["rows"][0]["tokens"]      # what one completed Claude stand-in call reports
+JUDGE_TOKENS = CODEX_USAGE["rows"][0]["tokens"]  # and one Codex call (charged input: 11 - 5 cached)
 
 
 def _standins(bin_dir: Path) -> None:
@@ -74,8 +89,9 @@ def _workspace(tmp_path: Path) -> tuple[Path, list[str]]:
     (root / PROGRAM.source).write_text(source.replace('(:target-dsl "2.35")', f'(:target-dsl "{NEWEST}")')
                                        .replace(SERIAL_MAP, PARALLEL_MAP))
     manifest = root / "manifests" / "providers.json"
-    assert set(json.loads(manifest.read_text())) == {"providers.coder", "providers.judge"}
-    manifest.write_text(json.dumps({"providers.coder": METERED, "providers.judge": METERED}))
+    assert json.loads(manifest.read_text()) == {alias: name.removesuffix("_metered") for alias, name in BINDINGS.items()}
+    assert source.count(f':model "{CODER_MODEL}"') == 1 and source.count(f':model "{JUDGE_MODEL}"') == 2
+    manifest.write_text(json.dumps(BINDINGS))
     for repo in REPOS[len(CANDIDATES):]:
         git(root, "clone", "-q", CANDIDATES[0], repo)
     return root, frontend
@@ -123,10 +139,6 @@ def _dispatches(root: Path) -> dict[str, int]:
             "judge": len(jsonl(root / "requests.jsonl"))}
 
 
-def _times(tokens: dict, n: int) -> dict:
-    return {key: value * n for key, value in tokens.items()}
-
-
 def test_parallel_best_of_n_survives_a_kill_and_reports_tokens(installed, tmp_path):  # noqa: F811
     _standins(tmp_path / "bin")
     root, frontend = _workspace(tmp_path)
@@ -146,23 +158,31 @@ def test_parallel_best_of_n_survives_a_kill_and_reports_tokens(installed, tmp_pa
     assert selection(root)["winner"] in resumed.stdout
     assert _dispatches(root) == {"alpha": 1, "beta": 1, "gamma": 2, "delta": 2, "judge": 1}
 
-    # 3. The report: tokens of completed attempts per step, killed attempts unknown, a priced partial total.
+    # 3. The report: tokens of completed attempts per step, killed attempts unknown, the priced part of the cost.
     report = subprocess.run(["orchestrator", "report", "--run-id", run_id, "--format", "json"], cwd=root, env=env,
                             capture_output=True, text=True, timeout=TIMEOUT)
     assert report.returncode == 0, report.stderr
     snapshot = json.loads(report.stdout)
     usage = {step["identity"]: step["usage"] for step in snapshot["steps"] if "usage" in step}
+    coders = [coder(index) for index in range(len(REPOS))]
     killed = {coder(REPOS.index(f"candidates/{name}")) for name in HELD}
-    assert set(usage) == {*(coder(index) for index in range(len(REPOS))), JUDGE}
-    for identity, step in usage.items():
-        assert (step["tokens"], step["attempts"], step["unknown_attempts"]) == (
-            (TOKENS, 2, 1) if identity in killed else (TOKENS, 1, 0)), identity
+    assert set(usage) == {*coders, JUDGE}
     table = load_price_table()
+    coder_cost = priced([{"model": CODER_MODEL, "tokens": TOKENS}], table)
+    for identity in coders:
+        assert usage[identity] == ({"tokens": TOKENS, "cost_usd": pytest.approx(coder_cost), "attempts": 2,
+                                    "unknown_attempts": 1, "partial": True} if identity in killed else
+                                   {"tokens": TOKENS, "cost_usd": pytest.approx(coder_cost), "attempts": 1,
+                                    "unknown_attempts": 0, "partial": False}), identity
+    # The program's judge model has no rates in the price table: tokens are shown, its cost is not.
+    assert JUDGE_MODEL not in table["models"]
+    assert usage[JUDGE] == {"tokens": JUDGE_TOKENS, "cost_usd": None, "attempts": 1, "unknown_attempts": 0,
+                            "partial": True}
     total = snapshot["run"]["usage"]
-    assert (total["tokens"], total["attempts"], total["unknown_attempts"], total["partial"]) == (
-        _times(TOKENS, len(usage)), len(usage) + len(killed), len(killed), True)
-    assert total["cost_usd"] == pytest.approx(len(usage) * priced(CLAUDE_USAGE["rows"], table))
-    assert total["price_table"] == {"source": table["source"], "date": table["date"]}
+    assert total == {"tokens": {key: 4 * TOKENS[key] + JUDGE_TOKENS[key] for key in TOKENS},
+                     "cost_usd": pytest.approx(len(coders) * coder_cost), "attempts": len(usage) + len(killed),
+                     "unknown_attempts": len(killed), "partial": True,
+                     "price_table": {"source": table["source"], "date": table["date"]}}
     markdown = subprocess.run(["orchestrator", "report", "--run-id", run_id], cwd=root, env=env,
                               capture_output=True, text=True, timeout=TIMEOUT)
     assert markdown.returncode == 0, markdown.stderr

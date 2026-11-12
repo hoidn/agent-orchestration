@@ -184,10 +184,15 @@ section with the run total and the price table's source and date
 bound to a `<name>_metered` template report tokens
 ([metered templates](../specs/providers.md#metered-templates-and-usage)); any
 other provider step shows `unknown`, never `0`. A total marked `≥` is a lower
-bound: some attempt reported nothing (a plain template, or an attempt killed
-before it finished) or only part of its usage. `--price-table PATH` prices
-the same usage with another table. The cost is a list-price equivalent, not
-billed spend. Field rules: [observability](../specs/observability.md#report-usage).
+bound: some attempt reported nothing (a plain template, an attempt killed
+before it finished, or a run recorded before metering), only part of its
+usage, or used a model the price table has no rates for (its tokens are
+shown, its cost is left out of the total). `--price-table PATH` prices the
+same usage with another table. The cost is a list-price equivalent at the
+table's ordinary rates, not billed spend: it understates requests large
+enough for a long-context tier, while `--max-cost-usd` prices conservatively,
+so the spend cap may stop a run before the report's figure reaches the cap.
+Field rules: [observability](../specs/observability.md#report-usage).
 
 ## After A Suspension Notification
 

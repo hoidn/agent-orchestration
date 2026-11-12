@@ -24,12 +24,13 @@ A cut final line (a killed writer) is ignored; any other undecodable line makes 
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 import stat
 from typing import Any, Iterable
 
-from .pricing import FIELDS, cap_cost, priced, valid_tokens
+from .pricing import FIELDS, cap_cost, number, priced, valid_tokens
 from .types import ProviderSessionMetadataMode
 
 UNAVAILABLE = "unavailable"
@@ -240,26 +241,44 @@ def run_usage(run_root: Path, steps: Iterable[dict], table: dict) -> tuple[dict[
 def summed_usage(usages: list, table: dict) -> dict:
     """`{"tokens", "cost_usd", "attempts", "unknown_attempts", "partial"}` summed over attempts' `usage.json`.
 
-    An attempt without readable `reported` usage (absent: killed or still running) is unknown, never zero.
-    `tokens` is None when no attempt reported; `cost_usd` is the ordinary price (`pricing.priced`), None
-    when no attempt reported or a reported model has no rates. `partial` (the figures are a lower bound)
-    is true when an attempt is unknown or its usage is `complete: false`.
+    An attempt without readable `reported` usage (absent: killed, still running, or recorded before
+    metering) is unknown, never zero. `tokens` is None when no attempt reported. `cost_usd` sums the
+    attempts that can be priced (`_attempt_price`) and is None when none can, or when the sum leaves the
+    float range. `partial` (the figures are a lower bound) is true when an attempt is unknown, unpriced,
+    `complete: false`, or priced from the CLI's cost alone.
     """
-    tokens, cost, unknown, incomplete = None, 0.0, 0, False
+    tokens, cost, unknown, partial = None, None, 0, False
     for usage in usages:
         rows = _reported_rows(usage)
         if rows is None:
             unknown += 1
             continue
-        incomplete = incomplete or usage.get("complete") is not True
-        tokens = tokens or dict.fromkeys(FIELDS, 0)
-        for row in rows:
-            for key in FIELDS:
-                tokens[key] += row["tokens"][key]
+        tokens = _added(tokens, rows)
+        price, exact = _attempt_price(usage, rows, table)
+        cost = cost if price is None else (cost or 0.0) + price
+        partial = partial or not exact or usage.get("complete") is not True
+    if cost is not None and not math.isfinite(cost):
+        cost, partial = None, True
+    return {"tokens": tokens, "cost_usd": cost, "attempts": len(usages), "unknown_attempts": unknown,
+            "partial": partial or unknown > 0}
+
+
+def _added(tokens: dict | None, rows: list[dict]) -> dict:
+    """`tokens` (zeros when None) plus every row's token counts."""
+    return {key: (tokens or {}).get(key, 0) + sum(row["tokens"][key] for row in rows) for key in FIELDS}
+
+
+def _attempt_price(usage: dict, rows: list[dict], table: dict) -> tuple[float | None, bool]:
+    """(cost, exact) of one reported attempt at the table's ordinary rates (`pricing.priced`).
+
+    Rows a model has no rates for give (None, False). Without rows, a positive `reported_cost_usd` (Claude's
+    `result` line with an empty `modelUsage`) is the cost, inexact as the spend cap also counts it; else 0.
+    """
+    if rows:
         price = priced(rows, table)
-        cost = None if cost is None or price is None else cost + price
-    return {"tokens": tokens, "cost_usd": None if tokens is None else cost, "attempts": len(usages),
-            "unknown_attempts": unknown, "partial": incomplete or unknown > 0}
+        return price, price is not None
+    reported = usage.get("reported_cost_usd")
+    return (reported, False) if number(reported, positive=True) else (0.0, True)
 
 
 def _reported_rows(usage: Any) -> list[dict] | None:
