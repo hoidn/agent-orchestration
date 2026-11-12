@@ -8,18 +8,18 @@ each experiment budget is requested when its phase starts. The
 keeps its own remaining work as [Dispositions](#dispositions) states. This
 page is not a source of copyable examples.
 
-**Owner direction, 2026-11-11 (after selection):** scale the research work
-down. Its near-term goal is a small number of simple workflows that work well
-on a calibrated task set and can seed genetic search; initial calibration
-comes first, and every later research or practical use depends on it. The
-[seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md) replaces
-Thread M item 5 and the Phase 5 benchmark as written below; Thread M items 1
-to 3 are not selected for now. Where this paragraph and the text below
-disagree, this paragraph governs.
-
 **Goal:** make typed, resumable agent pipelines usable for one real long
-pipeline, measure what the runtime's distinctive mechanism buys, and price the
-quality and program-evolution questions honestly before any spend on them.
+pipeline, and find a small number of simple workflows that work well on a
+calibrated task set, as seeds for a search over workflow programs.
+
+**Research scope (owner, 2026-11-11, after selection):** the research work is
+scaled down to that second aim. Calibration of the task set and of the judge
+comes first; every later research or practical use depends on it. The
+sections below are written to this scope. The larger benchmark and
+measurement designs that revision 2 carried are kept in the
+[review record](../reports/2026-11-11-roadmap-review/experiment-design.md) and
+the [Thread M plan](2026-11-11-roadmap-thread-m-zero-spend-measurement-plan.md)
+as not selected.
 
 **Basis:** the project audit of 2026-11-11 (code read and provider-free probes
 at `bb63b03b`), the
@@ -47,10 +47,10 @@ Each claim is stated so that it can fail.
 
 | Id | Hypothesis | Refuted by | Built in | Measured in |
 | --- | --- | --- | --- | --- |
-| H-G1 crash behaviour | For every kill point and effect kind, a resumed run returns the same value, re-dispatches no committed effect and recovers a completed uncommitted agent turn without re-dispatch | Any duplicated committed effect or lost completed turn. It is parity, not an advantage, if LangGraph checkpoints pass the same matrix | done | Thread M, Phase 2 |
-| H-G2 errors before spend | The checker rejects, before the first provider call, defect classes that a typed Python equivalent reports only at run time | A typed Python control with a standard type checker catching the same set | done | Thread M, consumer |
+| H-G1 crash behaviour | For every kill point and effect kind, a resumed run returns the same value, re-dispatches no committed effect and recovers a completed uncommitted agent turn without re-dispatch | Any duplicated committed effect or lost completed turn. It is parity, not an advantage, if LangGraph checkpoints pass the same matrix | done | Phase 2 kill tests; the LangGraph comparison is not selected |
+| H-G2 errors before spend | The checker rejects, before the first provider call, defect classes that a typed Python equivalent reports only at run time | A typed Python control with a standard type checker catching the same set | done | Consumer friction log; the seeded-defect comparison is not selected |
 | H-G3 iteration cost | After an edit, a run reuses a large share of committed provider cost soundly | Reuse that is small on real edit histories, or unsound | Phase 3 | Phase 3 |
-| H-Q quality | On single-context coding tasks, a workflow beats a direct-call baseline given equal compute | The "refute" region of the Phase 5 decision rule | exists | Phase 5 |
+| H-Q quality | On single-context coding tasks, a workflow beats a direct-call baseline given equal compute | Not tested at the selected size: Phase 5 selects seeds and reports which differences it cannot resolve | exists | not selected |
 | H-E1 representation | At equal proposer budget, typed edits with compiler admission waste fewer evaluations than free-form Python edits | Rates within a predeclared tolerance | Phase 6 | Phase 6 |
 | H-E2 cheap evaluation | A child program sharing a committed prefix with its parent is evaluated at a fraction of full cost and detects the same difference in fewer runs | Cost or variance no better than independent runs | Phase 6 | Phase 6 |
 
@@ -75,7 +75,8 @@ From the reviewers' memory of the literature; verify before citing.
   workspace. H-G3 is the question this project can add to.
 - Test-based selection among samples helps (AlphaCode, CodeT); repair is close
   to resampling at equal budget (Olausson et al.); baselines must be
-  cost-controlled (Kapoor et al.). A Phase 5 result on H-Q is a replication.
+  cost-controlled (Kapoor et al.). A result on H-Q would be a replication; Phase 5
+  does not attempt one.
 - Search over agent workflows beats hand-written baselines when fitness is
   cheap (ADAS, AFlow, AlphaEvolve). This project cannot afford those regimes,
   so Phase 6 tests only what its representation and memo could add.
@@ -102,8 +103,8 @@ From the reviewers' memory of the literature; verify before citing.
 Phase 0 ─ Phase 1 ─┬─ Consumer thread (continuous, selects Phase 3 and 4 items)
                    ├─ Phase 2 ─ Phase 3 ─ Phase 4
                    └─ Lane D (background, time-boxed)
-Thread M (zero spend) runs from Phase 0; Phase 5 and Phase 6 open only by
-owner budget decision.
+Phase 5 (seed set) runs beside the phases; each of its paid tranches and
+Phase 6 open only by owner budget decision.
 ```
 
 Phase 3 and each Phase 4 item enter only with a named friction item from the
@@ -127,29 +128,20 @@ when it starts.
 
 ### Thread M: Zero-spend measurement (starts in Phase 0)
 
-1. **Resume retrospective:** from the October experiment ledgers, count
-   interruptions, resumes attempted, resumes that succeeded and relaunches,
-   with the provider time lost.
-2. **H-G1 matrix:** publish the kill-point matrix from the existing scripted
-   kill tests, and run the same pipeline shape on a LangGraph checkpointer
-   with scripted providers.
-3. **H-G2 list:** a fixed list of seeded authoring defects, checked against
-   the compiler and against a typed Python control.
-4. **Pool reanalysis (descriptive only):** on the E-B2, E-B3 and search
-   Phase 1 pools, report rank agreement between each judge and the hidden-test
-   fraction, the retest spread of identical code, and what an oracle selector
-   would have gained. E-A has no executed tests.
-5. **Task pool for Phase 5:** natural fix commits with their own tests,
-   outside this repo, at most five per repository, dated after the bound
-   models' cutoffs where available. Each task needs a visible failing check
-   and a disjoint hidden scoring set. Freeze the splits before any call.
+Reduced by the research scope above. Its
+[plan](2026-11-11-roadmap-thread-m-zero-spend-measurement-plan.md) keeps the
+full designs.
 
-- **Stop rule for H-G1 and H-G2:** if both come out at parity with the
-  controls, the engineering claim narrows to H-G3 and the "where chosen"
-  statement, and the owner revisits whether a custom language is warranted
-  (the research charter's own decision rule).
-- **Stop rule for item 5:** if a pool of the size Phase 5 needs cannot be
-  assembled, Phase 5 does not run and H-Q is recorded as not tested.
+- **Done:** the input snapshot (pool records, readouts, ledgers and 135 run
+  memos under `experiments/thread_m/inputs/`) and the stub `claude` and
+  `codex` executables that refuse and log every call.
+- **Optional background:** the descriptive reanalysis of the existing pools.
+- **Not selected:** the resume retrospective, the crash matrix against a
+  LangGraph checkpointer (H-G1) and the seeded-defect list against a typed
+  Python control (H-G2). H-G1 and H-G2 therefore stay unmeasured against a
+  comparator; the one existing comparison (the adversarial DAQ study) found
+  parity.
+- **Replaced:** the external task pool, by the task set of Phase 5.
 
 ### Phase 1: The first hour and the long run
 
@@ -291,53 +283,42 @@ every removed test is listed with the code it covered".
   adds a target or breaks retained runs.
 - **Effort:** 7–11 weeks. **Needs owner approval** (decision 4).
 
-### Phase 5: Quality benchmark (owner budget choice)
+### Phase 5: Seed set (calibration, then seed selection)
 
-Opens only if Thread M item 5 produced a pool and the owner buys a size.
+Owned by the [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md);
+this section only summarizes it.
 
-| Purchase | Provider calls | Resolves |
-| --- | --- | --- |
-| Calibration tranche | about 120 | Whether the pool has headroom; freezes the criterion |
-| Small main tranche (40 tasks) | about 450 | A 15-point gain |
-| Full main tranche (60 tasks) | about 1,000–1,400 | A 10–15 point gain |
+- **Aim:** two to four simple workflows, each shown to run reliably and to do
+  at least as well as one direct call at acceptable cost on a small calibrated
+  task set. This is seed selection, not a test of H-Q: at this size only
+  differences of about 20 points can be resolved.
+- **Tasks:** about 20 small natural bug fixes from this repository, dated
+  after the bound model's training cutoff, each with a visible failing check
+  and a disjoint hidden test set.
+- **Programs:** `direct`, `retry_until_check`, `implement_check_repair` and
+  `implement_review_revise`, all on `claude-haiku-5-5`. Each seed program file
+  has fewer than 50 lines of `.orc`; the shared result types in `common.orc`
+  do not count and are frozen.
+- **Measure:** a blind judge's functional 0–8 score is primary; hidden tests
+  are secondary evidence and the check on the judge.
+- **Calibration first:** direct Haiku and Sonnet runs on every task, then two
+  judges on the same batches. Gates on task difficulty, on the stronger
+  model's observed advantage, and on the judge (reference fix above the
+  untouched base, a repeat judgment of identical code agreeing, agreement
+  with the hidden tests). One redraw of tasks, then stop.
+- **Spend:** the smoke and calibration tranches are authorized (the caps are
+  in `AGENTS.md` "Experiment rules"). The seed evaluation needs a new owner
+  approval after the calibration result is reported.
+- **Output:** the seed programs, the frozen task list and per-run results, in
+  a place a later search can load.
 
-Below the small tranche the result is recorded as "not tested", not as a
-negative.
+### Phase 6: Program evolution
 
-- **Calibration gates:** direct pass rate between 25% and 75%; repeated direct
-  runs disagree enough for selection to matter; the repair branch is entered
-  in at least 30% of runs; metering complete on every row; two structurally
-  different correct submissions accepted and a broken one rejected. One redraw
-  of the pool, then stop.
-- **Frozen before the main tranche, in one hashed criterion:** the price
-  table, the quality and cost tolerances, the two primary comparisons, the
-  decision regions and the retry rules.
-- **Arms:** direct with replicates on each model; implement–test–repair with
-  replicates; best-of-3 by visible-test selection, retry-until-pass, any-of-3
-  and random-of-3 computed offline from the direct replicates. Haiku wherever the
-  design allows; a higher model within the Sonnet/Terra ceiling only as the
-  stronger arm or second model placement; no Fable model. A result then
-  holds for the Haiku tier.
-- **Tests:** selection and repair see the visible check only; pass or fail is
-  the hidden set only.
-- **Decision, on paired task-clustered differences with adjusted bounds:**
-  - *Support:* a primary's lower bound is above zero, its estimate is at least
-    10 points, its priced cost is at most three times direct, and no
-    equal-cost direct-family baseline dominates it.
-  - *Refute:* every primary's upper bound is below 10 points. H-Q is frozen
-    for single-context coding tasks at this model tier.
-  - *Inconclusive:* one pre-declared extension tranche, then "unresolved at
-    this budget".
-- "Better" is claimed only by Pareto dominance over a direct-family baseline
-  under the frozen tolerances, as `AGENTS.md` defines it.
-- A result here says nothing about long multi-stage pipelines. That regime is
-  measured descriptively on the consumer.
+The owner chose the form below on 2026-11-11 (decision 7). The alternative,
+closing the question as answered in the literature for cheap-fitness regimes,
+was not taken. No spend is authorized.
 
-### Phase 6: Program evolution (owner chooses a form)
-
-- **Option A, close:** the generic claim is answered in the literature for
-  cheap-fitness regimes this project cannot afford. Archive the campaign code.
-- **Option B, test what this system could add (recommended):**
+- **Test what this system could add:**
   - *H-E2 first.* It needs no generation spend, but it needs a run to be
     forked with its workspace, because a memo belongs to one run and one
     workspace. That is a new design item nobody has assessed. Comparisons are
@@ -347,8 +328,8 @@ negative.
   - The most interesting target is search over suffix variants of a long
     pipeline where intermediate signals exist, using the consumer.
 - **Generic search ("a generated program beats the best hand-written one"):**
-  opens only on a Phase 5 "support". It needs search, validation and sealed
-  task sets fixed at pool assembly, a frozen number of generations and
+  not selected. It would need a task pool several times the seed set's, with
+  search, validation and sealed task sets fixed at pool assembly, a frozen number of generations and
   proposer model, and the incumbent re-run beside the finalists. Price: about
   1,600 calls at 15-point resolution, about 2,100 at 9. Below that, "not
   tested".
@@ -357,8 +338,8 @@ negative.
   program only if it compiles and stays under the seed set's size limit
   (fewer than 50 lines of `.orc`; owner, 2026-11-11).
 - The campaign code from the closed search roadmap is kept outside the default
-  test suite until this decision, and deleted under Option A or a Phase 5
-  "refute".
+  test suite (`ORCHESTRATE_CAMPAIGN_TESTS=1` runs its tests) until this
+  phase decides what it reuses.
 
 ## Effort
 
@@ -404,9 +385,9 @@ the owner can amend any of them.
 | 3 | Name the consumer | Open; needed before the consumer thread starts |
 | 4 | Lane D deletions | Approved 2026-11-11. Owner, same day: the dashboard and `report` stop reading runs from the retired runtime, and the dashboard is migrated to read evaluated runs. The migration precedes stage 3 |
 | 5 | Dynamic branch: tag it and stop porting main into it; reopen if the authoring check shows typed authoring is the agents' bottleneck. Its adoption lane was already stopped (simplification record, Task 4) | Approved 2026-11-11 |
-| 6 | Phase 5 size: none, small or full | Open; no spend authorized; decided when Thread M item 5 reports |
+| 6 | Phase 5 size | Superseded by decision 8 |
 | 7 | Phase 6 form | Option B approved 2026-11-11; no spend authorized; generic search not selected |
-| 8 | Research scope | Scaled down by the owner 2026-11-11: find a few simple workflows that work well on a calibrated task set, as seeds for genetic search; calibration first. Supersedes decision 6 as posed |
+| 8 | Research scope | Scaled down by the owner 2026-11-11: find a few simple workflows that work well on a calibrated task set, as seeds for genetic search; calibration first. Supersedes decision 6. Same day: judge-primary scoring validated on two natural controls; smoke and calibration spend authorized; seed programs under 50 lines of `.orc`, `common.orc` not counted |
 
 ## Process rules
 
@@ -450,8 +431,10 @@ second review.
 This roadmap has no manifest, selector or workflow that drains it; selection
 is manual. Phase plans are linked here as they start:
 
-- Phase 0: [records and baseline plan](2026-11-11-roadmap-phase-0-records-and-baseline-plan.md).
-- Phase 1: [first hour and long run plan](2026-11-11-roadmap-phase-1-first-hour-plan.md).
-- Thread M: [zero-spend measurement plan](2026-11-11-roadmap-thread-m-zero-spend-measurement-plan.md).
-- Seed set: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
-- Lane D, tests: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
+- Phase 0, done: [records and baseline plan](2026-11-11-roadmap-phase-0-records-and-baseline-plan.md)
+  and [test baseline](../reports/2026-11-11-test-baseline.md).
+- Phase 1, in execution: [first hour and long run plan](2026-11-11-roadmap-phase-1-first-hour-plan.md);
+  its ledger records which tasks are merged.
+- Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
+- Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
+- Thread M, reduced: [zero-spend measurement plan](2026-11-11-roadmap-thread-m-zero-spend-measurement-plan.md).

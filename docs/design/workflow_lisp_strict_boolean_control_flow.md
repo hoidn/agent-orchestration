@@ -647,9 +647,9 @@ indexes now advertise the surface as implemented. Behavioral copy-safety
 evidence is the focused strict-Boolean, E2E, and variant-proof suites
 `tests/test_workflow_lisp_strict_boolean_control_flow.py`,
 `tests/test_workflow_lisp_strict_boolean_control_flow_e2e.py`, and
-`tests/test_workflow_lisp_variant_proofs.py`, plus the normative target-admission
-controls `tests/test_workflow_lisp_e1_normative_contract.py` and
-`tests/test_workflow_lisp_e2_trial_contract.py`. No statement above extends
+`tests/test_workflow_lisp_variant_proofs.py`. (Two further target-admission
+modules cited here earlier, the E1 normative and E2 trial contract tests, were
+removed on 2026-11-11 with the retired trial code.) No statement above extends
 beyond what those selectors demonstrate.
 
 <a id="implementation-handoff"></a>

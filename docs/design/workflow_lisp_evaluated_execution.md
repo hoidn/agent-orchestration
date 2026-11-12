@@ -1927,9 +1927,8 @@ is the admitted [watchdog](../../workflows/library/generic_run_watchdog/watchdog
 probe produces `watch_bundle_path`, the provider reads it through required
 prompt dependencies, and the publisher writes the final watchdog artifact.
 Preserve the actual files, order, dependency freshness and once-only publish
-on resume asserted by `test_watchdog_orc_both_branches_preserve_artifact_lineage`
-and `test_watchdog_orc_resume_reuses_provider_and_publishes_once` in
-[its owner tests](../../tests/test_workflow_lisp_generic_run_watchdog.py), and the
+on resume asserted by the public watchdog tests in
+[the evaluated artifact tests](../../tests/test_workflow_evaluated_artifacts.py), and the
 corresponding handoff/retry checks in
 [verified-drain tests](../../tests/test_workflow_lisp_verified_iteration_drain.py).
 Repeat an admitted producer-to-consumer handoff through public evaluated
