@@ -1,18 +1,18 @@
 # Seed-Set Calibration Plan
 
 **Status: Plan (not started).** This page plans the scaled-down research step
-the owner set on 2026-11-11: calibrate a small task set, then find two to four
-simple workflow programs that run reliably and do at least as well as one
-direct call at acceptable cost, and package them as seeds for a later genetic
-search. The [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md)
+the owner set on 2026-11-11: calibrate a small task set and a judge, then find
+two to four simple workflow programs that run reliably and do at least as well
+as one direct call at acceptable cost, and package them as seeds for a later
+genetic search. The [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md)
 owns the direction; `AGENTS.md` ("Experiment rules") and the
 [structural search driver](../design/orc_structural_search_driver.md#task-family-and-evaluator)
 own the calibration, dominance and cost rules; the
 [comparison harness](../../experiments/compare/README.md) owns sandboxing, the
-model guard and the scan. This plan owns its task set, thresholds, budget and
-selection rule. Its commands are for this machine and are not copyable
-examples. It authorizes no spend: each tranche needs the owner's approval and
-a ledger row.
+model guard, the scan, the blind pool and the clone-id join. This plan owns
+its task set, thresholds, budget and selection rule. Its commands are for this
+machine and are not copyable examples. Spend is authorized only as the
+[ledger](#ledger) records.
 
 **Headline exit test (fails today):** `experiments/seed_set/results/seeds.json`
 exists, names its criterion and task-list hashes, and lists either two to four
@@ -20,22 +20,21 @@ programs that passed the frozen selection rule or the stop that prevented it.
 
 ## What this size can and cannot support
 
-This is seed selection, not a test of the roadmap's H-Q. With 12 to 16 tasks,
-6 direct runs and 3 workflow runs per task, the 90% interval on a workflow's
-difference from direct is roughly ±16 to ±18 points (planner's estimate for
-pass rates near 50%).
+Quality is a blind judge's functional score from 0 to 8; hidden tests are
+secondary evidence. This is seed selection, not a test of the roadmap's H-Q.
+With 12 to 16 tasks, 6 direct and 3 workflow runs per task, the 90% interval
+on a workflow's difference from direct is roughly ±0.8 point (planner's
+estimate, for a per-run standard deviation near 2.5 points).
 
 - **Can show:** a program that breaks or fails to finish; its call cost; a
-  difference from direct of about 20 points or more; whether a direct run
-  ever fails the visible check (if not, retry and repair do nothing).
-- **Cannot show:** differences under about 15 points; an ordering among the
-  seeds; equality with direct (a seed that passes is "not observed to be
-  worse"; one truly 10 points worse passes half the time); anything beyond
-  small fixes in this repository on Haiku at medium effort, or about long
-  pipelines.
-- **"Better" is not the selection test.** A seed with direct's quality and
-  more calls is dominated by direct under the driver's definition. The
-  readout marks each seed as dominating direct, dominated by it, or neither.
+  difference from direct of about 1 point or more; whether a direct run ever
+  fails the visible check (if not, retry and repair do nothing).
+- **Cannot show:** differences under about 0.75 point; an ordering among the
+  seeds; equality with direct (one truly half a point worse passes half the
+  time); anything beyond small fixes in this repository on Haiku at medium
+  effort, or about long pipelines.
+- **"Better":** a seed with direct's quality and more calls is dominated by
+  direct. The readout says so for each seed; it is not the selection test.
 
 ## Facts established while planning
 
@@ -43,62 +42,59 @@ Checked 2026-11-11 with provider-free probes. *Probe* rows are single runs.
 
 | Fact | State |
 | --- | --- |
-| Haiku in the harness | Not possible today. `experiments/compare/shim/model-guard` admits only `claude-sonnet-5-5` for Claude (a stub-CLI probe refused `claude-haiku-5-5`, with and without `ORC_ALLOWED_CLAUDE_MODELS`); `scan.find_hits` marks any other Claude model a non-clearable hit; both shims force subagents onto Sonnet |
-| Task supply, this repository | Non-merge commits since 2026-07-01 that are fix-worded and change `tests/` plus at most 5 files and 200 lines under `orchestrator/`: 58 on the first-parent line, 114 in all history; 393 without the fix wording |
-| Oracle yield | Of the 58: 44 have a new test function that fails on the parent and passes on the fix; 28 have two or more and a clean fixed run (*probe*, one run per side) |
-| Evaluation time | `repos.build_candidate` 3 s and 141 MB per clone; the new tests take a median 8 s, at most 62 s (*probe*, load average 45) |
-| Existing programs | `experiments/orc_structural_search/seeds/`: `direct`, `implement_check_diagnose_repair`, `implement_review_revise`, `best_of_n`, `plan_then_implement`, sharing `run((task) (intent) (repo)) -> Outcome`, `common.orc` and the `dev_check.py` command. All bind Sonnet with a second-vendor reviewer; review-revise runs three rounds |
-| New programs | Drafts of retry (32 lines), implement-check-repair (39) and one-round implement-review-revise (45) compile at target 2.39 (*probe*). Loop iterations are separate effect identities, so a retry is a new call |
+| Haiku in the harness | Not possible today. `experiments/compare/shim/model-guard` admits only `claude-sonnet-5-5` for Claude (a stub-CLI probe refused `claude-haiku-5-5`, with and without `ORC_ALLOWED_CLAUDE_MODELS`); `scan.find_hits` marks any other Claude model a non-clearable hit, for runs and for judges; both shims force subagents onto Sonnet |
+| Task supply, this repository | Non-merge commits since 2026-07-01 that are fix-worded and change `tests/` plus at most 5 files and 200 lines under `orchestrator/`: 58 on the first-parent line, 114 in all history, 393 without the fix wording. Of the 58, 28 have two or more new test functions that fail on the parent and pass on the fix (*probe*, one run per side). A clone builds in 3 s and takes 141 MB; the new tests run in a median 8 s, at most 62 s (*probe*) |
+| Judge route (read, not run) | `score_functional.orc` returns one score S0–S8 per clone at effort `high`. A pool is one task; a batch holds at most ten clones, every `anchors/*.diff` included; clone ids are random and each judge gets its own order. `summarize.py` writes per clone id each judge's rating, the hidden pass fraction and the run record. A pool takes one scoring run per judge. The harness's own control rule (`control-means-v1`) needs a third, hand-made control |
 
 ## Step 1: Zero-spend preparation (6 to 7 working days)
 
 Every command runs with `experiments/thread_m/no_provider/` first on `PATH`
 and `export PYTHONPATH=$PWD`; at the end `experiments/thread_m/no-provider.log`
-does not exist. Stop below 20 GB free (`df -h / /home`). Also reused from
-Thread M: `env-freeze.txt` as the environment record, the June 2026 cutoff
-with its 2026-07-01 floor, and item 5's mining, oracle and split method. Its
-pool snapshot is not needed.
+does not exist. Stop below 20 GB free. Also reused from Thread M:
+`env-freeze.txt`, the 2026-07-01 date floor, and item 5's method.
 
 **1a. Admit Haiku (1 day).** `shim/model-guard` accepts the exact ID
 `claude-haiku-5-5` only when `ORC_ALLOWED_CLAUDE_MODELS` lists it; the default
 stays Sonnet-only. Both shims pin `CLAUDE_CODE_SUBAGENT_MODEL` to the single
-allowed Claude model. `scan.find_hits` takes an `expected_claude_model` from
-`prepare.scan`. `tests/experiments/test_compare_model_cap.py` gains: Haiku
-admitted only when listed; Opus, Fable and unknown IDs still refused; a Sonnet
-answer in a Haiku-bound run is a non-clearable hit; the pin equals the bound
-model.
+allowed Claude model. `scan.find_hits` takes an `expected_claude_model`, from
+`prepare.scan` for a run and `pool.scan_judge` for a judge;
+`pool.write_score_inputs` sets `COMPARE_CLAUDE_MODELS` for a Claude judge.
+`tests/experiments/test_compare_model_cap.py` gains: Haiku admitted only when
+listed; Opus, Fable and unknown IDs still refused; a Sonnet answer in a
+Haiku-bound run or judge is a non-clearable hit; the pin is the bound model.
 
 **1b. Task packages (2 days), `experiments/seed_set/build_tasks.py`.**
 
-- *Mine:* the facts table's filter over all non-merge history, dates on or
-  after 2026-07-01, no reverts, one commit per `git patch-id --stable`, a
-  base that ignores `.orchestrate/`. Order by
-  `sha256("seed-set-2026-11-11|" + sha)`; at most two tasks share a changed
-  source file.
+- *Mine:* the facts table's filter over all non-merge history, no reverts,
+  one commit per `git patch-id --stable`, a base that ignores
+  `.orchestrate/`. Order by `sha256("seed-set-2026-11-11|" + sha)`; at most
+  two tasks share a changed source file.
 - *Oracle and split:* as
   [Thread M item 5](2026-11-11-roadmap-thread-m-zero-spend-measurement-plan.md#item-5-task-pool-for-the-phase-5-benchmark),
   steps 4 and 5: five runs each on parent and fix; two or more fail-to-pass
   test functions, the first in seed order being the visible check; a hidden
-  run under 120 s.
+  run under 120 s; no hidden function name in the seeded tree.
 - *Package* (`experiments/seed_set/tasks/<sha10>/`, the harness layout):
   `base_commit`; `seed/tests/…` (the fix's test files without the hidden
   fail-to-pass functions) and `seed/dev-check.json` (the visible node);
-  `hidden/tests/…` (the fix's full files); `hidden_tests.txt` (each hidden
-  fail-to-pass function and each touched test file); `intent.txt` (the commit
-  subject); `task.txt` (subject and body, the visible check command, and the
-  instruction to leave `dev-check.json` and existing tests alone and not run
-  the whole suite). Drop a task whose text is under 80 characters, repeats a
-  source line the fix adds, or omits a name its hidden tests need.
-- *Checks, five of five:* visible and hidden fail on the seeded base and pass
-  with the fix; no hidden function name occurs in the seeded tree.
+  `hidden/tests/…` and `hidden_tests.txt` (each hidden fail-to-pass function
+  and each touched test file); `anchors/<sha10>-base.diff` (empty: the
+  untouched base) and `anchors/<sha10>-upstream.diff` (the fix without its
+  tests); `intent.txt` (commit subject and body: what judges and reviewers
+  receive); `task.txt` (the same text, the visible check command, and the
+  instruction to leave `dev-check.json` and existing tests alone). Drop a
+  task whose text is under 80 characters or repeats a line the fix adds.
 - *Freeze:* stop at 40 admitted tasks, listed in seed order in `tasks.jsonl`
   with hashes and changed-line counts: 20 drawn, the rest in reserve. Under
   20 admitted: drop the fix-wording filter once, then stop.
 
-**1c. Programs (1 day), `experiments/seed_set/programs/`,** in the seed
-catalog's layout and contract, target 2.39, every call `claude-haiku-5-5`,
-`:timeout-sec 1200`, effort `medium` (bound explicitly on both models: the
-vendor's defaults differ, Haiku medium and Sonnet high):
+**1c. Programs (1 day), `experiments/seed_set/programs/`,** in the layout and
+`run((task) (intent) (repo)) -> Outcome` contract of the seed catalog
+(`experiments/orc_structural_search/seeds/`), target 2.39, every call
+`claude-haiku-5-5`, `:timeout-sec 1200`, effort `medium` (bound explicitly:
+the vendor's defaults differ). Drafts of the three new ones compiled while
+planning; a loop iteration is its own effect identity, so a retry is a new
+call.
 
 | File | Calls | State |
 | --- | --- | --- |
@@ -114,76 +110,109 @@ the shims with a scripted provider.
 
 **1d. Runner and readout (1.5 days), `experiments/seed_set/study.py`.** One
 run: `prepare.run_arm(spec=ArmSpec(...))` with `COMPARE_CLAUDE_MODELS` and
-`COMPARE_MAX_CALLS` set, launch, `collect`, `scan --hash <fix>`, then
-`check_first_attempt` (visible) and `hidden_failures` (hidden) on the final
-patch; one row in `runs.jsonl` keyed by record path and patch hash; delete
-the run's `cand-*` trees. Four runs at a time. The readout computes the
-offline arms, the intervals and the rule. `tests/experiments/test_seed_set.py`
+`COMPARE_MAX_CALLS` set, launch, `collect`, `scan --hash <fix>`,
+`check_first_attempt` on the final patch (the visible result, stored with the
+run record), then delete the run's `cand-*` trees; four runs at a time. One
+task: build its pool, run the judges, `verify-pool`, `scan --pool --judge`,
+`summarize.py`, then delete the pool's clones and keep its records; at most
+two pools on disk (a pool is 1 to 3 GB). `tests/experiments/test_seed_set.py`
 checks on fixtures: a deterministic split, no hidden function in a seeded
-file, the offline retry, the selection rule, refusal of an unscanned run.
+file, the offline retry, the judge gate and the selection rule.
 
-**1e. Evaluator check (0.5 day).** Known controls: every task's base is
-rejected and its reference fix accepted, five of five. For the family, on the
-first three tasks an engineer who has not read the fix writes a second fix
-from `task.txt` and the visible check; the hidden set must accept it, and an
-over-fitted test drops the task. One sandbox run with a stand-in CLI that
-applies the fix confirms the visible check passes inside the sandbox.
+**1e. Offline checks (0.5 day).** Every task's base fails and its reference
+fix passes the visible check and the hidden set, five of five. A sandbox run
+with a stand-in CLI that applies the fix passes the visible check inside the
+sandbox. One pool with scripted judges proves the route: the empty base
+anchor pools as an unchanged clone, both judges' ratings and the hidden
+results land in `results.json`, and a second pool of the same records matches
+the first by run record and patch hash.
 
 **1f. Freeze.** Commit; `git worktree add --detach /home/ollie/seedset-rt
 <commit>`; work root `/home/ollie/seedset-work`. Write
 `experiments/seed_set/criterion.json`: model IDs and efforts, runtime commit,
-hashes of `tasks.jsonl` and every program, the envelope, replicates, every
-threshold and rule of Steps 2 and 3, budget caps, stop rules and the price
-table with source and date. Its sha256 goes in the ledger before the first
-call. A later apparatus fix is a ledger row with the new hash; thresholds do
-not change.
+hashes of `tasks.jsonl`, every program, `score_functional.orc` and the two
+harness criterion files (`judge-calibration.json` naming both judges,
+`judge-seeds.json` naming the selected one; rubric `score_functional.orc`,
+`criteria: ["quality"]`, `reference: null`, no `calibration` block), and
+every threshold, rule, cap and stop of this plan. Its sha256 goes in the
+ledger before the first call. A later apparatus fix is a ledger row with the
+new hash; thresholds do not change.
 
 ## Step 2: Calibration (paid)
 
-**Smoke (at most 10 Haiku calls, 1 Sonnet call),** on the last reserve task,
-which then leaves the reserve: one direct run per model and one run of each
-workflow. Pass: session metadata shows only the bound model, every patch is
-collected and scored and the scan is clean. Whether token receipts are
-complete is recorded.
+**Smoke,** on the last reserve task, which then leaves the reserve: one direct
+run per model, one run of each workflow, then one pool scored by both judges.
+Pass: sessions show only the bound models, the scans are clean, and
+`results.json` holds both judges' ratings and a hidden result for every
+clone. Whether token receipts are complete is recorded.
 
-**Tranche (80 Haiku, 20 Sonnet):** on the 20 drawn tasks, `direct.orc` four
-times and `direct_sonnet.orc` once. A run passes when no hidden node fails.
-Four, because with two runs a task Haiku solves half the time would be
-dropped half the time.
+**Candidates (80 Haiku, 20 Sonnet):** on the 20 drawn tasks, `direct.orc` four
+times (so a task's Haiku mean does not rest on one or two draws) and
+`direct_sonnet.orc` once.
 
-- *Per task:* a **survivor** has 1 to 3 Haiku passes of 4. A task at 4 of 4
-  is too easy and one at 0 of 4 too hard; both are recorded and unused.
-- *Gates, over all drawn tasks:* (G1) at least 12 survivors; (G2) Haiku pass
-  rate between 20% and 80%; (G3) Sonnet pass rate minus Haiku pass rate at
-  least 10 points; (G4) at least 90% of runs end with a scored patch and no
-  forbidden-model hit; (G5) of ten failed runs drawn in seed order and read
-  by hand, none failed only because a hidden test demands the reference's
-  internals (such a task is dropped and G1 recounted).
-- *One redraw (40 Haiku, 10 Sonnet)* if G1, G2 or G3 fails: ten reserve
-  tasks, those with the most changed source lines if Haiku was above 80%, the
-  fewest if below 20%, otherwise the next in seed order; gates recomputed
-  over all 30.
-- *If a gate still fails:* stop. No workflow is evaluated; the report gives
-  the calibration table, execution outcomes and cost, and no quality claim.
+**Judging (30 Haiku and 30 Sonnet judge calls).** The route is the harness's:
+one pool per task, `prepare.py pool` with `judge-calibration.json`,
+`--judge claude-haiku-5-5 --judge claude-sonnet-5-5` and the task's run
+records. The pool is one batch, the five candidates plus the two anchors, as
+applied-patch clones under random ids, in a separate random order per judge;
+one judge call scores it. The rubric is the harness's functional one,
+unchanged: one score from S0 (none of the required behavior works) to S8
+(complete and credibly correct) for how much of the intended behavior works
+through its normal entry points, with no separate points for organization,
+size or style. Judges read the clones, change nothing and run no tests.
+`summarize.py` then runs the hidden nodes on every clone. For the first ten
+tasks a second pool of the same run records (new ids, new order) is scored by
+both judges: the retest. A failed run is not pooled and scores 0.
 
-G3 is an observed advantage with a standard error near 12 points, not a
-significance test. Survivors beyond 16 are cut in seed order.
+**Where every number comes from.** Each pool's `records/results.json` gives,
+per clone id, each judge's rating, the hidden pass fraction, the run record
+and the anchor label. The readout aggregates these files and nothing else,
+anchors first; a retest clone is matched to its first judgment by run record
+and patch hash, never by position.
 
-**Assumption for the owner to confirm with the budget.** No judge or rubric
-call is made: the family is scored by hidden tests, so it is qualified by the
-oracle check of Step 1, and this tranche applies the difficulty rule's shape
-(natural solutions, only the model varies, a predeclared gap, the advantage
-observed) to the test outcome. `AGENTS.md` names the blind rubric as primary
-for difficulty calibration; this plan reads that as bound to rubric-scored
-families.
+**Judge gate, per judge, first judgment unless stated.** The study computes
+it; the harness's control rule needs a third, hand-made control per task.
 
-## Step 3: Seed evaluation (paid, on the survivors)
+| Check | Threshold | A failure means |
+| --- | --- | --- |
+| V1 controls | Reference minus base at least 4 points on at least 18 of 20 tasks; mean reference at least 6; mean base at most 1 | The judge cannot tell a merged fix from no change |
+| V2 reference rank | The reference scores at least the mean of its batch's candidates on at least 17 of 20 tasks | October's first failure: the merged fix ranked at or below candidates |
+| V3 retest | On the ten retest tasks, mean absolute difference per clone at most 0.75 point, and at most 10% of clones differ by 2 or more | October's second failure: identical code scored 4 then 3. Scores cannot carry a half-point tolerance |
+| V4 agreement with tests | Over the 100 natural candidates, the probability that a hidden-passing one outscores a hidden-failing one (ties count half) is at least 0.75; needs 15 in each class, else recorded as not assessed | Judge and tests measure different things. The ten largest disagreements are read by hand and reported; the tests may be the brittle side |
+
+A judge passes on V1 to V4. The cheapest passing judge is used: Haiku, else
+Sonnet. If neither passes, the hidden-test pass rate becomes the primary
+measure and is reported as such (survivors have 1 to 3 passes of 4; Haiku
+pass rate 20% to 80%; Sonnet minus Haiku at least 10 points), and the plan
+stops for the owner before any seed evaluation.
+
+**Task gates, on the selected judge's scores,** with the test figure beside
+each as secondary. A **survivor** is a task whose Haiku mean is between 2.0
+and 6.5 (beside: passes of 4); above is too easy, below too hard.
+
+- (G1) at least 12 survivors;
+- (G2) Haiku mean over all drawn tasks between 2.5 and 6.5 (pass rate);
+- (G3) Sonnet mean minus Haiku mean at least 0.5 point over all drawn tasks
+  (pass-rate gap): the difficulty rule's observed advantage under the rubric.
+  If it fails while the pass-rate gap is at least 10 points, the judge is
+  treated as insensitive and the other judge is tried;
+- (G4) at least 90% of runs end pooled and rated; no forbidden-model hit in a
+  run or a judge; no judge excluded on more than two pools.
+
+**One redraw** if G1, G2 or G3 fails: ten reserve tasks, those with the most
+changed source lines if the Haiku mean was above 6.5, the fewest if below
+2.5, otherwise the next in seed order; retest on the first five; every gate
+recomputed over all 30 with the counts scaled (V1 27 of 30, V2 25 of 30). If
+a gate still fails: stop, report the calibration table, and make no quality
+claim. Survivors beyond 16 are cut in seed order.
+
+## Step 3: Seed evaluation (paid; not authorized until calibration is reported)
 
 | Arm | Runs per task | How |
 | --- | --- | --- |
 | Direct | 6, fresh | Live |
-| Re-roll `Q(k)`: retry with at most `k` = 2, 3 attempts (best-of-`k` by visible check has the same quality at `k` calls); random-of-3; any-of-3 (upper bound) | none | Offline, averaged over every ordered triple of a task's six direct runs, using each run's controller-side visible result. `Q(1)` is direct |
-| Retry parity | 2, on the first six survivors | Live `retry_until_check.orc`; passes if every run completes, mean calls are within 0.5 and pass rate within 25 points of the offline figure for those tasks |
+| Re-roll `Q(k)`: retry with at most `k` = 2, 3 attempts (best-of-`k` by visible check has the same quality at `k` calls); random-of-3; any-of-3 (upper bound) | none | Offline, averaged over every ordered triple of a task's six direct runs. The visible check picks the run; the baseline takes that run's judged score. `Q(1)` is direct |
+| Retry parity | 2, on the first six survivors | Live `retry_until_check.orc`; passes if every run completes, mean calls are within 0.5 and mean score within 1.5 points of the offline figure for those tasks |
 | Implement-check-repair | 3 | Live |
 | Implement-review-revise | 3 | Live |
 
@@ -192,23 +221,29 @@ tasks and would bias the baseline. If the visible check failed in under 20%
 of them, the parity runs and implement-check-repair are not launched and the
 readout says the check has no selecting power on this set.
 
+**Judging (32 calls of the selected judge).** One pool per task through
+`pool.write_pool`, in two batches of at most eight candidates plus the two
+anchors; each arm's runs are dealt alternately into the batches, so a batch
+shift cancels in arm differences. If reference minus base falls under 4 in
+more than three of the 32 batches, no quality claim is made.
+
 **Envelope and scoring.** 1,200 s per call, `COMPARE_MAX_CALLS` 1 or 3,
-3,600 s per run. The final patch is scored whatever the typed outcome. A
-failed run or a timeout scores 0; a provider or sandbox incident is resumed
-once with `resume.sh`, then excluded and listed. Quality `q` is the mean over
-tasks of the per-task pass fraction; cost `c` is mean provider calls per run,
-admissible because every call is one model at one effort. Metered tokens
-(`metering.receipts`) are reported beside it, priced at Haiku's higher
-published tier; if nested sessions appear in over 10% of an arm's runs, cost
+3,600 s per run. A failed run or a timeout scores 0; a provider or sandbox
+incident is resumed once with `resume.sh`, then excluded and listed. Quality
+`q` is the mean over tasks of the per-task mean score, with the hidden pass
+rate beside it. Cost `c` is mean provider calls per run, admissible because
+every candidate call is one model at one effort; judge calls are evaluation
+cost, reported apart. Metered tokens (`metering.receipts`) are reported
+beside `c`; if nested sessions appear in over 10% of an arm's runs, cost
 comparisons use tokens only.
 
 **Selection rule (frozen).** `direct` is always in the set as the reference.
 Another program is a seed when all hold:
 
 1. at least 95% of its runs complete;
-2. `q ≥ q_direct − 0.10`;
-3. re-rolling at equal calls does not beat it: `q ≥ Q(k) − 0.10`, with `k`
-   its mean calls rounded to 1, 2 or 3, halves up (vacuous for retry itself);
+2. `q ≥ q_direct − 0.5`;
+3. re-rolling at equal calls does not beat it: `q ≥ Q(k) − 0.5`, `k` being
+   its mean calls rounded to 1, 2 or 3, halves up (vacuous for retry);
 4. `c ≤ 3.0 × c_direct`, and the same for priced tokens where metered;
 5. its distinctive step (a second attempt, a repair, a revision) ran in at
    least 20% of its runs;
@@ -217,38 +252,38 @@ Another program is a seed when all hold:
 The readout gives each arm's `q` and each difference from direct with a 90%
 bootstrap interval over tasks (10,000 resamples, fixed seed), names every
 comparison whose interval spans the tolerance, and applies the driver's
-dominance test against direct with `tau_q = tau_c = 0.10`.
+dominance test against direct with `tau_q` 0.5 point and `tau_c` 0.10.
 
-**Extension (reserved, at most 192 Haiku calls).** A live workflow that
-misses or passes rule 2 or 3 by under 5 points gets two more runs per task,
-once.
+**Extension (reserved).** A live workflow within 0.25 point of the line in
+rule 2 or 3 gets two more runs per task, once, judged in one further batch.
 
 ## Step 4: Output
 
 `experiments/seed_set/`: `programs/`, `tasks/`, `tasks.jsonl`,
-`criterion.json`, `results/runs.jsonl`, `results/readout.md` (one page: the
-calibration table, the arm table with intervals, the rule applied, limits)
-and `results/seeds.json` (selected programs with file hashes, `q`, `c`,
-intervals, and the criterion, task-list and runtime hashes). A later search
-passes the program paths as seeds; `mode1.check_seed_catalog` pins
-`experiments/orc_structural_search/seeds/capped` today, so its plan either
-copies the seeds there or changes that check.
+`criterion.json`, the pools' `results.json` under `results/pools/`,
+`results/readout.md` (one page: judge gate, calibration table, arm table with
+intervals, the rule applied, limits) and `results/seeds.json` (selected
+programs with hashes, `q`, `c`, intervals, the judge used, and the criterion,
+task-list and runtime hashes). A later search passes the program paths as
+seeds; `mode1.check_seed_catalog` pins
+`experiments/orc_structural_search/seeds/capped` today, so its plan copies
+the seeds there or changes that check.
 
-## Budget request
+## Budget
 
-| Tranche | Released by | Haiku cap | Sonnet cap |
+Caps, as candidate calls and judge calls, Haiku / Sonnet.
+
+| Tranche | Candidates | Judges | State |
 | --- | --- | --- | --- |
-| Smoke | Owner approval; criterion hash in the ledger | 10 | 1 |
-| Calibration | Smoke passes | 80 | 20 |
-| Redraw | A failed G1, G2 or G3 | 40 | 10 |
-| Seed evaluation | All gates pass | 420 | 0 |
-| Extension | The extension rule | 192 | 0 |
-| **Cap** | | **742** | **31** |
+| Smoke | 10 / 1 | 1 / 1 | Candidates authorized; judges to request |
+| Calibration | 80 / 20 | 30 / 30 | Candidates authorized; judges to request |
+| **Calibration total (smoke + calibration)** | **90 / 21** | **31 / 31** | **The judge column is the addition asked of the owner** |
+| Redraw, if a gate fails | 40 / 10 | 15 / 15 | Candidates authorized; judges to request |
+| Seed evaluation | 420 / 0 | 32 of the selected judge | Not authorized |
+| Extension | 192 / 0 | 16 of the selected judge | Not authorized |
 
-Expected without redraw or extension: about 400 Haiku and 21 Sonnet calls.
-The vendor's list prices put a Sonnet token at about 20 times a Haiku token
-(table cached 2026-11-03; re-read at freeze). Tokens per call are unknown
-until the smoke and are reported before the seed evaluation is released.
+A Sonnet token lists at about 20 times a Haiku token (vendor table cached
+2026-11-03; re-read at freeze). Tokens per call are unknown until the smoke.
 Allowance does not move between tranches; there is no top-up after a null.
 
 ## Stop rules
@@ -256,38 +291,41 @@ Allowance does not move between tranches; there is no top-up after a null.
 - Fewer than 20 tasks admitted after the one widening: stop before spend. The
   next source is external repositories by Thread M item 5's method, which
   needs the harness to accept another candidate source.
-- A smoke failure: fix the apparatus offline; the owner renews the allowance.
-- A hidden function name in a transcript or patch, or a scan hit on
-  `github.com`, `git fetch` or the fix hash: the run is contaminated; three
-  such tasks stop the study.
+- A smoke failure, or neither judge passing its gate: stop for the owner.
+- A hidden function name in a transcript or patch, a scan hit on
+  `github.com`, `git fetch` or the fix hash, or a judge that ran tests: the
+  run or judgment is contaminated; three such tasks stop the study.
 - A forbidden-model hit, over 10% of a tranche's runs excluded as incidents,
   a cap reached, or under 20 GB free: stop.
 - Only `direct` passes the rule: record "no workflow qualified at this size".
 
 ## What this plan makes harder
 
-- The seeds are tuned to one repository, one language and one model tier.
-- Hidden tests sit in this repository from the freeze commit on; a later task
-  set must use earlier bases or move the packages out.
-- Retry and repair depend on a check the direct agent can already run, so a
-  null there says little about checks an agent cannot run itself.
+- The seeds are tuned to one repository, one language, one model tier and
+  one judge; a later search must reuse that judge or recalibrate.
+- Hidden tests and reference patches sit in this repository from the freeze
+  commit on; a later task set must use earlier bases or move the packages.
 
 ## Not verified while planning
 
 - Whether the GitHub repository is public. If it is, the fixes are fetchable;
   the sandbox keeps network access, so the scan is the control.
-- Call duration and tokens per call (the smoke measures both), and how often
-  a direct run fails the visible check (the calibration runs measure it).
-- Whether `metering.receipts` returns complete Claude usage from the private
-  homes (the Phase 1 search logged consumption as unavailable). If not, cost
-  is calls only, which the rule admits here.
-- Whether Claude Code's in-process subagents can be switched off through the
-  provider command; they are pinned to the bound model and counted instead.
-- The oracle yield beyond one run per side and off the first-parent line, and
-  whether one-line commit messages make usable task texts (the 80-character
-  rule and the second-fix check are the screens).
+- Call duration and tokens per call, for candidates and judges (the smoke
+  measures both), and how often a direct run fails the visible check.
+- The judge route was read, not run: that an empty anchor pools cleanly and
+  that Haiku returns a valid rating list for seven clones (Step 1e and the
+  smoke). `score_functional.orc` fixes judge effort at `high`.
+- How judge scores spread on small fixes. If nearly every candidate scores 7
+  or 8, G2 fails and the redraw goes to larger fixes.
+- Whether `metering.receipts` returns complete Claude usage (the Phase 1
+  search logged it as unavailable); if not, cost is calls only. Whether
+  in-process subagents can be switched off; they are pinned and counted.
+- The oracle yield beyond one run per side and off the first-parent line.
 
 ## Ledger
 
 | Date | Entry |
 | --- | --- |
+| 2026-11-11 | Owner decision, scoring: "tests are brittle. subagents as judge preferred if it works". The blind judge's functional score is primary, on condition that the judge passes the gate of Step 2; hidden tests are secondary evidence. |
+| 2026-11-11 | Owner decision, budget: "Calibration first". Authorized: the smoke and calibration candidate calls (90 Haiku, 21 Sonnet) and one redraw (40 Haiku, 10 Sonnet). Not yet authorized: the judge calls of those tranches (31 Haiku and 31 Sonnet; 15 and 15 more for a redraw). The seed evaluation and its extension stay unauthorized until the calibration result is reported. |
+| 2026-11-11 | Owner decision, elsewhere: the Phase 1 authoring check (six Haiku sessions, USD 12) is approved separately and is not part of this plan's budget. |
