@@ -198,26 +198,6 @@ def derived_private_child_context_eligibility(
     )
 
 
-def private_exec_context_capabilities(context_kind: str) -> tuple[str, ...]:
-    """Return the capability tags required for one private executable context family."""
-
-    return {
-        RUN_CONTEXT_NAME: ("run",),
-        PHASE_CONTEXT_NAME: ("run", "phase"),
-        ITEM_CONTEXT_NAME: ("run", "item"),
-        DRAIN_CONTEXT_NAME: ("run", "drain"),
-        SELECTION_CONTEXT_NAME: ("selection",),
-        RECOVERY_CONTEXT_NAME: ("recovery",),
-        RUN_CTX_ANCHORED_CONTEXT_FAMILY: ("run",),
-    }.get(context_kind, ())
-
-
-def private_exec_context_bootstrap_supported(context_kind: str) -> bool:
-    """Return whether the current runtime can bootstrap one context family."""
-
-    return context_kind in {RUN_CONTEXT_NAME, PHASE_CONTEXT_NAME}
-
-
 def private_exec_context_kind(type_ref: TypeRef) -> str | None:
     """Compatibility wrapper around the frontend-local legacy family classifier."""
 

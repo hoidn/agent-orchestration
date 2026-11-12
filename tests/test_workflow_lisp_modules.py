@@ -36,7 +36,6 @@ def _compile_stage3_entrypoint(
     path: Path,
     *,
     source_root: Path,
-    imported_workflow_bundles=None,
     validate_shared: bool = False,
     tmp_path: Path,
 ):
@@ -47,7 +46,6 @@ def _compile_stage3_entrypoint(
         source_roots=(source_root,),
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        imported_workflow_bundles=imported_workflow_bundles,
         command_boundaries={
             "run_checks": ExternalToolBinding(
                 name="run_checks",

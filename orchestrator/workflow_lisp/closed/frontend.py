@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING
 
 from ..command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -29,9 +28,6 @@ from ..workflows import (
     WorkflowSignature,
 )
 from .. import syntax
-
-if TYPE_CHECKING:
-    from orchestrator.workflow.loaded_bundle import WorkflowBoundaryProjectionView
 
 
 @dataclass(frozen=True)
@@ -58,17 +54,7 @@ class TypedProgram:
     module_workflow_signatures: Mapping[str, Mapping[str, WorkflowSignature]]
     producer_lowering_schema: int
     compile_diagnostics: tuple[LispFrontendDiagnostic, ...] | None = field(default=None, repr=False, compare=False)
-    _compiled_bundle_boundaries: Mapping[
-        str,
-        tuple[
-            Mapping[str, Mapping[str, object]],
-            Mapping[str, Mapping[str, object]],
-            "WorkflowBoundaryProjectionView",
-        ],
-    ] = field(default_factory=dict, repr=False, compare=False)
     _io_source_paths: Mapping[str, Path] = field(default_factory=dict, repr=False, compare=False)
-    _io_import_bundles: Mapping[str, object] = field(default_factory=dict, repr=False, compare=False)
-    _io_workflow_bundles: Mapping[str, object] = field(default_factory=dict, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         from ..build import _freeze_configuration_value
@@ -98,8 +84,6 @@ class TypedProgram:
             "local_definition_dids",
             "imported_programs",
             "_io_source_paths",
-            "_io_import_bundles",
-            "_io_workflow_bundles",
         ):
             value = getattr(self, name)
             object.__setattr__(self, name, MappingProxyType(dict(value)))
@@ -117,44 +101,6 @@ class TypedProgram:
             self,
             "module_workflow_signatures",
             immutable_value(self.module_workflow_signatures),
-        )
-        from orchestrator.workflow.loaded_bundle import WorkflowBoundaryProjectionView
-
-        frozen_boundaries = {}
-        for workflow_name, facts in self._compiled_bundle_boundaries.items():
-            input_contracts, output_contracts, projection = facts
-            if not isinstance(projection, WorkflowBoundaryProjectionView):
-                continue
-            frozen_bindings = tuple(
-                replace(
-                    binding,
-                    projection_hints=immutable_value(binding.projection_hints),
-                    source_provenance=immutable_value(binding.source_provenance),
-                )
-                for binding in projection.private_runtime_context_bindings
-            )
-            frozen_projection = replace(
-                projection,
-                public_input_contracts=immutable_value(
-                    projection.public_input_contracts
-                ),
-                private_runtime_context_bindings=frozen_bindings,
-                private_managed_write_root_inputs=tuple(
-                    projection.private_managed_write_root_inputs
-                ),
-                private_compatibility_bridge_inputs=tuple(
-                    projection.private_compatibility_bridge_inputs
-                ),
-            )
-            frozen_boundaries[workflow_name] = (
-                immutable_value(input_contracts),
-                immutable_value(output_contracts),
-                frozen_projection,
-            )
-        object.__setattr__(
-            self,
-            "_compiled_bundle_boundaries",
-            immutable_value(frozen_boundaries),
         )
 
     def workflow_type_env(self, name: str) -> FrontendTypeEnvironment:
@@ -194,29 +140,16 @@ class TypedProgram:
         )
 
 
-def _workflow_io_reader_from_bundle(bundle):
-    from orchestrator.workflow.evaluated.provider_io import WorkflowIOReader
-
-    return WorkflowIOReader(bundle.provenance.workflow_path,
-        MappingProxyType({alias: _workflow_io_reader_from_bundle(selected)
-            for alias, selected in bundle.imports.items()}))
-
-
 def _workflow_io_reader_from_program(program, module):
     from orchestrator.workflow.evaluated.provider_io import WorkflowIOReader
 
     path = program._io_source_paths.get(module)
     if path is None:
         raise ValueError(f"workflow IO source selection is unavailable for {module!r}")
-    imports = {alias: _workflow_io_reader_from_bundle(selected)
-        for alias, selected in program._io_import_bundles.items()}
-    for alias, selected in program.imported_programs.items():
-        if alias not in imports:
-            imports[alias] = _workflow_io_reader_from_program(selected, selected.entry_module)
-    workflows = {name: _workflow_io_reader_from_bundle(selected)
-        for name, selected in program._io_workflow_bundles.items()}
+    imports = {alias: _workflow_io_reader_from_program(selected, selected.entry_module)
+        for alias, selected in program.imported_programs.items()}
     return WorkflowIOReader(Path(path), MappingProxyType(imports),
-        MappingProxyType(workflows), program._io_source_paths)
+        MappingProxyType({}), program._io_source_paths)
 
 
 def local_definition_keys_for_module(
@@ -492,7 +425,6 @@ def typed_program_from_graph(
     module_workflow_signatures: Mapping[str, Mapping[str, WorkflowSignature]] | None = None,
     producer_lowering_schema: int,
     source_paths: Mapping[str, Path] | None = None,
-    imported_bundles: Mapping[str, object] | None = None,
 ) -> TypedProgram:
     from ..build import _freeze_command_boundaries, _freeze_configuration_mapping
 
@@ -607,7 +539,6 @@ def typed_program_from_graph(
         module_workflow_signatures=module_workflow_signatures,
         producer_lowering_schema=producer_lowering_schema,
         _io_source_paths=source_paths or {},
-        _io_import_bundles=imported_bundles or {},
     )
 
 
@@ -619,7 +550,6 @@ def compile_typed_program_with_result(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding],
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, PromptExtern | str | Mapping[str, object]] | None = None,
-    imported_workflow_bundles: Mapping[str, object] | None = None,
     imported_programs: Mapping[str, TypedProgram] | None = None,
     workspace_root: Path | None = None,
     source_read_trace: SourceReadTrace | None = None,
@@ -638,7 +568,6 @@ def compile_typed_program_with_result(
         source_roots=source_roots,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
-        imported_workflow_bundles=imported_workflow_bundles,
         imported_programs=imported_programs,
         command_boundaries=command_boundaries,
         validate_shared=True,
@@ -727,7 +656,6 @@ def compile_typed_program(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding],
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, PromptExtern | str | Mapping[str, object]] | None = None,
-    imported_workflow_bundles: Mapping[str, object] | None = None,
     imported_programs: Mapping[str, TypedProgram] | None = None,
     workspace_root: Path | None = None,
     source_read_trace: SourceReadTrace | None = None,
@@ -741,7 +669,6 @@ def compile_typed_program(
         command_boundaries=command_boundaries,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
-        imported_workflow_bundles=imported_workflow_bundles,
         imported_programs=imported_programs,
         workspace_root=workspace_root,
         source_read_trace=source_read_trace,
@@ -815,8 +742,7 @@ def workflow_catalog_for(source_program, owner):
     module = source_module_for(source_program, owner)
     signatures.update(getattr(source_program, "module_workflow_signatures", {}).get(module, {}))
     return WorkflowCatalog(signatures_by_name=signatures,
-        definitions_by_name={name: workflow.definition for name, workflow in source_program.workflows.items()},
-        imported_bundles_by_name={})
+        definitions_by_name={name: workflow.definition for name, workflow in source_program.workflows.items()})
 
 
 def _retained_workflow_owner(source_program, names):
