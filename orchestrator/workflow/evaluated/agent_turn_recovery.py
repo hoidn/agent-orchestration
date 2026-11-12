@@ -33,6 +33,7 @@ from .agent_sessions import Receipt, read_receipt
 from .agent_turns import AgentTurnError
 from .authority import _require_retained_root
 from .commands import workspace_relative_path
+from .declaration import declaration_subject, replay_parts
 from .memo import MemoError, read_memo
 from .memo_reducer_agents import DISPATCHED_FAILURE_CODES
 
@@ -278,6 +279,7 @@ def _recovered_attempt(authority, node, operands, identity, snapshot, classified
     resolved, parts, _files = effect_inputs._resolve_effect_input(
         authority, node, operands, identity, context["workspace"], context["reader"], None, pending, None,
         pending.data["result_path"], owner=None, launch_cwd=context.get("launch_cwd"), snapshot=snapshot)
+    parts = replay_parts(parts, pending.data["input_parts"], declaration_subject(node, resolved))     # comparison point 2
     if canonical_sha256(parts) != pending.data["input_digest"]:
         raise effect_inputs._EffectInputDiverged(identity, "the pending agent turn's input changed before recovery")
     if classified.receipt.completion != "completed":
