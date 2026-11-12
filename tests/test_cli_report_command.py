@@ -6,6 +6,9 @@ from pathlib import Path
 
 from orchestrator.cli.commands.report import report_workflow
 from orchestrator.cli.main import create_parser
+from tests.test_workflow_evaluated_cli import _run_cli
+from tests.test_workflow_evaluated_invalidate import _completed_run
+from tests.test_workflow_evaluated_readers import _pure_run
 
 
 def _write_run(runs_root: Path, run_id: str, workflow_text: str | None = None) -> Path:
@@ -58,49 +61,50 @@ def test_parser_supports_report_subcommand():
 
 def test_report_prints_markdown_for_explicit_run(tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    runs_root = tmp_path / ".orchestrate" / "runs"
-    _write_run(runs_root, "20260227T000001Z-aaaaaa")
+    run_root = _pure_run(tmp_path)
 
     result = report_workflow(
-        run_id="20260227T000001Z-aaaaaa",
-        runs_root=str(runs_root),
+        run_id=run_root.name,
+        runs_root=str(run_root.parent),
         format="md",
     )
 
     assert result == 0
     out = capsys.readouterr().out
     assert "# Workflow Status" in out
-    assert "20260227T000001Z-aaaaaa" in out
+    assert run_root.name in out
 
 
 def test_report_defaults_to_latest_run(tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    runs_root = tmp_path / ".orchestrate" / "runs"
-    _write_run(runs_root, "20260227T000001Z-aaaaaa")
-    _write_run(runs_root, "20260227T000002Z-bbbbbb")
+    first = _pure_run(tmp_path)
+    result = _run_cli(tmp_path, str(tmp_path / "evaluated" / "inputs.orc"), "--input", "score=0.75")
+    assert result.returncode == 0, result.stderr
+    names = sorted(path.name for path in first.parent.iterdir())
+    assert len(names) == 2
 
-    result = report_workflow(runs_root=str(runs_root), format="md")
+    result = report_workflow(runs_root=str(first.parent), format="md")
 
     assert result == 0
     out = capsys.readouterr().out
-    assert "20260227T000002Z-bbbbbb" in out
+    assert names[-1] in out
+    assert names[0] not in out
 
 
 def test_report_supports_json_format(tmp_path, capsys, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    runs_root = tmp_path / ".orchestrate" / "runs"
-    _write_run(runs_root, "20260227T000003Z-cccccc")
+    run_root = _completed_run(tmp_path)
 
     result = report_workflow(
-        run_id="20260227T000003Z-cccccc",
-        runs_root=str(runs_root),
+        run_id=run_root.name,
+        runs_root=str(run_root.parent),
         format="json",
     )
 
     assert result == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["run"]["run_id"] == "20260227T000003Z-cccccc"
-    assert payload["steps"][0]["kind"] == "unknown"
+    assert payload["run"]["run_id"] == run_root.name
+    assert payload["steps"][0]["kind"] == "command"
 
 
 def test_prompt_context_and_judgment_views_state_only_report_have_exact_empty_projections(
@@ -223,13 +227,12 @@ def test_report_json_surfaces_typed_terminal_observability_summary_read_only(
 
 def test_report_writes_output_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    runs_root = tmp_path / ".orchestrate" / "runs"
-    _write_run(runs_root, "20260227T000004Z-dddddd")
+    run_root = _pure_run(tmp_path)
 
     output_path = tmp_path / "report.md"
     result = report_workflow(
-        run_id="20260227T000004Z-dddddd",
-        runs_root=str(runs_root),
+        run_id=run_root.name,
+        runs_root=str(run_root.parent),
         format="md",
         output=str(output_path),
     )

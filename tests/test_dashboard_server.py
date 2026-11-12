@@ -2,15 +2,66 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 from pathlib import Path
 
 
+from orchestrator.dashboard.projection import RunProjector
 from orchestrator.dashboard.scanner import RunScanner
 from orchestrator.dashboard.server import DashboardApp
+from orchestrator.workflow.evaluated.views import load_evaluated_view
+from tests.test_workflow_evaluated_cli import _run_cli
+from tests.test_workflow_evaluated_invalidate import _completed_run, _tree_bytes
+from tests.test_workflow_evaluated_readers import _pure_run, _scalar_run
+from tests.workflow_inprocess_cli_helpers import cli_inprocess
+
+
+FAILING_SOURCE = '''\
+(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule fresh_flow) (export run)
+  (defworkflow run () -> String
+    (let* ((shown (command-result shown :argv ("python" "shown.py") :returns String))
+           (fail (command-result fail :argv ("python" "fail.py") :returns Int)))
+      shown)))
+'''
+
+
+def _run_names(workspace: Path) -> set[str]:
+    runs = workspace / ".orchestrate" / "runs"
+    return {path.name for path in runs.iterdir()} if runs.exists() else set()
+
+
+def _new_run(workspace: Path, before: set[str]) -> Path:
+    (run_root,) = [path for path in (workspace / ".orchestrate" / "runs").iterdir() if path.name not in before]
+    return run_root
+
+
+def _failing_run(workspace: Path, exit_code: int = 3) -> Path:
+    """A real evaluated run: `shown` commits an HTML-bearing string, then `fail` exits `exit_code`."""
+    (workspace / "fresh_flow.orc").write_text(FAILING_SOURCE, encoding="utf-8")
+    (workspace / "shown.py").write_text(
+        'import json, os\nprint("<svg><script>log</script></svg>")\n'
+        'open(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"], "w").write(json.dumps("<b>bad</b><img src=x>"))\n',
+        encoding="utf-8")
+    (workspace / "fail.py").write_text(
+        f'import sys\nprint("<script>boom</script>", file=sys.stderr)\nsys.exit({exit_code})\n', encoding="utf-8")
+    (workspace / "fail_commands.json").write_text(json.dumps({
+        name: {"stable_command": ["python", f"{name}.py"], "closure": [f"{name}.py"]} for name in ("shown", "fail")
+    }), encoding="utf-8")
+    before = _run_names(workspace)
+    result = cli_inprocess(workspace, "run", "fresh_flow.orc", "--command-boundaries-file", "fail_commands.json")
+    assert result.returncode == 1, result.stderr
+    return _new_run(workspace, before)
+
+
+def _step(workspace: Path, run_root: Path, suffix: str):
+    record = next(run for run in RunScanner([workspace]).scan().runs if run.run_root == run_root)
+    return next(step for step in RunProjector().project_detail(record).steps if step.ref.endswith(suffix))
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -29,7 +80,9 @@ def _app(workspace: Path) -> DashboardApp:
     return DashboardApp(RunScanner([workspace]))
 
 
-def _write_state_json_symlink_escape(workspace: Path) -> Path:
+def _write_state_json_symlink_escape(workspace: Path) -> tuple[Path, Path]:
+    """A real evaluated run whose derived `state.json` is replaced by a symlink leaving the workspace."""
+    run_root = _pure_run(workspace)
     outside = workspace.parent / f"{workspace.name}-outside"
     outside.mkdir()
     external_state = outside / "state.json"
@@ -43,10 +96,9 @@ def _write_state_json_symlink_escape(workspace: Path) -> Path:
         ),
         encoding="utf-8",
     )
-    run_dir = workspace / ".orchestrate" / "runs" / "run1"
-    run_dir.mkdir(parents=True)
-    (run_dir / "state.json").symlink_to(external_state)
-    return outside
+    (run_root / "state.json").unlink()
+    (run_root / "state.json").symlink_to(external_state)
+    return outside, run_root
 
 
 def test_root_redirects_to_runs(tmp_path: Path):
@@ -57,64 +109,40 @@ def test_root_redirects_to_runs(tmp_path: Path):
 
 
 def test_runs_index_returns_html_with_security_headers_and_escaped_fields(tmp_path: Path):
-    workflow = _write_yaml(
-        tmp_path / "workflows" / "flow.yaml",
-        {
-            "version": "1.3",
-            "name": "<script>flow</script>",
-            "steps": [{"name": "StepA", "command": ["bash", "-lc", "true"]}],
-        },
-    )
-    _write_run(
-        tmp_path,
-        "run1",
-        {
-            "run_id": "<script>run</script>",
-            "status": "completed",
-            "workflow_file": str(workflow.relative_to(tmp_path)),
-        },
-    )
+    workspace = tmp_path / "ws<script>run"
+    workspace.mkdir()
+    run_root = _pure_run(workspace)
+    before = _tree_bytes(workspace)
 
-    response = _app(tmp_path).handle("GET", "/runs")
+    response = _app(workspace).handle("GET", "/runs")
 
     assert response.status == 200
     body = response.body.decode("utf-8")
     assert response.headers["Content-Type"] == "text/html; charset=utf-8"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert "default-src 'none'" in response.headers["Content-Security-Policy"]
-    assert "workflows/flow.yaml" in body
-    assert "&lt;script&gt;flow&lt;/script&gt;" not in body
-    assert "&lt;script&gt;run&lt;/script&gt;" in body
-    assert 'href="/runs/w0/run1"' in body
+    assert "evaluated/inputs.orc" in body
+    assert "ws&lt;script&gt;run" in body
+    assert "<script>run" not in body
+    assert f'href="/runs/w0/{run_root.name}"' in body
     assert "file://" not in body
     assert f'href="{tmp_path}' not in body
+    assert _tree_bytes(workspace) == before
 
 
 def test_runs_index_orders_entries_by_most_recent_updated_at_first(tmp_path: Path):
-    _write_run(
-        tmp_path,
-        "aaa-old",
-        {
-            "run_id": "aaa-old",
-            "status": "completed",
-            "updated_at": "2026-04-13T10:00:00+00:00",
-        },
-    )
-    _write_run(
-        tmp_path,
-        "zzz-new",
-        {
-            "run_id": "zzz-new",
-            "status": "completed",
-            "updated_at": "2026-04-13T12:00:00+00:00",
-        },
-    )
+    older = _pure_run(tmp_path)
+    before = _run_names(tmp_path)
+    result = _run_cli(tmp_path, str(tmp_path / "evaluated" / "inputs.orc"), "--input", "score=0.75")
+    assert result.returncode == 0, result.stderr
+    newer = _new_run(tmp_path, before)
+    assert load_evaluated_view(newer)["updated_at"] > load_evaluated_view(older)["updated_at"]
 
     response = _app(tmp_path).handle("GET", "/runs")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
-    assert body.index('href="/runs/w0/zzz-new"') < body.index('href="/runs/w0/aaa-old"')
+    assert body.index(f'href="/runs/w0/{newer.name}"') < body.index(f'href="/runs/w0/{older.name}"')
 
 
 def test_runs_index_renders_cursor_freshness_and_availability_fields(tmp_path: Path):
@@ -281,45 +309,21 @@ def test_summary_provider_flow_orders_design_gap_architecture_before_plan(tmp_pa
 
 
 def test_runs_index_filters_by_status_workflow_recency_and_search(tmp_path: Path):
-    fresh_workflow = _write_yaml(
-        tmp_path / "workflows" / "fresh.yaml",
-        {"version": "1.3", "name": "fresh-flow", "steps": []},
-    )
-    old_workflow = _write_yaml(
-        tmp_path / "workflows" / "old.yaml",
-        {"version": "1.3", "name": "old-flow", "steps": []},
-    )
-    _write_run(
-        tmp_path,
-        "fresh-run",
-        {
-            "run_id": "fresh-run",
-            "status": "failed",
-            "workflow_file": str(fresh_workflow.relative_to(tmp_path)),
-            "updated_at": "2026-04-13T12:00:00+00:00",
-            "error": {"message": "needle failure"},
-        },
-    )
-    _write_run(
-        tmp_path,
-        "old-run",
-        {
-            "run_id": "old-run",
-            "status": "completed",
-            "workflow_file": str(old_workflow.relative_to(tmp_path)),
-            "updated_at": "2026-04-01T12:00:00+00:00",
-        },
-    )
-    app = DashboardApp(RunScanner([tmp_path]), now="2026-04-13T13:00:00+00:00")
+    old_run = _completed_run(tmp_path)
+    fresh_run = _failing_run(tmp_path)
+    updated = datetime.fromisoformat(load_evaluated_view(fresh_run)["updated_at"])
+    app = DashboardApp(RunScanner([tmp_path]), now=updated + timedelta(hours=1))
 
     response = app.handle(
         "GET",
-        "/runs?status=failed&workflow=fresh&recency=2h&search=needle",
+        "/runs?status=failed&workflow=fresh&recency=2h&search=exit%20code%203",
     )
 
     body = response.body.decode("utf-8")
-    assert "fresh-run" in body
-    assert "old-run" not in body
+    assert fresh_run.name in body
+    assert old_run.name not in body
+    stale = DashboardApp(RunScanner([tmp_path]), now=updated + timedelta(hours=3)).handle("GET", "/runs?recency=2h")
+    assert fresh_run.name not in stale.body.decode("utf-8")
 
 
 def test_run_detail_route_shows_cursor_commands_lineage_and_warnings(tmp_path: Path):
@@ -2655,31 +2659,22 @@ def test_summary_hub_does_not_link_unsafe_index_paths(tmp_path: Path):
 
 
 def test_step_detail_route_resolves_by_name_and_escapes_payloads(tmp_path: Path):
-    _write_run(
-        tmp_path,
-        "run1",
-        {
-            "run_id": "run1",
-            "status": "failed",
-            "steps": {
-                "StepA": {
-                    "status": "failed",
-                    "step_id": "root.step_a",
-                    "output": "<b>bad</b>",
-                    "error": {"message": "<script>boom</script>"},
-                    "debug": {"payload": "<img src=x>"},
-                }
-            },
-        },
-    )
+    run_root = _failing_run(tmp_path)
+    shown, failed = _step(tmp_path, run_root, "/ shown"), _step(tmp_path, run_root, "/ fail")
+    before = _tree_bytes(tmp_path)
+    app = _app(tmp_path)
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/steps/StepA")
+    response = app.handle("GET", f"/runs/w0/{run_root.name}/steps/{quote(shown.name, safe='')}")
+    failed_page = app.handle("GET", f"/runs/w0/{run_root.name}/steps/{quote(failed.name, safe='')}")
+    stderr = app.handle("GET", f"/runs/w0/{run_root.name}/files/run/{failed.file_refs['stderr'].route_path}")
 
     body = response.body.decode("utf-8")
-    assert response.status == 200
+    assert response.status == 200 and failed_page.status == 200
     assert "&lt;b&gt;bad&lt;/b&gt;" in body
-    assert "&lt;script&gt;boom&lt;/script&gt;" in body
-    assert "&lt;img src=x&gt;" in body
+    assert "&lt;img src=x&gt;" in body and "<img src=x>" not in body
+    assert "<script>boom" not in failed_page.body.decode("utf-8")
+    assert "&lt;script&gt;boom&lt;/script&gt;" in stderr.body.decode("utf-8")
+    assert _tree_bytes(tmp_path) == before
 
 
 def test_step_detail_shows_visit_duration_outcome_and_observability_refs(tmp_path: Path):
@@ -2752,47 +2747,35 @@ def test_step_detail_shows_visit_duration_outcome_and_observability_refs(tmp_pat
 
 
 def test_state_preview_route_uses_capped_escaped_json_preview(tmp_path: Path):
-    _write_run(
-        tmp_path,
-        "run1",
-        {"run_id": "run1", "status": "completed", "context": {"html": "<script>x</script>"}},
-    )
+    run_root = _scalar_run(tmp_path, "String", '"<script>x</script>"')
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/state")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/state")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
     assert "&lt;script&gt;x&lt;/script&gt;" in body
+    assert "<script>x" not in body
     assert response.headers["X-Content-Type-Options"] == "nosniff"
 
 
 def test_file_preview_route_escapes_workspace_and_run_files(tmp_path: Path):
     artifact = tmp_path / "artifacts" / "payload.html"
-    run_log = tmp_path / ".orchestrate" / "runs" / "run1" / "logs" / "Step.stderr"
     artifact.parent.mkdir()
-    run_log.parent.mkdir(parents=True)
     artifact.write_text("<script>artifact</script>", encoding="utf-8")
-    run_log.write_text("<svg><script>log</script></svg>", encoding="utf-8")
-    _write_run(
-        tmp_path,
-        "run1",
-        {
-            "run_id": "run1",
-            "status": "completed",
-            "steps": {"Step": {"status": "completed", "artifacts": {"payload": "artifacts/payload.html"}}},
-        },
-    )
+    run_root = _failing_run(tmp_path)
+    run_log = _step(tmp_path, run_root, "/ shown").file_refs["stdout"].route_path
 
     workspace_response = _app(tmp_path).handle(
         "GET",
-        "/runs/w0/run1/files/workspace/artifacts/payload.html",
+        f"/runs/w0/{run_root.name}/files/workspace/artifacts/payload.html",
     )
-    run_response = _app(tmp_path).handle("GET", "/runs/w0/run1/files/run/logs/Step.stderr")
+    run_response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/files/run/{run_log}")
 
     assert workspace_response.status == 200
     assert "&lt;script&gt;artifact&lt;/script&gt;" in workspace_response.body.decode("utf-8")
     assert "&lt;svg&gt;&lt;script&gt;log&lt;/script&gt;&lt;/svg&gt;" in run_response.body.decode("utf-8")
     assert workspace_response.headers["X-Content-Type-Options"] == "nosniff"
+    assert run_response.headers["X-Content-Type-Options"] == "nosniff"
 
 
 def test_markdown_file_preview_renders_safe_markdown_html(tmp_path: Path):
@@ -2802,9 +2785,9 @@ def test_markdown_file_preview_renders_safe_markdown_html(tmp_path: Path):
         "# Rendered Note\n\nA **strong** point with <script>bad()</script>.\n\n- first\n- second\n",
         encoding="utf-8",
     )
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    run_root = _pure_run(tmp_path)
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/files/workspace/docs/note.md")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/files/workspace/docs/note.md")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
@@ -2821,11 +2804,11 @@ def test_file_raw_route_forces_attachment_text_plain(tmp_path: Path):
     artifact = tmp_path / "artifacts" / "payload.svg"
     artifact.parent.mkdir()
     artifact.write_text("<svg><script>x</script></svg>", encoding="utf-8")
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    run_root = _pure_run(tmp_path)
 
     response = _app(tmp_path).handle(
         "GET",
-        "/runs/w0/run1/files/workspace/artifacts/payload.svg?raw=1",
+        f"/runs/w0/{run_root.name}/files/workspace/artifacts/payload.svg?raw=1",
     )
 
     assert response.status == 200
@@ -2835,10 +2818,10 @@ def test_file_raw_route_forces_attachment_text_plain(tmp_path: Path):
 
 
 def test_file_route_rejects_traversal_and_displays_missing_state(tmp_path: Path):
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    run_root = _pure_run(tmp_path)
 
-    traversal = _app(tmp_path).handle("GET", "/runs/w0/run1/files/workspace/../secret.txt")
-    missing = _app(tmp_path).handle("GET", "/runs/w0/run1/files/workspace/missing.txt")
+    traversal = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/files/workspace/../secret.txt")
+    missing = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/files/workspace/missing.txt")
 
     assert traversal.status == 400
     assert missing.status == 200
@@ -2846,32 +2829,23 @@ def test_file_route_rejects_traversal_and_displays_missing_state(tmp_path: Path)
 
 
 def test_detail_links_artifacts_through_dashboard_file_routes(tmp_path: Path):
-    artifact = tmp_path / "artifacts" / "payload.txt"
-    artifact.parent.mkdir()
-    artifact.write_text("ok", encoding="utf-8")
-    _write_run(
-        tmp_path,
-        "run1",
-        {
-            "run_id": "run1",
-            "status": "completed",
-            "steps": {"Step": {"status": "completed", "artifacts": {"payload": "artifacts/payload.txt"}}},
-        },
-    )
+    run_root = _completed_run(tmp_path)
+    stdout = _step(tmp_path, run_root, "/ prefix").file_refs["stdout"]
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}")
 
     body = response.body.decode("utf-8")
-    assert 'href="/runs/w0/run1/files/workspace/artifacts/payload.txt"' in body
-    assert str(artifact) not in body
+    assert f'href="/runs/w0/{run_root.name}/files/run/{stdout.route_path}"' in body
+    assert str(stdout.absolute_path) not in body
+    assert f'href="{tmp_path}' not in body
 
 
 def test_index_and_detail_support_safe_meta_refresh(tmp_path: Path):
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    run_root = _pure_run(tmp_path)
     app = _app(tmp_path)
 
     index = app.handle("GET", "/runs?refresh=5")
-    detail = app.handle("GET", "/runs/w0/run1?refresh=5")
+    detail = app.handle("GET", f"/runs/w0/{run_root.name}?refresh=5")
 
     assert '<meta http-equiv="refresh" content="5">' in index.body.decode("utf-8")
     assert '<meta http-equiv="refresh" content="5">' in detail.body.decode("utf-8")
@@ -2879,7 +2853,7 @@ def test_index_and_detail_support_safe_meta_refresh(tmp_path: Path):
 
 
 def test_invalid_refresh_value_is_ignored_and_escaped(tmp_path: Path):
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    _pure_run(tmp_path)
 
     response = _app(tmp_path).handle("GET", "/runs?refresh=%3Cscript%3E")
 
@@ -2966,11 +2940,11 @@ def test_file_preview_route_displays_truncated_large_files(tmp_path: Path):
     large = tmp_path / "artifacts" / "large.log"
     large.parent.mkdir()
     large.write_text("a" * (70 * 1024), encoding="utf-8")
-    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+    run_root = _pure_run(tmp_path)
 
     response = _app(tmp_path).handle(
         "GET",
-        "/runs/w0/run1/files/workspace/artifacts/large.log",
+        f"/runs/w0/{run_root.name}/files/workspace/artifacts/large.log",
     )
 
     body = response.body.decode("utf-8")
@@ -2981,24 +2955,27 @@ def test_file_preview_route_displays_truncated_large_files(tmp_path: Path):
 def test_rejected_state_json_symlink_detail_does_not_render_outside_commands(
     tmp_path: Path,
 ):
-    outside = _write_state_json_symlink_escape(tmp_path)
+    outside, run_root = _write_state_json_symlink_escape(tmp_path)
+    before = _tree_bytes(tmp_path)
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
-    assert "state.json resolves outside workspace" in body
-    assert "Commands unavailable" in body
-    assert "orchestrate report" not in body
-    assert "orchestrate resume" not in body
+    outputs = re.search(r"<h2>Outputs</h2>\s*<pre>(.*?)</pre>", body, re.S).group(1)
+    assert json.loads(html.unescape(outputs)) == {"accepted": True, "score": 0.75}
+    assert f"orchestrate report --run-id {run_root.name}" in body
+    assert "external-run" not in body
     assert str(outside) not in body
     assert "outside-secret" not in body
+    assert _tree_bytes(tmp_path) == before
 
 
 def test_rejected_state_json_symlink_state_preview_is_not_served(tmp_path: Path):
-    outside = _write_state_json_symlink_escape(tmp_path)
+    outside, run_root = _write_state_json_symlink_escape(tmp_path)
+    before = _tree_bytes(tmp_path)
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/state")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/state")
 
     body = response.body.decode("utf-8")
     assert response.status == 400
@@ -3006,14 +2983,15 @@ def test_rejected_state_json_symlink_state_preview_is_not_served(tmp_path: Path)
     assert "external-run" not in body
     assert "outside-secret" not in body
     assert str(outside) not in body
+    assert _tree_bytes(tmp_path) == before
 
 
 def test_rejected_state_json_symlink_file_route_uses_scanned_run_root(
     tmp_path: Path,
 ):
-    outside = _write_state_json_symlink_escape(tmp_path)
+    outside, run_root = _write_state_json_symlink_escape(tmp_path)
 
-    response = _app(tmp_path).handle("GET", "/runs/w0/run1/files/run/foo")
+    response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}/files/run/foo")
 
     body = response.body.decode("utf-8")
     assert response.status == 200
