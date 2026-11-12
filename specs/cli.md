@@ -635,10 +635,7 @@ authority, memo, attempts or views, in this order:
     is not a parallel-map item, or `--accept-changes` was given;
     `lexical_restore_pending_effect_unsafe` for a `must_not_repeat` command,
     whatever the field says; a pending provider start re-reads its C6
-    sources in memory). Then, with `--accept-changes`, at least one
-    uncommitted command attempt with a retry baseline must be unproven (no
-    `closure: unchanged` failure, or a parallel-map item), counting a pending
-    start an invalidation retired; otherwise `resume_preflight_failed`. An agent turn with a pending start is classified
+    sources in memory). An agent turn with a pending start is classified
     from its receipt and the native store, never by the retry baseline, and
     nothing is signalled: a live recorded process group is admitted and
     stopped under the writer lock before reconciliation; `recoverable`
@@ -662,7 +659,14 @@ authority, memo, attempts or views, in this order:
     whose latest attempt failed after dispatch (`provider_result_invalid`)
     restarts the same way. A later turn whose latest attempt closed
     `agent_turn_result_invalid` refuses with that code, before any
-    native-head check.
+    native-head check. Last in step 10, after every check above: with
+    `--accept-changes`, at least one uncommitted command attempt with a
+    retry baseline (counting a pending start an invalidation retired) must
+    be unproven (no `closure: unchanged` failure, or a parallel-map item)
+    and need the flag: its declared files, rehashed now, differ from its
+    `started` evidence, or replay does not reach it yet, so they cannot be
+    rehashed before it runs. Otherwise `resume_preflight_failed`: a killed
+    step whose files did not change resumes without the flag.
 11. Only then is a torn tail repaired (a failure there is still a refusal,
     exit `2`) and evaluation continued. A condition of step 10 that is first
     reached after continuation has committed new effects fails the run with
@@ -714,7 +718,7 @@ the `resume` command.
 | `closed_program_gap`, `compiled_workflow_source_required`, `compiled_workflow_snapshot_conflict`, `command_boundary_closure_missing`, `command_boundary_manifest_invalid`, `command_result_inputs_invalid` | `compile`; `run`; the fresh build of `resume` | 2 | None; `run` creates no run root |
 | `workflow_lisp_cli_input_unsupported` | `compile` with a flat-route export flag | 2 | None |
 | Workflow input binding failure (a missing, unknown, mistyped or non-finite input): no named code; `run` and `--dry-run` print `Validation error: Workflow input binding failed`, `resume` prints `[resume_preflight_failed] Workflow input binding failed`; a `: <detail>` suffix follows only for a conversion or non-finite failure, a missing or unknown input prints the bare message | `run`; the fresh inputs of `resume` | 2 | None; `run` creates no run root |
-| `resume_preflight_failed` | `resume` refusals without a code of their own: a non-canonical `--run-ref-root`, an input binding failure, an unreadable recipe input file, `--accept-changes` with no unfinished command attempt to accept (after memo replay) | 2 | None |
+| `resume_preflight_failed` | `resume` refusals without a code of their own: a non-canonical `--run-ref-root`, an input binding failure, an unreadable recipe input file, `--accept-changes` with no unfinished command attempt to accept (last in step 10) | 2 | None |
 | `command_transport_required`, `command_interpreter_missing` | `run` publication (a checked command without argv transport; a bare interpreter that does not resolve on `PATH` or is not launchable), printed as `Validation error: …` | 2 | None; no run root |
 | `reserved_run_root_changed` | any writer whose locked run root no longer matches its path: publication, execution, `resume` preflight, `invalidate` | publication and execution 1; `resume` preflight and `invalidate` 2 | Nothing written into the substitute root |
 | `memo_inconsistent` | `resume` preflight (including stored authority without command transport); `invalidate`; readers; during execution when evidence is unsettled at a start or at `halt` | 2 (`report`: 1; during execution 1 without a terminal) | None; readers report no outputs |

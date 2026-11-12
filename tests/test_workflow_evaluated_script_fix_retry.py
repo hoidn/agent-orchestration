@@ -405,3 +405,37 @@ def test_parallel_refusal_names_every_attempt_the_flag_accepts(tmp_path: Path) -
     offer = next(index for index, line in enumerate(lines) if line.endswith(" --accept-changes"))
     before_offer = "\n".join(lines[1:offer])
     assert item(0) in before_offer and item(1) in before_offer
+
+
+def test_serial_step_whose_binder_looks_like_a_parallel_segment_retries_on_plain_resume(tmp_path: Path) -> None:
+    write_four_steps(tmp_path, {"s3": BAD})
+    source = tmp_path / "main.orc"
+    source.write_text(source.read_text(encoding="utf-8").replace("(c (command-result s3", "(par-map:c (command-result s3")
+                      .replace("s4.py\" c)", "s4.py\" par-map:c)"), encoding="utf-8")
+    assert run_four(tmp_path).returncode == 1
+    (failed,) = failed_rows(tmp_path)
+    assert failed["identity"] == "workflow:main::run / par-map:c"
+    fix(tmp_path, "s3")
+
+    resumed = cli(tmp_path, "resume", run_id(tmp_path))
+
+    assert resumed.returncode == 0, resumed.stderr
+
+
+SLEEP_ONCE = ('import json, os, sys, time\nfrom pathlib import Path\n'
+              'if Path("slow").exists():\n    Path("started-s3").write_text("")\n    time.sleep(60)\n'
+              'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(int(sys.argv[1]) + 1))\n')
+
+
+def test_killed_step_with_unchanged_files_needs_no_flag(tmp_path: Path) -> None:
+    write_four_steps(tmp_path, {"s3": SLEEP_ONCE})
+    (tmp_path / "slow").write_text("", encoding="utf-8")
+    kill_when_started(tmp_path, [tmp_path / "started-s3"],
+                      ["run", "main.orc", "--command-boundaries-file", "commands.json", "--input", "n=1"])
+    (tmp_path / "slow").unlink()
+
+    refuses_without_writes(tmp_path, "resume_preflight_failed", "--accept-changes")
+    resumed = cli(tmp_path, "resume", run_id(tmp_path))
+
+    assert resumed.returncode == 0, resumed.stderr
+    assert started(resumed.stderr) == [IDENTITIES["s3"], IDENTITIES["s4"]]

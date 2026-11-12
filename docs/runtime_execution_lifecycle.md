@@ -153,6 +153,7 @@ ordinal, never by rewriting the old one.
    the next ordinal. A command retried with changed declared files needs its last attempt's
    `failed` row to say `closure: unchanged` (not a parallel-map item), or
    `resume --accept-changes`; the flag is refused when no unfinished command attempt needs it
+   (a killed step whose files did not change resumes without it)
 ```
 
 Every refusal in steps 1–5 exits 2 and writes nothing; exit 1 is a run that

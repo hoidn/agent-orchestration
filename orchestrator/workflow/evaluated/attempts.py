@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -92,12 +93,16 @@ def closure_after_failure(attempt) -> str | None:
     return "unchanged" if after == attempt.implementation_files else "changed"
 
 
+# The compiler's item segment `par-map:<label>[<n>]`; user labels escape `[` and `]` (sites.py `_escape_label`).
+_PARALLEL_ITEM = re.compile(r"(?:^| / )par-map:[^ ]*\[\d+\](?: / |$)")
+
+
 def proven_unchanged(snapshot: MemoSnapshot, start: JournalEntry) -> bool:
     """The start's attempt failed with `closure: unchanged`, outside a parallel map (§8.1)."""
     row = start.data
     # ponytail: every parallel-map item is unproven (Phase 3a decision 7), since a sibling may write the script
     # after the failure; relax to "no sibling record follows the failure" once a probe shows it is safe.
-    if "par-map:" in row["identity"]:
+    if _PARALLEL_ITEM.search(row["identity"]):
         return False
     return any(entry.data["record"] == "failed" and entry.data.get("identity") == row["identity"]
                and entry.data.get("attempt") == row["attempt"] and entry.data.get("closure") == "unchanged"

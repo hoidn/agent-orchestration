@@ -13,6 +13,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 
 from . import agent_guards, effect_inputs
 from .attempts import unproven_command_retries
+from .closure import resolve_command_evidence
 from .memo import MemoError, read_memo
 from .replay import discover_prefix
 
@@ -43,11 +44,29 @@ def checked_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
 def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
     snapshot, prefix = checked_resume_prefix(authority, inputs, run_id=run_id, workspace=workspace,
         provider_io=provider_io, site_classes=site_classes, confined=confined)
-    if authority.accept_changes and not unproven_command_retries(snapshot, site_classes):
+    if authority.accept_changes and not _changes_to_accept(snapshot, prefix, site_classes, workspace):
         raise effect_inputs._PreflightRefusal("resume_preflight_failed",
             "--accept-changes: no unfinished command attempt needs it; resume without the flag")
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     return snapshot, commits, len(prefix.commits), prefix.value, not prefix.halted
+
+
+def _changes_to_accept(snapshot, prefix, site_classes, workspace) -> bool:
+    """An unproven command attempt whose declared files differ from its `started` evidence; one that preflight
+    did not reach (it runs after other steps, as after an `invalidate`) cannot be rehashed yet and counts."""
+    reached = {item.identity: item for item in prefix.frontiers}
+    return any(identity not in reached or _evidence_differs(reached[identity], snapshot.latest_starts[identity], workspace)
+               for identity in unproven_command_retries(snapshot, site_classes))
+
+
+def _evidence_differs(item, start, workspace) -> bool:
+    recorded = start.data["implementation_files"]
+    try:
+        current = resolve_command_evidence(item.node["command"], item.node["closure"], workspace_root=workspace,
+            prior=recorded, launch_cwd=effect_inputs.resolve_launch_cwd(workspace, item.launch_workspace))
+    except Exception:  # noqa: BLE001 - the boundary check already refused unreadable evidence; count it, so that check decides
+        return True
+    return current != recorded
 
 
 def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io, site_classes, confined=None):

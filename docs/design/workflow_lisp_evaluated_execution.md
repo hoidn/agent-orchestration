@@ -1423,8 +1423,11 @@ record without the field never counts as `unchanged`. Inside a parallel map
 after the failure: an item's changed files need the flag. The flag accepts,
 for that invocation, every uncommitted command attempt with a retry baseline
 that no such record covers, including a pending start an invalidation
-retired; with no such attempt it is refused with `resume_preflight_failed`
-after memo replay and before any write. An accepted change permits the
+retired. It is refused with `resume_preflight_failed`, after every other
+preflight check and before any write, unless one such attempt needs it: its
+declared files differ from its `started` evidence, or replay does not reach
+it before it runs (so they cannot be rehashed yet). A killed step whose files
+did not change resumes without the flag. An accepted change permits the
 ordinary next-attempt rule, still subject to `must_not_repeat`; the new
 attempt's `started` record holds the new evidence, and earlier attempts remain
 evidence under their own. Restoring the original bytes/targets always permits
