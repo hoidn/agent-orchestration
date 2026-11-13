@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # The Phase 2 live smoke (tranche T1): the parallel best-of-N consumer, killed mid-map, resumed, reported.
 #
-#   P2SMOKE_SPEND_AUTHORIZED=yes run_smoke.sh RUNTIME RESULTS_DIR          (the paid run)
+#   P2SMOKE_SPEND_AUTHORIZED=yes P2SMOKE_CLAUDE_BIN=CLI run_smoke.sh RUNTIME RESULTS_DIR   (the paid run)
 #   P2SMOKE_REHEARSAL_STANDINS=DIR run_smoke.sh RUNTIME RESULTS_DIR         (a rehearsal; no spend variable)
 #   P2SMOKE_INFRA_RETRY="<reason>" ... run_smoke.sh RUNTIME RESULTS_DIR      (the one retry, by resume)
+#
+# Always: P2SMOKE_MANIFEST_SHA256 and P2SMOKE_RUNTIME_COMMIT, both taken from the plan's ledger. A paid run
+# names the CLI binary itself (P2SMOKE_CLAUDE_BIN; no PATH lookup), whose --version must be criterion.json's
+# cli_version.
 #
 # RUNTIME is the frozen checkout whose `orchestrator` package runs the smoke and whose
 # experiments/orc_vs_single_call/workflows/best_of_n.orc is the program. The workspace gets a copy of that
@@ -18,14 +22,17 @@
 # stops with spend_cap_unmetered by contract (specs/cli.md, "Spend cap"); the wrapper (smoke_claude.sh)
 # keeps the smoke's cap instead: seven launches at most, USD 0.5 per call, USD 3 for the smoke.
 # Before anything is launched it refuses: inside a smoke (nested); without P2SMOKE_SPEND_AUTHORIZED=yes;
-# without the ledger's manifest digest, or a kit file differing from manifest.json; a binding other than
+# without the ledger's manifest digest, or a kit file differing from manifest.json; a runtime whose HEAD is
+# not P2SMOKE_RUNTIME_COMMIT (and, in a paid run, whose tree is not clean); a binding other than
 # claude-haiku-5-5 on the Claude metered template; a claude that is the blocking no-provider stub; a
 # rehearsal stand-in without the kit's marker; a used slot or a second retry, or a retry of an observation;
-# in a paid run, a CLI that is a stand-in or is not the pinned version (criterion.json), a runtime or kit with
-# uncommitted changes, or a kit that is not the runtime's own experiments/p2_smoke; a CLI other than the first
+# in a paid run, no P2SMOKE_CLAUDE_BIN, a CLI that is a stand-in or is not the pinned version, a kit that is
+# not the runtime's own experiments/p2_smoke or has uncommitted changes; a CLI other than the first
 # slot's; a price table or program copy other than the pinned ones; a run PATH where another directory holds
 # a claude or codex; a program that does not compile. When the run stops, for any reason, and when this script
-# exits, every call the wrapper started that is still alive is terminated and listed in smoke.json. Slots are claimed
+# exits, the gate is closed (no call starts after it) and every call the wrapper recorded that is still alive is
+# terminated and listed in smoke.json; a recorded pid whose start time or session differs is left alone and
+# listed under sweep_left_alone. Every step has a deadline. Slots are claimed
 # once, for good, in $HOME/.local/state/p2smoke (a rehearsal: RESULTS_DIR/rehearsal-ledger).
 # Output: RESULTS_DIR/<slot>/{smoke.json,workspace/,bin/,run.log,resume.log,report.json,...}.
 set -euo pipefail
@@ -40,38 +47,57 @@ CANDIDATES=(alpha beta gamma delta)           # gamma and delta are the coders h
 STANDIN_MARKER='# p2smoke-rehearsal-stand-in: makes no provider call'
 
 refuse() { echo "run_smoke.sh: refused: $*" >&2; exit 3; }
-PREP= LEDGER= SLOT_DIR= CLAIMED=
-# reap PHASE: terminate (SIGKILL to its session's process group) every call the wrapper started that is still
-# alive, wait until each group is gone, and append each to SLOT_DIR/terminated.jsonl. The runtime starts each
-# provider in its own session, so killing the run never reaches a call in flight.
+PREP= LEDGER= SLOT_DIR= CLAIMED= GATE=
+# reap PHASE: close the gate, then terminate (SIGKILL to its session's process group) every call the wrapper
+# recorded whose pid, start time and session still match its record, wait until each is gone, and append it to
+# SLOT_DIR/terminated.jsonl. A claimed slot whose record is not written yet is waited for (10 s); a record that
+# no longer matches its process (the pid was reused) is left alone and appended to SLOT_DIR/sweep-left-alone.jsonl.
+# The runtime starts each provider in its own session, so killing the run never reaches a call in flight.
 reap() {
   [ -n "$CLAIMED" ] || return 0            # only calls of a slot this launch claimed
-  "$PYTHON" - "$LEDGER" "$SLOT_DIR/terminated.jsonl" "$1" <<'EOF'
+  [ -z "$GATE" ] || echo closed > "$GATE"
+  "$PYTHON" - "$LEDGER" "$SLOT_DIR" "$1" <<'EOF'
 import json, os, signal, sys, time
 from pathlib import Path
-ledger, out, phase = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+ledger, slot, phase = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 
-def alive(pid):
+def now(pid):
+    """(start time, session) of a live, non-zombie pid, else None."""
     try:
-        return os.getsid(pid) == pid      # still the session the wrapper started (pid = sid = pgid)
-    except ProcessLookupError:
-        return False
+        fields = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    except (OSError, IndexError):
+        return None
+    return None if fields[0] in ("Z", "X") else (fields[19], fields[3])
 
-for record in sorted(ledger.glob("launch-*/pid")):
-    pid = int(record.read_text())
-    if not alive(pid):
-        continue
-    os.killpg(pid, signal.SIGKILL)
-    deadline = time.monotonic() + 30
-    while time.monotonic() < deadline:
-        try:
-            os.killpg(pid, 0)
-        except ProcessLookupError:
-            break
+def note(name, row):
+    with (slot / name).open("a") as stream:
+        stream.write(json.dumps({**row, "phase": phase}) + "\n")
+
+for launch in sorted(ledger.glob("launch-*")):
+    record = launch / "proc"
+    deadline = time.monotonic() + 10
+    while not record.is_file() and time.monotonic() < deadline:
         time.sleep(0.1)
-    bundle = (record.parent / "bundle").read_text().strip()
-    with out.open("a") as stream:
-        stream.write(json.dumps({"launch": record.parent.name, "pid": pid, "bundle": bundle, "phase": phase}) + "\n")
+    if not record.is_file():
+        note("sweep-left-alone.jsonl", {"launch": launch.name, "why": "no process record"})
+        continue
+    pid, start, sid = record.read_text().split()
+    found = now(int(pid))
+    if found is None:
+        continue
+    if found != (start, sid):
+        note("sweep-left-alone.jsonl", {"launch": launch.name, "pid": int(pid), "why": "start time or session differ"})
+        continue
+    (os.killpg if sid == pid else os.kill)(int(pid), signal.SIGKILL)
+    deadline = time.monotonic() + 30
+    while now(int(pid)) == found and time.monotonic() < deadline:
+        time.sleep(0.1)
+    bundle = (launch / "bundle").read_text().strip() if (launch / "bundle").is_file() else None
+    note("terminated.jsonl", {"launch": launch.name, "pid": int(pid), "bundle": bundle})
+for held in sorted((slot / "control").glob("held-*")):    # a held wrapper (stopped before any call) left behind
+    row = json.loads(held.read_text())
+    if now(row["pid"]) == (row.get("start"), row.get("sid")):
+        os.kill(row["pid"], signal.SIGKILL)
 EOF
 }
 cleanup() { reap exit || true; rm -rf ${PREP:+"$PREP"}; }
@@ -175,8 +201,8 @@ if [ "$REHEARSAL" = true ]; then
     refuse "$CLAUDE is not one of the kit's stand-ins (no marker line)"
   LEDGER=$ROOT/rehearsal-ledger
 else
-  [ -n "$CALLER_CLAUDE" ] || refuse "no claude on PATH"
-  CLAUDE=$(readlink -f "$CALLER_CLAUDE")
+  [ -n "${P2SMOKE_CLAUDE_BIN:-}" ] || refuse "set P2SMOKE_CLAUDE_BIN to the pinned CLI binary (no PATH lookup)"
+  CLAUDE=$(realpath -e "$P2SMOKE_CLAUDE_BIN" 2>/dev/null) || refuse "no CLI at $P2SMOKE_CLAUDE_BIN"
   LEDGER=$HOME/.local/state/p2smoke
 fi
 ! is_stub "$CLAUDE" || refuse "claude resolves to the blocking no-provider stub $CLAUDE; a rehearsal needs P2SMOKE_REHEARSAL_STANDINS"
@@ -204,17 +230,22 @@ SLOT_DIR=$ROOT/$SLOT
 if [ "$REHEARSAL" = false ]; then
   ! grep -qxF "$STANDIN_MARKER" "$CLAUDE" || refuse "$CLAUDE is a rehearsal stand-in; a paid run needs the real CLI"
 fi
-VERSION=$(env -i "HOME=$HOME" PATH=/usr/bin:/bin DISABLE_AUTOUPDATER=1 "$CLAUDE" --version) || refuse "$CLAUDE --version failed"
+VERSION=$(env -i "HOME=$HOME" PATH=/usr/bin:/bin DISABLE_AUTOUPDATER=1 timeout 60 "$CLAUDE" --version) ||
+  refuse "$CLAUDE --version failed"
 [ "$REHEARSAL" = true ] || [ "${VERSION%% *}" = "$CLI_PIN" ] ||
   refuse "claude is $VERSION, not the pinned $CLI_PIN (criterion.json cli_version)"
-DIRTY=$(git -C "$RUNTIME" status --porcelain -- orchestrator "$SOURCE")
+[ -n "${P2SMOKE_RUNTIME_COMMIT:-}" ] || refuse "set P2SMOKE_RUNTIME_COMMIT to the runtime commit recorded in the plan's ledger"
+[ "$RUNTIME_COMMIT" = "$P2SMOKE_RUNTIME_COMMIT" ] ||
+  refuse "the runtime $RUNTIME is at $RUNTIME_COMMIT, not the ledger's $P2SMOKE_RUNTIME_COMMIT"
+DIRTY=$(git -C "$RUNTIME" status --porcelain)
 KIT_IN_RUNTIME=$([ "$KIT" = "$(realpath -m "$RUNTIME/experiments/p2_smoke")" ] && echo true || echo false)
 if [ "$REHEARSAL" = false ]; then
-  [ -z "$DIRTY" ] || refuse "the runtime $RUNTIME has uncommitted changes under orchestrator/ or in $SOURCE"
+  [ -z "$DIRTY" ] || refuse "the runtime $RUNTIME has uncommitted changes (its tree must be clean)"
+  [ "$KIT_IN_RUNTIME" = true ] || refuse "the kit $KIT is not the runtime's own experiments/p2_smoke"
   KIT_STATE=$(git -C "$KIT" status --porcelain -- . 2>/dev/null) || refuse "the kit $KIT is not in a git checkout"
   [ -z "$KIT_STATE" ] || refuse "the kit $KIT has uncommitted changes"
-  [ "$KIT_IN_RUNTIME" = true ] || refuse "the kit $KIT is not the runtime's own experiments/p2_smoke"
 fi
+CLAUDE_SHA256=$(sha256sum "$CLAUDE" | cut -d' ' -f1)
 [ ! -f "$LEDGER/claude-version" ] || [ "$(cat "$LEDGER/claude-version")" = "$VERSION" ] ||
   refuse "claude is $VERSION, but the first slot ran $(cat "$LEDGER/claude-version")"
 PYTHON_VERSION=$("$PYTHON" -c 'import sys; print(sys.version.split()[0])')
@@ -248,7 +279,8 @@ run_env() {
     CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK=1 \
     CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 DISABLE_AUTOUPDATER=1 "$@"
 }
-orc() { (cd "$WS" && run_env "$PYTHON" -c "$DRIVER" "$@"); }
+orc() { (cd "$WS" && run_env "P2SMOKE_PHASE=$PHASE" timeout -s KILL "$DEADLINE_SEC" "$PYTHON" -c "$DRIVER" "$@"); }
+PHASE=none DEADLINE_SEC=300
 check_run_path() {
   local dir cli
   IFS=: read -r -a RUN_DIRS <<< "$(run_path)"
@@ -292,7 +324,7 @@ if [ -z "$RETRY_REASON" ]; then
   chmod +x "$PREP/bin/claude" "$PREP/bin/codex"
   BIN=$PREP/bin WS=$PREP/workspace
   check_run_path
-  orc compile "${FRONTEND[@]}" > "$PREP/compile.json" 2> "$PREP/compile.stderr" ||
+  PHASE=compile DEADLINE_SEC=300 orc compile "${FRONTEND[@]}" > "$PREP/compile.json" 2> "$PREP/compile.stderr" ||
     { cat "$PREP/compile.stderr" >&2; refuse "the program copy does not compile with the kit's bindings"; }
   mkdir "$LEDGER/$SLOT" || refuse "slot $SLOT was claimed meanwhile"
   CLAIMED=1
@@ -300,7 +332,8 @@ if [ -z "$RETRY_REASON" ]; then
   [ -f "$LEDGER/claude-version" ] || printf '%s\n' "$VERSION" > "$LEDGER/claude-version"
   mv "$PREP" "$SLOT_DIR"
   PREP=
-  BIN=$SLOT_DIR/bin WS=$SLOT_DIR/workspace
+  BIN=$SLOT_DIR/bin WS=$SLOT_DIR/workspace GATE=$SLOT_DIR/gate
+  echo closed > "$GATE"
   chmod -R a-w "$BIN"      # the agents run with bypassed permissions; a read-only bin/ is a speed bump, not a wall
   "$PYTHON" - "$KIT/inputs.json" "$WS" "${CANDIDATES[@]}" > "$WS/inputs.json" <<'EOF'
 import json, sys
@@ -308,7 +341,7 @@ inputs, workspace, names = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3
 print(json.dumps({**inputs, "repos": [f"{workspace}/candidates/{name}" for name in names]}, indent=2))
 EOF
 else
-  BIN=$FIRST_DIR/bin WS=$FIRST_DIR/workspace
+  BIN=$FIRST_DIR/bin WS=$FIRST_DIR/workspace GATE=$FIRST_DIR/gate
   check_run_path
   mkdir "$LEDGER/$SLOT" || refuse "slot $SLOT was claimed meanwhile"
   CLAIMED=1
@@ -325,7 +358,9 @@ if [ -z "$RETRY_REASON" ]; then
   # committed), SIGKILL the run's process group and the held wrappers. It stops waiting at a failed row, at
   # the run's own exit, or after 25 minutes (each call times out after 10), and kills whatever is left; `reap`
   # then terminates any call still in flight (each runs in its own session, out of the run's group).
-  KILL=$(cd "$WS" && run_env "P2SMOKE_HOLD=$SLOT_DIR/control" "$PYTHON" - "$PYTHON" "$DRIVER" "$SLOT_DIR/run.log" \
+  echo run > "$GATE"
+  KILL=$(cd "$WS" && run_env "P2SMOKE_HOLD=$SLOT_DIR/control" P2SMOKE_PHASE=run timeout -s KILL 1600 \
+    "$PYTHON" - "$PYTHON" "$DRIVER" "$SLOT_DIR/run.log" \
     "${FRONTEND[@]}" --input-file inputs.json --max-cost-usd "$CAP_USD" <<'EOF'
 import json, os, signal, subprocess, sys, time
 from pathlib import Path
@@ -357,9 +392,12 @@ for kill in (lambda: os.killpg(process.pid, signal.SIGKILL), *(lambda pid=h["pid
         kill()
     except ProcessLookupError:
         pass
-process.wait()
+try:
+    process.wait(timeout=60)
+except subprocess.TimeoutExpired:       # killed above; a process stuck in the kernel is reported, not waited on
+    pass
 rows = memo()
-print(json.dumps({"exit": process.returncode, "seconds": round(time.monotonic() - start),
+print(json.dumps({"exit": process.poll(), "seconds": round(time.monotonic() - start),
                   "held": sorted(h["bundle"] for h in held), "timed_out": time.monotonic() - start > DEADLINE,
                   "committed_before": [row["identity"] for row in rows if row.get("record") == "committed"],
                   "failed_before": [row["identity"] for row in rows if row.get("record") == "failed"]}))
@@ -371,26 +409,29 @@ EOF
   # Resume only a run killed as planned: two coders committed, two held, nothing else in flight.
   if [ -n "$RUN_ID" ] && echo "$KILL" | "$PYTHON" -c 'import json, sys; k = json.load(sys.stdin)
 sys.exit(0 if k and len(k["held"]) == 2 and len(k["committed_before"]) == 2 and not k["failed_before"] else 1)'; then
-    orc resume "$RUN_ID" > "$SLOT_DIR/resume.log" 2>&1
+    echo resume > "$GATE"
+    PHASE=resume DEADLINE_SEC=1800 orc resume "$RUN_ID" > "$SLOT_DIR/resume.log" 2>&1
     RESUME_EXIT=$?
     reap resume
   fi
 else
   RUN_ID=$("$PYTHON" -c 'import json, sys; print(json.load(open(sys.argv[1]))["run_id"])' "$FIRST_DIR/smoke.json")
-  orc resume "$RUN_ID" > "$SLOT_DIR/resume.log" 2>&1
+  echo retry > "$GATE"
+  PHASE=retry DEADLINE_SEC=1800 orc resume "$RUN_ID" > "$SLOT_DIR/resume.log" 2>&1
   RESUME_EXIT=$?
   reap resume
 fi
 if [ -n "$RUN_ID" ]; then
-  orc report --run-id "$RUN_ID" --format json > "$SLOT_DIR/report.json" 2> "$SLOT_DIR/report.stderr"
+  PHASE=report DEADLINE_SEC=300 orc report --run-id "$RUN_ID" --format json > "$SLOT_DIR/report.json" 2> "$SLOT_DIR/report.stderr"
   REPORT_EXIT=$?
 fi
+reap final                               # so smoke.json lists every call the sweeps caught
 set -e
 
 # The record, written whole (temporary file, then rename): a readable smoke.json is a finished slot.
 "$PYTHON" - "$SLOT_DIR/smoke.json" "$HOME" "$WS" "$LEDGER" "$SLOT_DIR/report.json" "$KILL" "$KIT_FILES" \
   slot "$SLOT" retry_reason "$RETRY_REASON" rehearsal "$REHEARSAL" model "$MODEL" template "$TEMPLATE" \
-  cap_usd "$CAP_USD" target "$TARGET" claude_path "$CLAUDE" claude_version "$VERSION" runtime "$RUNTIME" \
+  cap_usd "$CAP_USD" target "$TARGET" claude_path "$CLAUDE" claude_sha256 "$CLAUDE_SHA256" claude_version "$VERSION" runtime "$RUNTIME" \
   runtime_commit "$RUNTIME_COMMIT" runtime_dirty "$([ -n "$DIRTY" ] && echo true || echo false)" \
   source "$SOURCE" source_sha256 "$SOURCE_SHA256" manifest_sha256 "$MANIFEST_SHA256" python "$PYTHON" \
   python_version "$PYTHON_VERSION" price_table_sha256 "$PRICE_TABLE_SHA256" fixture_commit "$FIXTURE_COMMIT" \
@@ -423,11 +464,16 @@ def field(launch, name):
     return (launch / name).read_text().strip() if (launch / name).is_file() else None
 
 meta["launches"] = [{"launch": d.name, "bundle": field(d, "bundle"), "target": field(d, "target"),
-                     "standin": field(d, "standin") == "yes", "pid": int(field(d, "pid") or 0) or None,
-                     "refused": (d / "refused").exists()}
+                     "standin": field(d, "standin") == "yes", "proc": field(d, "proc"),
+                     "refused": (d / "refused").exists(), "gated": (d / "gated").exists()}
                     for d in sorted(Path(ledger).glob("launch-*"), key=lambda d: int(d.name.split("-")[1]))]
-terminated = Path(out).parent / "terminated.jsonl"
-meta["terminated"] = [json.loads(line) for line in terminated.read_text().splitlines()] if terminated.is_file() else []
+
+def rows_of(name):
+    path = Path(out).parent / name
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.is_file() else []
+
+meta["terminated"] = rows_of("terminated.jsonl")
+meta["sweep_left_alone"] = list({row["launch"]: row for row in rows_of("sweep-left-alone.jsonl")}.values())
 runs = sorted(Path(workspace, ".orchestrate", "runs").glob("*/memo.jsonl"))
 rows = [json.loads(line) for line in runs[0].read_text().splitlines() if line.endswith("}")] if runs else []
 meta["committed_after"] = [row["identity"] for row in rows if row["record"] == "committed"]

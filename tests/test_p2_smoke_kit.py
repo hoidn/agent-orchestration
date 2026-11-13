@@ -38,13 +38,24 @@ def _manifest(kit: Path, regenerate: bool = False) -> str:
     return hashlib.sha256((kit / "manifest.json").read_bytes()).hexdigest()
 
 
+def _head(checkout: Path) -> str | None:
+    found = subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=False)
+    return found.stdout.strip() if found.returncode == 0 else None
+
+
+RUNTIME_COMMIT = _head(REPO)
+
+
 def launch(tmp: Path, *, kit: Path = KIT, runtime: Path = REPO, rehearsal: bool = True, authorized: bool = False,
-           path: tuple = (), **extra: str | None) -> subprocess.CompletedProcess[str]:
-    """`run_smoke.sh RUNTIME <tmp>/results`; a rehearsal with the kit's stand-in unless `rehearsal=False`."""
+           path: tuple = (), claude_bin: Path | None = None, **extra: str | None) -> subprocess.CompletedProcess[str]:
+    """`run_smoke.sh RUNTIME <tmp>/results`; a rehearsal with the kit's stand-in unless `rehearsal=False`, with the
+    runtime's own HEAD as the ledger's runtime commit and `claude_bin` as P2SMOKE_CLAUDE_BIN."""
     (tmp / "home").mkdir(exist_ok=True)
     env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH" and not key.startswith("P2SMOKE_")}
     env.update(HOME=str(tmp / "home"), PATH=closed_path(*path), P2SMOKE_PYTHON=sys.executable,
-               P2SMOKE_MANIFEST_SHA256=_manifest(kit))
+               P2SMOKE_MANIFEST_SHA256=_manifest(kit), P2SMOKE_RUNTIME_COMMIT=_head(runtime) or "none")
+    if claude_bin is not None:
+        env["P2SMOKE_CLAUDE_BIN"] = str(claude_bin)
     if rehearsal:
         env["P2SMOKE_REHEARSAL_STANDINS"] = str(kit / "rehearsal")
     if authorized:
@@ -74,17 +85,19 @@ def nothing_launched(tmp: Path) -> bool:
         results / "rehearsal-ledger" / "smoke").exists()
 
 
-def readout(results: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+def readout(results: Path, *extra: str, commit: str | None = RUNTIME_COMMIT) -> subprocess.CompletedProcess[str]:
+    env = {key: value for key, value in os.environ.items() if not key.startswith("P2SMOKE_")}
+    env.update({"PATH": closed_path()}, **({"P2SMOKE_RUNTIME_COMMIT": commit} if commit else {}))
     return subprocess.run([sys.executable, "-B", str(KIT / "readout.py"), str(results), *extra], capture_output=True,
-                          text=True, timeout=120, check=False, env={**os.environ, "PATH": closed_path()})
+                          text=True, timeout=120, check=False, env=env)
 
 
 def _standin_bin(tmp: Path) -> Path:
-    """A closed-PATH directory whose `claude` is a copy of the stand-in (for paid-path refusals only)."""
+    """A copy of the stand-in outside the kit, as a paid run's CLI (for paid-path refusals only)."""
     bin_dir = tmp / "standin-bin"
     bin_dir.mkdir(exist_ok=True)
     shutil.copy2(KIT / "rehearsal" / "claude", bin_dir / "claude")
-    return bin_dir
+    return bin_dir / "claude"
 
 
 def _kit_copy(tmp: Path, edit, *, regenerate: bool) -> Path:
@@ -126,13 +139,16 @@ def _probe(tmp: Path, *edits: tuple[str, str]) -> Path:
 
 
 def _fake_cli(tmp: Path, version: str) -> Path:
-    """A closed-PATH directory whose `claude` prints `version` and logs anything else (no marker line)."""
+    """A `claude` that prints `version` and logs anything else (no marker line)."""
     bin_dir = tmp / "fake-cli"
     bin_dir.mkdir(exist_ok=True)
     (bin_dir / "claude").write_text(f'#!/bin/sh\n[ "$1" = --version ] && {{ echo "{version} (Claude Code)"; exit 0; }}\n'
                                     f'echo "$@" >> "{tmp}/fake-cli-ran"\n')
     (bin_dir / "claude").chmod(0o700)
-    return bin_dir
+    return bin_dir / "claude"
+
+
+FORGED_CLI = "/opt/claude/versions/" + PINNED_CLI   # a real CLI's path in forged records (never executed)
 
 
 def _forge_real(results: Path, source: Path) -> None:
@@ -141,9 +157,10 @@ def _forge_real(results: Path, source: Path) -> None:
     gives a verdict. The records are repointed at the copy, so edits to its attempts are what the readout reads."""
     for record in results.glob("smoke*/smoke.json"):
         meta = json.loads(record.read_text().replace(str(source), str(results)))
-        meta.update(rehearsal=False, claude_version=f"{PINNED_CLI} (Claude Code)")
+        meta.update(rehearsal=False, claude_version=f"{PINNED_CLI} (Claude Code)", claude_path=FORGED_CLI,
+                    runtime_dirty=False)           # a rehearsal may run on a dirty tree; a real run cannot
         for entry in meta["launches"]:
-            entry["standin"] = False
+            entry.update(standin=False, target=FORGED_CLI)
             stdout = Path(entry["bundle"]).parent / "stdout.txt"
             if stdout.exists():
                 stdout.write_text(stdout.read_text().replace('"claude_code_version": "0.0.0"',
@@ -175,7 +192,7 @@ def rehearsal(tmp_path_factory) -> Path:
 # --- refusals before anything is launched ---
 
 def test_paid_run_refuses_without_spend_authorization(tmp):
-    launched = launch(tmp, rehearsal=False, path=(_standin_bin(tmp),))
+    launched = launch(tmp, rehearsal=False, claude_bin=_standin_bin(tmp))
     assert refused(launched, "P2SMOKE_SPEND_AUTHORIZED") and nothing_launched(tmp), launched.stderr
 
 
@@ -224,19 +241,19 @@ def test_launcher_refuses_a_missing_runtime(tmp):
 
 def test_paid_run_refuses_a_runtime_with_uncommitted_changes(tmp):
     runtime = _runtime(tmp, lambda runtime: (runtime / "orchestrator" / "__init__.py").write_text("# changed\n"))
-    launched = launch(tmp, runtime=runtime, rehearsal=False, authorized=True, path=(_fake_cli(tmp, PINNED_CLI),))
-    assert refused(launched, "uncommitted changes under orchestrator/") and nothing_launched(tmp), launched.stderr
+    launched = launch(tmp, runtime=runtime, rehearsal=False, authorized=True, claude_bin=_fake_cli(tmp, PINNED_CLI))
+    assert refused(launched, "uncommitted changes (its tree must be clean)") and nothing_launched(tmp), launched.stderr
     assert not (tmp / "fake-cli-ran").exists()
 
 
 def test_paid_run_refuses_a_cli_other_than_the_pinned_version(tmp):
-    launched = launch(tmp, rehearsal=False, authorized=True, path=(_fake_cli(tmp, "2.1.322"),))
+    launched = launch(tmp, rehearsal=False, authorized=True, claude_bin=_fake_cli(tmp, "2.1.322"))
     assert refused(launched, f"not the pinned {PINNED_CLI}") and nothing_launched(tmp), launched.stderr
     assert not (tmp / "fake-cli-ran").exists()
 
 
 def test_paid_run_refuses_a_cli_that_is_a_rehearsal_stand_in(tmp):
-    launched = launch(tmp, rehearsal=False, authorized=True, path=(_standin_bin(tmp),))
+    launched = launch(tmp, rehearsal=False, authorized=True, claude_bin=_standin_bin(tmp))
     assert refused(launched, "is a rehearsal stand-in") and nothing_launched(tmp), launched.stderr
 
 
@@ -248,7 +265,7 @@ def test_launcher_refuses_inside_a_smoke(tmp):
 def test_paid_run_refuses_the_no_provider_stub(tmp):
     log = NO_PROVIDER.parent / "no-provider.log"
     existed = log.exists()
-    launched = launch(tmp, rehearsal=False, authorized=True, path=(NO_PROVIDER,))
+    launched = launch(tmp, rehearsal=False, authorized=True, claude_bin=NO_PROVIDER / "claude")
     assert refused(launched, "no-provider stub") and nothing_launched(tmp), launched.stderr
     assert log.exists() == existed                       # the stub was resolved, never run
 
@@ -264,7 +281,7 @@ def test_rehearsal_runs_only_a_marked_stand_in(tmp):
 
 def test_paid_run_refuses_a_used_slot(tmp):
     (tmp / "home" / ".local" / "state" / "p2smoke" / "smoke").mkdir(parents=True)
-    launched = launch(tmp, rehearsal=False, authorized=True, path=(_standin_bin(tmp),))
+    launched = launch(tmp, rehearsal=False, authorized=True, claude_bin=_standin_bin(tmp))
     assert refused(launched, "slot smoke is used") and calls(tmp) == [], launched.stderr
     assert not (tmp / "results" / "smoke").exists()
 
@@ -280,6 +297,7 @@ def _wrapper(tmp: Path, launches: dict[int, float | None]) -> subprocess.Complet
     (tmp / "cli").chmod(0o700)
     (bin_dir / "claude.target").write_text(f"{tmp / 'cli'}\n")
     (bin_dir / "ledger").write_text(f"{ledger}\n")
+    (tmp / "slot" / "gate").write_text("test\n")              # the gate is open for this invocation's phase
     for n, cost in launches.items():
         attempt = tmp / "run" / f"attempt-{n}"
         attempt.mkdir(parents=True)
@@ -289,7 +307,7 @@ def _wrapper(tmp: Path, launches: dict[int, float | None]) -> subprocess.Complet
             (attempt / "usage.json").write_text(json.dumps({
                 "status": "reported", "complete": True, "reported_cost_usd": cost, "source": "result.modelUsage",
                 "rows": [{"model": MODEL, "tokens": {"input": 10, "output": 10, "cache_read": 0, "cache_write": 0}}]}))
-    env = {"HOME": str(tmp), "PATH": closed_path(), "PYTHONPATH": str(REPO),
+    env = {"HOME": str(tmp), "PATH": closed_path(), "PYTHONPATH": str(REPO), "P2SMOKE_PHASE": "test",
            "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": str(tmp / "run" / "next" / "result.json")}
     return subprocess.run([str(bin_dir / "claude"), "-p", "--model", MODEL], env=env, capture_output=True, text=True,
                           timeout=60, check=False)
@@ -635,6 +653,183 @@ def test_a_call_in_flight_when_the_run_stops_is_terminated_and_recorded(tmp):
     assert not (tmp / "home" / ".claude" / "slept-beta").exists()
     found = json.loads(readout(tmp / "results").stdout)
     assert any("terminated" in problem for problem in found["infrastructure"]), found
+
+
+# --- re-review N1: a model's own failure is never retried ---
+
+INVALID_DELTA = ('bundle.write_text(json.dumps(answer))',
+                 'bundle.write_text("not json" if Path.cwd().name == "delta" else json.dumps(answer))')
+
+
+def test_n1_a_model_failure_beside_an_infrastructure_failure_gets_no_retry_and_reads_fail(tmp):
+    """The reviewer's case: on resume gamma hits an API error and delta returns an invalid result."""
+    probe = _probe(tmp, INVALID_DELTA)
+    (tmp / "home" / ".claude").mkdir(parents=True)
+    (tmp / "home" / ".claude" / "fail-gamma").touch()
+    assert launch(tmp, P2SMOKE_REHEARSAL_STANDINS=str(probe)).returncode == 0
+    checked = readout(tmp / "results", "--retry-check")
+    retry = launch(tmp, P2SMOKE_REHEARSAL_STANDINS=str(probe), P2SMOKE_INFRA_RETRY="gamma: API error")
+    assert checked.returncode == 4 and refused(retry, "not an infrastructure failure"), checked.stdout + retry.stderr
+    assert not (tmp / "results" / "smoke-retry").exists()
+    results = tmp / "copy"
+    shutil.copytree(tmp / "results", results, symlinks=True)
+    _forge_real(results, tmp / "results")
+    found = _verdict(results)
+    assert (found["verdict"], found["checks"]["no_model_failure"]) == ("fail", False), found
+
+
+# --- re-review N2 and m3: the CLI binary and the runtime commit are named, not looked up ---
+
+def test_paid_run_refuses_without_an_explicit_cli_binary(tmp):
+    launched = launch(tmp, rehearsal=False, authorized=True, path=(_fake_cli(tmp, PINNED_CLI).parent,))
+    assert refused(launched, "P2SMOKE_CLAUDE_BIN") and nothing_launched(tmp), launched.stderr
+
+
+@pytest.mark.parametrize("commit, gate", [(None, "set P2SMOKE_RUNTIME_COMMIT"), ("0" * 40, "not the ledger's")],
+                         ids=["absent", "another"])
+def test_launcher_refuses_a_runtime_other_than_the_ledgers_commit(tmp, commit, gate):
+    launched = launch(tmp, P2SMOKE_RUNTIME_COMMIT=commit)
+    assert refused(launched, gate) and nothing_launched(tmp), launched.stderr
+
+
+def test_the_record_names_the_executed_binary_and_its_hash(rehearsal):
+    meta = json.loads((rehearsal / "results" / "smoke" / "smoke.json").read_text())
+    standin = KIT / "rehearsal" / "claude"
+    assert (meta["claude_path"], meta["claude_sha256"]) == (str(standin), hashlib.sha256(standin.read_bytes()).hexdigest())
+    assert {entry["target"] for entry in meta["launches"]} == {str(standin)}
+
+
+@pytest.mark.parametrize("commit", [None, "0" * 40], ids=["absent", "another"])
+def test_readout_needs_the_ledgers_runtime_commit_for_a_verdict(real, commit):
+    shown = readout(real, commit=commit)
+    if commit is None:
+        assert shown.returncode == 2 and "P2SMOKE_RUNTIME_COMMIT" in shown.stderr, shown.stderr
+    else:
+        assert json.loads(shown.stdout)["verdict"] == "undetermined", shown.stdout
+
+
+def test_a_real_record_whose_binary_is_the_kits_stand_in_is_refused(real):
+    _edit_record(real, lambda meta: meta["launches"][0].update(target=str(KIT / "rehearsal" / "claude")))
+    shown = readout(real)
+    assert shown.returncode == 2 and "records disagree" in shown.stderr, shown.stderr
+
+
+# --- re-review 3 and 4: the sweep kills only the kit's calls, and misses none ---
+
+def _proc_start(pid: int) -> str:
+    return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+
+
+def test_the_sweep_leaves_alone_a_recorded_pid_whose_start_time_does_not_match(tmp):
+    """The reviewer's case: an unrelated session leader's pid in the ledger; its start time differs."""
+    other = subprocess.Popen(["sleep", "300"], start_new_session=True)
+    try:
+        record = tmp / "results" / "rehearsal-ledger" / "launch-7"
+        record.mkdir(parents=True)
+        (record / "proc").write_text(f"{other.pid} {int(_proc_start(other.pid)) + 1} {other.pid}\n")
+        probe = _probe(tmp, ("sys.stdin.read()\n", "sys.stdin.read()\nif Path.cwd().name == 'beta':\n"
+                                                    "    __import__('time').sleep(30)\n"))
+        (tmp / "home" / ".claude").mkdir(parents=True)
+        (tmp / "home" / ".claude" / "fail-alpha").touch()
+        assert launch(tmp, P2SMOKE_REHEARSAL_STANDINS=str(probe)).returncode == 0
+        meta = json.loads((tmp / "results" / "smoke" / "smoke.json").read_text())
+        assert other.poll() is None, "the sweep killed a process that is not the kit's"
+        assert "launch-7" in {entry["launch"] for entry in meta["sweep_left_alone"]}, meta["sweep_left_alone"]
+        assert "launch-7" not in {entry["launch"] for entry in meta["terminated"]}
+    finally:
+        other.kill()
+        other.wait()
+
+
+def _delayed_wrapper(where: str):
+    """A kit copy whose wrapper, for beta only, sleeps 6 s at `where` (before its slot claim, or after its record)."""
+    anchor = {"before_claim": 'ledger=$(cat "$here/ledger")\n', "after_record": '# 2b. the gate\n'}[where]
+
+    def edit(kit):
+        wrapper = kit / "smoke_claude.sh"
+        text = wrapper.read_text()
+        assert text.count(anchor) == 1, anchor
+        wrapper.write_text(text.replace(anchor, '[ "${PWD##*/}" != beta ] || sleep 6\n' + anchor))
+    return edit
+
+
+@pytest.mark.parametrize("where", ["before_claim", "after_record"])
+def test_a_call_starting_when_the_run_stops_never_reaches_the_cli(tmp, where):
+    """The reviewer's injected delay: alpha fails at once while beta's wrapper is slow to start."""
+    kit = _kit_copy(tmp, _delayed_wrapper(where), regenerate=True)
+    (tmp / "home" / ".claude").mkdir(parents=True)
+    (tmp / "home" / ".claude" / "fail-alpha").touch()
+    assert launch(tmp, kit=kit).returncode == 0
+    ledger = tmp / "results" / "rehearsal-ledger"
+    deadline = __import__("time").monotonic() + 60
+    while __import__("time").monotonic() < deadline and not all(
+            (launch / "done").exists() or (launch / "refused").exists() or (launch / "gated").exists()
+            or not _alive_record(launch) for launch in ledger.glob("launch-*")):
+        __import__("time").sleep(0.2)
+    __import__("time").sleep(7 if where == "before_claim" else 0)      # let a late claimant reach its gate
+    assert [Path(call["cwd"]).name for call in calls(tmp)] == ["alpha"], calls(tmp)
+    meta = json.loads((tmp / "results" / "smoke" / "smoke.json").read_text())
+    if where == "after_record":
+        assert [entry["launch"] for entry in meta["terminated"]], meta
+
+
+def _alive_record(launch: Path) -> bool:
+    try:
+        pid = int((launch / "proc").read_text().split()[0])
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError, IndexError):
+        return False
+
+
+# --- re-review m11: every guard has a test that fails without it ---
+
+def test_readout_fails_a_call_that_ran_outside_the_wrapper(real):
+    """Hand resume: the judge's attempt has output but no launch record."""
+    _edit_record(real, lambda meta: meta["launches"].pop())
+    found = _verdict(real)
+    assert (found["verdict"], found["checks"]["isolation"]) == ("fail", False), found
+    assert any("without a launch record" in problem for problem in found["isolation_problems"]), found
+
+
+def test_no_retry_when_an_isolation_problem_sits_beside_an_infrastructure_failure(real):
+    api_error = _launched_attempt(real, 0) / "stdout.txt"
+    api_error.write_text(api_error.read_text() + json.dumps(
+        {"type": "result", "is_error": True, "api_error_status": 529, "result": "API Error: overloaded"}) + "\n")
+    hooked = _launched_attempt(real, 1) / "stdout.txt"
+    hooked.write_text(hooked.read_text() + json.dumps({"type": "system", "subtype": "hook_started"}) + "\n")
+    _edit_record(real, lambda meta: meta.update(resume_exit=1))
+    checked = readout(real, "--retry-check")
+    shown = json.loads(checked.stdout)
+    assert (checked.returncode, bool(shown["infrastructure_failure"]), bool(shown["isolation"])) == (4, True, True), shown
+
+
+def test_readout_does_not_pass_a_run_on_a_dirty_runtime(real):
+    _edit_record(real, lambda meta: meta.update(runtime_dirty=True))
+    assert _verdict(real)["verdict"] == "undetermined"
+
+
+def test_paid_run_refuses_a_kit_that_is_not_the_runtimes_own(tmp):
+    launched = launch(tmp, runtime=_runtime(tmp), rehearsal=False, authorized=True,
+                      claude_bin=_fake_cli(tmp, PINNED_CLI))
+    assert refused(launched, "not the runtime's own experiments/p2_smoke") and nothing_launched(tmp), launched.stderr
+
+
+def test_launcher_refuses_a_program_copy_other_than_the_pinned_one(tmp):
+    def edit(kit):
+        edit_json = json.loads((kit / "criterion.json").read_text())
+        edit_json["program_sha256"] = "0" * 64
+        (kit / "criterion.json").write_text(json.dumps(edit_json))
+    launched = launch(tmp, kit=_kit_copy(tmp, edit, regenerate=True))
+    assert refused(launched, "program copy is not the pinned one") and nothing_launched(tmp), launched.stderr
+
+
+def test_readout_treats_a_launch_without_a_bundle_as_infrastructure(real, tmp, monkeypatch):
+    _edit_record(real, lambda meta: meta["launches"].append({"launch": "launch-6", "bundle": None, "target": FORGED_CLI,
+                                                              "standin": False, "refused": False}))
+    (tmp / "stdout.txt").write_text("")                    # a file the readout must not read from its cwd
+    found = _verdict(real)
+    assert found["verdict"] == "undetermined" and any("no attempt" in p for p in found["infrastructure"]), found
 
 
 # --- the frozen files ---

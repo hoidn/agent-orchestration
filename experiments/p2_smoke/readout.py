@@ -24,6 +24,7 @@ from collections import Counter
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import sys
 
@@ -33,7 +34,8 @@ INIT_KEYS = ("plugins", "mcp_servers", "skills", "slash_commands", "agents", "mo
              "claude_code_version")
 META_KEYS = ("slot", "rehearsal", "manifest_sha256", "run_id", "kill", "launches", "resume_exit", "report_exit",
              "native_sessions", "native_hook_traces", "claude_version", "fixture_commit", "runtime_dirty", "status",
-             "source_sha256", "price_table_sha256", "kit_in_runtime", "terminated")
+             "source_sha256", "price_table_sha256", "kit_in_runtime", "terminated", "claude_path", "claude_sha256",
+             "runtime_commit", "sweep_left_alone")
 JUDGE = " / selection"
 CODER = "par-map:repo["
 
@@ -165,12 +167,21 @@ def _meta(slot_dir: Path, manifest_sha256: str) -> dict | None:
     return meta
 
 
+def _standin(meta: dict) -> bool:
+    """Whether the slot executed the stand-in: a launch says so, the version says so, or a binary that is not
+    the recorded CLI, or that lies inside the kit, was executed."""
+    targets = {launch.get("target") for launch in meta["launches"] if launch.get("target")}
+    paths = targets | {meta["claude_path"]}
+    inside = any(str(path).startswith(str(KIT) + os.sep) for path in paths)
+    return any(launch.get("standin") for launch in meta["launches"]) or "stand-in" in str(meta["claude_version"]) \
+        or inside or bool(targets - {meta["claude_path"]})
+
+
 def rehearsal_of(metas: list[dict]) -> bool:
     """The records' rehearsal flag, refused unless it agrees with what the wrapper executed (a binary carrying
-    the stand-in marker) and with the CLI version the launcher recorded."""
+    the stand-in marker, the recorded CLI path, a path inside the kit) and with the CLI version recorded."""
     flags = {meta["rehearsal"] for meta in metas}
-    standin = any(launch.get("standin") for meta in metas for launch in meta["launches"]) or any(
-        "stand-in" in str(meta["claude_version"]) for meta in metas)
+    standin = any(_standin(meta) for meta in metas)
     if len(flags) != 1 or flags != {standin}:
         executed = "a rehearsal stand-in" if standin else "a real CLI"
         raise Refusal(f"the records disagree: rehearsal flags {sorted(flags)}, but the wrapper executed {executed}")
@@ -178,7 +189,14 @@ def rehearsal_of(metas: list[dict]) -> bool:
 
 
 def _launched(meta: dict) -> list[str]:
-    return [launch["bundle"] or "" for launch in meta["launches"] if not launch.get("refused")]
+    """Bundles of the launches that reached the CLI: not refused, not stopped at the gate, with an attempt."""
+    return [launch["bundle"] for launch in meta["launches"]
+            if launch.get("bundle") and not launch.get("refused") and not launch.get("gated")]
+
+
+def _unattached(meta: dict) -> list[str]:
+    """Launches with no attempt (no bundle): a CLI started outside an orchestrator attempt."""
+    return [f"a launch with no attempt: {launch.get('launch')}" for launch in meta["launches"] if not launch.get("bundle")]
 
 
 def _effect_attempt(bundle: str) -> tuple[str, int]:
@@ -259,6 +277,9 @@ def _pin_problems(first_dir: Path, meta: dict, criterion: dict, rehearsal: bool)
     problems += [] if meta["source_sha256"] == criterion["program_sha256"] == _sha256(copy) else [
         "the program copy is not the pinned one"]
     problems += [] if meta["price_table_sha256"] == criterion["price_table_sha256"] else ["the price table is not the pinned one"]
+    ledger_commit = os.environ.get("P2SMOKE_RUNTIME_COMMIT")
+    problems += [] if ledger_commit in (None, meta["runtime_commit"]) else [
+        f"runtime commit {meta['runtime_commit']}, not the ledger's {ledger_commit}"]
     if rehearsal:
         return problems
     problems += [] if str(meta["claude_version"]).split(" ")[0] == criterion["cli_version"] else [
@@ -313,6 +334,12 @@ def evaluate(root: Path, criterion: dict, manifest_sha256: str, *, first_only: b
                      known)
 
 
+def _stopped_launches(meta: dict) -> int:
+    """Launches with an attempt that stopped before the CLI (refused or gated): unknown in the report."""
+    return sum(bool(launch.get("bundle")) and bool(launch.get("refused") or launch.get("gated"))
+               for launch in meta["launches"])
+
+
 def _evaluate(first_dir: Path, first: dict, final_dir: Path, final: dict, replaced: set, criterion: dict,
               rehearsal: bool, known: set[str]) -> dict:
     rows, kill = _memo(first_dir, first), first["kill"] if isinstance(first["kill"], dict) else {}
@@ -325,11 +352,12 @@ def _evaluate(first_dir: Path, first: dict, final_dir: Path, final: dict, replac
     run_root = first_dir / "workspace" / ".orchestrate" / "runs" / str(first["run_id"])
     seen = {"rows": rows, "kill": kill, "launches": launches, "attempts": attempts, "report": report,
             "reported": reported, "sessions": sessions, "committed": committed, "replaced": replaced,
-            "outside": _outside_wrapper(run_root, known)}
+            "outside": _outside_wrapper(run_root, known), "stopped_launches": _stopped_launches(final)}
     isolation = isolation_problems(first_dir, final, seen)
     infra = slot_problems(first_dir, final_dir, final, criterion, rehearsal)
     infra += [p for bundle, a in attempts.items() if bundle not in replaced for p in a["infrastructure"]]
-    infra += [p for p in [kill_problem(kill, criterion)] if p]
+    infra += [p for p in [kill_problem(kill, criterion)] if p] + _unattached(final)
+    seen["model_failures"] = model_failures(rows, attempts)
     cost_usd, _ = _cost(report["run"], reported, criterion["spend"]["smoke_ceiling_usd"])
     facts = {"run_id": first["run_id"], "runtime_commit": first.get("runtime_commit"),
              "claude_version": final["claude_version"], "status": report["status"],
@@ -339,8 +367,28 @@ def _evaluate(first_dir: Path, first: dict, final_dir: Path, final: dict, replac
              "terminated_calls": final["terminated"], "replaced_attempts": sorted(replaced),
              "native_sessions": sessions, "cost_usd": cost_usd, "cli_reported_cost_usd": round(reported, 6),
              "run_usage": report["run"], "step_usage": report["steps"], "rehearsal": rehearsal}
+    facts["model_failures"] = seen["model_failures"]
     return {"present": True, "infrastructure": infra, "isolation_problems": isolation,
             "checks": checks(first_dir, final, seen, criterion, isolation), "facts": facts}
+
+
+def _effects_key(path: str) -> str:
+    return path[path.index("effects/"):] if "effects/" in path else path
+
+
+def model_failures(rows: list[dict], attempts: dict) -> list[str]:
+    """Failed rows whose launched attempt shows no infrastructure problem: the model's own failure (an invalid
+    result, a wrong path), a workflow outcome that is never retried."""
+    started = {(row.get("identity"), row.get("attempt")): row.get("result_path") for row in rows
+               if row.get("record") == "started"}
+    by_key = {_effects_key(bundle): found for bundle, found in attempts.items()}
+    failures = []
+    for row in rows:
+        result = started.get((row.get("identity"), row.get("attempt"))) if row.get("record") == "failed" else None
+        found = by_key.get(_effects_key(result)) if result else None
+        if found is not None and not found["infrastructure"]:
+            failures.append(f"{row.get('identity')} attempt {row.get('attempt')}: {row.get('code')}")
+    return failures
 
 
 def _completed(final: dict, seen: dict, criterion: dict) -> bool:
@@ -351,7 +399,8 @@ def _completed(final: dict, seen: dict, criterion: dict) -> bool:
 
 def _usage_recorded(seen: dict) -> bool:
     attempts, replaced = seen["attempts"], seen["replaced"]
-    unknown = len(seen["kill"].get("held", [])) + sum(not attempts[b]["has_usage"] for b in replaced if b in attempts)
+    unknown = len(seen["kill"].get("held", [])) + sum(not attempts[b]["has_usage"] for b in replaced if b in attempts) \
+        + seen["stopped_launches"]
     whole = all(attempts[bundle]["has_usage"] for bundle in seen["launches"] if bundle not in replaced)
     return whole and seen["report"]["run"].get("unknown_attempts") == unknown
 
@@ -373,13 +422,16 @@ def checks(first_dir: Path, final: dict, seen: dict, criterion: dict, isolation:
             "report_tokens": seen["report"]["report_tokens"],
             "cost_under_ceiling": _cost(seen["report"]["run"], seen["reported"], criterion["spend"]["smoke_ceiling_usd"])[1],
             "no_cost_stop": _no_cost_stop(first_dir, seen),
-            "isolation": not isolation}
+            "isolation": not isolation,
+            "no_model_failure": not seen["model_failures"]}
 
 
 def verdict(found: dict) -> tuple[str, list[str]]:
     """fail on an isolation problem whatever else holds; undetermined on infrastructure; else the checks."""
     if not found["checks"]["isolation"]:
         return "fail", ["isolation", *found["isolation_problems"]]
+    if not found["checks"]["no_model_failure"]:
+        return "fail", ["no_model_failure", *found["facts"]["model_failures"]]
     if found["infrastructure"]:
         return "undetermined", found["infrastructure"]
     failing = [name for name, held in found["checks"].items() if not held]
@@ -393,7 +445,7 @@ def retry_allowed(found: dict) -> bool:
         return False
     held = found["checks"]
     return bool(found["infrastructure"]) and held["stopped_mid_map"] and held["isolation"] and held["no_cost_stop"] \
-        and not held["completed"]
+        and held["no_model_failure"] and not held["completed"]
 
 
 def readout(root: Path, criterion_path: Path) -> tuple[dict, int]:
@@ -402,6 +454,8 @@ def readout(root: Path, criterion_path: Path) -> tuple[dict, int]:
         raise Refusal("the smoke has a retry, but its first attempt did not allow one")
     found = evaluate(root, criterion, manifest_sha256)
     rehearsal = found.get("facts", {}).get("rehearsal", False)
+    if not rehearsal and not os.environ.get("P2SMOKE_RUNTIME_COMMIT"):
+        raise Refusal("set P2SMOKE_RUNTIME_COMMIT to the runtime commit recorded in the plan's ledger")
     outcome, reasons = verdict(found) if found["present"] else ("undetermined", found["infrastructure"])
     shown = {"verdict": None if rehearsal else outcome, "reasons": reasons, "manifest_sha256": manifest_sha256,
              "rehearsal": rehearsal, "claims": criterion["claims"], "cannot_decide": criterion["cannot_decide"],

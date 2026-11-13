@@ -55,11 +55,17 @@ attempts made no call and are the report's two `unknown_attempts` (so
 `run.usage.partial` is true).
 
 When the run stops for any other reason (a failed item, the run's own exit,
-the 25-minute deadline) or the launcher exits, the launcher terminates every
-call the wrapper started that is still alive (the runtime starts each provider
-in its own session, so killing the run does not reach it), waits for it, and
-lists it under `terminated` in `smoke.json`; the readout counts such a call as
-an infrastructure failure whose launch slot is spent.
+the 25-minute deadline) or the launcher exits, the launcher closes the slot's
+gate, so a call still starting stops before its CLI, and terminates every call
+the wrapper recorded that is still alive (the runtime starts each provider in
+its own session, so killing the run does not reach it). Each call records its
+pid, start time and session at once after claiming its slot, before anything
+else, and only a process matching all three is terminated; a recorded pid
+that now belongs to another process is left alone and listed under
+`sweep_left_alone`. Terminated calls are listed under `terminated` in
+`smoke.json`; the readout counts such a call as an infrastructure failure
+whose launch slot is spent. Every step has a deadline: compile and report 5
+minutes, the run phase 25, a resume 30.
 
 ## Files
 
@@ -91,7 +97,10 @@ hooks, skills and MCP servers are not loaded; the
 [PQ-1c README](../pq1c/README.md#how-the-models-and-calls-are-bound) has the
 evidence) and refuses a `claude` started from inside the smoke. That
 evidence is from CLI 2.1.322; the kit pins 2.1.323 (`criterion.json`
-`cli_version`, the version now installed) and refuses another in a paid run.
+`cli_version`). The CLI updates itself, so a paid run never looks `claude` up
+on `PATH`: it names the versioned binary in `P2SMOKE_CLAUDE_BIN`, refuses one
+whose `--version` is not the pin, records its path and SHA-256 in
+`smoke.json`, and the wrapper executes exactly that path.
 What matters is re-verified on every call of every run: the readout's
 init-event, hook-trace, native-session and launch-record checks fail the
 smoke when any user-level setting, plugin, hook, agent or CLI outside the
@@ -117,7 +126,8 @@ with provider observation (tmux) off.
   the held attempts the kill left unmetered (`spend_cap_unmetered`,
   [CLI, "Spend cap"](../../specs/cli.md)), so the wrapper's limits above
   bound the resume's calls.
-- Planned: 5 calls. One retry by `resume` uses at most the 2 calls left.
+- Planned: 5 calls. One retry by `resume` makes at most 3 calls; the smoke
+  makes at most 7.
 - **Worst case: 7 calls and about USD 3.5** (USD 3 by the wrapper's figure,
   which is at or above real billing, plus the CLI's documented overshoot on at
   most two calls in flight, about USD 0.26 each for Haiku).
@@ -126,9 +136,9 @@ with provider observation (tmux) off.
 
 Known gaps, outside the kit's control:
 
-- An agent can run the real CLI by absolute path. Not prevented; detected
-  afterwards only when its session lands under the workspace's native-session
-  prefix.
+- An agent can run the real CLI by absolute path, or leave a child that
+  calls `setsid` and outlives its call. Not prevented; detected afterwards
+  only when its session lands under the workspace's native-session prefix.
 - **Never resume this run except through `run_smoke.sh`.** The runtime's
   messages suggest `orchestrator resume <run>`; from the operator's shell,
   `claude` is the real CLI with no wrapper, no flags and no count. Detected
@@ -136,10 +146,18 @@ Known gaps, outside the kit's control:
   sessions that differ from the launched attempts, fail the isolation check.
 - The agents run as the operator with bypassed permissions: the slot's `bin/`
   is made read-only, but an agent could still change it or the slot ledger.
-  Not prevented; a changed wrapper shows only as missing launch records or
-  init problems, not reliably.
-- A SIGKILL of `run_smoke.sh` itself skips its exit trap; calls in flight
-  then still end at their 600 s timeout and `--max-budget-usd`.
+  Replacing the wrapper leaves **up to three later calls with no dollar cap
+  and no count**, each stopped at its 600 s timeout (detected afterwards as
+  calls without launch records; a replacement that keeps the records but
+  drops `--max-budget-usd` is not detected). Deleting the ledger resets the
+  count and the figure: up to 7 calls at the per-call ceiling, **about
+  USD 5.3**.
+- A SIGKILL of `run_smoke.sh` itself skips its exit trap. The orchestrator
+  still enforces each call's 600 s timeout; if it is killed too (the whole
+  process tree), only `--max-budget-usd` bounds a call in flight.
+- An interrupt (Ctrl-C) during the resume lets the runtime drain its calls
+  and exit 1; the readout then reads `fail`. An interrupted run is a lost
+  tranche.
 - A real run writes session transcripts and CLI state to the operator's
   `~/.claude`, as any Claude session does; nothing from there is copied into
   the results.
@@ -147,23 +165,25 @@ Known gaps, outside the kit's control:
 ## Run it
 
 ```bash
-# A frozen runtime: a detached checkout of the main commit that holds this kit.
-git worktree add --detach ~/p2smoke-rt <commit>
-# P2SMOKE_MANIFEST_SHA256: the manifest digest recorded in the plan's ledger -- take it from the ledger,
-# never from the kit (sha256sum of the kit's own manifest.json proves nothing).
+# The runtime commit and the manifest digest come from the plan's ledger, never from the kit
+# (sha256sum of the kit's own manifest.json proves nothing).
+export P2SMOKE_RUNTIME_COMMIT=<the ledger's runtime commit>
 export P2SMOKE_MANIFEST_SHA256=<the ledger's manifest_sha256>
+# The pinned CLI, by its versioned path (check that it is still installed: it must print "2.1.323 (Claude Code)").
+export P2SMOKE_CLAUDE_BIN=/home/ollie/.local/share/claude/versions/2.1.323
+git worktree add --detach ~/p2smoke-rt "$P2SMOKE_RUNTIME_COMMIT"
 P2SMOKE_SPEND_AUTHORIZED=yes bash ~/p2smoke-rt/experiments/p2_smoke/run_smoke.sh ~/p2smoke-rt ~/p2smoke-results
-python ~/p2smoke-rt/experiments/p2_smoke/readout.py ~/p2smoke-results
+python ~/p2smoke-rt/experiments/p2_smoke/readout.py ~/p2smoke-results     # in place: never a moved copy
 ```
 
 Before anything is launched, `run_smoke.sh` refuses: from inside the smoke
 (nested); without the authorization; without the ledger's manifest digest, or
 with a kit file that differs from `manifest.json`; a binding other than
-`claude-haiku-5-5` on the metered template; a `claude` that is the blocking
-no-provider stub; a used slot; a CLI that is a rehearsal stand-in or is not
-the pinned version; a runtime with uncommitted changes under `orchestrator/`
-or in the source, a kit with uncommitted changes, or a kit that is not the
-runtime's own `experiments/p2_smoke`; a CLI other than the first slot's; a
+`claude-haiku-5-5` on the metered template; without `P2SMOKE_CLAUDE_BIN`, or a
+CLI that is the blocking no-provider stub, a rehearsal stand-in or not the
+pinned version; a used slot; without `P2SMOKE_RUNTIME_COMMIT`, or a runtime
+whose HEAD is not it or whose tree is not clean; a kit that is not the
+runtime's own `experiments/p2_smoke`, or has uncommitted changes; a CLI other than the first slot's; a
 price table or program copy other than the pinned ones; a run `PATH` where
 another directory holds a `claude` or `codex`; a program that does not
 compile. The slot ledger
@@ -180,19 +200,23 @@ version; runtime commit; kit hashes), `workspace/`, `bin/`,
 **The one retry.** When `readout.py --retry-check RESULTS_DIR` exits 0 (the
 first attempt did not complete, was killed as planned, has an infrastructure
 failure such as an API error, a CLI that did not start or answer, or version
-drift, and has no isolation problem and no spend stop), the same command with
+drift, on every item that failed, and has no model failure, no isolation
+problem and no spend stop), the same command with
 `P2SMOKE_INFRA_RETRY="<reason>"` resumes the same run once more into
 `RESULTS_DIR/smoke-retry/`, with the same CLI binary. The readout then uses
 the retry: an attempt counts as replaced only when the retry launched a later
 attempt of the same effect, and only a replaced attempt's infrastructure
-problems stop counting. Isolation problems are never erased. A first attempt
+problems stop counting. Isolation problems are never erased. A failure the
+model produced (an invalid result, a wrong path) is never retried, even beside
+an infrastructure failure on another item: the readout reads `fail`. A first attempt
 that completed, filed no `smoke.json`, or whose kill did not happen as
 planned, cannot be retried by resume: it needs a new tranche.
 
 ## Rehearse
 
 ```bash
-HOME=$(mktemp -d) P2SMOKE_MANIFEST_SHA256=<digest> P2SMOKE_REHEARSAL_STANDINS=experiments/p2_smoke/rehearsal \
+HOME=$(mktemp -d) P2SMOKE_MANIFEST_SHA256=<digest> P2SMOKE_RUNTIME_COMMIT=$(git rev-parse HEAD) \
+  P2SMOKE_REHEARSAL_STANDINS=experiments/p2_smoke/rehearsal \
   bash experiments/p2_smoke/run_smoke.sh "$PWD" /tmp/p2smoke-rehearsal
 python experiments/p2_smoke/readout.py /tmp/p2smoke-rehearsal     # exits 2: no verdict on a rehearsal
 ```
@@ -209,10 +233,12 @@ with `chmod -R u+w DIR && rm -rf DIR`.
 
 `readout.py` refuses (exit 2) a kit file that differs from the manifest, a
 slot that ran with another manifest, a retry the first attempt did not allow,
-records whose rehearsal flag disagrees with the binaries executed, and any
-rehearsal. Otherwise: `fail` when the isolation check does not hold, whatever
-else holds; `undetermined` when an infrastructure failure holds (the list is
-in `criterion.json`); `pass` when every check holds; `fail` naming the checks
-that do not. The readout also checks the recorded pins again: fixture,
-program copy (recorded and on disk), price table, and for a real run the CLI
-version, a clean runtime and the kit inside it.
+records whose rehearsal flag disagrees with the binaries executed, a real
+result read without `P2SMOKE_RUNTIME_COMMIT`, and any rehearsal. Otherwise:
+`fail` when the isolation check does not hold, or an item failed with no
+infrastructure problem (a model failure), whatever else holds; `undetermined`
+when an infrastructure failure holds (the list is in `criterion.json`); `pass`
+when every check holds; `fail` naming the checks that do not. The readout also
+checks the recorded pins again: fixture, program copy (recorded and on disk),
+price table, the runtime commit against `P2SMOKE_RUNTIME_COMMIT`, and for a
+real run the CLI version, a clean runtime and the kit inside it.
