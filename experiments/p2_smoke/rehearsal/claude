@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+# p2smoke-rehearsal-stand-in: makes no provider call
+"""The rehearsal's `claude`: answers the best-of-N calls the way a metered Claude call would, without a model.
+
+A coder (its cwd holds calc.py) fixes `add` and reports a `Change`; the judge (any other cwd) picks the first
+candidate under `candidates/` and writes its report under artifacts/review/. Each call writes its result to
+ORCHESTRATOR_OUTPUT_BUNDLE_PATH, keeps a one-line transcript where the CLI keeps a workspace's sessions
+(~/.claude/projects/<cwd, non-alphanumerics replaced by ->/<session>.jsonl), and prints stream-json transport:
+an init event shaped like a real isolated session's, one assistant message and a `result` with usage and cost.
+Every invocation is appended to ~/.claude/p2smoke-standin.log. When a file ~/.claude/fail-<cwd name> exists
+(fail-gamma, say), that call ends with an API error result instead and the file is removed: one failure.
+"""
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import uuid
+
+home = Path.home() / ".claude"
+home.mkdir(parents=True, exist_ok=True)
+with (home / "p2smoke-standin.log").open("a") as log:
+    log.write(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd(), "in_run": os.environ.get("P2SMOKE_IN_RUN")}) + "\n")
+if sys.argv[1:] == ["--version"]:
+    print("0.0.0 (p2smoke stand-in)")
+    sys.exit(0)
+sys.stdin.read()
+model = sys.argv[sys.argv.index("--model") + 1]
+session = str(uuid.uuid4())
+store = home / "projects" / re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())
+store.mkdir(parents=True, exist_ok=True)
+(store / f"{session}.jsonl").write_text(json.dumps({"type": "user", "sessionId": session}) + "\n")
+agents = ["claude", "Explore", "general-purpose", "Plan", "statusline-setup"]
+plugins = [{"name": "cc-plugin-agents-md", "path": "builtin", "source": "cc-plugin-agents-md@builtin"}]
+rows = [{"type": "system", "subtype": "init", "session_id": session, "model": model, "plugins": plugins,
+         "mcp_servers": [], "skills": [], "slash_commands": [], "agents": agents, "claude_code_version": "0.0.0"}]
+fail = home / f"fail-{Path.cwd().name}"
+if fail.exists():
+    fail.unlink()
+    rows.append({"type": "result", "subtype": "error_during_execution", "is_error": True, "api_error_status": 529,
+                 "result": "API Error: overloaded", "session_id": session})
+    print("".join(json.dumps(row) + "\n" for row in rows), end="")
+    sys.exit(1)
+bundle = Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
+if Path("calc.py").exists():
+    Path("calc.py").write_text("def add(a, b):\n    return a + b\n")
+    answer = {"summary": "add returns a + b.", "account": "Changed `-` to `+` in add; nothing else."}
+else:
+    repos = sorted(str(path) for path in Path.cwd().glob("candidates/*"))
+    Path("artifacts/review").mkdir(parents=True, exist_ok=True)
+    Path("artifacts/review/selection.md").write_text("# Selection\n\nAll candidates make the same change.\n")
+    answer = {"winner": repos[0], "ranking": [f"{repo}: 2 2 2 2" for repo in repos],
+              "report": "artifacts/review/selection.md"}
+bundle.write_text(json.dumps(answer))
+usage = {"input_tokens": 900, "output_tokens": 120, "cache_read_input_tokens": 3000, "cache_creation_input_tokens": 400}
+rows += [{"type": "assistant", "session_id": session, "message": {"id": "msg_0", "model": model,
+          "content": [{"type": "text", "text": "done"}], "usage": usage}},
+         {"type": "result", "subtype": "success", "is_error": False, "result": "done", "session_id": session,
+          "total_cost_usd": 0.0012, "modelUsage": {model: {
+              "inputTokens": 900, "outputTokens": 120, "cacheReadInputTokens": 3000,
+              "cacheCreationInputTokens": 400, "costUSD": 0.0012}}}]
+print("".join(json.dumps(row) + "\n" for row in rows), end="")
