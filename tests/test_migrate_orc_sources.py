@@ -393,6 +393,19 @@ def test_a_multiline_state_is_reindented_by_the_distance_it_moves(tmp_path: Path
         "(loop/recur ((s (record S\n                  :round 1)))\n  :max 4\n  (done s))\n")
 
 
+def test_a_multiline_state_split_over_literals_is_reindented_as_in_a_file(tmp_path: Path) -> None:
+    loop = "(loop/recur\n  :max 4\n  :state (record S\n           :round 1)\n  (fn (s) (done s)))\n"
+    path = _write(tmp_path / "fragment.orc", loop)
+    module = _write(tmp_path / "test_sample.py", _python_module(
+        "LOOP = (" + "\n        ".join(repr(line) for line in loop.splitlines(keepends=True)) + ")"))
+
+    _migrate(path, module)
+
+    namespace: dict[str, object] = {}
+    exec(module.read_text(encoding="utf-8"), namespace)
+    assert namespace["LOOP"] == path.read_text(encoding="utf-8")
+
+
 def test_a_loop_in_a_macro_template_is_compared_by_compiling(tmp_path: Path) -> None:
     source = _source("(grow 1)").replace(
         "  (defworkflow run",

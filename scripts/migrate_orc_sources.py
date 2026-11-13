@@ -205,15 +205,27 @@ class Unit:
         literal that holds `at` (a slice across literals may close a literal with another quote).
         """
         inside = [body for body in self.bodies if body[0] <= self.pos[start] and self.pos[end] <= body[1]]
-        if inside:
-            return self.slice(start, end)
+        return self.slice(start, end) if inside else self.encode(self.value[start:end], at)
+
+    def encode(self, text: str, at: int) -> str:
+        """Workflow Lisp `text` as source for the literal that holds value offset `at`."""
+        if not self.python:
+            return text
         _, _, prefix, quote = next(body for body in self.bodies if body[0] <= self.pos[at] <= body[1])
-        return _encode(self.value[start:end], prefix, quote)
+        return _encode(text, prefix, quote)
 
     def value_column(self, offset: int) -> int:
-        """The column of `value[offset]` in the Workflow Lisp text; the first line starts where the file puts it."""
+        """The column of `value[offset]` in the Workflow Lisp text.
+
+        When the text's line breaks are the file's (a `.orc` file, a triple-quoted literal), its first
+        line starts where the file puts it; when they are escapes (`"...\\n"` literals), at column 0.
+        """
         start = self.value.rfind("\n", 0, offset) + 1
-        return offset - start + (self.column(0) if start == 0 else 0)
+        return offset - start + (self.column(0) if start == 0 and self._file_lines() else 0)
+
+    def _file_lines(self) -> bool:
+        first = self.value.find("\n")
+        return first < 0 or self.src[self.pos[first]] == "\n"
 
     def line(self, offset: int) -> int:
         return self.line0 + self.src.count("\n", 0, self.pos[offset])
@@ -500,13 +512,12 @@ def _dedent_edits(unit: Unit, fn: ListExpr, body: object, lead: int) -> list[tup
 
 
 def _reindented(unit: Unit, node: object, column: int) -> str | None:
-    """The multi-line initial state, its later lines shifted by the distance it moves to `column`.
-
-    None when it is one line, spans literals, holds escapes or tabs, or would lose non-blank text.
+    """The multi-line initial state's Workflow Lisp text, its later lines shifted by the distance it
+    moves to `column`; None when it is one line, holds tabs, or would lose non-blank text.
     """
     text = unit.value[_start(node):_end(node)]
     shift = column - unit.value_column(_start(node))
-    if "\n" not in text or shift == 0 or unit.slice(_start(node), _end(node)) != text or "\t" in text:
+    if "\n" not in text or shift == 0 or "\t" in text:
         return None
     lines = text.split("\n")
     if shift < 0 and any(line.strip() and len(line) - len(line.lstrip(" ")) < -shift for line in lines[1:]):
@@ -528,7 +539,8 @@ def rewrite_loop(unit: Unit, node: ListExpr) -> bool:
     at = _end(head)
     name = unit.text(_start(params.items[0]), _end(params.items[0]), at)
     moved = _reindented(unit, value, unit.value_column(at) + len(" ((") + len(unit.value[_start(params.items[0]):_end(params.items[0])]) + 1)
-    binder = f" (({name} {moved if moved is not None else unit.text(_start(value), _end(value), at)}))"
+    state = unit.text(_start(value), _end(value), at) if moved is None else unit.encode(moved, at)
+    binder = f" (({name} {state}))"
     cut_start = max(_end(node.items[index - 1]), len(unit.value[:_start(key)].rstrip()))
     gap = unit.value[_end(params):_start(body)]
     lead = _end(params) + len(gap) - len(gap.lstrip())
