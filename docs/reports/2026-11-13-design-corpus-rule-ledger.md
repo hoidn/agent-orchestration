@@ -198,3 +198,28 @@ The two documents share their retained paragraph; rows 9.3 to 9.5 cover both.
 - `trial_runs` row 5.3: there are two copies of the direct control
   (`workflows/library/control/direct_task.orc` and `experiments/compare/control/direct_task.orc`);
   "canonical" now means the harness's one-line-difference test.
+
+## T5: Removed-Form Bodies Of The Frontend Specification
+
+Lane A, branch `docs/corpus-lane-a`. The bodies below moved to the
+[specification's history file](documentation-history/workflow_lisp_frontend_specification-history.md#removed-forms-moved-2026-11-13);
+every heading stayed in the specification with a one-line notice that names the removal and links
+the preserved text. Each body was read in full for sentences that still bind current code. The
+moved lines are identical apart from relative links (checked by comparing the removed and added
+lines of `git diff`). Specification: 4,800 lines before, 4,512 after (296 lines moved, 8 written).
+
+| # | Specification section | Rule as written | Owner | Owner's sentence | Check |
+| --- | --- | --- | --- | --- | --- |
+| T5.1 | §24 Produced Outcome | `produce-one-of` with a `provider` producer lowers to snapshot, selection and atomic commit steps | removed code | Spec §24 notice: "the head refuses with `form_retired` at every target" | `produce-one-of` and `provider` are keys of `RETIRED_FORMS` (`orchestrator/workflow_lisp/form_registry.py`); `form_retired` is a string literal in `orchestrator/workflow_lisp/definitions.py` |
+| T5.2 | Part VI projection diagram | Library forms project onto `repeat_until`, `materialize_view`, runtime-native resource transitions, certified adapters | removed code | Part VI status: the diagram is preserved in the history file | `materialize-view`, `resource-transition` in `RETIRED_FORMS` |
+| T5.3 | §26 `run-provider-phase` | Expected lowering; "It should not require manual state paths." | removed code | §26 notice | `run-provider-phase` in `RETIRED_FORMS` |
+| T5.4 | §28 `resume-or-start` | Validate prior state, reuse or run fresh, one return type | removed code | §28 notice | `resume-or-start` in `RETIRED_FORMS` |
+| T5.5 | §29, §29.1 `resource-transition` | Transition declarations; runtime-owned version checks and audit; "must not pretend to be more atomic than the substrate supports"; adapter certification list | removed code | §29 notice; §29.1: "Removed with `resource-transition`." | `resource-transition`, `defresource`, `deftransition` in `RETIRED_FORMS` |
+| T5.6 | §30 `finalize-selected-item` | Typed fan-in through a declared transition and a view | removed code | §30 notice | `finalize-selected-item` in `RETIRED_FORMS` |
+| T5.7 | §31 `backlog-drain` | Drain lowering; "must not hide selection, terminal routing, or resource mutation inside command scripts" | removed code | §31 notice | `backlog-drain` in `RETIRED_FORMS`; the general rule that macros and library forms hide no effect is owned by Part VII (see T4c) |
+| T5.8 | §86 `std/resource`, §87 `std/drain` | Module export lists | removed code | §86/§87: "importing `std/drain` fails with `module_not_found`, and the message names that tag" | `RETIRED_LIBRARY_MODULES` in `form_registry.py`, used in `orchestrator/workflow_lisp/modules.py`; probe `(import std/resource)` at 2.40: `[module_not_found] ... it was removed, and the last version with it is git tag archive/pre-one-target-2026-11-12` |
+| T5.9 | §107 Resource Transition Backend | "Any later admission must preserve declared inputs, outputs, effects, fixtures, path safety and source provenance"; atomicity claim bounded by the backend; the form is removed | [Final Design Center](../design/workflow_lisp_frontend_specification.md#final-design-center) | "Every added effect requires its own admission, authority and recovery evidence." | `resource-transition` in `RETIRED_FORMS` |
+
+Inbound links to the moved sections (`git grep` of `workflow_lisp_frontend_specification.md#` over
+the repository): `#31-backlog-drain` (rule ledger row 4.1, quoting the notice sentence that §31
+keeps). No other anchor of these sections is linked; all headings stay, so every anchor resolves.

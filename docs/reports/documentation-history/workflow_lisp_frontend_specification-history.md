@@ -1390,3 +1390,324 @@ The non-negotiable semantic rules are:
 
 That is the difference between a cosmetic Lisp frontend and a language that can
 actually improve composability, size, reusability, and modularity.
+
+## Removed Forms (Moved 2026-11-13)
+
+The bodies below were moved out of the specification by task T5 of the [design corpus consolidation plan](../../plans/2026-11-13-workflow-lisp-design-corpus-consolidation-plan.md). Each form they describe was removed on 2026-11-12 (git tag `archive/pre-one-target-2026-11-12`) and refuses with `form_retired`; the two library modules fail to import with `module_not_found`. The specification keeps each heading with a one-line notice.
+
+## 24. Produced Outcome
+
+Some producers create candidate files rather than a canonical structured bundle.
+For those, use a higher-level form:
+
+```lisp
+(produce-one-of ImplementationAttempt
+  :ctx ctx
+  :producer
+    (provider providers.execute
+      :prompt prompts.implementation.execute
+      :inputs (inputs.design inputs.plan))
+  :candidates
+    ((COMPLETED
+       (execution-report
+         :target inputs.execution-report-target
+         :schema Path.execution-report))
+
+     (BLOCKED
+       (progress-report
+         :target (phase-target ctx 'progress-report)
+         :schema Path.progress-report)
+       (blocker Blocker
+         :source structured-sidecar))))
+```
+
+But the preferred provider protocol should be structured `provider-result`.
+
+`produce-one-of` lowers to:
+
+- `pre_snapshot`
+- producer step
+- snapshot_diff evidence
+- `select_variant_output`
+- atomic bundle commit
+- variant-aware artifact registration
+
+This preserves the v2.14 rule that fresh selection uses content-hash evidence,
+not mtime-only checks.
+
+## Part VI. Standard Procedural Library
+
+```mermaid
+flowchart TB
+    subgraph AuthorForms["High-level authoring forms"]
+        ProviderPhase["run-provider-phase"]
+        ReviewLoop["review-revise-loop"]
+        ResumeStart["resume-or-start"]
+        ResourceTransition["resource-transition"]
+        Finalize["finalize-selected-item"]
+        Drain["backlog-drain"]
+    end
+
+    subgraph CoreSemantics["Lowered core semantics"]
+        ProviderResult["provider-result / command-result"]
+        PureProjection["pure_projection"]
+        MaterializeView["materialize_view"]
+        Repeat["repeat_until / loop"]
+        Match["match + variant proof"]
+        Call["workflow call"]
+        Adapter["certified command adapter compatibility"]
+        ResourceEffect["runtime-native resource_transition"]
+        Bundle["output_bundle / variant_output"]
+    end
+
+    ProviderPhase --> ProviderResult --> Bundle
+    ReviewLoop --> Repeat
+    ReviewLoop --> ProviderResult
+    ReviewLoop --> Match
+    ResumeStart --> Match
+    ResumeStart --> Call
+    ResourceTransition --> ResourceEffect
+    ResourceTransition -. compatibility .-> Adapter
+    Finalize --> Match
+    Finalize --> ResourceEffect
+    Finalize --> MaterializeView
+    Drain --> Repeat
+    Drain --> Call
+    Drain --> Match
+    Drain --> PureProjection
+    Drain --> MaterializeView
+```
+
+## 26. `run-provider-phase`
+
+High-level phase execution.
+
+```lisp
+(run-provider-phase implementation
+  :ctx ctx
+  :inputs inputs
+  :provider providers.execute
+  :prompt prompts.implementation.execute
+  :returns ImplementationAttempt)
+```
+
+Expected lowering:
+
+- derive phase state path
+- derive canonical bundle path
+- inject provider output contract
+- run provider
+- validate typed union
+- atomic commit
+- register typed artifact refs
+
+It should not require manual state paths.
+
+## 28. `resume-or-start`
+
+```lisp
+(resume-or-start plan-gate
+  :ctx ctx
+  :resume-from selected.final-plan-gate-state
+  :valid-when APPROVED
+
+  :start
+    (call plan/run
+      :ctx (phase-ctx ctx 'plan)
+      :selected selected
+      :roadmap roadmap
+      :providers providers.plan)
+
+  :returns PlanGateResult)
+```
+
+Meaning:
+
+- validate prior canonical state
+- if reusable, return typed resumed value
+- otherwise run fresh workflow/procedure
+- normalize both branches to same return type
+
+This replaces brittle recovery gates.
+
+## 29. `resource-transition`
+
+```lisp
+(resource-transition
+  :transition write-drain-status
+  :resource drain-run-state
+  :expect-version current-version
+  :request (record DrainStatusRequest
+    :status "BLOCKED"
+    :reason "runtime_native_fixture"
+    :summary_path summary-path))
+```
+
+Return type:
+
+```lisp
+(defrecord DrainStatusResult
+  (status String)
+  (summary_path WorkReportTarget))
+```
+
+The generalized authored surface is a declared `Transition<TRequest, TResult>`
+reference plus one concrete resource binding. The selected `deftransition`
+declaration owns:
+
+- request/result types;
+- preconditions;
+- update ops and write set;
+- idempotency fields;
+- result projection; and
+- audit projection.
+
+The runtime owns:
+
+- version checks;
+- precondition evaluation;
+- idempotent replay;
+- result validation;
+- append-only transition-audit rows; and
+- resume replay keyed on idempotency evidence.
+
+The legacy queue-move/resource-routing shape remains available as a
+compatibility/library route. It keeps the old `:from` / `:to` / `:ledger` /
+`:event` shape and lowers through the certified `apply_resource_transition`
+adapter only when an explicit compatibility contract selects that backend.
+
+### 29.1 Lowering Options
+
+`resource-transition` must not pretend to be more atomic than the substrate
+supports.
+
+Valid backends:
+
+- legacy certified command adapter + typed `output_bundle`
+- compiler-generated runtime-native `resource_transition` statement family
+- transaction-capable state operation
+
+If it lowers to a command adapter, the adapter must be:
+
+- registered
+- fixture-tested
+- contract-validated
+- source-mapped
+- effect-declared
+
+Repeated semantically critical transitions target the runtime-native backend on
+the WCC/schema-2 route. Certified adapters are migration backends, not the
+long-term target, for those transitions.
+
+If a transition needs stronger atomic file move, ledger, or multi-resource
+transactionality than the runtime-native backend provides, the authored surface
+must select a backend that actually provides those guarantees. It must not
+overclaim atomicity.
+
+## 30. `finalize-selected-item`
+
+```lisp
+(finalize-selected-item
+  :ctx ctx
+  :selected selected
+  :plan plan
+  :implementation implementation)
+```
+
+Meaning:
+
+- match typed phase results
+- record completed or blocked item result through a declared transition
+- update workflow-managed resources if needed
+- write structured selected-item outcome
+- materialize summary views from typed terminal state
+- return `SelectedItemResult`
+
+This replaces fan-in through multiple handwritten blocked/completed scripts.
+
+The authoring route is the imported `std/resource` definition. The semantic
+route is typed `match` plus runtime-native declared transition plus
+`materialize-view` summary rendering. Bare-form lowerers and command adapters
+for the same behavior are compatibility surfaces and are not part of the
+current stdlib contract.
+
+## 31. `backlog-drain`
+
+```lisp
+(backlog-drain neurips
+  :ctx ctx
+  :selector selector/run
+  :run-item selected-item/run
+  :gap-drafter gap/draft
+  :max-iterations max-iterations)
+```
+
+Return type:
+
+```lisp
+(defunion DrainResult
+  (EMPTY)
+
+  (BLOCKED
+    (stage FailedStage)
+    (reason String)
+    (summary MaterializedView[DrainSummary]))
+
+  (COMPLETED
+    (items-processed Int)
+    (summary MaterializedView[DrainSummary])))
+```
+
+Lowering:
+
+- `loop/recur` or `repeat_until`
+- selector workflow call
+- selected item workflow call
+- gap drafter workflow call
+- typed loop state accumulator
+- pure projections for routing and terminal values
+- runtime-native resource transitions for durable state changes
+- materialized views for reports and compatibility outputs
+- terminal typed result
+
+This is the high-level construct that should materially shrink top-level
+backlog-drain authoring.
+
+The authoring route is the imported `std/drain` definition. Lowering must expose
+the generated calls, transitions, projections, views, source maps, and Semantic
+IR effects; it must not hide selection, terminal routing, or resource mutation
+inside command scripts.
+
+## 86. `std/resource`
+
+- `resource-transition`
+- `resource-location`
+- `queue`
+- `ledger-event`
+- imported stdlib module for declared transitions and selected-item finalization
+- owns `finalize-selected-item` as typed match/projection plus transition/view
+  composition
+
+## 87. `std/drain`
+
+- `backlog-drain`
+- `SelectionResult`
+- `DrainResult`
+- `GapResult`
+- imported stdlib module for drain/backlog orchestration
+- owns `backlog-drain` as ordinary imported `.orc` composition over typed
+  selector results, loop state, workflow calls, transitions, projections, and
+  materialized views
+
+## 107. Resource Transition Backend
+
+The historical WCC/schema-2 route used a runtime-native declared transition
+backend with certified adapters as explicit compatibility implementations. Neither
+that history nor the library import admits a resource-transition effect to the
+current evaluated route. Any later admission must preserve declared inputs,
+outputs, effects, fixtures, path safety and source provenance.
+
+A transition must not claim stronger atomicity than its backend provides. The
+runtime-native file-backed backend may provide single-resource atomic commit and
+fail-closed multi-resource sequencing with audit evidence; stronger
+transactionality requires a backend that actually supports it.
