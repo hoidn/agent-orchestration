@@ -77,6 +77,11 @@ assigns effect sites and validates the program without source access; and
 [executor-retirement closeout](../../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
 records accepted deletion and retained shared services.
 
+Two rules hold across the package:
+
+- Mutable compile state lives in the `CompilerSession` each compile creates (`compiler_session.py`), never at module level, because the REPL and the language server compile repeatedly in one process; the one module-level cache, `normalized_type_descriptor._cached_module_export_info`, is keyed by a source file's digest and holds immutable results.
+- Generic traversal of authored expressions is `expression_traversal.iter_child_exprs` (with `walk_expr` and `map_expr` built on it), which raises `TypeError` on a node type it does not list, so a new `ExprNode` variant is added there before any pass uses it.
+
 Use [../../docs/workflow_lisp_route_readiness_registry.json](../../docs/workflow_lisp_route_readiness_registry.json)
 and `route_readiness.py` when deciding whether an example, fixture, or
 migration target is `evaluated_execution` closed-program evidence or

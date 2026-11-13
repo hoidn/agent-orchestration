@@ -1,4 +1,4 @@
-(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule prov) (export run)
   (defrecord Review (ok Bool))
   (defworkflow run ((n Int :default 0)) -> Int
