@@ -704,6 +704,120 @@ primitives. Domain-specific forms belong in modules or macro libraries.
 
 ## Part I. Language Surface
 
+## Form Index
+
+Every head the compiler knows at target 2.40, with the section that defines it. Forms removed from
+the language follow in [Removed forms](#removed-forms).
+`tests/test_workflow_lisp_reference_coverage.py` fails when a registered or removed head has no
+entry here or in a heading.
+
+| Head | Meaning | Defined in |
+| --- | --- | --- |
+| `workflow-lisp` | The file wrapper: header clauses, then the module's forms | [§4](#4-file-format-and-module-form) |
+| `defmodule` | Names the module; the name follows the file's path | [§4](#4-file-format-and-module-form) |
+| `import` | Makes another module's exports visible, whole, aliased or selected | [§4.2](#42-import-forms) |
+| `export` | Names the definitions importing modules may see | [§4.3](#43-export-forms) |
+| `defschema` | A reusable field schema | [§8.1](#81-defschema) |
+| `defpath` | A path type: kind, root, existence | [§8.2](#82-defpath) |
+| `defenum` | A scalar enum type | [§8.3](#83-defenum) |
+| `defrecord` | A record (product) type | [§8.4](#84-defrecord) |
+| `defunion` | A tagged union type, generic with `:forall` | [§8.5](#85-defunion) |
+| `defun` | A pure helper function | [§8.6](#86-defun) |
+| `defmacro` | A compile-time syntax transformation | [§8.7](#87-defmacro) |
+| `defprompt` | A typed prompt fragment | [§8.7.1](#871-defprompt-target-220) |
+| `defproc` | A reusable effectful procedure | [§8.8](#88-defproc) |
+| `defworkflow` | A public, callable workflow boundary | [§8.9](#89-defworkflow) |
+| `record` | Constructs a record value | [§7.4](#74-records) |
+| `variant` | Constructs one variant of a union | [§8.5](#85-defunion) |
+| `let*` | Sequential bindings | [§10](#10-sequential-binding-let) |
+| `match` | Branches on a union's variant; each arm's binder sees that variant's fields | [§11](#11-pattern-matching) |
+| `if` | Two-way branch on an exact `Bool` | [§12](#12-conditionals) |
+| `cond` | Ordered clauses on exact `Bool` conditions | [§12.1](#121-cond) |
+| `loop/recur` | A bounded loop over typed state | [§13.1](#131-bounded-loop) |
+| `fn` | The loop body function of `loop/recur` | [§13.1](#131-bounded-loop) |
+| `continue` | Ends a loop iteration with the next state | [§13.1](#131-bounded-loop) |
+| `done` | Ends a loop with its result | [§13.1](#131-bounded-loop) |
+| `loop-state` | A typed record of loop state, built or copied with overrides | [§13.2](#132-loop-state) |
+| `call` | Calls a workflow | [§14](#14-workflow-calls) |
+| `workflow-ref` | A compile-time reference to a workflow | [§15](#15-higher-order-workflow-parameters) |
+| `proc-ref` | A compile-time reference to a procedure | [§7.8](#78-procedure-references) |
+| `bind-proc` | Binds some arguments of a procedure reference | [§7.8](#78-procedure-references) |
+| `let-proc` | Local procedures with captures | [§7.8](#78-procedure-references) |
+| `=` | Equality on `String`, `Int`, `Bool`, `Symbol`, same-type enums | [§10.2](#102-closed-pure-expression-surface) |
+| `!=` | Inequality, same operands as `=` | [§10.2](#102-closed-pure-expression-surface) |
+| `<` | Less than, `Int` or `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `<=` | Less than or equal, `Int` or `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `>` | Greater than, `Int` or `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `>=` | Greater than or equal, `Int` or `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `and` | Boolean and | [§10.2](#102-closed-pure-expression-surface) |
+| `or` | Boolean or | [§10.2](#102-closed-pure-expression-surface) |
+| `not` | Boolean negation | [§10.2](#102-closed-pure-expression-surface) |
+| `+` | Sum, all `Int` or all `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `-` | Difference of two, `Int` or `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `*` | Product, all `Int` or all `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `/` | Float division | [§10.2](#102-closed-pure-expression-surface) |
+| `min` | Least operand, all `Int` or all `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `max` | Greatest operand, all `Int` or all `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `int/div` | Integer division | [§10.2](#102-closed-pure-expression-surface) |
+| `int/mod` | Integer remainder | [§10.2](#102-closed-pure-expression-surface) |
+| `float/abs` | Absolute value of a `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `float/sqrt` | Square root of a `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `float/log` | Natural logarithm of a `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `int/to-float` | `Int` to `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `float/floor` | `Float` to `Int`, rounding down | [§10.2](#102-closed-pure-expression-surface) |
+| `float/round` | `Float` to `Int`, halves to even | [§10.2](#102-closed-pure-expression-surface) |
+| `string/concat` | Joins strings | [§10.2](#102-closed-pure-expression-surface) |
+| `string/empty?` | Whether a string is empty | [§10.2](#102-closed-pure-expression-surface) |
+| `symbol/name` | A symbol's name as a `String` | [§10.2](#102-closed-pure-expression-surface) |
+| `some?` | Whether an `Optional` holds a value | [§10.2](#102-closed-pure-expression-surface) |
+| `or-else` | An `Optional`'s value, or a typed fallback | [§10.2](#102-closed-pure-expression-surface) |
+| `record-update` | A copy of a record with some fields replaced | [§10.2](#102-closed-pure-expression-surface) |
+| `list/empty?` | Whether a list is empty | [§10.2](#102-closed-pure-expression-surface) |
+| `list/head` | A list's first element as an `Optional` | [§10.2](#102-closed-pure-expression-surface) |
+| `list/rest` | A list without its first element | [§10.2](#102-closed-pure-expression-surface) |
+| `list/append` | A list with one element added at the end | [§10.2](#102-closed-pure-expression-surface) |
+| `list/length` | A list's length | [§10.2](#102-closed-pure-expression-surface) |
+| `print` | Writes a value to stdout and returns it | [§10.2](#102-closed-pure-expression-surface) |
+| `list` | Constructs a `List[T]` | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/map` | Maps a pure body over a list | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/map-effect` | Maps one effectful call over a list, at most `:max` elements | [§10.3](#103-target-218-bounded-list-traversal) |
+| `path/join-under` | A path of a named rooted path type | [§10.3](#103-target-218-bounded-list-traversal) |
+| `provider-result` | A provider step with a typed result | [§22](#22-provider-result) |
+| `provider-bundle-path` | The path of a provider result's committed bundle | [§22](#22-provider-result) |
+| `command-result` | A command step with a typed result | [§23](#23-command-result) |
+| `request-input` | Durable input from the host; its `HostReply` type comes from `(import std/host :only (HostReply))` | [Durable host input](workflow_lisp_durable_host_input.md) |
+| `run-ref` | A pinned child run | [Run references](workflow_lisp_run_ref_expression_environments.md) |
+| `agent` | A run-local agent session | [Agent sessions](workflow_lisp_agent_sessions.md) |
+| `with-live-providers` | Live provider supervision; the build refuses it (`closed_program_gap`) | [Providers](../../specs/providers.md) |
+| `with-live-provider-peers` | Provider peer groups; the build refuses it (`closed_program_gap`) | [Providers](../../specs/providers.md) |
+| `review-revise-loop` | The library review and revise loop (`std/phase`) | [§27](#27-review-revise-loop) |
+| `with-phase` | The phase scope; only through `(import std/phase)` | [§21](#21-phase-context) |
+| `phase-target` | A phase-owned output path; only inside `with-phase` | [§6](#target-239-source-admission) |
+| `__with-phase__` | Private expansion form of `std/phase`; refused when written by hand | [§6](#target-239-source-admission) |
+| `__generated-relpath-seed__` | Private expansion form of the library; refused when written by hand | [§6](#target-239-source-admission) |
+
+### Removed forms
+
+These heads refuse with `form_retired` at every target. The message names the git tag of the last
+version that had the form.
+
+| Head | What it was | Tag | What replaces it |
+| --- | --- | --- | --- |
+| `trial` | Blinded trials | `archive/dead-executors-2026-11-11` | Nothing in the language; a pinned child run is `run-ref` |
+| `defresource` | Resource declarations | `archive/pre-one-target-2026-11-12` | Nothing |
+| `deftransition` | Resource transition declarations | `archive/pre-one-target-2026-11-12` | Nothing |
+| `resource-transition` | Resource transitions | `archive/pre-one-target-2026-11-12` | Nothing |
+| `materialize-view` | Materialized value views | `archive/pre-one-target-2026-11-12` | Nothing; the typed value is the authority |
+| `finalize-selected-item` | Selected-item fan-in | `archive/pre-one-target-2026-11-12` | Nothing |
+| `backlog-drain` | The `std/drain` backlog drain | `archive/pre-one-target-2026-11-12` | The [verified-iteration drain](verified_iteration_drain.md) |
+| `resume-or-start` | Reusable phase state | `archive/pre-one-target-2026-11-12` | Nothing; a run resumes with `orchestrator resume` |
+| `run-provider-phase` | Provider phases | `archive/pre-one-target-2026-11-12` | `provider-result` |
+| `produce-one-of` | Produced-outcome selection | `archive/pre-one-target-2026-11-12` | `provider-result` returning a union |
+| `provider` | The producer section of `produce-one-of` | `archive/pre-one-target-2026-11-12` | `provider-result` |
+
+The library modules `std/drain` and `std/resource` went with them: importing either refuses with
+`module_not_found`.
+
 ## 4. File Format And Module Form
 
 Recommended file extension:
@@ -712,7 +826,7 @@ Recommended file extension:
 .orc
 ```
 
-Every source file uses the admitted workflow wrapper and a module declaration:
+Every source file uses the workflow wrapper, and every module but an entry file declares its name:
 
 ```lisp
 (workflow-lisp
@@ -723,6 +837,16 @@ Every source file uses the admitted workflow wrapper and a module declaration:
   (defworkflow run () -> Int
     1))
 ```
+
+`workflow-lisp` is the one top-level form of a file: its `(:language ...)` and `(:target-dsl ...)`
+header clauses are required, an unknown language version is refused, and a target whose
+execution is retired is refused. Diagnostics: `frontend_parse_error`,
+`language_version_unsupported`, `workflow_execution_target_retired`.
+
+A module declared `(defmodule a/b)` (or `a.b`) is the file `a/b.orc` under one of its source
+roots; otherwise compilation refuses. Only an entry file without `defmodule` is exempt, and such a
+file may not `import` or `export`; an imported module always declares one. Diagnostics:
+`module_path_mismatch`, `module_declaration_missing`.
 
 ### 4.1 Module Responsibilities
 
@@ -889,8 +1013,8 @@ Symbol
 and recursively valid string-keyed objects. It is distinct from the
 non-transportable internal `Json` type and from concrete records and unions,
 whose declared fields and variants remain part of their contracts. `Value` is
-reserved against local or imported shadowing, but authored occurrences require
-target DSL 2.19 or later.
+a prelude type at every admitted source target, reserved against local or
+imported shadowing. Diagnostics: `prelude_type_name_reserved`.
 
 Source compatibility is exact. `Value` flows only to `Value`; no narrower
 scalar, enum, path, record, union, optional, list, or map value is implicitly
@@ -898,14 +1022,23 @@ widened to `Value`, and `Value` is never implicitly narrowed to one of those
 types. It grants no field, variant, numeric, path, collection, or control-flow
 operations. Authors may use exact `Value` in function, procedure, workflow,
 provider-result, command-result, and workflow-call parameters or returns; in
-record/union payload fields; and under `Optional[Value]`, `List[Value]`, or
-`Map[String, Value]` where the surrounding transportable position is supported.
+record/union payload fields; as a provider prompt input; and under
+`Optional[Value]`, `List[Value]`, or `Map[String, Value]` where the surrounding
+transportable position is supported.
 
 ```text
 Value -> Value  accepted
 T -> Value      rejected for every narrower T
 Value -> T      rejected for every narrower T
 ```
+
+A narrower value where `Value` is declared, or a `Value` where a narrower type
+is declared, is refused. There is no cast, decoder, field projection or dynamic
+type test from `Value`: a field read, a `Bool` condition or an operator on a
+`Value` is refused by that form's own check, and `Value` satisfies no structural
+constraint such as `is-record`. Diagnostics: `type_mismatch`,
+`return_type_mismatch`, `record_field_unknown`, `if_condition_not_bool`,
+`pure_expr_operand_type_mismatch`, `parametric_constraint_unsatisfied`.
 
 A direct `Value` result lowers to a sole compiler-owned `output_bundle` field:
 
@@ -916,14 +1049,17 @@ type: value
 ```
 
 The producer writes the JSON value at the document root. There is no authored
-or hidden `{"value": ...}` envelope. A public workflow boundary uses
-`kind: value` with `type: value`; the classification remains opaque and never
-changes with an observed payload shape.
+or hidden `{"value": ...}` envelope; state and debug projections may show the
+`__result__` name, while source sees only `Value`. A public workflow boundary
+uses `kind: value` with `type: value`; the classification remains opaque and
+never changes with an observed payload shape.
 
-The shared validator preserves the recursively validated value. File-backed
-malformed JSON and non-standard non-finite constants fail with the existing
-`invalid_json_document` contract; in-memory non-finite numbers, non-string
-object keys, cycles, or other non-JSON leaves fail as
+The shared validator returns the recursively validated value without coercion:
+booleans stay booleans, integers stay integers, and lists and objects keep
+their order and keys. Malformed JSON fails with `invalid_json_document`; a
+non-finite number anywhere in the value, written as a non-standard constant or
+too large for a double, fails with `float_not_finite` and its value path; in-memory non-finite numbers,
+non-string object keys, cycles, or other non-JSON leaves fail as
 `invalid_transportable_value`, reporting the first invalid RFC 6901 value
 path. JSON `null` is a present valid value, not a missing bundle or pointer.
 
@@ -935,8 +1071,10 @@ shape. Resume validates the same declared contract as the original boundary;
 it neither reparses the payload into a narrower type nor re-executes an already
 committed compatible provider boundary.
 
-`(result Value ...)` may carry `:description` and `:format-hint` for provider
-contract guidance. `:example` is rejected with
+The provider contract describes a `Value` result as one JSON value at the
+document root and names no fields. `(result Value ...)` may carry
+`:description` and `:format-hint` for provider contract guidance. `:example`
+is rejected with
 `value_guidance_example_unsupported` because target 2.19 has no checked source
 constructor that erases a narrower literal to exact `Value`. Guidance does not
 narrow validation or change state, checkpoint, or resume behavior.
@@ -1031,6 +1169,10 @@ Records map to:
 - workflow input groups
 - semantic IR product types
 
+`(record Type :field value ...)` constructs a record value: every declared field is given once,
+with a value of the field's type. Diagnostics: `record_field_unknown`, `record_field_missing`,
+`record_field_duplicate`, `type_mismatch`.
+
 ### 7.5 Unions
 
 ```lisp
@@ -1080,23 +1222,19 @@ code or structured runtime inputs. They target named `defworkflow` boundaries,
 resolve before WCC and Core AST projection, and are erased before executable IR
 and runtime state.
 
-They are used for higher-order orchestration such as:
-
-```lisp
-(backlog-drain
-  :selector selector/run
-  :run-item selected-item/run
-  :gap-drafter gap/draft)
-```
-
-The compiler checks signatures before lowering.
+They are passed to a `defproc` formal of a `WorkflowRef[...]` type, which calls
+the workflow (§15). The compiler checks signatures before lowering, and a
+`WorkflowRef` return type must be a record or union.
 
 Use `WorkflowRef` only when whole-workflow identity is part of static
-orchestration. Use `ProcRef` for normal internal reusable behavior.
-Compile-time formal WorkflowRef/ProcRef parameters are supported and erased;
-neither reference type may become a runtime-bound public workflow input
-contract or cross outputs, records, unions, artifacts, provider or command
-results, ledgers, or loop-carried runtime state.
+orchestration. Use `ProcRef` for normal internal reusable behavior. A
+`WorkflowRef` formal of a `defproc` and a `ProcRef` formal are compile-time
+parameters, erased before runtime; neither reference type may become a
+runtime-bound public workflow input contract or cross outputs, records, unions,
+artifacts, provider or command results, ledgers, or loop-carried runtime state.
+A `defworkflow` with a `WorkflowRef` formal is refused with `compiler_defect`
+when it is the entry or is called, so a workflow reference is passed only to a
+`defproc`.
 
 ### 7.8 Procedure References
 
@@ -1334,8 +1472,35 @@ evaluation through hygienic lexical bindings. Bindings inside short-circuit
 operands remain inside those operands. Final strict checking also covers
 uncalled functions and generic bases.
 
-The shared pure-expression schema 3 represents ordered lexical `let` bindings;
-there is no runtime procedure interpreter. Call/definition/specialization
+Admission is structural, after resolution and specialization: a helper's name,
+module or authored `:effects ()` never admits a call. An effectful callee in a
+function body is refused with `pure_function_has_effect`, whose notes name the
+helper's call site and definition, and in a `list/map` body with
+`list_map_body_effect_forbidden`, which names the position; neither names the
+effect. An authored `:effects ()` that the inferred effects exceed is refused
+with `procedure_effect_ceiling_exceeded`, which names them. A call whose
+resolved body does not reduce to an effect-free inline pure expression, such as
+a procedure of a 2.35 to 2.38 module with `:lowering private-workflow`, is refused as unrepresentable rather than as an
+effect; from 2.39 an authored `:lowering` is itself refused. A recursive pure
+helper is refused, also when the cycle passes through a procedure it calls.
+Diagnostics: `pure_function_has_effect`, `list_map_body_effect_forbidden`,
+`procedure_effect_ceiling_exceeded`, `pure_call_representation_unsupported`,
+`proc_lowering_annotation_invalid`, `function_cycle`, `proc_lowering_cycle`.
+
+Each actual argument is evaluated once, in source order and in the caller's
+scope, before the callee's formals are bound, also when the formal is unused, so
+an unused argument's failure still fails the call. Work inside an untaken `if`
+branch, a skipped `and`/`or` operand or an empty `list/map` body is not
+evaluated; a `list/map` evaluates its body once per element in input order. A
+selected hook is expanded under its own specialization and defining module; a
+caller's procedure of the same name never captures it. The call's work belongs
+to the enclosing workflow; no helper result is stored.
+
+The shared pure-expression schema 3 represents ordered lexical `let` bindings:
+each initializer sees the earlier bindings, an inner scope may shadow an outer
+name, a duplicate name in one binding list is refused, no binding escapes its
+body, and payload schemas 1 and 2 refuse `let`. There is no runtime procedure
+interpreter. Call/definition/specialization
 provenance and deterministic compilation are retained. Effectful calls, private
 execution frames, unresolved runtime-selected callables, and bodies outside the
 supported pure-expression representation are not admitted by this rule. Existing
@@ -1691,26 +1856,37 @@ explicitly supports parallelism.
 
 ### 10.2 Closed Pure-Expression Surface
 
-Workflow Lisp now accepts a closed, effect-free pure-expression surface that is
-shared by compile-time folding and runtime projection execution. The runtime
-evaluator owns the semantics; the frontend typechecks and lowers into that
-shared payload rather than maintaining a separate evaluator.
+Workflow Lisp accepts a closed, effect-free pure-expression surface shared by
+compile-time folding and run-time evaluation. The evaluator of
+`orchestrator/workflow/pure_expr.py` owns the semantics; the frontend typechecks
+into its payload rather than maintaining a separate evaluator. The closed
+program carries checked pure value nodes, which the evaluated runtime evaluates
+in lexical scope; a pure region writes no generated step or result bundle.
+Literal-only trees fold away at compile time through the same evaluator.
 
-Maximal runtime-visible pure regions lower through WCC/schema 2 into one
-generated `pure_projection` step with a validated payload, typed binding refs,
-payload digest, and a private managed result bundle. Literal-only trees may
-still fold away entirely at compile time through the same evaluator.
+A decimal literal (`1.5`, `-0.25`, `.5`, `2e-3`, `1.0E6`) is an expression
+wherever an expression is admitted. There is no literal for infinity or for a
+value that is not a number, and a literal that does not fit a finite double is
+refused when the module is read. Diagnostics: `float_literal_not_finite`.
+
+Each operator's name, operand types, result type and evaluation are defined
+once, in the catalog of `orchestrator/workflow/pure_expr.py`, which the
+typechecker, the compiler and the runtime read. A refusal names the operator
+and prints its operands. An application whose operands are all literals is
+evaluated when the program is compiled, so its refusal is a compile error that
+points at the failing application, also when it is nested; a refusal at run time
+carries no source location.
 
 Supported operators are exact and closed:
 
 | Group | Operators | Allowed operand/result shapes | Notes |
 | --- | --- | --- | --- |
-| Equality | `=`, `!=` | `String`, `Int`, `Bool`, `Symbol`, same-type enums | No float equality, deep union equality, or deep record equality. |
+| Equality | `=`, `!=` | `String`, `Int`, `Bool`, `Symbol`, same-type enums | No float equality (`pure_expr_float_equality_forbidden`), deep union equality, or deep record equality. |
 | Ordering | `<`, `<=`, `>`, `>=` | `Int x Int`, `Float x Float` -> `Bool` | Ordering is allowed for `Float`; equality is not. |
 | Boolean | `and`, `or`, `not` | `Bool` -> `Bool` | Computed `Bool` values remain proof-neutral. |
 | Arithmetic, targets through 2.33 | `+`, `-`, `*`, `min`, `max` | `Int` -> `Int` | `+`, `-`, and `*` fail closed on signed 64-bit overflow. |
-| Arithmetic, target 2.34 | `+`, `*`, `min`, `max` (two or more operands); `-`, `/`, `int/div`, `int/mod` (two); `float/abs`, `float/sqrt`, `float/log` (one) | `+ - * min max`: all `Int` or all `Float` -> same type; `/` and the `float/` operators: `Float` -> `Float`; `int/div` and `int/mod`: `Int` -> `Int` only | [Numeric surface](workflow_lisp_numeric_surface.md) rules N2 and N4: mixed operands refused at compile time; refusals `pure_expr_division_by_zero`, `pure_expr_float_domain`, `pure_expr_float_not_finite`, `pure_expr_overflow` name the operator and print the operands. |
-| Conversion, target 2.34 | `int/to-float`, `float/floor`, `float/round` | `Int` -> `Float`; `Float` -> `Int` | Numeric surface rule N3: nothing converts silently; `float/round` rounds halves to even; a result outside 64 bits is refused. |
+| Arithmetic, target 2.34 | `+`, `*`, `min`, `max` (two or more operands); `-`, `/`, `int/div`, `int/mod` (two); `float/abs`, `float/sqrt`, `float/log` (one) | `+ - * min max`: all `Int` or all `Float` -> same type; `/` and the `float/` operators: `Float` -> `Float`; `int/div` and `int/mod`: `Int` -> `Int` only | Mixed `Int` and `Float` operands are refused at compile time; no operand is converted (`pure_expr_operand_type_mismatch`). `int/div` rounds toward negative infinity and `int/mod` has the sign of the divisor, so `(+ (* (int/div a b) b) (int/mod a b))` is `a`. `float/log` is the natural logarithm; unlike the other operators, which give the same double on every platform, it may differ in the last unit between mathematical libraries, and so may a digest that holds its result. Refusals: `pure_expr_division_by_zero` (a zero divisor of `/`, `int/div` or `int/mod`), `pure_expr_float_domain` (`float/sqrt` of a negative value, `float/log` of zero or a negative value), `pure_expr_float_not_finite` (an infinite or not-a-number result), `pure_expr_overflow` (an `Int` result outside 64 bits). |
+| Conversion, target 2.34 | `int/to-float`, `float/floor`, `float/round` | `Int` -> `Float`; `Float` -> `Int` | Conversion is explicit; nothing converts silently. `int/to-float` gives the nearest double and never refuses; `float/floor` rounds down; `float/round` rounds halves to even. A result outside 64 bits is refused (`pure_expr_overflow`). |
 | String | `string/concat`, `string/empty?`, `symbol/name` | `String`/`Symbol` | Path values are not strings for concatenation. |
 | Option | `some?`, `or-else` | `Optional[T]` with typed fallback | Optional access still requires proof or an explicit option operator. |
 | Record | `record-update` | base record plus typed field overrides | Unknown fields remain `record_field_unknown`. |
@@ -1876,6 +2052,14 @@ Preferred:
   ((BLOCKED blocked) ...))
 ```
 
+### 12.1 `cond`
+
+`(cond (condition result) ... (else result))` yields the result of the first clause whose
+condition is true; each clause is a two-element list, each condition is exactly `Bool`, and a
+single `else` clause comes last and is required unless the clauses are provably exhaustive. The
+compiler erases `cond` into nested `if`. Diagnostics: `cond_clause_invalid`,
+`cond_condition_not_bool`, `cond_else_invalid`, `cond_non_exhaustive`.
+
 ## 13. Loops
 
 ### 13.1 Bounded Loop
@@ -1964,6 +2148,22 @@ Required behavior:
   route, but any later variant-specific access still requires fresh proof on
   the carried value rather than hidden cross-iteration proof.
 
+### 13.2 `loop-state`
+
+`(loop-state (name Type value) ...)` builds a typed loop-state record for `loop/recur :state`,
+read as `state.name`; `(loop-state :like state :name value ...)` copies a loop-state record with
+some fields replaced. Each field is declared once, its value has its declared type, `:like` takes
+a loop-state record and names only its fields, and no field carries a type that cannot cross a
+runtime boundary, such as `WorkflowRef`. Diagnostics: `loop_state_requires_typed_fields`,
+`loop_state_duplicate_field`, `loop_state_field_type_mismatch`, `loop_state_like_not_loop_state`,
+`loop_state_unknown_field`, `loop_state_runtime_transport_forbidden`.
+
+```lisp
+(loop/recur :max 3 :state (loop-state (i Int 0)) :on-exhausted state.i
+  (fn (state)
+    (if (= state.i 2) (done state.i) (continue (loop-state :like state :i (+ state.i 1))))))
+```
+
 ## 14. Workflow Calls
 
 ```lisp
@@ -1992,19 +2192,24 @@ Lowering:
 ## 15. Higher-Order Workflow Parameters
 
 ```lisp
-(defworkflow backlog-drain
-  ((ctx DrainCtx)
-   (selector WorkflowRef[DrainCtx -> SelectionResult])
-   (run-item WorkflowRef[SelectedItemInput -> SelectedItemResult])
-   (gap-drafter WorkflowRef[GapInput -> GapResult])
-   (max-iterations Int))
-  -> DrainResult
-  ...)
+(defproc invoke-runner
+  ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])
+   (input WorkflowInput))
+  -> WorkflowOutput
+  (call runner :input input))
+
+(defworkflow entry ((input WorkflowInput)) -> WorkflowOutput
+  (invoke-runner (workflow-ref echo-helper) input))
 ```
 
 Workflow refs are resolved at compile time or module-link time.
 
 They are not runtime arbitrary code.
+
+`(workflow-ref name)` is a compile-time reference to a `defworkflow` in scope,
+passed where a `WorkflowRef[...]` parameter of a `defproc` is expected; the workflow's signature
+must match the parameter's type, whose return type is a record or union. Diagnostics:
+`workflow_ref_unknown`, `workflow_ref_signature_invalid`, `workflow_ref_type_invalid`.
 
 ## Part III. Effects And Authority
 
@@ -2460,6 +2665,11 @@ sequenceDiagram
     Validator->>State: atomic temp-write + rename
     State->>Artifacts: expose selected variant fields
 ```
+
+`(provider-bundle-path r :as PathType)` is the path of the committed result bundle of `r`, a
+`provider-result` binding in scope, typed as `PathType`: a relpath type rooted under
+`.orchestrate/runs`. Diagnostics: `provider_bundle_path_source_invalid`,
+`provider_bundle_path_target_invalid`.
 
 ### 22.1 Provider Output Authority
 
