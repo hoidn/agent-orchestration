@@ -900,7 +900,7 @@ def test_ruling_p12_alone_refuses_every_new_body_shape(tmp_path, monkeypatch, sh
     """P12 does not rely on the one-call rule: with that rule switched off it still refuses each shape."""
     from orchestrator.workflow_lisp import typecheck_structural_values
 
-    monkeypatch.setattr(typecheck_structural_values, "_check_run_ref_map_body", lambda expr, typed_body: None)
+    monkeypatch.setattr(typecheck_structural_values, "_one_call_map_body_fault", lambda expr, typed_body: None)
     close = "))" if mode == "parallel" else ")"
     with pytest.raises(LispFrontendCompileError) as refused:
         _map_program(tmp_path, f"(let* ((xs {MAP_HEADS[mode]}{NEW_SHAPE_BODIES[shape]}{close})) 1)")
