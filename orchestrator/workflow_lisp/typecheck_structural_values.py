@@ -86,69 +86,33 @@ def _typecheck_serial_map_max(expr, recurse):
     return typed_max.expr
 
 
-def _check_run_ref_map_body(expr, typed_body):
-    """A map body that holds a run reference is exactly one call with pure arguments."""
+def _one_call_map_body_fault(expr, typed_body) -> str | None:
+    """Why the body is not exactly one call with pure arguments, or None when it is.
+
+    The shape a map body that holds a run reference must have (evaluated execution 1.2)."""
 
     from .conditionals import _is_helper_expanded
     from .expression_traversal import iter_child_exprs
+    from .expressions import RunRefExpr
     from .functions import _find_purity_violation
 
-    _check_map_effect_body(expr)
-    argument_children = iter_child_exprs(typed_body.expr)
-    if (expr.parallel_count is not None and expr.binding_identity is not None
-        and _is_helper_expanded(expr.body_expr)):
-        # The authored call's actuals were checked before its body expanded.
-        argument_children = ()
+    allowed_body_types = (ProviderResultExpr, CommandResultExpr, CallExpr, ProcedureCallExpr, RunRefExpr)
+    helper_expanded = (expr.parallel_count is not None and expr.binding_identity is not None
+                       and _is_helper_expanded(expr.body_expr))
+    if helper_expanded:
+        # A checked authored call may become an inline helper's lexical block,
+        # whose actuals were checked before its body expanded.
+        allowed_body_types += (LetStarExpr,)
+    if not isinstance(expr.body_expr, allowed_body_types):
+        return "`list/map-effect` body must be one provider, command, workflow, or procedure call"
+    argument_children = () if helper_expanded else iter_child_exprs(typed_body.expr)
     nested_effect = next(
-        (
-            violation
-            for child in argument_children
-            if (violation := _find_purity_violation(child)) is not None
-        ),
+        (violation for child in argument_children if (violation := _find_purity_violation(child)) is not None),
         None,
     )
     if nested_effect is not None:
-        raise_error(
-            (
-                "`list/map-effect` call arguments must be pure; found "
-                f"effectful form `{nested_effect}`"
-            ),
-            code="list_map_effect_body_unsupported",
-            span=expr.body_expr.span,
-            form_path=expr.body_expr.form_path,
-            expansion_stack=expr.body_expr.expansion_stack,
-        )
-
-
-def _check_map_effect_body(expr):
-    from .conditionals import _is_helper_expanded
-    from .expressions import RunRefExpr
-
-    allowed_body_types = (
-        ProviderResultExpr, CommandResultExpr, CallExpr, ProcedureCallExpr
-    )
-    allowed_body_types += (RunRefExpr,)
-    if (
-        expr.parallel_count is not None
-        and expr.binding_identity is not None
-        and _is_helper_expanded(expr.body_expr)
-    ):
-        # A checked authored call may become an inline helper's lexical block.
-        allowed_body_types += (LetStarExpr,)
-    if not isinstance(
-        expr.body_expr,
-        allowed_body_types,
-    ):
-        raise_error(
-            (
-                "`list/map-effect` body must be one provider, command, "
-                "workflow, or procedure call"
-            ),
-            code="list_map_effect_body_unsupported",
-            span=expr.body_expr.span,
-            form_path=expr.body_expr.form_path,
-            expansion_stack=expr.body_expr.expansion_stack,
-        )
+        return f"`list/map-effect` call arguments must be pure; found effectful form `{nested_effect}`"
+    return None
 
 
 def _register_map_run_ref_types(type_env, *, context):
@@ -483,9 +447,17 @@ def typecheck_structural_value_expr(
             check_parallel_body(expr, typed_body, context)
         # Only a body that holds a run reference keeps the one-call shape
         # (evaluated execution 1.2); any other body is any expression.
-        run_ref_body = effect_summary_contains_runs_ref(typed_body.effect_summary)
-        if run_ref_body:
-            _check_run_ref_map_body(expr, typed_body)
+        # A procedure-reference callee is known only after specialization: the closed
+        # build checks the specialized body again (`single_iteration_effect_kinds`).
+        one_call_fault = _one_call_map_body_fault(expr, typed_body)
+        if one_call_fault is not None and effect_summary_contains_runs_ref(typed_body.effect_summary):
+            raise_error(
+                one_call_fault,
+                code="list_map_effect_body_unsupported",
+                span=expr.body_expr.span,
+                form_path=expr.body_expr.form_path,
+                expansion_stack=expr.body_expr.expansion_stack,
+            )
         result_type = ListTypeRef(
             name=f"List[{typed_body.type_ref.name}]",
             item_type_ref=typed_body.type_ref,
@@ -731,8 +703,10 @@ def typecheck_structural_value_expr(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
             exhaustion_diagnostic_code="list_map_effect_cap_exceeded",
+            # The effect kinds a body that holds a run reference may run, after
+            # specialization: one of these for a one-call body, none for any other.
             single_iteration_effect_kinds=(
-                ("provider", "command", "call", "run_ref") if run_ref_body else None
+                ("provider", "command", "call", "run_ref") if one_call_fault is None else ()
             ),
             effect_cardinality_diagnostic_code=(
                 "list_map_effect_body_unsupported"

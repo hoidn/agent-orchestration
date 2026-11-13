@@ -2112,10 +2112,13 @@ class Builder:
         )
         effects = list(_iter_specialized_loop_effect_values(node.body, context=context))
         kinds = [_effect_boundary_step_kind(effect) for effect in effects]
+        if "run_ref" not in kinds:
+            return  # a map body without a run reference is any expression
         if len(kinds) != 1 or kinds[0] not in node.single_iteration_effect_kinds:
             raise _loop_effect_compile_error(node,
                 code=node.effect_cardinality_diagnostic_code or "closed_program_gap",
-                message="loop iteration must contain exactly one permitted effect boundary after specialization")
+                message=("a `list/map-effect` body that holds a run reference must be exactly one call "
+                         f"with pure arguments; after specialization it runs {', '.join(kinds)}"))
 
     def _retain_map_result_descriptors(self, descriptor_start, producers):
         for index in range(descriptor_start, len(self.emitted_descriptors)):
