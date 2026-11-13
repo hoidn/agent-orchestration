@@ -1007,6 +1007,9 @@ PathRel
 ```
 
 These are prelude types, with `Value` (§7.1.1) and the capability types `Provider` and `Prompt`.
+The prelude also defines the path types `Path.state-root` (under `state`) and
+`Path.artifact-root` (under `artifacts`), both `:must-exist false`, and the union
+`ProviderSteeringDirective`.
 `Json` is not transportable: a workflow parameter of type `Json` is refused, and so is a `Json`
 return at a boundary (§8.10). Diagnostics: `json_surface_unsupported`.
 
@@ -1081,7 +1084,7 @@ document root and names no fields. `(result Value ...)` may carry
 is rejected with
 `value_guidance_example_unsupported` because target 2.19 has no checked source
 constructor that erases a narrower literal to exact `Value`. Guidance does not
-narrow validation or change state, checkpoint, or resume behavior.
+narrow validation; where it is kept is stated in §8.10.
 
 ### 7.2 Enum Types
 
@@ -1145,9 +1148,13 @@ Path types are refined contracts.
 A `defpath` gives `:kind relpath`, a string `:under` and a boolean `:must-exist`, each once.
 Diagnostics: `path_definition_invalid`.
 
-Path types are nominal: a value of one path type is refused where another is declared, also
-when its root lies under the other's or its existence check is stricter; there is no
-refinement relation between path types. Diagnostics: `type_mismatch`.
+Path types are nominal for parameters, arguments and results: a value of one path type is
+refused where another is declared, also when its root lies under the other's or its existence
+check is stricter. Diagnostics: `type_mismatch`. A structural constraint (`has-field`,
+`has-shared-union-field`, §7.9) is the one place where another path type is accepted: one with
+the same `:under` root and an equal or stricter existence check (`:must-exist true` where the
+constraint says `false`); a different root, a child root or a weaker check is refused.
+Diagnostics: `parametric_constraint_unsatisfied`.
 
 A value of type:
 
@@ -1204,8 +1211,9 @@ Every union has:
 - optional shared fields
 - static availability metadata
 
-Variant-specific fields are read only on a proven variant: inside a `match` arm (§11), or
-after a discriminant test of `if` (§12).
+Variant-specific fields are only accessible inside proof contexts created by
+`match`, explicit `requires`, or a frontend construct that lowers to one of
+those.
 
 ### 7.6 Optional And List Types
 
@@ -1824,7 +1832,8 @@ A return is written after `->` in `defun`, `defproc` and `defworkflow`, and as `
   function, a procedure, a provider or command effect, a workflow call and a public workflow
   boundary. Those types are `String`, `Int`, `Float`, `Bool`, `Value`, enums, path types,
   records, unions, and `Optional[T]`, `List[T]` and `Map[String, T]` whose element type `T` is
-  one of these; a scalar or collection needs no one-field wrapper record.
+  one of these; a scalar or collection needs no one-field wrapper record. The one exception is
+  the return in a `WorkflowRef[...]` type, which is a record or union (§7.7).
 - A workflow, `provider-result` or `command-result` return must be one of those types; `Json`, a
   `ProcRef` or a collection of `Json` is refused. A `defun` or `defproc` return is not a
   boundary and is not held to this rule. Diagnostics: `workflow_return_type_invalid`,
@@ -2030,9 +2039,13 @@ Rules:
   `union_match_non_exhaustive` (a missing or a repeated arm).
 - An arm's binder is in scope only in that arm, and on it only the fields of that arm's
   variant are read. Diagnostics: `variant_ref_wrong_variant`, `name_unknown`.
-- Outside an arm, `variant` is the only field read on a union value, also when every variant
-  declares the field. A computed `Bool` proves nothing (§10.2); §12 states the discriminant
-  test of `if`. Diagnostics: `variant_ref_unproved`.
+- Outside an arm, a field read on a union value of a concrete union type is refused, also when
+  every variant declares that field with one type; `variant` is always read. Inside a generic
+  procedure, a parameter whose type is constrained `has-shared-union-field` (§7.9) reads that
+  field outside any arm; a call is admitted only when every variant of the concrete union
+  declares the field with the constrained type. A computed `Bool` proves nothing (§10.2); §12
+  states the discriminant test of `if`. Diagnostics: `variant_ref_unproved`,
+  `parametric_constraint_unsatisfied`.
 - A workflow call yields its declared return value and no proof made inside the callee: a
   caller reads a variant field of a returned union only in its own `match`. Diagnostics:
   `variant_ref_unproved`.
@@ -2402,9 +2415,10 @@ published artifacts store values rather than pointer-file paths.
 
 A step's validated result is a value: a record, union, list or map, also one holding paths,
 passes to a later step, a provider's `:inputs` (rendered into the prompt, §22.4) or a command's
-`:inputs` (a typed input document) as that value. The checked program binds it by name and the
-run's memo records it; no file or pointer is written to carry it between steps. A path value
-names a file; it is not a file that holds a value.
+`:inputs` (a typed input document, which the runtime writes for that attempt) as that value.
+The checked program binds it by name and the run's memo records it; no file or pointer that a
+step writes carries it to the next. A path value names a file; it is not a file that holds a
+value.
 
 For review/revise loops, review-provider output is decision evidence, not
 carried-artifact identity authority. Consumed evidence such as checks reports,
