@@ -11,36 +11,19 @@ SPEC = ROOT / "docs" / "design" / "workflow_lisp_frontend_specification.md"
 
 # Backticked snake_case names in the reference that are not diagnostics. May only shrink.
 NOT_DIAGNOSTICS = {
-    "apply_resource_transition": "adapter name in removed section 29",
     "call_policy_bindings": "provider template field (22.4)",
     "introduced_by_expansion_id": "syntax provenance field (section 6)",
     "materialize_view": "removed runtime step family (18.1, 20)",
     "materialized_value_view": "removed generated-path role (18.1)",
     "on_exhausted": "loop step field (13.1)",
-    "pre_snapshot": "step field listed in removed section 24",
-    "prompt_context": "stale: a removed report field, named in 22.8",
     "pure_projection": "stale: no such step in the code; still named in section 12 (T4d)",
     "requires_variant": "runtime guard field (8.5, 11)",
-    "select_variant_output": "removed step kind (22.7, 24)",
     "target_param": "call-policy binding field (22.4)",
-    "validate_output_bundle": "validator function name (22.7)",
-    "validate_variant_output_bundle": "validator function name (22.7)",
 }
 
 # Codes the reference names that `orchestrator/` no longer has; their sentences are being
-# removed or corrected by the corpus plan (T4b, T4c). May only shrink.
-CODES_NOT_IN_CODE = {
-    "compiled_prompt_fragment_identity_mismatch": "22.6; prompt task T4b",
-    "compiled_prompt_fragment_identity_missing": "22.6; only in a comment in the code; T4b",
-    "prompt_output_position_contract_collision": "22.7; T4b",
-    "macro_unknown": "section 37; macro task T4c",
-    "macro_keyword_unknown": "section 37; T4c",
-    "macro_keyword_missing": "section 37; T4c",
-    "macro_hygiene_violation": "section 37; T4c",
-    "macro_non_deterministic": "section 37; T4c",
-    "macro_emits_untyped_hole": "section 37; T4c",
-    "macro_weakens_contract": "section 37; T4c",
-}
+# removed or corrected. May only shrink; empty since T4b and T4c.
+CODES_NOT_IN_CODE: dict[str, str] = {}
 
 
 def _language_parts() -> str:
