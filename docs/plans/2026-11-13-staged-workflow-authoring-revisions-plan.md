@@ -1,7 +1,7 @@
 # Staged-Workflow Authoring Revisions: Implementation Plan
 
 **Status: Plan, revised 2026-11-13 after an independent review (accept after fixes: 0 blockers, 8
-majors, 11 minors) and the coordinator's rulings on it; not yet accepted.** Implements stage 6 of
+majors, 11 minors) and the coordinator's rulings on it; accepted 2026-11-13.** Implements stage 6 of
 [Lane D](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#lane-d-delete-and-unify-background-time-boxed)
 (owner decisions 14 and 15). Its specification is the design
 [Staged-Workflow Authoring](../design/workflow_lisp_staged_workflow_authoring.md) ("the design"
@@ -473,3 +473,4 @@ Planner's rulings, with the cost if wrong:
 | --- | --- |
 | 2026-11-13 | Design and plan committed as proposed (`a0de5902`). Independent review: accept after fixes, 0 blockers, 8 majors, 11 minors. Coordinator's rulings recorded above. Scope cut to what the seed and the search need: the snapshot fill, an `Agent` bound into a role and `ask-agent` are deferred with no task; total from about 118 to about 79 hours. No provider spend |
 | 2026-11-13 | M5 settled by probe on `spike/authoring-revisions` (`bf4fed6b`): a compiler prototype of prompt values and roles, 12 files and 270 lines, builds and runs the role idiom over a wrapper in a library module and the three seeds as written. The specialization belongs to the wrapper's module; identities are the caller's with the specialization's frame; `policy` parts, prompt texts and reported usage equal the program written in place. Found on the way: the definition key needs the prompt and the extern (carried in the declared name); a generic call in a map body is refused on `main` (D3); a rebound operand needs pre-binding; an uncalled generic reference must not be rewritten. The three invariants, the compile with generated provider externs, are identical before and after the prototype. P1 to P3 re-estimated from 46 to 34 hours |
+| 2026-11-13 | Design and plan accepted by the coordinator (`713cfe94`). The review's eight majors are applied and the feasibility question (M5) is settled by a compiler prototype, not by argument. Scheduling ruling: no task of this plan starts before the surface-coherence branches E1, I1 and C1 are merged, T and O included, although they do not depend on them: six code branches are already in review on a loaded machine and three of them edit the same typecheck and elaboration modules. Open question put to the owner, not blocking: with the agent half deferred (design §8.2), fresh against continued is still an edit at each call site; it comes back into the plan (about 8 hours and an Agent Sessions amendment) when the conversation dimension is searched, which the first search space (effort per role) does not do. |

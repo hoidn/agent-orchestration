@@ -418,8 +418,14 @@ every removed test is listed with the code it covered".
      the first search space needs none of this; what prompt values buy is
      structural edits in one place (conversation scope, adding or splitting a
      role).
-   - Order: independent review of the design and plan (in progress); code only
-     after acceptance. First-class prompts come first, since the timeout and
+   - Reviewed and accepted 2026-11-13 (0 blockers, 8 majors, all applied). A
+     compiler prototype on the spike branch proved the role idiom: the three
+     seeds compile as written and no existing program's identity moves. Scope
+     after the review: about 79 hours in 11 tasks. Deferred, with the designed
+     rule kept: the snapshot fill for living documents, and an agent as a
+     bound argument (so fresh against continued stays an edit at each call
+     site until the conversation dimension is searched).
+   - Order: code starts after the stage 5 branches E1, I1 and C1 are merged. First-class prompts come first, since the timeout and
      document-fill questions meet them (when a fill is read: at the creation
      of the prompt value or at the call). The changes follow the surface
      coherence changes of stage 5 and land before the long-horizon seed is

@@ -1,6 +1,6 @@
 # Workflow Lisp Staged-Workflow Authoring: Prompt Values, Roles, Timeouts, Lists
 
-- **Status:** Designed (proposed), not implemented. Revised 2026-11-13 after
+- **Status:** Accepted 2026-11-13 by the coordinator, not implemented. Revised 2026-11-13 after
   an independent review (accept after fixes: 0 blockers, 8 majors, 11 minors)
   and the coordinator's rulings on it. The compiler behaves as the "Result on
   `main`" column of §2; the "after" examples do not compile on `main`.
