@@ -8,7 +8,8 @@ seeded base, the anchor patches) and summarize's scorer (`summarize.hidden_accep
 no-provider stubs, an empty home), as `host.summarize` runs it, `WIDTH` tasks at a time (the study's four). No model
 is called.
 
-  python -m experiments.seed_set.anchors --work W [--reps 3] [ID ...]   # default: every ladder and smoke package
+  python -m experiments.seed_set.anchors --work W [ID ...]   # default: every ladder and smoke package not yet
+                                                             # recorded at its current hash (resumable)
 
 writes `anchor_stability.json` beside `tasks.jsonl`: per package its sha256, `stable`, the failing test ids per
 repetition, the repetition counts and the load average seen; `tiers.verify` and the freeze require a stable entry,
@@ -72,6 +73,15 @@ def judge(package, runs):
             "runs": runs}
 
 
+def unstable_tests(entry):
+    """The tests that make an entry unstable: those failing on the reference, and those whose outcome on either
+    anchor changes across repetitions."""
+    runs = [r for r in entry.get("runs", []) if "error" not in r]
+    varying = {t for label in {k for r in runs for k in r if k != "load"}
+               for t in set().union(*(r.get(label, []) for r in runs)) if any(t not in r.get(label, []) for r in runs)}
+    return sorted(set(entry.get("reference_failing", [])) | varying)
+
+
 def packages(rows):
     """Every package the study can draw, probe or smoke on: the ladder's (both forms) and the smoke's."""
     found = [p["id"] for p in ladder.packages(rows)]
@@ -81,9 +91,10 @@ def packages(rows):
 
 def run(work, ids=None, out=b.HERE, width=WIDTH):
     rows = [json.loads(line) for line in (out / "tasks.jsonl").read_text().splitlines()]
-    ids = ids or packages(rows)
     path = out / FILE
     found = json.loads(path.read_text()) if path.is_file() else {}
+    # resumable: a package already recorded at its current hash is not checked again unless named
+    ids = ids or [pid for pid in packages(rows) if found.get(pid, {}).get("sha256") != b.package_hash(out / "tasks" / pid)]
     with ThreadPoolExecutor(width) as pool_:
         for pid, entry in zip(ids, pool_.map(lambda pid: check(out / "tasks" / pid, work), ids)):
             found[pid] = entry

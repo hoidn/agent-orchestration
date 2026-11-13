@@ -178,7 +178,9 @@ def test_withheld_check_passes_with_the_reference_fix_and_leaves_the_tree_as_it_
 
 def test_an_unstable_package_rejects_its_row_and_its_probe_flag_moves_to_the_next_usable_task():
     rows = manifest_rows({"T2": 7, "T3": 6})
-    stability = {"T3-01": {"stable": False, "reference_failing": ["tests/test_x.py"]},
+    stability = {"T3-01": {"stable": False, "reference_failing": [], "runs": [
+                     {"T3-01-base": ["tests/test_x.py", "tests/test_y.py"], "T3-01-upstream": []},
+                     {"T3-01-base": ["tests/test_y.py"], "T3-01-upstream": []}]},  # test_x varies on the base
                  "T2w-02": {"stable": False, "reference_failing": ["tests/test_y.py::t"]}}
     out = tiers.reject_unstable(rows, stability)
     by = {r["id"]: r for r in out}
@@ -194,3 +196,16 @@ def test_an_unstable_smoke_moves_the_smoke_to_the_first_usable_t2_task_that_is_n
     rows = manifest_rows({"T2": 7})
     out = tiers.reject_unstable(rows, {"smoke": {"stable": False, "reference_failing": []}})
     assert [r["id"] for r in out if r["set"] == "smoke"] == ["T2-04"]
+
+
+def test_the_anchor_check_resumes_past_packages_recorded_at_their_current_hash(tmp_path, monkeypatch):
+    from experiments.seed_set import anchors
+    rows = manifest_rows({"T3": 2}, smoke=False)
+    (tmp_path / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    done = {"T3-00": {"sha256": b.package_hash(tmp_path / "tasks" / "T3-00"), "stable": True}}
+    (tmp_path / anchors.FILE).write_text(json.dumps(done))
+    checked = []
+    monkeypatch.setattr(anchors, "check", lambda package, work: checked.append(package.name) or {"stable": True,
+                        "sha256": "x", "reference_failing": [], "runs": []})
+    anchors.run(tmp_path / "work", out=tmp_path)
+    assert sorted(checked) == ["T3-01", "T3w-00", "T3w-01"]

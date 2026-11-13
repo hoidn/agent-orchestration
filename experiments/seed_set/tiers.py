@@ -370,7 +370,7 @@ def reject_unstable(rows, stability):
                   if pid in stability and not stability[pid]["stable"]]
         if failed and not row.get("rejected"):
             row["rejected"] = UNSTABLE + "; ".join(
-                (f"{pid}: " if pid != row["id"] else "") + ", ".join(entry.get("reference_failing") or ["base"])
+                (f"{pid}: " if pid != row["id"] else "") + ", ".join(anchors.unstable_tests(entry) or ["no repetition ran"])
                 for pid, entry in failed)
             row["probe"] = False
     usable = [row for row in rows if not row.get("rejected") and row["set"] != "smoke"]
