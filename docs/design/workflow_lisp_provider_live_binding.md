@@ -1,5 +1,9 @@
 # Workflow Lisp Provider Live Binding
 
+Status: **Historical — archived in place.** Superseded: `with-live-providers` refuses at build and its executor was removed on 2026-11-11; the shared provider rules its preamble retains are stated by their owners, and the lines below that call them retained are part of the record. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [Providers](../../specs/providers.md), [Observability](../../specs/observability.md), [evaluated execution](workflow_lisp_evaluated_execution.md) and the [salvage record](live_provider_supervision_and_peers_salvage.md). Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#provider_live_binding-and-provider_peer_messaging).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: retained shared-service routing; historical executable protocol.
 The target-2.16/2.17 group and target-2.23 phased execution routes are retired;
 new calls, old-profile replay and old-profile mutation are unavailable in this

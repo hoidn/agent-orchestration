@@ -1,5 +1,9 @@
 # Workflow Lisp Edit And Continue: Feasibility Spike
 
+Status: **Historical — archived in place.** Superseded: its part 3a (retry a failed step after its script is fixed) is implemented and its contract lives in evaluated execution and the CLI contract; its part 3b proposal was replaced by the [edit-and-continue design](workflow_lisp_edit_and_continue.md), which applies its coordinator rulings 2 to 8. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [evaluated execution §7.3 (C4, C7)](workflow_lisp_evaluated_execution.md#73-what-a-command-boundary-declares) and [§8.1](workflow_lisp_evaluated_execution.md#81-what-the-memo-decides), the [CLI resume preflight](../../specs/cli.md#resume-preflight-precedence), and [edit and continue](workflow_lisp_edit_and_continue.md) for resume under an edited program. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#edit_and_continue_spike).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 **What this page is.** The feasibility report for Phase 3 ("Edit and
 continue") of the [current roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md),
 with a proposed revision of the execution contract. It answers the roadmap's

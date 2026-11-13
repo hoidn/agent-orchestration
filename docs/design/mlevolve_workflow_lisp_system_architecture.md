@@ -1,5 +1,9 @@
 # MLEvolve Workflow Lisp System Architecture
 
+Status: **Historical — archived in place.** Superseded: never built, and dropped on 2026-11-11 by the [roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions). The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: for the general rules it restates, the [design principles](workflow_language_design_principles.md), the [command adapter contract](workflow_command_adapter_contract.md) and [program-search boundaries §6](workflow_lisp_program_search_boundaries.md#6-honest-security-boundary). Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#mlevolve_workflow_lisp_system_architecture).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 > **2026-11-11 disposition:** dropped or archived by the
 > [current roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions); this draft is historical.
 

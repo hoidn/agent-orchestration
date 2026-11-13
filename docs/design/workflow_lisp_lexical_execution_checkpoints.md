@@ -1,5 +1,9 @@
 # Workflow Lisp Lexical Execution Checkpoints And Durable Resource Resumability
 
+Status: **Historical — archived in place.** Superseded: evaluated memo resume replaced this checkpoint architecture; the safety rules its preamble retains are stated by their owners, and the lines below that call them retained are part of the record. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [State](../../specs/state.md#state-integrity-and-recovery), [evaluated execution §8.1](workflow_lisp_evaluated_execution.md#81-what-the-memo-decides) and [executor retirement §7](workflow_lisp_executor_retirement.md#7-recovery-policy-and-one-deletion-gate). Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#lexical_execution_checkpoints).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current safety owner: [State](../../specs/state.md),
 [evaluated execution](workflow_lisp_evaluated_execution.md) and
 [executor retirement](workflow_lisp_executor_retirement.md). Old profiles cannot

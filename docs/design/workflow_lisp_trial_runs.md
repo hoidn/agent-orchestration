@@ -1,5 +1,9 @@
 # Workflow Lisp Trial Runs: Controlled Experiments Over Pinned Repository Workspaces
 
+Status: **Historical — archived in place.** Superseded: the `trial` form, command, SDK and packages were removed on 2026-11-12 ([salvage record](trial_and_adjudication_salvage.md)); what stays current has other owners. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [evaluated execution §1.2](workflow_lisp_evaluated_execution.md#12-ordinary-path-run-reference-placement-at-235) for path-mode run references, [run-reference expression environments](workflow_lisp_run_ref_expression_environments.md) for confined children, the [workflow catalog](../../workflows/README.md) and the [comparison harness](orc_effectiveness_comparison_harness.md) for the E0 direct control, and [program-search boundaries](workflow_lisp_program_search_boundaries.md). Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#trial_runs).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current durable use: the bounded direct-task control remains an ordinary
 admitted evaluated program. Path-mode run references retain their pure-child
 and typed result/delta/accounting contracts under [evaluated execution](workflow_lisp_evaluated_execution.md).
