@@ -205,5 +205,6 @@ and scheduled.
 
 For the owning contract and rationale, see
 [Workflow Lisp Language Server](design/workflow_lisp_language_server.md) and
-frontend specification
-[§76.1 Editor And Lint Tooling Compatibility](design/workflow_lisp_frontend_specification.md#761-editor-and-lint-tooling-compatibility).
+its
+[Compiler Artifact Compatibility](design/workflow_lisp_language_server.md#compiler-artifact-compatibility)
+section.

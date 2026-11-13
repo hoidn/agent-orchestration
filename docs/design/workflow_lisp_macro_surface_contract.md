@@ -1,5 +1,7 @@
 # Workflow Lisp Macro Surface Contract
 
+Status: **Historical — archived in place.** Superseded: its rules are now stated, with their diagnostic codes, in the frontend specification's `defmacro` entry and macro part; its source-map validator codes and Core/Semantic/Executable projections describe removed code. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [frontend specification §8.7](workflow_lisp_frontend_specification.md#87-defmacro) and [Part VII](workflow_lisp_frontend_specification.md#part-vii-macro-system) (§32 to §37), and [§6](workflow_lisp_frontend_specification.md#6-name-resolution) for imported library macros. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#macro_surface_contract).
+
 Current pipeline scope: macros emit hygienic frontend AST for ordinary shared
 type/effect/proof checking and checked-program construction. References below to
 Core/Semantic/Executable projections are historical wire/provenance constraints,

@@ -324,6 +324,84 @@ every removed test is listed with the code it covered".
      designs marked historical.
    Order: the design for the effect rule and the iteration and callable
    conventions first; code only after it is accepted.
+   **Compiler and runtime defects found by probes on the way (open list,
+   2026-11-13; each reproduced by the agent that found it, none scheduled
+   unless marked).** They are separate from the design's changes and each
+   needs its own small fix with tests:
+   - two prompt outputs filled with the same path commit with nothing
+     refusing the alias, and an output name equal to a result field is caught
+     only after the provider has run; the check that would refuse both before
+     launch is called only by its tests;
+   - a `defworkflow` with a workflow-reference parameter fails with
+     `compiler_defect`, although the specification's own example has that
+     shape;
+   - choosing a procedure reference with `if` fails with `compiler_defect`
+     where a refusal is intended;
+   - inside a macro template: `list/map`, a call to a `let-proc` local, and a
+     nested loop used as an operand each fail or crash;
+   - a free name in a macro template binds to the caller's local, so hygiene
+     is weaker than the retired macro contract claimed;
+   - `(and (= a.variant V) …)` is refused by module compilation while the
+     expression typechecker grants the proof;
+   - a loop's `continue` value holding an effectful `if` inside an operand
+     fails with `compiler_defect` (being closed with the effects change);
+   - the guard that forbids a confined run-reference site in a map body does
+     not see one reached through a procedure-reference parameter or a
+     `let-proc` local, in serial and parallel maps (a hole in a safety guard:
+     first in line for a fix);
+   - a parallel map written directly in a `loop/recur` body fails with
+     `compiler_defect` (through a procedure call it works);
+   - a `let-proc` local whose body is a loop crashes with an internal error;
+   - dead code: the prompt snapshot and attempt-identity builders and the
+     fragment-identity projection have no caller in the package.
+   - added 2026-11-13 (second batch): an empty `(list)` in a `match` arm,
+     and a `list/map` with a `match` body used directly as an `if` condition
+     inside a loop body, each fail with `compiler_defect` (the staged-authoring
+     plan fixes both as its first task); a nested loop used directly as an
+     operand fails with an internal `KeyError`, with or without a macro; an
+     `Int` literal beyond 64 bits fails with `compiler_defect`; the `and`/`or`
+     item above has its cause (the proof facts are lost when the condition is
+     hoisted into a binding, so the refinement in the typechecker and the
+     tests that assert it cannot be reached from a compile); a template-bound
+     name in the first position of a list is never renamed by macro expansion
+     (being closed with the loop-binder change).
+6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
+   a compact long-horizon seed under the 50-line limit; owner decisions 14 and
+   15). Six things the language made awkward, each reproduced by probe before
+   any design: a role (provider, model, effort, timeout) cannot be bound once
+   for fresh calls; a timeout must be a literal; an empty list as loop state
+   needs a type carrier; a document fill on a file that later steps edit
+   blocks `resume`; a list longer than a map's cap fails the run after the
+   work is done; a list cannot be reduced.
+   - **The principled fix for roles (owner direction):** ordinary partial
+     application with what the language already has. A typed prompt becomes a
+     first-class value (`Prompt[T]`), so one generic procedure can wrap
+     `provider-result`, and a role is that procedure with its provider, model,
+     effort and timeout bound once by `bind-proc`. No new `role` form. Probes
+     on 2026-11-13 showed that `bind-proc`, generic procedures and a provider
+     call inside a procedure all work today, that a macro wrapping the call is
+     refused on purpose (`macro_hidden_effect`), and that the one missing
+     piece is that a prompt is not a value.
+   - **Why it matters for the search:** changing one role's model or effort,
+     or switching a role between a fresh call and a continued conversation,
+     becomes a one-token edit in one place.
+   - Design and plan drafted 2026-11-13 as proposed
+     ([design](../design/workflow_lisp_staged_workflow_authoring.md),
+     [plan](2026-11-13-staged-workflow-authoring-revisions-plan.md); about 118
+     hours in 15 tasks). The probes corrected the findings: a prompt as a
+     value is not the only missing piece (a provider cannot be an argument, a
+     reference to a generic procedure does not instantiate, and an agent
+     cannot be a `bind-proc` argument), and model and effort per role are
+     already one-token edits today through inputs with literal defaults, so
+     the first search space needs none of this; what prompt values buy is
+     structural edits in one place (conversation scope, adding or splitting a
+     role).
+   - Order: independent review of the design and plan (in progress); code only
+     after acceptance. First-class prompts come first, since the timeout and
+     document-fill questions meet them (when a fill is read: at the creation
+     of the prompt value or at the call). The changes follow the surface
+     coherence changes of stage 5 and land before the long-horizon seed is
+     frozen, so the seed is written once in the revised language.
 
 - **Exit test:** the named packages are gone and nothing imports them; one
   admitted target for new source; any retained older target is listed with its
@@ -444,6 +522,9 @@ the owner can amend any of them.
 | 11 | Agent Sessions after the comparison | Kept, 2026-11-12. The owner values sessions for versatility in workflow patterns, not efficiency. The comparison's cost finding (1.4 to 1.7 times the plain handoff on a four-turn pattern; a committed turn cannot be invalidated) is the known price, not a reason to retire |
 | 12 | Who approves provider spend | Delegated to the coordinator, 2026-11-12, "within reason": planned-size tranches with a cap recorded in the plan ledger before the first call, Haiku by default and nothing above the Sonnet/Terra ceiling. The coordinator still asks for a tranche above about USD 100, cumulative spend above about USD 300, a new experiment line, or a top-up after a null result ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
 | 13 | How far to take edited-program resume (Phase 3b) | 2026-11-12: the owner asked why resume and effect tracking take so much effort, and chose to finish the two remaining tasks (accepting a plan; guides and closeout) and then stop. No scope is added to that lane after them: the open design question about resuming a run that uses a run reference after a package change stays parked, and capacity moves to the seed-set calibration and the language cleanup |
+| 14 | A long-horizon seed and task family | 2026-11-13, owner direction, added to the seed work: tasks with a long horizon on which `claude-haiku-5-5` succeeds 10 to 30 percent of the time, in software, machine learning and scientific programming or reasoning, extracted individually from public benchmarks; and one compact `.orc` seed (few lines) that stages the work (a clean project repository with its documentation structure and agent guides, then spec-driven targets, then design and planning, then implementation) with feedback at several timescales and semantic levels. Nothing like it exists in the repository yet. A benchmark survey and a seed design are in progress; the plan follows them. Added the same day: mutations of the seed vary model (Haiku or Sonnet) and effort level per agent role; the first space searched keeps one model (Haiku) and varies only effort per role, after an effort ladder confirms that success does not fall as effort rises |
+| 15 | How a role is bound once | 2026-11-13: the owner asked for "a nice schemey partial application simple fix" and then for the design and roadmap staging of "the principled fix that this points to". Decided direction: a typed prompt is a first-class value and a role is a generic procedure wrapping `provider-result`, partially applied with `bind-proc`; no new `role` form. The design must still report any guarantee this would break (effect identity per call site, the provider declaration digest, metering, the closures boundary) before code is written |
+| 16 | Budget for the long-horizon effort ladder | Approved 2026-11-13 ("ok" to the stated request): 16 named benchmark tasks, a direct `claude-haiku-5-5` session at effort low, medium and high, five attempts each; at most 240 attempts, ceiling USD 200 (requested as about USD 170 at reported prices). Conditions before the first attempt: the oracle check passes here, the network policy is fixed, a guarded launcher is reviewed, the plan and its ledger exist. It places tasks relative to the 10 to 30 percent band and tests whether success falls as effort rises; the workflow comparison is a separate request ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
 
 ## Process rules
 
@@ -518,6 +599,11 @@ is manual. Phase plans are linked here as they start:
   accepted. A wrong-value defect the review found in constructor fields is fixed first; the
   changes that only admit refused source follow; the loop binder rewrite rides the stage 4
   sweep and the `fn` form goes at the stage 4 cut.
+- Lane D, authoring revisions for staged workflows (stage 6): design and plan being drafted
+  (`docs/design/workflow_lisp_staged_workflow_authoring.md`,
+  `docs/plans/2026-11-13-staged-workflow-authoring-revisions-plan.md`; neither exists until the
+  draft is committed). Direction fixed by owner decision 15: roles by partial application over
+  first-class prompts.
 - Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
   after every record; memo reduction now continues from the last fold, a start the evaluator has
   just reached is published without a replay, and two compile passes skip work that cannot matter.

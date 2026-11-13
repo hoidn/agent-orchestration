@@ -28,7 +28,7 @@ DEFAULT_PURE_EXPR_MAX_NODES = 256
 INT64_MIN = -(2**63)
 INT64_MAX = 2**63 - 1
 # The first Workflow Lisp target with decimal literals in expressions and the
-# numeric operators (docs/design/workflow_lisp_numeric_surface.md).
+# numeric operators (docs/design/workflow_lisp_frontend_specification.md, section 10.2).
 
 _PURE_EXPR_SCHEMA_1_NODE_KINDS = frozenset(
     {
@@ -75,8 +75,9 @@ class PureOperatorSpec:
     """One supported pure operator.
 
     An operator with `signatures` is typed and evaluated here, once, for the
-    frontend check, the static typing of payloads and the evaluator (rule N8 of
-    docs/design/workflow_lisp_numeric_surface.md). Its `evaluate` maps the
+    frontend check, the static typing of payloads and the evaluator (the operator
+    catalog, docs/design/workflow_lisp_frontend_specification.md, section 10.2).
+    Its `evaluate` maps the
     operand values to the result; `evaluate_pure_operator` then refuses an Int
     outside 64 bits and a Float that is not finite.
     """
@@ -2143,7 +2144,7 @@ def evaluate_pure_operator(
     """Type and evaluate one operator application over typed operand values.
 
     The frontend calls it on literal operands, so that their refusal is a
-    compile error (rule N4 of docs/design/workflow_lisp_numeric_surface.md).
+    compile error (docs/design/workflow_lisp_frontend_specification.md, section 10.2).
     """
 
     arg_types = [arg_type for arg_type, _ in evaluated_args]

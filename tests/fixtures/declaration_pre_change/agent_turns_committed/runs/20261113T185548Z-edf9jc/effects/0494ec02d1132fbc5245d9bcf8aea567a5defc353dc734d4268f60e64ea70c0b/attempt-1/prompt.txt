@@ -1,0 +1,12 @@
+Execute: d2
+
+## Output Contract
+Write the JSON result to the file on the `- path:` line, with a file-writing or shell tool, before you finish. ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. Returning the value in your reply does not deliver it.
+- path: .orchestrate/runs/20261113T185548Z-edf9jc/effects/0494ec02d1132fbc5245d9bcf8aea567a5defc353dc734d4268f60e64ea70c0b/attempt-1/result.json
+JSON shape, not an example: <...> denotes a type; | chooses one alternative; ... denotes zero or more entries. Comments are contract annotations, not output.
+{
+  "notes": [
+    <string>,
+    ...
+  ]
+}
