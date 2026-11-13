@@ -291,11 +291,14 @@ def _refuse_call_of_positional_callable(expr: CallExpr, context) -> None:
     """
 
     name = expr.callee_name
-    functions = context.session_state.function_catalog
-    procedures = context.procedure_catalog
+    # The workflow resolver qualifies an imported name with this module; the
+    # catalogs also hold each visible name as written.
+    visible = {name, name.rpartition("::")[2]}
+    functions = getattr(context.session_state.function_catalog, "signatures_by_name", {})
+    procedures = getattr(context.procedure_catalog, "signatures_by_name", {})
     kind = (
-        "a procedure" if procedures is not None and name in procedures.signatures_by_name
-        else "a function" if functions is not None and name in functions.signatures_by_name
+        "a procedure" if visible & procedures.keys()
+        else "a function" if visible & functions.keys()
         else "a procedure reference" if isinstance(context.value_env.get(name), ProcRefTypeRef)
         else "a local procedure" if name.rpartition("::")[2] in context.session_state.proc_ref_value_env
         else None

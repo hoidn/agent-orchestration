@@ -1458,7 +1458,9 @@ def _elaborate_list(
             procedure_names=procedure_names,
             session_state=session_state,
         )
-    if head.resolved_name in session_state.local_proc_names:
+    # An inner binding that reuses a local's name is the one called; a local's
+    # name never collides with an outer binding (the let-proc collision check).
+    if head.resolved_name in session_state.local_proc_names and head.resolved_name not in available_names:
         return _elaborate_local_proc_call(
             datum,
             form_path=form_path,

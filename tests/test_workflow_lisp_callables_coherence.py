@@ -26,8 +26,10 @@ from tests.test_workflow_evaluated_resume_kills import (
 
 
 def _source(definitions: str, body: str, returns: str = "Int") -> str:
+    imports, definitions = (definitions, "") if definitions.startswith("(import") else ("", definitions)
     return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule m)
+  {imports}
   (export run)
   {definitions}
   (defworkflow run ((n Int)) -> {returns}
@@ -44,9 +46,19 @@ EMIT_PY = (
 )
 
 
+LIBRARY = """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule lib/hl)
+  (export helper hfun)
+  (defproc helper ((x Int)) -> Int (+ x 1))
+  (defun hfun ((x Int)) -> Int (+ x 100)))
+"""
+
+
 def _compile(root: Path, source: str, monkeypatch, capsys) -> tuple[int, dict]:
     root.mkdir(parents=True, exist_ok=True)
     (root / "m.orc").write_text(source, encoding="utf-8")
+    (root / "lib").mkdir(exist_ok=True)
+    (root / "lib" / "hl.orc").write_text(LIBRARY, encoding="utf-8")
     (root / "commands.json").write_text(json.dumps(COMMANDS), encoding="utf-8")
     (root / "emit.py").write_text(EMIT_PY, encoding="utf-8")
     monkeypatch.chdir(root)
@@ -70,7 +82,8 @@ APPLY = (
 )
 IDENT = "(defproc ident :forall (T) ((x T)) -> T x)"
 WRAP = "(defproc wrap :forall (T) ((x T) (k Int)) -> Int (let-proc ((b ((y Int)) -> Int (+ y 1))) {}))"
-BUMP = "(defmacro with-bump (k body) (let-proc ((bump ((x Int)) -> Int (+ x k))) body))"
+# The caller names the local and writes the calls: no template identifier is captured.
+WITH_LOCAL = "(defmacro with-local (name k body) (let-proc ((name ((x Int)) -> Int (+ x k))) body))"
 EFFECTFUL = f"(let-proc ((f ((x Int)) -> Int {EMIT})) "
 
 # (definitions, or a pair (by name, alias); called by name; the same calls through
@@ -118,9 +131,9 @@ SAME_PROGRAM = {
         "(let-proc ((f ((x Int)) -> Int (+ x n))) (ident (let* ((g (proc-ref f))) (g 1))))",
     ),
     "macro-expansion": (
-        BUMP,
-        "(with-bump 5 (bump n))",
-        "(with-bump 5 (let* ((g (proc-ref bump))) (g n)))",
+        WITH_LOCAL,
+        "(with-local bump 5 (bump n))",
+        "(with-local bump 5 (let* ((g (proc-ref bump))) (g n)))",
     ),
 }
 
@@ -199,6 +212,23 @@ REFUSALS = {
         "(apply1 (proc-ref inc2) n)", "keyword_argument_invalid", "`(f …)`",
     ),
     "keyword-as-operand": (DECLARED, "(+ n :x)", "keyword_argument_invalid", "keyword `:x`"),
+    "local-arity-names-the-local": (
+        DECLARED, "(let-proc ((f ((x Int)) -> Int (+ x 1))) (f 1 2))", "procedure_arity_mismatch", "procedure `f` expected",
+    ),
+    "local-named-like-a-workflow-parameter": (
+        DECLARED, "(let-proc ((n ((x Int)) -> Int (+ x 1))) (n 1))", "let_proc_syntax_invalid", "colliding",
+    ),
+    "imported-procedure-called-with-call": (
+        "(import lib/hl :only (helper hfun))", "(call helper :x n)", "workflow_call_unknown", "`(helper …)`",
+    ),
+    "imported-function-called-with-call": (
+        "(import lib/hl :only (helper hfun))", "(call hfun :x n)", "workflow_call_unknown", "`(hfun …)`",
+    ),
+    "workflow-reference-called-positionally": (
+        "(defrecord Box (v Int)) (defworkflow child ((x Int)) -> Box (record Box :v x)) "
+        "(defproc inv ((runner WorkflowRef[(Int) -> Box])) -> Box (runner 7))",
+        "(let* ((b (inv (workflow-ref child)))) b.v)", "procedure_call_unknown", "`(call runner :x …)`",
+    ),
     "workflow-calls-itself": (
         "(defworkflow rec ((x Int)) -> Int (if (> x 0) (call rec :x (- x 1)) 0))",
         "(call rec :x n)", "workflow_call_cycle", "m::rec -> m::rec",
@@ -253,10 +283,90 @@ def test_local_reference_stays_a_compile_time_name(case, tmp_path, monkeypatch, 
     assert _refusal(tmp_path, monkeypatch, capsys, definitions, body)["code"] == code
 
 
-@pytest.mark.xfail(strict=True, reason="defect on main: a ProcRef chosen by `if` is refused as compiler_defect (KeyError)")
-def test_local_reference_chosen_by_if_is_refused_without_a_defect(tmp_path, monkeypatch, capsys):
-    body = LOCAL + "(let* ((g (if (> n 0) (proc-ref f) (proc-ref f)))) (g 1)))"
+I2 = "(defproc i2 ((x Int)) -> Int (+ x 2))"
+CHOSEN = {
+    "by-if": (I2, "(let* ((g (if (> n 0) (proc-ref i2) (proc-ref i2)))) (g 1))"),
+    "local-by-if": ("", LOCAL + "(let* ((g (if (> n 0) (proc-ref f) (proc-ref f)))) (g 1)))"),
+    "by-cond": (I2, "(let* ((g (cond ((> n 0) (proc-ref i2)) (else (proc-ref i2))))) (g 1))"),
+    "by-match": (
+        I2 + " (defunion C (A (v Int)) (B (s Int)))",
+        "(let* ((g (match (variant C A :v n) ((A a) (proc-ref i2)) ((B b) (proc-ref i2))))) (g 1))",
+    ),
+    "returned-by-a-procedure": (
+        I2 + " (defproc pick ((x Int)) -> ProcRef[(Int) -> Int] (proc-ref i2))", "(let* ((g (pick 1))) (g 2))",
+    ),
+    "unused": (I2, "(let* ((g (if (> n 0) (proc-ref i2) (proc-ref i2)))) 0)"),
+}
 
+
+@pytest.mark.parametrize("case", sorted(CHOSEN))
+def test_reference_chosen_at_run_time_is_refused(case, tmp_path, monkeypatch, capsys):
+    definitions, body = CHOSEN[case]
+
+    assert _refusal(tmp_path, monkeypatch, capsys, definitions, body)["code"] == "proc_ref_literal_required"
+
+
+def test_rebound_reference_still_compiles(tmp_path, monkeypatch, capsys):
+    body = "(let* ((g (proc-ref i2)) (h g)) (h 1))"
+
+    status, payload = _compile(tmp_path, _source(I2, body), monkeypatch, capsys)
+
+    assert status == 0, payload
+
+
+Q = "(defproc q ((x Int)) -> Int (+ x 1000))"
+LOCAL_F = "(let-proc ((f ((x Int)) -> Int (+ x 1))) "
+BIND_F = "(defmacro bind-f (v body) (let* ((f v)) body))"
+
+# An inner binding that reuses a local's name is the one called; the local gives 2, `q` gives 1001.
+SHADOWS = {
+    "let-binding": (Q, LOCAL_F + "(let* ((f (proc-ref q))) (f 1)))", 1001),
+    "own-parameter": (Q, "(let-proc ((f ((f ProcRef[(Int) -> Int]) (x Int)) -> Int (f x))) (f (proc-ref q) 1))", 1001),
+    "parameter-named-like-a-sibling": (
+        Q, "(let-proc ((g ((x Int)) -> Int (+ x 1)) (f ((g ProcRef[(Int) -> Int]) (x Int)) -> Int (g x))) "
+        "(f (proc-ref q) 1))", 1001,
+    ),
+    "macro-binding-is-hygienic": (Q + " " + BIND_F, LOCAL_F + "(bind-f (proc-ref q) (f 1)))", 2),
+}
+
+
+def _value(root: Path, definitions: str, body: str):
+    root.mkdir(parents=True)
+    (root / "m.orc").write_text(_source(definitions, body), encoding="utf-8")
+    run = _cli(root, ["run", "m.orc", "--input", "n=0"], _env(root))
+    assert run.returncode == 0, run.stderr
+    return _snapshot(_run_root(root)).terminal.data["value"]
+
+
+@pytest.mark.parametrize("case", sorted(SHADOWS))
+def test_inner_binding_with_the_local_name_is_called(case, tmp_path):
+    definitions, body, expected = SHADOWS[case]
+
+    assert _value(tmp_path / "run", definitions, body) == expected
+
+
+# An inner binding that is not callable is refused as the same binding is without the local.
+SHADOWING_VALUES = {
+    "let-binding": ("", "(let* ((f 5)) (f 1))"),
+    "match-arm": ("(defunion C (A (v Int)) (B (s Int)))", "(match (variant C A :v n) ((A f) (f 1)) ((B s) 0))"),
+    "loop-state": ("", "(loop/recur :max 2 :state 0 (fn (f) (done (f 1))))"),
+    "effectful-map-item": ("", "(list/length (list/map-effect ((f (list 1 2))) :max 2 (f 1)))"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(SHADOWING_VALUES))
+def test_inner_value_with_the_local_name_is_refused_as_without_the_local(case, tmp_path, monkeypatch, capsys):
+    definitions, body = SHADOWING_VALUES[case]
+    shadowed = _refusal(tmp_path / "local", monkeypatch, capsys, definitions, LOCAL_F + body + ")")
+    alone = _refusal(tmp_path / "alone", monkeypatch, capsys, definitions, body)
+
+    assert (shadowed["code"], shadowed["message"]) == (alone["code"], alone["message"])
+
+
+def test_pure_map_item_with_the_local_name_is_refused(tmp_path, monkeypatch, capsys):
+    body = LOCAL_F + "(list/length (list/map ((f (list 1 2))) (f 1))))"
+
+    # Refused, not called; the pure-body check speaks first (`list_map_body_effect_forbidden`).
     assert _refusal(tmp_path, monkeypatch, capsys, "", body)["code"] != "compiler_defect"
 
 
