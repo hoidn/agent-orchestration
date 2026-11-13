@@ -143,13 +143,20 @@ ordinal, never by rewriting the old one.
 2) Compare an explicit --run-ref-root with the header (`resume_run_ref_root_changed`), then
    the run root's relation to the workspace (`resume_result_root_changed`)
 3) Rebuild the program in memory from the recipe and compare digests
-   (`resume_program_changed`); re-read the input file, apply the overrides, bind and compare
-   (`resume_inputs_changed`). Fresh build and binding publish nothing
+   (`resume_program_changed`, which prints the plan an acceptance would apply and its
+   `--accept-changes=plan-…` command, or why no plan can be accepted); re-read the input
+   file, apply the overrides, bind and compare (`resume_inputs_changed`). Fresh build and
+   binding publish nothing
 4) Load the stored artifact and pins (`interpreter_changed` is a warning; a missing pin
    refuses); read the complete memo prefix, ignoring a torn tail
 5) Replay the committed prefix in journal order, checking each resolved input
-   (`effect_input_diverged` at the first divergence) before any launch, reconciliation or
-   tail repair; a completed terminal that replay reaches returns without writing
+   (`effect_input_diverged` at the first divergence; for a committed step it prints the plan,
+   as in 3) before any launch, reconciliation or tail repair; a completed terminal that
+   replay reaches returns without writing. With `--accept-changes=plan-TOKEN` steps 3 and 5
+   recompute the plan instead and compare it with the token: a plan that changed since it
+   was printed refuses, names what changed and prints the new one; the plan it names is
+   applied (the edited program stored, one `rebased` or `invalidated` record appended and
+   synced), then evaluation continues as in 6
 6) Continue evaluation as in Run from the first uncommitted effect; retried attempts take
    the next ordinal. A command retried with changed declared files needs its last attempt's
    `failed` row to say `closure: unchanged` (not a parallel-map item), or
@@ -158,7 +165,10 @@ ordinal, never by rewriting the old one.
 ```
 
 Every refusal in steps 1–5 exits 2 and writes nothing; exit 1 is a run that
-executed and failed.
+executed and failed. A failure after an accepted plan's record exits 2 and
+says that the change may be, or is, in force and that nothing was
+dispatched; `report --run-id RUN_ID` lists the run's programs and `resume`
+continues under the one in force.
 
 ### Invalidation
 
@@ -185,12 +195,15 @@ to a file in the prompt manifest, `prompts.json`:
 
 and refer to it from the step with `:prompt prompts.two`. A prompt written
 inline in the source, as a `defprompt` string, is part of the program:
-editing it makes `resume` refuse with `resume_program_changed`, and short of
-reverting the edit the only way forward is a new `run`.
+editing it is an edit of the workflow, which `resume` plans and you accept,
+as in [Edit the workflow and continue](#edit-the-workflow-and-continue).
 
-The examples below are illustrative: a workflow `main.orc` whose three
-provider steps, in a `let*`, use those three prompts through the provider
-`providers.review`, bound in the provider manifest `providers.json`:
+The examples below are copied from runs of
+[`tests/test_workflow_evaluated_prompt_edit_continue.py`](../tests/test_workflow_evaluated_prompt_edit_continue.py)'s
+fixture, with a stand-in `codex` on a closed `PATH` (no model is called):
+a workflow `main.orc` whose three provider steps, in a `let*`, use those
+three prompts through the provider `providers.review`, bound in the provider
+manifest `providers.json`:
 
 ```json
 {"providers.review": "codex"}
@@ -217,24 +230,67 @@ orchestrator resume 20261112T035933Z-d60jut
 ```
 
 **The step already committed.** Editing its prompt file makes `resume`
-refuse, exit 2, without running anything:
+refuse, exit 2, without running anything. After the refusal it prints the
+plan: which committed steps are kept and which run again, and the command
+that accepts it:
 
-```text
-[effect_input_diverged] workflow:main::run / two: effect input diverged
-(input parts changed: ['prompt', 'source:asset_file:two.md']; ...)
+```console
+$ orchestrator resume 20261113T233911Z-syxq6s
+[effect_input_diverged] workflow:main::run / two: effect input diverged (input parts changed: ['prompt', 'source:asset_file:two.md']; dependency identities changed: False; previous sha256:989954aad2660b434a1761da73a9864ca982bccd6a1e65e4895926fb9ff55ced, current sha256:200612d9e356b012d37c02c1b88d8b3bae3d1222e6b90bb01998aa4e41963544)
+step workflow:main::run / two was committed with other inputs; changed: prompt, source:asset_file:two.md; files: none recorded
+if accepted, this run cancels from the changed step, as invalidate does:
+  kept      1 committed step:
+    workflow:main::run / one
+  cancelled 2 committed steps, which run again when reached:
+    workflow:main::run / two   (provider cost unknown)
+    workflow:main::run / three   (provider cost unknown)
+  retired   none
+  the cut is at workflow:main::run / two: its input changed (parts: prompt, source:asset_file:two.md; files: none)
+  asked again: none
+  unfinished steps retried: none
+  runs first: workflow:main::run / two
+  files that cancelled steps wrote in the workspace are not rolled back
+to accept this plan:
+    orchestrator resume 20261113T233911Z-syxq6s --accept-changes=plan-a8e93e45-2a455c78-e66bdb84-8925d117
+to run this step and every later one again (workspace files are not rolled back):
+    orchestrator invalidate 20261113T233911Z-syxq6s 'workflow:main::run / two'
+    orchestrator resume 20261113T233911Z-syxq6s
 ```
 
-Tell the run to forget that step's result with `invalidate`, quoting the
-identity from the refusal, then resume:
+Run the printed `--accept-changes=plan-…` command. It prints the plan it
+applied once its record is durable, then continues: `one` is reused, `two`
+and `three` run again as attempt 2 with their current prompt files, and the
+result is the last line, on standard output:
 
-```bash
-orchestrator invalidate 20261112T035933Z-d60jut 'workflow:main::run / two'
-orchestrator resume 20261112T035933Z-d60jut
+```console
+$ orchestrator resume 20261113T233911Z-syxq6s --accept-changes=plan-a8e93e45-2a455c78-e66bdb84-8925d117
+[changes_accepted] plan-a8e93e45-2a455c78-e66bdb84-8925d117: record invalidated at journal byte 6753
+accepted: this run cancels from the changed step, as invalidate does:
+  kept      1 committed step:
+    workflow:main::run / one
+  cancelled 2 committed steps, which run again when reached:
+    workflow:main::run / two   (provider cost unknown)
+    workflow:main::run / three   (provider cost unknown)
+  retired   none
+  the cut is at workflow:main::run / two: its input changed (parts: prompt, source:asset_file:two.md; files: none)
+  asked again: none
+  unfinished steps retried: none
+  runs first: workflow:main::run / two
+  files that cancelled steps wrote in the workspace are not rolled back
+run     20261113T233911Z-syxq6s  /home/you/review/.orchestrate/runs/20261113T233911Z-syxq6s
+start   workflow:main::run / two  attempt 2
+commit  workflow:main::run / two  attempt 2
+start   workflow:main::run / three  attempt 2
+commit  workflow:main::run / three  attempt 2
+{"ok":true}
 ```
 
-The resume runs that step and every step after it again, with their current
-prompt files, and reuses the steps before it. To undo the edit instead,
-restore the file's old contents and resume.
+The token (`plan-…`) names that one plan. If anything it names changes
+before you run the command (the prompt file again, a declared script,
+another record in the run), the command is refused, exit 2, writes nothing,
+says what changed and prints the new plan with a new token. The two
+commands after it, `invalidate` then `resume`, do the same in two steps. To
+undo the edit instead, restore the file's old contents and resume.
 
 **A command step failed because of its script.** The same works for the
 script of a command step: fix the script and resume. When the step failed,
@@ -250,15 +306,142 @@ pins these cases.
 
 **Limits.**
 
-- `invalidate` does not roll back files in the workspace. Anything the
-  cancelled steps wrote stays until the steps run again and overwrite it.
+- Neither an accepted plan nor `invalidate` rolls back files in the
+  workspace. Anything the cancelled steps wrote stays until the steps run
+  again and overwrite it.
 - If a step after the edited one is a committed agent turn or run reference,
-  `invalidate` refuses (`invalidate_coordinator_committed`); start a new run.
+  no plan can be accepted and `invalidate` refuses
+  (`invalidate_coordinator_committed`); start a new run.
 
 [`tests/test_workflow_evaluated_prompt_edit_continue.py`](../tests/test_workflow_evaluated_prompt_edit_continue.py)
 pins the failed, not-yet-run, committed-then-invalidate, restore and inline
 cases above; the `invalidate_coordinator_committed` limit is pinned for agent turns by
 [`tests/test_workflow_evaluated_agent_invalidate.py`](../tests/test_workflow_evaluated_agent_invalidate.py).
+
+### Edit the workflow and continue
+
+An edit of the workflow source (a step added, removed or changed, an inline
+prompt, a manifest entry) changes the program. `resume` refuses with
+`resume_program_changed`, exit 2, writes nothing, and prints which effect
+sites changed, the plan and the command that accepts it. Here the inline
+`defprompt` of step `two` was edited after `two` failed:
+
+```console
+$ orchestrator resume 20261113T233925Z-8f9x24
+[resume_program_changed] current program differs from the run's program in force
+effect sites that differ from the recorded program:
+  changed workflow:main::run / two
+if accepted, this run continues under the edited program:
+  kept      1 committed step:
+    workflow:main::run / one
+  cancelled none
+  retired   none
+  the cut: none, nothing is cancelled
+  asked again: none
+  unfinished steps retried: none
+  runs first: workflow:main::run / two
+to accept this plan:
+    orchestrator resume 20261113T233925Z-8f9x24 --accept-changes=plan-295f671c-b0941668-0551d8b6-7c5958d1
+restore the source as it was and resume:
+    orchestrator resume 20261113T233925Z-8f9x24
+or start a new run, in which every step runs again:
+    orchestrator run main.orc --provider-externs-file providers.json --prompt-externs-file prompts.json --input message=hi --run-ref-root /home/you/.local/state/orchestrator/run-ref
+```
+
+Following the first command, the run continues under the edited program:
+
+```console
+$ orchestrator resume 20261113T233925Z-8f9x24 --accept-changes=plan-295f671c-b0941668-0551d8b6-7c5958d1
+[changes_accepted] plan-295f671c-b0941668-0551d8b6-7c5958d1: record rebased at journal byte 3418
+accepted: this run continues under the edited program:
+  kept      1 committed step:
+    workflow:main::run / one
+  cancelled none
+  retired   none
+  the cut: none, nothing is cancelled
+  asked again: none
+  unfinished steps retried: none
+  runs first: workflow:main::run / two
+run     20261113T233925Z-8f9x24  /home/you/inline/.orchestrate/runs/20261113T233925Z-8f9x24
+start   workflow:main::run / two  attempt 2
+[effect_rerun] workflow:main::run / two attempts=[1]
+commit  workflow:main::run / two  attempt 2
+start   workflow:main::run / three  attempt 1
+commit  workflow:main::run / three  attempt 1
+{"ok":true}
+```
+
+A committed step is kept only if every step before it is kept and its
+identity and inputs are unchanged under the edited program; the first one
+that is not is the cut, and it and every later commit run again. `report
+--run-id RUN_ID` then lists the run's programs, each with the journal
+offset it was accepted at, and which program each step ran under.
+
+What the plan says it cannot do, with its code after `no plan can be
+accepted:`, has its own way forward:
+
+- **A committed agent turn, run reference or phased provider at or after the
+  cut** (`invalidate_coordinator_committed`): start a new run.
+- **A step declared `must_not_repeat` whose commit the plan would cancel**
+  (`lexical_restore_pending_effect_unsafe`): the refusal prints
+  `invalidate RUN_ID 'IDENTITY'` for it; run that if repeating the step is
+  safe, then `resume` prints a new plan.
+- **A pending agent turn the plan would not keep**
+  (`invalidate_agent_session_advanced`): restore the source, `resume` so the
+  turn is reconciled under the run's own program, then edit again.
+- **A run-reference child.** Running `resume` in a run reference's child
+  workspace (under the run-reference root) after editing the child's source
+  prints `no plan can be accepted: [resume_program_changed] a run-reference
+  child changes program only with its parent; resume its parent run
+  RUN_ID`. A child never changes program: restore its source and resume the
+  parent run it names. If a file a child's committed step read was changed,
+  that `resume` refuses `effect_input_diverged` and still prints
+  `invalidate` lines; do not run them in the child (the parent re-reads the
+  child's journal), restore the file instead, or start a new parent run.
+
+A kill during the acceptance leaves the run under the old program or under
+the new one, never between; `resume` (or the same command) continues. A kill
+while the edited program is being stored can leave a temporary file
+`.closed_program.<digest>.json.<16 hex digits>.tmp` in the run directory. No
+command reads it; it is harmless and may be deleted while no `resume` of
+that run is running.
+
+### Plan an edit without changing the run
+
+Plain `resume` is the planning command: under an edit it prints the plan and
+writes nothing. The same plan is a library call, for scripts that compare
+edits: `orchestrator.workflow.evaluated.rebase.plan_resume(run_root,
+workspace)` returns the plan, or raises the refusal (`PlanRefusal`, or the
+coded error of the check that refused). It reads the run and the workspace
+and takes no lock. Plan against the run's own workspace, not a clean clone:
+files earlier steps left can move the cut earlier, and a clean clone would
+overstate what is kept. Copied from a run of the fixture above, after
+`two.md` was edited:
+
+```python
+from pathlib import Path
+from orchestrator.workflow.evaluated.rebase import plan_resume
+
+plan = plan_resume(Path.cwd() / ".orchestrate" / "runs" / "20261113T233951Z-w5hv0y", Path.cwd())
+print(plan.record, plan.token)
+print("kept:", [entry.data["identity"] for entry in plan.kept])
+print("cancelled:", [entry.data["identity"] for entry in plan.cancelled])
+print("runs first:", list(plan.runs_first))
+```
+
+```console
+$ python plan.py
+invalidated plan-5eeb3808-2a455c78-5a572204-8925d117
+kept: ['workflow:main::run / one']
+cancelled: ['workflow:main::run / two', 'workflow:main::run / three']
+runs first: ['workflow:main::run / two']
+```
+
+No file under `.orchestrate` changed. `plan.record` is `rebased` for an
+edited program and `invalidated` for a changed input under the run's own
+program. [`tests/test_workflow_evaluated_edit_resume_plan.py`](../tests/test_workflow_evaluated_edit_resume_plan.py)
+and [`tests/test_workflow_evaluated_edit_resume_accept.py`](../tests/test_workflow_evaluated_edit_resume_accept.py)
+pin the plan and its acceptance.
 
 ### Readers
 

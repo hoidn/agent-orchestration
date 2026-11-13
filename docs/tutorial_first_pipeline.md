@@ -303,8 +303,11 @@ runs added.
   fixed script. A step that was killed, or that changed its own script
   before it failed, is not retried with changed files until you add
   `--accept-changes` to the `resume` command, which the refusal prints.
-- `invalidate` runs the step and every later one again, and does not roll
-  back files in the workspace: what the earlier attempts wrote stays.
+- Accepting a plan, like `invalidate`, runs the changed step and every later
+  one again, and does not roll back files in the workspace: what the earlier
+  attempts wrote stays. The same holds after an edit of `grow.orc` itself:
+  `resume` prints a plan for the edited workflow and the command that
+  accepts it ([Edit the workflow and continue](runtime_execution_lifecycle.md#edit-the-workflow-and-continue)).
 
 ## A step that calls a model
 

@@ -90,7 +90,7 @@ From the reviewers' memory of the literature; verify before citing.
 | Bare `(continue <effect>)` crashes the compiler; a loop without `:on-exhausted` compiles and fails at run time | Phase 1 |
 | A run prints nothing while in flight or on success; a failure prints no run id; resume refusals name no recourse | Phase 1 |
 | A command that failed because of a bug in its own script cannot be resumed once the script is fixed (`effect_input_diverged`; no override) | Phase 3; 3a done: plain `resume` retries after a clean failure, `resume --accept-changes` covers the rest |
-| Any semantic source edit refuses resume (`resume_program_changed`) | Phase 3 |
+| Any semantic source edit refuses resume (`resume_program_changed`) | Phase 3; 3b done: the refusal prints a plan, and `resume --accept-changes=plan-<token>` continues under the edit; a run that uses a run reference cannot be resumed after a package change (parked) |
 | Inserting one effect renames every later generated binder on the Python surface, shifting effect identities | Phase 2 |
 | Provider token usage is not recorded; every Phase 1 search row logged consumption as unavailable | Phase 2 |
 | About 34k lines of retired architecture remain, dead as executors but imported as types by 28 production modules | Lane D |
@@ -261,10 +261,14 @@ full designs.
   [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md), exit case (a)
   included. 3b (resume under an edited program) has an accepted
   [design](../design/workflow_lisp_edit_and_continue.md) and
-  [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md); its first
-  task proved the design's nine open claims by test before any feature code,
-  and the build is in execution. Accepting an edit needs a plan token that
-  the refusal prints, so the plan the author saw is the plan that is applied.
+  [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), and is
+  implemented (T1 to T8, 2026-11-13), exit cases (b) and (c) included:
+  `resume` under an edit prints a read-only plan with a token, and
+  `resume --accept-changes=plan-<token>` continues the same run under the
+  edit, so the plan the author saw is the plan that is applied. The lane then
+  stopped (decision 13). Not done: the H-G3 measurement. Parked: what the
+  program and run-reference `config` digests cover, and the message-text match
+  in `effect_inputs._is_destination_overlap`.
 
 ### Phase 4: Python additions pulled by the consumer
 
@@ -666,7 +670,7 @@ is manual. Phase plans are linked here as they start:
   the metering behaved as specified (nine of ten checks); the frozen verdict is fail on the isolation check,
   because the criterion's list of the CLI's built-in agents was incomplete (the plan's ledger has the detail).
 - Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
-  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; tasks T1 to T7 are merged (2026-11-13): `resume` under an edited program prints a read-only plan with a token, and `resume --accept-changes=plan-<token>` continues the run under the edit. T8 (guides and closeout) remains; after it the lane stops (decision 13).
+  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; tasks T1 to T8 are done (2026-11-13): `resume` under an edited program prints a read-only plan with a token, and `resume --accept-changes=plan-<token>` continues the run under the edit; the lane has stopped (decision 13), with the H-G3 measurement not done and two items parked.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Phase 5b, in preparation: staged in this roadmap ([Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed)); survey, machine feasibility and seed design are done on spike branches (`spike/long-horizon-tasks`, `spike/long-horizon-seed`); its plan is being written. The effort ladder is the only approved spend (decision 16).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
