@@ -270,7 +270,7 @@ def typecheck_procedure_definitions(
         # context; procs without a private context source keep the plain
         # missing-binding failure (structural private-exec-context /
         # std/context contract,
-        # docs/design/workflow_lisp_frontend_specification.md).
+        # docs/design/workflow_lisp_core_calculus_middle_end.md).
         session_state.procedure_hidden_context_signature = (
             signature
             if eligible_private_context_source_param_names(signature)

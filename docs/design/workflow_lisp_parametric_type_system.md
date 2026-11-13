@@ -23,9 +23,9 @@ Related docs:
 - `docs/design/workflow_lisp_macro_surface_contract.md`
 - `docs/design/workflow_lisp_proc_refs_partial_application.md`
 - `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
-- `docs/design/workflow_lisp_runtime_native_drain_authoring.md` (owns the
+- `docs/design/workflow_lisp_runtime_native_drain_authoring.md` (Historical; owned the
   concrete drain hook shape contracts consumed by Tranche 2)
-- `docs/design/workflow_lisp_shared_owner_lane_prerequisites.md`
+- `docs/design/workflow_lisp_shared_owner_lane_prerequisites.md` (Historical)
 
 ## Purpose
 
@@ -731,7 +731,8 @@ The original backlog-drain generic migration is historical. Generic constraints 
 - `workflow_lisp_type_catalog.md` owns type-to-contract mapping and
   assignment-compatibility rules consumed by Constraint Vocabulary rule 4.
 - `workflow_lisp_runtime_native_drain_authoring.md` (with
-  `workflow_lisp_shared_owner_lane_prerequisites.md`) owns the concrete
+  `workflow_lisp_shared_owner_lane_prerequisites.md`; both Historical, the drain forms removed on
+  2026-11-12) owned the concrete
   selector/run-item/gap-drafter hook shape contracts and the drain's runtime
   behavior. This document owns only the parameterized signature and
   constraint vocabulary that Tranche 2 layers over those shapes; when
