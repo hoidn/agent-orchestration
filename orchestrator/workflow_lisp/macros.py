@@ -434,7 +434,7 @@ def _apply_hygiene(
         if datum.introduced_by_expansion_id == expansion_id:
             renamed = active_env.get(datum.resolved_name)
             if renamed is not None:
-                return replace(datum, resolved_name=str(renamed))
+                return replace(datum, resolved_name=renamed)
             segments = datum.resolved_name.split(".")
             if len(segments) > 1:
                 renamed_prefix = active_env.get(segments[0])
@@ -563,13 +563,11 @@ def _hygienic_generic_list(
     expansion_id: str,
     env: Mapping[str, str],
 ) -> SyntaxList:
-    # Item 0 is a head name, kept unless it calls a template-local proc-ref (`_CallableName`). A list
-    # there is data, not a head, and it is renamed like any operand.
     return replace(
         datum,
         items=tuple(
-            _hygienic_head(item, expansion_id=expansion_id, env=env)
-            if index == 0 and not isinstance(item, SyntaxList)
+            item
+            if index == 0
             else _apply_hygiene(
                 item,
                 macro_name=macro_name,
@@ -579,24 +577,6 @@ def _hygienic_generic_list(
             for index, item in enumerate(datum.items)
         ),
     )
-
-
-class _CallableName(str):
-    """The new name of a template local bound to `(proc-ref ...)`; a call head naming it is renamed.
-
-    A head names a procedure first and a local only when that local holds a proc-ref
-    (`procedure_typecheck`), so a head naming any other template local keeps its name: the local
-    `increment` bound to 3 leaves `(increment x)` calling the procedure, as it does inline.
-    """
-
-
-def _hygienic_head(item: SyntaxDatum, *, expansion_id: str, env: Mapping[str, str]) -> SyntaxDatum:
-    if not isinstance(item, SyntaxIdentifier) or item.introduced_by_expansion_id != expansion_id:
-        return item
-    renamed = env.get(item.resolved_name)
-    if not isinstance(renamed, _CallableName) or item.resolved_name in _RESERVED_MACRO_NAMES:
-        return item
-    return replace(item, resolved_name=str(renamed))
 
 
 def _bind_introduced(
@@ -1024,8 +1004,7 @@ def _hygienic_letstar(
         )
         if isinstance(name_node, SyntaxIdentifier) and name_node.introduced_by_expansion_id == expansion_id:
             renamed = introduced_identifier(name_node, macro_name=macro_name, expansion_id=expansion_id)
-            callable_ = syntax_head_name(value_node) == "proc-ref"
-            local_env[name_node.resolved_name] = (_CallableName if callable_ else str)(renamed.resolved_name)
+            local_env[name_node.resolved_name] = renamed.resolved_name
             name_node = renamed
         new_bindings.append(replace(raw_binding, items=(name_node, value_node)))
     updated[1] = replace(bindings_node, items=tuple(new_bindings))

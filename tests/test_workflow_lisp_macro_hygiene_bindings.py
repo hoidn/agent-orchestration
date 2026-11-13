@@ -1,10 +1,11 @@
-"""Macro hygiene knows every binding position of a template (surface coherence I2a, review N1, N2, N4).
+"""Macro hygiene knows the binding positions of a template (surface coherence I2a, reviews N1, N2, N4).
 
-A name a template binds (a `let*` local, a `let-proc` parameter, a loop state, a `cond` test that
-reads a local, a local proc-ref called by head) means inside the expansion what it means written
-inline, whatever names the call site binds. Each case pins the value of the expanded program and
-of the same program written inline. The digests differ from the inline program's: hygiene renames
-template locals, and local names are part of the program.
+A name a template binds (a `let*` local, a `let-proc` parameter, a loop state) and a `cond` test that
+reads a local mean inside the expansion what they mean written inline, whatever names the call site
+binds. Each case pins the value of the expanded program and of the same program written inline. The
+digests differ from the inline program's: hygiene renames template locals, and local names are part
+of the program. A call head is never renamed (as on `main`): what a head names needs the resolver
+(forms, macros, `defun`, `defproc`, locals), which hygiene does not have; that is a recorded defect.
 """
 
 from __future__ import annotations
@@ -23,8 +24,8 @@ DECLARATIONS = """(defproc apply-int ((hook ProcRef[Int -> Int]) (value Int)) ->
   (defproc dbl ((value Int)) -> Int (* value 2))"""
 
 
-def _program(root: Path, body: str, *, template: str = "") -> ClosedProgram:
-    macro = f"(defmacro m (x) {template})" if template else ""
+def _program(root: Path, body: str, *, template: str = "", extra: str = "") -> ClosedProgram:
+    macro = f"{extra} (defmacro m (x) {template})" if template else extra
     source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule probe) (export run)
   {DECLARATIONS}
@@ -33,8 +34,8 @@ def _program(root: Path, body: str, *, template: str = "") -> ClosedProgram:
     return ClosedProgram.from_artifact(build(root, source).artifact())
 
 
-def _value(root: Path, body: str, *, template: str = "") -> object:
-    return evaluate_closed_program(_program(root, body, template=template), {}).value
+def _value(root: Path, body: str, *, template: str = "", extra: str = "") -> object:
+    return evaluate_closed_program(_program(root, body, template=template, extra=extra), {}).value
 
 
 HOOK = "(let-proc ((hook ((y Int)) -> Int (+ y 1))) (+ y (apply-int (proc-ref hook) {x})))"
@@ -62,9 +63,6 @@ CASES = {
         "(let* ((flag false)) (let* ((flag2 true)) (cond (flag2 1) (true 0))))", 1),
     "cond_test_that_is_a_template_local_without_a_caller_binding": (
         "(let* ((flag true)) (cond (flag 1) (true 0)))", "(m 1)", "(let* ((flag true)) (cond (flag 1) (true 0)))", 1),
-    "template_local_proc_ref_called_by_head": (
-        "(let* ((f (proc-ref increment))) (f x))", "(let* ((f (proc-ref dbl))) (+ 0 (m 5)))",
-        "(let* ((f (proc-ref dbl))) (+ 0 (let* ((g (proc-ref increment))) (g 5))))", 6),
     "template_local_named_like_a_procedure_keeps_the_procedure_head": (
         "(let* ((increment 3)) (+ increment (increment x)))", "(m 1)",
         "(let* ((increment 3)) (+ increment (increment 1)))", 5),
@@ -113,3 +111,20 @@ def test_template_loop_state_builds_one_program_in_both_forms(tmp_path: Path, ca
     binder, fn, call, _, _ = LOOP_CASES[case]
 
     assert _program(tmp_path / "binder", call, template=binder).digest == _program(tmp_path / "fn", call, template=fn).digest
+
+
+# A head named like a template local keeps its name, so it names what it names on `main`: the `defun`,
+# the user macro or the form, never the local proc-ref.
+HEAD_CASES = {
+    "defun": ("(defun f ((n Int)) -> Int (* n 100))", "(let* ((f (proc-ref increment))) (f x))", 500),
+    "user_macro": ("(defmacro g (y) (* y 100))", "(let* ((g (proc-ref increment))) (g x))", 500),
+    "form": ("(defproc pick3 ((c Bool) (a Int) (b Int)) -> Int (+ a (+ b 100)))",
+             "(let* ((if (proc-ref pick3))) (if (= x 5) 1 2))", 1),
+}
+
+
+@pytest.mark.parametrize("case", sorted(HEAD_CASES))
+def test_a_head_named_like_a_template_local_is_not_renamed(tmp_path: Path, case: str) -> None:
+    extra, template, value = HEAD_CASES[case]
+
+    assert _value(tmp_path, "(m 5)", template=template, extra=extra) == value
