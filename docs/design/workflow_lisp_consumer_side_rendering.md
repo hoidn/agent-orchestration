@@ -3,7 +3,7 @@
 Status: **Historical — archived in place.** The complete original record below,
 including its original status, present-tense descriptions, schedules and
 acceptance language, is preserved for provenance. It supplies no current
-execution admission, work selection or copy-safe recipe. Current authority: [consumer value-flow contract](workflow_lisp_private_runtime_state_and_consumer_value_flow.md).
+execution admission, work selection or copy-safe recipe. Current authority: [frontend specification §22.4](workflow_lisp_frontend_specification.md#224-call-local-provider-policy) for typed `:inputs` rendered into a provider prompt and [§17.1](workflow_lisp_frontend_specification.md#171-private-frontend-lowered-value-lane) for values between steps. Its successor, the [consumer value-flow contract](workflow_lisp_private_runtime_state_and_consumer_value_flow.md), is itself historical.
 
 The historical body begins below; original results and qualifications are unchanged.
 
