@@ -1287,3 +1287,19 @@ Implementation and deterministic public acceptance are distinct from paid
 provider or live-notification qualification. The [delivery plan](../docs/plans/2026-10-22-durable-host-input-plan.md)
 owns execution evidence and remaining verification; it does not redefine these
 contracts or authorize provider spend.
+
+### Source admitted without a new target (surface coherence)
+
+Under versioning rule 2 as ruled on 2026-11-12, a change that admits source refused before and moves
+no closed program, digest or effect identity of source that compiles adds no target. One entry per
+change of the [surface-coherence design](../docs/design/workflow_lisp_surface_coherence.md):
+
+- **I1, map bodies and a computed serial `:max`.** A `list/map-effect` body is any expression; one
+  that reaches a run reference, by any route and after specialization, stays exactly one call with
+  pure arguments (`list_map_effect_body_unsupported`). A serial map's `:max` is any `Int` expression,
+  evaluated once after the source and before the first item; a parallel map's `:max` and `:parallel`
+  stay positive integer literals. A list longer than `:max` fails `list_map_effect_cap_exceeded` as
+  before (a serial map after its first `:max` items, a parallel map before any); a computed `:max`
+  below 1 fails the same way over a non-empty list, and an empty list gives the empty list. A
+  parallel map may be written directly in a serial map or loop body. Every program that compiled
+  before keeps its closed program, digest and identities, and its recorded runs resume.

@@ -1749,7 +1749,7 @@ surface:
   first `:max` elements and then fails with `list_map_effect_cap_exceeded`, as
   does a computed `:max` below 1 over a non-empty list; a parallel map fails
   with that code before any element. An empty list gives the empty list
-  whatever the `:max`. A parallel map may be written directly in a serial map
+  whatever its computed `:max`. A parallel map may be written directly in a serial map
   or loop body.
 
 The type boundary is structural and opt-in. The shared whole-list
