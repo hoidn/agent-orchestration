@@ -1,5 +1,9 @@
 # Workflow Lisp Numeric Surface
 
+Status: **Historical — archived in place.** Superseded: its rules now live in the language reference and `specs/`. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: the [pure-expression surface](workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface) of the frontend specification for literals, operators and refusals; [IO, deterministic artifact contracts](../../specs/io.md) for finite values at boundaries; [versioning](../../specs/versioning.md) for digests and the source floor. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#numeric_surface).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
 Pre-2.35 introduction gates below are historical; data readers remain separate.
 

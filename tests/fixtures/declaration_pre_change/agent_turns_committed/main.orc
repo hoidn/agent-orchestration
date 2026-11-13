@@ -1,4 +1,4 @@
-(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Draft (text String)) (defrecord Feedback (notes List[String]))
   (defprompt draft (:fills (task :text)) -> Draft "Draft: {task}")

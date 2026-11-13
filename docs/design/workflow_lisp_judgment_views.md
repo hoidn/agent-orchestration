@@ -1,5 +1,9 @@
 # Workflow Lisp Judgment Views
 
+Status: **Historical — archived in place.** Superseded: its result locator and read-only report projection were removed with the retired-run readers and no evaluated producer exists, so nothing below is a retained contract, whatever its own status lines say. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [observability](../../specs/observability.md#workflow-lisp-judgment-views-historical) for the removal, the [CLI readers](../../specs/cli.md#executable-support-boundary) for old runs, and [frontend specification §8.7.3](workflow_lisp_frontend_specification.md#873-implemented-prompt-attempt-identity-target-222) for the Q3 attempt identity. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#judgment_views).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Scope notice: the report projection of judgment views was removed with the retired-run readers ([dashboard migration plan](../plans/2026-11-11-dashboard-evaluated-runs-migration-plan.md)); `report` now refuses the runs it read. The implementation is kept at the git tag `archive/retired-run-readers-2026-11-11`. The rest of this page is historical.
 
 Reader scope (historical): original locator/schema validation, content-sealed attempt
