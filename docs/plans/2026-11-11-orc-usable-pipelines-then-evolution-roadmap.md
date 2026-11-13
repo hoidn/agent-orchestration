@@ -387,6 +387,13 @@ every removed test is listed with the code it covered".
      extern's path is checked only when the call runs, not at compile.
      Not a defect, a spec correction: result guidance on a provider or
      command effect is part of program identity (the specs said it was not).
+   - added 2026-11-13 (fifth batch, from the second review of the callables
+     change): macro hygiene never renames a template's `let-proc` binder, so
+     caller code passed to the macro can call the template's local (with the
+     alias form on `main` already; by name once the callables change merges);
+     renaming it moves the digest of macro programs that compile today, so it
+     goes with the one-target cut; a `let-proc` local that forwards a captured
+     outer procedure reference fails with `compiler_defect`.
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
