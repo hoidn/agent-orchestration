@@ -226,7 +226,18 @@ loaders in `evaluated/authority.py` resolve it: `RunAuthority.program` is the
 current program and a new field holds the earlier ones in order. The
 captured-bytes loader reads the header, the first program and the journal as
 today, then each named artifact once. A named artifact that is missing or
-does not verify is `memo_inconsistent`; nothing is rebuilt from source.
+does not verify is `memo_inconsistent`; nothing is rebuilt from source. So is
+a later program that uses an unpinned bare interpreter, or whose parameters
+cannot bind the header's `bound_inputs` in checked form: resume binds those
+inputs to the program in force, so such a lineage can never continue. The
+cost: `report`, the dashboard and the monitor cannot show such a run, and
+`invalidate` refuses it. Only a record that no command writes can produce one
+(the plan refuses the edit first); if a later change ever allows a new
+parameter with a default, this check relaxes together with resume's input
+check. Every reader that loads authority verifies each later program once per
+read (one parse and digest per program, not per row), so a long-lived reader
+never trusts a check made before an artifact changed; a dashboard page that
+scans twice pays it twice.
 
 **Every row is read under the program that wrote it.** A row's program is
 derived from its position: the number of `rebased` records before it. No row
@@ -351,7 +362,7 @@ give the condition below as the reason no plan can be accepted.
 | The recomputed plan is not the plan the token names (decision 9) | The refusal plain `resume` gives now, with what changed and the new plan (§6); `resume_preflight_failed` when nothing needs accepting |
 | A committed run reference, agent turn or phased provider call at or after the cut (K8) | `invalidate_coordinator_committed` |
 | An agent turn attempt at or after the cut that is pending, dispatched, advanced or of uncertain outcome | `invalidate_agent_session_advanced` |
-| A pending run-reference or phased-provider attempt that is not kept (§3); a kept one is recovered by K4 and the phased rules, unchanged | `resume_program_changed`: restore the source and resume, so the attempt settles under the program that started it |
+| A pending run-reference or phased-provider attempt that is not kept (§3); a kept one is recovered by K4 and the phased rules, unchanged | `resume_program_changed`: restore the source and resume, so the attempt settles under the program that started it. For an `invalidated` plan (an unchanged program) the range is C8's, which retires such a start as `invalidate` does |
 | A confined child with a committed effect whose parent attempt is at or after the cut | The refusal of `guard_confined_invalidation` |
 | An uncommitted attempt with a retry baseline, anywhere in the journal, at a site that declares `must_not_repeat` in the program that wrote the attempt or in the edited program (decision 3a) | `lexical_restore_pending_effect_unsafe` |
 | A commit in the cancelled range at a site that declares `must_not_repeat` in the program that wrote the commit or in the edited program (decision 3b) | `lexical_restore_pending_effect_unsafe`; the recovery lines print `invalidate RUN_ID 'IDENTITY'` |
@@ -480,7 +491,9 @@ sets field after an unfinished attempt's script was rewritten.
 10. Memo replay.
     - *Unchanged program, no divergence at a committed effect:* as today.
     - *Unchanged program, a committed effect diverged, no token:* refuse
-      `effect_input_diverged`, as today; the plan is printed with it.
+      `effect_input_diverged`, as today; the plan is printed with it. That
+      plan takes its cut from the refusal and does not compare the commits
+      before it again: the refusing replay compared each, in order.
     - *With a token:* compute the plan. For a candidate program it is §3's.
       For an unchanged program the cut is the first diverged commit and the
       record is the `invalidated` range that `invalidate` would write. Check
@@ -586,8 +599,13 @@ question.
 - **View.** When the journal has a `rebased` record, the view gains `programs`
   (per lineage program: digest, the record's time or the header's
   `started_at`, the cut) and each row gains `program`, the index of the
-  program in force when its latest attempt started. Without such a record
-  neither key exists, so views of existing runs are byte-identical. Rows stay
+  program in force when its latest attempt started. A row whose attempts are
+  partly provider-class and partly not (its identity changed class across a
+  record) also gains `metered_attempts`, the ordinals of its provider-class
+  attempts, which `report` meters instead of every attempt; without it a step
+  that became a command would drop its cancelled provider cost from `report`.
+  Without such a record none of these keys exists, so views of existing runs
+  are byte-identical. Rows stay
   for identities the current program no longer has. A commit a cut covers and
   a start a cut retired show `invalidated`.
 - **`report` and the dashboard** print the program list and each row's
@@ -761,7 +779,7 @@ quoted text follows it. Rows without a document name are evaluated execution.
 | `specs/cli.md`, Diagnostics, codes | (new row) | "`changes_accepted`. Raised by: `resume --accept-changes=TOKEN`, once its record is durable. Exit: diagnostic. Effect: logged with the token, followed by the plan" |
 | `specs/state.md`, run root | "authority for the program." | "authority for the run's first program; never replaced." New row: "`closed_program.<digest>.json`. A program the run switched to, named by the 64 hex digits of its digest: authority for the records after the `rebased` record that names it. A file no record names is not authority" |
 | `specs/state.md`, memo records | (new row) | "`rebased`. Keys: `program_digest`, `from_offset` (integer or null), `time`. Switches the run to the named program, which differs from the one in force and whose artifact is in the run root; cancels every active commit and retires every pending start at or after `from_offset`; reopens a terminal. Records before it are reduced under the earlier program" |
-| `specs/state.md`, view `steps` | "`invalidated` (covered by a range record)" | "`invalidated` (covered by a range record or a cut)". New keys: "`programs`: present only when the journal has a `rebased` record; one `{digest, time, cut}` per program in lineage order" and the row key "`program`: the index of the program in force when the row's latest attempt started" |
+| `specs/state.md`, view `steps` | "`invalidated` (covered by a range record)" | "`invalidated` (covered by a range record or a cut)". New keys: "`programs`: present only when the journal has a `rebased` record; one `{digest, time, cut}` per program in lineage order" and the row keys "`program`: the index of the program in force when the row's latest attempt started" and "`metered_attempts`: on a row whose attempts are partly provider-class and partly not, the ordinals of its provider-class attempts, which `report` meters instead of `1` to `attempt`" |
 | `specs/state.md`, request identity | "`program_digest`, dynamic `identity` and attempt ordinal." | + "`program_digest` is that of the program in force when the request started." |
 | `specs/versioning.md`, after the `closure` sentence | (new sentence) | "An accepted edit appends a `rebased` record and adds a program artifact to the run root (State, 'Memo records'). Neither changes `evaluated_execution.v1` or schema `3.0`: a build that predates the record answers `memo_inconsistent` (from `resume`, `invalidate` and `report`) for such a run and writes nothing, and journals without the record reduce as before." |
 

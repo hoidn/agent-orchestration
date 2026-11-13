@@ -17,12 +17,13 @@ def step_href(row, step) -> str:
 
 
 def effect_timing(step) -> str:
-    """Escaped `attempt N, started T, completed T, duration D ms`; parts the row lacks are left out."""
+    """Escaped `attempt N, started T, completed T, duration D ms, program P`; parts the row lacks are left out."""
     parts = [
         f"attempt {step.attempt}" if step.attempt is not None else "",
         f"started {step.started_at}" if step.started_at else "",
         f"completed {step.completed_at}" if step.completed_at else "",
         f"duration {step.duration_ms} ms" if step.duration_ms is not None else "",
+        f"program {step.program}" if step.program is not None else "",
     ]
     return escape(", ".join(part for part in parts if part))
 

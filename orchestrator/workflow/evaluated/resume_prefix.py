@@ -27,11 +27,18 @@ def _runtime():
 logger = logging.getLogger(__name__)
 
 
-def checked_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
-    """The complete read-only reached-prefix preflight for resume and host settlement."""
-    snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
+def checked_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None,
+                          snapshot=None, commits_proven=False):
+    """The complete read-only reached-prefix preflight for resume and host settlement.
+
+    `snapshot`: an in-memory reduction to check instead of the journal on disk (the plan's journal as it will be,
+    `rebase.py`); None reads the journal. `commits_proven`: the caller has already compared every reached commit's
+    fresh input (condition 5), so it is not compared again."""
+    if snapshot is None:
+        snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
-    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True, confined=confined)
+    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True, confined=confined,
+                                commits_proven=commits_proven)
     from .parallel import has_parallel
     if has_parallel(authority.program):
         from .run_ref import inventory_parallel_run_ref_recovery
@@ -96,8 +103,9 @@ def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io
     return frozenset(reached.identity for reached in prefix.frontiers)
 
 
-def _validate_discovered_prefix(authority, prefix, snapshot, workspace, *, defer_parallel_fault=False, confined=None, proof_only=False):
-    for reached in sorted(prefix.commits, key=lambda reached: reached.commit.offset):
+def _validate_discovered_prefix(authority, prefix, snapshot, workspace, *, defer_parallel_fault=False, confined=None,
+                                proof_only=False, commits_proven=False):
+    for reached in () if commits_proven else sorted(prefix.commits, key=lambda reached: reached.commit.offset):
         effect_inputs._replay_committed_effect(authority, reached.node, reached.operands,
             reached.identity, reached.reader, reached.commit, workspace, snapshot, reached.owner,
             launch_workspace=reached.launch_workspace, confined=confined)

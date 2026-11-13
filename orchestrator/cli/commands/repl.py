@@ -206,10 +206,10 @@ def _attach_root(session: ReplSession, run_root: Path) -> None:
         )
     authority, snapshot = load_run_for_capture(run_root)
     module = _module_for_attachment(session, authority.header)
-    if authority.header.get("program_digest") != module.build.program.digest:
+    if authority.program.digest != module.build.program.digest:     # the run's current program (C10)
         session.captured = None
         raise ReplRefusal(
-            "resume_program_changed", "current program differs from the run header"
+            "resume_program_changed", "current program differs from the run's program in force"
         )
     captured = capture_run_environment(authority, snapshot)
     session.module = module

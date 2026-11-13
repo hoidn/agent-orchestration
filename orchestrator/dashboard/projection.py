@@ -75,7 +75,7 @@ class RunProjector:
             file_refs=attempt_file_refs(payload, resolver, warnings) if attempt_files else {},
             output_preview=json.dumps(payload["value"], ensure_ascii=False)[:200] if "value" in payload else "",
             attempt=payload.get("attempt"), started_at=payload.get("started_at"),
-            completed_at=payload.get("completed_at"))
+            completed_at=payload.get("completed_at"), program=payload.get("program"))
 
     def _row(self, run: RunRecord, status: str, failure: str, warnings: list[str]) -> DashboardIndexRow:
         """Index row for a run without a readable evaluated view."""
