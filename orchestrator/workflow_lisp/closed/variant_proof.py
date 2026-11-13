@@ -90,19 +90,42 @@ def _gap(plan: _Plan, reason: str):
                             form_path=plan.read.metadata.form_path)
 
 
+def _possible(plan: _Plan) -> list[tuple[str, tuple[bool, bool]]]:
+    """Per variant, whether the proof leaves the then and the else branch possible."""
+    return [(row.name, (plan.tags[0] in (None, row.name), plan.tags[1] in (None, row.name)))
+            for row in plan.union.definition.variants]
+
+
 def _check_copies(plan: _Plan, node: Any, branches: tuple[object, object]) -> None:
-    variants = [row.name for row in plan.union.definition.variants]
-    possible = [[tag in (None, variant) for tag in plan.tags] for variant in variants]
-    if any(not any(row) for row in possible):
+    possible = [sides for _variant, sides in _possible(plan)]
+    if not all(any(sides) for sides in possible):
         raise _gap(plan, "the condition leaves a variant in neither branch")
-    copies = [sum(row[side] for row in possible) for side in (0, 1)]
-    shared = [*(branch for branch, count in zip(branches, copies) if count > 1),
-              *((node.condition,) if sum(all(row) for row in possible) > 1 else ())]
-    if any(not isinstance(item, _COPYABLE) for root in shared for item in _nodes(root)):
+    shared = [branch for side, branch in enumerate(branches) if sum(sides[side] for sides in possible) > 1]
+    if sum(all(sides) for sides in possible) > 1:
+        shared.append(node.condition)
+    if not all(isinstance(item, _COPYABLE) for root in shared for item in _nodes(root)):
         raise _gap(plan, "the branch that more than one variant reaches has an effect or a call")
 
 
 Scope = tuple[Any, Mapping[str, TypeRef]]
+Branch = Callable[[int, Any, Mapping[str, TypeRef]], dict[str, Any]]
+Both = Callable[[tuple[Scope, Scope]], dict[str, Any]]
+
+
+def _arm(builder: Any, plan: _Plan, node: Any, variant: str, sides: tuple[bool, bool],
+         d: Any, env: Mapping[str, TypeRef], branch: Branch, both: Both) -> dict[str, Any]:
+    local, binder = builder.bind(d, plan.name, label=None)
+    identity = plan.read.base.metadata.binding_identity
+    if identity is not None:
+        local.binding_aliases = {**(local.binding_aliases or {}), identity: plan.name}
+    case_type = d.type_env.union_variant(plan.union, variant, span=node.metadata.source_span,
+                                         form_path=node.metadata.form_path)
+    scopes = tuple((local, {**env, plan.name: case_type})
+                   if plan.narrowed[side] and plan.tags[side] == variant else (d, env)
+                   for side in (0, 1))
+    side = 0 if sides[0] else 1
+    body = both(scopes) if all(sides) else branch(side, *scopes[side])
+    return {"variant": variant, "bind": binder, "body": body}
 
 
 def variant_case(
@@ -112,8 +135,8 @@ def variant_case(
     d: Any,
     env: Mapping[str, TypeRef],
     *,
-    branch: Callable[[int, Any, Mapping[str, TypeRef]], dict[str, Any]],
-    both: Callable[[tuple[Scope, Scope]], dict[str, Any]],
+    branch: Branch,
+    both: Both,
 ) -> dict[str, Any] | None:
     """The closed `case` for a `WccIf`/`WccSelect` whose branch reads a variant field, else None.
 
@@ -129,18 +152,5 @@ def variant_case(
         raise _gap(plan, "the condition proves the variants of more than one value")
     _check_copies(plan, node, branches)
     subject = builder.value(plan.read.base, d, env)
-    arms = []
-    for variant in plan.union.definition.variants:
-        local, binder = builder.bind(d, plan.name, label=None)
-        identity = plan.read.base.metadata.binding_identity
-        if identity is not None:
-            local.binding_aliases = {**(local.binding_aliases or {}), identity: plan.name}
-        case_type = d.type_env.union_variant(plan.union, variant.name, span=node.metadata.source_span,
-                                             form_path=node.metadata.form_path)
-        scopes = tuple((local, {**env, plan.name: case_type})
-                       if plan.narrowed[side] and plan.tags[side] == variant.name else (d, env)
-                       for side in (0, 1))
-        possible = [tag in (None, variant.name) for tag in plan.tags]
-        body = both(scopes) if all(possible) else branch(0 if possible[0] else 1, *scopes[0 if possible[0] else 1])
-        arms.append({"variant": variant.name, "bind": binder, "body": body})
+    arms = [_arm(builder, plan, node, variant, sides, d, env, branch, both) for variant, sides in _possible(plan)]
     return {"k": "case", "subject": subject, "arms": arms}

@@ -106,6 +106,12 @@ def test_field_after_discriminant_on_procedure_result_runs(tmp_path):
     assert [_run(tmp_path, {"n": 3}), _run(tmp_path, {"n": -1})] == [3, 0]
 
 
+def test_field_after_discriminant_on_procedure_parameter_runs(tmp_path):
+    declarations = UNION + " (defproc get-n ((a A)) -> Int (if (= a.variant OK) a.n 0))"
+    _compile(tmp_path, declarations, "(defworkflow run ((a A)) -> Int (+ (get-n a) 1))")
+    assert [_run(tmp_path, OK_INPUT), _run(tmp_path, BAD_INPUT)] == [6, 1]
+
+
 def test_field_after_discriminant_on_command_result_runs(tmp_path):
     workflow = ('(defworkflow run ((n Int)) -> Int (let* ((a (command-result c :argv ("python" "c.py" n) :returns A)))'
                 ' (if (= a.variant OK) (+ a.n 1) 0)))')
