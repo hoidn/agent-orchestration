@@ -1123,17 +1123,24 @@ The accepted model is:
 Detailed contract:
 [Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md).
 
-Through target 2.35, bounded V1 `let-proc` adds one local typed procedure with explicit identifier
-captures and `(proc-ref local-name)` references. It specializes a private
-generated procedure through ordinary `defproc` lowering; nested or recursive
-local procedures and escaping procedure references remain rejected. See the
-[implemented local-binding contract](workflow_lisp_let_proc_local_proc_refs.md).
-At 2.36, the [W3 contract](workflow_lisp_write_once.md#63-language-changes-to-let-proc)
-adds several local bindings, inferred lexical captures and expected signatures
-from exactly one authored direct consumer call site when incomplete; complete
-signatures retain reuse. It uses existing generated procedures and the evaluated
-route. Declared externs stay available without becoming captures. W3 is
-implemented at 2.36.
+A `let-proc` local is a compile-time procedure specialized as a private
+generated procedure through ordinary `defproc` lowering. A local that declares
+its signature (typed parameters and `-> Type`) is called by name with
+positional arguments, `(f a …)`, and builds the same program as the alias call
+`(let* ((g (proc-ref f))) (g a …))`; it can also be passed with `(proc-ref f)`.
+A local without a signature can only be passed, once, to a consumer whose
+parameter type supplies it; calling it by name is refused
+(`let_proc_signature_required`). Locals do not see each other: a local is
+called from the `let-proc` body, not from another local
+(`let_proc_sibling_call_unsupported`) or itself
+(`let_proc_recursive_unsupported`), and `let-proc` does not nest. A local's
+reference, like every procedure reference, is passed and bound but not stored,
+chosen at run time or returned. The single-binding form with explicit
+`:captures` is the [V1 contract](workflow_lisp_let_proc_local_proc_refs.md);
+several bindings, inferred lexical captures and an expected signature from
+exactly one direct consumer call site are the
+[W3 contract](workflow_lisp_write_once.md#63-language-changes-to-let-proc)
+(target 2.36). Declared externs stay available without becoming captures.
 
 ### 7.9 Type Parameters And Structural Constraints
 
@@ -1979,6 +1986,15 @@ Required behavior:
   :providers providers.implementation)
 ```
 
+A workflow, which can also be run from the command line, is called as the
+command line calls it, with named inputs: `(call w :x value)`. A workflow
+reference parameter is called the same way. A function, a procedure, a local
+procedure and a procedure parameter are called by name with positional
+arguments, `(p a …)`. Each misuse is one diagnostic that names the other
+convention: `(w n)` on a workflow (`procedure_call_unknown`), `(call p …)` on a
+procedure, function or local procedure (`workflow_call_unknown`), and a keyword
+in a positional call (`keyword_argument_invalid`).
+
 Checks:
 
 - callee exists
@@ -1987,6 +2003,9 @@ Checks:
 - argument types match
 - effects permitted
 - return type matches binding
+- no workflow reaches itself, directly or through other workflows
+  (`workflow_call_cycle`, which names the cycle), as no procedure or function
+  does
 
 Lowering:
 
