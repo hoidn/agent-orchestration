@@ -1658,15 +1658,9 @@ candidate only after it passes the procedure-first migration test in Section
   (+ x y))
 ```
 
-Pure expressions are side-effect-free.
-
-They may appear in:
-
-- path construction
-- record construction
-- union construction with `variant`
-- conditions over already-available values
-- arguments to procs/workflows
+Pure expressions are side-effect-free. A pure expression may be written
+wherever a value is expected; so may an effect, except in the pure places of
+§16.3.
 
 ## 10. Sequential Binding: `let*`
 
@@ -1934,41 +1928,9 @@ and complete element descriptors. Initial state, `continue`, `done`, explicit
 exhaustion and committed resume preserve the whole values. Exhaustion can use
 the current state root/fields and recursively package records/variants with
 renamed fields and scalar literals; normal `done` preserves its actual payload,
-even when it chooses the exhaustion variant. This adds neither an exhaustion
-evaluator nor top-level Optional/Map state. Default resume of a pure-only loop
-without a prior semantic boundary retains its existing refusal.
-
-`loop/recur` may declare authored loop state and an explicit exhaustion
-projection. The first-tranche exhaustion surface lowers scalar loop-frame
-markers to `repeat_until.on_exhausted.outputs` and then constructs the final
-typed result from the last materialized loop-frame outputs.
-
-Required behavior:
-
-- exhausting `:max` after a completed iteration may produce a typed
-  non-completion result when an explicit `:on-exhausted` projection is present;
-- direct scalar field accesses rooted in the loop binding lower through
-  `repeat_until.on_exhausted.outputs` as loop-frame refs on the WCC/schema-2
-  route, so exhausted variants may preserve state-derived scalar fields without
-  adding effectful work;
-- arbitrary computed scalar `:on-exhausted` expressions still are not evaluated
-  at exhaustion time; authors must carry those values through loop state before
-  exhaustion if they need them in the terminal result;
-- imported stdlib bounded-exhaustion routes now use the same pure exhaustion
-  projection and perform any terminal `resource-transition` /
-  `materialize-view` work only after the loop result is bound in ordinary
-  post-loop workflow code;
-- body failures, loop-output resolution failures, and predicate failures remain
-  ordinary failures, not exhaustion results;
-- direct non-scalar `on_exhausted` overrides are rejected below target 2.29;
-  at 2.29+, the state-derived structured projection described above is admitted;
-- imported generic `.orc` bodies may carry specialized loop-frame fields through
-  ordinary `loop/recur :state` only after specialization has erased type
-  parameters from the runtime-visible state contract; and
-- a nested loop-body `match` arm may materialize sibling workflow-call outputs
-  onto `continue` state and later loop frames on the ordinary WCC/schema-2
-  route, but any later variant-specific access still requires fresh proof on
-  the carried value rather than hidden cross-iteration proof.
+even when it chooses the exhaustion variant. `:on-exhausted` is evaluated only
+on exhaustion, once, with the last state bound, wherever it is written among
+the options; it may hold effects (§16.3) but not a run reference.
 
 ## 14. Workflow Calls
 
@@ -2103,6 +2065,44 @@ workflow calls, and explicit bridge/compatibility effects when their ordinary
 lowering contract is preserved. Public artifact names and publication policy
 remain owned by the retained `defworkflow`; returning an artifact or value from
 a procedure never publishes it implicitly.
+
+### 16.3 Effect Placement
+
+An effect may be written wherever a value is expected in a workflow or
+procedure body; effects run in the order written, each once, and `if`, `cond`,
+`match`, `and` and `or` run only the branch they take. Record and variant
+fields, list elements, `call` and procedure arguments, operator operands,
+`record-update` operands, a `list/map` or `list/map-effect` source, a
+`path/join-under` child and an `:on-exhausted` value are all such places.
+
+- *Pure places take no effect:* a `defun` body (`pure_function_has_effect`), a
+  `list/map` body (`list_map_body_effect_forbidden`), a parallel `:workspace`
+  (`list_map_effect_workspace_invalid`).
+- *A run reference keeps its own placement contract:* not in `:on-exhausted`,
+  not in a map source (`run_ref_placement_invalid`), alone as a map body, with
+  a pure `:commit`.
+- *A pure operator waits for its value:* it is computed when the value around
+  it is built, after the effects of its sibling operands, and `print` is one.
+  `(+ (print 1) (fetch) (print 3))` fetches, then prints `1` and `3`; a `let*`
+  binding prints in order.
+
+**Order.** Fields run in the order written, not declared; `call` arguments in
+the order written; a `record-update` base before its fields; an inner effect
+before the effect it is an operand of. `if`, `cond` and `match` evaluate the
+condition or subject, then the selected branch; `and` and `or` stop at the
+first operand that decides. All effects of one operand finish before the next
+operand's start, and the enclosing form is applied last. Each effect runs once
+per evaluation of its body: once per loop round or map item. A map's source
+runs once, before its first item.
+
+**Identity.** An effect without an authored binding name takes `#k`, its
+ordinal among the unnamed effects of its scope, in evaluation order;
+`#k / body / then|else|<variant> / …` inside a selected branch, and
+`loop:<label> / exhausted / …` in `:on-exhausted`. No aggregate position enters
+an identity, so an effect in a field has the same identity whether or not a
+sibling field is a `match`. Only a `let*` in statement position keeps its
+name: `(let* ((z E)) (+ z 1))` names the step `z`, `(+ (let* ((z E)) z) 1)`
+names it `#1`; bind there the step someone will `invalidate` by name.
 
 ## 17. Artifact Authority
 
