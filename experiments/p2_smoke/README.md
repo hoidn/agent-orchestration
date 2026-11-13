@@ -202,7 +202,8 @@ line `# p2smoke-rehearsal-stand-in: makes no provider call` and is refused
 while `P2SMOKE_SPEND_AUTHORIZED` is set. Its slot ledger is
 `RESULTS_DIR/rehearsal-ledger`; every record says `rehearsal: true`. Use a
 temporary `HOME`: the stand-in writes its transcripts where the CLI keeps
-them (`~/.claude/projects/`).
+them (`~/.claude/projects/`). Each slot's `bin/` is read-only: remove a results directory
+with `chmod -R u+w DIR && rm -rf DIR`.
 
 ## Verdict
 
