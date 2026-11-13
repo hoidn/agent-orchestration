@@ -130,7 +130,10 @@ def sse_events(message):
     yield "message_start", {"message": start}
     for index, block in enumerate(message["content"]):
         yield from _block_events(index, block)
-    yield "message_delta", {"delta": {"stop_reason": message["stop_reason"], "stop_sequence": None},
+    delta = {"stop_reason": message["stop_reason"], "stop_sequence": None}
+    if message["stop_reason"] == "refusal":  # the form a public refusal archive shows (category, explanation)
+        delta["stop_details"] = {"type": "refusal", "category": "bio", "explanation": "stub refusal"}
+    yield "message_delta", {"delta": delta,
                             "usage": {"output_tokens": message["usage"]["output_tokens"]}}
     yield "message_stop", {}
 
