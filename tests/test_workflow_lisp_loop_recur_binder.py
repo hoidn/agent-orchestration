@@ -121,8 +121,9 @@ def test_binder_form_builds_the_fn_form_program(tmp_path: Path, case: str) -> No
     assert (binder_program.digest, binder_program.sites) == (fn_program.digest, fn_program.sites)
 
 
-# Inside a `defmacro` template (B1 of the I2a review): the initial state is renamed hygienically in
-# both forms, and the binder name is renamed in neither, so the two templates expand to one program.
+# Inside a `defmacro` template (B1 and N4 of the I2a reviews): the initial state is read in the
+# enclosing scope and the state name binds in the body and `:on-exhausted`, in both forms, so the two
+# templates expand to one program.
 SEEDED_FN = "(let* ((tmp (seed x))) (loop/recur :max 2 :state tmp :on-exhausted s (fn (s) (if (check s) (done s) (continue (step s))))))"
 SEEDED_BINDER = "(let* ((tmp (seed x))) (loop/recur ((s tmp)) :max 2 :on-exhausted s (if (check s) (done s) (continue (step s)))))"
 NESTED_FN_TEMPLATE = ("(let* ((tmp (seed x))) (loop/recur :max 2 :state tmp :on-exhausted s (fn (s) (if (check s) (done s) "
