@@ -156,6 +156,7 @@ def test_serial_map_longer_than_max_runs_max_items_then_fails(tmp_path, options)
 
     assert result.returncode != 0
     assert "[list_map_effect_cap_exceeded]" in result.stderr
+    assert "list has 3 items, more than its `:max` of 2" in result.stderr
     assert made.dispatches() == [("a", "first"), ("b", "first")]
 
 
@@ -195,11 +196,26 @@ def test_serial_max_from_a_procedure_parameter(tmp_path):
     assert made.dispatches() == [(item, "first") for item in ITEMS]
 
 
-def test_non_positive_computed_serial_max_fails_before_any_item(tmp_path):
-    made, result = run_serial(tmp_path, ":max n", 0)
+@pytest.mark.parametrize("n", [0, -2])
+def test_non_positive_computed_serial_max_fails_before_any_item(tmp_path, n):
+    made, result = run_serial(tmp_path, ":max n", n)
 
     assert "[list_map_effect_cap_exceeded]" in result.stderr
+    assert f"`:max` evaluated to {n}, which is below 1" in result.stderr
     assert made.dispatches() == []
+
+
+@pytest.mark.parametrize("options", [":max 1", ":max n", ":max (list/length xs)"])
+def test_serial_map_over_an_empty_list_succeeds_whatever_its_max(tmp_path, options):
+    """As a literal `:max 1` over an empty list: no item is needed, so a computed `:max` below 1 does not fail."""
+    source = program(FIRST, options).replace('(list "a" "b" "c")', "xs").replace(
+        "((n Int)) -> List[Int]", "((n Int) (xs List[String])) -> List[Int]")
+    made = Batch(tmp_path, source=source, items=ITEMS)
+
+    result = made.run("--input", "n=0", "--input", "xs=[]")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines()[-1] == "[]"
 
 
 @pytest.mark.parametrize("options", [':max "three"', ":max (= n 1)", ":max 0", ":max -1",
@@ -263,3 +279,64 @@ def test_failed_second_effect_of_a_parallel_item_is_retried_only_with_accept_cha
     assert accepted.returncode == 0, accepted.stderr
     assert started(accepted.stderr) == ["workflow:main::run / par-map:repo[1] / g"]
     assert accepted.stdout.splitlines()[-1] == "[11,11,11]"
+
+
+# ---- a parallel map written directly in a serial map body or a loop body ------------------------------------------
+
+INNER_PARALLEL = ('(list/length (list/map-effect ((s (list "a" "b"))) :max 2 :parallel 2 :workspace s '
+                  '(command-result step :argv ("python" "step.py" s "first") :returns Int)))')
+
+
+@pytest.mark.parametrize("body, value, runs", [
+    (INNER_PARALLEL, [2, 2, 2], 3),
+    (f"(let* ((n {INNER_PARALLEL})) n)", [2, 2, 2], 3),
+    (f'(if (= repo "b") {INNER_PARALLEL} 0)', [0, 2, 0], 1),
+], ids=["direct", "under_let", "under_if"])
+def test_parallel_map_in_a_serial_map_body_runs(tmp_path, body, value, runs):
+    made = batch(tmp_path, body, "serial")
+
+    result = made.run("--input", "n=3")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout.splitlines()[-1]) == value
+    assert Counter(made.dispatches()) == {("a", "first"): runs, ("b", "first"): runs}
+
+
+def test_parallel_map_in_a_loop_body_runs(tmp_path):
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule main) (export run)
+  (defworkflow run () -> Int
+    (loop/recur :max 3 :state 0 :on-exhausted 0
+      (fn (i) (if (= i 2) (done i) (let* ((k {INNER_PARALLEL})) (continue (+ i k -1))))))))
+'''
+    made = Batch(tmp_path, source=source, items=ITEMS)
+
+    result = made.run()
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines()[-1] == "2"
+    assert Counter(made.dispatches()) == {("a", "first"): 2, ("b", "first"): 2}
+
+
+def test_computed_max_in_a_procedure_used_twice_and_through_bind_proc(tmp_path):
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule main) (export run)
+  (defproc each ((n Int) (xs List[String])) -> List[Int] (list/map-effect ((repo xs)) :max n {FIRST}))
+  (defproc apply-it ((f ProcRef[(List[String]) -> List[Int]]) (xs List[String])) -> List[Int] (f xs))
+  (defworkflow run ((n Int)) -> Int
+    (let* ((p (each n (list "a"))) (q (each (+ n 1) (list "b" "c")))
+           (r (apply-it (bind-proc (proc-ref each) :n n) (list "a"))))
+      (+ (list/length p) (list/length q) (list/length r)))))
+'''
+    made = Batch(tmp_path, source=source, items=ITEMS)
+    shutil.copy(made.ws / "a" / "step.py", made.ws / "step.py")
+    digests = {json.loads(cli(made.ws, "compile", "main.orc", "--command-boundaries-file", "commands.json")
+                          .stdout)["program_digest"] for _ in range(2)}
+
+    result = made.run("--input", "n=1")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines()[-1] == "4"
+    assert made.dispatches() == [("a", "first"), ("b", "first"), ("c", "first"), ("a", "first")]
+    identities = [row["identity"] for row in committed(made.snapshot())]
+    assert (len(digests), len(set(identities))) == (1, 4)

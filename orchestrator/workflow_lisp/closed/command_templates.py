@@ -116,7 +116,7 @@ def branch_control_summary(expr: Any, *, result_type: Any, facts: ControlFacts, 
 
 
 _CONTROL_EMITTERS = (
-    ex.IfExpr, ex.MatchExpr, ex.LoopRecurExpr,
+    ex.IfExpr, ex.MatchExpr, ex.LoopRecurExpr, ex.ListMapEffectExpr,
 )
 
 _LEAF_EMITTERS = (

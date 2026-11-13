@@ -1746,14 +1746,17 @@ surface:
 - `list/map-effect` erases to the existing bounded loop and ordinary
   effect-call/checkpoint machinery. Its body is any expression, evaluated once
   per element with its effects in written order; a body that holds a run
-  reference is exactly one call with pure arguments. A serial map's `:max` is
+  reference, directly or through a procedure reference once specialized, is
+  exactly one call with pure arguments. A serial map's `:max` is
   a positive integer literal or any `Int` expression, evaluated once after the
   source and before the first element (a non-`Int` one refuses with
   `list_map_effect_max_invalid`); a parallel map's `:max` and `:parallel` are
   positive integer literals. A list longer than `:max`: a serial map runs its
   first `:max` elements and then fails with `list_map_effect_cap_exceeded`, as
-  does a computed `:max` below 1; a parallel map fails with that code before
-  any element.
+  does a computed `:max` below 1 over a non-empty list; a parallel map fails
+  with that code before any element. An empty list gives the empty list
+  whatever the `:max`. A parallel map may be written directly in a serial map
+  or loop body.
 
 The type boundary is structural and opt-in. The shared whole-list
 transportability predicate decides list eligibility; target 2.18 does not add
