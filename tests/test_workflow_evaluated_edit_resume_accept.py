@@ -16,7 +16,7 @@ import pytest
 from tests import rebased_fixture as fx
 from tests.test_workflow_evaluated_edit_resume_plan import (
     COMMANDS, NEW, P, REFUSALS, SERIAL, STEP, S, _copy, assert_unchanged, body, cmd, completed, edit, host_base,  # noqa: F401
-    own_tools, printed_plan, refused, run, serial, short, tree, workspace)
+    manifest, own_tools, printed_plan, refused, repeat_workspace, run, serial, short, tree, workspace)
 from tests.workflow_inprocess_cli_helpers import cli_inprocess
 
 TOKEN = "plan-00000000-00000000-00000000-00000000"
@@ -156,3 +156,138 @@ def test_each_refusal_of_section_5_with_a_token(completed, tmp_path, case):
         edit(root, old, new, name)
 
     refused_with(root, run_root, code, TOKEN)
+
+
+# ---- after acceptance the run continues as a fresh resume would ---------------------------------------------------
+
+def test_must_not_repeat_refuses_until_invalidated_then_runs_once(tmp_path, declared_by):
+    root, run_root = repeat_workspace(tmp_path / "ws", declared=declared_by == "the run's program")
+    if declared_by == "the edit":
+        manifest(root, True)
+    edit(root, cmd("s2", "s1"), cmd("s2", "(+ s1 1)"))
+    refused_with(root, run_root, "lexical_restore_pending_effect_unsafe", TOKEN)
+    printed = refused(root, run_root).stderr
+    (invalidate,) = [line.strip() for line in printed.splitlines() if line.startswith("    ") and " invalidate " in line]
+    words = shlex.split(invalidate)
+    assert cli_inprocess(root, *words[words.index("invalidate"):]).returncode == 0
+    (root / "log.txt").write_text("")
+
+    accepted(root, accept_command(refused(root, run_root).stderr))
+
+    assert log(root) == ["s2", "s3", "s4"]
+    assert cli_inprocess(root, "resume", run_root.name).returncode == 0 and log(root) == ["s2", "s3", "s4"]
+
+
+@pytest.fixture(params=["the run's program", "the edit"])
+def declared_by(request):
+    return request.param
+
+
+def provider_workspace(tmp_path: Path) -> Path:
+    from tests.test_workflow_evaluated_spend_cap import TWO_CALLS, _capped, _run
+    root = _capped(tmp_path, source=TWO_CALLS.replace('(:target-dsl "2.35")', '(:target-dsl "2.40")'))
+    assert _run(root).returncode == 0
+    return root
+
+
+def provider_cli(root: Path, *argv: str):
+    from tests.test_workflow_evaluated_provider_usage import _orchestrator
+    return _orchestrator(root, *argv)
+
+
+def provider_refused(root: Path, code: str):
+    from tests.test_workflow_evaluated_spend_cap import _run_id
+    before = tree(root)
+    done = provider_cli(root, "resume", _run_id(root))
+    assert done.returncode == 2 and done.stderr.startswith(f"[{code}] "), done.stderr
+    assert_unchanged(root, before)
+    return done
+
+
+def test_comment_line_above_a_committed_provider_dispatches_nothing(tmp_path):
+    from tests.test_workflow_evaluated_spend_cap import _calls
+    root = provider_workspace(tmp_path)
+    edit(root, "    (let* ((first", "    ;; a comment line moves every position below it\n    (let* ((first", "main.orc")
+    edit(root, "      second)))", '      (let* ((after (command-result build :argv ("python" "command.py" "after") '
+                                  ':returns String))) second))))', "main.orc")
+    commands = (root / "commands.jsonl").read_text()
+
+    done = provider_cli(root, *accept_command(provider_refused(root, "resume_program_changed").stderr))
+
+    assert done.returncode == 0, done.stderr
+    assert _calls(root) == 2 and (root / "commands.jsonl").read_text() == commands + "{}\n"
+
+
+def journal_shape(root: Path) -> list[tuple]:
+    from tests.test_workflow_evaluated_provider_usage import _memo
+    return [(row["record"], row.get("identity"), row.get("attempt"), row.get("from_commit"), row.get("outcome"))
+            for row in _memo(root)]
+
+
+def test_committed_prompt_file_change_writes_the_journal_invalidate_would(tmp_path):
+    from tests.test_workflow_evaluated_spend_cap import _calls, _run_id
+    root = provider_workspace(tmp_path / "token")
+    (root / "prompt.md").write_text("Answer again.\n")
+    printed = provider_refused(root, "effect_input_diverged").stderr
+    other = tmp_path / "two-commands"
+    import shutil
+    shutil.copytree(root, other, symlinks=True)
+    (invalidate,) = [line.strip() for line in printed.splitlines() if line.startswith("    ") and " invalidate " in line]
+
+    done = provider_cli(root, *accept_command(printed))
+    words = shlex.split(invalidate)
+    assert provider_cli(other, *words[words.index("invalidate"):]).returncode == 0
+    assert provider_cli(other, "resume", _run_id(other)).returncode == 0
+
+    assert done.returncode == 0, done.stderr
+    assert journal_shape(root) == journal_shape(other) and _calls(root) == _calls(other) == 4
+
+
+def test_edit_and_a_failed_steps_fixed_script_take_one_resume(tmp_path):
+    root = own_tools(tmp_path / "ws")
+    (root / "fail-s4").write_text("")
+    run_root = run(root, code=1)
+    (root / "fail-s4").unlink()
+    (root / "t4.py").write_text(STEP + "# fixed\n")
+    edit(root, "      s4))", "      " + cmd("x", "s4").replace("step", "t1").replace('"t.py"', '"t1.py"') + "))")
+    (root / "log.txt").write_text("")
+
+    done = accepted(root, accept_command(refused(root, run_root).stderr))
+
+    assert log(root) == ["s4", "x"] and done.stdout.splitlines()[-1] == "5"
+    assert [row["outcome"] for row in records(run_root, "terminal")] == ["failed", "completed"]
+
+
+def test_asked_again_request_gets_a_new_id_and_the_old_one_is_stale(host_base, tmp_path):
+    root, run_root = _copy(host_base, tmp_path)
+    (old,) = {row["host_request"]["request_id"] for row in fx.rows(run_root) if "host_request" in row}
+    edit(root, cmd("s1", "n"), cmd("s1", "(+ n 1)"))
+
+    accepted(root, accept_command(refused(root, run_root).stderr))
+    new = json.loads(cli_inprocess(root, "input", "get", run_root.name).stdout)["request_id"]
+    stale = cli_inprocess(root, "input", "answer", run_root.name, old, "--value", '"APPROVED"', "--by", "t")
+
+    assert new != old
+    assert stale.returncode == 2 and "host_input_stale" in stale.stderr, stale.stderr
+    answered = cli_inprocess(root, "input", "answer", run_root.name, new, "--value", '"APPROVED"', "--by", "t")
+    assert answered.returncode == 0, answered.stderr
+
+
+def test_coordinators_before_the_cut_are_kept_and_after_it_refuse(tmp_path):
+    from tests.test_workflow_evaluated_edit_resume_plan import cli, refused_process, run_ref_run
+    parent, run_root, refs = run_ref_run(tmp_path / "r")
+    children = sorted(path for path in refs.rglob("memo.jsonl"))
+    child_bytes = {path: path.read_bytes() for path in children}
+    source = (parent / "controller.orc").read_text()
+    edit(parent, cmd("b", "a"), cmd("b", "(+ a 1)"), "controller.orc")
+
+    done = cli(parent, *accept_command(refused_process(parent, run_root).stderr))
+
+    assert done.returncode == 0, done.stderr
+    assert {path: path.read_bytes() for path in refs.rglob("memo.jsonl")} == child_bytes   # no child run, no record
+    (parent / "controller.orc").write_text(source.replace(cmd("a", "0"), cmd("a", "1")))
+    before = tree(parent)
+    refused_by_coordinator = cli(parent, "resume", run_root.name, f"--accept-changes={TOKEN}")
+    assert refused_by_coordinator.returncode == 2, refused_by_coordinator.stderr
+    assert refused_by_coordinator.stderr.startswith("[invalidate_coordinator_committed] ")
+    assert_unchanged(parent, before)
