@@ -548,7 +548,8 @@ def _stale(authority, candidate, plan, changed) -> PlanRefusal:
 
 
 def _write(authority, plan) -> JournalEntry:
-    """Store the program (W1, W2), repair a torn tail (W3), append and synchronize the record (W4)."""
+    """Store the program (W1, W2), repair a torn tail (W3), append and synchronize the record (W4). Any failure
+    after the program is stored carries `change_in_force = "may"`."""
     from . import memo
 
     files = authority.run_files
@@ -560,12 +561,11 @@ def _write(authority, plan) -> JournalEntry:
         row = {"record": "rebased", "program_digest": plan.program.digest, "from_offset": plan.cut, "time": time.time()}
     else:
         row = {"record": "invalidated", "from_commit": plan.cut, "time": time.time()}
-    memo.repair_torn_tail(authority.memo_path, snapshot, run_files=files)
     try:
+        memo.repair_torn_tail(authority.memo_path, snapshot, run_files=files)
         return memo.append_record(authority.memo_path, row, run_files=files)
-    except memo.MemoError as exc:
-        if exc.code == "memo_sync_failed":
-            exc.change_in_force = "may"
+    except Exception as exc:        # after the artifact is stored: a record may have been appended (W4)
+        exc.change_in_force = "may"
         raise
 
 

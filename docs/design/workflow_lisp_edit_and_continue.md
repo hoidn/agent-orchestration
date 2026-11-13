@@ -292,7 +292,8 @@ Not fewer: the captured-bytes callers and the planner cannot go through
 `read_memo`. Not more: passing tables through 27 callers adds nothing that
 the artifacts do not already fix. `read_memo` runs at every effect start, so
 it must not load an artifact twice: a program's table is cached in the
-process under its verified digest, of which it is a pure function. The plan
+process under (run root, verified digest), a pure function of the digest that
+each run root verifies for itself. The plan
 measures this before it builds on it: the time per effect of a run of a few
 hundred command steps after one accepted edit, against the same run with no
 edit.

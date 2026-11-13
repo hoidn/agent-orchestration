@@ -366,7 +366,7 @@ orchestrator compile WORKFLOW [--entry-workflow NAME] [--source-root DIR ...]
 orchestrator run WORKFLOW [the same frontend flags] [--input NAME=VALUE ...]
   [--input-file JSON] [--state-dir DIR] [--run-ref-root DIR] [--dry-run] [--quiet]
   [--max-cost-usd USD]
-orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR] [--accept-changes] [--quiet] [--max-cost-usd USD]
+orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR] [--accept-changes[=TOKEN]] [--quiet] [--max-cost-usd USD]
 orchestrator invalidate RUN_ID IDENTITY [--state-dir DIR]
 orchestrator report [--run-id RUN_ID] [--runs-root DIR] [--format md|json] [--output PATH]
   [--price-table PATH]
@@ -519,7 +519,7 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   recorded terminal with exit `0` and no write, however often it is repeated.
   `--accept-changes` accepts, for this invocation, the changed declared files
   of every unfinished command attempt that no clean failure covers (step 10
-  below); it is refused when there is none.
+  below); it is refused when there is none. `--accept-changes=TOKEN` accepts the plan that token names: an edited program, the commits it cancels, the questions asked again and the unfinished command attempts it lists (steps 7 and 10). It is refused when the recomputed plan is another one. The bare flag accepts no edited program and no cancellation. The flag is written after `RUN_ID`: `resume --accept-changes RUN_ID` is a usage error (exit `2`) that prints `expected a plan token; write the run id before --accept-changes`.
   - Target 2.38 confined-child amendment: a completed run that records a pending run-ref
     workspace-cleanup obligation retries that cleanup on resume, records the
     outcome and dispatches nothing; a completed run without one keeps the
@@ -659,8 +659,7 @@ authority, memo, attempts or views, in this order:
    relationship, is accepted.
 7. A fresh in-memory build from the recipe (source, ordered roots, entry and
    manifests resolved under the effective workspace; no build cache read or
-   published): compile errors refuse; `resume_program_changed` when the
-   fresh digest differs. The plan is then computed read-only, by steps 8 to
+   published): compile errors refuse. The run's current program is the header's, or the one named by the journal's last `rebased` record, the only records read here. `resume_program_changed` when the fresh digest differs and no plan token is given; the plan is then computed read-only and printed with the refusal, or the reason no plan can be shown. With `--accept-changes=TOKEN` the fresh program is the candidate of step 10; `resume_program_changed` when its entry, target, representation or bare interpreters do not fit the run. The plan is then computed read-only, by steps 8 to
    10 on the fresh program, and printed with the refusal, or the reason no
    plan can be shown; the refusal's code and exit status do not change.
    Formatting and provenance-only changes build the same digest;
@@ -668,13 +667,11 @@ authority, memo, attempts or views, in this order:
 8. Fresh inputs: the recipe's `input_file` is read anew, `input_overrides`
    applied and the result bound against the fresh program; binding errors
    refuse; `resume_inputs_changed` when the digest differs.
-9. Stored authority: the artifact's checked form and header digest (a
+9. Stored authority: the checked form of every program of the lineage, the first against the header digest and each later one against the `rebased` record that names it (a missing or unverified artifact is `memo_inconsistent`) (a
    stored command without argv transport is `memo_inconsistent` here; step
-   7 normally refuses such a run first with `resume_program_changed`) and
-   interpreter pins (`resume_interpreter_missing`; `interpreter_changed` is
+   7 normally refuses such a run first with `resume_program_changed`) and interpreter pins (equal to the first program's bare interpreters, a superset of every later program's; `resume_interpreter_missing`; `interpreter_changed` is
    logged and execution continues on the recorded path).
-10. Memo replay: reduce the journal (`memo_inconsistent`), replay the active
-    committed prefix in journal order re-resolving every input
+10. Memo replay: reduce the journal (`memo_inconsistent`). With `--accept-changes=TOKEN`, for a candidate program or a divergence at a committed effect: compute the plan (rule C10) and its refusals, check it by this step's replay over the journal as it will be, and compare its token; a token that names another plan refuses, with what changed and the new plan. Without a token a divergence at a committed effect refuses `effect_input_diverged` as today, and the plan is printed with it. Otherwise replay the active committed prefix in journal order re-resolving every input
     (`effect_input_diverged` at the first divergence, and for a committed
     effect the plan is printed with it; `result_root_missing`
     at a reached result-path form of a header without `result_root`;
@@ -720,8 +717,7 @@ authority, memo, attempts or views, in this order:
     step whose files did not change resumes without the flag. When such an
     unreached attempt exists, `[accept_changes_unreached]` is logged and the
     attempts it covers are listed, as in the refusal's list.
-11. Only then is a torn tail repaired (a failure there is still a refusal,
-    exit `2`) and evaluation continued. A condition of step 10 that is first
+11. Only then is an accepted plan written (the program artifact, a torn-tail repair, then the `rebased` or `invalidated` record) or a torn tail repaired, and evaluation continued. A failure there still exits `2`; after the artifact is stored the message says that the change may be in force. A condition of step 10 that is first
     reached after continuation has committed new effects fails the run with
     exit `1` instead of `2`, keeping the earlier commits: `effect_input_diverged`
     and `lexical_restore_pending_effect_unsafe` stop without a terminal;
@@ -753,17 +749,18 @@ the `resume` command.
 
 | Code | Recovery lines name | Commands printed |
 | --- | --- | --- |
-| `resume_program_changed` | each effect site added, removed or changed between the recorded and the current program, by identity (provenance ignored), or that only code between effects changed; then the plan (kept, cancelled with recorded cost, the commit at the cut and what differed, asked again, unfinished steps retried, what runs first) and its `plan token:` line, or the reason no plan can be accepted | `resume` after restoring the source; or a fresh `run`, in which every step runs again |
+| `resume_program_changed` | each effect site added, removed or changed between the recorded and the current program, by identity (provenance ignored), or that only code between effects changed; then the plan (kept, cancelled with recorded cost, the commit at the cut and what differed, asked again, unfinished steps retried, what runs first) and the command that accepts it, all before the restore line, or the reason no plan can be accepted | `resume --accept-changes=TOKEN` when a plan can be accepted; `resume` after restoring the source (not offered when the installed orchestrator differs from the one the run's run references recorded); or a fresh `run`, in which every step runs again |
+| any failure of `resume --accept-changes=TOKEN` after the program artifact is stored (window W4) or after its record is durable | that the accepted change may be, or is, in force and that nothing was dispatched | `report --run-id RUN_ID`, which lists the run's programs; `resume`, which continues under the program in force |
 | `resume_inputs_changed` | the inputs whose bound value differs | `resume` after restoring them; or a fresh `run` with the new values |
-| `effect_input_diverged`, a step the memo shows committed, when no step whose latest attempt is pending or failed uses a changed file (a step invalidated and not yet run again does not count) | the identity, the changed input parts and implementation files; then the plan C10 computes and its `plan token:` line, or the reason no plan can be accepted | `invalidate RUN_ID 'IDENTITY'` then `resume`; this step and all later ones run again and workspace files are not rolled back |
-| `effect_input_diverged`, a committed step whose changed files are also used by a step whose latest attempt is pending or failed (or the changed files are unknown and such a step exists) | the identity, the changed parts and files, and the unfinished steps; with the flag, every attempt it would accept and why, as in the next row; then the plan C10 computes and its `plan token:` line, or the reason no plan can be accepted | `invalidate RUN_ID 'IDENTITY'` then `resume`, with `--accept-changes` when an unfinished step is not proven clean (no `closure: unchanged` failure, or a parallel-map item); the same warning |
+| `effect_input_diverged`, a step the memo shows committed, when no step whose latest attempt is pending or failed uses a changed file (a step invalidated and not yet run again does not count) | the identity, the changed input parts and implementation files; then the plan C10 computes and the command that accepts it, or the reason no plan can be accepted | `resume --accept-changes=TOKEN`, which does both; or `invalidate RUN_ID 'IDENTITY'` then `resume`; this step and all later ones run again and workspace files are not rolled back |
+| `effect_input_diverged`, a committed step whose changed files are also used by a step whose latest attempt is pending or failed (or the changed files are unknown and such a step exists) | the identity, the changed parts and files, and the unfinished steps; with the flag, every attempt it would accept and why, as in the next row; then the plan C10 computes and the command that accepts it, or the reason no plan can be accepted | `resume --accept-changes=TOKEN`, which does both; or `invalidate RUN_ID 'IDENTITY'` then `resume`, with `--accept-changes` when an unfinished step is not proven clean (no `closure: unchanged` failure, or a parallel-map item); the same warning |
 | `effect_input_diverged`, a step without an active commit (failed or pending) whose files changed | the identity and the changed files; then, before the command that offers the flag, every unfinished command attempt the flag would accept (this one and any other, such as a sibling item), each with why it is not proven clean: interrupted, changed its own files or a process of the run was still running, no record, or a parallel-map item; at most 20, then `... and N more` | `resume --accept-changes`; `resume` after restoring the files; or a fresh `run` |
 | `effect_input_diverged`, a step without an active commit whose files are missing or unreadable, or whose other inputs changed | that its inputs changed | `resume` after restoring what changed; otherwise a fresh `run` |
 | `invalidate_not_committed` | whether the step has an unfinished attempt, its latest attempt failed, it was invalidated, or no step has that identity | `resume` for an unfinished, failed or invalidated step; then, after the warning that a step and every later one run again and workspace files are not rolled back, one `invalidate` command per committed identity in journal order (at most 20) |
 | `invalidate_coordinator_committed` | the committed run references or agent turns in the suffix | a fresh `run` |
 | `resume_result_root_changed`, `resume_run_ref_root_changed` | the recorded value | `resume` with the `--state-dir` or `--run-ref-root` value that matches the run |
 | `evaluated_execution_unavailable` | the reason in one sentence | a fresh `run` |
-| `lexical_restore_pending_effect_unsafe` | the step that must not repeat, and that a new run performs it again, so whether the interrupted attempt took effect should be checked first | a fresh `run` |
+| `lexical_restore_pending_effect_unsafe` | the step that must not repeat, and that a new run performs it again, so whether the interrupted attempt took effect should be checked first; for a committed step that a plan would cancel: the step, and `invalidate RUN_ID 'IDENTITY'` as the explicit way to let it run again | a fresh `run` |
 | `resume_request_missing` | that the run has no rebuild recipe | none |
 | `spend_cap_reached` | the spent and cap amounts (USD), and that no provider call started | `resume` with `--max-cost-usd` at twice the larger of the two; `resume` without a cap when both are 0 |
 | `spend_cap_unmetered` | why the next call cannot be metered (its template, phased step, unpriced model or run reference), or how many earlier provider attempts were cut off or have no complete priced usage (the first by attempt directory); then `cause <code>` and its fix: `template_unmetered` (bind the step to its `<name>_metered` template and start a new run with the cap), `model_unpriced` (an alias or missing model: set the step's `:model` to a model id the price table prices and start a new run with the cap), `step_uncapped` (a run reference or phased provider step cannot run under a cap), `attempt_unmetered` (an earlier attempt was cut off or has no complete priced usage) | `resume` without a cap |
@@ -774,7 +771,7 @@ the `resume` command.
 | `form_retired` | `compile`; `run`; the fresh build of `resume`: a list head naming a removed form (`trial`) that no user definition or binding shadows, at every target and also where the entry does not reach it; the message names git tag `archive/dead-executors-2026-11-11` | 2 | None; `run` creates no run root |
 | `workflow_lisp_cli_input_unsupported` | `compile` with a flat-route export flag | 2 | None |
 | Workflow input binding failure (a missing, unknown, mistyped or non-finite input): no named code; `run` and `--dry-run` print `Validation error: Workflow input binding failed`, `resume` prints `[resume_preflight_failed] Workflow input binding failed`; a `: <detail>` suffix follows only for a conversion or non-finite failure, a missing or unknown input prints the bare message | `run`; the fresh inputs of `resume` | 2 | None; `run` creates no run root |
-| `resume_preflight_failed` | `resume` refusals without a code of their own: a non-canonical `--run-ref-root`, an input binding failure, an unreadable recipe input file, `--accept-changes` with no unfinished command attempt to accept (last in step 10) | 2 | None |
+| `resume_preflight_failed` | `resume` refusals without a code of their own: a non-canonical `--run-ref-root`, an input binding failure, an unreadable recipe input file, `--accept-changes` with no unfinished command attempt to accept (last in step 10), or with a token when nothing needs accepting | 2 | None |
 | `command_transport_required`, `command_interpreter_missing` | `run` publication (a checked command without argv transport; a bare interpreter that does not resolve on `PATH` or is not launchable), printed as `Validation error: …` | 2 | None; no run root |
 | `reserved_run_root_changed` | any writer whose locked run root no longer matches its path: publication, execution, `resume` preflight, `invalidate` | publication and execution 1; `resume` preflight and `invalidate` 2 | Nothing written into the substitute root |
 | `memo_inconsistent` | `resume` preflight (including stored authority without command transport); `invalidate`; readers; during execution when evidence is unsettled at a start or at `halt` | 2 (`report`: 1; during execution 1 without a terminal) | None; readers report no outputs |
@@ -785,22 +782,22 @@ the `resume` command.
 | `workflow_explain_retired` | `explain`, independent of entry target or export flags | 2 | None; before source/build/export reads or writes |
 | `evaluated_execution_unavailable` | `resume --force-restart` on an admitted evaluated run | 2 | None |
 | `resume_run_ref_root_changed`, `resume_result_root_changed` | `resume` header/option preflight | 2 | None |
-| `resume_program_changed`, `resume_inputs_changed` | `resume` fresh build and inputs; `resume_program_changed` also from `input answer` and `input cancel` while the source is edited and not accepted | 2 | None |
+| `resume_program_changed`, `resume_inputs_changed` | `resume` fresh build and inputs; `resume_program_changed` also from `resume --accept-changes=TOKEN` whose plan changed or cannot be accepted; `resume_program_changed` also from `input answer` and `input cancel` while the source is edited and not accepted | 2 | None |
 | `resume_interpreter_missing` | `resume` stored authority | 2 | None |
 | `interpreter_changed` | `resume` | diagnostic | Logged; execution continues on the pinned path |
 | `effect_input_diverged` | `resume` replay of a committed effect or retry baseline; a later reached effect after continuation | 2; later 1 | Preflight: none. Later: stops without a terminal; prior commits kept |
-| `lexical_restore_pending_effect_unsafe` | `resume` at an uncommitted `must_not_repeat` command | 2; later 1 | As above; the pending start is preserved |
+| `lexical_restore_pending_effect_unsafe` | `resume` at an uncommitted `must_not_repeat` command; `resume` whose plan would run a `must_not_repeat` step again (exit 2) | 2; later 1 | As above; the pending start is preserved |
 | `resume_run_ref_root_missing` | a run reference reached in replay; reached after continuation | 2; later 1 | Preflight: none. Later: failed terminal where the journal permits; prior commits kept |
 | `result_root_missing` | a result-path form reached in replay (header without `result_root`); reached after continuation | 2; later 1 | As above; read-only replay stops at the form with no error row |
 | `run_already_active`, `workspace_run_already_active` | `run`, `resume` | 2 | None |
 | `spend_cap_reached`, `spend_cap_unmetered` | `run`, `py run`, `resume` with `--max-cost-usd`, before a provider, phased provider, agent-turn or run-reference `started` | 1 | No row; stops without a terminal; prior commits kept |
 | `memo_busy` | `invalidate` | 2 | None |
-| `invalidate_not_committed`, `invalidate_coordinator_committed` | `invalidate` | 2 | None |
+| `invalidate_not_committed`, `invalidate_coordinator_committed` | `invalidate`; `invalidate_coordinator_committed` also `resume` whose plan's cancelled range holds a committed coordinator | 2 | None |
 | `agent_session_unavailable`, `agent_session_diverged`, `agent_policy_mismatch` | a reached agent turn (target 2.38) before its `started` and dispatch of a new turn | 1 during execution; 2 in `resume` preflight | No dispatch; failed terminal where the journal permits |
 | `agent_turn_unresolved` | a dispatched agent turn attempt whose completion or result cannot be established | 1 during execution; 2 in `resume` preflight | The `started` stays pending: no `failed` row and no terminal; `resume` reconciles the attempt |
 | `agent_turn_result_invalid` | a later agent turn that completed natively with a missing/invalid result | 1 when first classified (`run` or `resume` continuation); 2 on subsequent `resume` preflight | `failed` row with `exit_info {}` and no `violations`; public validation diagnostic contains only logical agent identity and safe code; the attempt files kept |
 | `agent_bootstrap_restarted` | `resume` abandoning a first-turn candidate | diagnostic | Logged; the abandoned attempt's `failed` row carries this code with `exit_info {abandoned_attempt, locator}` |
-| `invalidate_agent_session_advanced` | `invalidate` over an agent turn attempt whose native session advanced or may have advanced | 2 | None written |
+| `invalidate_agent_session_advanced` | `invalidate` over an agent turn attempt whose native session advanced or may have advanced; `resume` whose plan's cancelled range holds such an attempt | 2 | None written |
 | `undefined_variables`, `effect_input_invalid` | a reached command's template or input document before its `started` | 1; 2 in resume preflight at a command with a retry baseline | No `started`, directory or dispatch; failed terminal where the journal permits. Against an active commit the same condition is `effect_input_diverged`; with only a prior start the code is kept |
 | `command_closure_unreadable` | a reached command's closure before a first attempt (missing, unreadable, cyclic or unsupported entry), or a C4 destination overlap (reason `runtime destination overlaps command closure`) | 1 | No `started`, directory or dispatch; failed terminal where the journal permits. Against a prior start or commit a resolution failure is `effect_input_diverged`; a destination overlap keeps this code |
 | `effect_attempt_path_exists`, `effect_attempt_allocation_failed` | attempt allocation after `started` | 1 | `failed` row with `exit_info {errno}`; the existing directory is preserved; failed terminal where permitted |
@@ -811,6 +808,7 @@ the `resume` command.
 | `memo_torn_tail`, `memo_write_failed`, `memo_sync_failed`, `memo_changed` | journal append or tail repair | 1 during execution; 2 in `resume` tail repair and in `invalidate` | No partial record is authority; a complete row that survived a failed sync still consumes its ordinal |
 | (no code) | an I/O failure during initial authority publication | 1 | Nothing dispatched; printed as `Unexpected error` with the errno (a named code is a recorded follow-up) |
 | `accept_changes_unreached` | `resume --accept-changes` at the end of preflight, when an unproven command attempt that replay has not reached yet (as after an `invalidate`) will be accepted without a rehash | diagnostic | Logged before execution, followed by one `  <identity>: <reason>` line per attempt (at most 20, then `  ... and N more`) |
+| `changes_accepted` | `resume --accept-changes=TOKEN`, once its record is durable | diagnostic | Logged with the token, followed by the plan |
 | `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals once the retry's `started` row is durable, so after its `run` and `start` lines; a retry whose declared files changed (accepted under step 10) ends with ` changed_files=<names>`, comma-separated |
 | `parallel_workspace_shared` | a target-2.37 parallel map whose items resolve to one working directory, before any item starts | 1 | No `started` row or dispatch; failed terminal |
 

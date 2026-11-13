@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import json
 import shlex
+import shutil
 from pathlib import Path
 
 import pytest
 
 from tests import rebased_fixture as fx
 from tests.test_workflow_evaluated_edit_resume_plan import (
-    COMMANDS, NEW, P, REFUSALS, SERIAL, STEP, S, _copy, assert_unchanged, body, cmd, completed, edit, host_base,  # noqa: F401
+    COMMANDS, EDITS, NEW, P, REFUSALS, RUN_ARGS, SERIAL, STEP, S, _copy, class_change, assert_unchanged, body, cmd, completed, edit, host_base,  # noqa: F401
     manifest, own_tools, printed_plan, refused, repeat_workspace, run, serial, short, tree, workspace)
 from tests.workflow_inprocess_cli_helpers import cli_inprocess
 
@@ -291,3 +292,28 @@ def test_coordinators_before_the_cut_are_kept_and_after_it_refuse(tmp_path):
     assert refused_by_coordinator.returncode == 2, refused_by_coordinator.stderr
     assert refused_by_coordinator.stderr.startswith("[invalidate_coordinator_committed] ")
     assert_unchanged(parent, before)
+
+
+COMMAND_ONLY = [kind for kind in EDITS if EDITS[kind][0] is not class_change]     # a host request would wait
+
+
+@pytest.mark.parametrize("kind", COMMAND_ONLY)
+def test_each_edit_kind_accepted_ends_at_the_value_of_a_fresh_run(completed, tmp_path, kind):
+    """Design §9, "Each edit kind": the accepted run's value equals a fresh run of the edited program in a clean
+    clone, and only the cancelled steps and new steps were dispatched again."""
+    fixture, edits, kept, cancelled = EDITS[kind]
+    root, run_root = _copy(completed(fixture), tmp_path)
+    for name, old, new in edits:
+        edit(root, old, new, name)
+    clean = tmp_path / "clean"
+    shutil.copytree(root, clean, ignore=shutil.ignore_patterns(".orchestrate", "log.txt"))
+    fresh = cli_inprocess(clean, "run", *RUN_ARGS)
+    assert fresh.returncode == 0, fresh.stderr
+    (root / "log.txt").write_text("")
+
+    done = accepted(root, accept_command(refused(root, run_root).stderr))
+
+    assert done.stdout.splitlines()[-1] == fresh.stdout.splitlines()[-1]
+    tag = lambda name: name.split("#")[0].split("/")[-1]  # noqa: E731 - the step's logged tag
+    only_kept = {tag(name) for name in kept} - {tag(name) for name in cancelled}
+    assert not only_kept & set(log(root)), log(root)
