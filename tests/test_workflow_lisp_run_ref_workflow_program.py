@@ -894,6 +894,47 @@ def test_new_map_body_shapes_reaching_a_confined_site_are_refused(tmp_path, shap
     assert [row.code for row in refused.value.diagnostics] == ["list_map_effect_body_unsupported"]
 
 
+# A run reference reached only through a procedure reference, confined (`one`) or path-mode (`onep`): every
+# program here is refused on `main` before I1 and stays refused. Not pinned: the same one-call body reaching a
+# confined site through a procedure reference (`(viaparam1 (proc-ref hide1r) …)`, a `let-proc` local, a parallel
+# `(f 1)`) builds on `main` too; that is P12's own gap, outside this change.
+PROC_REF_ROUTES = '''
+  (defproc hide1r ((n Int)) -> Int (call one :seed n :revision "r"))
+  (defproc hide2r ((n Int)) -> Int (let* ((a (call one :seed n :revision "r"))) (call one :seed a :revision "r")))
+  (defproc hidepr ((n Int)) -> Int (call onep :seed n :revision "r"))
+  (defproc hide2p ((n Int)) -> Int (let* ((a (call onep :seed n :revision "r"))) (call onep :seed a :revision "r")))
+  (defproc viaparam1 ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int
+    (list/length (list/map-effect ((x xs)) :max 2 (f x))))
+  (defproc viaparam ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int
+    (list/length (list/map-effect ((x xs)) :max 2 (let* ((a (f x))) (+ a 1)))))
+  (defproc viaif ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int
+    (list/length (list/map-effect ((x xs)) :max 2 (if (= x 1) (f x) 0))))
+  (defproc parlet ((f ProcRef[Int -> Int])) -> Int
+    (list/length (list/map-effect ((repo (list "a"))) :max 1 :parallel 1 :workspace repo (let* ((a (f 1))) (+ a 1)))))
+'''
+REFUSED_ON_MAIN = {
+    "confined_let_body": ("(viaparam (proc-ref hide1r) (list 1 2))", "list_map_effect_body_unsupported"),
+    "confined_if_body": ("(viaif (proc-ref hide1r) (list 1 2))", "list_map_effect_body_unsupported"),
+    "confined_one_call_two_runs": ("(viaparam1 (proc-ref hide2r) (list 1 2))", "list_map_effect_body_unsupported"),
+    "confined_parallel_let_body": ("(parlet (proc-ref hide1r))", "list_map_effect_body_unsupported"),
+    "path_one_call_two_runs": ("(viaparam1 (proc-ref hide2p) (list 1 2))", "list_map_effect_body_unsupported"),
+    "path_let_body": ("(viaparam (proc-ref hidepr) (list 1 2))", "list_map_effect_body_unsupported"),
+    "confined_named_call": ("(list/length (list/map-effect ((x (list 1 2))) :max 2 (hide1r x)))",
+                            "run_ref_placement_invalid"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(REFUSED_ON_MAIN))
+def test_run_reference_behind_a_procedure_reference_is_refused_as_on_main(tmp_path, monkeypatch, case):
+    body, code = REFUSED_ON_MAIN[case]
+    controller = CONFINED.replace('(:target-dsl "2.38")', '(:target-dsl "2.40")').replace("EXTRA", "EXTRA " + PROC_REF_ROUTES)
+    monkeypatch.setattr(sys.modules[__name__], "CONFINED", controller)
+    with pytest.raises(LispFrontendCompileError) as refused:
+        _built(_map_program(tmp_path, f"(let* ((xs {body})) 1)"))
+
+    assert [row.code for row in refused.value.diagnostics] == [code]
+
+
 @pytest.mark.parametrize("mode", sorted(MAP_HEADS))
 @pytest.mark.parametrize("shape", sorted(NEW_SHAPE_BODIES))
 def test_ruling_p12_alone_refuses_every_new_body_shape(tmp_path, monkeypatch, shape, mode):

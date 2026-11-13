@@ -98,8 +98,11 @@ def _effect_boundary_step_kind(
         | WccCall
         | WccProviderSupervision
         | WccProviderPeerGroup
+        | WccParallelMap
     ),
 ) -> str:
+    if isinstance(value, WccParallelMap):
+        return "parallel_map"
     if isinstance(value, WccProviderPeerGroup):
         return "provider_peer_group"
     if isinstance(value, WccProviderSupervision):
@@ -173,7 +176,7 @@ def _iter_specialized_loop_effect_values(
         value = body.bound_value
         if isinstance(
             value,
-            (WccPerform, WccProviderSupervision, WccProviderPeerGroup),
+            (WccPerform, WccProviderSupervision, WccProviderPeerGroup, WccParallelMap),
         ):
             yield value
         elif isinstance(value, WccCall):
@@ -267,6 +270,9 @@ def _iter_specialized_loop_effect_values(
                 context=context,
                 active_procedures=active_procedures,
             )
+        return
+    if isinstance(body, WccParallelMap):
+        yield body  # one boundary; its effect summary says what its items reach
 
 
 def _loop_effect_compile_error(

@@ -1,12 +1,15 @@
-"""Surface coherence I1: a `list/map-effect` body that holds a run reference stays exactly one call with pure
-arguments, also when the run reference is reached only after specialization (a procedure-reference argument, a
-`bind-proc` value, a `let-proc` local, a generic procedure, a macro, two calls deep).
+"""Surface coherence I1: a `list/map-effect` body that reaches a run reference stays exactly one call with pure
+arguments, by any route, also when the run reference is reached only after specialization: a procedure-reference
+argument, a `bind-proc` value, a `let-proc` local, a generic procedure, a macro, a workflow call, a nested loop,
+a nested parallel map, several calls deep. A body that reaches none is any expression.
 
 Every program is a controller around a path-mode run reference (`CALL`) to a committed candidate, built by
 `_public_fixture`; each goes through `orchestrator run`, so an accepted one is also evaluated. No provider.
 """
 
 from __future__ import annotations
+
+import re
 
 import pytest
 
@@ -15,14 +18,35 @@ from tests.test_workflow_evaluated_run_ref import _public_fixture
 
 DEFINITIONS = '''
   (defrecord Tag (n Int))
+  (defproc no-ref ((n Int)) -> Bool (= n 1))
   (defproc one-ref ((n Int)) -> Bool (let* ((attempt CALL)) attempt.value))
   (defproc two-refs ((n Int)) -> Bool (let* ((a CALL) (b CALL)) b.value))
   (defproc one-ref-k ((k Int) (n Int)) -> Bool (let* ((attempt CALL)) attempt.value))
   (defproc two-refs-k ((k Int) (n Int)) -> Bool (let* ((a CALL) (b CALL)) b.value))
+  (defworkflow w1 ((n Int)) -> Bool (let* ((a CALL)) a.value))
+  (defworkflow w2 ((n Int)) -> Bool (let* ((a CALL) (b CALL)) b.value))
+  (defproc hidew1 ((n Int)) -> Bool (call w1 :n n))
+  (defproc hidew2 ((n Int)) -> Bool (let* ((a (call w1 :n n)) (b (call w1 :n n))) b))
+  (defproc hidew2b ((n Int)) -> Bool (call w2 :n n))
   (defproc via ((f ProcRef[Int -> Bool]) (xs List[Int])) -> Int
     (list/length (list/map-effect ((x xs)) :max 2 (f x))))
   (defproc via-let ((f ProcRef[Int -> Bool]) (xs List[Int])) -> Int
     (list/length (list/map-effect ((x xs)) :max 2 (let* ((a (f x))) (if a 1 0)))))
+  (defproc via-if ((f ProcRef[Int -> Bool]) (xs List[Int])) -> Int
+    (list/length (list/map-effect ((x xs)) :max 2 (if (= x 1) (f x) (f x)))))
+  (defproc via-loop-in-body ((f ProcRef[Int -> Bool]) (xs List[Int])) -> Int
+    (list/length (list/map-effect ((x xs)) :max 2
+      (loop/recur :max 1 :state 0 :on-exhausted false (fn (s) (done (f x)))))))
+  (defproc via-map-in-loop ((f ProcRef[Int -> Bool]) (xs List[Int])) -> Int
+    (loop/recur :max 1 :state 0 :on-exhausted 0
+      (fn (s) (done (list/length (list/map-effect ((x xs)) :max 2 (let* ((a (f x))) (if a 1 0))))))))
+  (defproc via-par-in-serial ((f ProcRef[Int -> Bool]) (xs List[Int])) -> Int
+    (list/length (list/map-effect ((x xs)) :max 2
+      (let* ((n (list/length (list/map-effect ((r (list "a"))) :max 1 :parallel 1 :workspace r (f 1))))) (+ n 1)))))
+  (defproc via-par ((f ProcRef[Int -> Bool])) -> Int
+    (list/length (list/map-effect ((r (list "a" "b"))) :max 2 :parallel 2 :workspace r (f 1))))
+  (defproc via2 ((f ProcRef[Int -> Bool]) (xs List[Int])) -> Int (via-let f xs))
+  (defproc via3 ((f ProcRef[Int -> Bool])) -> Int (via2 f (list 1 2)))
   (defproc outer ((f ProcRef[Int -> Bool])) -> Int (via f (list 1 2)))
   (defmacro map-let (f xs) (list/length (list/map-effect ((x xs)) :max 2 (let* ((a (f x))) (if a 1 0)))))
   (defproc via-macro ((f ProcRef[Int -> Bool]) (xs List[Int])) -> Int (map-let f xs))
@@ -32,26 +56,43 @@ DEFINITIONS = '''
 TWO_REFS_LOCAL = "(let-proc ((h ((n Int)) -> Bool (let* ((a CALL) (b CALL)) b.value))) {})"
 ONE_REF_LOCAL = "(let-proc ((h ((n Int)) -> Bool (let* ((a CALL)) a.value))) {})"
 TAG = "(record Tag :n 1)"
+LISTED = "(list 1 2)"
 
-# The run reference reaches the map body only after specialization.
+# The run reference reaches the map body only after specialization, or through a call or a nested form.
 REFUSED = {
-    "procref_one_call_two_refs": "(via (proc-ref two-refs) (list 1 2))",
-    "procref_let_body": "(via-let (proc-ref one-ref) (list 1 2))",
-    "bind_proc_two_refs": "(via (bind-proc (proc-ref two-refs-k) :k 1) (list 1 2))",
-    "bind_proc_let_body": "(via-let (bind-proc (proc-ref one-ref-k) :k 1) (list 1 2))",
-    "let_proc_two_refs": TWO_REFS_LOCAL.format("(via (proc-ref h) (list 1 2))"),
-    "let_proc_let_body": ONE_REF_LOCAL.format("(via-let (proc-ref h) (list 1 2))"),
-    "generic_two_refs": f"(via-generic {TAG} (proc-ref two-refs) (list 1 2))",
-    "macro_let_body": "(via-macro (proc-ref one-ref) (list 1 2))",
+    "procref_one_call_two_refs": f"(via (proc-ref two-refs) {LISTED})",
+    "procref_let_body": f"(via-let (proc-ref one-ref) {LISTED})",
+    "bind_proc_two_refs": f"(via (bind-proc (proc-ref two-refs-k) :k 1) {LISTED})",
+    "bind_proc_let_body": f"(via-let (bind-proc (proc-ref one-ref-k) :k 1) {LISTED})",
+    "let_proc_two_refs": TWO_REFS_LOCAL.format(f"(via (proc-ref h) {LISTED})"),
+    "let_proc_let_body": ONE_REF_LOCAL.format(f"(via-let (proc-ref h) {LISTED})"),
+    "generic_two_refs": f"(via-generic {TAG} (proc-ref two-refs) {LISTED})",
+    "macro_let_body": f"(via-macro (proc-ref one-ref) {LISTED})",
     "two_calls_deep": "(outer (proc-ref two-refs))",
+    "workflow_calls_one_call_two": f"(via (proc-ref hidew2) {LISTED})",
+    "workflow_call_let_body": f"(via-let (proc-ref hidew1) {LISTED})",
+    "workflow_call_if_body": f"(via-if (proc-ref hidew1) {LISTED})",
+    "workflow_call_three_levels": "(via3 (proc-ref hidew1))",
+    "loop_in_body_run_ref": f"(via-loop-in-body (proc-ref one-ref) {LISTED})",
+    "loop_in_body_workflow_call": f"(via-loop-in-body (proc-ref hidew1) {LISTED})",
+    "map_in_loop_run_ref": f"(via-map-in-loop (proc-ref one-ref) {LISTED})",
+    "map_in_loop_workflow_call": f"(via-map-in-loop (proc-ref hidew1) {LISTED})",
+    "parallel_in_serial_run_ref": f"(via-par-in-serial (proc-ref one-ref) {LISTED})",
+    "parallel_in_serial_workflow_call": f"(via-par-in-serial (proc-ref hidew1) {LISTED})",
 }
-# Exactly one call with pure arguments, whose callee runs one run reference: still admitted.
+# Exactly one call with pure arguments, whatever its callee runs; or a body that reaches no run reference.
+# case -> (program, child runs launched)
 ACCEPTED = {
-    "procref_one_call": "(via (proc-ref one-ref) (list 1 2))",
-    "bind_proc_one_call": "(via (bind-proc (proc-ref one-ref-k) :k 1) (list 1 2))",
-    "let_proc_one_call": ONE_REF_LOCAL.format("(via (proc-ref h) (list 1 2))"),
-    "generic_one_call": f"(via-generic {TAG} (proc-ref one-ref) (list 1 2))",
-    "two_calls_deep_one_call": "(outer (proc-ref one-ref))",
+    "procref_one_call": (f"(via (proc-ref one-ref) {LISTED})", 2),
+    "bind_proc_one_call": (f"(via (bind-proc (proc-ref one-ref-k) :k 1) {LISTED})", 2),
+    "let_proc_one_call": (ONE_REF_LOCAL.format(f"(via (proc-ref h) {LISTED})"), 2),
+    "generic_one_call": (f"(via-generic {TAG} (proc-ref one-ref) {LISTED})", 2),
+    "two_calls_deep_one_call": ("(outer (proc-ref one-ref))", 2),
+    "workflow_call_one_call": (f"(via (proc-ref hidew1) {LISTED})", 2),
+    "workflow_call_one_call_two_refs": (f"(via (proc-ref hidew2b) {LISTED})", 4),
+    "direct_workflow_call_two_refs": (f"(list/length (list/map-effect ((x {LISTED})) :max 2 (call w2 :n x)))", 4),
+    "parallel_one_call_two_refs": ("(via-par (proc-ref two-refs))", 4),
+    "no_run_ref_let_body": (f"(via-let (proc-ref no-ref) {LISTED})", 0),
 }
 
 
@@ -59,12 +100,14 @@ def run(tmp_path, count: str):
     parent, source, refs = _public_fixture(
         tmp_path, parent_target="2.40", definitions=lambda call: DEFINITIONS.replace("CALL", call),
         body=lambda call: f"(= {count.replace('CALL', call)} 2)")
-    return _run_cli(parent, str(source), "--run-ref-root", str(refs)), refs
+    for item in ("a", "b"):
+        (parent / item).mkdir()
+    return _run_cli(parent, str(source), "--run-ref-root", str(refs)), refs, source
 
 
 @pytest.mark.parametrize("case", sorted(REFUSED))
-def test_run_reference_reached_after_specialization_keeps_the_one_call_rule(tmp_path, case):
-    result, refs = run(tmp_path, REFUSED[case])
+def test_body_reaching_a_run_reference_by_any_route_keeps_the_one_call_rule(tmp_path, case):
+    result, refs, _source = run(tmp_path, REFUSED[case])
 
     assert result.returncode == 2, result.stdout + result.stderr
     assert "[list_map_effect_body_unsupported]" in result.stderr
@@ -72,35 +115,38 @@ def test_run_reference_reached_after_specialization_keeps_the_one_call_rule(tmp_
 
 
 @pytest.mark.parametrize("case", sorted(ACCEPTED))
-def test_one_call_body_whose_callee_runs_one_run_reference_runs(tmp_path, case):
-    result, refs = run(tmp_path, ACCEPTED[case])
+def test_one_call_body_or_a_body_reaching_no_run_reference_runs(tmp_path, case):
+    program, children = ACCEPTED[case]
+    result, refs, _source = run(tmp_path, program)
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.splitlines()[-1] == "true"
-    assert len(list(refs.rglob("child-request.json"))) == 2
+    assert len(list(refs.rglob("child-request.json"))) == children
 
 
-# Each of the two typing-time checks of a run-reference body, alone: the other one would refuse the same
-# program, so each test names its cause.
+# Each of the two typing-time checks of a run-reference body, alone: the other one, or the closed build, would
+# refuse the same program at another place, so each test asserts where the refusal points.
 
-def refusal(tmp_path, body: str) -> str:
-    result, _refs = run(tmp_path, f"(list/length (list/map-effect ((x (list 1 2))) :max 2 {body}))")
+def refused_at(tmp_path, body: str) -> str:
+    """The source text from the refusal's line and column on."""
+    result, _refs, source = run(tmp_path, f"(list/length (list/map-effect ((x (list 1 2))) :max 2 {body}))")
     assert result.returncode == 2 and "[list_map_effect_body_unsupported]" in result.stderr, result.stderr
-    return result.stderr
+    line, column = map(int, re.search(r"controller\.orc:(\d+):(\d+): \[list_map_effect_body_unsupported\]",
+                                      result.stderr).groups())
+    return source.read_text().splitlines()[line - 1][column - 1:]
 
 
-def test_run_reference_body_that_is_not_one_call_is_refused_for_its_shape(tmp_path):
-    assert "body must be one provider, command, workflow, or procedure call" in refusal(
-        tmp_path, "(let* ((n x)) (one-ref n))")
+def test_run_reference_body_that_is_not_one_call_is_refused_at_the_body(tmp_path):
+    assert refused_at(tmp_path, "(let* ((n x)) (one-ref n))").startswith("(let* ((n x))")
 
 
-def test_run_reference_call_with_an_effectful_argument_is_refused_for_its_argument(tmp_path):
-    assert "call arguments must be pure" in refusal(tmp_path, "(one-ref (if (one-ref x) 1 2))")
+def test_run_reference_call_with_an_effectful_argument_is_refused_at_the_argument(tmp_path):
+    assert refused_at(tmp_path, "(one-ref (if (one-ref x) 1 2))").startswith("(if (one-ref x)")
 
 
 def test_run_reference_in_a_serial_max_runs_once(tmp_path):
     """Like a loop's `:max`, a serial map's `:max` may hold a run reference; it is not an item frame."""
-    result, refs = run(tmp_path, "(list/length (list/map-effect ((x (list 1 2))) :max (if (one-ref 0) 2 0) x))")
+    result, refs, _source = run(tmp_path, "(list/length (list/map-effect ((x (list 1 2))) :max (if (one-ref 0) 2 0) x))")
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert len(list(refs.rglob("child-request.json"))) == 1
@@ -110,7 +156,8 @@ def test_run_reference_one_call_body_of_a_parallel_map_in_an_inline_helper_runs(
     """Target 2.37: a parallel map whose one call holds a run reference, inside an inline helper that an outer
     parallel map calls, is admitted and runs both items."""
     definitions = (
-        "(defproc one-ref ((n Int)) -> Bool :effects ((runs-ref run)) :lowering inline (let* ((attempt CALL)) attempt.value)) "
+        "(defproc one-ref ((n Int)) -> Bool :effects ((runs-ref run)) :lowering inline "
+        "(let* ((attempt CALL)) attempt.value)) "
         "(defproc pmap ((xs List[String])) -> Int :effects ((runs-ref run)) :lowering inline "
         "(list/length (list/map-effect ((repo xs)) :max 2 :parallel 2 :workspace repo (one-ref 1))))")
     parent, source, refs = _public_fixture(

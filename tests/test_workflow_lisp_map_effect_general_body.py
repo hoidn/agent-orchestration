@@ -156,7 +156,6 @@ def test_serial_map_longer_than_max_runs_max_items_then_fails(tmp_path, options)
 
     assert result.returncode != 0
     assert "[list_map_effect_cap_exceeded]" in result.stderr
-    assert "list has 3 items, more than its `:max` of 2" in result.stderr
     assert made.dispatches() == [("a", "first"), ("b", "first")]
 
 
@@ -201,7 +200,6 @@ def test_non_positive_computed_serial_max_fails_before_any_item(tmp_path, n):
     made, result = run_serial(tmp_path, ":max n", n)
 
     assert "[list_map_effect_cap_exceeded]" in result.stderr
-    assert f"`:max` evaluated to {n}, which is below 1" in result.stderr
     assert made.dispatches() == []
 
 

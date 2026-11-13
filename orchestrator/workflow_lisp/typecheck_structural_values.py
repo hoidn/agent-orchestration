@@ -86,10 +86,11 @@ def _typecheck_serial_map_max(expr, recurse):
     return typed_max.expr
 
 
-def _one_call_map_body_fault(expr, typed_body) -> str | None:
-    """Why the body is not exactly one call with pure arguments, or None when it is.
+def _one_call_map_body_fault(expr, typed_body):
+    """Why the body is not exactly one call with pure arguments, as (message, the offending
+    expression), or None when it is: the body for its shape, the argument for an effect in it.
 
-    The shape a map body that holds a run reference must have (evaluated execution 1.2)."""
+    The shape a map body that reaches a run reference must have (evaluated execution 1.2)."""
 
     from .conditionals import _is_helper_expanded
     from .expression_traversal import iter_child_exprs
@@ -104,15 +105,13 @@ def _one_call_map_body_fault(expr, typed_body) -> str | None:
         # whose actuals were checked before its body expanded.
         allowed_body_types += (LetStarExpr,)
     if not isinstance(expr.body_expr, allowed_body_types):
-        return "`list/map-effect` body must be one provider, command, workflow, or procedure call"
+        return "`list/map-effect` body must be one provider, command, workflow, or procedure call", expr.body_expr
     argument_children = () if helper_expanded else iter_child_exprs(typed_body.expr)
-    nested_effect = next(
-        (violation for child in argument_children if (violation := _find_purity_violation(child)) is not None),
+    return next(
+        ((f"`list/map-effect` call arguments must be pure; found effectful form `{violation}`", child)
+         for child in argument_children if (violation := _find_purity_violation(child)) is not None),
         None,
     )
-    if nested_effect is not None:
-        return f"`list/map-effect` call arguments must be pure; found effectful form `{nested_effect}`"
-    return None
 
 
 def _register_map_run_ref_types(type_env, *, context):
@@ -451,12 +450,13 @@ def typecheck_structural_value_expr(
         # build checks the specialized body again (`single_iteration_effect_kinds`).
         one_call_fault = _one_call_map_body_fault(expr, typed_body)
         if one_call_fault is not None and effect_summary_contains_runs_ref(typed_body.effect_summary):
+            message, offending = one_call_fault
             raise_error(
-                one_call_fault,
+                message,
                 code="list_map_effect_body_unsupported",
-                span=expr.body_expr.span,
-                form_path=expr.body_expr.form_path,
-                expansion_stack=expr.body_expr.expansion_stack,
+                span=offending.span,
+                form_path=offending.form_path,
+                expansion_stack=offending.expansion_stack,
             )
         result_type = ListTypeRef(
             name=f"List[{typed_body.type_ref.name}]",

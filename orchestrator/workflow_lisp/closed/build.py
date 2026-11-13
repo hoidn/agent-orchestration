@@ -2096,6 +2096,7 @@ class Builder:
             return
         from types import SimpleNamespace
 
+        from ..effects import effect_summary_contains_runs_ref
         from ..wcc.analysis import (
             _effect_boundary_step_kind,
             _iter_specialized_loop_effect_values,
@@ -2111,13 +2112,13 @@ class Builder:
             type_env=d.type_env,
         )
         effects = list(_iter_specialized_loop_effect_values(node.body, context=context))
+        if not any(effect_summary_contains_runs_ref(effect.metadata.effect_summary) for effect in effects):
+            return  # a map body that reaches no run reference, by any route, is any expression
         kinds = [_effect_boundary_step_kind(effect) for effect in effects]
-        if "run_ref" not in kinds:
-            return  # a map body without a run reference is any expression
         if len(kinds) != 1 or kinds[0] not in node.single_iteration_effect_kinds:
             raise _loop_effect_compile_error(node,
                 code=node.effect_cardinality_diagnostic_code or "closed_program_gap",
-                message=("a `list/map-effect` body that holds a run reference must be exactly one call "
+                message=("a `list/map-effect` body that reaches a run reference must be exactly one call "
                          f"with pure arguments; after specialization it runs {', '.join(kinds)}"))
 
     def _retain_map_result_descriptors(self, descriptor_start, producers):
