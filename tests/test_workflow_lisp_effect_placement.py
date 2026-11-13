@@ -110,6 +110,8 @@ PLACEMENTS = {
     "match-field-written-first": (
         "Pair", f"(record Pair :b (match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(2)}) ((SQUARE s) 0)) :a {E(1)})",
         "", {"a": 1, "b": 2}, ["2", "1"]),
+    "match-operand-runs-one-arm": (
+        "Int", f"(+ 1 (match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(5)}) ((SQUARE s) {E(6)})))", "", 6, ["5"]),
     "pure-match-operand": ("Int", f"(+ 1 {M})", "", 2, []),
     "pure-match-operands": ("Int", f"(+ {M} (* 2 {M}))", "", 3, []),
 }
