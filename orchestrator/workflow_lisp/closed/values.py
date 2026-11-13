@@ -16,7 +16,7 @@ def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]
     elif isinstance(value, w.WccNameAtom):
         result = {
             "k": "name",
-            "n": d.ref(value.name, value.metadata.binding_identity),
+            "n": (d.narrowed_reads or {}).get(id(value)) or d.ref(value.name, value.metadata.binding_identity),
         }
     elif isinstance(value, w.WccFieldAccessAtom):
         result = {

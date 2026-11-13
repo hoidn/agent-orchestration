@@ -241,3 +241,64 @@ def test_checker_refuses_a_stored_variant_field_read_without_case(tmp_path):
                     "else": {"k": "halt", "value": {"k": "lit", "v": 0, "type": {"kind": "primitive", "name": "Int"}}}}
     with pytest.raises(CheckedFormError, match="variant-dependent"):
         validate(tree)
+
+
+THREE = "(defunion A (OK (n Int)) (BAD (why String)) (SKIP))"
+SKIP_INPUT = {"a": {"variant": "SKIP"}}
+REC = UNION + " (defrecord Rec (n Int))"
+# Digests and effect sites these programs had before the variant-proof lowering (main at 976fb427):
+# a branch that rebinds the tested name reads the new binding, so the plain lowering must stay.
+SHADOWED = {
+    "let": ("(defworkflow run ((a A)) -> Int (if (= a.variant OK) (let* ((a (record Rec :n 42))) a.n) 0))",
+            "sha256:b987a72fe8e419bc052266b682ac9e9613f59bd3908a257fb2c39ad82ec9f856"),
+    "match": ("(defworkflow run ((a A) (b A)) -> Int (if (= a.variant OK) (match b ((OK a) a.n) ((BAD x) -3)) 0))",
+              "sha256:5e8cb99646815f702f084758b1fc8c6992244253c6e333078bee66cd815c47ea"),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(SHADOWED))
+def test_a_branch_that_rebinds_the_tested_name_keeps_its_program(tmp_path, shape):
+    workflow, digest = SHADOWED[shape]
+    assert _compile(tmp_path, REC, workflow)["digest"] == digest
+
+
+def test_a_rebinding_branch_with_effects_keeps_its_effect_sites(tmp_path):
+    workflow = ('(defworkflow run ((a A)) -> Int (if (= a.variant OK) (let* ((a (record Rec :n 42))'
+                ' (x (command-result c :argv ("python" "c.py" a.n "x") :returns Int))'
+                ' (y (command-result c :argv ("python" "c.py" "1" "x") :returns Int))) (+ x y)) 0))')
+    built = _compile(tmp_path, REC, workflow)
+    assert (built["digest"], built["tree"]["sites"]) == (
+        "sha256:b37f1a9e54189f33c4f8db80040ec4bd6621e7eae892709ce870582a1f0edeb4", [["workflow:m::run", "then / x"], ["workflow:m::run", "then / y"]])
+
+
+def test_cond_after_a_clause_that_excludes_a_variant_runs(tmp_path):
+    _compile(tmp_path, THREE, "(defworkflow run ((a A)) -> Int (cond ((= a.variant BAD) 1) ((= a.variant OK) a.n) (else 3)))")
+    assert [_run(tmp_path, OK_INPUT), _run(tmp_path, BAD_INPUT), _run(tmp_path, SKIP_INPUT)] == [5, 1, 3]
+
+
+def test_both_branches_reading_under_an_excluded_variant_is_refused(tmp_path):
+    declarations = "(defunion A (OK (n Int)) (BAD (why String)) (SKIP (z Int)))"
+    workflow = "(defworkflow run ((a A)) -> Int (if (= a.variant BAD) 0 (if (= a.variant OK) a.n a.z)))"
+    stderr = _refusal(tmp_path, declarations, workflow)
+    assert "[closed_program_gap]" in stderr and "(match a" in stderr
+
+
+def test_the_whole_tested_value_stays_the_union_in_the_narrowed_branch(tmp_path):
+    declarations = UNION + " (defrecord W (x A) (k Int))"
+    workflow = "(defworkflow run ((a A)) -> W (if (= a.variant OK) (record W :x a :k a.n) (record W :x a :k 0)))"
+    _compile(tmp_path, declarations, workflow)
+    assert _run(tmp_path, OK_INPUT) == {"x": OK_INPUT["a"], "k": 5}
+
+
+def test_a_pure_match_in_a_shared_branch_runs(tmp_path):
+    workflow = "(defworkflow run ((a A)) -> Int (if (= a.variant OK) a.n (match a ((OK o) o.n) ((BAD b) 1) ((SKIP s) 2))))"
+    _compile(tmp_path, THREE, workflow)
+    assert [_run(tmp_path, OK_INPUT), _run(tmp_path, BAD_INPUT), _run(tmp_path, SKIP_INPUT)] == [5, 1, 2]
+
+
+def test_the_refusal_names_the_value_the_variant_and_the_match_form(tmp_path):
+    workflow = ('(defworkflow run ((a A)) -> Int (if (= a.variant OK) a.n'
+                ' (command-result c :argv ("python" "c.py" "1" "x") :returns Int)))')
+    stderr = _refusal(tmp_path, THREE, workflow)
+    assert ("`a`" in stderr, "`OK`" in stderr, "(match a ((OK v)" in stderr, "no closed form" in stderr) == (
+        True, True, True, False)

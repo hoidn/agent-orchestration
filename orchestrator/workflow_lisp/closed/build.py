@@ -333,6 +333,9 @@ class Definition:
     command_indexes: frozenset[str] = frozenset()
     command_variants: tuple[str, ...] = ()
     prepared_request: Any = None
+    # id() of a WCC name atom that reads a variant-only field -> the wire name of
+    # the closed `case` binder that proves its variant (closed/variant_proof.py).
+    narrowed_reads: Mapping[int, str] | None = None
 
     def with_names(
         self,

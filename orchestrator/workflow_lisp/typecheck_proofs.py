@@ -216,8 +216,14 @@ def resolve_field_access(
         variant_name = _singleton_variant(possible)
         if variant_name is None:
             if _union_has_any_field(base_type, field_name):
+                owners = [row.name for row in base_type.definition.variants
+                          if field_name in base_type.variant_field_types.get(row.name, {})]
+                subject = binding_identity.name if binding_identity is not None else "x"
                 raise_error(
-                    f"field `{field_name}` requires variant proof for `{base_type.name}`",
+                    f"field `{field_name}` requires variant proof for `{base_type.name}`: variant "
+                    f"{' or '.join(f'`{name}`' for name in owners)} has it; test it with "
+                    f"`(if (= {subject}.variant {owners[0]}) ...)` or read it in "
+                    f"`(match {subject} (({owners[0]} v) ... v.{field_name} ...) ...)`",
                     code="variant_ref_unproved",
                     span=span,
                     form_path=form_path,
