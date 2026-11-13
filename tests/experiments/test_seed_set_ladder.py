@@ -171,11 +171,11 @@ REAL = [json.loads(line) for line in (Path(__file__).resolve().parents[2] / "exp
 REAL_RUNGS = ladder.LADDER + ladder.EASY_EXTENSION
 
 
-def test_the_real_ladder_after_ruling_1():
+def test_the_real_ladder_after_ruling_1_and_the_anchor_check():  # 9a7547ed4c (T1) rejected: anchors unstable
     sizes = {rung: len(ladder.rung_tasks(REAL, rung)) for rung in REAL_RUNGS}
     t3, smoke = ladder.rung_tasks(REAL, "T3"), [row["id"] for row in REAL if row["set"] == "smoke"]
     assert (sizes, len(t3), t3[-1], "a8ffc5997a" in t3 + ladder.rung_tasks(REAL, "T3w"), smoke) == (
-        {"T0": 10, "T1": 12, "T2": 11, "T3": 20, "T4": 6, "T5": 5, "T1w": 12, "T2w": 11, "T3w": 20, "T4w": 6},
+        {"T0": 10, "T1": 11, "T2": 11, "T3": 20, "T4": 6, "T5": 5, "T1w": 11, "T2w": 11, "T3w": 20, "T4w": 6},
         20, "4da856acda", False, ["194ad866a1"])
 
 
