@@ -6,8 +6,8 @@ on these syntax objects for name resolution, hygienic macro expansion, and
 diagnostics that point back to the original `.orc` source.
 
 See `README.md` for the frontend pipeline map and
-`../../docs/design/workflow_lisp_source_map.md` for the source-map contract this
-module feeds.
+`../../docs/design/workflow_lisp_core_calculus_middle_end.md` ("Pipeline, provenance and
+private contexts") for the provenance contract this module feeds.
 """
 
 from __future__ import annotations

@@ -1,6 +1,7 @@
 """Derive shared workflow contracts from Workflow Lisp structured types.
 
-See `../../docs/design/workflow_lisp_type_catalog.md` for the type-to-contract model
+See `../../docs/design/workflow_lisp_frontend_specification.md` (sections 7 and 8.10) for the
+type-to-contract model
 and `../../docs/design/workflow_lisp_stdlib_lowering.md` for how generated contracts
 are attached to provider and command steps.
 """
@@ -122,7 +123,7 @@ class GeneratedBundleContract:
     discriminant chooses which fields are allowed or required. Every other
     transportable type uses `output_bundle` with one root `__result__` field at
     JSON pointer `""` (see
-    `../../docs/design/workflow_lisp_native_transportable_returns.md`).
+    `../../docs/design/workflow_lisp_frontend_specification.md`, section 8.10).
     `type_ref` keeps that generated runtime contract tied to the original
     frontend type.
     """
@@ -154,7 +155,7 @@ def is_transportable_result_type(
 
     This is the single shared transportability decision for workflow, provider,
     command, and procedure return declarations (see
-    `../../docs/design/workflow_lisp_native_transportable_returns.md`). Records
+    `../../docs/design/workflow_lisp_frontend_specification.md`, section 8.10). Records
     and unions derive the existing structured-result contracts; any other type
     is transportable exactly when the existing structured-result field rules can
     express it as one direct JSON root value.
@@ -987,7 +988,7 @@ def root_workflow_boundary_field(
     structured-result schema rules as provider/command root results, so
     Optional/List/Map roots use the widened v2.15 collection output schema
     instead of the record-flattening Stage 3 rules
-    (`docs/design/workflow_lisp_native_transportable_returns.md`).
+    (`docs/design/workflow_lisp_frontend_specification.md`, section 8.10).
     """
 
     definition = _workflow_boundary_contract_from_structured_field(
