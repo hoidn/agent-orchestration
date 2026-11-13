@@ -14,16 +14,6 @@ VALID_ROOT = FIXTURES / "valid" / "imported_stdlib_loop_exhaustion_post_loop_ter
 VALID_ENTRY_FIXTURE = VALID_ROOT / "entry.orc"
 
 INVALID_FIXTURES: dict[str, tuple[Path, Path, str]] = {
-    "direct_resource_transition": (
-        FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_direct_resource_transition",
-        FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_direct_resource_transition" / "entry.orc",
-        "loop_recur_contract_invalid",
-    ),
-    "direct_materialize_view": (
-        FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_direct_materialize_view",
-        FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_direct_materialize_view" / "entry.orc",
-        "loop_recur_contract_invalid",
-    ),
     "direct_command_result": (
         FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_direct_command_result",
         FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_direct_command_result" / "entry.orc",
@@ -114,7 +104,7 @@ def test_invalid_imported_stdlib_loop_exhaustion_routes_fail_with_owner_layer_di
             source_root=source_root,
             tmp_path=tmp_path,
             command_boundaries=_command_boundaries()
-            if fixture_key in {"direct_command_result", "view_authority_finalizer"}
+            if fixture_key in {"direct_command_result", "effectful_on_exhausted_helper"}
             else None,
         )
 

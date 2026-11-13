@@ -443,6 +443,7 @@ the owner can amend any of them.
 | 10 | Budget for the Agent Sessions comparison (PQ-1c) | Approved 2026-11-12: the comparison only, at most 20 `claude-haiku-5-5` calls, ceiling USD 10, through the kit's launcher. The live best-of-N smoke is not approved |
 | 11 | Agent Sessions after the comparison | Kept, 2026-11-12. The owner values sessions for versatility in workflow patterns, not efficiency. The comparison's cost finding (1.4 to 1.7 times the plain handoff on a four-turn pattern; a committed turn cannot be invalidated) is the known price, not a reason to retire |
 | 12 | Who approves provider spend | Delegated to the coordinator, 2026-11-12, "within reason": planned-size tranches with a cap recorded in the plan ledger before the first call, Haiku by default and nothing above the Sonnet/Terra ceiling. The coordinator still asks for a tranche above about USD 100, cumulative spend above about USD 300, a new experiment line, or a top-up after a null result ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
+| 13 | How far to take edited-program resume (Phase 3b) | 2026-11-12: the owner asked why resume and effect tracking take so much effort, and chose to finish the two remaining tasks (accepting a plan; guides and closeout) and then stop. No scope is added to that lane after them: the open design question about resuming a run that uses a run reference after a package change stays parked, and capacity moves to the seed-set calibration and the language cleanup |
 
 ## Process rules
 

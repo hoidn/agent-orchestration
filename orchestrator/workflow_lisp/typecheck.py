@@ -10,16 +10,12 @@ from .typecheck_calls import (
 from .typecheck_context import (
     TypedExpr,
     ValueEnvironment,
-    clear_active_reusable_state_producer_context,
     clear_active_workflow_signature,
     consume_generated_local_procedures,
     raise_error as _raise_error,
     raise_required_lint as _raise_required_lint,
     reset_generated_local_procedure_state,
-    set_active_reusable_state_producer_context,
     set_active_workflow_signature,
-    _require_normative_phase_ctx_type,
-    _require_phase_scope_name_match,
 )
 from .typecheck_dispatch import typecheck_expression
 from .typecheck_effects import (
@@ -39,11 +35,9 @@ __all__ = [
     "ProofScope",
     "TypedExpr",
     "ValueEnvironment",
-    "clear_active_reusable_state_producer_context",
     "clear_active_workflow_signature",
     "consume_generated_local_procedures",
     "reset_generated_local_procedure_state",
-    "set_active_reusable_state_producer_context",
     "set_active_workflow_signature",
     "typecheck_expression",
 ]

@@ -2170,7 +2170,7 @@ def test_driver_run_next_consults_mutex_before_touching_queued_work(
 
 @pytest.mark.parametrize(
     "stdlib_module",
-    ("context", "drain", "phase", "resource"),
+    ("context", "phase"),
 )
 def test_library_only_entry_uses_one_full_shared_stage3_build_and_never_stage1(
     tmp_path: Path,

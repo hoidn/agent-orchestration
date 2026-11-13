@@ -37,7 +37,7 @@ def _module_source(module_name: str, *, imported_module: str | None = None) -> b
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         f"  (defmodule {module_name})\n"
         f"{import_form}"
         "  (export Result)\n"
@@ -50,7 +50,7 @@ def _invalid_export_module_source(module_name: str) -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         f"  (defmodule {module_name})\n"
         "  (export MissingDefinition))\n"
     ).encode("utf-8")
@@ -76,7 +76,7 @@ def _workflow_module_source(module_name: str) -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         f"  (defmodule {module_name})\n"
         "  (export entry Result)\n"
         "  (defpath Report\n"
@@ -97,7 +97,7 @@ def _single_file_workflow_source() -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         "  (defpath Report\n"
         "    :kind relpath\n"
         '    :under "artifacts/reports"\n'
@@ -116,7 +116,7 @@ def _wcc_effect_workflow_source() -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         "  (defpath Report\n"
         "    :kind relpath\n"
         '    :under "artifacts/reports"\n'
@@ -140,7 +140,7 @@ def _nominal_guidance_workflow_source() -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         "  (defmodule nominal_guidance)\n"
         "  (export entry Decision)\n"
         "  (defrecord Decision\n"
@@ -164,7 +164,7 @@ def test_read_sexpr_file_reads_once_and_retains_exact_and_parser_views(
     payload = (
         b"(workflow-lisp\r\n"
         b'  (:language "0.1")\r\n'
-        b'  (:target-dsl "2.35"))\r\n'
+        b'  (:target-dsl "2.40"))\r\n'
     )
     calls: list[Path] = []
 
@@ -210,7 +210,7 @@ def test_read_sexpr_file_preserves_legacy_universal_newline_ast_and_spans(
         (
             b"(workflow-lisp",
             b'  (:language "0.1")',
-            b'  (:target-dsl "2.35"))',
+            b'  (:target-dsl "2.40"))',
             b"",
         )
     )
@@ -238,7 +238,7 @@ def test_read_sexpr_file_preserves_legacy_universal_newline_diagnostics(
         (
             b"(workflow-lisp",
             b'  (:language "0.1")',
-            b'  (:target-dsl "2.35")',
+            b'  (:target-dsl "2.40")',
             b"",
         )
     )
@@ -534,7 +534,7 @@ def test_stage3_graph_attempt_completes_with_topological_canonical_paths(
     assert attempt.canonical_entry_path == entry_path.resolve()
     assert attempt.started_at_ordinal == 0
     assert attempt.completed_at_ordinal == graph_return_boundaries[0]
-    assert attempt.completed_at_ordinal < len(trace.records)
+    assert attempt.completed_at_ordinal == len(trace.records)
     assert attempt.module_paths == (
         dependency_path.resolve(),
         entry_path.resolve(),
@@ -662,7 +662,7 @@ def test_repeated_stage3_entry_uses_distinct_monotonic_graph_attempt_ids(
     assert first.completed_at_ordinal is not None
     assert second.completed_at_ordinal is not None
     assert first.module_paths == second.module_paths == (entry_path.resolve(),)
-    assert second.started_at_ordinal > first.completed_at_ordinal
+    assert second.started_at_ordinal >= first.completed_at_ordinal
 
 
 def test_stage1_entrypoint_has_no_source_read_trace_surface() -> None:
@@ -813,11 +813,6 @@ def test_stage3_default_wcc_analysis_traces_source_reads(
     ("fixture_path", "provider_externs", "prompt_externs"),
     (
         (
-            FIXTURES / "valid" / "materialize_view_runtime.orc",
-            {},
-            {},
-        ),
-        (
             FIXTURES
             / "provider_peer_group"
             / "provider_peer_group_three.orc",
@@ -833,7 +828,7 @@ def test_stage3_default_wcc_analysis_traces_source_reads(
             },
         ),
     ),
-    ids=("materialize-view", "provider-peer-group"),
+    ids=("provider-peer-group",),
 )
 def test_default_wcc_nominal_lowering_reads_join_the_active_trace(
     tmp_path: Path,

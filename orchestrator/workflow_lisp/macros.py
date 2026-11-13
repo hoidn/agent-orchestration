@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .form_registry import admitted_top_level_heads, reserved_macro_names
+from .form_registry import admitted_top_level_heads, reserved_macro_names, retired_form_message
 from .spans import SourceSpan
 from .syntax import ExpansionFrame, ExpansionStack, SyntaxBool, SyntaxDatum, SyntaxFloat, SyntaxIdentifier, SyntaxInt, SyntaxKeyword, SyntaxList, SyntaxNode, SyntaxString, WorkflowLispSyntaxModule, MAX_STATIC_LIVE_PROVIDER_PEERS, clone_template_syntax, introduced_identifier, syntax_expansion_stack, syntax_head_name, syntax_node_datum, top_level_form_path
 
@@ -1013,6 +1013,14 @@ def _validate_top_level_form(
             code="macro_emits_invalid_ast",
             message="macro expansion may not emit a top-level `defmacro` form",
             span=datum.span,
+            form_path=top_level_form_path(datum),
+            expansion_stack=syntax_expansion_stack(datum),
+        )
+    if (retired := retired_form_message(head.resolved_name, head.display_name)) is not None:
+        _raise_macro_error(
+            code="form_retired",
+            message=retired,
+            span=head.span,
             form_path=top_level_form_path(datum),
             expansion_stack=syntax_expansion_stack(datum),
         )

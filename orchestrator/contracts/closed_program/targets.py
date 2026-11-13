@@ -1,6 +1,11 @@
 """Existing target admission and compiler schema facts shared without source access."""
 
+CURRENT_TARGET_DSL_VERSION = "2.40"
 EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION = "2.35"
+# A wire value, not a source target: every path-mode run-reference config records this string, and the
+# checker requires it. It is spelled on its own so that moving the evaluated-execution floor does not
+# change recorded config bytes.
+PATH_MODE_RUN_REF_TARGET_DSL_VERSION = "2.35"
 PARALLEL_MAP_MIN_TARGET_DSL_VERSION = "2.37"
 RUN_REF_CONFINED_MIN_TARGET_DSL_VERSION = "2.38"
 AGENT_SESSIONS_MIN_TARGET_DSL_VERSION = "2.38"

@@ -31,93 +31,14 @@
       (progress_report_path WorkReport)
       (blocker_class BlockerClass)
       (run_state StateExisting)))
-  (defrecord TerminalOutcomeState
-    (variant String)
-    (items_processed Int)
-    (run_state StateExisting)
-    (progress_report_path WorkReport)
-    (blocker_class BlockerClass))
-  (defrecord TerminalOutcomeRequest
-    (variant String)
-    (items_processed Int)
-    (run_state StateExisting)
-    (progress_report_path WorkReport)
-    (blocker_class BlockerClass))
-  (defrecord TerminalOutcomeResult
-    (variant String)
-    (items_processed Int)
-    (run_state StateExisting)
-    (progress_report_path WorkReport)
-    (blocker_class BlockerClass))
-  (defrecord TerminalOutcomeAudit
-    (variant String)
-    (items_processed Int)
-    (run_state StateExisting)
-    (progress_report_path WorkReport)
-    (blocker_class BlockerClass))
-  (defrecord TerminalSummaryValue
-    (variant String)
-    (items_processed Int)
-    (run_state StateExisting)
-    (blocker_class BlockerClass))
-  (defresource terminal-outcome
-    :state-type std_drain_exhaustion/TerminalOutcomeState
-    :backing state-layout)
-  (deftransition record-terminal-outcome
-    :resource terminal-outcome
-    :request-type std_drain_exhaustion/TerminalOutcomeRequest
-    :result-type std_drain_exhaustion/TerminalOutcomeResult
-    :preconditions ((!= request.variant ""))
-    :updates ((set-field variant request.variant)
-              (set-field items_processed request.items_processed)
-              (set-field run_state request.run_state)
-              (set-field progress_report_path request.progress_report_path)
-              (set-field blocker_class request.blocker_class))
-    :write-set (variant items_processed run_state progress_report_path blocker_class)
-    :idempotency-fields (variant items_processed run_state progress_report_path blocker_class)
-    :result (record std_drain_exhaustion/TerminalOutcomeResult
-      :variant request.variant
-      :items_processed request.items_processed
-      :run_state request.run_state
-      :progress_report_path request.progress_report_path
-      :blocker_class request.blocker_class)
-    :audit (record std_drain_exhaustion/TerminalOutcomeAudit
-      :variant request.variant
-      :items_processed request.items_processed
-      :run_state request.run_state
-      :progress_report_path request.progress_report_path
-      :blocker_class request.blocker_class)
-    :conflict-policy fail_closed
-    :backend runtime_native)
   (defworkflow finalize-terminal
     ((terminal DrainLoopTerminal))
     -> DrainTerminalResult
-    (let* ((outcome
-             (resource-transition
-               :transition record-terminal-outcome
-               :resource terminal-outcome
-               :request (record std_drain_exhaustion/TerminalOutcomeRequest
-                          :variant "EXHAUSTED"
-                          :items_processed terminal.items-processed
-                          :run_state terminal.run-state
-                          :progress_report_path terminal.progress-report-path
-                          :blocker_class terminal.blocker-class)))
-           (summary-path
-             (materialize-view terminal-summary
-               :value (record std_drain_exhaustion/TerminalSummaryValue
-                        :variant outcome.variant
-                        :items_processed outcome.items_processed
-                        :run_state outcome.run_state
-                        :blocker_class outcome.blocker_class)
-               :renderer canonical-json
-               :renderer-version 1
-               :target terminal.progress-report-path
-               :returns WorkReport)))
-      (variant DrainTerminalResult EXHAUSTED
-        :items_processed terminal.items-processed
-        :progress_report_path summary-path
-        :blocker_class terminal.blocker-class
-        :run_state terminal.run-state)))
+    (variant DrainTerminalResult EXHAUSTED
+      :items_processed terminal.items-processed
+      :progress_report_path terminal.progress-report-path
+      :blocker_class terminal.blocker-class
+      :run_state terminal.run-state))
   (defmacro emit-run-drain-like (name)
     (defworkflow name
       ()

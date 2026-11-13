@@ -54,7 +54,7 @@ from it, and read
 as a historical checklist for that family's shape. Start current authoring from
 [`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
 at 2.39 for a `std/improve` review loop, or the
-[complete 2.35 lifecycle recipe](#a-complete-235-recipe-compile-run-resume-report-invalidate).
+[complete lifecycle recipe](#a-complete-235-recipe-compile-run-resume-report-invalidate).
 [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and
 [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc)
 now target 2.35. Their [experiment recipe](../experiments/orc_vs_single_call/README.md)
@@ -208,7 +208,7 @@ Do not author brittle gates, pointer plumbing, report parsers, candidate-path
 selectors, or manual state-file choreography.
 
 Good high-level workflow code composes typed provider/command results, pure
-helpers and bounded control. See [Section 13.7](#137-improve) for the exercised
+helpers and bounded control. See [Section 13.3](#137-improve) for the exercised
 review/revise composition. Low-level state-file choreography, report parsing
 and pointer plumbing should not dominate authored Lisp.
 
@@ -226,11 +226,9 @@ Preferred authoring shape:
 - private runtime context, generated paths, checkpoint identity, and write roots
   are hidden from public entrypoints and ordinary user-facing calls;
 - deterministic local reshaping uses pure typed projection instead of Python;
-- durable resource changes require an admitted, reviewed effect;
-  `resource-transition` remains unavailable at evaluated targets;
+- durable resource changes require an admitted, reviewed effect; and
 - prompt text, public summaries, observability, and compatibility files are
-  renderings at consumer seams; and
-- body-level `materialize-view` remains unavailable at evaluated targets.
+  renderings at consumer seams.
 
 For example, the high-level call should usually be:
 
@@ -355,7 +353,7 @@ explicit identifier captures. At 2.36,
 adds several bindings, inferred lexical captures and incomplete signatures
 inferred from exactly one authored direct consumer site. Complete signatures
 retain reuse. Nested local definitions and recursion remain excluded. See
-[Section 13.7](#137-improve) for the maintained proposal recipe.
+[Section 13.3](#137-improve) for the maintained proposal recipe.
 
 The [macro contract](design/workflow_lisp_macro_surface_contract.md),
 [parametric type contract](design/workflow_lisp_parametric_type_system.md), and
@@ -371,7 +369,7 @@ The **2.35/2.36** recipes below remain valid at their stated targets; **2.38**
 introduces bounded [Agent Sessions](#agent-sessions-target-238) and
 [command-only confined children](#confined-workflow-children-target-238-command-only). These select evaluated
 execution; 2.36 adds the W3 local-hook and graph-selected `std/improve` API
-shown in [Section 13.7](#137-improve). Every source dependency must declare
+shown in [Section 13.3](#137-improve). Every source dependency must declare
 target 2.35 or newer, including dependencies supplied as typed programs or
 compiled bundles. Pre-2.35 entry execution is retired; source imports, REPL
 loads and LSP analysis below that floor also refuse. Historical source is
@@ -404,12 +402,11 @@ references. Portable providers admit extern `asset_file`/`input_file` prompts
 and supported `defprompt` slots, including `:path :out`, but no session,
 context binding/capture, managed job or secrets.
 
-Selected `request-input`, phased provider delivery,
-`run-provider-phase`, `produce-one-of`, `resume-or-start`,
-`finalize-selected-item`, `resource-transition`, `materialize-view`, live
-provider supervision/peer groups and bundle-mode `run-ref` are unavailable
-at both evaluated targets and refuse at build with `closed_program_gap`.
-The `trial` form was removed and refuses with `form_retired`.
+Selected `request-input`, phased provider delivery, live provider
+supervision/peer groups and bundle-mode `run-ref` are unavailable at every
+evaluated target and refuse at build with `closed_program_gap`. The forms
+listed in [Section 13.1](#131-removed-forms) and `trial` were removed and
+refuse with `form_retired`.
 Provider session artifacts and materialization attempts are also excluded.
 Recursive calls and runtime closures remain excluded. Frontend/typechecking
 may reject a source before this admission check; retargeting an old workflow
@@ -476,7 +473,9 @@ compilation; public `resume` still checks recorded source/configuration
 currentness before reusing retained authority. Rewriting source or manifests
 is a migration and does not promise cross-build resume.
 
-### A complete 2.35 recipe: compile, run, resume, report, invalidate
+<a id="a-complete-235-recipe-compile-run-resume-report-invalidate"></a>
+
+### A complete recipe: compile, run, resume, report, invalidate
 
 Everything below is the public fixture of
 [`tests/test_workflow_evaluated_invalidate_smoke.py`](../tests/test_workflow_evaluated_invalidate_smoke.py)
@@ -489,7 +488,7 @@ every command. Run the test to reproduce it.
 one provider, with a typed `String` input.
 
 ```lisp
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> Result
@@ -533,15 +532,15 @@ in [`tests/test_workflow_evaluated_providers.py`](../tests/test_workflow_evaluat
 writes `$T/bin/codex` (its `SHIM` text behind a `#!<python>` line, mode
 0700). It reads the prompt on stdin, appends the request to `requests.jsonl`
 and writes `{"ok":true,"extra":7}` to the absolute
-`ORCHESTRATOR_OUTPUT_BUNDLE_PATH` a 2.35 provider receives. The runtime
+`ORCHESTRATOR_OUTPUT_BUNDLE_PATH` a provider receives. The runtime
 validates that file against `Result` and commits `{"ok": true}`; `extra` is
 not part of the contract. `:model "chosen-model"` is the fixture's
 placeholder; a real provider needs a real model alias, and Task 14D ran the
 three maintained programs live with their own manifests, not with this one.
 The environment of every command below is the fixture's: `PATH=$T/bin:$PATH`,
 `PYTHONPATH=<repository root>` (this checkout's `orchestrator` must be the
-one `python -m orchestrator` imports; another installed checkout refuses
-target 2.35), `PYTHONDONTWRITEBYTECODE=1`, `PROVIDER_SHIM_MODE=success`,
+one `python -m orchestrator` imports; another installed checkout may refuse
+the target), `PYTHONDONTWRITEBYTECODE=1`, `PROVIDER_SHIM_MODE=success`,
 `PROVIDER_SHIM_RESULT='{"ok":true,"extra":7}'`; `$T` is the current directory.
 
 **1. Compile.** Writes `$T/.orchestrate/build/<key>/closed_program.json` and
@@ -912,10 +911,10 @@ Use the smallest unit that represents the behavior truthfully.
 | Command returns structured state | `command-result` | Stdout scraping |
 | Outcome-shaped result | `defunion` + `match` | Stringly gates |
 | Fixed-shape result | `defrecord` | Fake tagged union |
-| Queue/ledger movement | Unavailable resource effect; see Section 13.4 | Shell move + hidden ledger update |
+| Queue/ledger movement | No authored resource effect; see Section 13.1 | Shell move + hidden ledger update |
 | Continue an interrupted run | Public memo-backed `resume` | File-existence recovery gate |
-| Review/fix loop | Exercised `std/improve` composition in Section 13.7 | Raw back-edge or shell counter |
-| Select/run/gap/repeat | Bounded admitted composition; resource drain recipe unavailable | Hidden state/resource effects |
+| Review/fix loop | Exercised `std/improve` composition in Section 13.3 | Raw back-edge or shell counter |
+| Select/run/gap/repeat | Bounded admitted composition; the resource drain was removed | Hidden state/resource effects |
 
 ## 5. Types First
 
@@ -1180,7 +1179,7 @@ and refuses a substitution with another provider. Omission never means purity.
 ```lisp
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.39")
+  (:target-dsl "2.40")
   (defmodule procedure_contracts)
   (export run)
 
@@ -1210,10 +1209,9 @@ authored/default lowering policy. A 2.39 caller does not reinterpret those
 contracts, and an older module cannot import a 2.39 definition. The packaged
 stdlib remains at 2.35. Source below 2.35 is refused.
 
-At 2.39, use genuine imported stdlib bindings for `with-phase` and
-`finalize-selected-item`; their bare compatibility heads are refused. Private
-expansion heads are admitted only when introduced by the actual packaged
-`std/phase` or `std/drain` macro template. This preserves genuine imported
+At 2.39, use the genuine imported stdlib binding for `with-phase`; its bare
+compatibility head is refused. Private expansion heads are admitted only when
+introduced by the actual packaged `std/phase` macro template. This preserves genuine imported
 expansion without admitting hand-written private syntax; it does not admit
 excluded state/resource effects to evaluated execution.
 
@@ -2134,7 +2132,7 @@ import json, os
 from pathlib import Path
 root = Path(os.environ["DEMO_ROOT"])
 parent = root / "parent"
-source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule run_ref_confined) (export main)
   (defpath Artifact :kind relpath :under "out" :must-exist true)
   (defworkflow candidate-body ((seed Int)) -> Artifact
@@ -2283,8 +2281,8 @@ Better:
 
 Use direct `command-result :adapter` only for non-resource, non-resume
 certified adapters with declared typed fields. Resource transitions and
-reusable-state helpers remain unavailable at evaluated targets; do not hide
-those semantics in an arbitrary command workaround.
+reusable-state helpers were removed ([Section 13.1](#131-removed-forms)); do not
+hide those semantics in an arbitrary command workaround.
 
 ## 9A. Pure Computation And Typed Projection
 
@@ -2340,7 +2338,7 @@ Choosing the surface:
 | Compare, count, combine, default, build a reason string or typed value | Pure expressions / `defun` |
 | Produce a typed record/union from existing typed values | Pure typed projection in lexical scope |
 | External tool, process spawn, network, git, real shell work | `command-result` with a certified adapter |
-| Durable resource mutation | Outside current evaluated admission; see Section 13.4 |
+| Durable resource mutation | No authored form; see Section 13.1 |
 
 Pure values stay in the lexical environment; they have no generated step,
 private projection bundle or memo entry. Resume recomputes them while reusing
@@ -2440,11 +2438,12 @@ contract for the transport it selects. The full example is
 ## 11. Contexts And Derived State
 
 These private context concepts remain useful for admitted helper composition.
-They do not admit resource transitions, materialized views or reusable-state
-helpers at 2.35/2.36; consult Section 2A before copying a library recipe.
+Resource transitions, materialized views and reusable phase state were removed
+([Section 13.1](#131-removed-forms)); consult Section 2A before copying a
+library recipe.
 
-High-level Lisp should derive state paths from private context and typed
-resources, not from public path plumbing. Public workflow inputs are for caller
+High-level Lisp should derive state paths from private context, not from public
+path plumbing. Public workflow inputs are for caller
 intent; runtime context is for allocation, checkpointing, idempotency, resume,
 and provenance.
 
@@ -2545,7 +2544,7 @@ Before adding a path field, decide who semantically owns that path:
 | Public report or summary | drain summary, review report, operator-facing artifact | Prefer boundary publication policy or observability rendering over body plumbing. |
 | Prompt rendering | provider prompt input text | Pass supported scalar, record, relpath, exact `Value`, closed union, or recursively renderer-admitted `List[T]` values in `:inputs`; use `:prompt-dependencies` when the provider also needs a relpath target's body. Other composite shapes require an implemented checked route. |
 | Compatibility file | YAML-era pointer, selection bundle, legacy ledger view | Declare a labeled bridge with owner, source value, renderer/schema, and retirement condition. |
-| Durable resource state | backlog item state, drain state, recovery state | Resource-transition semantics are outside evaluated admission; do not bypass that gap with arbitrary writes. |
+| Durable resource state | backlog item state, drain state, recovery state | No authored form changes durable resource state; do not emulate one with arbitrary writes. |
 
 Litmus test: if deleting the path field would not change the workflow's
 semantic domain input or output, the path is probably private, generated,
@@ -2599,6 +2598,10 @@ composition, not opaque language builtins. The stdlib owns concrete helper
 schemas and loop policy; the language/compiler owns generic typed dataflow,
 effect visibility, source maps, and generated path handling.
 
+A stdlib form must reduce a recurring correctness burden, not only punctuation.
+Every effect it generates stays visible and source-mapped, and a command-backed
+form uses certified command adapters, not hidden inline glue.
+
 Do not replace a missing or unsupported standard-library lowering with ad hoc
 inline command text, report parsing, pointer choreography, or macro-generated
 hidden effects. Either use the supported form, add a reviewed lowering
@@ -2611,47 +2614,27 @@ compiler/runtime contract, not an alternate authored surface.
 | New authoring | `record_capability_gap` |
 | New YAML/YML workaround | `prohibited` |
 
-### 13.1 `run-provider-phase`
+### 13.1 Removed forms
 
-`run-provider-phase` is unavailable at targets 2.35/2.36 and refuses with
-`closed_program_gap`. See the [phase helper contract](design/workflow_lisp_stdlib_lowering.md) for its
-separate lowering and state semantics.
+`run-provider-phase`, `produce-one-of` (with its `provider` producer),
+`resume-or-start`, `resource-transition`, `finalize-selected-item`,
+`backlog-drain`, `materialize-view`, `defresource` and `deftransition`, and the
+library modules `std/drain` and `std/resource`, were removed: no evaluated
+target admitted them. Each head refuses with `form_retired` at every target,
+and an import of either module refuses with `module_not_found`. The last
+version with them is git tag `archive/pre-one-target-2026-11-12`.
 
 ### 13.2 `review-revise-loop`
 
 This ordinary stdlib composition is usable only when its selected hooks and
 generated effects are admitted by the evaluated graph. Its context/publication
 recipe is not a current copy target. The [frontend review-loop baseline](design/workflow_lisp_frontend_specification.md#27-review-revise-loop)
-owns the promoted schemas; the original integration delta is historical; use [Section 13.7](#137-improve) for the
+owns the promoted schemas; the original integration delta is historical; use [Section 13.3](#137-improve) for the
 publicly exercised evaluated review/revise recipe.
 
-### 13.3 `resume-or-start`
+<a id="137-improve"></a>
 
-`resume-or-start` is unavailable at targets 2.35/2.36 and refuses with
-`closed_program_gap`. See the [reusable-state helper contract](design/workflow_lisp_stdlib_lowering.md) for its
-separate lowering and state semantics.
-
-### 13.4 `resource-transition`
-
-`resource-transition` is unavailable at targets 2.35/2.36 and refuses with
-`closed_program_gap`. See the [resource transition contract](design/workflow_lisp_frontend_specification.md) for its
-separate lowering and state semantics.
-
-### 13.5 `finalize-selected-item`
-
-`finalize-selected-item` is unavailable at targets 2.35/2.36 and refuses with
-`closed_program_gap`. See the [selected-item finalizer contract](design/workflow_lisp_stdlib_lowering.md) for its
-separate lowering and state semantics.
-
-### 13.6 `backlog-drain`
-
-The historical context/resource-based drain recipe is not an evaluated-target
-copy target: resource transitions, reusable-state effects and materialized
-views remain unavailable at 2.35/2.36. Ordinary bounded composition is governed
-by Section 2A. The [drain-authoring design](design/workflow_lisp_runtime_native_drain_authoring.md) owns the separate
-family's intended responsibilities and migration evidence.
-
-### 13.7 `improve`
+### 13.3 `improve`
 
 `std/improve` reviews and revises a typed record under a bounded round limit,
 then returns the candidate with APPROVED, BLOCKED or EXHAUSTED. Use that returned
@@ -2968,7 +2951,7 @@ lists the evidence and what stays open.
 `main.orc`: one command per repository, at most two at a time.
 
 ```lisp
-(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Checked (repo String) (passed Bool))
   (defworkflow run ((repos List[String])) -> List[Checked]
@@ -3093,8 +3076,9 @@ broad.
 The evaluated route records admitted effects and their typed results in the
 memo. Pure computation is not an effect or a generated step. Provider prompts
 render values at their consumer seam; reports and dashboard render derived
-views. Explicit `materialize-view` and boundary publication machinery from
-older resource recipes remain outside current evaluated admission.
+views. Boundary publication machinery from older resource recipes remains
+outside current evaluated admission; `materialize-view` was removed
+([Section 13.1](#131-removed-forms)).
 
 ## 19. Source Maps And Debugging
 
@@ -3134,8 +3118,8 @@ The frontend and lint tools should warn on brittle authoring patterns.
 | `semantic_field_extracted_from_report` | Parse a markdown line for a decision or blocker | Structured provider/command result |
 | `pointer_used_as_semantic_authority` | Publish a pointer file path as the value | Publish the typed artifact value |
 | `variant_output_without_variant_specific_fields` | Union variants with no fields | Record plus enum |
-| `recovery_gate_without_canonical_state` | File-existence recovery gate | Public memo-backed resume; reusable-state helper unavailable |
-| `resource_move_without_transition` | Shell move plus hidden ledger update | Record the resource-effect gap; Section 13.4 |
+| `recovery_gate_without_canonical_state` | File-existence recovery gate | Public memo-backed resume |
+| `resource_move_without_transition` | Shell move plus hidden ledger update | Record the resource-effect gap; Section 13.1 |
 | `manual_when_requires_variant_pair` | Manual condition/proof pairing | `match`, or typed discriminant `if`/`cond` |
 | `manual_state_path` | Hand-built state path | Context helper such as `with-phase` |
 | `command_step_for_pure_computation` | Python/`jq` step that only compares, counts, defaults, or formats | Closed pure-expression surface / typed projection (Section 9A) |
@@ -3321,7 +3305,7 @@ caller; use the complete lifecycle recipe for an executable package):
 ```lisp
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
 
   (defmodule minimal_subset)
   (export implementation-execute)

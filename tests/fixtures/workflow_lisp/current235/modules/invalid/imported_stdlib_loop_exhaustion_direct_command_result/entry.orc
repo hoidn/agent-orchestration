@@ -2,8 +2,18 @@
   (:language "0.1")
   (:target-dsl "2.35")
   (defmodule entry)
-  (import std/resource :only (BlockerClass WorkReport StateExisting))
   (export run)
+  (defenum BlockerClass
+    missing_resource
+    unrecoverable_after_fix_attempt)
+  (defpath WorkReport
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist true)
+  (defpath StateExisting
+    :kind relpath
+    :under "state"
+    :must-exist true)
   (defunion DrainTerminalResult
     (EXHAUSTED
       (report WorkReport)

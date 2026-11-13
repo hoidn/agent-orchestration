@@ -596,8 +596,8 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   `workflow_outputs`, and `interrupted` from writer-lock liveness). `report`
   previews a row as the `repr` of its committed value from the view; the view
   reads nothing under `effects/`, and `report` additionally reads only
-  `attempt-<n>/usage.json` of provider-class steps, never a recipe, prompt,
-  stdout or result file. The
+  `attempt-<n>/usage.json` of provider-class steps, or of the attempts a row's
+  `metered_attempts` lists, never a recipe, prompt, stdout or result file. The
   dashboard shows each effect's attempt, start, completion and duration,
   links each failed effect with its error code, and links the files of the
   row's attempt directory: the `result_path` file first, then the other
@@ -858,13 +858,15 @@ explicit command has ordinary run effects, lock ownership and evidence writes.
 
 `:attach` resolves `RUN_ID` under `.orchestrate/runs`, or the session's
 `--state-dir`, and reads checked `run.json`, `closed_program.json` and one
-`memo.jsonl` prefix through `WorkspaceFiles`. It uses stored bound inputs and
+`memo.jsonl` prefix through `WorkspaceFiles`, then each
+`closed_program.<digest>.json` that prefix's `rebased` records name. It uses stored bound inputs and
 ordinary memo reduction, replay commit checks and completed-terminal validation.
 It takes no writer lock, launches no effects and neither repairs/appends the
 memo nor publishes a derived view. `state.json` is not authority. Attachment
 captures a prefix, not a live subscription to a running writer.
 
-A loaded module's program digest must match the run. A mismatch reports
+A loaded module's program digest must match the run's current program (the
+last `rebased` record's, else the header's). A mismatch reports
 `resume_program_changed` and clears attachment. Without a loaded module,
 attachment rebuilds the durable `resume_request` in memory using the ordinary
 resume build request and `prepare_closed_program_bundle`; no build artifact
@@ -1075,7 +1077,12 @@ and exits `0`; refusal exits `2`. No continuation runs until ordinary resume.
 returns a checked mapping or `None`; the CLI treats `None` as no active request
 and exits `2`. Historical reads retain their original reader. Malformed evaluated
 authority fails closed rather than falling back to historical state. Inspection
-never expires a request, repairs a torn tail or publishes a view.
+never expires a request, repairs a torn tail or publishes a view. When the
+journal it reads no longer ends at the program it loaded (a `rebased` record
+appended in between), it loads the lineage again, once; if the journal then
+fails again under a newer program it reports `memo_inconsistent` saying that
+the run is being rebased. A failure under an unchanged program is reported as
+it is.
 
 The public Python settlement interface is separate from Python authoring:
 

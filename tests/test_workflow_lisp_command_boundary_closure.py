@@ -22,7 +22,6 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.compiler import (
-    _command_boundary_fingerprint_payload,
     compile_stage3_entrypoint,
 )
 from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME
@@ -501,9 +500,6 @@ def test_injected_package_origin_survives_public_standalone_and_graph_snapshots(
         assert rows["validate_review_findings_v1"]["closure"] == [
             {"base": "package:orchestrator", "path": "."}
         ]
-        assert rows["apply_resource_transition"]["closure"] == [
-            {"base": "package:orchestrator", "path": "."}
-        ]
         assert "site-packages" not in json.dumps(rows)
         module_origins = typed.configuration_bindings["used_command_boundary_origins"]
         assert module_origins["std/phase"]["validate_review_findings_v1"] == (
@@ -578,19 +574,15 @@ def test_effective_same_name_binding_controls_the_trusted_origin(
     assert typed.command_boundary_origins["validate_review_findings_v1"] == expected_base
 
 
-def test_closure_stays_out_of_legacy_serialization_repr_and_fingerprint() -> None:
+def test_closure_stays_out_of_legacy_serialization_and_repr() -> None:
     first = ExternalToolBinding(
         name="fetch",
         stable_command=("python", "fetch.py"),
         closure=("first.py",),
     )
-    second = replace(first, closure=("second.py",))
 
     assert "closure" not in repr(first)
     assert "closure" not in _json_data(first)
-    assert _command_boundary_fingerprint_payload(first) == _command_boundary_fingerprint_payload(
-        second
-    )
     assert _json_data({"closure": ["raw-manifest-data"]}) == {
         "closure": ["raw-manifest-data"]
     }

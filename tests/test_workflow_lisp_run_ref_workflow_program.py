@@ -475,18 +475,6 @@ def test_workflow_program_wcc_payload_carries_child_policy_inputs_and_commit(tmp
     )
 
 
-def test_resource_form_in_child_is_an_unsupported_environment_effect():
-    from orchestrator.workflow_lisp.expressions import elaborate_expression
-    from orchestrator.workflow_lisp.typecheck_run_ref import _child_form_refusal
-    from tests.test_workflow_lisp_resource_stdlib import _expression_syntax
-
-    form = elaborate_expression(_expression_syntax(
-        "(resource-transition :transition write-drain-status :resource drain-run-state "
-        ':request (record DrainStatusRequest :status "BLOCKED"))'), bound_names=frozenset())
-
-    assert _child_form_refusal(form, network_none=False)[0] == "run_ref_environment_effect_unsupported"
-
-
 def test_in_memory_frontend_build_reports_child_refusal(tmp_path):
     """The LSP and `_compile_entry` path compiles without the typed-program selector."""
     from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle_in_memory
@@ -891,14 +879,14 @@ def test_path_site_through_a_serial_list_map_effect_call_is_still_admitted(tmp_p
 # Fix round 2: the map placement walk runs only for programs with confined
 # sites, follows imported programs, and skips callees resolved elsewhere.
 
-PRODUCER_238 = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+PRODUCER_238 = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule producer) (export get)
   (defworkflow leaf ((n Int)) -> Int (+ n 1))
   (defworkflow get ((n Int)) -> Int
     (let* ((child (run-ref :source (:repo "file:///srv/p.git" :commit "{"a" * 40}")
                     :program (:workflow leaf) :inputs (:n n) :policy {POLICY.replace(":model-only", ":none")})))
       (match child ((COMPLETED c) c.result.value) ((FAILED f) 0)))))'''
-PLAIN_PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+PLAIN_PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule producer) (export get)
   (defworkflow get ((n Int)) -> Int (+ n 1)))'''
 MAP_DEP = "(let* ((xs (list/map-effect ((x (list 1 2))) :max 2 (call dep :n x)))) 1)"
@@ -911,7 +899,7 @@ def _bundle_build(tmp_path, producer: str, body: str):
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "producer.orc").write_text(producer)
     (tmp_path / "imports.json").write_text(json.dumps({"dep": {"kind": "compiled", "path": "producer.orc"}}))
-    (tmp_path / "consumer.orc").write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+    (tmp_path / "consumer.orc").write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule consumer) (export run)
       (defworkflow run () -> Int BODY))'''.replace("BODY", body))
     return build_closed_program_bundle(FrontendBuildRequest(

@@ -44,6 +44,8 @@ def run_page(detail, commands, *, refresh: Optional[int] = None) -> str:
         lines.extend(_pending_host_input_section(row, pending_host_input))
     lines.extend(warnings_section(list(detail.warnings) + list(commands.warnings)))
     lines.extend(_commands_section(commands))
+    if isinstance(detail.state, Mapping) and detail.state.get("programs"):
+        lines.extend(_programs_section(detail.state["programs"]))
     if detail.cursor is not None:
         lines.extend(_cursor_section(detail.cursor))
     lines.extend(failed_effects_section(row, detail.steps))
@@ -119,6 +121,16 @@ def _commands_section(commands) -> list[str]:
     if commands.resume is not None:
         lines.append(f"<pre>{e(commands.resume.shell_text)}</pre>")
     lines.append("</section>")
+    return lines
+
+
+def _programs_section(programs) -> list[str]:
+    """A run with several programs (a `rebased` record); timeline rows name them by index."""
+    lines = ["<section><h2>Programs</h2><ol start=\"0\">"]
+    for item in programs:
+        cut = "" if item.get("cut") is None else f", cut at byte {e(item['cut'])}"
+        lines.append(f"<li><code>{e(item.get('digest', ''))}</code> since {e(item.get('time', ''))}{cut}</li>")
+    lines.append("</ol></section>")
     return lines
 
 

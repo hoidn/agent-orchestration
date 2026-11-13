@@ -147,24 +147,3 @@ def test_payload_walks_runtime_values_and_preserves_static_guidance(kind):
     substituted = _substitute_wcc_binding_value(perform, {"input": replace(argument, name="outer")})
     assert _free_names(substituted) == {"outer"}
     assert substituted.operation_payload["return_spec"] is guidance
-
-
-def test_historical_resume_payload_keeps_its_lexical_references(tmp_path):
-    from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
-    from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
-    from orchestrator.workflow_lisp.wcc.hygiene import _free_names, _renamed
-    from tests.test_workflow_lisp_phase_stdlib import _compile, VALID_RESUME_FIXTURE
-
-    result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path)
-    workflow = next(row for row in result.typed_workflows if row.definition.name.endswith("resume-record-phase"))
-    body = elaborate_typed_workflow_body(workflow.typed_body,
-                                    owner_name=workflow.definition.name,
-                                    value_env=dict(workflow.signature.params),
-        type_env=FrontendTypeEnvironment.from_module(result.module),
-        workflow_return_types={row.definition.name: row.signature.return_type_ref for row in result.typed_workflows},
-        procedure_return_types={row.definition.name: row.signature.return_type_ref for row in result.typed_procedures})
-    perform = next(node for node in _walk_wcc(body)
-        if isinstance(node, WccPerform) and node.perform_kind == "resume_or_start")
-    assert _free_names(perform) == _free_names(perform.operation_payload) == {"inputs", "phase-ctx"}
-    renamed = _renamed(perform, {"phase-ctx": "renamed-ctx"})
-    assert renamed.operation_payload.ctx_expr.name == "renamed-ctx"

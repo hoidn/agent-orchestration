@@ -911,7 +911,7 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       procedures and hooks over the closed effect summary:
       `run_ref_environment_effect_unsupported` for nested `run-ref`, parallel
       effect execution, dynamic evaluation, human input,
-      session/context capture, Agent allocation/turns or resource transitions in the child; for
+      session/context capture or Agent allocation/turns in the child; for
       `:network :none` with any provider effect in the child's summary; and
       for `:memory-mib` below `:workspace-mib + 960` (the profile's scratch,
       `/dev/shm`, result and process headroom constants).

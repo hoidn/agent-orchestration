@@ -6,7 +6,6 @@
           SelectionPayload
           GapPayload
           SelectionResult
-          SummaryValue
           RenderedSummary
           MacroEvidence
           MacroTerminal
@@ -29,8 +28,6 @@
       (gap GapPayload))
     (SELECTED
       (selection SelectionPayload)))
-  (defrecord SummaryValue
-    (selected-id String))
   (defrecord RenderedSummary
     (status String)
     (summary-path SummaryPath))
@@ -78,24 +75,14 @@
   (defproc render-selection-summary
     ((selection SelectionPayload))
     -> RenderedSummary
-    :effects ((writes rendered-selection-summary))
+    :effects ()
     :lowering inline
-    (let* ((summary-path
-             (__generated-relpath-seed__
-               SummaryPath
-               "artifacts/work/imported-stdlib-macro-payload-helper-summary.json"
-               "imported_stdlib_macro_payload_helper_summary_seed"))
-           (rendered-path
-             (materialize-view rendered-selection-summary
-               :value (record imported_stdlib_macro_payload_helper_composition/std_payload_helpers/SummaryValue
-                        :selected-id selection.item-id)
-               :renderer canonical-json
-               :renderer-version 1
-               :target summary-path
-               :returns SummaryPath)))
-      (record imported_stdlib_macro_payload_helper_composition/std_payload_helpers/RenderedSummary
-        :status "SELECTED"
-        :summary-path rendered-path)))
+    (record imported_stdlib_macro_payload_helper_composition/std_payload_helpers/RenderedSummary
+      :status "SELECTED"
+      :summary-path (__generated-relpath-seed__
+                      SummaryPath
+                      "artifacts/work/imported-stdlib-macro-payload-helper-summary.json"
+                      "imported_stdlib_macro_payload_helper_summary_seed")))
   (defmacro emit-run-drain-like (name selector consumer)
     (defworkflow name
       ()

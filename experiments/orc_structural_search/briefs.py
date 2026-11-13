@@ -27,7 +27,7 @@ from orchestrator.workflow_lisp.sexpr import ListExpr, SymbolAtom
 
 # The replacement heads whose sites the manifest types (orchestrator/workflow_lisp/source_sites.py _KINDS), so the
 # I2 slot check can compare the replacement's type with the site's; any other replacement is slot_type_unavailable.
-TYPED_HEADS = {"provider-result": "provider-call", "run-provider-phase": "provider-phased-call", "agent": "agent-turn",
+TYPED_HEADS = {"provider-result": "provider-call", "agent": "agent-turn",
                "(<procedure> ...)": "procedure-call", "call": "workflow-call", "run-ref": "run-ref", "let*": "let*",
                "if": "if", "cond": "cond", "match": "match", "loop/recur": "loop", "list/map": "list-map",
                "list/map-effect": "list-map"}

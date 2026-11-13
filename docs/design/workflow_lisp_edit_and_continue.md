@@ -226,7 +226,18 @@ loaders in `evaluated/authority.py` resolve it: `RunAuthority.program` is the
 current program and a new field holds the earlier ones in order. The
 captured-bytes loader reads the header, the first program and the journal as
 today, then each named artifact once. A named artifact that is missing or
-does not verify is `memo_inconsistent`; nothing is rebuilt from source.
+does not verify is `memo_inconsistent`; nothing is rebuilt from source. So is
+a later program that uses an unpinned bare interpreter, or whose parameters
+cannot bind the header's `bound_inputs` in checked form: resume binds those
+inputs to the program in force, so such a lineage can never continue. The
+cost: `report`, the dashboard and the monitor cannot show such a run, and
+`invalidate` refuses it. Only a record that no command writes can produce one
+(the plan refuses the edit first); if a later change ever allows a new
+parameter with a default, this check relaxes together with resume's input
+check. Every reader that loads authority verifies each later program once per
+read (one parse and digest per program, not per row), so a long-lived reader
+never trusts a check made before an artifact changed; a dashboard page that
+scans twice pays it twice.
 
 **Every row is read under the program that wrote it.** A row's program is
 derived from its position: the number of `rebased` records before it. No row
@@ -586,8 +597,13 @@ question.
 - **View.** When the journal has a `rebased` record, the view gains `programs`
   (per lineage program: digest, the record's time or the header's
   `started_at`, the cut) and each row gains `program`, the index of the
-  program in force when its latest attempt started. Without such a record
-  neither key exists, so views of existing runs are byte-identical. Rows stay
+  program in force when its latest attempt started. A row whose attempts are
+  partly provider-class and partly not (its identity changed class across a
+  record) also gains `metered_attempts`, the ordinals of its provider-class
+  attempts, which `report` meters instead of every attempt; without it a step
+  that became a command would drop its cancelled provider cost from `report`.
+  Without such a record none of these keys exists, so views of existing runs
+  are byte-identical. Rows stay
   for identities the current program no longer has. A commit a cut covers and
   a start a cut retired show `invalidated`.
 - **`report` and the dashboard** print the program list and each row's
@@ -761,7 +777,7 @@ quoted text follows it. Rows without a document name are evaluated execution.
 | `specs/cli.md`, Diagnostics, codes | (new row) | "`changes_accepted`. Raised by: `resume --accept-changes=TOKEN`, once its record is durable. Exit: diagnostic. Effect: logged with the token, followed by the plan" |
 | `specs/state.md`, run root | "authority for the program." | "authority for the run's first program; never replaced." New row: "`closed_program.<digest>.json`. A program the run switched to, named by the 64 hex digits of its digest: authority for the records after the `rebased` record that names it. A file no record names is not authority" |
 | `specs/state.md`, memo records | (new row) | "`rebased`. Keys: `program_digest`, `from_offset` (integer or null), `time`. Switches the run to the named program, which differs from the one in force and whose artifact is in the run root; cancels every active commit and retires every pending start at or after `from_offset`; reopens a terminal. Records before it are reduced under the earlier program" |
-| `specs/state.md`, view `steps` | "`invalidated` (covered by a range record)" | "`invalidated` (covered by a range record or a cut)". New keys: "`programs`: present only when the journal has a `rebased` record; one `{digest, time, cut}` per program in lineage order" and the row key "`program`: the index of the program in force when the row's latest attempt started" |
+| `specs/state.md`, view `steps` | "`invalidated` (covered by a range record)" | "`invalidated` (covered by a range record or a cut)". New keys: "`programs`: present only when the journal has a `rebased` record; one `{digest, time, cut}` per program in lineage order" and the row keys "`program`: the index of the program in force when the row's latest attempt started" and "`metered_attempts`: on a row whose attempts are partly provider-class and partly not, the ordinals of its provider-class attempts, which `report` meters instead of `1` to `attempt`" |
 | `specs/state.md`, request identity | "`program_digest`, dynamic `identity` and attempt ordinal." | + "`program_digest` is that of the program in force when the request started." |
 | `specs/versioning.md`, after the `closure` sentence | (new sentence) | "An accepted edit appends a `rebased` record and adds a program artifact to the run root (State, 'Memo records'). Neither changes `evaluated_execution.v1` or schema `3.0`: a build that predates the record answers `memo_inconsistent` (from `resume`, `invalidate` and `report`) for such a run and writes nothing, and journals without the record reduce as before." |
 

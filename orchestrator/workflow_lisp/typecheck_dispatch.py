@@ -24,7 +24,6 @@ from .expressions import (
     DoneExpr,
     EnumMemberExpr,
     ExprNode,
-    FinalizeSelectedItemExpr,
     FieldAccessExpr,
     FunctionCallExpr,
     IfExpr,
@@ -35,12 +34,10 @@ from .expressions import (
     LoopStateField,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
-    MaterializeViewExpr,
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
     ProcRefLiteralExpr,
-    ProduceOneOfExpr,
     PureOpExpr,
     ProcedureCallExpr,
     ProviderBundlePathExpr,
@@ -49,9 +46,6 @@ from .expressions import (
     RequestInputExpr,
     RecordExpr,
     RecordUpdateExpr,
-    ResourceTransitionExpr,
-    ResumeOrStartExpr,
-    RunProviderPhaseExpr,
     RunRefExpr,
     UnionVariantExpr,
     UnionVariantTagExpr,
@@ -93,11 +87,7 @@ from .typecheck_context import (
     _typed,
 )
 from .typecheck_agents import record_agent_origin, typecheck_agent_expr
-from .typecheck_drain_phase import (
-    typecheck_phase_target_expr,
-    typecheck_produce_one_of_expr,
-    typecheck_run_provider_phase_expr,
-)
+from .typecheck_drain_phase import typecheck_phase_target_expr
 from .typecheck_effects import (
     typecheck_command_result_expr as _typecheck_command_result_expr,
     typecheck_provider_bundle_path_expr as _typecheck_provider_bundle_path_expr,
@@ -108,12 +98,6 @@ from .typecheck_effects import (
 )
 from .typecheck_loop_recur import typecheck_loop_recur_expr
 from .typecheck_pure_ops import typecheck_pure_expr as _typecheck_pure_expr
-from .typecheck_resource_view import (
-    typecheck_finalize_selected_item_expr,
-    typecheck_materialize_view_expr,
-    typecheck_resource_transition_expr,
-)
-from .typecheck_resume import typecheck_resume_or_start_expr
 from .typecheck_run_ref import typecheck_run_ref_expr
 from .typecheck_structural_values import typecheck_structural_value_expr
 from .typecheck_proofs import (
@@ -1157,50 +1141,8 @@ def _typecheck(
             type_ref=typed_body.type_ref,
             effect=merge_effect_summaries(typed_context.effect_summary, typed_body.effect_summary),
         )
-    if isinstance(expr, ResourceTransitionExpr):
-        return typecheck_resource_transition_expr(
-            expr,
-            context=context,
-            recurse=recurse,
-            typed_factory=_typed,
-        )
-    if isinstance(expr, MaterializeViewExpr):
-        return typecheck_materialize_view_expr(
-            expr,
-            context=context,
-            recurse=recurse,
-            typed_factory=_typed,
-        )
-    if isinstance(expr, FinalizeSelectedItemExpr):
-        return typecheck_finalize_selected_item_expr(
-            expr,
-            context=context,
-            recurse=recurse,
-            typed_factory=_typed,
-        )
     if isinstance(expr, PhaseTargetExpr):
         return typecheck_phase_target_expr(
-            expr,
-            context=context,
-            recurse=recurse,
-            typed_factory=_typed,
-        )
-    if isinstance(expr, RunProviderPhaseExpr):
-        return typecheck_run_provider_phase_expr(
-            expr,
-            context=context,
-            recurse=recurse,
-            typed_factory=_typed,
-        )
-    if isinstance(expr, ProduceOneOfExpr):
-        return typecheck_produce_one_of_expr(
-            expr,
-            context=context,
-            recurse=recurse,
-            typed_factory=_typed,
-        )
-    if isinstance(expr, ResumeOrStartExpr):
-        return typecheck_resume_or_start_expr(
             expr,
             context=context,
             recurse=recurse,
