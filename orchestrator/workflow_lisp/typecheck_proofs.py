@@ -218,7 +218,8 @@ def resolve_field_access(
             if _union_has_any_field(base_type, field_name):
                 owners = [row.name for row in base_type.definition.variants
                           if field_name in base_type.variant_field_types.get(row.name, {})]
-                subject = binding_identity.name if binding_identity is not None else "x"
+                subject = getattr(binding_identity, "name", "") or "x"
+                subject = "x" if subject.startswith("%") else subject  # a macro-generated name
                 raise_error(
                     f"field `{field_name}` requires variant proof for `{base_type.name}`: variant "
                     f"{' or '.join(f'`{name}`' for name in owners)} has it; test it with "
