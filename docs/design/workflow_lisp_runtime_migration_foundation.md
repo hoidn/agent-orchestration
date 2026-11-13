@@ -1,5 +1,9 @@
 # Workflow Lisp Runtime Migration Foundation
 
+Status: **Historical — archived in place.** Superseded: its command and provider bundle authority and prompt-extern rules are stated by `specs/` and the frontend specification; its private artifact catalog, materialized value views, promotion gate and `StateLayout`/`PathAllocator` describe removed code. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [Step IO](../../specs/io.md#evaluated-command-and-provider-io-target-235) for bundle paths and authority; [frontend specification §17.1](workflow_lisp_frontend_specification.md#171-private-frontend-lowered-value-lane) for values between steps and [§22.3](workflow_lisp_frontend_specification.md#223-prompt-extern-source-semantics) for prompt externs. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#runtime_migration_foundation).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current execution scope: typed structured-output, private-value/path and
 prompt-extern services remain shared contracts. Descriptions of generated flat
 bundles are their versioned wire/history contracts, not a current compiler

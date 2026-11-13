@@ -1,5 +1,9 @@
 # Workflow Lisp Reference Catalog
 
+Status: **Historical — archived in place.** Superseded: its `root.steps.*` reference kinds, snapshot entries and catalog validation describe removed code; its live rules (variant-only reads under proof, only the declared return crosses a workflow call, pointer files are not authority) are stated in the frontend specification. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [frontend specification §11](workflow_lisp_frontend_specification.md#11-pattern-matching) and [§7.3](workflow_lisp_frontend_specification.md#73-path-types). Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#reference_catalog).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: current typed/reference-kind contract with historical flat reference spellings
 Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`
 
