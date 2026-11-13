@@ -499,6 +499,17 @@ def _provisional_parametric_match_types(
     }
 
 
+def _refuse_positional_workflow_reference_call(expr, context, raise_error) -> None:
+    """`(w n)` on a workflow reference names `call`, as on a workflow."""
+    if isinstance(context.value_env.get(expr.callee_name), WorkflowRefTypeRef):
+        raise_error(
+            f"`{expr.callee_name}` is a workflow reference; call it as `(call {expr.callee_name} :x …)`",
+            code="procedure_call_unknown",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+
+
 def typecheck_procedure_call_expr(
     expr: ProcedureCallExpr,
     *,
@@ -599,13 +610,7 @@ def typecheck_procedure_call_expr(
         )
     signature = context.procedure_catalog.signatures_by_name.get(expr.callee_name)
     if signature is None:
-        if isinstance(context.value_env.get(expr.callee_name), WorkflowRefTypeRef):
-            raise_error(
-                f"`{expr.callee_name}` is a workflow reference; call it as `(call {expr.callee_name} :x …)`",
-                code="procedure_call_unknown",
-                span=expr.span,
-                form_path=expr.form_path,
-            )
+        _refuse_positional_workflow_reference_call(expr, context, raise_error)
         if expr.callee_name in context.value_env:
             raise_error(
                 f"bound name `{expr.callee_name}` is not a callable proc-ref",

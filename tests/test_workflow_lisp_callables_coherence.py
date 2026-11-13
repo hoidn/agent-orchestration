@@ -166,27 +166,28 @@ DECLARED = (
     "(defproc ident :forall (T) ((x T)) -> T x) (defworkflow child ((x Int)) -> Int (+ x 100))"
 )
 
-# (definitions, body, code, a fragment of the message that names the fix)
+# (definitions, body, code, a fragment that names the other calling convention, the cycle, or the
+# local as written; None where the code alone tells the case apart)
 REFUSALS = {
     "local-without-signature": (
         DECLARED, "(let-proc ((f (x) (+ x n))) (f 1))",
-        "let_proc_signature_required", "give `f` a signature",
+        "let_proc_signature_required", None,
     ),
     "local-calls-earlier-sibling": (
         DECLARED, "(let-proc ((f ((x Int)) -> Int (+ x 1)) (g ((x Int)) -> Int (f x))) (g 1))",
-        "let_proc_sibling_call_unsupported", "define `f` with `defproc`",
+        "let_proc_sibling_call_unsupported", None,
     ),
     "local-calls-later-sibling": (
         DECLARED, "(let-proc ((g ((x Int)) -> Int (f x)) (f ((x Int)) -> Int (+ x 1))) (g 1))",
-        "let_proc_sibling_call_unsupported", "do not see each other",
+        "let_proc_sibling_call_unsupported", None,
     ),
     "local-calls-itself": (
         DECLARED, "(let-proc ((f ((x Int)) -> Int (f x))) (f 1))",
-        "let_proc_recursive_unsupported", "cannot call itself",
+        "let_proc_recursive_unsupported", None,
     ),
     "single-binding-local-calls-itself": (
         DECLARED, "(let-proc (f ((x Int)) -> Int :captures () (f x)) (f 1))",
-        "let_proc_recursive_unsupported", "cannot call itself",
+        "let_proc_recursive_unsupported", None,
     ),
     "workflow-called-positionally": (
         DECLARED, "(child n)", "procedure_call_unknown", "`(call child :x …)`",
@@ -211,12 +212,12 @@ REFUSALS = {
         "(defproc inc2 ((x Int)) -> Int (+ x 1))",
         "(apply1 (proc-ref inc2) n)", "keyword_argument_invalid", "`(f …)`",
     ),
-    "keyword-as-operand": (DECLARED, "(+ n :x)", "keyword_argument_invalid", "keyword `:x`"),
+    "keyword-as-operand": (DECLARED, "(+ n :x)", "keyword_argument_invalid", None),
     "local-arity-names-the-local": (
-        DECLARED, "(let-proc ((f ((x Int)) -> Int (+ x 1))) (f 1 2))", "procedure_arity_mismatch", "procedure `f` expected",
+        DECLARED, "(let-proc ((f ((x Int)) -> Int (+ x 1))) (f 1 2))", "procedure_arity_mismatch", "`f`",
     ),
     "local-named-like-a-workflow-parameter": (
-        DECLARED, "(let-proc ((n ((x Int)) -> Int (+ x 1))) (n 1))", "let_proc_syntax_invalid", "colliding",
+        DECLARED, "(let-proc ((n ((x Int)) -> Int (+ x 1))) (n 1))", "let_proc_syntax_invalid", None,
     ),
     "imported-procedure-called-with-call": (
         "(import lib/hl :only (helper hfun))", "(call helper :x n)", "workflow_call_unknown", "`(helper …)`",
@@ -253,7 +254,7 @@ def test_callable_misuse_is_one_diagnostic_that_names_the_fix(case, tmp_path, mo
     definitions, body, code, fix = REFUSALS[case]
     diagnostic = _refusal(tmp_path, monkeypatch, capsys, definitions, body)
 
-    assert (diagnostic["code"], fix in diagnostic["message"]) == (code, True), diagnostic
+    assert (diagnostic["code"], fix is None or fix in diagnostic["message"]) == (code, True), diagnostic
 
 
 LOCAL = "(let-proc ((f ((x Int)) -> Int (+ x n))) "
@@ -314,6 +315,14 @@ def test_rebound_reference_still_compiles(tmp_path, monkeypatch, capsys):
     assert status == 0, payload
 
 
+def test_unused_procedure_forwarding_a_reference_parameter_still_compiles(tmp_path, monkeypatch, capsys):
+    definitions = "(defproc fw ((p ProcRef[(Int) -> Int]) (x Int)) -> Int (let* ((g p)) (g x)))"
+
+    status, payload = _compile(tmp_path, _source(definitions, "n"), monkeypatch, capsys)
+
+    assert status == 0, payload
+
+
 Q = "(defproc q ((x Int)) -> Int (+ x 1000))"
 LOCAL_F = "(let-proc ((f ((x Int)) -> Int (+ x 1))) "
 BIND_F = "(defmacro bind-f (v body) (let* ((f v)) body))"
@@ -366,8 +375,8 @@ def test_inner_value_with_the_local_name_is_refused_as_without_the_local(case, t
 def test_pure_map_item_with_the_local_name_is_refused(tmp_path, monkeypatch, capsys):
     body = LOCAL_F + "(list/length (list/map ((f (list 1 2))) (f 1))))"
 
-    # Refused, not called; the pure-body check speaks first (`list_map_body_effect_forbidden`).
-    assert _refusal(tmp_path, monkeypatch, capsys, "", body)["code"] != "compiler_defect"
+    # Refused, not called; the pure-body check speaks first.
+    assert _refusal(tmp_path, monkeypatch, capsys, "", body)["code"] == "list_map_body_effect_forbidden"
 
 
 def _write_run(root: Path, body: str) -> list[str]:

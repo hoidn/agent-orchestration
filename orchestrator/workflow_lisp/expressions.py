@@ -1458,9 +1458,7 @@ def _elaborate_list(
             procedure_names=procedure_names,
             session_state=session_state,
         )
-    # An inner binding that reuses a local's name is the one called; a local's
-    # name never collides with an outer binding (the let-proc collision check).
-    if head.resolved_name in session_state.local_proc_names and head.resolved_name not in available_names:
+    if _calls_local_proc(head, available_names, session_state):
         return _elaborate_local_proc_call(
             datum,
             form_path=form_path,
@@ -1493,21 +1491,7 @@ def _elaborate_list(
             form_path=form_path,
             expansion_stack=head.expansion_stack,
         )
-    if _names_workflow(head, form_path, session_state):
-        _raise_error(
-            f"`{head.display_name}` is a workflow; call it as `(call {head.display_name} :x …)`",
-            code="procedure_call_unknown",
-            span=head.span,
-            form_path=form_path,
-            expansion_stack=head.expansion_stack,
-        )
-    _raise_error(
-        f"unknown same-file procedure callee `{head.display_name}`",
-        code="procedure_call_unknown",
-        span=head.span,
-        form_path=form_path,
-        expansion_stack=head.expansion_stack,
-    )
+    _refuse_unknown_callee(head, form_path, session_state)
 
 
 # The reserved alias a local called by name is bound to (see `_elaborate_local_proc_call`).
@@ -1600,11 +1584,33 @@ def _elaborate_local_proc_call(
     return LetStarExpr(bindings=((alias, reference),), body=call, binding_labels=(None,), **provenance)
 
 
+def _calls_local_proc(head: SyntaxIdentifier, available_names: frozenset[str], session_state) -> bool:
+    # An inner binding that reuses a local's name is the one called; a local's
+    # name never collides with an outer binding (the let-proc collision check).
+    return head.resolved_name in session_state.local_proc_names and head.resolved_name not in available_names
+
+
 def _names_workflow(head: SyntaxIdentifier, form_path: tuple[str, ...], session_state) -> bool:
     resolve = session_state.workflow_name_resolver
     if resolve is None or "." in head.resolved_name:
         return False
     return resolve(head.resolved_name, head.span, form_path) in session_state.workflow_names
+
+
+def _refuse_unknown_callee(head: SyntaxIdentifier, form_path: tuple[str, ...], session_state) -> None:
+    """`(w n)` on a workflow names `call`; any other unknown head is unknown."""
+    message = (
+        f"`{head.display_name}` is a workflow; call it as `(call {head.display_name} :x …)`"
+        if _names_workflow(head, form_path, session_state)
+        else f"unknown same-file procedure callee `{head.display_name}`"
+    )
+    _raise_error(
+        message,
+        code="procedure_call_unknown",
+        span=head.span,
+        form_path=form_path,
+        expansion_stack=head.expansion_stack,
+    )
 
 
 def _dispatch_elaboration_route(

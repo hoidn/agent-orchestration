@@ -1286,12 +1286,14 @@ such a local at its definition. What `(f …)` reaches in the `let-proc` body:
 
 | The local's name is also | `(f …)` |
 | --- | --- |
-| a `defproc` (same module or imported), a workflow parameter or an outer `let*` binding | refused at the local's definition (`let_proc_syntax_invalid`, colliding name) |
+| a `defproc` (same module or imported), a declared extern, a workflow parameter or an outer `let*` binding | refused at the local's definition (`let_proc_syntax_invalid`, colliding name) |
+| an import alias (`(import lib/hl :as f)`) | the local; `(f.helper …)` still names the import |
 | a macro | the local's definition is expanded as a use of the macro, and refused |
 | a `defun`, same module or imported | the function |
 | a built-in form or operator (`print`, `list`, `+`, `not`, `if`, `record`, `call`, `done`, …) | the form, which gives its own value or refusal |
 | a workflow | the local |
-| an inner binding: a `let*` binding, a `match` arm, the loop state, a map item, or a parameter of a local | the inner binding: called when it is a procedure reference, otherwise refused as any bound name that is not callable |
+| an inner binding: a `let*` binding, a `match` arm, the loop state, a `list/map-effect` item, or a parameter of a local | the inner binding: called when it is a procedure reference, otherwise refused as any bound name that is not callable |
+| a `list/map` item | refused: the pure-body check speaks first (`list_map_body_effect_forbidden`) |
 
 The single-binding form with explicit
 `:captures` is the [V1 contract](workflow_lisp_let_proc_local_proc_refs.md);
