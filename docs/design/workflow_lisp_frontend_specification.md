@@ -842,8 +842,10 @@ Every source file uses the admitted workflow wrapper and a module declaration:
 header clauses are required, and a target whose execution is retired is refused.
 Diagnostics: `frontend_parse_error`, `workflow_execution_target_retired`.
 
-`defmodule` names the module after the file's path under the source root: `example.module` lives
-at `example/module.orc`. Diagnostics: `module_path_mismatch`.
+A module declared `(defmodule a/b)` (or `a.b`) is the file `a/b.orc` under one of its source
+roots; otherwise compilation refuses. Only an entry file without `defmodule` is exempt, and such a
+file may not `import` or `export`; an imported module always declares one. Diagnostics:
+`module_path_mismatch`, `module_declaration_missing`.
 
 ### 4.1 Module Responsibilities
 

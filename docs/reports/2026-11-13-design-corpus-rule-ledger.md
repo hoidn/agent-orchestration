@@ -226,6 +226,7 @@ no-provider stubs first on `PATH`) or by the named test.
 | 10.25 | §5 | Not included: exponentials, powers, trigonometry, implicit conversion, randomness, time, number formatting | present | [Spec §10.2](../design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface) | "Supported operators are exact and closed:" (the table) | Registry: 35 operators |
 | 10.26 | §6 | Applies at 2.35 to 2.40; older source refused | present | [Versioning, executable support](../../specs/versioning.md#executable-support-and-historical-version-gates) | "The selected package source floor is **2.35**: lower headers are no longer admitted for source compilation, imports, REPL or LSP analysis." | Probe at 2.33: `workflow_execution_target_retired` |
 | 10.27 | §2, §4, §7, §8, metadata | Pre-surface facts, the fixture, evidence and feasibility | history | Kept in this record | - | Not rules |
+| 10.28 | Scope notice (second pass) | "Pre-2.35 introduction gates below are historical; data readers remain separate." | present | [Versioning, executable support](../../specs/versioning.md#executable-support-and-historical-version-gates) | "native compiler-free `prompt resume [--in-place]` and historical readers remain separate." | Read |
 
 ### `transportable_value_type`
 
@@ -260,6 +261,7 @@ no-provider stubs first on `PATH`) or by the named test.
 | 11.27 | Coded refusals | `target_dsl_unsupported` before 2.35 | present | [DSL](../../specs/dsl.md) | "analysis uses `target_dsl_unsupported`; public CLI old-entry preflight keeps" (line 28) | Literal in `orchestrator/` |
 | 11.28 | Non-goals | No concrete type inferred from a payload | present | [Spec §7.1.1](../design/workflow_lisp_frontend_specification.md#711-transportable-value-target-219) | As 11.14 | Read |
 | 11.29 | Feasibility, verification | Seams and test obligations | history | Kept in this record | - | Not rules |
+| 11.30 | Scope notice (second pass) | "Pre-2.35 introduction gates below are historical; data readers remain separate." | present | [Versioning, executable support](../../specs/versioning.md#executable-support-and-historical-version-gates) | "native compiler-free `prompt resume [--in-place]` and historical readers remain separate." | Read |
 
 ### `pure_call_composition`
 
@@ -293,11 +295,14 @@ no-provider stubs first on `PATH`) or by the named test.
 | 12.26 | Scope | Public workflow calls, runtime-selected callables, loops excluded from pure functions | present | [Spec §8.6](../design/workflow_lisp_frontend_specification.md#86-defun) | "Pure functions may not: ... call workflows" and 12.4 | Read |
 | 12.27 | Phase placement, steps 1 to 4 | Inliner order, specialization seeding, one normalizer | compiler internal | The rules 12.6 to 12.19 state what it guarantees | - | Judgment call: read as implementation, not language |
 | 12.28 | Context, alternatives, verification, utility | Audit, alternatives, acceptance scenarios, measurement | history | Kept in this record | - | Not rules |
+| 12.29 | Scope notice (second pass) | "Pre-2.35 introduction gates below are historical; data readers remain separate." | present | [Versioning, executable support](../../specs/versioning.md#executable-support-and-historical-version-gates) | "native compiler-free `prompt resume [--in-place]` and historical readers remain separate." | Read |
 
-**Counts.** `numeric_surface`: 26 rules (9 present, 12 strengthened, 4 written, 1 limitation).
-`transportable_value_type`: 28 (18 present, 7 strengthened, 3 written). `pure_call_composition`:
-27 (13 present, 3 strengthened, 10 written, 1 compiler internal). Together 81 rules: 40 present,
-22 strengthened, 17 written. All three are marked Historical.
+**Counts.** `numeric_surface`: 27 rules (10 present, 12 strengthened, 4 written, 1 limitation).
+`transportable_value_type`: 29 (19 present, 7 strengthened, 3 written). `pure_call_composition`:
+28 (14 present, 3 strengthened, 10 written, 1 compiler internal). Together 84 rules: 43 present,
+22 strengthened, 17 written. Each document was swept a second time, section by section, after the
+first pass; the second pass added one row to each (the scope notice's data-reader sentence). All
+three are marked Historical.
 
 ## Findings For The Plan
 
