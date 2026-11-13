@@ -1,9 +1,0 @@
-Draft: t
-
-## Output Contract
-Write the JSON result to the file on the `- path:` line, with a file-writing or shell tool, before you finish. ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. Returning the value in your reply does not deliver it.
-- path: .orchestrate/runs/20261112T123809Z-72uhc0/effects/36f9848112bf70cff5c8f166a4544945a3693a242f4d521a6c19cba0d6abf116/attempt-1/result.json
-JSON shape, not an example: <...> denotes a type; | chooses one alternative; ... denotes zero or more entries. Comments are contract annotations, not output.
-{
-  "text": <string>
-}
