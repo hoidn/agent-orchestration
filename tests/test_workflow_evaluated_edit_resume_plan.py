@@ -1,10 +1,10 @@
 """Phase 3b T6: `resume` under an edited program refuses as before and prints the plan an acceptance would apply.
 
 The plan (Edit And Continue §3, §5, §6) is computed read-only after the refusal is decided: what is kept, what is
-cancelled from the cut, what is asked again and retried, then a `plan token:` line. No command accepts the token yet
-(T7). Every test drives the public command line with local stand-ins (commands are Python scripts; providers are the
-suite's fake CLIs on a closed PATH); no model is called. Every refusal and every printed plan is checked to leave the
-run tree byte for byte as it was.
+cancelled from the cut, what is asked again and retried, then the command that accepts it (T7). Every test drives
+the public command line with local stand-ins (commands are Python scripts; providers are the suite's fake CLIs on a
+closed PATH); no model is called. Every refusal and every printed plan is checked to leave the run tree byte for
+byte as it was.
 """
 from __future__ import annotations
 
@@ -127,8 +127,8 @@ def printed_plan(stderr: str) -> dict[str, list[str]]:
     plan: dict[str, list[str]] = {"unfinished": []}
     section = None
     for line in lines[start + 1:]:
-        if line.startswith("plan token: "):
-            plan["token"] = [line.removeprefix("plan token: ")]
+        if line.startswith("    ") and " --accept-changes=plan-" in line:
+            plan["token"] = [line.rsplit("--accept-changes=", 1)[1]]
             break
         if line.startswith("    ... and "):
             continue
@@ -563,7 +563,7 @@ def test_plan_lists_cancelled_provider_cost(tmp_path):
 
 def no_plan(stderr: str) -> str:
     """The code that says why no plan can be accepted; the refusal prints no token then."""
-    assert "plan token:" not in stderr and "if accepted, " not in stderr, stderr
+    assert "--accept-changes=plan-" not in stderr and "if accepted, " not in stderr, stderr
     (line,) = [line for line in stderr.splitlines() if line.startswith("no plan can be accepted: [")]
     return line.split("[", 1)[1].split("]", 1)[0]
 

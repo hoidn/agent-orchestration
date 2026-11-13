@@ -15,11 +15,14 @@ are rehashed and never written. Holds no state.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import hashlib
 import json
+import logging
+import os
 from pathlib import Path
 import re
+import time
 from typing import Any
 
 from orchestrator.contracts.closed_program.program import ClosedProgram
@@ -32,6 +35,8 @@ from .machine import evaluate_closed_program, site_classes, site_nodes
 from .memo import _encode_record, earlier_tables, read_memo
 from .memo_reducer import _DYNAMIC_INDEX, JournalEntry, is_coordinator_class, reduce_memo
 from .replay import MissingCommit, _Discovery, discover_prefix
+
+logger = logging.getLogger(__name__)
 
 # Exactly the failures of conditions 2 to 4 that mean "not reusable": order, dependencies, the agent cursor and the
 # host payload; the value fit is the one whose cause is a pure coercion fault. Any other `memo_inconsistent` refuses.
@@ -73,6 +78,8 @@ class Plan:
     unproven_reasons: tuple[str, ...] = ()
     waiting: tuple[str, ...] = ()
     costs: tuple[tuple[str, float | None], ...] = ()
+    # The `_EffectInputDiverged` at the cut when a changed input is why it is there; None otherwise.
+    divergence: Exception | None = field(default=None, compare=False, repr=False)
 
 
 class PlanRefusal(ValueError):
@@ -121,12 +128,14 @@ def compute_plan(authority, candidate: ClosedProgram, inputs, *, workspace: Path
     `diverged`: the `_EffectInputDiverged` today's strict pass just raised under the run's program (`candidate` is
     that program). That pass compared, in offset order, every reached commit before the divergent one, so neither
     the cut nor the strict replay on the journal as it will be compares them again."""
+    _refuse_child(authority)
     rebased = candidate.digest != authority.program.digest
     if rebased:
         _check_candidate(authority, candidate)
+        _check_artifact(authority, candidate)
     snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=authority.run_files)
     planning = _planning_authority(authority, candidate, snapshot) if rebased else authority
-    cut, reason = _cut(planning, snapshot, inputs, workspace, provider_io, diverged)
+    cut, reason, divergence = _cut(planning, snapshot, inputs, workspace, provider_io, diverged)
     if not rebased and cut is None:
         raise PlanRefusal("resume_preflight_failed", "no committed step's input changed under the run's program: "
                           "there is no plan to accept")
@@ -146,7 +155,7 @@ def compute_plan(authority, candidate: ClosedProgram, inputs, *, workspace: Path
                 _token(authority, snapshot, candidate, record, cut, cancelled, retired, asked, unproven),
                 tuple(unproven_reason(after, identity) for identity, _attempt, _evidence in unproven),
                 tuple(map(_id, _of_class(after, after.pending_starts.values(), "request_input"))),
-                _costs(authority, snapshot, cancelled))
+                _costs(authority, snapshot, cancelled), divergence)
 
 
 def _split(snapshot, cut):
@@ -226,8 +235,9 @@ def _not_reusable(exc: Exception) -> str | None:
     return detail if detail in _NOT_REUSABLE else None
 
 
-def _cut(planning, snapshot, inputs, workspace, provider_io, known=None) -> tuple[int | None, str]:
-    """(cut, what is at the cut and why): the smallest offset among commits not reused and pending starts not kept."""
+def _cut(planning, snapshot, inputs, workspace, provider_io, known=None):
+    """(cut, what is at the cut and why, the divergence when that is why): the smallest offset among commits not
+    reused and pending starts not kept."""
     lenient = _Lenient(_Discovery(planning, snapshot))
     try:
         evaluate_closed_program(planning.program, inputs, effect_handler=lenient, run_id=planning.header["run_id"],
@@ -245,12 +255,12 @@ def _cut(planning, snapshot, inputs, workspace, provider_io, known=None) -> tupl
         diverged = _first_divergence(planning, snapshot, discovery.prefix.commits, workspace,
                                      min(stale)[0] if stale else None)
     else:           # today's strict pass refused here, having compared every commit before it
-        diverged = snapshot.active_commits[known.identity].offset, known.identity, _what_changed(known)
-    stale += [diverged] if diverged is not None else []
+        diverged = snapshot.active_commits[known.identity].offset, known.identity, _what_changed(known), known
+    stale += [diverged[:3]] if diverged is not None else []
     if not stale:
-        return None, ""
+        return None, "", None
     offset, identity, why = min(stale)
-    return offset, f"{identity}: {why}"
+    return offset, f"{identity}: {why}", diverged[3] if diverged is not None and diverged[0] == offset else None
 
 
 def _pending_not_kept(planning, snapshot, discovery, workspace, why_unreached):
@@ -275,7 +285,7 @@ def _first_divergence(planning, snapshot, reused, workspace, before):
                                                    item.commit, workspace, snapshot, item.owner,
                                                    launch_workspace=item.launch_workspace)
         except effect_inputs._EffectInputDiverged as exc:
-            return item.commit.offset, item.identity, _what_changed(exc)
+            return item.commit.offset, item.identity, _what_changed(exc), exc
     return None
 
 
@@ -338,6 +348,47 @@ def _check_candidate(authority, candidate) -> None:
         unpinned = sorted(set(_emitted_bare_interpreters(candidate)) - set(pins))
         raise PlanRefusal("resume_program_changed", "the edited program uses a bare interpreter the run did not pin: "
                           f"{', '.join(unpinned) or exc}; spell it by path or start a new run") from exc
+
+
+def _refuse_child(authority) -> None:
+    """Design §5 (spike ruling 8): an edit never reaches a run-reference child. Its parent re-reads the child's
+    journal with one program on every resume, so a record written here would make the parent unresumable."""
+    if authority.confined:
+        raise PlanRefusal("resume_program_changed", "a confined run-reference child never changes program; resume "
+                          "its parent run")
+    parent = _run_ref_parent(Path(authority.run_root))
+    if parent is not None:
+        raise PlanRefusal("resume_program_changed", "a run-reference child changes program only with its parent; "
+                          f"resume its parent run {parent}")
+
+
+def _run_ref_parent(run_root: Path) -> str | None:
+    """The parent run of a run-reference child root, else None. The child's root is
+    `RUN_REF_ROOT/[effect-instances/D/]runs/PARENT/STEP/VISIT/N/workspace/.orchestrate/runs/ID`, and the parent wrote
+    `child-request.json` naming ID beside `workspace/` (`run_ref/runtime.py`)."""
+    above = [run_root, *run_root.parents]            # a run root under a short `--state-dir` has few parents
+    if len(above) < 8:
+        return None
+    try:
+        child = json.loads((above[4] / "child-request.json").read_bytes()).get("child_run_id")
+    except FileNotFoundError:
+        return None
+    return above[7].name if child == run_root.name else None
+
+
+def _check_artifact(authority, candidate) -> None:
+    """A file already under the edited program's artifact name is reused at acceptance only if it verifies; one that
+    does not would refuse every acceptance, so the plan is refused here, naming it."""
+    from .authority import _read_file, program_artifact_name, verified_program
+
+    files, name = authority.run_files, program_artifact_name(candidate.digest)
+    if files is None or not files.exists(name):
+        return
+    try:
+        verified_program(lambda file: _read_file(authority.run_root / file, files), candidate.digest)
+    except ValueError as exc:
+        raise PlanRefusal("memo_inconsistent", f"{name} in the run root is not the edited program ({exc}); remove "
+                          "that file and resume") from exc
 
 
 def _refuse(authority, snapshot, candidate, cut, cancelled, retired, written) -> None:
@@ -465,3 +516,139 @@ def _costs(authority, snapshot, cancelled) -> tuple[tuple[str, float | None], ..
 
     per_step, _total = run_usage(authority.run_root, metered, load_price_table())
     return tuple((row["identity"], per_step[row["identity"]]["cost_usd"]) for row in metered)
+
+
+# ---- acceptance: step 10's gate and step 11's write (design §4, §6) ------------------------------------------------
+
+_STALE = {
+    "journal": lambda plan: "the journal has new records",
+    "program": lambda plan: "the program changed again",
+    "cut": lambda plan: f"the cut moved; it is now at {plan.cut_reason}" if plan.cut is not None else "the cut moved",
+    "sets": lambda plan: "the cancelled steps, the questions asked again, or the unfinished steps or their files changed",
+}
+
+
+def plan_token_argument(text: str) -> str:
+    """argparse `type` of `--accept-changes=TOKEN`. A run id written after the flag is never taken for a token."""
+    import argparse
+
+    if _TOKEN.fullmatch(text) is None:
+        raise argparse.ArgumentTypeError("expected a plan token; write the run id before --accept-changes")
+    return text
+
+
+def accept_plan(authority, candidate: ClosedProgram, inputs, token: str, *, workspace: Path, provider_io,
+                report=None):
+    """Accept the plan `token` names, under the run writer lock the caller holds; return the authority in force.
+
+    The plan is recomputed with the full strict pass and compared with the token here, at one place, before any
+    write (design §6). Then the edited program is published, or a verified artifact of its digest reused; a torn
+    tail is repaired; the record is appended and synchronized; the view is published under the program in force.
+    `report(plan)` runs once the record is durable. A failed sync, or any failure after the record, carries
+    `change_in_force` ("may" or "is"): the caller stops, dispatches nothing and says so."""
+    plan = compute_plan(authority, candidate, inputs, workspace=workspace, provider_io=provider_io)
+    changed = token_difference(token, plan.token)
+    if changed:
+        raise _stale(authority, candidate, plan, changed)
+    entry = _write(authority, plan)
+    from .authority import load_run_authority
+    from .memo import remember_tables
+
+    try:
+        current = load_run_authority(authority.run_root, header=dict(authority.header), run_files=authority.run_files)
+        remember_tables(current)
+        logger.warning("[changes_accepted] %s: record %s at journal byte %d", token, plan.record, entry.offset)
+        if report is not None:
+            report(plan)
+        _views().publish_evaluated_view(current, entry)
+    except Exception as exc:        # the record is durable: whatever failed, the caller must say so and dispatch nothing
+        raise _in_force(exc, "is") from exc
+    return current
+
+
+def _in_force(exc: Exception, state: str) -> Exception:
+    """`exc` marked with `change_in_force`; an exception the command line does not report (not an `OSError` or
+    `ValueError`) is carried by a coded refusal, so the in-force lines are printed instead of a traceback."""
+    error = exc if isinstance(exc, (OSError, ValueError)) else PlanRefusal(
+        "resume_preflight_failed", f"{type(exc).__name__}: {exc}")
+    error.change_in_force = state
+    return error
+
+
+def _probe_rename_noreplace(files) -> None:
+    """Rename-without-replace of an absent name: `ENOENT` where the system call exists, so a system without it
+    refuses before the temporary file is created. A file system that rejects the flag only on a real rename is met
+    by `publish_new`, which removes its temporary file."""
+    import errno
+    from orchestrator._common.io_atomic import RenameNoreplaceError
+    from orchestrator.workflow import workspace_files
+
+    absent = ".rename-noreplace-probe"
+    try:
+        workspace_files.rename_noreplace_at(files.root_fd, absent, files.root_fd, absent + ".target")
+    except RenameNoreplaceError as exc:
+        if exc.errno != errno.ENOENT:
+            raise
+
+
+def _views():
+    from . import views
+    return views
+
+
+def _stale(authority, candidate, plan, changed) -> PlanRefusal:
+    """The refusal plain `resume` gives now, naming what changed; it carries the new plan for the recovery lines."""
+    why = "; ".join(_STALE[name](plan) for name in changed)
+    message = f"the plan token names another plan: {why}"
+    if plan.record == "rebased":
+        error = PlanRefusal("resume_program_changed", message, fresh_program=candidate)
+    else:
+        divergence = plan.divergence
+        error = PlanRefusal("effect_input_diverged", message, getattr(divergence, "identity", None),
+                            changed_parts=getattr(divergence, "changed_parts", []),
+                            changed_files=getattr(divergence, "changed_files", []))
+    error.plan = plan
+    error.snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=authority.run_files)
+    return error
+
+
+def _write(authority, plan) -> JournalEntry:
+    """Store the program (W1, W2), repair a torn tail (W3), append and synchronize the record (W4). Any failure
+    after the program is stored carries `change_in_force = "may"`."""
+    from . import memo
+
+    files = authority.run_files
+    if files is None:
+        raise ValueError("accepting a plan requires the run's retained file owner")
+    snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=files)
+    os.close(memo._open_append(authority.memo_path, files))   # a journal that cannot take the record refuses first
+    if plan.record == "rebased":
+        _store(authority, plan.program)
+        row = {"record": "rebased", "program_digest": plan.program.digest, "from_offset": plan.cut, "time": time.time()}
+    else:
+        row = {"record": "invalidated", "from_commit": plan.cut, "time": time.time()}
+    try:
+        memo.repair_torn_tail(authority.memo_path, snapshot, run_files=files)
+        return memo.append_record(authority.memo_path, row, run_files=files)
+    except Exception as exc:        # after the artifact is stored: a record may have been appended (W4)
+        raise _in_force(exc, "may") from exc
+
+
+def _store(authority, program) -> None:
+    """Publish `closed_program.<digest>.json` without replacing, or reuse the file of that name if it verifies."""
+    from orchestrator._common.io_atomic import RenameNoreplaceError, RenameNoreplaceUnavailableError
+    from .authority import _read_file, program_artifact_name, verified_program
+
+    files, name = authority.run_files, program_artifact_name(program.digest)
+    if not files.exists(name):
+        try:
+            _probe_rename_noreplace(files)
+            files.publish_new(name, program.artifact().encode("utf-8"))
+            return
+        except FileExistsError:
+            pass                    # published since the check: verified below like any other
+        except (RenameNoreplaceUnavailableError, RenameNoreplaceError) as exc:
+            raise PlanRefusal("resume_preflight_failed", "the run root's file system cannot publish the edited "
+                              f"program without replacing a file ({exc}); the journal and the run's programs are "
+                              "unchanged") from exc
+    verified_program(lambda file: _read_file(authority.run_root / file, files), program.digest)

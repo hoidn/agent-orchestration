@@ -1,12 +1,14 @@
 """Phase 3b T3: a journal with `rebased` records is read row by row under the program that wrote each row.
 
-No command writes the record yet (T7); `tests/rebased_fixture.py` writes it with the design's exact keys after
-storing the edited program as an ordinary run of it writes it. Commands are local Python and shell scripts; the agent
+Edits a plan accepts are accepted with the command the refusal printed (T7, `_accept`). Records no plan would
+write (a chosen cut, a torn or invalid record, a child journal) are written by `tests/rebased_fixture.py` with the
+design's exact keys after storing the edited program as an ordinary run of it writes it. Commands are local Python and shell scripts; the agent
 cases use the suite's fake `codex` on a closed PATH. No model is called.
 """
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -101,11 +103,21 @@ def _resume(workspace: Path, run_root: Path) -> tuple[int, list[str], str]:
     return done.returncode, _started(run_root, before), done.stderr
 
 
+def _accept(workspace: Path, run_root: Path) -> tuple[int, list[str], str]:
+    """Plain `resume` refuses and prints the plan; its printed command accepts it and continues (T7)."""
+    refused = cli_inprocess(workspace, "resume", run_root.name)
+    assert refused.returncode == 2, refused.stderr
+    (line,) = [line.strip() for line in refused.stderr.splitlines() if " --accept-changes=plan-" in line]
+    words = shlex.split(line)
+    before = len(fx.rows(run_root))
+    done = cli_inprocess(workspace, *words[words.index("resume"):])
+    return done.returncode, _started(run_root, before), done.stderr
+
+
 def test_resume_continues_under_the_program_a_record_names(serial_base, tmp_path):
     workspace, run_root = _copy(serial_base, tmp_path)
     _edit(workspace, [*SERIAL[:2], cmd("s3", "(+ s2 10)"), SERIAL[3]], "s4")
-    fx.rebase(run_root, workspace, fx.offset_of(run_root, "committed", "s3"), RUN_ARGS)
-    code, started, stderr = _resume(workspace, run_root)
+    code, started, stderr = _accept(workspace, run_root)
     assert (code, started) == (0, ["s3#3", "s4#2"]), stderr
     assert fx.rows(run_root)[-1] == {"record": "terminal", "outcome": "completed", "value": 14}
     assert _resume(workspace, run_root)[:2] == (0, [])
@@ -198,8 +210,7 @@ RENAMED = [*SERIAL[:2], cmd("t3", "s2"), cmd("s4", "t3")]
 def _renamed(serial_base, tmp_path):
     workspace, run_root = _copy(serial_base, tmp_path)
     _edit(workspace, RENAMED, "s4")
-    fx.rebase(run_root, workspace, fx.offset_of(run_root, "committed", "s3"), RUN_ARGS)
-    assert _resume(workspace, run_root)[:2] == (0, ["t3#1", "s4#2"])
+    assert _accept(workspace, run_root)[:2] == (0, ["t3#1", "s4#2"])
     return workspace, run_root
 
 
@@ -217,9 +228,9 @@ def test_second_record_may_cut_before_the_first(serial_base, tmp_path):
     _edit(workspace, [SERIAL[0], cmd("s2", "(+ s1 5)"), *RENAMED[2:]], "s4")
     cut = fx.offset_of(run_root, "committed", "s2")
     assert cut < first_record
-    fx.rebase(run_root, workspace, cut, RUN_ARGS)
-    code, started, stderr = _resume(workspace, run_root)
+    code, started, stderr = _accept(workspace, run_root)
     assert (code, started) == (0, ["s2#2", "t3#2", "s4#3"]), stderr
+    assert [row["from_offset"] for row in fx.rows(run_root) if row["record"] == "rebased"][-1] == cut
     assert fx.rows(run_root)[-1]["value"] == 9
 
 
@@ -227,15 +238,13 @@ def test_three_programs_one_returning_to_the_first_resume_and_complete(serial_ba
     workspace, run_root = _copy(serial_base, tmp_path)
     first = (workspace / "pipe.orc").read_text()
     _edit(workspace, [*SERIAL[:3], cmd("s4", "(+ s3 1)")], "s4")
-    fx.rebase(run_root, workspace, fx.offset_of(run_root, "committed", "s4"), RUN_ARGS)
-    assert _resume(workspace, run_root)[:2] == (0, ["s4#2"])
+    assert _accept(workspace, run_root)[:2] == (0, ["s4#2"])
     _edit(workspace, [*SERIAL[:2], cmd("s3", "(+ s2 1)"), cmd("s4", "(+ s3 1)")], "s4")
-    fx.rebase(run_root, workspace, fx.offset_of(run_root, "committed", "s3"), RUN_ARGS)
-    assert _resume(workspace, run_root)[:2] == (0, ["s3#3", "s4#3"])
+    assert _accept(workspace, run_root)[:2] == (0, ["s3#3", "s4#3"])
     (workspace / "pipe.orc").write_text(first)
     header = json.loads((run_root / "run.json").read_bytes())["program_digest"]
-    assert fx.rebase(run_root, workspace, fx.offset_of(run_root, "committed", "s3"), RUN_ARGS) == header
-    assert _resume(workspace, run_root)[:2] == (0, ["s3#4", "s4#4"])
+    assert _accept(workspace, run_root)[:2] == (0, ["s3#4", "s4#4"])
+    assert [row["program_digest"] for row in fx.rows(run_root) if row["record"] == "rebased"][-1] == header
     assert fx.rows(run_root)[-1] == {"record": "terminal", "outcome": "completed", "value": 4}
     assert len(list(run_root.glob("closed_program.*.json"))) == 3
     assert cli_inprocess(workspace, "report", "--run-id", run_root.name).returncode == 0
@@ -247,8 +256,7 @@ def test_three_programs_one_returning_to_the_first_resume_and_complete(serial_ba
 def test_record_reopens_a_completed_terminal(serial_base, tmp_path):
     workspace, run_root = _copy(serial_base, tmp_path)
     _edit(workspace, SERIAL, "(+ s4 100)")
-    fx.rebase(run_root, workspace, None, RUN_ARGS)
-    code, started, stderr = _resume(workspace, run_root)
+    code, started, stderr = _accept(workspace, run_root)
     assert (code, started) == (0, []), stderr
     assert [row["record"] for row in fx.rows(run_root)[-3:]] == ["terminal", "rebased", "terminal"]
     assert fx.rows(run_root)[-1]["value"] == 104
@@ -259,8 +267,7 @@ def test_edit_that_drops_a_pinned_interpreter_stays_readable(tmp_path):
     run_root = _run(workspace)
     assert set(json.loads((run_root / "run.json").read_bytes())["interpreters"]) == {"python", "sh"}
     _edit(workspace, [cmd("s1", "n"), cmd("s3", "s1")], "s3")
-    fx.rebase(run_root, workspace, fx.offset_of(run_root, "committed", "s2"), RUN_ARGS)
-    code, started, stderr = _resume(workspace, run_root)
+    code, started, stderr = _accept(workspace, run_root)
     assert (code, started) == (0, ["s3#2"]), stderr
     assert cli_inprocess(workspace, "report", "--run-id", run_root.name).returncode == 0
 

@@ -11,7 +11,7 @@ from orchestrator.cli.commands.run import _state_root_symlink_error
 
 logger = logging.getLogger(__name__)
 
-def _evaluated_resume_route(run_root: Path, workspace: Path, *, force_restart: bool, run_ref_root: str | None, run_files=None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False, max_cost_usd: float | None = None, accept_changes: bool = False) -> int | None:
+def _evaluated_resume_route(run_root: Path, workspace: Path, *, force_restart: bool, run_ref_root: str | None, run_files=None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False, max_cost_usd: float | None = None, accept_changes: bool | str = False) -> int | None:
     """Select immutable authority under the writer locks, before legacy state."""
     from orchestrator.workflow.evaluated.authority import PROFILE, SCHEMA_VERSION, RunAuthorityError, _read_header_json
     from orchestrator.cli.commands.evaluated import resume_evaluated_workflow
