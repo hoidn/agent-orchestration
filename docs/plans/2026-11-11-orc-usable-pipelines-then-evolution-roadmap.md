@@ -324,6 +324,36 @@ every removed test is listed with the code it covered".
      designs marked historical.
    Order: the design for the effect rule and the iteration and callable
    conventions first; code only after it is accepted.
+   **Compiler and runtime defects found by probes on the way (open list,
+   2026-11-13; each reproduced by the agent that found it, none scheduled
+   unless marked).** They are separate from the design's changes and each
+   needs its own small fix with tests:
+   - two prompt outputs filled with the same path commit with nothing
+     refusing the alias, and an output name equal to a result field is caught
+     only after the provider has run; the check that would refuse both before
+     launch is called only by its tests;
+   - a `defworkflow` with a workflow-reference parameter fails with
+     `compiler_defect`, although the specification's own example has that
+     shape;
+   - choosing a procedure reference with `if` fails with `compiler_defect`
+     where a refusal is intended;
+   - inside a macro template: `list/map`, a call to a `let-proc` local, and a
+     nested loop used as an operand each fail or crash;
+   - a free name in a macro template binds to the caller's local, so hygiene
+     is weaker than the retired macro contract claimed;
+   - `(and (= a.variant V) …)` is refused by module compilation while the
+     expression typechecker grants the proof;
+   - a loop's `continue` value holding an effectful `if` inside an operand
+     fails with `compiler_defect` (being closed with the effects change);
+   - the guard that forbids a confined run-reference site in a map body does
+     not see one reached through a procedure-reference parameter or a
+     `let-proc` local, in serial and parallel maps (a hole in a safety guard:
+     first in line for a fix);
+   - a parallel map written directly in a `loop/recur` body fails with
+     `compiler_defect` (through a procedure call it works);
+   - a `let-proc` local whose body is a loop crashes with an internal error;
+   - dead code: the prompt snapshot and attempt-identity builders and the
+     fragment-identity projection have no caller in the package.
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before

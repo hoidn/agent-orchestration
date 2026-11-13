@@ -1,0 +1,3 @@
+{"type": "system", "subtype": "init", "session_id": "f9b7cbb4-5c28-4bb0-9d16-14fca8b4d673", "model": "fake"}
+{"type": "assistant", "session_id": "f9b7cbb4-5c28-4bb0-9d16-14fca8b4d673", "message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}}
+{"type": "result", "subtype": "success", "is_error": false, "session_id": "f9b7cbb4-5c28-4bb0-9d16-14fca8b4d673", "result": "ok"}

@@ -162,6 +162,45 @@ representation carrier or old header selects a flat executor.
 - Unsupported executable effects refuse at the owning checked admission boundary;
   no claim of universal totality follows from the old flattening design.
 
+### Pipeline, provenance and private contexts
+
+```text
+source text -> S-expressions -> resolved, macro-expanded frontend AST -> typed frontend AST
+  -> WCC elaboration, specialization, scope/effect/proof analysis
+  -> checked closed program -> evaluated runtime and effect memo
+  -> derived report and dashboard views
+```
+
+The typed frontend also supplies read-only catalogs and exact source provenance
+to the language server and REPL. Flat Core AST projection, Executable IR, debug
+YAML and positional replay cannot be emitted or executed.
+
+Node provenance (span and form path) is
+[evaluated execution §4.1, P6](workflow_lisp_evaluated_execution.md#41-properties). A
+generated result contract carries, for each authored union field, a stable
+source-map subject (`source_map_subject`, or `source_map_subjects_by_variant`
+when a field name is shared by variants) that the node's provenance resolves to
+that field, and a contract violation carries those subject references. An error
+raised while evaluating a node reports that node's span.
+
+A record that structurally contains a `RunCtx` (`run-id` of type `RunId`,
+`state-root` under `state`, `artifact-root` under `artifacts`) is a private
+executable context. A hidden `RunCtx` parameter is supplied from the caller's
+`RunCtx` parameter, or from the `run` field of its `PhaseCtx` parameter. At the entry, or when the
+caller has none, the build synthesizes one: its `run-id` is read from the run at
+run time, and its `state-root` and `artifact-root` are the literals `state/run`
+and `artifacts/run`. A hidden `PhaseCtx` for a phase gets that run context, the
+phase name and the roots `state/<phase>` and `artifacts/<phase>`
+(`orchestrator/workflow_lisp/closed/context.py`).
+
+When a workflow's boundary is projected for import (a compiled typed import, or
+a call matched against a callee's hidden contexts), a public formal whose name
+collides with a generated hidden context input (such as `phase-ctx` or
+`phase-ctx__run__run-id`) refuses, and so do two hidden phase contexts for
+different phases under one formal. Diagnostics:
+`workflow_boundary_projection_collision`,
+`promoted_entry_hidden_phase_ctx_ambiguous`.
+
 ## 10. The Workflow Core Calculus
 
 ### 10.1 Constructs
