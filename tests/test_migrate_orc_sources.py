@@ -527,16 +527,19 @@ def test_report_lists_changed_files_and_hand_work(tmp_path: Path) -> None:
         [str(good)], [(str(left), 7, "loop", "reorder")])
 
 
-def test_an_orc_file_whose_text_a_python_module_substitutes_is_left_whole(tmp_path: Path) -> None:
-    fixture = _write(tmp_path / "fixtures" / "probe.orc", OLD_ORC)
-    other = _write(tmp_path / "fixtures" / "other.orc", NESTED_FN)
+def test_an_orc_file_whose_text_a_module_matches_is_left_when_a_pattern_moves(tmp_path: Path) -> None:
+    fixture = _write(tmp_path / "fixtures" / "probe.orc", NESTED_FN)
+    named = _write(tmp_path / "fixtures" / "named.orc", OLD_ORC)
+    other = _write(tmp_path / "fixtures" / "other.orc", NESTED_FN.replace("(defmodule probe)", "(defmodule other)"))
     _write(tmp_path / "test_seed.py", 'from pathlib import Path\n\n'
            'SOURCE = (Path(__file__).parent / "fixtures/probe.orc").read_text()\n'
-           'SEEDED = SOURCE.replace("(loop/recur", "(loop/recur ")\n')
+           'NAMED = "fixtures/named.orc"\n'
+           f'SEEDED = SOURCE.replace({"(fn (outer)"!r}, "(fn (state)").replace("probe", "start")\n')
     report = tmp_path / "report.json"
 
     _migrate("--report", report, tmp_path)
 
     rows = json.loads(report.read_text(encoding="utf-8"))["hand_work"]
-    assert (fixture.read_text(encoding="utf-8"), other.read_text(encoding="utf-8"),
-            {row["category"] for row in rows if row["path"] == str(fixture)}) == (OLD_ORC, NESTED_BINDER, {"substituted"})
+    assert (fixture.read_text(encoding="utf-8"), named.read_text(encoding="utf-8"), other.read_text(encoding="utf-8"),
+            {row["category"] for row in rows if row["path"] == str(fixture)}) == (
+        NESTED_FN, NEW_ORC, NESTED_BINDER.replace("(defmodule probe)", "(defmodule other)"), {"pattern"})

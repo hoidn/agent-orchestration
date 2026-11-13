@@ -967,62 +967,62 @@ def migrate_python(source: str, report: Report, verify: bool) -> str:
     return "".join(out)
 
 
-SUBSTITUTED = ("loop/recur", "(:target-dsl", ":lowering", ":effects")
+Pattern = tuple[str, str]  # (where: "module.py:line", the text a module matches against a fixture)
 
 
-def substituted_sources(paths: list[Path]) -> dict[str, str]:
-    """`.orc` path suffixes that a module among `paths` names while it substitutes `.orc` text.
+def text_patterns(paths: list[Path]) -> dict[str, list[Pattern]]:
+    """For each `.orc` path literal in a module among `paths`, the module's text patterns.
 
-    A module rewrites a fixture's text when one of its substitution operands (`protected_spans`)
-    holds a loop, a header or a clause; every `.orc` path literal in that module maps to the place
-    of that operand. Such a fixture and its patterns change together, by hand. A module that cannot
-    be read or parsed is skipped here; `migrate_file` reports it.
+    A pattern is a string constant that is directly an operand of a text call or a comparison
+    (`_guarded_operands`): what a test may match against a fixture's text after reading it. A
+    module that cannot be read or parsed is skipped here; `migrate_file` reports it.
     """
     named = {}
     for path in (path for path in paths if path.suffix == ".py"):
         try:
-            source = path.read_text(encoding="utf-8")
-            tree = ast.parse(source)
+            tree = ast.parse(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, SyntaxError):
             continue
-        line = _first_substitution(source)
-        for node in ast.walk(tree) if line else ():
+        patterns = [(f"{path}:{operand.lineno}", operand.value) for node in ast.walk(tree)
+                    for operand, category, _ in _guarded_operands(node)
+                    if category != "docstring" and isinstance(operand, ast.Constant) and isinstance(operand.value, str)]
+        for node in ast.walk(tree) if patterns else ():
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.endswith(".orc"):
-                named.setdefault(node.value.removeprefix("./"), f"{path}:{line}")
+                named.setdefault(node.value.removeprefix("./"), []).extend(patterns)
     return named
 
 
-def _first_substitution(source: str) -> int | None:
-    """Line of the first substitution operand that holds a loop, a header or a clause."""
-    starts = [start for (start, end), (category, _) in protected_spans(source).items()
-              if category == "substitution" and any(marker in source[start:end] for marker in SUBSTITUTED)]
-    return source.count("\n", 0, min(starts)) + 1 if starts else None
-
-
-def _substituted_by(path: Path, named: dict[str, str]) -> str | None:
+def _moved_pattern(path: Path, source: str, new: str, named: dict[str, list[Pattern]]) -> str | None:
+    """Where a module that names `path` holds a pattern the migration makes match a different number of times."""
     target = "/" + path.resolve().as_posix()
-    return next((where for suffix, where in named.items() if target.endswith("/" + suffix)), None)
+    for suffix, patterns in named.items():
+        for where, pattern in patterns if target.endswith("/" + suffix) else ():
+            if pattern and pattern in source and source.count(pattern) != new.count(pattern):
+                return f"{where} matches {pattern!r} against this file's text"
+    return None
 
 
-def migrate_file(path: Path, *, check: bool, verify: bool, substituted: dict[str, str] | None = None) -> Report:
+def migrate_file(path: Path, *, check: bool, verify: bool, patterns: dict[str, list[Pattern]] | None = None) -> Report:
     """Migrate one file; a file that cannot be read, tokenized or parsed is reported and left.
 
-    A `.orc` file named in `substituted` (`substituted_sources`) is left whole and reported.
+    A `.orc` file is also left whole, and reported, when the migration would change how often a
+    pattern of a module that names it (`text_patterns`) occurs in its text: the module rewrites or
+    inspects that text, and the two change together by hand.
     """
     report = Report(str(path))
     try:
         with path.open(encoding="utf-8", newline="") as handle:
             source = handle.read()
-        where = _substituted_by(path, substituted or {}) if path.suffix != ".py" else None
-        if where is not None:
-            reason = f"{where} substitutes this file's text; migrate both by hand"
-            if OLD_VERSION.search(source):
-                report.note(1, "substituted", reason)
-            _skip(Unit(source), report, "substituted", reason)
-            return report
         new = _migrated(path, source, report, verify)
     except (OSError, UnicodeDecodeError, SyntaxError, tokenize.TokenError) as error:
         report.error = f"cannot be migrated ({type(error).__name__}: {error}); left as it was"
+        return report
+    moved = _moved_pattern(path, source, new, patterns or {}) if path.suffix != ".py" and new else None
+    if moved is not None:
+        report = Report(str(path))
+        if OLD_VERSION.search(source):
+            report.note(1, "pattern", moved)
+        _skip(Unit(source), report, "pattern", moved)
         return report
     if new is not None and new != source and not check:
         with path.open("w", encoding="utf-8", newline="") as handle:
@@ -1113,8 +1113,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("paths", nargs="+", type=Path, help="files, or directories to walk")
     args = parser.parse_args(argv)
     files = expand(args.paths)
-    substituted = substituted_sources(files)
-    reports = [migrate_file(path, check=args.check, verify=args.verify, substituted=substituted) for path in files]
+    patterns = text_patterns(files)
+    reports = [migrate_file(path, check=args.check, verify=args.verify, patterns=patterns) for path in files]
     _print(reports, check=args.check, verify=args.verify)
     if args.report is not None:
         write_report(reports, args.report)
