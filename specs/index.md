@@ -124,13 +124,13 @@ dashboard read evaluated runs only and refuse historical ones. See
   - Python drafting guide (informative): `../docs/python_workflow_drafting_guide.md`
   - Workflow Lisp drafting guide (informative): `../docs/lisp_workflow_drafting_guide.md`
   - Historical YAML translation guide (informative): `../docs/workflow_drafting_guide.md`
-  - Workflow Lisp provider supervision (informative design):
+  - Workflow Lisp provider supervision (historical record):
     `../docs/design/workflow_lisp_provider_live_binding.md`
-  - Workflow Lisp provider peer messaging (informative design):
+  - Workflow Lisp provider peer messaging (historical record):
     `../docs/design/workflow_lisp_provider_peer_messaging.md`
   - Workflow Lisp phased contract delivery (informative design):
     `../docs/design/workflow_lisp_phased_contract_delivery.md`
-  - Workflow Lisp pinned child execution and trials (informative design):
+  - Workflow Lisp pinned child execution and trials (historical record):
     `../docs/design/workflow_lisp_trial_runs.md`
 
 ## Executive Summary

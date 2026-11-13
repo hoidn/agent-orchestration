@@ -100,7 +100,9 @@ are admitted directly at this question position; they do not become general
 runtime prompt values. A declared prompt return contract, if present, must agree
 with an explicit `:returns`; it describes the answer type, not the `HostReply`
 wrapper. Omission uses the prompt's canonical declaring-owner type, including
-through aliases, specialization and typed imports. At an authored call to an
+through aliases, specialization and typed imports. The elaborated request carries that
+type exactly as an explicit `:returns` would, so nothing records the omission
+in the checked program or the memo. At an authored call to an
 imported prompt, the answer type, including its generic head and nested type
 arguments, must be available through the caller's normal imports. Inference
 neither exposes private types nor rebinds them to caller-local names. Typed
