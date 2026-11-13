@@ -330,8 +330,10 @@ def recovery_lines(exc: Exception, *, run_id: str, launcher: str, state_dir: str
 def _in_force(exc, context: _Context) -> list[str]:
     """A failure after an accepted plan's record was appended (window W4) or made durable: nothing was dispatched."""
     state = "may be" if exc.change_in_force == "may" else "is"
+    runs_root = ["--runs-root", context.state_dir] if context.state_dir else []
+    report = " ".join(shlex.quote(word) for word in ("report", "--run-id", context.run_id, *runs_root))
     return [f"the accepted change {state} in force; nothing was dispatched", "report lists the run's programs:",
-            context.command("report", context.run_id),
+            COMMAND_INDENT + context.launcher + " " + report,
             "resume continues under the program in force:", context.resume()]
 
 
