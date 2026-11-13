@@ -21,7 +21,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from orchestrator.cli.recovery import REFUSAL_CODES, recovery_lines, state_dir_flag
+from orchestrator.cli.recovery import REFUSAL_CODES, accepted_lines, recovery_lines, state_dir_flag
 
 STDERR_TAIL_LINES = 10
 _STDERR_TAIL_BYTES = 64 * 1024
@@ -208,6 +208,10 @@ class TerminalReporter:
                                                plan=plan))
         except Exception:
             self.err = None
+
+    def accepted(self, plan) -> None:
+        """The plan an acceptance applied, once its record is durable (design §6)."""
+        self._write("err", *accepted_lines(plan))
 
     def resumable(self, exit_code: int) -> bool:
         """Whether `resume` continues: not after a refusal, whose recovery lines say what does."""

@@ -1,4 +1,6 @@
-"""Test-only: give a run a `rebased` record before any command can write one (Phase 3b T3, until T7).
+"""Test-only: give a run a `rebased` record that no accepted plan writes (a chosen cut, a torn or invalid record, a
+child journal), or one a reader test needs without running the planner. An edit a plan accepts is accepted with
+the printed `resume RUN_ID --accept-changes=TOKEN` (Phase 3b T7).
 
 `rebase` stores the program of the workspace's current source in the run root under its digest name and appends
 the record with the exact keys of the design (Edit And Continue §4). The program is the one an ordinary `run` of
@@ -67,7 +69,7 @@ def append_rebased(run_root: Path, digest: str, cut: int | None) -> None:
 
 def rebase(run_root: Path, workspace: Path, cut: int | None, run_args: list[str],
            env: dict[str, str] | None = None) -> str:
-    """Accept the workspace's current source for `run_root` with the cut `cut`, as T7 will; return the digest."""
+    """Store the workspace's current source for `run_root` and record it with the cut `cut`; return the digest."""
     digest = store_program(run_root, workspace, run_args, env)
     append_rebased(run_root, digest, cut)
     return digest

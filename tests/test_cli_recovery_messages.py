@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import shlex
+import shutil
 import sys
 
 import pytest
@@ -48,7 +49,8 @@ def test_program_edit_refusal_names_the_changed_step_and_a_run_command_that_work
     result = refused(tmp_path, run_id, "resume_program_changed")
 
     assert f"  changed {IDENTITIES[2]}" in result.stderr.splitlines()
-    (_resume, fresh_run) = commands(result.stderr)
+    (accept, _resume, fresh_run) = commands(result.stderr)
+    assert accept.split()[-1].startswith("--accept-changes=plan-")
     rerun = shell(tmp_path, fresh_run)
     assert rerun.returncode == 0, rerun.stderr
     assert rerun.stdout.splitlines()[-1] == '{"first":2,"total":5}'
@@ -63,7 +65,12 @@ def test_committed_script_edit_refusal_prints_invalidate_and_resume_that_recover
 
     assert f"step {IDENTITIES[0]} was committed with other inputs" in result.stderr
     assert "step.py" in result.stderr
-    invalidate, resume = commands(result.stderr)
+    accept, invalidate, resume = commands(result.stderr)
+    one_command = tmp_path.parent / f"{tmp_path.name}-accepted"
+    shutil.copytree(tmp_path, one_command, symlinks=True)
+    accepted = shell(one_command, accept)               # the token command does what the two commands below do
+    assert accepted.returncode == 0, accepted.stderr
+    assert accepted.stdout.splitlines()[-1] == RESULT_LINE
     assert shell(tmp_path, invalidate).returncode == 0
     resumed = shell(tmp_path, resume)
     assert resumed.returncode == 0, resumed.stderr
@@ -79,7 +86,8 @@ def test_committed_script_edit_refusal_warns_once_before_its_commands(tmp_path: 
 
     lines = refused(tmp_path, run_id, "effect_input_diverged").stderr.splitlines()
 
-    warning = lines[next(index for index, line in enumerate(lines) if line.startswith(COMMAND_INDENT)) - 1]
+    warning = lines[next(index for index, line in enumerate(lines) if line.startswith(COMMAND_INDENT)
+                         and " invalidate " in line) - 1]
     assert (warning.count("every later one"), warning.count("workspace files are not rolled back")) == (1, 1)
 
 
@@ -155,7 +163,7 @@ def test_a_shared_script_edit_after_invalidating_later_steps_offers_invalidate_t
 
     result = refused(tmp_path, run_id, "effect_input_diverged")
 
-    invalidate, resume = commands(result.stderr)
+    _accept, invalidate, resume = commands(result.stderr)
     assert shell(tmp_path, invalidate).returncode == 0
     resumed = shell(tmp_path, resume)
     assert resumed.returncode == 0, resumed.stderr
@@ -225,3 +233,18 @@ def test_a_refusal_without_an_identity_does_not_print_none() -> None:
                            run_id="r1", launcher="orchestrator", state_dir=None, header=HEADER)
 
     assert not any("None" in line for line in lines)
+
+
+@pytest.mark.parametrize("recorded", ["this orchestrator", "another orchestrator"])
+def test_program_change_offers_restoring_the_source_only_when_that_can_restore_it(recorded: str) -> None:
+    """A run reference records the compiler and runtime identity: after the installed orchestrator changed, restoring
+    the source does not restore the run's program, so that line is not offered (Phase 3b T7)."""
+    from types import SimpleNamespace
+    from orchestrator.workflow.run_ref.contracts import compute_compiler_runtime_identity
+    identity = compute_compiler_runtime_identity().digest if recorded == "this orchestrator" else "sha256:" + "0" * 64
+    stored = SimpleNamespace(tree={"definitions": {"run": {"config": {"compiler_runtime_identity_digest": identity}}}})
+    error = type("Refusal", (ValueError,), {"code": "resume_program_changed"})("current program differs")
+
+    lines = recovery_lines(error, run_id="RUN", launcher="orchestrator", state_dir=None, stored_program=stored)
+
+    assert ("restore the source as it was and resume:" in lines) == (recorded == "this orchestrator")

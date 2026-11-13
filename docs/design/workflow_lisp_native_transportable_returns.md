@@ -1,5 +1,9 @@
 # Workflow Lisp Native Transportable Returns And Typed Result Guidance
 
+Status: **Historical — archived in place.** Superseded: its source-language rules are now stated, with their diagnostic codes, in the frontend specification's return section; its executable mappings, Core/Semantic/Executable projections, source-map sidecar and top-level `result_guidance` lowering describe removed code. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [frontend specification §8.10](workflow_lisp_frontend_specification.md#810-return-types-and-result-guidance) for return types, `(result T ...)` and field guidance; [DSL](../../specs/dsl.md) and [IO](../../specs/io.md) for the direct-root bundle and the guidance wire schema; [providers](../../specs/providers.md) for prompt rendering. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#native_transportable_returns).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
 Pre-2.35 introduction gates below are historical; data readers remain separate.
 

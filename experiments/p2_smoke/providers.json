@@ -1,0 +1,4 @@
+{
+  "providers.coder": "claude_unrestricted_workspace_metered",
+  "providers.judge": "claude_unrestricted_workspace_metered"
+}

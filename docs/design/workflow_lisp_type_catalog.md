@@ -1,5 +1,9 @@
 # Workflow Lisp Type Catalog
 
+Status: **Historical — archived in place.** Superseded: its type families, contract mapping, direct-return contract and guidance rules are now stated in the frontend specification; its type-erasure and classic-lowering invariants describe removed code. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [frontend specification §7](workflow_lisp_frontend_specification.md#7-types) (§7.1 to §7.7, §7.1.1 for `Value`) and [§8.10](workflow_lisp_frontend_specification.md#810-return-types-and-result-guidance) for returns and guidance. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#type_catalog).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: current shared typed catalog; historical flat contract projections; target-2.19 `Value` mapping implemented
 
 Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`
