@@ -1,5 +1,9 @@
 # Workflow Lisp Frontend Deduplication
 
+Status: **Historical — archived in place.** Superseded: its three decisions are implemented and stated by their owners; this decision record adds no rule of its own. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [command adapter contract](workflow_command_adapter_contract.md#static-command-argv) (argv omission and the shared closure envelope), [durable host input](workflow_lisp_durable_host_input.md) (omitted `:returns`), the [frontend specification](workflow_lisp_frontend_specification.md#23-command-result) and the [DSL specification](../../specs/dsl.md). Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#frontend_deduplication).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 - **Status:** incorporated into the current contracts; companion decision record
 - **Kind:** frontend authoring decisions and scope
 - **Owner:** Workflow Lisp frontend maintainers

@@ -53,7 +53,7 @@ def hidden_context_omission_allowed(
         # carry a structural private exec context) authorizes the same
         # derived-private-child eligibility evaluation a defworkflow body
         # receives (structural private-exec-context / std/context contract,
-        # docs/design/workflow_lisp_frontend_specification.md).
+        # docs/design/workflow_lisp_core_calculus_middle_end.md).
         active_signature = session_state.procedure_hidden_context_signature
     if callee_signature is None or active_signature is None:
         return False
