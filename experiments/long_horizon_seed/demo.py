@@ -39,7 +39,7 @@ def change(files):
 
 def work(memory="", **files):
     """An implementer answer: writes src/<name>.txt and, as a later step would, rewrites the living documents."""
-    docs = {"docs/memory.md": "# Memory\n" + memory, "docs/plan.md": "# Plan (progress noted)\n"} if memory else {}
+    docs = {"docs/log.md": "# Log\n" + memory, "docs/plan.md": "# Plan (progress noted)\n"} if memory else {}
     return change({**{f"src/{name}.txt": text for name, text in files.items()}, **docs})
 
 
@@ -48,8 +48,8 @@ def plan(*ids):
     return {"result": {"doc": "docs/plan.md", "milestones": milestones}, "files": {"docs/plan.md": "# Plan\n" + " ".join(ids) + "\n"}}
 
 
-GUIDES = change({"AGENTS.md": "# Guide\nCheck: python dev_check.py\n", "docs/index.md": "spec.md plan.md memory.md\n",
-                 "docs/memory.md": "# Memory\n"})
+GUIDES = change({"AGENTS.md": "# Guide\nCheck: python dev_check.py\n", "docs/index.md": "spec.md plan.md log.md notes/\n",
+                 "docs/log.md": "# Log\n", "docs/notes/layout.md": "# Layout\n"})
 SPEC = {"result": {"doc": "docs/spec.md", "targets": ["T1", "T2"]}, "files": {"docs/spec.md": "T1 m1 holds ok\nT2 m2 holds ok\n"}}
 MET = {"result": {"variant": "MET", "evidence": ["read the files"]}}
 NOT_MET = {"result": {"variant": "NOT_MET", "reasons": ["T2 does not hold: src/m2.txt"]}}
