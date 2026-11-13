@@ -1,8 +1,10 @@
 # Design Documentation Index
 
 This page routes to design documents; it defines no rule. [Specs](../../specs/index.md) govern
-runtime and DSL behavior, the documents under "Read first" and "Feature contracts" govern their
-stated language and architecture boundaries, and the
+runtime and DSL behavior and the documents under "Read first" and "Feature contracts" own their
+stated language and architecture contracts. "Tooling, compiler internals and research apparatus"
+also lists internal pages and closed migration designs whose rules a later task checks; the
+fourth part holds proposals and accepted designs that have not landed. The
 [capability matrix](../capability_status_matrix.md) and [workflow catalog](../../workflows/README.md)
 say what is available and copy-safe. Admission of source targets is in the
 [CLI contract](../../specs/cli.md#executable-support-boundary). Every file of this directory is listed
@@ -59,35 +61,33 @@ Read the one for a feature when you use it.
 | [workflow_lisp_value_and_continuation_composition.md](workflow_lisp_value_and_continuation_composition.md) | Union prompt inputs, rich loop values, helper composition | Current for Increments 1–3 |
 | [workflow_lisp_prompt_calculus.md](workflow_lisp_prompt_calculus.md) | Prompt core, output positions, attempt diagnostics (Q1–Q3) | Implemented |
 | [workflow_lisp_prompt_identity_diagnostics.md](workflow_lisp_prompt_identity_diagnostics.md) | Prompt-attempt identity and comparison | Implemented |
-| [workflow_lisp_procedure_migration_identity_compatibility.md](workflow_lisp_procedure_migration_identity_compatibility.md) | Procedure-migration identity compatibility | Durable principles; generator historical |
-| [workflow_lisp_consolidation.md](workflow_lisp_consolidation.md) | Ownership after consolidation onto evaluated execution | Extraction implemented |
-| [workflow_lisp_runtime_migration_foundation.md](workflow_lisp_runtime_migration_foundation.md) | Command outputs, private values, generated paths | Partial |
-| [workflow_lisp_private_runtime_state_and_consumer_value_flow.md](workflow_lisp_private_runtime_state_and_consumer_value_flow.md) | Private runtime checkpoints and consumer-side rendering | Partial; C2–C6 dropped |
-| [workflow_lisp_edit_and_continue.md](workflow_lisp_edit_and_continue.md) | Resume under an edited program | Accepted for implementation; evaluated execution and `specs/cli.md` own resume until it lands |
-| [workflow_lisp_surface_coherence.md](workflow_lisp_surface_coherence.md) | One rule each for effect placement, iteration forms and callables | Accepted for implementation; the specification describes what compiles today |
 
 ## Tooling, Compiler Internals And Research Apparatus
 
 | Document | What it owns | Status |
 | --- | --- | --- |
 | [workflow_lisp_language_server.md](workflow_lisp_language_server.md) | The `.orc` language server | L0–L5 implemented |
-| [workflow_lisp_repl.md](workflow_lisp_repl.md) | The REPL over source and evaluated runs | Current contract |
+| [workflow_lisp_repl.md](workflow_lisp_repl.md) | The REPL over source and evaluated runs | Implemented |
 | [workflow_lisp_repl_introspection.md](workflow_lisp_repl_introspection.md) | REPL module, type and effect queries | Implemented |
 | [workflow_lisp_source_site_inspection.md](workflow_lisp_source_site_inspection.md) | Read-only source-site manifest for program search | Implemented offline; unselected for live use |
 | [workflow_lisp_core_calculus_middle_end.md](workflow_lisp_core_calculus_middle_end.md) | WCC elaboration, normalization, scope, effect and proof analysis | Accepted architecture |
-| [workflow_lisp_effect_graph.md](workflow_lisp_effect_graph.md) | Effect visibility | Partial |
-| [workflow_lisp_proof_graph.md](workflow_lisp_proof_graph.md) | Variant proof and value authority | Partial |
-| [workflow_lisp_type_catalog.md](workflow_lisp_type_catalog.md) | Type catalog | Partial |
-| [workflow_lisp_reference_catalog.md](workflow_lisp_reference_catalog.md) | Reference kinds | Partial |
-| [workflow_lisp_source_map.md](workflow_lisp_source_map.md) | Source-map provenance | Partial |
-| [workflow_lisp_legacy_adapter.md](workflow_lisp_legacy_adapter.md) | Legacy adapter boundary | Partial |
+| [workflow_lisp_effect_graph.md](workflow_lisp_effect_graph.md) | Effect visibility | Current-checkout component contract; rule check pending |
+| [workflow_lisp_proof_graph.md](workflow_lisp_proof_graph.md) | Variant proof and value authority | Current typed proof contract; rule check pending |
+| [workflow_lisp_type_catalog.md](workflow_lisp_type_catalog.md) | Type catalog | Current shared typed catalog; rule check pending |
+| [workflow_lisp_reference_catalog.md](workflow_lisp_reference_catalog.md) | Reference kinds | Current reference-kind contract; rule check pending |
+| [workflow_lisp_source_map.md](workflow_lisp_source_map.md) | Source-map provenance | Accepted; rule check pending |
+| [workflow_lisp_legacy_adapter.md](workflow_lisp_legacy_adapter.md) | Legacy adapter boundary | Current adapter-quarantine policy; rule check pending |
 | [observability_step_visit_summaries.md](observability_step_visit_summaries.md) | Step visit summaries | Partial; dashboard pages removed |
 | [orc_effectiveness_comparison_harness.md](orc_effectiveness_comparison_harness.md) | Comparing `.orc` workflows with single agent calls | Implemented apparatus |
 | [orc_structural_search_driver.md](orc_structural_search_driver.md) | The structural search driver | Partial apparatus, offline |
 | [orc_structural_search_cumulative_campaigns.md](orc_structural_search_cumulative_campaigns.md) | Cumulative multi-generation search campaigns | Partial, offline |
 | [orc_reuse_introspection_search_experiment.md](orc_reuse_introspection_search_experiment.md) | Reuse and introspection research axes | Research design; follow-on unselected |
+| [workflow_lisp_procedure_migration_identity_compatibility.md](workflow_lisp_procedure_migration_identity_compatibility.md) | Procedure-migration identity compatibility | Durable principles; generator historical; closed migration design, rule check pending |
+| [workflow_lisp_consolidation.md](workflow_lisp_consolidation.md) | Ownership after consolidation onto evaluated execution | Extraction implemented; closed migration design, rule check pending |
+| [workflow_lisp_runtime_migration_foundation.md](workflow_lisp_runtime_migration_foundation.md) | Command outputs, private values, generated paths | Partial; closed migration design, rule check pending |
+| [workflow_lisp_private_runtime_state_and_consumer_value_flow.md](workflow_lisp_private_runtime_state_and_consumer_value_flow.md) | Private runtime checkpoints and consumer-side rendering | Partial; C2–C6 dropped; closed migration design, rule check pending |
 
-## Proposals Not Built
+## Proposals And Designs Not Yet Landed
 
 | Document | What it proposes | Status |
 | --- | --- | --- |
@@ -95,6 +95,9 @@ Read the one for a feature when you use it.
 | [workflow_lisp_progressive_execution.md](workflow_lisp_progressive_execution.md) | Agreed goal, task refinement, replanning | Draft; not implemented |
 | [workflow_lisp_typed_program_gates.md](workflow_lisp_typed_program_gates.md) | Typed compiler verdicts and child-run adapters | C2 dropped, C1 and C3 parked |
 | [Provider-phase isolation](../superpowers/specs/2026-07-23-provider-phase-information-isolation-design.md) | Information isolation between provider phases | Partial, pre-integration; remaining integration dropped or archived ([roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions)) |
+| [workflow_lisp_edit_and_continue.md](workflow_lisp_edit_and_continue.md) | Resume under an edited program | Accepted for implementation; evaluated execution and `specs/cli.md` own resume until it lands |
+| [workflow_lisp_surface_coherence.md](workflow_lisp_surface_coherence.md) | One rule each for effect placement, iteration forms and callables | Accepted for implementation; the specification describes what compiles today |
+| [mlevolve_workflow_lisp_system_architecture.md](mlevolve_workflow_lisp_system_architecture.md) | An MLEvolve-style workflow | Never built; dropped 2026-11-11; stays current until the module-path rule has an owner ([rule ledger 6.6](../reports/2026-11-13-design-corpus-rule-ledger.md#mlevolve_workflow_lisp_system_architecture-not-retired)) |
 
 ## Historical
 
@@ -102,16 +105,15 @@ These records preserve decisions and evidence and select no work. Follow the own
 
 | Document | What it was | Current owner |
 | --- | --- | --- |
-| [workflow_lisp_edit_and_continue_spike.md](workflow_lisp_edit_and_continue_spike.md) | Feasibility spike for edit and continue | [Evaluated execution](workflow_lisp_evaluated_execution.md#81-what-the-memo-decides); [edit and continue](workflow_lisp_edit_and_continue.md) |
+| [workflow_lisp_edit_and_continue_spike.md](workflow_lisp_edit_and_continue_spike.md) | Feasibility spike for edit and continue | [Evaluated execution](workflow_lisp_evaluated_execution.md#81-what-the-memo-decides); [State, memo records](../../specs/state.md#memo-records) |
 | [workflow_lisp_frontend_deduplication.md](workflow_lisp_frontend_deduplication.md) | Argv, host-input and closure deduplication decisions | [Command adapter contract](workflow_command_adapter_contract.md#static-command-argv); [durable host input](workflow_lisp_durable_host_input.md) |
-| [workflow_lisp_refactor_architecture.md](workflow_lisp_refactor_architecture.md) | The June 2026 frontend refactor architecture | [Core calculus](workflow_lisp_core_calculus_middle_end.md#current-ownership-and-invariants) |
-| [workflow_lisp_shared_owner_lane_prerequisites.md](workflow_lisp_shared_owner_lane_prerequisites.md) | Adoption gates for the removed `std/drain` and `std/resource` | [Frontend specification §6](workflow_lisp_frontend_specification.md#6-name-resolution) |
-| [workflow_lisp_trial_runs.md](workflow_lisp_trial_runs.md) | The removed `trial` platform | [Evaluated execution §1.2](workflow_lisp_evaluated_execution.md#12-ordinary-path-run-reference-placement-at-235); [salvage record](trial_and_adjudication_salvage.md) |
-| [mlevolve_workflow_lisp_system_architecture.md](mlevolve_workflow_lisp_system_architecture.md) | An MLEvolve-style workflow, never built | None; dropped |
+| [workflow_lisp_refactor_architecture.md](workflow_lisp_refactor_architecture.md) | The June 2026 frontend refactor architecture | [Core calculus](workflow_lisp_core_calculus_middle_end.md#current-ownership-and-invariants); [code map](../../orchestrator/workflow_lisp/README.md#pipeline) |
+| [workflow_lisp_shared_owner_lane_prerequisites.md](workflow_lisp_shared_owner_lane_prerequisites.md) | Adoption gates for the removed `std/drain` and `std/resource` | [Frontend specification §6](workflow_lisp_frontend_specification.md#6-name-resolution) and [§11](workflow_lisp_frontend_specification.md#11-pattern-matching) |
+| [workflow_lisp_trial_runs.md](workflow_lisp_trial_runs.md) | The removed `trial` platform | [Evaluated execution §1.2](workflow_lisp_evaluated_execution.md#12-ordinary-path-run-reference-placement-at-235); [comparison harness](orc_effectiveness_comparison_harness.md) (reusable decisions: [salvage record](trial_and_adjudication_salvage.md)) |
 | [workflow_lisp_judgment_views.md](workflow_lisp_judgment_views.md) | Q4 judgment views, removed | [Observability](../../specs/observability.md#workflow-lisp-judgment-views-historical) |
 | [workflow_lisp_lexical_execution_checkpoints.md](workflow_lisp_lexical_execution_checkpoints.md) | The predecessor checkpoint architecture | [State](../../specs/state.md#state-integrity-and-recovery) |
-| [workflow_lisp_provider_live_binding.md](workflow_lisp_provider_live_binding.md) | Live provider supervision, removed | [Providers](../../specs/providers.md); [salvage record](live_provider_supervision_and_peers_salvage.md) |
-| [workflow_lisp_provider_peer_messaging.md](workflow_lisp_provider_peer_messaging.md) | Provider peer groups, removed | [Providers](../../specs/providers.md); [salvage record](live_provider_supervision_and_peers_salvage.md) |
+| [workflow_lisp_provider_live_binding.md](workflow_lisp_provider_live_binding.md) | Live provider supervision, removed | [Providers](../../specs/providers.md) (reusable design: [salvage record](live_provider_supervision_and_peers_salvage.md)) |
+| [workflow_lisp_provider_peer_messaging.md](workflow_lisp_provider_peer_messaging.md) | Provider peer groups, removed | [Providers](../../specs/providers.md) (reusable design: [salvage record](live_provider_supervision_and_peers_salvage.md)) |
 | [workflow_lisp_provider_context_values.md](workflow_lisp_provider_context_values.md) | First-class provider context | Linked in the record |
 | [workflow_lisp_provider_prompt_queue.md](workflow_lisp_provider_prompt_queue.md) | Native transport within one queue effect | Linked in the record |
 | [workflow_lisp_runtime_native_drain_authoring.md](workflow_lisp_runtime_native_drain_authoring.md) | Drain authoring; its forms removed | Linked in the record |
