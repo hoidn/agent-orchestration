@@ -17,8 +17,9 @@ Header refusal or successful source selection does not waive those failures.
 - **Kind:** feature / developer tooling architecture decision
 - **Owner:** Workflow Lisp frontend (tooling consumer)
 - **Related docs / plans:**
-  - `docs/design/workflow_lisp_frontend_specification.md` §76.1 "Editor And
-    Lint Tooling Compatibility" (parent authority for this design)
+  - `docs/design/workflow_lisp_frontend_specification.md` (the language
+    reference; its former §76.1 "Editor And Lint Tooling Compatibility" rules
+    are [Compiler Artifact Compatibility](#compiler-artifact-compatibility) below)
   - `docs/design/workflow_lisp_frontend_mvp_specification.md` §9.1 "Linter And
     LSP Compatibility" (historical prerequisite; current v1 status lives here)
   - `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/lisp-frontend-cli-diagnostics-surface/`
@@ -36,6 +37,17 @@ Review receipts, implementation history and original qualification notes are
 [preserved as evidence](../reports/documentation-history/workflow_lisp_language_server-history.md);
 the availability boundary above remains current.
 
+## Compiler Artifact Compatibility
+
+The compiler exposes, for every compile, stable diagnostic codes with source
+spans and form paths for parse, syntax, type, effect, proof and checked-program
+failures, with the expansion frames of macro-generated or imported code; symbol
+locations for authored definitions and module exports; and typed catalogs of
+types, callable signatures and declared effects. Editor and lint tooling
+consumes the same compiler diagnostics, catalogs and validation results that
+normal compilation produces. It implements no parallel parser,
+type checker, linter or workflow validator.
+
 ## Summary
 
 The selected [source floor](workflow_lisp_executor_retirement.md#source-floor-235)
@@ -49,9 +61,9 @@ unsupported editor/runtime capability.
 `.orc` authors can now use an **LSP (Language Server Protocol) server for
 `.orc`**: a
 stdio server in a new `orchestrator/lsp/` package that is a **pure consumer**
-of the existing compile entry points, exactly as the frontend specification's
-§76.1 mandates ("must not implement a parallel parser, type checker, linter,
-or workflow validator"). Version 1 performs one serialized, full Stage-3
+of the existing compile entry points, exactly as
+[Compiler Artifact Compatibility](#compiler-artifact-compatibility) requires (it
+implements "no parallel parser, type checker, linter or workflow validator"). Version 1 performs one serialized, full Stage-3
 compile when an opened document exactly matches disk text and after each save.
 It delivers diagnostics, go-to-definition, ten-kind direct-authored document
 symbols, and namespace-preserving procedure/workflow/form completion with

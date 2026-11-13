@@ -3305,129 +3305,16 @@ Macro expansion errors:
 
 ## Part VIII. Compiler Intermediates
 
-## 38. Intermediate Overview
+<a id="38-intermediate-overview"></a>
+<a id="39-source-text"></a>
+<a id="40-s-expression-parse-tree"></a>
+<a id="41-syntax-ast"></a>
+<a id="42-resolved-frontend-ast"></a>
+<a id="43-expanded-frontend-ast"></a>
+<a id="44-typed-frontend-ast"></a>
+<a id="441-workflow-core-calculus"></a>
 
-```text
-Source text -> SExpr -> resolved/expanded frontend AST -> typed frontend AST
-  -> typed elaboration, specialization and scope/effect/proof analysis
-  -> checked closed program -> evaluated runtime and effect memo
-  -> derived report/dashboard views
-```
-
-The typed frontend also supplies read-only catalogs and exact source provenance
-to LSP and historical readers. The checked artifact, input document and memo own
-executable identity and persistence; see [evaluated execution](workflow_lisp_evaluated_execution.md).
-Flat Core AST projection, Executable IR, debug YAML and positional replay are
-historical and cannot be emitted or executed by importing an old source header.
-
-## 39. Source Text
-
-Input file:
-
-```text
-*.orc
-```
-
-Properties:
-
-- human-authored
-- module-scoped
-- source-mapped
-- not trusted until compiled
-
-## 40. S-Expression Parse Tree
-
-Low-level parse result.
-
-Contains:
-
-- lists
-- atoms
-- strings
-- numbers
-- source positions
-
-No semantic meaning yet.
-
-## 41. Syntax AST
-
-Adds:
-
-- module context
-- hygiene marks
-- macro expansion metadata
-
-Used by macro system.
-
-## 42. Resolved Frontend AST
-
-After imports and name resolution.
-
-Contains:
-
-- fully qualified names
-- resolved module references
-- unexpanded macro calls marked
-- definition table
-
-## 43. Expanded Frontend AST
-
-After macros.
-
-Contains no unresolved macro calls.
-
-Still contains:
-
-- `defworkflow`
-- `defproc`
-- `defun`
-- typed expressions
-- high-level standard procedures
-
-## 44. Typed Frontend AST
-
-After typechecking.
-
-Contains:
-
-- type of every expression
-- effect signature of every effectful form
-- proof context annotations
-- resolved workflow references
-- record/union layouts
-- path contract descriptors
-
-Example:
-
-```text
-attempt : ImplementationAttempt
-inside COMPLETED branch:
-  completed : ImplementationAttempt.COMPLETED
-  completed.execution-report : Path.execution-report
-```
-
-## 44.1 Workflow Core Calculus
-
-WCC and typed elaboration retain compiler-internal effect/proof and ownership
-rules used by checked closed-program construction. Historical schemas 1/2
-identify predecessor compiler contracts, not a current flat executor. ANF and
-scope analysis remain where needed; defunctionalization to flat steps and
-positional/checkpoint replay are removed by the selected retirement. Current
-nested control/loop/stdlib work must preserve admitted typed and evaluated
-contracts, without restoring a compatibility backend.
-
-The [retained WCC closure contract](workflow_lisp_core_calculus_middle_end.md#132-retained-executable-wcc-closure)
-requires source checking and specialization to carry resolved child types,
-nominal/proof ownership and capture-creation facts forward into structured WCC.
-Preparation synthesizes types for its own generated values. Closed translation
-consumes those prepared operands without rebuilding frontend expressions or
-re-inferring source children; the independent artifact checker still verifies
-every claimed type. Semantic closure and exact request inventory are checked
-before emission. This construction contract preserves source admission,
-historical import rules and execution-mode defaults.
-
-Detailed contract:
-[Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md).
+Compiler internals. The pipeline, provenance and private-context rules are owned by the [core calculus middle-end](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts), WCC and its closure by [its §13.2](workflow_lisp_core_calculus_middle_end.md#132-retained-executable-wcc-closure), and checked-program construction by [evaluated execution](workflow_lisp_evaluated_execution.md#4-the-closed-program). The former text of §38 to §44.1 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#38-intermediate-overview).
 
 <a id="45-core-workflow-ast"></a>
 <a id="46-validated-core-workflow-ast"></a>
@@ -3743,521 +3630,37 @@ These error classes are already part of the v2.14 handoff's intended taxonomy.
 
 ## Part XII. Source Maps And Observability
 
-## 74. Source Map Requirements
+<a id="74-source-map-requirements"></a>
+<a id="75-runtime-observability"></a>
+<a id="76-build-artifacts"></a>
+<a id="761-editor-and-lint-tooling-compatibility"></a>
+<a id="accepted-l1-authored-symbol-and-completion-compatibility"></a>
+<a id="implemented-l2-recovery-safe-static-completion-compatibility"></a>
 
-Every generated core AST node must map to:
-
-- source file
-- source line/column
-- source form path
-- macro expansion stack
-- procedure/workflow origin
-- generated name origin
-
-Imported stdlib and generic-specialization routes must also map:
-
-- caller call site;
-- imported stdlib definition;
-- specialization arguments;
-- generated monomorphic helper or private workflow;
-- generated loop frame;
-- generated match arms;
-- generated materialization/projection steps;
-- generated paths and bundle roots;
-- selected ProcRef definitions.
-
-Missing source-map origin for any generated helper, step, boundary field, path,
-or projection is a compile-time failure in promoted routes.
-
-Generated structured-result contracts must preserve authored union-field
-identity through runtime validation. Each authored variant field has a stable
-source-map subject whose origin resolves to that field's exact source span and
-form path. Shared field names retain one origin per variant, and runtime
-validation selects the origin for the active contract rule. Runtime violations
-carry only the stable subject reference; the canonical source-map sidecar owns
-the authored span, expansion, and form metadata.
-
-Runtime source attribution must not recompile source, infer identity from a
-field name, or make the generated contract a second source-map authority. A
-build produced before field-level lineage was available may fall back to its
-enclosing generated step, but a newly promoted route must fail source-map
-validation if its emitted field subject is dangling or ambiguous. Both the
-canonical source-map validator and the Semantic IR source-map bridge must
-recognize the field origin section and its validation subjects. The detailed
-component contract is
-[Workflow Lisp Source Map](workflow_lisp_source_map.md).
-
-Example diagnostic:
-
-```text
-variant_ref_unproved
-
-Generated step:
-  %implementation.review.publish_execution_report
-
-Origin:
-  neurips/implementation.orc:84
-  form: (match implementation ...)
-  macro stack:
-    review-revise-loop
-    publish-result
-```
-
-```mermaid
-flowchart TB
-    Orc["neurips/implementation.orc:84"] --> Macro["Macro/procedure expansion frames"]
-    Macro --> CoreNode["Generated Core AST node"]
-    CoreNode --> SemanticNode["Semantic IR node"]
-    SemanticNode --> ExecStep["Executable step"]
-    ExecStep --> RuntimeError["Runtime or validation diagnostic"]
-    RuntimeError --> Report["Diagnostic reports original source span, form, and expansion stack"]
-```
-
-## 75. Runtime Observability
-
-Runtime logs should display both:
-
-- generated executable step name
-- high-level source form
-
-Example:
-
-```text
-Running step %implementation_attempt.provider_execute
-  source: neurips/implementation.orc:42
-  form: (provider-result providers.execute ...)
-```
-
-## 76. Build Artifacts
-
-Current `compile` persists `.orchestrate/build/<build_key>/closed_program.json`
-and `manifest.json` (§77). The historical flat recommendation was:
-
-```text
-.orchestrate/build/<hash>/frontend_ast.json
-.orchestrate/build/<hash>/expanded_frontend_ast.json
-.orchestrate/build/<hash>/typed_frontend_ast.json
-.orchestrate/build/<hash>/core_workflow_ast.json
-.orchestrate/build/<hash>/semantic_ir.json
-.orchestrate/build/<hash>/executable_ir.json
-.orchestrate/build/<hash>/source_map.json
-.orchestrate/build/<hash>/expanded.debug.yaml   # optional
-```
-
-## 76.1 Editor And Lint Tooling Compatibility
-
-The compiler should expose diagnostics and source metadata in a
-machine-readable form suitable for future CLI linting and Language Server
-Protocol integration.
-
-This is a compatibility requirement on compiler artifacts, not a requirement
-to build editor tooling in the first frontend tranche.
-
-Compiler outputs should support:
-
-- stable diagnostic codes;
-- source spans for parse, syntax, type, effect, proof, and lowering failures;
-- symbol locations for definitions, fields, variants, workflow names, and
-  module exports;
-- type, contract, availability, and effect metadata for hover-style
-  explanations;
-- source-map links from frontend forms to generated Core AST, Semantic IR, and
-  executable steps;
-- lint classifications for brittle authoring patterns such as hidden command
-  effects, report parsing, pointer-as-authority, manual state paths, unproved
-  variant references, and command adapters without typed contracts.
-
-The implemented Workflow Lisp language-server v1 plus L0, L1, L2, L3, L4,
-and L5 consumes those shared surfaces for:
-
-- compiler diagnostics on clean disk-equal open/save through one serialized
-  full Stage-3 compile;
-- go-to-definition for exact compiler-provenanced direct procedure/workflow
-  call heads, authored prompt-application heads, and only final unexpanded
-  direct-retained `proc-ref` name tokens in authored non-generated,
-  non-specialized owners;
-- document symbols for authored modules, procedures, workflows, enums, paths,
-  records, unions, schemas, resources, and transitions; and
-- namespace-preserving procedure/workflow completion with compiler-rendered
-  signatures plus completion from the form registry.
-
-L3 accepts one immutable `entry_workflows` source-path-to-export-name object
-at initialization. Each compile request performs exact canonical source-path
-lookup: a listed application receives its configured exported-workflow name,
-while an unlisted library receives `entry_workflow=None` and keeps the
-production compiler's unchanged zero/one/many-export selection semantics. The
-removed process-wide scalar is rejected. Map validation and real-stdio
-refusals use the closed structured initialization-error contract owned by the
-language-server design. No editor focus, source content, basename, ancestor,
-or default selection is inferred.
-
-It owns exactly one canonical workspace root, treats the compiler-owned builtin
-stdlib root as its sole additional source allowance, binds results to exact
-source/configuration content, requires restart after configuration or root
-drift, returns null navigation for dirty/pending/failed/invalidated/stale
-documents, and writes no workspace files. It uses the fixed production compile
-policy and does not infer a nominal type taxonomy. See
-`docs/workflow_lisp_language_server_setup.md`.
-
-L4 keeps diagnostic ownership and presentation separate. Retained
-contribution tuples continue to own invalidation, replacement, and target
-clearing, while only clean, current, terminal, generation-matched owners enter
-the published aggregate. Dirty, pending, invalidated, unavailable,
-server-failed, configuration-stale, closed, and unassociated owners are hidden
-without deleting their tuples; current success or language-error completion
-reveals one atomic replacement.
-
-When the initialized client advertises `window.workDoneProgress=true`, one
-transport-local, indeterminate, non-cancellable lifecycle covers one logical
-serialized compile-pump busy interval. Coalesced entries and superseding
-generations share its token. Capability absence, create/begin/end transport
-failure, late acknowledgment, and presentation-only client cancellation never
-delay, validate, cancel, or otherwise change compilation. This adds no
-percentage, telemetry, persistence, runtime reporting, compiler callback, or
-public compile-cancellation surface.
-
-L5 is a read-only consumer of already-retained original syntax, typed prompt
-or proc-ref occurrences, and compiler prompt/procedure catalogs. Each admitted
-edge joins one exact authored token to one canonical compiler target and one
-authored definition span, and every edge uses the existing current-success
-definition preflight. A missing, duplicate, kind-, identity-, or
-span-mismatched join fails the whole navigation index. Macro heads remain null
-shape-wide, as do macro-consumed, erased, expanded, generated-owner, and
-specialized-owner proc-refs. Existing direct-call behavior remains unchanged,
-and WCC-reconstructed/generated calls remain excluded. These navigation rules
-do not define a second syntax, resolution, catalog, or compiler contract.
-
-Still-deferred tooling may include:
-
-- `orchestrate lint workflow.orc`;
-- hover information for types, contracts, effects, and proof contexts;
-- richer completion for variants, fields, and type-directed contexts;
-- formatting and simple code actions.
-
-These tools must consume the same compiler diagnostics, source maps, catalogs,
-and validation results used by normal compilation. They must not implement a
-parallel parser, type checker, linter, or workflow validator.
-The language-server implementation does not authorize the separately deferred
-P1–P5 frontend prerequisites: diagnostic accumulation, reader recovery,
-hover-type sidecars, unsaved source overlays, or compile caching.
-
-The implemented L0 reliability amendment tightens that consumer without
-changing compiler authority:
-
-- one `didSave` disk snapshot selects either the existing reverse-revision
-  observer for a changed revision (including sentinel transitions) or the
-  existing local save transition for an equal revision (including equal
-  sentinels), never both;
-- structured `LispFrontendCompileError` failures during production
-  initialization loading become intentional invalid-params responses carrying
-  an ordered closed array of stable diagnostic code/path rows, while
-  unstructured failures retain their existing server-failure classification;
-- the LSP presentation appends ordered compiler notes and renders structured
-  macro/helper, call/definition, name, and nullable expansion-ID provenance
-  without changing raw diagnostic contributions or parity identity; and
-- the untraced pure-projection export-info cache keys canonical source identity
-  by exact content as well as path, while compiler-traced reads continue to
-  bypass it.
-
-This amendment remains save-driven full compilation. It does not select source
-overlays, diagnostic recovery, type sidecars, general compile caching, or
-incremental compilation. L1 authored symbols and callable signatures are now
-implemented without changing the L0 boundary. L2 recovery-safe static
-completion is also implemented without changing definition/document-symbol
-freshness or any P1–P5 boundary.
-
-Evaluated-entry availability is narrower than the legacy LSP surface. For
-the demonstrated W3 sources, CLI and LSP select the same source graph and
-builtin helper, but the LSP still terminates with
-`evaluated_execution_unavailable` after graph
-compilation. Selection/root/hash/read-trace parity does not establish a
-successful evaluated snapshot, semantic navigation or terminal diagnostic
-parity. Evaluated F2 remains **OPEN_NOT_WAIVED**; the existing F2 acceptance
-contract remains unchanged; migrated current-target controls retain its
-semantic obligations. L2 may supply its existing frozen
-static-form recovery response, never stale callables.
-
-### Accepted L1 Authored Symbol And Completion Compatibility
-
-This L1 contract is implemented after `L1_DESIGN_SPEC_APPROVED` then
-`L1_DESIGN_QUALITY_APPROVED`, the reviewed L1 implementation plan, and its
-repository-real stdio/status closure. It does not change the implemented v1 or
-L0 freshness and compiler-authority bounds.
-
-The compiler, not the language server, must derive one closed original-syntax
-symbol projection from each `ResolvedModuleSource.syntax_module`. Each row is:
-
-```text
-(kind, name, definition_span, selection_span, source_ordinal)
-```
-
-The admitted kinds are `module`, `procedure`, `workflow`, `enum`, `path`,
-`record`, `union`, `schema`, `resource`, and `transition`. Every directly
-authored row must match exactly one same-kind definition in the successful
-compiled module; missing, duplicate, kind/name-mismatched, or span-ambiguous
-rows fail index construction. Expanded/generated definitions without a direct
-original-syntax row, specialized procedures/workflows, and generated local
-procedures are excluded rather than treated as missing authored rows. The LSP
-must not read or parse source text, classify syntax independently, strip names
-from canonical identities, or fall back to a whole-form span.
-
-For all ten kinds, the document-symbol `range` is the complete authored
-definition span and `selectionRange` is the exact authored name-token span.
-Symbols remain in source order. Protocol presentation is exactly:
-
-| Internal kind | LSP `SymbolKind` |
-| --- | --- |
-| `module` | `Module` |
-| `procedure` | `Function` |
-| `workflow` | `Function` |
-| `enum` | `Enum` |
-| `path` | `Class` |
-| `record` | `Struct` |
-| `union` | `Enum` |
-| `schema` | `Interface` |
-| `resource` | `Object` |
-| `transition` | `Event` |
-
-Completion retains distinct `procedure`, `workflow`, and `form` internal kinds.
-Same-label cross-namespace rows coexist. Local labels come from direct authored
-definitions; imported labels are the exact
-`ModuleImportScope.procedure_bindings` and `.workflow_bindings` keys, preserving
-compiler-admitted `alias.member`, `module/member`, and `:only` unqualified
-spellings. Rows sort by `(label, kind_rank, canonical_target)`, where kind rank
-is procedure, workflow, form and a form head is its own canonical target.
-
-Details use only existing resolved signatures and renderers:
-
-```text
-procedure (<name>: <render_type_ref>, ...) -> <render_type_ref> effects <render_effect_set>
-workflow (<name>: <render_type_ref>, ...) -> <render_type_ref>
-form
-```
-
-Zero parameters render as `()`. Procedure effects are exactly
-`ProcedureSignature.declared_effects`; inferred direct/transitive summaries do
-not enter completion. Workflow effects are not inferred. Procedure and workflow
-protocol kinds remain `CompletionItemKind.Function`, and form remains
-`CompletionItemKind.Keyword`.
-
-L1 changes only the complete index of a current successful snapshot. Current
-success remains `isIncomplete=false`; dirty, pending, invalidated, failed,
-superseded, closed, configuration-stale, source/configuration-stale, and
-unassociated documents use the L2 behavior below for completion while
-definition and document-symbol requests retain the implemented null behavior.
-P1-P5,
-nominal/type-directed filtering, hover, type-token definition, references,
-rename, signature inference, snippets, and insertion rewriting remain
-unchanged or deferred.
-
-Acceptance requires both-direction compiler-projection, exact-range,
-generated/specialized exclusion, mismatch, alias/namespace, signature/effect,
-ordering, freshness/null, and repository-real stdio LSP evidence before an
-implementation status change.
-
-### Implemented L2 Recovery-Safe Static Completion Compatibility
-
-L2 is an implemented editor-consumer amendment, not a compiler-language feature.
-After successful production initialization, the server captures one
-**process-frozen form registry** from
-`registered_form_heads(target_dsl_version=None)`. The tuple must be unique and
-lexicographically ordered, is immutable for that server lifetime, and supplies
-the identical form rows used by full and recovery completion. The request path
-must not re-read the registry, parse source, derive a target version, consult a
-stale navigation index, or invent additional labels.
-
-After the existing configuration-currentness preflight, completion selects one
-closed result:
-
-- a clean current successful snapshot whose navigation index builds returns
-  the complete L1 callable-plus-form union with `isIncomplete=false`;
-- an associated open entry in a valid dirty-idle, current-pending,
-  current-language-error, or current-server-error state returns exactly the
-  frozen form rows with `isIncomplete=true`; and
-- configuration-stale, unavailable, closed, unassociated, clean-idle,
-  malformed or contradictory state, non-current pending state, and
-  navigation-index failure return `items=()` with `isIncomplete=false`.
-
-The recovery response uses `CompletionItemKind.Keyword`, `detail="form"`, and
-`sortText=head` for every lexicographically ordered row. It contains **no stale
-callable**, signature, import label, source-derived target filter, generated
-symbol, snippet, or last-good index value. A prior accepted snapshot does not
-authorize any recovery callable. Unknown or contradictory state fails closed
-to the empty branch.
-
-Definition and document-symbol freshness remain unchanged. L2 adds no parser,
-partial AST, overlay compilation, compile trigger, target inference,
-cursor/type filtering, general cache, diagnostic recovery, hover, rename,
-formatting, or P1–P5 prerequisite. Compile scheduling, single-writer generation
-acceptance, diagnostic ownership, restart-on-configuration-drift, and the
-single canonical workspace root remain unchanged.
-
-The reviewed implementation supplies both-direction
-state/driver/navigation/server evidence for
-all three branches, frozen-snapshot stability, no stale callable leakage,
-malformed-state and index-failure closure, plus one repository-real stdio
-transition from recovery-static completion to current full completion.
-Implementation landed through `70b83f32`, `b399c041`, `ee213a43`, and
-`10e3ccc3`, followed by ordered `L2_FINAL_SPEC_APPROVED` then
-`L2_FINAL_QUALITY_APPROVED`.
+Source provenance is owned by [evaluated execution §4.1, P6](workflow_lisp_evaluated_execution.md#41-properties) and the [middle-end](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts); editor and lint compatibility by the [language server](workflow_lisp_language_server.md#compiler-artifact-compatibility); build artifacts by the [CLI specification](../../specs/cli.md). The former text of §74 to §76.1 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#74-source-map-requirements).
 
 ## Part XIII. CLI
 
-## 77. Compile
+<a id="77-compile"></a>
+<a id="78-run"></a>
+<a id="781-historical-migration-promotion-gates"></a>
+<a id="79-explain-expansion"></a>
+<a id="80-emit-debug-yaml"></a>
 
-Use the public evaluated [compile contract](../../specs/cli.md) and the
-[complete recipe](../lisp_workflow_drafting_guide.md#a-complete-235-recipe-compile-run-resume-report-invalidate):
-
-```bash
-python -m orchestrator compile workflows/examples/plan_review_execute.orc \
-  --entry-workflow plan_review_execute::run \
-  --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json
-```
-
-Compilation checks the closed program and persists `closed_program.json` and
-its manifest. Flat Core-AST, Semantic/Executable IR and source-map emissions
-are retired. The read-only typed core remains available for analysis/LSP.
-
-## 78. Run
-
-Public `run`, `--dry-run`, `resume` and `invalidate` use the evaluated profile.
-Supply the entry's declared input and binding manifests as shown in the linked
-recipe; executable entries through 2.34 refuse before publication or effects.
-`report` and the dashboard refuse historical runs with `workflow_execution_profile_retired`; there is no conversion or replay.
-
-### 78.1 Historical Migration Promotion Gates
-
-Replacing a historical YAML primary with a `.orc` candidate required
-machine-readable migration evidence, not compile/dry-run success alone. The
-retired manifest-driven gate had two strict modes:
-
-- `--require-non-regressive`: selected targets must have schema-valid, fresh,
-  complete evidence and tooling-computed `non_regressive=true`;
-- `--require-promotable`: selected targets must also be eligible for primary
-  surface selection.
-
-`primary_surface` is a gate-derived view or gate-evaluation output, not an
-authored manifest field and not a per-target report authority field. A
-non-regressive but ineligible candidate may pass evidence checks and still must
-not replace the YAML primary.
-
-The generator and manifest are retired. Current route claims use
-`docs/workflow_lisp_route_readiness_registry.json` plus the direct owner tests
-cited there; preserved reports remain frozen history.
-
-## 79. Explain Expansion
-
-The flat `explain` command is retired; the `explain` subcommand refuses with
-`workflow_explain_retired` and `compile --diagnostics-json` is the current
-check. No evaluated replacement is selected.
-Retained editor diagnostics and REPL introspection use their own public contracts.
-
-## 80. Emit Debug YAML
-
-Flat debug-YAML emission is retired. Its renderer/layout descriptions are
-historical design evidence, not an execution or persistence authority.
+Commands (`compile`, `run`, `resume`, `report`, the refused `explain` and flat export flags) are owned by the [CLI specification](../../specs/cli.md). The former text of §77 to §80 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#77-compile).
 
 ## Part XIV. Standard Library Sketch
 
-## 81. `std/types`
+<a id="81-stdtypes"></a>
+<a id="82-stdpaths"></a>
+<a id="83-stdcontext"></a>
+<a id="84-stdprovider"></a>
+<a id="85-stdphase"></a>
+<a id="86-stdresource"></a>
+<a id="87-stddrain"></a>
+<a id="871-stdimprove"></a>
 
-```text
-String
-Int
-Bool
-Json
-Optional[T]
-List[T]
-Map[K,V]
-Resource[TState]
-Transition[TRequest,TResult]
-MaterializedView[T]
-```
-
-## 82. `std/paths`
-
-```lisp
-(defpath Path.state-root ...)
-(defpath Path.state-file ...)
-(defpath Path.state-existing ...)
-(defpath Path.artifact-root ...)
-(defpath Path.work-report ...)
-(defpath Path.work-report-target ...)
-(defpath Path.review-report ...)
-(defpath Path.checks-report ...)
-```
-
-## 83. `std/context`
-
-`orchestrator/workflow_lisp/stdlib_modules/std/context.orc` is an ordinary
-stdlib type module exporting these records:
-
-- `RunCtx`
-- `PhaseCtx`
-- `ItemCtx`
-- `DrainCtx`
-- `SelectionCtx`
-- `RecoveryCtx`
-
-These are Workflow Lisp library records, not runtime-owned domain nouns.
-Private executable-context recognition is structural and `RunCtx`-anchored.
-Hidden promoted-entry bindings record schema-versioned per-input role metadata
-in
-`PrivateExecContextBinding.projection_hints`:
-
-- `context_binding_schema_version = 1`
-- `context_input_roles[input_name] in {run_anchor:run-id, run_anchor:state-root, run_anchor:artifact-root, compile_time_default}`
-
-The runtime bootstrap lane derives only `RunCtx` anchor values directly at
-execution time. Any additional generated context input must already carry a
-compile-time default or the compile fails closed. Author-facing workflow
-boundaries expose only public authored inputs. Generated
-private executable-context bindings, managed write roots, and compatibility
-bridge values are runtime-owned boundary classes and must stay off the public
-input surface even when they appear as generated internal inputs in lowered
-artifacts.
-
-## 84. `std/provider`
-
-- `provider-result`
-- `command-result`
-- `produce-one-of`
-
-## 85. `std/phase`
-
-- `run-provider-phase`
-- `review-revise-loop`
-- `ReviewFindingsJsonPath`
-- `ReviewFindings`
-- `ReviewDecision`
-- `ReviewLoopResult`
-- `resume-or-start`
-- `with-phase`
-- `phase-target`
-- `phase-state`
-
-## 86. `std/resource`
-
-Removed on 2026-11-12 (git tag `archive/pre-one-target-2026-11-12`): importing `std/resource` fails with `module_not_found`, and the message names that tag. Its former text is [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#86-stdresource).
-
-## 87. `std/drain`
-
-Removed on 2026-11-12 (git tag `archive/pre-one-target-2026-11-12`): importing `std/drain` fails with `module_not_found`, and the message names that tag. Its former text is [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#87-stddrain).
-
-## 87.1 `std/improve`
-
-- `Decision[F B]`
-- `Improvement[S F B]`
-- `improve`
-- introduced at target 2.33; both packaged `std/improve` module variants now
-  declare 2.35 to meet the source floor. Source-graph selection chooses the
-  context-explicit or W3 four-argument API; the maintained 2.39 caller retains
-  imported 2.35 definition contracts (§106). The helper provides a bounded
-  review/revise loop that returns the candidate together with its outcome
-- owns `improve` as ordinary `.orc` composition over generic unions, `ProcRef`
-  hooks, and loop state; its contract and limits are in
-  [Composition-First Procedures](workflow_lisp_composition_first.md)
-- `std/phase` `review-revise-loop` remains available
+Library modules are owned by the [library reference](../lisp_library_reference.md) and their sources under `orchestrator/workflow_lisp/stdlib_modules/std/` (`context`, `host`, `improve`, `phase`); `review-revise-loop` is §27 and context records are §19. `std/drain` and `std/resource` were removed on 2026-11-12: importing either fails with `module_not_found`, and the message names git tag `archive/pre-one-target-2026-11-12`. The former text of §81 to §87.1 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#81-stdtypes).
 
 <a id="part-xv-example-end-to-end-design"></a>
 <a id="88-types"></a>
@@ -4327,83 +3730,13 @@ surfaces when a legacy consumer still requires them.
 
 ## Part XVII. Testing Strategy
 
-## 94. Unit Tests
+<a id="94-unit-tests"></a>
+<a id="95-lowering-tests"></a>
+<a id="96-behavioral-equivalence-tests"></a>
+<a id="97-negative-tests"></a>
+<a id="98-metrics-tests"></a>
 
-- parser tests
-- module resolver tests
-- macro expansion tests
-- hygiene tests
-- type checker tests
-- effect checker tests
-- source map tests
-
-## 95. Lowering Tests
-
-For each standard procedure:
-
-- source `.orc`
-- expected core AST
-- expected semantic IR facts
-- expected validation errors for misuse
-
-Each implementation tranche that changes authoring behavior must also name an
-end-to-end usage scenario. For Workflow Lisp, that usually means writing or
-updating a small `.orc` workflow, compiling it, and running at least a dry-run
-when runtime support exists. Focused parser, type, and lowering tests are still
-required, but they are not enough by themselves for a composability claim.
-
-## 96. Behavioral Equivalence Tests
-
-For migrated workflows:
-
-- legacy/current behavior
-- v2.14 YAML behavior
-- Lisp frontend behavior
-
-Compare:
-
-- published artifacts
-- typed outcomes
-- run state
-- error codes
-- snapshot evidence
-- variant selection
-
-## 97. Negative Tests
-
-Required negative fixtures:
-
-- semantic field parsed from markdown
-- variant field accessed outside match
-- pointer path published as artifact value
-- resource transition without capability
-- macro emits hidden provider call
-- imported stdlib expansion hides provider or command effects
-- type parameter leaks into runtime-visible loop state or contracts
-- loop-state carrier includes runtime-forbidden values such as ProcRefs,
-  provider refs, prompt refs, or workflow refs
-- review output attempts to replace carried evidence identity
-- promoted `review-revise-loop` attempts to use legacy provider/prompt operands
-  or compiler-special review-loop lowering
-- `defun` performs effect
-- workflow ref signature mismatch
-- line-prefix legacy adapter without fixture
-
-## 98. Metrics Tests
-
-Track:
-
-- authored LOC
-- semantic LOC
-- gate-pattern count
-- manual pointer count
-- manual state-path count
-- manual candidate-path count
-- helper script count
-- variant-proof boilerplate count
-
-Success should be based on reductions in brittle correctness surfaces, not only
-LOC.
+Test strategy is not part of the language; the repository's test expectations are in [AGENTS.md](../../AGENTS.md). The former text of §94 to §98 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#94-unit-tests).
 
 <a id="part-xviii-implementation-staging"></a>
 <a id="99-stage-1-frontend-core-without-workflow-execution"></a>
@@ -4486,20 +3819,10 @@ Runtime workflow refs create dynamic loading/versioning problems.
 
 ## Part XX. Open Design Decisions
 
-## 109. Debug YAML
+<a id="109-debug-yaml"></a>
+<a id="110-type-flattening"></a>
 
-Resolved by the executor retirement: flat debug-YAML emission is retired (§80)
-and no renderer is maintained. The original question and recommendation:
-
-The retired renderer is retained only in its [historical contract](workflow_lisp_debug_yaml_renderer.md). Reports and inspection remain derived views of their structured authority.
-
-## 110. Type Flattening
-
-Current evaluated input documents preserve typed structured values under the
-[checked-program input contract](workflow_lisp_evaluated_execution.md). Older
-flattened private boundaries retain their versioned import/type restrictions,
-including ambiguous-path refusal. They do not select an old executor or create
-an unresolved choice for the current runtime.
+Both former open decisions are settled: debug-YAML emission refuses (see the [CLI specification](../../specs/cli.md)), and typed values cross workflow boundaries as typed input documents ([evaluated execution §9.1.1](workflow_lisp_evaluated_execution.md#911-typed-command-input-documents)). The former text of §109 and §110 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#109-debug-yaml).
 
 ## Final Design Center
 

@@ -162,6 +162,36 @@ representation carrier or old header selects a flat executor.
 - Unsupported executable effects refuse at the owning checked admission boundary;
   no claim of universal totality follows from the old flattening design.
 
+### Pipeline, provenance and private contexts
+
+```text
+source text -> S-expressions -> resolved, macro-expanded frontend AST -> typed frontend AST
+  -> WCC elaboration, specialization, scope/effect/proof analysis
+  -> checked closed program -> evaluated runtime and effect memo
+  -> derived report and dashboard views
+```
+
+The typed frontend also supplies read-only catalogs and exact source provenance
+to the language server and REPL. Flat Core AST projection, Executable IR, debug
+YAML and positional replay cannot be emitted or executed.
+
+Every checked-program node keeps the span and form path of the authored form it
+came from ([evaluated execution §4.1, P6](workflow_lisp_evaluated_execution.md#41-properties)). A
+generated result contract carries, for each authored union field, a stable
+source-map subject (`source_map_subject`, or `source_map_subjects_by_variant`
+when a field name is shared by variants) that the node's provenance resolves to
+that field; a contract violation reports those subject references, and runtime
+attribution reads them instead of recompiling source or matching field names.
+An error raised while evaluating a node reports that node's span.
+
+A record that structurally contains a `RunCtx` (`run-id` of type `RunId`,
+`state-root` under `state`, `artifact-root` under `artifacts`) is a private
+executable context. Each of its generated hidden inputs takes a bootstrap role:
+a `RunCtx` anchor (`run_anchor:run-id`, `run_anchor:state-root`,
+`run_anchor:artifact-root`) derived at execution time, or `compile_time_default`
+when the field declares a default. A field with neither gets no bootstrap plan;
+classification fails closed (`orchestrator/workflow_lisp/context_classification.py`).
+
 ## 10. The Workflow Core Calculus
 
 ### 10.1 Constructs
