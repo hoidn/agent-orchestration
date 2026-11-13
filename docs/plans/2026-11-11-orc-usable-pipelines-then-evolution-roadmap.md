@@ -337,7 +337,6 @@ every removed test is listed with the code it covered".
      shape;
    - choosing a procedure reference with `if` fails with `compiler_defect`
      where a refusal is intended;
-   - a serial map inside a `let-proc` local crashes with an internal error;
    - inside a macro template: `list/map`, a call to a `let-proc` local, and a
      nested loop used as an operand each fail or crash;
    - a free name in a macro template binds to the caller's local, so hygiene
@@ -346,7 +345,13 @@ every removed test is listed with the code it covered".
      expression typechecker grants the proof;
    - a loop's `continue` value holding an effectful `if` inside an operand
      fails with `compiler_defect` (being closed with the effects change);
-   - four tree walkers do not visit a map's computed `:max`;
+   - the guard that forbids a confined run-reference site in a map body does
+     not see one reached through a procedure-reference parameter or a
+     `let-proc` local, in serial and parallel maps (a hole in a safety guard:
+     first in line for a fix);
+   - a parallel map written directly in a `loop/recur` body fails with
+     `compiler_defect` (through a procedure call it works);
+   - a `let-proc` local whose body is a loop crashes with an internal error;
    - dead code: the prompt snapshot and attempt-identity builders and the
      fragment-identity projection have no caller in the package.
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
