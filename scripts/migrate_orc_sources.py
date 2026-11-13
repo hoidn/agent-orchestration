@@ -5,6 +5,9 @@ usage: python scripts/migrate_orc_sources.py [--check] [--verify] [--report FILE
 A PATH is a file or a directory; a directory stands for every `.orc` and `.py` file below it
 outside hidden directories and `__pycache__`, except the fixtures of this tool's own tests
 (OWN_FIXTURES), which keep `fn`-form loops on purpose and are migrated only when named as files.
+A Python module is migrated only when a directory on its path is named `tests` or `experiments`;
+in any other module (the compiler's own messages, scripts) each literal holding a `fn`-form loop or
+an old header is listed `outside-sweep` and nothing is written.
 
 Units. A `.orc` file is one unit. In a Python module a unit is a string literal, or a run of
 implicitly concatenated literals with one prefix, that contains `(:target-dsl` or `loop/recur`;
@@ -1081,8 +1084,27 @@ def migrate_file(path: Path, *, check: bool, verify: bool, patterns: dict[str, l
     return report
 
 
+SWEPT = {"tests", "experiments"}
+
+
+def _in_sweep(path: Path) -> bool:
+    """A Python module is migrated only below a `tests` or `experiments` directory."""
+    return bool(SWEPT & set(path.resolve().parent.parts))
+
+
+def _list_outside_sweep(source: str, report: Report) -> None:
+    for group in _units(source):
+        text = source[group[0][0]:group[-1][1]]
+        if FN_LOOP_TEXT.search(text) or OLD_VERSION.search(text):
+            report.note(source.count("\n", 0, group[0][0]) + 1, "outside-sweep",
+                        "Workflow Lisp text in a Python module outside tests/ and experiments/: left for hand work")
+
+
 def _migrated(path: Path, source: str, report: Report, verify: bool,
               patterns: dict[str, list[Pattern]]) -> str | None:
+    if path.suffix == ".py" and not _in_sweep(path):
+        _list_outside_sweep(source, report)
+        return source
     if path.suffix != ".py":
         unit = Unit(source)
         migrate_unit(unit, path.resolve(), report, verify,

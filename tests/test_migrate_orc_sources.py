@@ -246,7 +246,7 @@ def test_python_plain_and_fstring_sources_are_rewritten_and_format_templates_lef
     plain = f'PLAIN = """{NESTED_FN}"""'
     fstring = 'FSTRING = f"""' + _parameterized(NESTED_FN).replace("(done outer)", "(done {RESULT})") + '"""'
     template = 'TEMPLATE = """' + _parameterized(NESTED_FN) + '""".format(TARGET=TARGET)'
-    path = _write(tmp_path / "test_sample.py", _python_module(plain, fstring, template))
+    path = _write(tmp_path / "tests" / "test_sample.py", _python_module(plain, fstring, template))
 
     result = _migrate(path)
 
@@ -261,7 +261,7 @@ def test_python_plain_and_fstring_sources_are_rewritten_and_format_templates_lef
 
 def test_fstring_field_as_operand_is_unknown(tmp_path: Path) -> None:
     module = _python_module('LOOP = f"(loop/recur :max (budget 3) :state {SEED} (fn (s) (done s)))"')
-    path = _write(tmp_path / "test_sample.py", module)
+    path = _write(tmp_path / "tests" / "test_sample.py", module)
 
     result = _migrate(path)
 
@@ -270,7 +270,7 @@ def test_fstring_field_as_operand_is_unknown(tmp_path: Path) -> None:
 
 def test_fstring_fields_and_braces_are_restored_exactly(tmp_path: Path) -> None:
     before = 'LOOP = f"(loop/recur :max {LIMIT} :state {{}} (fn ({NAME}) (done {NAME}.x)))"'
-    path = _write(tmp_path / "test_sample.py", _python_module(before))
+    path = _write(tmp_path / "tests" / "test_sample.py", _python_module(before))
 
     _migrate(path)
 
@@ -280,7 +280,7 @@ def test_fstring_fields_and_braces_are_restored_exactly(tmp_path: Path) -> None:
 
 def test_python_escape_sequences_are_kept_byte_for_byte(tmp_path: Path) -> None:
     before = r'LOOP = "(loop/recur :max 2 :state \"a\\tb\"\n  (fn (s) (done s)))"'
-    path = _write(tmp_path / "test_sample.py", _python_module(before))
+    path = _write(tmp_path / "tests" / "test_sample.py", _python_module(before))
 
     _migrate(path)
 
@@ -290,7 +290,7 @@ def test_python_escape_sequences_are_kept_byte_for_byte(tmp_path: Path) -> None:
 
 def test_python_string_header_and_loop_are_migrated_together(tmp_path: Path) -> None:
     old = NESTED_FN.replace('"2.40"', '"2.37"')
-    path = _write(tmp_path / "test_sample.py", _python_module(f"SOURCE = '''{old}'''"))
+    path = _write(tmp_path / "tests" / "test_sample.py", _python_module(f"SOURCE = '''{old}'''"))
 
     result = _migrate(path)
 
@@ -300,7 +300,7 @@ def test_python_string_header_and_loop_are_migrated_together(tmp_path: Path) -> 
 def test_implicitly_concatenated_literals_keep_their_quotes_and_lines(tmp_path: Path) -> None:
     before = ("LOOP = ('(loop/recur :max 2 :state (loop-state (i Int 0)) :on-exhausted 0 (fn (state) '\n"
               "        '(let* ((x state.i)) (done x))))')")
-    path = _write(tmp_path / "test_sample.py", _python_module(before))
+    path = _write(tmp_path / "tests" / "test_sample.py", _python_module(before))
 
     _migrate(path)
 
@@ -313,7 +313,7 @@ def test_state_moved_across_literals_with_other_quotes_is_reencoded(tmp_path: Pa
     before = ('LOOP = ("(loop/recur :max 1 :state (record R\\n"\n'
               "        '   :status \"ready\")\\n'\n"
               '        "  (fn (state) (done state)))")')
-    path = _write(tmp_path / "test_sample.py", _python_module(before))
+    path = _write(tmp_path / "tests" / "test_sample.py", _python_module(before))
 
     _migrate(path)
 
@@ -366,7 +366,7 @@ def test_verify_reports_a_mismatch_under_an_unsound_rule(tmp_path: Path, monkeyp
 ])
 def test_a_call_of_symbols_or_a_field_inside_a_symbol_is_not_an_atom(tmp_path: Path, before: str) -> None:
     module = _python_module(f'LOOP = f"{before}"')
-    path = _write(tmp_path / "test_sample.py", module)
+    path = _write(tmp_path / "tests" / "test_sample.py", module)
 
     _migrate(path)
 
@@ -396,7 +396,7 @@ def test_a_multiline_state_is_reindented_by_the_distance_it_moves(tmp_path: Path
 def test_a_multiline_state_split_over_literals_is_reindented_as_in_a_file(tmp_path: Path) -> None:
     loop = "(loop/recur\n  :max 4\n  :state (record S\n           :round 1)\n  (fn (s) (done s)))\n"
     path = _write(tmp_path / "fragment.orc", loop)
-    module = _write(tmp_path / "test_sample.py", _python_module(
+    module = _write(tmp_path / "tests" / "test_sample.py", _python_module(
         "LOOP = (" + "\n        ".join(repr(line) for line in loop.splitlines(keepends=True)) + ")"))
 
     _migrate(path, module)
@@ -436,7 +436,7 @@ OLD_SOURCE = NESTED_FN.replace('"2.40"', '"2.35"').replace(
 def test_a_header_split_from_its_clauses_is_left_and_reported(tmp_path: Path) -> None:
     head, rest = OLD_SOURCE.split("\n", 1)
     module = _python_module("SOURCE = \"\\n\".join([\n    " + repr(head) + ",\n    '''" + rest + "''',\n])")
-    path = _write(tmp_path / "test_sample.py", module)
+    path = _write(tmp_path / "tests" / "test_sample.py", module)
 
     result = _migrate(path)
 
@@ -461,7 +461,7 @@ def test_a_header_split_from_its_clauses_is_left_and_reported(tmp_path: Path) ->
 ])
 def test_text_patterns_and_partial_headers_are_never_touched(tmp_path: Path, module: str) -> None:
     text = _python_module(module)
-    path = _write(tmp_path / "test_sample.py", text)
+    path = _write(tmp_path / "tests" / "test_sample.py", text)
 
     _migrate(path)
 
@@ -469,7 +469,7 @@ def test_text_patterns_and_partial_headers_are_never_touched(tmp_path: Path, mod
 
 
 def test_a_complete_old_source_in_one_literal_is_migrated(tmp_path: Path) -> None:
-    path = _write(tmp_path / "test_sample.py", _python_module(f"SOURCE = '''{OLD_SOURCE}'''"))
+    path = _write(tmp_path / "tests" / "test_sample.py", _python_module(f"SOURCE = '''{OLD_SOURCE}'''"))
 
     _migrate(path)
 
@@ -481,7 +481,7 @@ def test_docstrings_and_expected_text_are_left(tmp_path: Path) -> None:
     text = _python_module(
         'def test_x():\n    """Rewrites (loop/recur :max 3 :state 0 (fn (s) (done s)))."""\n'
         '    assert render() == "(loop/recur :max 3 :state 0 (fn (s) (done s)))"')
-    path = _write(tmp_path / "test_sample.py", text)
+    path = _write(tmp_path / "tests" / "test_sample.py", text)
 
     result = _migrate(path)
 
@@ -544,7 +544,7 @@ def test_loops_stay_when_their_rewrite_moves_a_pattern_a_module_matches_against_
     fixture = _write(tmp_path / "fixtures" / "grow.orc", OLD_ORC)
     named = _write(tmp_path / "fixtures" / "named.orc", NESTED_FN)
     other = _write(tmp_path / "fixtures" / "other.orc", NESTED_FN.replace("(defmodule probe)", "(defmodule other)"))
-    _write(tmp_path / "test_seed.py", 'from pathlib import Path\n\n'
+    _write(tmp_path / "tests" / "test_seed.py", 'from pathlib import Path\n\n'
            'SOURCE = (Path(__file__).parent / "fixtures/grow.orc").read_text()\n'
            'NAMED = "fixtures/named.orc"\n'
            'SEEDED = SOURCE.replace("(fn (pads)", "(fn (state)").replace("\\n", "\\r\\n")\n')
@@ -561,7 +561,7 @@ def test_loops_stay_when_their_rewrite_moves_a_pattern_a_module_matches_against_
 
 def test_a_header_a_module_substitutes_is_migrated_and_listed(tmp_path: Path) -> None:
     fixture = _write(tmp_path / "fixtures" / "grow.orc", OLD_ORC)
-    _write(tmp_path / "test_targets.py", 'from pathlib import Path\n\n'
+    _write(tmp_path / "tests" / "test_targets.py", 'from pathlib import Path\n\n'
            'SOURCE = (Path(__file__).parent / "fixtures/grow.orc").read_text()\n'
            'OLDER = SOURCE.replace(\'(:target-dsl "2.38")\', \'(:target-dsl "2.37")\').replace(":lowering inline", "")\n')
     report = tmp_path / "report.json"
@@ -587,7 +587,7 @@ def test_a_loop_whose_fn_is_not_last_is_listed(tmp_path: Path) -> None:
 
 
 def test_a_balanced_header_outside_a_whole_module_is_left_and_listed(tmp_path: Path) -> None:
-    module = _write(tmp_path / "test_sample.py", _python_module(
+    module = _write(tmp_path / "tests" / "test_sample.py", _python_module(
         'SOURCE = "\\n".join([\'(:target-dsl "2.35")\', "(defmodule probe)"])'))
     before = module.read_text(encoding="utf-8")
     report = tmp_path / "report.json"
@@ -596,3 +596,17 @@ def test_a_balanced_header_outside_a_whole_module_is_left_and_listed(tmp_path: P
 
     rows = json.loads(report.read_text(encoding="utf-8"))["hand_work"]
     assert (module.read_text(encoding="utf-8"), [row["category"] for row in rows]) == (before, ["partial-source"])
+
+
+def test_python_outside_tests_and_experiments_is_left_and_listed(tmp_path: Path) -> None:
+    message = '"or write the `fn` form `(loop/recur :max n :state init (fn (state) body))`"'
+    module = _write(tmp_path / "orchestrator" / "workflow_lisp" / "expressions.py",
+                    f"MESSAGE = (\n    {message}\n)\nHEADER = '(:target-dsl \"2.35\")'\n")
+    before = module.read_text(encoding="utf-8")
+    report = tmp_path / "report.json"
+
+    _migrate("--report", report, tmp_path)
+
+    rows = json.loads(report.read_text(encoding="utf-8"))["hand_work"]
+    assert (module.read_text(encoding="utf-8"), [(row["line"], row["category"]) for row in rows]) == (
+        before, [(2, "outside-sweep"), (4, "outside-sweep")])
