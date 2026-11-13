@@ -470,9 +470,9 @@ until it is, this section is the staging.
 | Step | What | Gate | State (2026-11-13) |
 | --- | --- | --- | --- |
 | 1 | Survey of public benchmarks; choose the candidate tasks | None (no spend) | Done; findings to be carried into the plan |
-| 2 | Build, run and grade the tasks on this machine without Docker (rootless Podman, the published harness unchanged); the oracle check | None (no spend) | Nearly done: 13 tasks tried, 10 of 11 Terminal-Bench 4 tasks pass both halves unchanged; one needs a wider user-id range, one verifier is timing-sensitive under load |
+| 2 | Build, run and grade the tasks on this machine without Docker (rootless Podman, the published harness unchanged); the oracle check | None (no spend) | Done for 13 tasks (11 of the 16, 2 science tasks): 12 pass both halves with task logic unchanged, one needs a wider user-id range or a one-line verifier change; one verifier is timing-sensitive under load. Five of the 16 are untried, and none has been run five times ([report](../reports/2026-11-13-long-horizon-benchmark-survey-and-feasibility.md)) |
 | 3 | Seed design, with scripted runs and kill-and-resume | None (no spend) | Done on the spike branch; not on `main` |
-| 4 | The plan with its ledger: task list, network policy, what is withheld from the agent, metering, stop rules, readout | Independent review | Next |
+| 4 | The [plan](2026-11-13-long-horizon-task-family-and-seed-plan.md) with its ledger: task list, network policy, what is withheld from the agent, metering, stop rules, readout | Independent review | Proposed; in review |
 | 5 | Guarded launcher: only the approved model and efforts, a reservation before every attempt, the dollar ceiling, reference solutions and verifier tests never in the agent's container | Independent review; a zero-spend rehearsal with stand-ins | Not started |
 | 6 | Effort ladder: direct Haiku at effort low, medium and high, five attempts per task, at most 240 attempts, ceiling USD 200 | Steps 2, 4 and 5; approved (decision 16) | Not started |
 | 7 | Freeze the task set from the ladder: tasks in the band, and the answer on whether success falls as effort rises | Reported to the owner | After step 6 |
@@ -627,7 +627,10 @@ is manual. Phase plans are linked here as they start:
   Sessions comparison ran under the budget of decision 10 (16 calls, USD 0.33): outcome
   Retire, by cost (the session variant cost 1.74 and 1.38 times the plain baseline). The
   owner keeps Agent Sessions (decision 11): its value is the workflow patterns it allows, which
-  the comparison did not measure. The live best-of-N smoke is not approved.
+  the comparison did not measure. The live best-of-N smoke ran once on 2026-11-13 under the coordinator's
+  delegated approval (5 `claude-haiku-5-5` calls, USD 0.022): the parallel map, the kill mid-map, the resume and
+  the metering behaved as specified (nine of ten checks); the frozen verdict is fail on the isolation check,
+  because the criterion's list of the CLI's built-in agents was incomplete (the plan's ledger has the detail).
 - Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
   3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; its first task proves the design's open claims before any feature code.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
