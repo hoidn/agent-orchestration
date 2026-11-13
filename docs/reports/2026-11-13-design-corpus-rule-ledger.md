@@ -760,3 +760,147 @@ Still naming the document current, outside this task's files: the specification'
 `workflow_lisp_type_catalog.md` (T3a), and the related-doc lists of `procedure_first_reuse_contract`,
 `pure_list_traversal`, `prompt_calculus`, `transportable_value_type` and
 `docs/workflow_yaml_orc_gap_list.md`.
+
+## T3a: Internal Specification Pages
+
+Lane B, after T4e. The six pages were read in full. Classes as in T4e. Probes: modules at target
+2.40 (2.38 where named) under `/tmp/lb2/r`, compile only. Written: specification §7.1, §7.3,
+§7.5, §7.7 and §11; the middle-end's
+[Pipeline, provenance and private contexts](../design/workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts);
+the command adapter contract's
+[Legacy Adapters](../design/workflow_command_adapter_contract.md#legacy-adapters).
+
+### `effect_graph` (not retired)
+
+| # | Document, section | Rule as written | Class | Owner | Owner's sentence | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| 14.1 | Purpose; Required invariants | Effects are typed analysis data; abstractions cannot hide provider, command, state effects | present | [Spec §16](../design/workflow_lisp_frontend_specification.md#16-effect-system) | "Every effectful definition declares or infers effects." | Read |
+| 14.2 | Effect Kinds | Eleven kinds, among them `moves_resource`, `updates_ledger`, `captures_snapshot`, `materializes_pointer` | present (the live nine); removed code (the rest) | Spec §16 | "The compiler accepts exactly these kinds and refuses any other with `unsupported procedure effect kind`." | Read; §16 lists nine kinds |
+| 14.3 | Effect Entries | `EffectEntry` shape | compiler internal | - | - | No such class in `effects.py` is authored |
+| 14.4 | Procedure Effect Views | Direct and transitive summaries; generic and `ProcRef` bodies recomputed after resolution; an unresolved `ProcRef` contributes no guessed effect | present | [Spec §16.1](../design/workflow_lisp_frontend_specification.md#161-effect-checking) | "After type parameters and ProcRefs resolve, the compiler authoritatively typechecks each specialized monomorphic helper and recomputes its caller-visible transitive summary before lowering." | Read |
+| 14.5 | Procedure Effect Views | At definition origins 2.35 to 2.38 an ordinary authored procedure's declared effects equal the inferred ones; specializations and generated names are exempt | **OPEN for T10** | Specification §8.8 or §16 (T10's sections); today stated only by `effect_ledger_simplification` ("Admitted targets 2.35–2.38 retain mandatory exact ordinary-procedure checks and their existing specialization behavior"), a blocked file that T10 retires, and as a change-log entry of [versioning](../../specs/versioning.md) v2.33 | Sentence for T10: "In a module at 2.35 to 2.38, a `defproc` writes `:effects`, and its declared effects equal the inferred ones; a specialization is not checked this way. Diagnostics: `procedure_effect_mismatch`." | Probes at 2.38: `ef1` (declares `uses-command`, uses none) and `ef2` (declares `()`, runs a command): `procedure_effect_mismatch` "declared effects ... but inferred ..."; `ef3` (no `:effects`): `frontend_parse_error`; `ef4` builds |
+| 14.6 | Procedure Effect Views | 2.39: omission infers, explicit empty requires none, named clauses are upper bounds | present | [Spec §8.8](../design/workflow_lisp_frontend_specification.md#88-defproc) | "the `:effects` clause is optional: omission infers the transitive summary, explicit empty checks purity after specialization, and named restrictions require the inferred effects to fit resolved declared subjects." | T4a row 12.6 probe (`procedure_effect_ceiling_exceeded`) |
+| 14.7 | Procedure Effect Views | Inline and private-workflow carriers; Semantic IR reconstruction | compiler internal; removed code (Semantic IR) | - | - | - |
+| 14.8 | Pure Forms | Pure helpers create no effect; the refused list (files, providers, commands, workflows, time, randomness, state) | present | [Spec §8.6](../design/workflow_lisp_frontend_specification.md#86-defun), §16.1 | §8.6: "Pure functions may not: read files, write files, call providers, call workflows, run commands, inspect wall-clock time, generate random values"; §16.1: "pure forms have no effects" | T4a row 12.8 probes |
+| 14.9 | Macro Boundary | "A macro that introduces a hidden command or provider call is invalid." | present | [Spec §36](../design/workflow_lisp_frontend_specification.md#36-macro-outputs) | "A provider or command effect written in the template is a hidden effect and refuses, before any command-boundary or provider check." | T4c row M.12 probes (`macro_hidden_effect`) |
+| 14.10 | Validation Responsibilities | Workflow summaries include nested effects; provider and command effects have output validation | present | Spec §16.1 | "`defworkflow` effects include all nested effects" ... "provider calls have output contracts" ... "command calls have output validation" | Read |
+| 14.11 | Validation Responsibilities | Resource-transition capabilities and lineage | removed code | - | - | `resource-transition` is in `RETIRED_FORMS` |
+| 14.12 | Validation; Required invariants | Semantic command behavior is a typed procedure, call, certified adapter or runtime-native effect; semantic inline glue needs adapter metadata | present | [Command adapter contract, Core Policy](../design/workflow_command_adapter_contract.md#core-policy) | "Procedural behavior must be represented as one of: 1. a typed workflow procedure; 2. a typed workflow call; 3. a certified command adapter ...; 4. a runtime-native effect." | Probe `inl`: `inline_python_command_in_workflow` |
+| 14.13 | Required invariants | Runtime execution explainable from the effect graph and source map | not true of the code | - | - | No effect graph or source map at run time; the checked program and its node provenance |
+| 14.14 | Header; historical anchors | Versioned ownership; flat generated-effect projections | history | - | - | - |
+
+`effect_graph` stays current: row 14.5 has no owner outside a blocked file and T10's sections.
+Its docstring pointer in `effects.py` is left.
+
+### `proof_graph`
+
+| # | Document, section | Rule as written | Class | Owner | Owner's sentence | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| 15.1 | Proof Sources | `match` over the same discriminant is a proof source | written | [Spec §11](../design/workflow_lisp_frontend_specification.md#11-pattern-matching) | "An arm's binder is in scope only in that arm, and on it only the fields of that arm's variant are read. Diagnostics: `variant_ref_wrong_variant`, `name_unknown`." | `pf2` builds; `pf5` (field of `B` in arm `A`): `variant_ref_wrong_variant`; `pg3` (binder outside its arm): `name_unknown` |
+| 15.2 | Proof Sources | Explicit `requires_variant`; compiler-generated proof from a typed transition | removed code | - | - | No Lisp head; `resource-transition` retired. §7.5's "explicit `requires`" corrected to the `match` arm and §12 |
+| 15.3 | Proof Sources | A typed `.variant` comparison in `if` | present (T4d's) | [Spec §12](../design/workflow_lisp_frontend_specification.md#12-conditionals) | Not restated here; §7.5 and §11 point to §12 | Known defect: `fix/variant-field-after-discriminant` not merged |
+| 15.4 | Not a proof source | String predicates, general Booleans | present | [Spec §10.2](../design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface); §11 | §10.2: "Computed `Bool` values remain proof-neutral."; §11: "A computed `Bool` proves nothing (§10.2)" | Read |
+| 15.5 | Not a proof source | Cross-loop proof carryover | present (by scope) | Spec §11 | "An arm's binder is in scope only in that arm" | Not probed separately: no binder outlives its arm |
+| 15.6 | Not a proof source; Scope Rules | Proof does not cross a workflow call unless the callee normalizes into declared outputs | written | Spec §11 | "A workflow call yields its declared return value and no proof made inside the callee: a caller reads a variant field of a returned union only in its own `match`. Diagnostics: `variant_ref_unproved`." | `pf7` (callee matched, caller reads `u.n`): `variant_ref_unproved` |
+| 15.7 | Scope Rules | A `match` arm creates proof only inside that arm | written | Spec §11 | As 15.1 | `pg3` |
+| 15.8 | Validation | Requested variant is allowed; field belongs to the proven variant; use inside scope | written | Spec §11 | "The subject of `match` is a union value, and the arms name each of its variants once. Diagnostics: `match_subject_not_union`, `union_variant_unknown`, `union_match_non_exhaustive` (a missing or a repeated arm)." | `pf4` (arm `C`): `union_variant_unknown`; `pf8` (no `B` arm): `union_match_non_exhaustive` "missing `B`"; `pg1` (two `A` arms): `union_match_non_exhaustive` "duplicate match arm"; `pg2` (`Int` subject): `match_subject_not_union` |
+| 15.9 | Required invariants | A readable discriminant does not make all variant fields readable | written | Spec §11 | "Outside an arm, `variant` is the only field read on a union value, also when every variant declares the field." | `pf6` (`(= u.variant A)`) builds; `pf1`: `variant_ref_unproved`; `pg4` (both variants declare `n Int`): `variant_ref_unproved` |
+| 15.10 | Required invariants | "Runtime still guards variant access even after static proof succeeds." | written (checked against the code) | Spec §11 | "At run time a `match` selects the arm by the value's `variant`, and a field read checks again that the value carries the field. Diagnostics: `closed_case_variant`, `pure_expr_operand_type_mismatch`." | Code: `orchestrator/workflow/evaluated/machine.py::_case` raises `closed_case_variant` for a variant with no arm; `values.py::_evaluate_field` raises `pure_expr_operand_type_mismatch` ("field ... is unavailable") and `_field_descriptor` refuses a field without a record or proven-variant descriptor. Not provoked: a checked program does not reach them. §11's former "runtime `requires_variant` guard retained" (flat lowering) replaced |
+| 15.11 | Proof Entry Shape | `VariantProof` fields | removed code | - | - | No step ids in the checked program |
+| 15.12 | Open Questions | Typed predicates; cross-iteration proof | history | - | - | - |
+
+### `type_catalog`
+
+| # | Document, section | Rule as written | Class | Owner | Owner's sentence | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| 16.1 | Type Families | Scalars `String`, `Int`, `Float`, `Bool`, `Json`, `TimestampNs`, `RunId`, `Symbol` | corrected | [Spec §7.1](../design/workflow_lisp_frontend_specification.md#71-primitive-scalar-types) | The list now holds `String`, `Int`, `Float`, `Bool`, `Json`, `RunId`, `Symbol`, `PathRel`: "These are prelude types, with `Value` (§7.1.1) and the capability types `Provider` and `Prompt`." | **Finding:** `ty1`, `ty5` (`TimestampNs`): `type_unknown`; it is not in `PRELUDE_PRIMITIVE_TYPE_NAMES` (`type_env.py`), and the specification listed it. `ty2`, `ty3`, `ty6`, `ty8`, `ty9` build |
+| 16.2 | Type Families | `Json` is a non-transportable carrier | written | Spec §7.1 | "`Json` is not transportable: a workflow parameter of type `Json` is refused, and so is a `Json` return at a boundary (§8.10). Diagnostics: `json_surface_unsupported`." | `ty4`: `json_surface_unsupported`; `nt1` (T4e) |
+| 16.3 | Type Families; Contract Mapping | Enums, paths, records, unions, optionals, lists, maps, workflow references and their contracts | present | Spec §7.2 ("Enums map to: scalar contract with allowed values"), §7.4, §7.5, §7.7, [§8.10](../design/workflow_lisp_frontend_specification.md#810-return-types-and-result-guidance) | §7.5: "Unions map to tagged variant contracts." §7.7: "Workflow references are compile-time/module-link values" | Read |
+| 16.4 | Contract mapping; `Value` | `Value` exact, opaque, no implicit conversion | present | [Spec §7.1.1](../design/workflow_lisp_frontend_specification.md#711-transportable-value-target-219) | "Source compatibility is exact. `Value` flows only to `Value`" | T4a rows 11.x |
+| 16.5 | Root/Direct Return Contract | Root results: one `__result__` field at `""`; the mapping table; `result_shape` structural | present (T4e) | Spec §8.10 | As T4e rows 13.6, 13.12, 13.31 | T4e probes |
+| 16.6 | Result Guidance | Plain, `(result T)`, annotated; field keys; closed pure constant examples; preserved through inclusion, imports, specialization, flattening, sharing; ignored by type identity and validity; v2.15 `result_guidance` | present (T4e); `result_guidance` lowering not true (T4e 13.20) | Spec §8.10 | As T4e rows 13.18 to 13.29 | T4e probes |
+| 16.7 | Result Guidance | `Value`: description and format hint, no example | present | Spec §7.1.1 | "`:example` is rejected with `value_guidance_example_unsupported`" | `g15` (T4e) |
+| 16.8 | Path Types | Path types are values, not pointer files; pointer materialization is separate | present | [Spec §7.3](../design/workflow_lisp_frontend_specification.md#73-path-types) | "is a path value, not a pointer file path. Pointer files are optional materialized representations." | Read |
+| 16.9 | Path Types | Refinement narrowing: child `under` allowed, expanded rejected, `must_exist` false to true allowed, true to false rejected | **not true of the code**; written as the code behaves | Spec §7.3 | "Path types are nominal: a value of one path type is refused where another is declared, also when its root lies under the other's or its existence check is stricter; there is no refinement relation between path types. Diagnostics: `type_mismatch`." | `pt1` (child root, `:must-exist true`, passed as the parent): `type_mismatch`; `pt2` (the reverse): `type_mismatch`. §7.3's "Path refinements must not weaken inherited contracts" replaced |
+| 16.10 | (specification §7.3 example) | `:must-exist-target false` in a `defpath` | corrected | Spec §7.3 | "A `defpath` gives `:kind relpath`, a string `:under` and a boolean `:must-exist`, each once. Diagnostics: `path_definition_invalid`." | `pt3`: `path_definition_invalid` "missing required keyword `:must-exist`"; the example now says `:must-exist false` |
+| 16.11 | Union Types | Discriminant, variants, shared fields, variant fields, forbidden fields, availability | present | Spec §7.5 | "Every union has: discriminant name, variant names, variant-specific fields, optional shared fields, static availability metadata" | Read |
+| 16.12 | Validation | Names resolve; fields exist; variants exist; call signatures; pure helpers' returns; bundle schemas | present | Spec §7.4 (`record_field_unknown`), §11 (`union_variant_unknown`), §8.6, §8.10 | As cited | Probes `w2`, `pf4` |
+| 16.13 | Validation | `Value` at 2.19+; public `kind: value` with `type: value`; recursive validation | present; the 2.19 floor is history (source floor 2.35) | Spec §7.1.1 | "A public workflow boundary uses `kind: value` with `type: value`" | T4a |
+| 16.14 | Required invariants | Typecheck before lowering | present | [Middle-end](../design/workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts) | The pipeline: "typed frontend AST -> WCC elaboration, specialization, scope/effect/proof analysis -> checked closed program" | Read |
+| 16.15 | Required invariants | Type erasure after Semantic IR; classic and WCC preserve `Value` | removed code (Semantic IR, classic); present (`Value`) | Spec §7.1.1 | "Typed/WCC preparation and checked-program construction preserve the literal `Value` identity" | - |
+| 16.16 | Open Questions | Collections in artifact refs; flattening of record inputs | history | - | - | - |
+
+### `reference_catalog`
+
+| # | Document, section | Rule as written | Class | Owner | Owner's sentence | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| 17.1 | Reference Kinds; Catalog Entries | `ArtifactRef`, `SnapshotRef`, `OutcomeRef`, `ExitCodeRef` over `root.steps.*`; entry shapes | removed code | - | - | The document itself calls them historical; the evaluated runtime binds lexical values |
+| 17.2 | Scope Rules | Artifact refs subject to variant availability | written | Spec §11 | As 15.9 | `pf1` |
+| 17.3 | Scope Rules | Snapshot refs only as selector evidence | removed code | - | - | No snapshot head among `registered_form_heads()` |
+| 17.4 | Scope Rules | Outcome and exit-code refs keep their DSL behavior | removed code (flat steps) | - | - | - |
+| 17.5 | Scope Rules | Only declared callee outputs cross workflow call boundaries | written | Spec §11 | "A workflow call yields its declared return value and no proof made inside the callee" | `pf7`; T4e `w1` |
+| 17.6 | Validation | Step and value exist; kind valid; contract compatible; variant-only under proof; snapshot candidate keys | removed code (steps, snapshots); written (proof) | Spec §11 | As 15.9 | - |
+| 17.7 | Required invariants | Snapshots are evidence, not artifacts | removed code | - | - | As 17.3 |
+| 17.8 | Required invariants | Pointer files are not authority unless the value is a pointer path | present | Spec §7.3 | As 16.8 | Read |
+| 17.9 | Required invariants | Field selection uses typed identity, never a string path | compiler internal | - | - | Field reads are `field` nodes with a typed base in the checked program (`values.py::_evaluate_field`) |
+| 17.10 | Open Questions | YAML ref parser reuse; effect provenance | history | - | - | - |
+
+### `source_map`
+
+| # | Document, section | Rule as written | Class | Owner | Owner's sentence | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| 18.1 | Scope note; Summary | Authored spans, macro, procedure and call provenance, subjects | present | [Language server, Compiler Artifact Compatibility](../design/workflow_lisp_language_server.md#compiler-artifact-compatibility); middle-end | LSP: "stable diagnostic codes with source spans and form paths ... with the expansion frames of macro-generated or imported code" | T5b.8 |
+| 18.2 | Decision; Wire shapes | One stable subject per authored union field (`variant_output_field`); shared names keep one subject per variant; consumers compare subject names only | present | [Middle-end](../design/workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts) | "a stable source-map subject (`source_map_subject`, or `source_map_subjects_by_variant` when a field name is shared by variants)" | `sm` closed program: subjects `effect::U::A::n`, `effect::U::B::n`, `effect::U::A::inner__k`, `effect::U::A::inner__j` |
+| 18.3 | Source map entry (root subjects) | `output_bundle_field` for root and fixed-bundle fields | written | Middle-end | "A result that is not a record or union carries one subject of kind `output_bundle_field`." | T4e `p1`: `effect::root-result::__result__` |
+| 18.4 | Invariants | Provenance-only subject metadata excluded from contract digests, fingerprints and checkpoint identity | written | Middle-end | "Subjects are held in the node's provenance beside its span and form path, so they enter no identity or program digest, and they are names, not spans" | `p1`: `source_map_subject` sits under the node's `@` with `span` and `form`; `program_digest` strips `@` (`contracts/closed_program/program.py::strip_provenance`); T4e `ida`/`ide` (moved source) same digest |
+| 18.5 | Invariants; rejected alternatives | Runtime never reads or recompiles source; no inference from field names | written | Middle-end | "nothing at run time reads or compiles source to resolve one." | T5b.6 (no resolver at run time) |
+| 18.6 | Decision; runtime flow; Contracts | `CompiledFrontendIndex` resolves subjects; `source_origins` on violations; step-level fallback | removed code | - | - | T5b.5, T5b.7: no sidecar; violations carry `subject_refs` only |
+| 18.7 | Inline procedure provenance | Persisted entries carry notes for procedure definition and call site | removed code (sidecar); not true of the checked program | - | - | `p1`'s inlined `p-list` nodes carry `span`, `form` (the definition's) and `source_map_subject` only |
+| 18.8 | Contracts | Schema `workflow_lisp_source_map.v1`, additive `contract_fields`; Semantic IR bridge | removed code | - | - | As 18.6 |
+| 18.9 | Invariants | Contract validation remains the sole authority for a bundle | present | [IO](../../specs/io.md) | "prompt text is guidance. The declared bundle file remains the semantic authority." | Read |
+| 18.10 | Invariants | Message wording is not a compatibility contract; codes, context, subjects are | present | [Language server](../design/workflow_lisp_language_server.md) | "Rendered `message` and `notes` are intentionally excluded from parity. They remain user-facing information, but wording is not compiler identity and tests must not freeze it." | Read |
+| 18.11 | Invariants | Build fails for dangling or duplicate field bindings | compiler internal | - | - | The closed-program checker checks subject shapes (T5b.6) |
+| 18.12 | Acceptance scenario | Nested record leaves under a union field resolve to the union field's declaration | compiler internal (not observable) | - | - | `sm`: each leaf has its own subject under the variant (`inner__k`); nothing resolves a subject to a span |
+| 18.13 | Problem, Goals, Dependencies, Evidence, Compatibility, Verification, Success | Plan, sequencing, tests | history | - | - | - |
+
+### `legacy_adapter`
+
+| # | Document, section | Rule as written | Class | Owner | Owner's sentence | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| 19.1 | Purpose | A legacy adapter is a certified command adapter with a compatibility-debt label and replacement path | present | [Command adapter contract, Legacy Adapters](../design/workflow_command_adapter_contract.md#legacy-adapters) | "A legacy adapter is a certified command adapter with an explicit compatibility debt label." ... "it records why it is legacy and its `replacement_path`" | `replacement_path` is a binding field (`build_manifest_io.py`) |
+| 19.2 | Allowed Uses | Markdown extraction, old pointers, legacy JSON, queue movement, old state layouts; not ordinary tool execution | present; strengthened | Command adapter contract | "Use a legacy adapter only for: ..." ... "A legacy adapter is not for ordinary external tool execution" | Read |
+| 19.3 | Required Metadata | `legacy_reason`, deprecation status, fixtures, source-map behavior and the rest | strengthened; not enforced | Command adapter contract | "The code does not enforce this section: a command binding has no legacy marking, and the lint `legacy_adapter_missing_fixture` is declared but never emitted." | `grep`: `legacy_reason`, `deprecation_status` absent from `orchestrator/`; `legacy_adapter_missing_fixture` only in `lints.py` (rule table) and `diagnostics.py` (code set) |
+| 19.4 | Validation | Stable script, not `python -c`, `python -`, `bash -c`, heredoc | present | Command adapter contract, Certified Command Adapter | "The adapter command must be a stable script or executable, not an inline `python -c`, `python -`, `bash -c`, heredoc, or nested `subprocess.run` shell." | `inl` (binding `["python", "-c", "print(1)"]`): `inline_python_command_in_workflow` "inline Python command glue is not allowed in `command-result`" |
+| 19.5 | Validation | Outputs validate before publication; effects recorded; typed contracts for extracted fields | present | Command adapter contract, Adapter Validation | "output bundles validate before publication; ... effects are visible in the effect graph" | Read |
+| 19.6 | Validation; invariants | Not importable by new stdlib modules unless allowed; not semantic authority | present | Command adapter contract | "They must not be imported by new high-level workflow libraries unless the dependency is explicitly allowed." | Read |
+| 19.7 | Required invariants | Adapter output, not source prose, is the semantic value; new high-level forms never parse markdown | written | Command adapter contract | "its structured output, not the prose it read, is the semantic value; and new high-level forms never parse markdown reports themselves." | Policy; no form parses markdown (none in `registered_form_heads()`) |
+| 19.8 | Required invariants | Pointer files handled by an adapter are representations | present | Command adapter contract, Adapter Validation | "pointer files are representations, not semantic authority" | Read |
+| 19.9 | Open Questions | Namespace, lint level, deprecation tracking | history | - | - | - |
+
+**Counts.** 74 rows. `effect_graph` 14: 8 present, 2 compiler internal, 1 removed code, 1 not
+true of the code, 1 history, 1 open (14.5, for T10). `proof_graph` 12: 6 written, 3 present,
+2 removed code, 1 history. `type_catalog` 16: 4 written or corrected, 10 present, 1 removed code,
+1 history. `reference_catalog` 10: 3 written, 1 present, 4 removed code, 1 compiler internal,
+1 history. `source_map` 13: 3 written, 4 present, 3 removed code, 2 compiler internal, 1 history.
+`legacy_adapter` 9: 1 written, 2 strengthened, 5 present, 1 history. In all: 19 written,
+corrected or strengthened, 31 present, 11 removed code, 5 compiler internal, 6 history, 1 not
+true, 1 open. Five documents are marked Historical (notices added, 0 lines deleted);
+`effect_graph` stays current.
+
+**Findings.**
+
+- 16.1: `TimestampNs` was listed by the specification and the catalog but is not a type
+  (`type_unknown`); the list now matches `PRELUDE_PRIMITIVE_TYPE_NAMES`.
+- 16.9, 16.10: path types have no refinement relation (the catalog's narrowing rules describe
+  nothing in the compiler); the §7.3 example used `:must-exist-target`, which `defpath` refuses.
+- **Compiler defect:** inside a `match` arm, reading a variant field on the *subject* rather than
+  the binder passes typecheck and fails elaboration. Reproduction:
+  `(defunion U (A (n Int)) (B (s String))) (defworkflow run ((x Int)) -> Int (let* ((u (command-result step :argv ("python" "step.py" x) :returns U))) (match u ((A a) u.n) ((B b) 0))))`
+  gives `compiler_defect` "TypeError: expected record type while resolving `u.n`". §11 states
+  only binder reads; its "the compiler knows that `implementation` is variant `COMPLETED`" is
+  left as it was.
+- 15.10: the run-time variant check exists in the evaluator but a checked program does not reach
+  it; it was not provoked.
+- 19.3: `legacy_adapter_missing_fixture` is a declared lint that nothing emits.
+- 14.5: open for T10, which must write the 2.35 to 2.38 exact-effects rule before retiring
+  `effect_ledger_simplification`.

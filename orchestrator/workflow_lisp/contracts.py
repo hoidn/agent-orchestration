@@ -1,6 +1,7 @@
 """Derive shared workflow contracts from Workflow Lisp structured types.
 
-See `../../docs/design/workflow_lisp_type_catalog.md` for the type-to-contract model
+See `../../docs/design/workflow_lisp_frontend_specification.md` (sections 7 and 8.10) for the
+type-to-contract model
 and `../../docs/design/workflow_lisp_stdlib_lowering.md` for how generated contracts
 are attached to provider and command steps.
 """

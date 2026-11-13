@@ -334,7 +334,16 @@ Use a legacy adapter only for:
 
 Legacy adapters must be fixture-tested, source-mapped, linted, and preferably
 deprecated. They must not be imported by new high-level workflow libraries
-unless the dependency is explicitly allowed.
+unless the dependency is explicitly allowed. A legacy adapter is not for ordinary
+external tool execution; it records why it is legacy and its `replacement_path`;
+its structured output, not the prose it read, is the semantic value; and new
+high-level forms never parse markdown reports themselves.
+
+The code does not enforce this section: a command binding has no legacy marking,
+and the lint `legacy_adapter_missing_fixture` is declared but never emitted. What
+it does enforce for every binding is the stable-command rule above: an inline
+`python -c` command refuses. Diagnostics: `inline_python_command_in_workflow`,
+`inline_shell_command_in_workflow`.
 
 See also: [Workflow Lisp Legacy Adapter](workflow_lisp_legacy_adapter.md).
 

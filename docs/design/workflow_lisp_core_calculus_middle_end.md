@@ -180,8 +180,11 @@ Node provenance (span and form path) is
 generated result contract carries, for each authored union field, a stable
 source-map subject (`source_map_subject`, or `source_map_subjects_by_variant`
 when a field name is shared by variants) that the node's provenance resolves to
-that field, and a contract violation carries those subject references. An error
-raised while evaluating a node reports that node's span.
+that field, and a contract violation carries those subject references. A result
+that is not a record or union carries one subject of kind `output_bundle_field`. Subjects
+are held in the node's provenance beside its span and form path, so they enter no identity
+or program digest, and they are names, not spans; nothing at run time reads or compiles
+source to resolve one. An error raised while evaluating a node reports that node's span.
 
 A record that structurally contains a `RunCtx` (`run-id` of type `RunId`,
 `state-root` under `state`, `artifact-root` under `artifacts`) is a private

@@ -1001,10 +1001,14 @@ Int
 Float
 Bool
 Json
-TimestampNs
 RunId
 Symbol
+PathRel
 ```
+
+These are prelude types, with `Value` (§7.1.1) and the capability types `Provider` and `Prompt`.
+`Json` is not transportable: a workflow parameter of type `Json` is refused, and so is a `Json`
+return at a boundary (§8.10). Diagnostics: `json_surface_unsupported`.
 
 ### 7.1.1 Transportable `Value` (Target 2.19)
 
@@ -1130,7 +1134,7 @@ Path types are refined contracts.
 (defpath Path.execution-report-target
   :kind relpath
   :under "artifacts/work"
-  :must-exist-target false)
+  :must-exist false)
 
 (defpath Path.review-report
   :kind relpath
@@ -1138,7 +1142,12 @@ Path types are refined contracts.
   :must-exist true)
 ```
 
-Path refinements must not weaken inherited contracts.
+A `defpath` gives `:kind relpath`, a string `:under` and a boolean `:must-exist`, each once.
+Diagnostics: `path_definition_invalid`.
+
+Path types are nominal: a value of one path type is refused where another is declared, also
+when its root lies under the other's or its existence check is stricter; there is no
+refinement relation between path types. Diagnostics: `type_mismatch`.
 
 A value of type:
 
@@ -1195,9 +1204,8 @@ Every union has:
 - optional shared fields
 - static availability metadata
 
-Variant-specific fields are only accessible inside proof contexts created by
-`match`, explicit `requires`, or a frontend construct that lowers to one of
-those.
+Variant-specific fields are read only on a proven variant: inside a `match` arm (§11), or
+after a discriminant test of `if` (§12).
 
 ### 7.6 Optional And List Types
 
@@ -1224,7 +1232,7 @@ and runtime state.
 
 They are passed to a `defproc` formal of a `WorkflowRef[...]` type, which calls
 the workflow (§15). The compiler checks signatures before lowering, and a
-`WorkflowRef` return type must be a record or union.
+`WorkflowRef` return type must be a record or union. Diagnostics: `workflow_ref_type_invalid`.
 
 Use `WorkflowRef` only when whole-workflow identity is part of static
 orchestration. Use `ProcRef` for normal internal reusable behavior. A
@@ -2015,15 +2023,22 @@ the compiler knows that:
 - `completed.execution-report` is available
 - blocked-only fields are unavailable
 
-Lowering:
+Rules:
 
-- core match over discriminant
-- `ProofContext variant=COMPLETED`
-- variant-aware artifact refs permitted inside branch
-- runtime `requires_variant` guard retained
-
-This maps directly to the v2.14 rule that variant-only references require proof
-via `match` or explicit `requires_variant`.
+- The subject of `match` is a union value, and the arms name each of its variants once.
+  Diagnostics: `match_subject_not_union`, `union_variant_unknown`,
+  `union_match_non_exhaustive` (a missing or a repeated arm).
+- An arm's binder is in scope only in that arm, and on it only the fields of that arm's
+  variant are read. Diagnostics: `variant_ref_wrong_variant`, `name_unknown`.
+- Outside an arm, `variant` is the only field read on a union value, also when every variant
+  declares the field. A computed `Bool` proves nothing (§10.2); §12 states the discriminant
+  test of `if`. Diagnostics: `variant_ref_unproved`.
+- A workflow call yields its declared return value and no proof made inside the callee: a
+  caller reads a variant field of a returned union only in its own `match`. Diagnostics:
+  `variant_ref_unproved`.
+- At run time a `match` selects the arm by the value's `variant`, and a field read checks again
+  that the value carries the field. Diagnostics: `closed_case_variant`,
+  `pure_expr_operand_type_mismatch`.
 
 The target-2.29 composition implementation extends this shared proof contract
 to an exact scoped discriminant: `{ref, allowed}` guards carry finite declared
@@ -2055,7 +2070,7 @@ flowchart TD
     BlockedProof --> ProgressReport["blocked.progress-report available"]
     BlockedProof --> CompletedFieldsNo["completed-only fields unavailable"]
 
-    ExecReport --> CoreMatch["CoreMatch + runtime requires_variant guard"]
+    ExecReport --> CoreMatch["case node + run-time field check"]
     ProgressReport --> CoreMatch
 ```
 
