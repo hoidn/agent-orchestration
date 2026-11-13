@@ -66,6 +66,12 @@ at least one workflow builds, and refuses the rewrite on a moved hash (a defect 
 `--report` writes JSON: every changed file with its counts, and every unit left for hand work with
 file, line, category and reason.
 
+Fixtures other modules read. A test may match a pattern against a `.orc` file's text after reading
+it (`text_patterns`). When the loop rewrites would change how often such a pattern occurs, the loops
+of that file stay in the `fn` form, listed `pattern`; when the header step does, the header and
+clauses still migrate and each pattern is listed `pattern`, since such a test may keep passing on
+the migrated text. A loop whose `fn` is not its last item is listed, not rewritten.
+
 Dependencies: the repository's own reader and compiler (`orchestrator.workflow_lisp`); run it from
 the repository root with the tree to migrate on `PYTHONPATH`.
 """
@@ -394,10 +400,14 @@ def _is_symbol(node: object, value: str) -> bool:
     return isinstance(node, SymbolAtom) and node.value == value
 
 
+def _is_fn(node: object) -> bool:
+    return isinstance(node, ListExpr) and bool(node.items) and _is_symbol(node.items[0], "fn")
+
+
 def _is_fn_loop(node: ListExpr) -> bool:
+    """A `loop/recur` with an `(fn ...)` item, last or not (a misplaced one is listed, not rewritten)."""
     items = node.items
-    return (len(items) > 1 and _is_symbol(items[0], "loop/recur") and isinstance(items[-1], ListExpr)
-            and bool(items[-1].items) and _is_symbol(items[-1].items[0], "fn"))
+    return len(items) > 1 and _is_symbol(items[0], "loop/recur") and any(_is_fn(item) for item in items[1:])
 
 
 def _context(node: ListExpr, opaque: frozenset[str], workflow: str | None, macro: str | None):
@@ -431,6 +441,8 @@ def fn_loops(text: str) -> list[Loop]:
 def _fn_loop_problem(node: ListExpr) -> str | None:
     """Why a `fn`-form loop cannot be rewritten mechanically, or None."""
     fn, options = node.items[-1], node.items[1:-1]
+    if not _is_fn(fn):
+        return "the `fn` is not the last item"
     if len(fn.items) != 3 or not isinstance(fn.items[1], ListExpr) or len(fn.items[1].items) != 1:
         return "the `fn` is not `(fn (state) body)`"
     if not isinstance(fn.items[1].items[0], SymbolAtom):
@@ -769,25 +781,28 @@ def migrate_loops(unit: Unit, origin: Path | None, report: Report, verify: bool)
 
 
 def migrate_unit(unit: Unit, origin: Path | None, report: Report, verify: bool,
-                 moved: Callable[[str, str], str | None] = lambda before, after: None) -> None:
+                 moved: Callable[[str, str], list[str]] = lambda before, after: []) -> None:
     """Header and clauses, then loops; a unit the reader refuses changes in nothing.
 
-    `moved(before, after)` judges the loop rewrites alone; when it gives a reason the loops are
-    undone and listed under `pattern` (`_moved_pattern`).
+    `moved(before, after)` names the patterns a step makes match differently (`_moved_patterns`).
+    The header step stays and each pattern is listed under `pattern`; the loop rewrites are undone,
+    and the loops listed under `pattern`.
     """
-    tree = _read(unit.value)
+    original, tree = unit.src, _read(unit.value)
     migrate_header(unit, tree, report)
+    for reason in moved(original, unit.src):
+        report.note(1, "pattern", reason)
     if tree is None:
         _skip(unit, report, "reader", "the reader refuses the source")
         return
     headed, loops = unit.src, Report(report.path)
     migrate_loops(unit, origin, loops, verify)
-    reason = moved(headed, unit.src)
-    if reason is None:
+    reasons = moved(headed, unit.src)
+    if not reasons:
         report.absorb(loops)
         return
     _undo(unit, headed)
-    _skip(unit, report, "pattern", reason)
+    _skip(unit, report, "pattern", reasons[0])
 
 
 def _skip(unit: Unit, report: Report, category: str, reason: str) -> None:
@@ -998,11 +1013,15 @@ Pattern = tuple[str, str]  # (where: "module.py:line", the text a module matches
 def text_patterns(paths: list[Path]) -> dict[str, list[Pattern]]:
     """For each `.orc` path literal in a module among `paths`, the module's text patterns.
 
-    A pattern is a string constant of at least three characters with a parenthesis that is directly
-    an operand of a text call or a comparison (`_guarded_operands`): Workflow Lisp text a test may
-    match against a fixture after reading it. A pattern without a parenthesis (a version, a word,
-    a separator) is not one. A module that cannot be read or parsed is skipped here;
-    `migrate_file` reports it.
+    A pattern is a string constant that is directly an operand of a text call or a comparison
+    (`_guarded_operands`) and holds a parenthesis (three characters or more), `:target-dsl`,
+    `:lowering` or `:effects`: Workflow Lisp text a test may match against a fixture after reading
+    it. A version, a word or a separator is not one. A module that cannot be read or parsed is
+    skipped here; `migrate_file` reports it.
+
+    Limits: a bare file name names every file of that name; a pattern held in a name, an f-string
+    or a `parametrize` list, and a path built by an f-string, `with_suffix`, a glob or another
+    module, are not seen.
     """
     named = {}
     for path in (path for path in paths if path.suffix == ".py"):
@@ -1019,19 +1038,24 @@ def text_patterns(paths: list[Path]) -> dict[str, list[Pattern]]:
     return named
 
 
+CLAUSE_WORDS = (":target-dsl", ":lowering", ":effects")
+
+
 def _lisp_text(node: ast.AST) -> bool:
-    return (isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) >= 3
-            and ("(" in node.value or ")" in node.value))
+    if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+        return False
+    text = node.value
+    return (len(text) >= 3 and ("(" in text or ")" in text)) or any(word in text for word in CLAUSE_WORDS)
 
 
-def _moved_pattern(path: Path, source: str, new: str, named: dict[str, list[Pattern]]) -> str | None:
-    """Where a module that names `path` holds a pattern the migration makes match a different number of times."""
+def _moved_patterns(path: Path, source: str, new: str, named: dict[str, list[Pattern]]) -> list[str]:
+    """Each pattern of a module that names `path` that the change makes match a different number of times."""
     target = "/" + path.resolve().as_posix()
-    for suffix, patterns in named.items():
-        for where, pattern in patterns if target.endswith("/" + suffix) else ():
-            if pattern in source and source.count(pattern) != new.count(pattern):
-                return f"{where} matches {pattern!r} against this file's text"
-    return None
+    return list(dict.fromkeys(
+        f"{where} matches {pattern!r} against this file's text"
+        for suffix, patterns in named.items() if target.endswith("/" + suffix)
+        for where, pattern in patterns
+        if pattern in source and source.count(pattern) != new.count(pattern)))
 
 
 def migrate_file(path: Path, *, check: bool, verify: bool, patterns: dict[str, list[Pattern]] | None = None) -> Report:
@@ -1040,7 +1064,8 @@ def migrate_file(path: Path, *, check: bool, verify: bool, patterns: dict[str, l
     In a `.orc` file the loops stay in the `fn` form, and are listed, when their rewrite would change
     how often a pattern of a module that names the file (`text_patterns`) occurs in its text: that
     module rewrites or inspects the text, and the two change together by hand. The header and
-    clauses are migrated as `migrate2.py` does whatever a module matches.
+    clauses are migrated as `migrate2.py` does; each pattern the header step moves is listed
+    (`pattern`), because the test may keep passing on the migrated text.
     """
     report = Report(str(path))
     try:
@@ -1061,7 +1086,7 @@ def _migrated(path: Path, source: str, report: Report, verify: bool,
     if path.suffix != ".py":
         unit = Unit(source)
         migrate_unit(unit, path.resolve(), report, verify,
-                     lambda before, after: _moved_pattern(path, before, after, patterns))
+                     lambda before, after: _moved_patterns(path, before, after, patterns))
         return unit.src
     new = migrate_python(source, report, verify)
     try:

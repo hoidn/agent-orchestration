@@ -557,3 +557,42 @@ def test_loops_stay_when_their_rewrite_moves_a_pattern_a_module_matches_against_
     assert (fixture.read_text(encoding="utf-8"), named.read_text(encoding="utf-8"), other.read_text(encoding="utf-8"),
             {row["category"] for row in rows if row["path"] == str(fixture)}) == (
         header_only, NESTED_BINDER, NESTED_BINDER.replace("(defmodule probe)", "(defmodule other)"), {"pattern"})
+
+
+def test_a_header_a_module_substitutes_is_migrated_and_listed(tmp_path: Path) -> None:
+    fixture = _write(tmp_path / "fixtures" / "grow.orc", OLD_ORC)
+    _write(tmp_path / "test_targets.py", 'from pathlib import Path\n\n'
+           'SOURCE = (Path(__file__).parent / "fixtures/grow.orc").read_text()\n'
+           'OLDER = SOURCE.replace(\'(:target-dsl "2.38")\', \'(:target-dsl "2.37")\').replace(":lowering inline", "")\n')
+    report = tmp_path / "report.json"
+
+    _migrate("--report", report, tmp_path)
+
+    rows = json.loads(report.read_text(encoding="utf-8"))["hand_work"]
+    assert (fixture.read_text(encoding="utf-8") == NEW_ORC,
+            [(row["kind"], row["category"]) for row in rows if row["path"] == str(fixture)]) == (
+        True, [("literal", "pattern"), ("literal", "pattern")])
+
+
+def test_a_loop_whose_fn_is_not_last_is_listed(tmp_path: Path) -> None:
+    source = _source("(loop/recur :max 3 :state 0 (fn (s) (done s)) :on-exhausted 0)")
+    path = _write(tmp_path / "probe.orc", source)
+    report = tmp_path / "report.json"
+
+    _migrate("--report", report, path)
+
+    rows = json.loads(report.read_text(encoding="utf-8"))["hand_work"]
+    assert (path.read_text(encoding="utf-8"), [(row["kind"], row["category"]) for row in rows]) == (
+        source, [("loop", "malformed")])
+
+
+def test_a_balanced_header_outside_a_whole_module_is_left_and_listed(tmp_path: Path) -> None:
+    module = _write(tmp_path / "test_sample.py", _python_module(
+        'SOURCE = "\\n".join([\'(:target-dsl "2.35")\', "(defmodule probe)"])'))
+    before = module.read_text(encoding="utf-8")
+    report = tmp_path / "report.json"
+
+    _migrate("--report", report, module)
+
+    rows = json.loads(report.read_text(encoding="utf-8"))["hand_work"]
+    assert (module.read_text(encoding="utf-8"), [row["category"] for row in rows]) == (before, ["partial-source"])
