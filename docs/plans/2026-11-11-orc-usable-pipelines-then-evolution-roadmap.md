@@ -374,8 +374,19 @@ every removed test is listed with the code it covered".
      or a form; a `defproc` parameter of procedure-reference type forwarded
      through `let*` fails with `name_unknown`; reading a variant field on a
      `match` subject instead of the arm's binder passes the typechecker and
-     fails with `compiler_defect` (reported by a documentation probe, not yet
-     confirmed by a second agent).
+     fails with `compiler_defect` (confirmed by a second agent; the
+     variant-field fix branch does not change it).
+   - added 2026-11-13 (fourth batch, each confirmed by an independent probe
+     on `main`): a prompt declared with a missing `input_file` does not fail,
+     and the provider runs with no authored prompt (first in line with the
+     guard hole above: a paid call with no instruction); `defpath` silently
+     ignores unknown keywords; return guidance on a workflow, procedure or
+     function is checked and then discarded (an accepted form with no
+     effect); a `Bool` result accepts the strings "true" and "false";
+     `TimestampNs` is documented as a type and does not exist; a prompt
+     extern's path is checked only when the call runs, not at compile.
+     Not a defect, a spec correction: result guidance on a provider or
+     command effect is part of program identity (the specs said it was not).
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
