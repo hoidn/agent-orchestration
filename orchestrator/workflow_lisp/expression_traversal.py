@@ -166,8 +166,9 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     if isinstance(expr, ListMapExpr):
         return (expr.source_expr, expr.body_expr)
     if isinstance(expr, ListMapEffectExpr):
+        maximum = (expr.max_expr,) if expr.max_expr is not None else ()
         workspace = (expr.workspace_expr,) if expr.workspace_expr is not None else ()
-        return (expr.source_expr, *workspace, expr.body_expr)
+        return (expr.source_expr, *maximum, *workspace, expr.body_expr)
     if isinstance(expr, CompilerListNonemptyHeadExpr):
         return (expr.source_expr,)
     if isinstance(expr, PathJoinUnderExpr):
@@ -401,6 +402,11 @@ def map_expr(
             map_expr(workspace, on_name, bound=bound | {expr.binder_name}, on_free_callee=on_free_callee)
             if workspace is not None else None
         )
+        maximum = expr.max_expr if isinstance(expr, ListMapEffectExpr) else None
+        rewritten_max = (
+            map_expr(maximum, on_name, bound=bound, on_free_callee=on_free_callee)
+            if maximum is not None else None
+        )
         rewritten_body = map_expr(
             expr.body_expr,
             on_name,
@@ -411,13 +417,15 @@ def map_expr(
             rewritten_source is expr.source_expr
             and rewritten_body is expr.body_expr
             and rewritten_workspace is workspace
+            and rewritten_max is maximum
         ):
             return expr
         return replace(
             expr,
             source_expr=rewritten_source,
             body_expr=rewritten_body,
-            **({"workspace_expr": rewritten_workspace} if isinstance(expr, ListMapEffectExpr) else {}),
+            **({"workspace_expr": rewritten_workspace, "max_expr": rewritten_max}
+               if isinstance(expr, ListMapEffectExpr) else {}),
         )
     if isinstance(expr, MatchExpr):
         rewritten_subject = map_expr(expr.subject, on_name, bound=bound, on_free_callee=on_free_callee)

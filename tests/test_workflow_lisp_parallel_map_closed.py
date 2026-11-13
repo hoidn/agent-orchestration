@@ -262,10 +262,7 @@ def test_pure_nested_inline_helper_retains_checked_maps(tmp_path):
     '(let* ((copy repo)) (worker copy))',
     '(if true (worker repo) (worker repo))',
 ])
-def test_nested_inline_fix_preserves_authored_call_and_pure_argument_rules(tmp_path, body):
-    from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-
-    text = PURE_NESTED_INLINE.replace('(worker repo)', body)
-    with pytest.raises(LispFrontendCompileError) as error:
-        checked(tmp_path, text)
-    assert error.value.diagnostics[0].code == 'list_map_effect_body_unsupported'
+def test_nested_inline_bodies_of_any_shape_and_effectful_arguments_build(tmp_path, body):
+    # Surface coherence I1: only a body that holds a run reference keeps the one-call and pure-argument rules.
+    program = checked(tmp_path, PURE_NESTED_INLINE.replace('(worker repo)', body))
+    assert maps(program)

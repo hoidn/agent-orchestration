@@ -301,6 +301,8 @@ class ListMapEffectExpr:
     )
     parallel_count: int | None = field(default=None, metadata={"json_omit_if_none": True})
     workspace_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+    # A serial map's computed `:max`; None for a literal, so existing identities stay.
+    max_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
 
 
 @dataclass(frozen=True)
@@ -2583,7 +2585,12 @@ def _elaborate_list_map_effect(
             datum, target=session_state.target_dsl_version or "",
             form_path=form_path, raise_error=_raise_error,
         )
-    if parallel_options is None and (
+    computed_max = (
+        parallel_options is None and len(datum.items) == 5
+        and isinstance(datum.items[2], SyntaxKeyword) and datum.items[2].value == ":max"
+        and not isinstance(datum.items[3], (SyntaxInt, SyntaxKeyword))
+    )
+    if parallel_options is None and not computed_max and (
         len(datum.items) != 5
         or not isinstance(datum.items[2], SyntaxKeyword)
         or datum.items[2].value != ":max"
@@ -2600,7 +2607,7 @@ def _elaborate_list_map_effect(
         _raise_error(
             (
                 "`list/map-effect` requires `:max` followed by a positive integer "
-                f"literal; {limit_detail}"
+                f"literal or an `Int` expression; {limit_detail}"
             ),
             code="list_map_effect_max_invalid",
             span=datum.span,
@@ -2642,6 +2649,11 @@ def _elaborate_list_map_effect(
         procedure_names=procedure_names,
         session_state=session_state,
     )
+    max_expr = (
+        _elaborate(datum.items[3], form_path=form_path, bound_names=bound_names,
+                   procedure_names=procedure_names, session_state=session_state)
+        if computed_max else None
+    )
     body_expr = _elaborate(
         parallel_options[3] if parallel_options is not None else datum.items[4],
         form_path=form_path,
@@ -2652,7 +2664,11 @@ def _elaborate_list_map_effect(
     return ListMapEffectExpr(
         binder_name=binder.resolved_name,
         source_expr=source_expr,
-        max_iterations=parallel_options[0] if parallel_options is not None else datum.items[3].value,
+        max_iterations=(
+            parallel_options[0] if parallel_options is not None
+            else 0 if computed_max else datum.items[3].value
+        ),
+        max_expr=max_expr,
         body_expr=body_expr,
         source_item_type_ref=None,
         result_item_type_ref=None,

@@ -276,7 +276,8 @@ def test_real_pipeline_refuses_inline_impure_workspace(tmp_path):
     "(let* ((value repo)) (child value))",
     "(if true (child repo) (child repo))",
 ])
-def test_real_pipeline_keeps_authored_single_call_body_rule(body, tmp_path):
-    with pytest.raises(LispFrontendCompileError) as error:
-        compile_inline(tmp_path, body=body)
-    assert error.value.diagnostics[0].code == "list_map_effect_body_unsupported"
+def test_real_pipeline_accepts_a_body_of_any_shape(body, tmp_path):
+    # Surface coherence I1: only a body that holds a run reference keeps the one-call rule.
+    program = compile_inline(tmp_path, body=body)
+    assert isinstance(program.entry.typed_body.expr, ListMapEffectExpr)
+    assert program.entry.typed_body.type_ref.name == "List[String]"

@@ -869,6 +869,42 @@ def test_confined_site_in_a_list_map_effect_frame_is_refused(tmp_path, case):
     assert [row.code for row in refused.value.diagnostics] == ["run_ref_placement_invalid"]
 
 
+# Surface coherence I1: a map body is any expression, but one that holds a run reference stays one call.
+# Every new body shape that reaches a confined site is therefore refused, serial or parallel.
+NEW_SHAPE_BODIES = {
+    "let": "(let* ((n (bump x))) (call one :seed n :revision revision))",
+    "let-two-calls": "(let* ((a (call one :seed x :revision revision))) (call one :seed a :revision revision))",
+    "if": "(if (= x 1) (call one :seed x :revision revision) (call two :seed x :revision revision))",
+    "nested-map": "(list/length (list/map-effect ((y (list x))) :max 1 (call one :seed y :revision revision)))",
+    "procedure-call-plus-call": "(let* ((box (fetch x))) (call one :seed box.n :revision revision))",
+}
+MAP_HEADS = {
+    "serial": "(list/map-effect ((x (list 1 2))) :max 2 ",
+    "parallel": '(list/map-effect ((repo (list "a"))) :max 1 :parallel 1 :workspace repo (let* ((x 1)) ',
+}
+
+
+@pytest.mark.parametrize("mode", sorted(MAP_HEADS))
+@pytest.mark.parametrize("shape", sorted(NEW_SHAPE_BODIES))
+def test_new_map_body_shapes_reaching_a_confined_site_are_refused(tmp_path, shape, mode):
+    close = "))" if mode == "parallel" else ")"
+    with pytest.raises(LispFrontendCompileError) as refused:
+        _map_program(tmp_path, f"(let* ((xs {MAP_HEADS[mode]}{NEW_SHAPE_BODIES[shape]}{close})) 1)")
+
+    assert [row.code for row in refused.value.diagnostics] == ["list_map_effect_body_unsupported"]
+
+
+def test_parallel_helper_body_expanded_to_a_let_still_meets_ruling_p12(tmp_path, monkeypatch):
+    helper = (f"(defproc onei ((seed Int) (revision String)) -> Int :effects ((runs-ref controller::candidate-body)) "
+              f":lowering inline (let* ((child {RUN_REF})) (match child ((COMPLETED c) c.result.value) ((FAILED f) 0))))")
+    monkeypatch.setattr(sys.modules[__name__], "CONFINED", CONFINED.replace("EXTRA", "EXTRA " + helper))
+    with pytest.raises(LispFrontendCompileError) as refused:
+        _map_program(tmp_path, '(let* ((xs (list/map-effect ((repo (list "a"))) :max 1 :parallel 1 '
+                               ":workspace repo (onei 1 revision)))) 1)")
+
+    assert [row.code for row in refused.value.diagnostics] == ["run_ref_placement_invalid"]
+
+
 def test_path_site_through_a_serial_list_map_effect_call_is_still_admitted(tmp_path):
     typed = _map_program(tmp_path, "(let* ((xs (list/map-effect ((x (list 1 2))) :max 2 "
                                    "(call onep :seed x :revision revision)))) 1)")

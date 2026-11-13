@@ -66,6 +66,60 @@ def _is_pure_or_provisional_procedure_call(summary, *, context: TypecheckContext
     )
 
 
+def _typecheck_serial_map_max(expr, recurse):
+    """The serial map's budget: its literal, or its computed `:max`, which must be `Int`."""
+
+    if expr.max_expr is None:
+        return LiteralExpr(
+            value=expr.max_iterations, literal_kind="int", span=expr.span,
+            form_path=expr.form_path, expansion_stack=expr.expansion_stack,
+        )
+    typed_max = recurse(expr.max_expr)
+    if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
+        raise_error(
+            f"`list/map-effect :max` must be an `Int`; found `{_type_label(typed_max.type_ref)}`",
+            code="list_map_effect_max_invalid",
+            span=expr.max_expr.span,
+            form_path=expr.max_expr.form_path,
+            expansion_stack=expr.max_expr.expansion_stack,
+        )
+    return typed_max.expr
+
+
+def _check_run_ref_map_body(expr, typed_body):
+    """A map body that holds a run reference is exactly one call with pure arguments."""
+
+    from .conditionals import _is_helper_expanded
+    from .expression_traversal import iter_child_exprs
+    from .functions import _find_purity_violation
+
+    _check_map_effect_body(expr)
+    argument_children = iter_child_exprs(typed_body.expr)
+    if (expr.parallel_count is not None and expr.binding_identity is not None
+        and _is_helper_expanded(expr.body_expr)):
+        # The authored call's actuals were checked before its body expanded.
+        argument_children = ()
+    nested_effect = next(
+        (
+            violation
+            for child in argument_children
+            if (violation := _find_purity_violation(child)) is not None
+        ),
+        None,
+    )
+    if nested_effect is not None:
+        raise_error(
+            (
+                "`list/map-effect` call arguments must be pure; found "
+                f"effectful form `{nested_effect}`"
+            ),
+            code="list_map_effect_body_unsupported",
+            span=expr.body_expr.span,
+            form_path=expr.body_expr.form_path,
+            expansion_stack=expr.body_expr.expansion_stack,
+        )
+
+
 def _check_map_effect_body(expr):
     from .conditionals import _is_helper_expanded
     from .expressions import RunRefExpr
@@ -406,7 +460,7 @@ def typecheck_structural_value_expr(
                 form_path=expr.source_expr.form_path,
                 expansion_stack=expr.source_expr.expansion_stack,
             )
-        _check_map_effect_body(expr)
+        typed_max = _typecheck_serial_map_max(expr, recurse)
         body_env = {
             **value_env,
             expr.binder_name: typed_source.type_ref.item_type_ref,
@@ -427,34 +481,11 @@ def typecheck_structural_value_expr(
         if expr.parallel_count is not None:
             from .typecheck_agents import check_parallel_body
             check_parallel_body(expr, typed_body, context)
-        from .conditionals import _is_helper_expanded
-        from .expression_traversal import iter_child_exprs
-        from .functions import _find_purity_violation
-
-        argument_children = iter_child_exprs(typed_body.expr)
-        if (expr.parallel_count is not None and expr.binding_identity is not None
-            and _is_helper_expanded(expr.body_expr)):
-            # The authored call's actuals were checked before its body expanded.
-            argument_children = ()
-        nested_effect = next(
-            (
-                violation
-                for child in argument_children
-                if (violation := _find_purity_violation(child)) is not None
-            ),
-            None,
-        )
-        if nested_effect is not None:
-            raise_error(
-                (
-                    "`list/map-effect` call arguments must be pure; found "
-                    f"effectful form `{nested_effect}`"
-                ),
-                code="list_map_effect_body_unsupported",
-                span=expr.body_expr.span,
-                form_path=expr.body_expr.form_path,
-                expansion_stack=expr.body_expr.expansion_stack,
-            )
+        # Only a body that holds a run reference keeps the one-call shape
+        # (evaluated execution 1.2); any other body is any expression.
+        run_ref_body = effect_summary_contains_runs_ref(typed_body.effect_summary)
+        if run_ref_body:
+            _check_run_ref_map_body(expr, typed_body)
         result_type = ListTypeRef(
             name=f"List[{typed_body.type_ref.name}]",
             item_type_ref=typed_body.type_ref,
@@ -664,13 +695,7 @@ def typecheck_structural_value_expr(
             expansion_stack=expr.expansion_stack,
         )
         synthetic_loop = LoopRecurExpr(
-            max_iterations_expr=LiteralExpr(
-                value=expr.max_iterations,
-                literal_kind="int",
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            ),
+            max_iterations_expr=typed_max,
             initial_state_expr=LoopStateSeedExpr(
                 fields=(
                     LoopStateField(
@@ -707,14 +732,14 @@ def typecheck_structural_value_expr(
             expansion_stack=expr.expansion_stack,
             exhaustion_diagnostic_code="list_map_effect_cap_exceeded",
             single_iteration_effect_kinds=(
-                "provider",
-                "command",
-                "call",
-            ) + (("run_ref",)),
+                ("provider", "command", "call", "run_ref") if run_ref_body else None
+            ),
             effect_cardinality_diagnostic_code=(
                 "list_map_effect_body_unsupported"
             ),
-            operand_evaluation_order=(":max", ":state"),
+            # Written order: the source, then `:max` (an effect in a literal
+            # `:max` cannot exist, so existing programs keep their bindings).
+            operand_evaluation_order=(":state", ":max"),
         )
         _register_map_run_ref_types(type_env, context=context)
         return recurse(synthetic_loop, expected_type=result_type)
