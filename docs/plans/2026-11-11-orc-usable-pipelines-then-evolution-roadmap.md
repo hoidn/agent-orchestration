@@ -366,6 +366,16 @@ every removed test is listed with the code it covered".
      tests that assert it cannot be reached from a compile); a template-bound
      name in the first position of a list is never renamed by macro expansion
      (being closed with the loop-binder change).
+   - added 2026-11-13 (third batch): an inner binding that is not a procedure
+     reference does not hide an outer procedure reference of the same name
+     (`(let* ((g (proc-ref p))) (let* ((g 5)) (g 1)))` compiles and calls
+     `p`); the fix refuses source that compiles today, so it goes with the
+     one-target cut, beside refusing a `let-proc` local named like a function
+     or a form; a `defproc` parameter of procedure-reference type forwarded
+     through `let*` fails with `name_unknown`; reading a variant field on a
+     `match` subject instead of the arm's binder passes the typechecker and
+     fails with `compiler_defect` (reported by a documentation probe, not yet
+     confirmed by a second agent).
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
