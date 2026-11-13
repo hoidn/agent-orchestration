@@ -2,6 +2,9 @@
 
     PYTHONPATH=$PWD python experiments/long_horizon_seed/demo.py /tmp/lhs-tmp/demo [program [scenario]]
 
+Without a program it runs the three candidates. The two programs under `variants/` run when named;
+`roles_whole_run` needs a tree with change I1, named in `ORC_ROOT` (its orchestrator and tests are used).
+
 Each scenario is the list of answers the scripted `claude` gives, one per call in order (the fake CLI of
 `tests/agent_session_shims.py`, plus a `kill` answer that kills the orchestrator in the middle of the call).
 The stand-in task: `src/m1.txt` and `src/m2.txt` must both hold `ok`; that is its visible check
@@ -16,7 +19,7 @@ import shutil
 import subprocess
 import sys
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("ORC_ROOT") or Path(__file__).resolve().parents[2]).resolve()
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from tests.agent_session_shims import FAKE_CLAUDE, closed_path  # noqa: E402
@@ -67,6 +70,7 @@ MILESTONES = {  # per milestone: work, review; then the acceptance
     "kill-in-a-second-attempt": START + [work(m1="ok"), MET, work(m2="bad"), NOT_MET, KILL, work(m2="ok"), MET, MET],
 }
 PROGRAMS = {"staged": FLAT, "milestones": MILESTONES, "roles": MILESTONES}
+VARIANTS = {"roles_whole_run": MILESTONES, "roles_whole_run_cursor": MILESTONES}
 
 
 def orchestrator(world, *argv):
@@ -81,7 +85,8 @@ def steps(proc):
 
 
 def run(base, program, scenario):
-    world, answers = base / f"{program}-{scenario}", PROGRAMS[program][scenario]
+    world, answers = base / f"{program}-{scenario}", (PROGRAMS | VARIANTS)[program][scenario]
+    source = HERE / ("variants" if program in VARIANTS else "") / f"{program}.orc"
     shutil.rmtree(world, ignore_errors=True)
     (world / "repo").mkdir(parents=True)
     (world / "bin").mkdir()
@@ -94,7 +99,8 @@ def run(base, program, scenario):
     (world / "inputs.json").write_text(json.dumps({"task": "make src/m1.txt and src/m2.txt hold ok", "intent": "both files hold ok",
                                                   "repo": str(repo), "effort": "medium",
                                                   **dict.fromkeys(("planner", "coder", "reviewer"), "claude-haiku-5-5")}))
-    proc = orchestrator(world, "run", str(HERE / f"{program}.orc"), "--entry-workflow", f"{program}::run", "--source-root", str(HERE),
+    proc = orchestrator(world, "run", str(source), "--entry-workflow", f"{program}::run",
+                        "--source-root", str(source.parent), "--source-root", str(HERE),
                         "--provider-externs-file", str(HERE / "providers.json"),
                         "--command-boundaries-file", str(HERE / "commands.json"), "--input-file", str(world / "inputs.json"))
     print(f"\n== {program} / {scenario}: run exit {proc.returncode}")
@@ -116,5 +122,5 @@ def run(base, program, scenario):
 if __name__ == "__main__":
     base, wanted = Path(sys.argv[1]), sys.argv[2:]
     for program in wanted[:1] or PROGRAMS:
-        for scenario in wanted[1:2] or PROGRAMS[program]:
+        for scenario in wanted[1:2] or (PROGRAMS | VARIANTS)[program]:
             run(base, program, scenario)
