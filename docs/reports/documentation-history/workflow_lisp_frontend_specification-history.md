@@ -2436,3 +2436,173 @@ Current evaluated input documents preserve typed structured values under the
 flattened private boundaries retain their versioned import/type restrictions,
 including ambiguous-path refusal. They do not select an old executor or create
 an unresolved choice for the current runtime.
+
+## Part VII. Macro System (Former Text)
+
+The text below was replaced in the specification by task T4c of the [design corpus consolidation plan](../../plans/2026-11-13-workflow-lisp-design-corpus-consolidation-plan.md), which rewrote Part VII, §8.7 and §68 from the implemented macro contract. Its phase list names removed intermediates, and seven of its codes (`macro_unknown`, `macro_keyword_unknown`, `macro_keyword_missing`, `macro_hygiene_violation`, `macro_non_deterministic`, `macro_emits_untyped_hole`, `macro_weakens_contract`) were never emitted by the code.
+
+### 8.7 `defmacro` (Former Text)
+
+```lisp
+(defmacro with-phase ((ctx phase-name) &body body)
+  ...)
+```
+
+Macros operate on syntax objects, not raw strings.
+
+Macros may:
+
+- construct AST
+- introduce hygienic bindings
+- expand shorthand into typed forms
+- emit source-map frames
+- emit helper-composed `let*` bindings whose imported `defproc` calls remain
+  ordinary effect-visible workflow expressions
+
+Macros may not:
+
+- perform filesystem I/O
+- perform network I/O
+- depend on wall-clock time
+- call providers
+- run commands
+- weaken contracts
+- emit executable IR directly
+
+A macro expands to frontend AST, which must still pass validation. Imported
+helper-result locals introduced by that AST are typed and lowered as ordinary
+lexical bindings after hygiene rewriting; direct macro-owned variant proof
+remains deferred to ordinary helper bodies and `match`.
+
+## 32. Macro Phases
+
+Compiler phases:
+
+```text
+P0 read source
+P1 parse S-expressions into syntax objects
+P2 resolve module imports and macro bindings
+P3 expand macros hygienically
+P4 elaborate definitions and type signatures
+P5 type-check expressions/procedures/workflows
+P6 lower procedures to core workflow AST
+P7 shared workflow validation
+P8 semantic IR construction
+P9 executable IR construction
+```
+
+Macro expansion occurs before full typechecking, but macro outputs are
+typechecked.
+
+Typed macros may optionally declare expected shapes.
+
+## 33. Syntax Objects
+
+Every syntax object carries:
+
+- datum
+- source span
+- module context
+- hygiene marks
+- expansion stack
+
+Example internal shape:
+
+```python
+Syntax(
+    datum=List([...]),
+    span=Span(file="foo.orc", line=12, col=3),
+    module="neurips.implementation",
+    marks=[MacroMark("with-phase", id="...")],
+    expansion_stack=[...],
+)
+```
+
+## 34. Hygiene
+
+Macros introduce generated names with hygiene marks.
+
+Example:
+
+```lisp
+(with-phase ctx implementation
+  body)
+```
+
+may introduce:
+
+```text
+%phase_ctx_17
+%phase_state_17
+```
+
+but these names cannot capture or be captured by user names.
+
+Authors can request intentional capture only through explicit forms:
+
+```lisp
+(bind-as phase-ctx ...)
+```
+
+Initial version should avoid intentional capture.
+
+## 35. Macro Determinism
+
+Macros must be deterministic.
+
+Forbidden:
+
+- random
+- current time
+- filesystem reads
+- environment variables
+- network
+- provider calls
+- command execution
+
+Allowed:
+
+- syntax inspection
+- static module metadata
+- type descriptors
+- declared compile-time constants
+
+## 36. Macro Outputs
+
+Macros emit frontend AST only.
+
+Forbidden:
+
+- emitting semantic IR directly
+- emitting executable IR directly
+- bypassing source-map creation
+- bypassing validation
+
+## 37. Macro Error Model
+
+Macro expansion errors:
+
+- `macro_unknown`
+- `macro_arity_error`
+- `macro_keyword_unknown`
+- `macro_keyword_missing`
+- `macro_expansion_cycle`
+- `macro_hygiene_violation`
+- `macro_non_deterministic`
+- `macro_emits_invalid_ast`
+- `macro_emits_untyped_hole`
+- `macro_weakens_contract`
+- `macro_hidden_effect`
+
+### 68. Macro Errors (Former Text)
+
+- `macro_unknown`
+- `macro_arity_error`
+- `macro_keyword_unknown`
+- `macro_keyword_missing`
+- `macro_expansion_cycle`
+- `macro_hygiene_violation`
+- `macro_non_deterministic`
+- `macro_hidden_effect`
+- `macro_emits_invalid_ast`
+- `macro_weakens_contract`

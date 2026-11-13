@@ -1348,36 +1348,19 @@ ordering, representation and compatibility boundaries.
 
 Defines compile-time AST transformation.
 
+A macro is a top-level template whose calls are replaced by copies of its body
+before typechecking (Part VII):
+
 ```lisp
-(defmacro with-phase ((ctx phase-name) &body body)
-  ...)
+(defmacro my-let (binding &body body)
+  (let* (binding) (splice body)))
 ```
 
-Macros operate on syntax objects, not raw strings.
-
-Macros may:
-
-- construct AST
-- introduce hygienic bindings
-- expand shorthand into typed forms
-- emit source-map frames
-- emit helper-composed `let*` bindings whose imported `defproc` calls remain
-  ordinary effect-visible workflow expressions
-
-Macros may not:
-
-- perform filesystem I/O
-- perform network I/O
-- depend on wall-clock time
-- call providers
-- run commands
-- weaken contracts
-- emit executable IR directly
-
-A macro expands to frontend AST, which must still pass validation. Imported
-helper-result locals introduced by that AST are typed and lowered as ordinary
-lexical bindings after hygiene rewriting; direct macro-owned variant proof
-remains deferred to ordinary helper bodies and `match`.
+The expansion is checked like authored source. A macro performs no I/O, reads
+no clock, introduces no effect of its own, and at top level emits only
+definition forms. Diagnostics: `macro_arity_error`, `macro_reserved_name`,
+`macro_expansion_cycle`, `macro_emits_invalid_ast`, `macro_hidden_effect`
+(§32 to §37).
 
 ### 8.7.1 `defprompt` (Target 2.20)
 
@@ -3185,123 +3168,74 @@ Removed on 2026-11-12 (`backlog-drain`, with `std/drain` and `std/resource`; git
 
 ## 32. Macro Phases
 
-Compiler phases:
+A macro is a template over syntax; the former phase model, syntax-object sketch
+and error list are [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#part-vii-macro-system-former-text).
 
-```text
-P0 read source
-P1 parse S-expressions into syntax objects
-P2 resolve module imports and macro bindings
-P3 expand macros hygienically
-P4 elaborate definitions and type signatures
-P5 type-check expressions/procedures/workflows
-P6 lower procedures to core workflow AST
-P7 shared workflow validation
-P8 semantic IR construction
-P9 executable IR construction
-```
-
-Macro expansion occurs before full typechecking, but macro outputs are
-typechecked.
-
-Typed macros may optionally declare expected shapes.
+- `defmacro` is a module top-level form; anywhere else it refuses. A module's
+  macros are collected before its other forms expand, so a macro may be called
+  above its definition. Diagnostics: `top_level_definition_in_expression_position`.
+- A macro is not a value: its name outside the head of a call is unknown, and
+  nothing of a macro reaches the checked program. Diagnostics: `name_unknown`.
+- A macro is visible in another module when that module exports it and the
+  importer names it unqualified through `:only`, through an alias (`alias.m`) or
+  by module path (`mod/m`). A local macro wins over an `:only` import of the same
+  name. Ambiguity is refused by import resolution before expansion.
+  Diagnostics: `module_import_ambiguous`, `module_alias_duplicate`,
+  `module_export_missing`.
+- Expansion runs after import resolution and before elaboration and
+  typechecking, and repeats until no macro call is left; an expansion that
+  re-enters itself refuses. Diagnostics: `macro_expansion_cycle`.
+- Macro output is elaborated, typechecked and checked like authored source.
 
 ## 33. Syntax Objects
 
-Every syntax object carries:
-
-- datum
-- source span
-- module context
-- hygiene marks
-- expansion stack
-
-Example internal shape:
-
-```python
-Syntax(
-    datum=List([...]),
-    span=Span(file="foo.orc", line=12, col=3),
-    module="neurips.implementation",
-    marks=[MacroMark("with-phase", id="...")],
-    expansion_stack=[...],
-)
-```
+- Parameters are positional names, optionally ending in one `&rest` or `&body`
+  capture. A call with too few or too many arguments refuses. Diagnostics:
+  `macro_arity_error`, `frontend_parse_error`.
+- A template is syntax, not text. `(splice name)` inserts a `&rest` or `&body`
+  capture into the enclosing list and is refused anywhere else. Diagnostics:
+  `macro_emits_invalid_ast`.
+- Every expanded node keeps its source span, form path and expansion stack: one
+  frame per macro call, with the macro name, a deterministic expansion id
+  (`m0001`, ...), the call site and the definition site.
 
 ## 34. Hygiene
 
-Macros introduce generated names with hygiene marks.
-
-Example:
-
-```lisp
-(with-phase ctx implementation
-  body)
-```
-
-may introduce:
-
-```text
-%phase_ctx_17
-%phase_state_17
-```
-
-but these names cannot capture or be captured by user names.
-
-Authors can request intentional capture only through explicit forms:
-
-```lisp
-(bind-as phase-ctx ...)
-```
-
-Initial version should avoid intentional capture.
+- A name the template introduces is renamed for its expansion: it cannot
+  capture a caller's name or be captured by one. A name the caller passes in
+  keeps its identity. There is no intentional capture.
+- A binding the template introduces, such as a `let*` local bound to a call of
+  an imported `defproc`, is an ordinary lexical binding afterwards, field access
+  included. A macro creates no variant proof.
 
 ## 35. Macro Determinism
 
-Macros must be deterministic.
-
-Forbidden:
-
-- random
-- current time
-- filesystem reads
-- environment variables
-- network
-- provider calls
-- command execution
-
-Allowed:
-
-- syntax inspection
-- static module metadata
-- type descriptors
-- declared compile-time constants
+- Expansion evaluates nothing: no file, network, clock, environment, provider or
+  command access at compile time. The same source expands to the same forms and
+  expansion ids.
 
 ## 36. Macro Outputs
 
-Macros emit frontend AST only.
-
-Forbidden:
-
-- emitting semantic IR directly
-- emitting executable IR directly
-- bypassing source-map creation
-- bypassing validation
+- At top level an expansion yields one of `defenum`, `defpath`, `defproc`,
+  `defprompt`, `defrecord`, `defschema`, `defun`, `defunion`, `defworkflow`. An
+  empty form, a head that is not a symbol, `defmacro` or any other head refuses;
+  a removed head refuses as removed. Diagnostics: `macro_emits_invalid_ast`,
+  `form_retired`.
+- A provider or command effect written in the template is a hidden effect and
+  refuses. The same effect written by the caller and passed through the macro
+  is the caller's and is checked as usual, as is a call to an imported
+  `defproc` that the template introduces. Diagnostics: `macro_hidden_effect`.
+- A `defmacro` may not bind a reserved head (a registered form that is not
+  marked bindable; library heads such as `review-revise-loop` are bindable), and
+  a module may not define a macro twice. Diagnostics: `macro_reserved_name`.
 
 ## 37. Macro Error Model
 
-Macro expansion errors:
-
-- `macro_unknown`
-- `macro_arity_error`
-- `macro_keyword_unknown`
-- `macro_keyword_missing`
-- `macro_expansion_cycle`
-- `macro_hygiene_violation`
-- `macro_non_deterministic`
-- `macro_emits_invalid_ast`
-- `macro_emits_untyped_hole`
-- `macro_weakens_contract`
-- `macro_hidden_effect`
+- A failure in expanded code keeps the code of the check that found it and
+  carries the expansion stack; rendered, each frame shows its call site and then
+  its definition site, outermost first.
+- The macro codes are `macro_arity_error`, `macro_reserved_name`,
+  `macro_expansion_cycle`, `macro_emits_invalid_ast` and `macro_hidden_effect`.
 
 ## Part VIII. Compiler Intermediates
 
@@ -3522,16 +3456,11 @@ Checks:
 
 ## 68. Macro Errors
 
-- `macro_unknown`
 - `macro_arity_error`
-- `macro_keyword_unknown`
-- `macro_keyword_missing`
+- `macro_reserved_name`
 - `macro_expansion_cycle`
-- `macro_hygiene_violation`
-- `macro_non_deterministic`
-- `macro_hidden_effect`
 - `macro_emits_invalid_ast`
-- `macro_weakens_contract`
+- `macro_hidden_effect`
 
 ## 69. Type Errors
 
