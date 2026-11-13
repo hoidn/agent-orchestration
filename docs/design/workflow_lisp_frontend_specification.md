@@ -1364,83 +1364,98 @@ definition forms. Diagnostics: `macro_arity_error`, `macro_reserved_name`,
 
 ### 8.7.1 `defprompt` (Target 2.20)
 
-`defprompt` declares compile-time provider-prompt structure in a distinct
-module namespace:
-
 ```lisp
-(defprompt review-design-doc
+(defprompt review-doc
   (:fills
-    (target_doc :doc DesignDocPath)
-    (context_docs :value List[DesignDocPath])
-    (review_focus :text)
-    (checks_report :path WorkReportPath))
+    (target :doc DesignDocPath)
+    (context :value List[DesignDocPath])
+    (focus :text)
+    (report :path :out ReviewReportTarget))
   -> ReviewDecision
-  "Review the injected target with {review_focus}.
-   Context paths: {context_docs}
-   Checks report: {checks_report}")
+  "Review the injected document for {focus}. Context: {context}. Write the review to {report}.")
 ```
 
-The closed slot kinds are `:doc`, `:text`, `:value`, and `:path`. A slot may
-carry only the kind-compatible optional refinement; refinements narrow the
-existing renderer contract and never create conversions or new renderers. A
-declaration owns one optional `ReturnSpec`, defaulting to exact `Value`, and
-one deterministic brace-placeholder template.
+- A declaration has a name, slots in declaration order, an optional `-> T` with
+  the usual result guidance (exact `Value` when omitted, never inferred) and one
+  template string (one line: a string literal does not span lines; write `\n`).
+  Prompts form their own namespace and are exported and imported like other
+  definitions.
+- A prompt is not a value, procedure or `ProcRef`. Its one use is a direct, fully
+  applied application as the `:prompt` of `provider-result` (agent turns
+  included). A bare prompt name or `(proc-ref p)` there refuses; an application
+  anywhere else is an unknown call; `proc-ref` of a prompt is an unknown
+  reference. Diagnostics: `prompt_partial_application_unsupported`,
+  `procedure_call_unknown`, `proc_ref_unknown`.
+- Slot kinds are closed: `:doc`, `:text`, `:value`, `:path`. A kind says how the
+  fill is delivered, not what type it has: `:value` is not the type `Value` and
+  converts nothing. Each slot name is declared once. Diagnostics:
+  `prompt_slot_kind_unknown`, `prompt_slot_duplicate`.
+- Admissible fills: `:doc`, a workspace `relpath` path type that must exist;
+  `:text`, exact `String`; `:value`, a type the canonical-JSON renderer takes
+  (`String`, `Int`, `Float`, `Bool`, `Json`, `Value`, enums, paths, records,
+  unions, and lists of these); `:path`, any path type, rendered as one POSIX
+  path line. `Optional`, `Map` and other shapes have no renderer. Diagnostics:
+  `prompt_slot_type_mismatch`, `prompt_fill_renderer_unsupported`.
+- A refinement after the kind narrows the admissible fills, must itself be
+  admissible for the kind, and creates no conversion; `:text` takes none.
+  Diagnostics: `prompt_slot_refinement_invalid`.
+- A placeholder is `{name}`, the name matching `[A-Za-z_][A-Za-z0-9_-]*`; `{{`
+  and `}}` are literal braces, and any other brace, space inside braces or
+  expression is invalid. A placeholder names a declared slot. Every `:text`,
+  `:value` and `:path` slot appears at least once (repeats render the same
+  bytes); a `:doc` slot never appears inline. Diagnostics:
+  `prompt_placeholder_syntax_invalid`, `prompt_placeholder_undeclared`,
+  `prompt_placeholder_missing`, `prompt_doc_placeholder_forbidden`.
+- An application fills every slot exactly once, as `:slot expr`, in any order;
+  compilation normalizes the fills to declaration order. Diagnostics:
+  `prompt_fill_duplicate`, `prompt_fill_unknown`, `prompt_slot_undischarged`.
+- A fill expression is a literal, a lexical name or a field path from a lexical
+  name; bind anything else with `let*` first. Diagnostics:
+  `prompt_fill_identity_unsupported`.
+- The declaration owns the call's result type and everything the provider is
+  shown: a fragment-backed `provider-result` may not also write `:returns`,
+  `:inputs` or `:prompt-dependencies`. Diagnostics:
+  `prompt_return_redeclaration_forbidden`, `prompt_inputs_redeclaration_forbidden`,
+  `prompt_dependency_redeclaration_forbidden`.
+- Refusals come in this order: the declaration (syntax, slots, kinds,
+  refinements, placeholders), module resolution, fill names and completeness,
+  fill types and renderers, then the result.
 
-A prompt declaration is importable and exportable, but is not a runtime value,
-procedure, `ProcRef`, provider, or general callable. Its only use is one fully
-applied named application in `provider-result :prompt`. Q1 was introduced at
-target 2.20; every admitted source target includes it. Direct syntax/import
-analysis rejects pre-2.35 source or typed-program imports with
-`target_dsl_unsupported`, including transitive dependencies. Public CLI old-entry
-preflight retains `workflow_execution_target_retired` precedence; see
-[CLI admission](../../specs/cli.md#executable-support-boundary). The original Q1
-feature gate is retired.
+Delivery at run time is §22.6. The former text of §8.7.1 to §8.7.3 is
+[preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#87-prompt-sections-former-text).
+
 
 ### 8.7.2 Implemented `:path :out` Slots (Target 2.21)
 
-**Status:** accepted Q2 design after `Q2_DESIGN_SPEC_REAPPROVED` then
-`Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
-At introduction, the additive target-2.21 change preserved target-2.20 Q1
-source, compiled bytes and runtime behavior. That historical comparison does
-not admit pre-2.35 source/imports or old-profile resume.
+- `(slot :path :out [PathType])` makes a path slot an output position. `:out`
+  occurs once, directly after `:path`, and on no other kind. Diagnostics:
+  `prompt_output_position_syntax_invalid`, `prompt_output_position_kind_invalid`.
+- The refinement, if any, and the fill's type are each a workspace `relpath`
+  that need not exist. Diagnostics: `prompt_output_position_refinement_invalid`,
+  `prompt_output_position_fill_invalid`.
+- The slot and its fill are the only authority for the output: the call requires
+  one UTF-8 file, named after the slot, at the fill's path, which is the path the
+  prompt renders. No caller form overrides its name, path, type or requiredness.
+- After a successful attempt the output files are validated first, then the
+  structured result; if either fails, the attempt fails and nothing is
+  committed. An output name that is also an artifact name of the structured
+  result fails the attempt. Diagnostics: `missing_output_file`,
+  `invalid_output_path`, `duplicate_artifact_name`, `provider_result_invalid`.
 
-Q2 adds exactly one slot spelling:
-
-```lisp
-(report_target :path :out [PathType])
-```
-
-`:out` is an optional role modifier on `:path`, not a kind or type. It occurs at
-most once and immediately after `:path`; any other placement or kind is invalid.
-The optional refinement and the resolved fill type must each be a workspace
-`relpath` with `must_exist=false`. Every output-position slot still requires
-one exact named fill and at least one placeholder. The caller cannot override
-the output name, path, type, requiredness, postcondition, or delivery mode.
-
-The same declaration slot and fill own both POSIX path rendering and the
-required post-attempt file contract described in Section 22.7. A Q1-only
-application continues to use byte-identical
-`compiled_prompt_fragment_identity.v1`, including when compiled at target 2.21.
-An application containing `:out` uses
-`compiled_prompt_fragment_identity.v2`, whose slot projection adds
-`output_role=required_string_file` for `:out` and `output_role=none` otherwise.
-It also uses the closed `compiler_prompt_fragment_contract.v2` carrier defined
-in Section 22.7; Q1-only applications retain the exact v1 carrier bytes.
 
 ### 8.7.3 Implemented Prompt-Attempt Identity (Target 2.22)
 
-Q3 adds no authored form. Selecting target 2.22 for a direct fragment-backed
-`provider-result` requires the compiler/runtime carrier pair
-`workflow_prompt_attempt_identity.v1` and
-`compiler_prompt_attempt_binding_plan.v1`. The binding plan retains exact
-declaration order and existing dependency, renderer, refinement, and output
-role authority; runtime never reconstructs it from source. Targets 2.20 and
-2.21 omit the pair and preserve their existing bytes.
+- The compiler gives each application a fragment identity,
+  `compiled_prompt_fragment_identity.v1`, or `.v2` when a slot is an output
+  position: a `sha256:` digest of the declaration (qualified name, template,
+  slots, return) and the fill expressions, without runtime values, file
+  contents, provider policy or source positions. A malformed identity refuses.
+  Diagnostics: `compiled_prompt_fragment_identity_invalid`.
+- The evaluated runtime publishes no prompt snapshot and no prompt-attempt
+  identity record. A provider effect's resolved input binds its assembled prompt,
+  its prompt source and every file the prompt reads by digest
+  ([evaluated execution §7.2](workflow_lisp_evaluated_execution.md#72-the-resolved-input)).
 
-The detailed record, role, comparison, failure, report, and compatibility
-contract is `workflow_lisp_prompt_identity_diagnostics.md`. This target does
-not add prompt values, judgments, coordinated-provider fragments, or identity
-for arbitrary provider calls.
 
 ### 8.7.4 Implemented Phased Contract Delivery (Target 2.23)
 
@@ -2631,281 +2646,35 @@ behavior. YAML content injection remains a legacy authoring surface.
 
 ### 22.6 Workflow Lisp Prompt Fragments (Target 2.20)
 
-A fragment-backed provider call applies one resolved `defprompt` directly and
-fully:
+A fragment-backed call applies one `defprompt` (§8.7.1):
 
 ```lisp
 (provider-result providers.review
-  :prompt
-    (review-design-doc
-      :target_doc completed.target_doc
-      :context_docs completed.context_docs
-      :review_focus inputs.review_focus
-      :checks_report inputs.checks_report)
-  :model inputs.review_model
-  :effort inputs.review_effort
-  :timeout-sec 3600)
+  :prompt (review-doc :target t :context ctx :focus focus :report report_target)
+  :model review_model)
 ```
 
-Every declared slot appears exactly once as a named fill. Fill spelling order
-is not semantic; compilation normalizes bindings into declaration order.
-Unknown, duplicate, missing, partial, nested, or value-position applications
-fail closed. Fragment-backed calls do not admit parallel `:inputs`,
-`:prompt-dependencies`, or `:returns`: the declaration owns all
-provider-visible fills and the sole result contract. Extern-backed calls keep
-those existing forms unchanged.
+- `:text`, `:value` and `:path` fills are rendered into the template once per
+  attempt. `:doc` fills become required prompt dependencies, delivered as one
+  block prepended to the rendered template with the default instruction; a
+  fragment has no instruction or position of its own. The output-position block
+  and then the structured-result block are appended last.
+- The rows that render the output positions are the rows that validate them
+  (§8.7.2). The validated result, not the provider's prose, is the result.
 
-Delivery is kind-driven:
+The former text of §22.6 to §22.8 is
+[preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#226-prompt-sections-former-text).
 
-- `:doc` accepts a workspace `relpath` contract with `must_exist=true`, forbids
-  an inline placeholder, and lowers to the existing required/prepend immutable
-  prompt-dependency lane;
-- `:text` accepts exact `String` and renders raw UTF-8;
-- `:value` selects the unique canonical-JSON renderer by resolved static type;
-  target 2.20 adds recursive `List[T]` selection only when `T` is already a
-  supported scalar, enum, path, record, exact `Value`, or recursively supported
-  list type; and
-- `:path` selects the existing POSIX path-line renderer for a declared path
-  type.
-
-`Optional`, `Map`, union, reference, resource, schema, and other unsupported or
-ambiguous fragment renderer shapes remain unavailable. Rendering happens in
-the existing composition owner: render the base template, prepend the one
-canonical document dependency block, apply consumed artifacts, append the one
-generated output contract, and deliver through the existing provider
-transport. The validated output bundle remains result authority.
-
-Compilation produces one
-`compiled_prompt_fragment_identity.v1` canonical SHA-256 identity from the
-resolved declaration, exact template UTF-8, declaration-ordered slot contract,
-normalized prompt-owned `ReturnSpec`, and declaration-ordered closed
-literal/name/field-path fill identities. It excludes runtime values, file
-contents, provider policy, ambient state, source spans, host representations,
-and runtime-owned prompt contributions. The compiler also carries a closed
-`CompilerPromptFragmentContract` containing the exact template and selected
-renderers. Contract and identity remain paired through Core, Semantic IR,
-Executable IR, persisted provider configuration, and lexical checkpoints.
-
-Before provider preparation, the Semantic IR identity, Executable IR identity,
-compiler fragment-contract identity, and receiving-attempt identity must be
-present, well formed, and byte-equal. The attempt publishes the closed
-`workflow_prompt_fragment_snapshot.functional.v1` sibling under the existing
-schema-2.1 `record_kind=prompt_snapshot` allocator and terminal validator. Its
-dependency origin is `workflow_lisp_prompt_fragment`; zero-document fragments
-publish explicit empty dependency/injection rows. Prompt snapshot evidence is
-an audit view and is never execution, checkpoint, or resume authority.
-Compatible completed-result reuse follows the existing lexical-checkpoint and
-program-identity guards without provider re-execution; a changed fragment
-identity is program drift.
-
-The Q1-specific refusal codes are:
-
-- `prompt_slot_kind_unknown`, `prompt_slot_duplicate`,
-  `prompt_slot_refinement_invalid`;
-- `prompt_placeholder_syntax_invalid`, `prompt_placeholder_undeclared`,
-  `prompt_placeholder_missing`, `prompt_doc_placeholder_forbidden`;
-- `prompt_fill_duplicate`, `prompt_fill_unknown`,
-  `prompt_slot_undischarged`, `prompt_slot_type_mismatch`,
-  `prompt_fill_renderer_unsupported`, `prompt_fill_identity_unsupported`,
-  `prompt_partial_application_unsupported`;
-- `prompt_return_redeclaration_forbidden`,
-  `prompt_inputs_redeclaration_forbidden`,
-  `prompt_dependency_redeclaration_forbidden`;
-- `compiled_prompt_fragment_identity_missing`,
-  `compiled_prompt_fragment_identity_invalid`,
-  `compiled_prompt_fragment_identity_mismatch`.
-
-Q1 does not implement output-position slots (Q2), role-separated
-fragment/dependency/runtime/provider-policy identity or comparison diagnostics
-(Q3), or judgment views (Q4). It does not add residual prompt values, nested
-fragments, procedure/provider substitution, schema 2.2, or a second result,
-snapshot, or resume channel.
 
 ### 22.7 Implemented Prompt Output Positions (Target 2.21)
 
-**Status:** accepted Q2 design after `Q2_DESIGN_SPEC_REAPPROVED` then
-`Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
-The owning detailed contract is the implemented Q2 amendment in
-`workflow_lisp_prompt_calculus.md`.
+Output positions are §8.7.2; their delivery is §22.6.
 
-For every `(slot :path :out [PathType])`, the compiler projects one ordinary
-required-file row from the same slot and fill used by the prompt renderer:
-
-```json
-{
-  "name": "<slot-name>",
-  "path": "<resolved-fill-template>",
-  "type": "string",
-  "required": true
-}
-```
-
-The row is compiler-owned `expected_outputs` structure. Slot name supplies
-`name`; one compiler helper derives `path` from the typed fill's frozen Q1
-runtime binding source: exact `{"ref": R}` becomes `${R}`, and an admitted
-string literal remains that exact validated literal. Source spelling, host
-representation, and a second reconstruction are forbidden. No caller or
-parallel authoring form may replace either field. The static path contract must
-already be workspace-relative with `must_exist=false`. It owns resolution and
-containment before launch; the row requires one UTF-8 file at that resolved path
-after a successful provider attempt. Before launch, the typed value used by the
-POSIX path-line renderer and resolved `expected_outputs.path` must be the same
-canonical workspace-relative POSIX path. The fill expression is the primary
-source-map owner, with the slot declaration and `:out` token related.
-
-A fragment-backed `provider-result` also has exactly one prompt-owned structured
-result contract, so Q2 requires one generic output-contract composition rule:
-
-- `expected_outputs` may coexist with exactly one of `output_bundle` or
-  `variant_output`;
-- every other multi-contract combination, including any combination with
-  `select_variant_output`, remains invalid;
-- possible artifact names across the file rows and structured contract must be
-  disjoint before provider launch;
-- after path resolution, output-position destinations must be pairwise distinct
-  and disjoint from the resolved structured-result bundle path even when their
-  artifact names differ; aliasing reports both source owners before launch;
-- the provider prompt appends the expected-output block once and then the
-  structured-result block once;
-- post-attempt validation checks both in that same deterministic order and
-  exposes neither artifact mapping unless both pass; and
-- successful disjoint mappings merge into the one existing step-artifact map.
-
-Atomicity here is state atomicity: failure of either contract produces one
-failed step and commits neither mapping, but does not roll back files the
-provider wrote. Q2 creates no second artifact store, result channel, snapshot,
-or checkpoint surface.
-
-This is a generic correction to the existing owners:
-
-- `orchestrator/workflow/validation.py`: declared-output-contract admission,
-  `_validate_expected_outputs`, structured contract validation, and name
-  collision;
-- `orchestrator/workflow/prompting.py`:
-  `PromptComposer.apply_output_contract_prompt_suffix`, changed from selecting
-  one contract to rendering the admitted pair in fixed order;
-- `orchestrator/workflow/executor.py`:
-  `WorkflowExecutor._resolve_output_contract_paths` and
-  `_apply_expected_outputs_contract`, changed from selecting one validation
-  result to validating and atomically merging the admitted pair;
-- `orchestrator/contracts/output_contract.py`:
-  `validate_expected_outputs`, `validate_output_bundle`, and
-  `validate_variant_output_bundle`;
-- the then-existing Surface/Core/Semantic/Executable/persisted/runtime carriers
-  (removed by 2026-11-12; local git tag `archive/old-ir-stack-2026-11-12`) in
-  `orchestrator/workflow/surface_ast.py`,
-  `orchestrator/workflow/core_ast.py`,
-  `orchestrator/workflow/semantic_ir.py`,
-  `orchestrator/workflow/executable_ir.py`,
-  `orchestrator/workflow/persisted_surface.py`,
-  `orchestrator/workflow/lowering.py`,
-  `orchestrator/workflow/elaboration.py`, and
-  `orchestrator/workflow/runtime_step.py`; and
-- `orchestrator/workflow_lisp/prompts.py`,
-  `orchestrator/workflow_lisp/lowering/phase_scope.py`, and
-  `orchestrator/workflow_lisp/lowering/effects.py` for slot parsing,
-  typechecking, v2 identity, row projection, and provider-step installation.
-
-Current checked preparation preserves declaration-ordered rows, source
-provenance, fragment identity, structured results and effect identity inputs.
-The historical classic/WCC equality oracle does not restore a flat route.
-Q1-only fragments retain the exact v1 canonical identity projection and digest.
-Q2 fragments use `compiled_prompt_fragment_identity.v2`, adding per-slot
-`output_role` without otherwise changing Q1 ordering or identity fields.
-They also use `compiler_prompt_fragment_contract.v2`, which preserves the v1
-template/rendered-slot fields and adds declaration-ordered
-`output_positions` rows shaped as:
-
-```text
-(slot_name,
- output_role=required_string_file,
- expected_output={name, path, type=string, required=true})
-```
-
-The v2 carrier validator requires exact keys, unique names, and unique
-declaration-relative-order correspondence with the subset of rendered path
-slots whose normalized role is `required_string_file`; ordinary
-`output_role=none` path slots have no carrier row. Compiler construction proves
-every normalized output-role slot has exactly one row and feeds both the v2
-identity slot projection and the carrier from one normalized slot-role record
-rather than reconstructing either independently. The v1 carrier serialization remains
-byte-for-byte unchanged and admits no output-position rows. At every compiler,
-IR, persisted, checkpoint, and runtime boundary, the v2 pair validator compares
-the carrier's nested `expected_output` objects exactly and in order with the
-provider configuration's `expected_outputs`. Missing, extra, reordered, or
-contradictory row/identity/carrier carriage fails before provider preparation.
-A completed checkpoint is reusable only if both contracts committed at the
-original boundary; compatible reuse does not execute the provider again, while
-v1/v2 or projected-contract drift is program drift.
-
-The closed Q2 diagnostics are:
-
-- `prompt_output_position_syntax_invalid`;
-- `prompt_output_position_kind_invalid`;
-- `prompt_output_position_refinement_invalid`;
-- `prompt_output_position_fill_invalid`;
-- `prompt_output_position_contract_collision`;
-- `prompt_output_position_destination_collision`; and
-- `prompt_output_position_contract_mismatch`.
-
-Destination collision is a preparation-time, pre-provider diagnostic whenever
-runtime substitution is required; the compiler may emit it earlier only for
-statically proven literal collisions. Contract mismatch is validated at the
-carrier boundary where the mismatch becomes observable.
-
-Source target admission precedes slot checking. In admitted targets, slot-tail
-recognition detects `:out`; modifier multiplicity/placement and the `:path`
-requirement precede ordinary Q1
-duplicate-slot, kind, refinement, and placeholder checks on the normalized
-slot, followed by Q2 output-refinement validation. Module resolution then
-precedes application discharge; Q1 fill type/renderer checks precede Q2
-output-fill compatibility; return compatibility precedes collision and
-identity/carrier validation; runtime checks remain last. Slots without `:out`
-retain exact Q1 precedence and diagnostics.
-Runtime failures reuse existing expected-output violations such as
-`invalid_output_path` and `missing_output_file`, now with the Q2 fill and slot
-source subjects.
-
-The historical first consumer is retained as the source/type fixture
-`tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc`
-(its executable target is retired):
-`review-design-doc.review_report_target_path` becomes
-`:path :out ReviewReportTargetPath` and remains filled by
-`inputs.review_report_target_path`. The existing `ReviewDecision` remains
-structured authority. Consumer E2E must prove the filled path drives rendering
-and required-file validation, the returned review path is the intended same
-path, and clean/resumed execution performs one provider call. Q2 does not infer
-a general correspondence between output slots and arbitrary result fields.
-
-Q2 excludes arbitrary file content schemas, optional files, directories, globs,
-dynamic output names or sets, call-site overrides, implicit result-field
-mapping, new runtime channels, and any change to Q1-only identities or behavior.
 
 ### 22.8 Implemented Prompt-Attempt Identity And Diagnostics (Target 2.22)
 
-The unchanged Q1/Q2 compiled fragment digest supplies the `fragment_program`
-role. One declaration-ordered binding plan and the existing render,
-dependency, composition, and invocation owners supply four additional closed
-roles: `resolved_bindings`, `injected_dependencies`,
-`runtime_contributions`, and `provider_policy`. Q3 seals their digests with
-the exact prepared final-prompt digest and composition digest without
-persisting prompt bodies, values, dependency content, commands, environment,
-or ambient workspace identity.
+Not produced by the evaluated runtime; see §8.7.3.
 
-The successful order is allocate, render/snapshot/compose once, prepare the
-exact invocation and policy, validate and publish
-`workflow_prompt_fragment_snapshot.functional.v2`, then launch. Preparation
-failure publishes the closed Q3 failure record; publication failure leaves an
-ordinary allocation-only gap; neither launches a provider.
-
-The pure comparator reports unchanged context or fixed-order instruction,
-input, dependency-content, runtime-prelude, and provider-policy drift. Equal
-role digests with unequal final-prompt digests fail closed. JSON and Markdown
-reports expose the content-free result under additive `prompt_context`,
-including running attempts, but never become execution, result, checkpoint,
-retry, or resume authority. Target-2.20/2.21 compiler, checkpoint, runtime,
-functional-v1 evidence, provider, result, and completed-boundary reuse remain
-compatible.
 
 ### 22.9 Implemented Phased Contract Delivery (Target 2.23)
 
