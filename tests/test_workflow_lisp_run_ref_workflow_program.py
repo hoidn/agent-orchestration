@@ -894,13 +894,16 @@ def test_new_map_body_shapes_reaching_a_confined_site_are_refused(tmp_path, shap
     assert [row.code for row in refused.value.diagnostics] == ["list_map_effect_body_unsupported"]
 
 
-def test_parallel_helper_body_expanded_to_a_let_still_meets_ruling_p12(tmp_path, monkeypatch):
-    helper = (f"(defproc onei ((seed Int) (revision String)) -> Int :effects ((runs-ref controller::candidate-body)) "
-              f":lowering inline (let* ((child {RUN_REF})) (match child ((COMPLETED c) c.result.value) ((FAILED f) 0))))")
-    monkeypatch.setattr(sys.modules[__name__], "CONFINED", CONFINED.replace("EXTRA", "EXTRA " + helper))
+@pytest.mark.parametrize("mode", sorted(MAP_HEADS))
+@pytest.mark.parametrize("shape", sorted(NEW_SHAPE_BODIES))
+def test_ruling_p12_alone_refuses_every_new_body_shape(tmp_path, monkeypatch, shape, mode):
+    """P12 does not rely on the one-call rule: with that rule switched off it still refuses each shape."""
+    from orchestrator.workflow_lisp import typecheck_structural_values
+
+    monkeypatch.setattr(typecheck_structural_values, "_check_run_ref_map_body", lambda expr, typed_body: None)
+    close = "))" if mode == "parallel" else ")"
     with pytest.raises(LispFrontendCompileError) as refused:
-        _map_program(tmp_path, '(let* ((xs (list/map-effect ((repo (list "a"))) :max 1 :parallel 1 '
-                               ":workspace repo (onei 1 revision)))) 1)")
+        _map_program(tmp_path, f"(let* ((xs {MAP_HEADS[mode]}{NEW_SHAPE_BODIES[shape]}{close})) 1)")
 
     assert [row.code for row in refused.value.diagnostics] == ["run_ref_placement_invalid"]
 
