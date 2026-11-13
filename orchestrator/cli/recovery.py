@@ -36,6 +36,7 @@ class _Context:
     header: Mapping[str, Any] | None
     stored_program: Any
     snapshot: Any = None
+    plan: Any = None        # rebase.Plan, or the error that says why no plan can be accepted
 
     def command(self, *words: str) -> str:
         return COMMAND_INDENT + self.launcher + " " + " ".join(shlex.quote(word) for word in words) + state_dir_flag(self.state_dir)
@@ -62,6 +63,8 @@ def run_command(header: Mapping[str, Any], *, launcher: str, state_dir: str | No
         words += ["--input-file", recipe["input_file"]]
     for name, value in recipe["input_overrides"].items():
         words += ["--input", f"{name}={value}"]
+    if header.get("run_ref_root"):
+        words += ["--run-ref-root", header["run_ref_root"]]
     return launcher + " " + " ".join(shlex.quote(word) for word in words) + state_dir_flag(state_dir)
 
 
@@ -275,13 +278,77 @@ REFUSAL_CODES: tuple[str, ...] = tuple(_RECOVERY)
 
 def recovery_lines(exc: Exception, *, run_id: str, launcher: str, state_dir: str | None,
                    header: Mapping[str, Any] | None = None, stored_program: Any = None,
-                   snapshot: Any = None) -> list[str]:
-    """What changed and which command continues; one pointer line for any other code.
+                   snapshot: Any = None, plan: Any = None) -> list[str]:
+    """What changed and which command continues; one pointer line for any other code; then the plan, if any.
 
     `snapshot` is the run's memo, read after the refusal was decided; without it no step is called committed.
+    `plan` (computed read-only after the refusal was decided) is a `rebase.Plan` or the reason none can be accepted.
     """
     code = getattr(exc, "code", "resume_preflight_failed")
     recover = _RECOVERY.get(code)
     if recover is None:
         return [f"about [{code}]: see \"Diagnostics\" in the CLI contract (specs/cli.md)"]
-    return recover(exc, _Context(run_id, launcher, state_dir, header, stored_program, snapshot))
+    context = _Context(run_id, launcher, state_dir, header, stored_program, snapshot, plan)
+    return [*recover(exc, context), *([] if plan is None else plan_lines(context))]
+
+
+def plan_lines(context: _Context) -> list[str]:
+    """The plan an acceptance would apply, then its `plan token:` line; or why no plan can be accepted (design §6)."""
+    plan = context.plan
+    if isinstance(plan, Exception):
+        return _no_plan(plan, context)
+    costs = dict(plan.costs)
+    return [("if accepted, this run continues under the edited program:" if plan.record == "rebased"
+             else "if accepted, this run cancels from the changed step, as invalidate does:"),
+            *_plan_section("kept     ", [_id(entry) for entry in plan.kept], ""),
+            *_plan_section("cancelled", [_id(entry) + _cost(costs, _id(entry)) for entry in plan.cancelled],
+                           ", which run again when reached"),
+            *_plan_section("retired  ", [_id(entry) for entry in plan.retired], ", unfinished attempts that are dropped",
+                           noun="pending start"),
+            f"  the cut is at {plan.cut_reason}" if plan.cut is not None else "  the cut: none, nothing is cancelled",
+            "  asked again: " + (", ".join(plan.asked_again) or "none"),
+            *(f"  question {identity} cannot be answered until the edit is accepted or the source restored"
+              for identity in plan.waiting),
+            *_retried(plan),
+            "  runs first: " + (", ".join(plan.runs_first) or "nothing: the run is complete"),
+            *(["  files that cancelled steps wrote in the workspace are not rolled back"] if plan.cancelled else []),
+            f"plan token: {plan.token}"]
+
+
+def _cost(costs: Mapping[str, float | None], identity: str) -> str:
+    if identity not in costs:
+        return ""
+    return "   (provider cost unknown)" if costs[identity] is None else f"   (provider cost USD {costs[identity]:.6g})"
+
+
+def _retried(plan) -> list[str]:
+    """The unfinished command attempts the acceptance covers, each with why it is not proven clean."""
+    lines = [f"    {identity}: {reason}, with its files as they are {'now' if evidence is not None else 'when it is reached'}"
+             for (identity, _attempt, evidence), reason in zip(plan.unproven, plan.unproven_reasons)]
+    return ["  unfinished steps retried:" + ("" if lines else " none"), *_capped(lines)]
+
+
+def _id(entry) -> str:
+    return entry.data["identity"]
+
+
+def _capped(lines: list[str]) -> list[str]:
+    shown = lines[:_LISTED_COMMITS]
+    return [*shown, *([f"    ... and {len(lines) - len(shown)} more"] if len(lines) > len(shown) else [])]
+
+
+def _plan_section(title: str, items: list[str], suffix: str, *, noun: str = "committed step") -> list[str]:
+    if not items:
+        return [f"  {title} none"]
+    count = f"{len(items)} {noun}" + ("" if len(items) == 1 else "s")
+    return [f"  {title} {count}{suffix}:", *_capped([f"    {item}" for item in items])]
+
+
+def _no_plan(failure: Exception, context: _Context) -> list[str]:
+    """The reason no plan is shown; a committed `must_not_repeat` step names the command that lets it repeat."""
+    code = getattr(failure, "code", "resume_preflight_failed")
+    lines = [f"no plan can be accepted: [{code}] {failure}"]
+    if code == "lexical_restore_pending_effect_unsafe" and getattr(failure, "committed", False):
+        lines += ["to let that step run again, invalidate it explicitly; resume then prints a new plan:",
+                  context.command("invalidate", context.run_id, failure.identity)]
+    return lines

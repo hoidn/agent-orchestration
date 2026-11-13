@@ -114,8 +114,16 @@ def test_preflight_refusals_preserve_all_evidence(tmp_path, monkeypatch, caplog,
     def forbidden(*args, **kwargs):
         pytest.fail('memo was read before preflight finished')
     monkeypatch.setattr('orchestrator.workflow.evaluated.runtime.read_memo', forbidden)
-    if change in ('program', 'inputs', 'missing-request'):
+    if change in ('inputs', 'missing-request'):
         monkeypatch.setattr('orchestrator.cli.commands.evaluated.load_run_authority', forbidden)
+    if change == 'program':     # the plan printed with the refusal loads the stored program only once it is decided
+        from orchestrator.cli.commands import evaluated
+        load = evaluated.load_run_authority
+        def after_the_decision(*args, **kwargs):
+            if code not in caplog.text:
+                pytest.fail('stored authority was loaded before the refusal was decided')
+            return load(*args, **kwargs)
+        monkeypatch.setattr('orchestrator.cli.commands.evaluated.load_run_authority', after_the_decision)
     before = _snapshot(tmp_path / '.orchestrate')
     assert resume_workflow(run_root.name, repair=True) == 2
     assert code in caplog.text

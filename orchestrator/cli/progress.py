@@ -197,14 +197,15 @@ class TerminalReporter:
         return [*lines, f"        stderr: {stderr_path}", *(f"        | {line}" for line in _stderr_tail(tail))]
 
     def error(self, exc: Exception, *, header: Mapping[str, Any] | None = None, stored_program: Any = None,
-              snapshot: Any = None) -> None:
-        """Recovery lines after a refusal's (or failure's) logged `[code] message` line."""
+              snapshot: Any = None, plan: Any = None) -> None:
+        """Recovery lines after a refusal's (or failure's) logged `[code] message` line; then the plan, if any."""
         try:
             self.error_code = getattr(exc, "code", "resume_preflight_failed")
             if self._failure_shown and self.error_code not in REFUSAL_CODES:
                 return  # the failure block and the resume line already say what happened and what continues
             self._write("err", *recovery_lines(exc, run_id=self.run_id, launcher=self.launcher, state_dir=self.state_dir,
-                                               header=header, stored_program=stored_program, snapshot=snapshot))
+                                               header=header, stored_program=stored_program, snapshot=snapshot,
+                                               plan=plan))
         except Exception:
             self.err = None
 

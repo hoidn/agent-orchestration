@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from orchestrator.workflow.evaluated.attempts import _retry_baseline, attempt_paths, retry_change_admitted
-from orchestrator.workflow.evaluated.closure import ClosureEvidenceError, resolve_command_evidence
+from orchestrator.workflow.evaluated.closure import ClosureEvidenceError, PriorEvidenceUnbindable, resolve_command_evidence
 from orchestrator.workflow.evaluated.commands import (
     CommandPerformerError,
     CommandTemplateError,
@@ -27,7 +27,7 @@ from .authority import RunAuthority, workspace_result_locator, _require_retained
 from .agent_sessions import resolve_allocation_input
 from .agent_turns import AgentTurnError, resolve_turn_input, turn_dependencies, validate_turn
 from .agent_turn_recovery import classify_pending_turn, latest_failure
-from .declaration import declaration_subject, replay_parts
+from .declaration import declaration_subject, replay_parts, written_subject
 from .memo import MemoError
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
 from . import phased_providers
@@ -302,7 +302,8 @@ def _resolve_external_input(authority, node, operands, identity, workspace, read
         resolved = _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader,
             commit, result_path, launch_cwd)
     if commit is not None:      # comparison point 1: both callers of `_reuse_effect_commit` resolve here
-        return resolved, replay_parts(resolved.input_parts, commit.data["input_parts"], declaration_subject(node, resolved))
+        return resolved, replay_parts(resolved.input_parts, commit.data["input_parts"], declaration_subject(node, resolved),
+                                      written_subject(authority, commit, node, resolved))
     return resolved, dict(resolved.input_parts)
 
 
@@ -473,15 +474,17 @@ def _render_resolved_argv(node, operands, commit, identity, *, external, workspa
 
 
 def _resolve_command_implementation(node, workspace, identity, previous, destinations, launch_cwd=None):
+    """The command's declared files now. `previous` (a commit's or a retry baseline's evidence) adds the files it bound;
+    when the stable command changed so that it cannot be re-bound, the files are those of the current command, and
+    the comparison that follows sees the change (a commit diverges; a retry needs §8.1's acceptance)."""
+    def resolve(prior):
+        return resolve_command_evidence(node["command"], node["closure"], workspace_root=workspace, prior=prior,
+                                        destinations=destinations, launch_cwd=launch_cwd)
     try:
-        return resolve_command_evidence(
-            node["command"],
-            node["closure"],
-            workspace_root=workspace,
-            prior=previous,
-            destinations=destinations,
-            launch_cwd=launch_cwd,
-        )
+        try:
+            return resolve(previous)
+        except PriorEvidenceUnbindable:
+            return resolve(None)
     except ClosureEvidenceError as exc:
         if previous is not None and not _is_destination_overlap(exc):
             raise _EffectInputDiverged(

@@ -173,14 +173,15 @@ def retry_evaluated_cleanup(authority, snapshot, workspace):
     return cleanup_projection(authority, snapshot)
 
 
-def guard_confined_invalidation(authority, snapshot, from_offset):
-    """K8 starts at a confined child's first commit, before its parent has a result."""
+def guard_confined_invalidation(authority, snapshot, from_offset, *, prefix=None):
+    """K8 starts at a confined child's first commit, before its parent has a result. `prefix`: the caller's
+    `discover_prefix(authority, snapshot)`, when it has one (the planner)."""
     from .replay import discover_prefix
     from .machine import site_classes
     from .authority import load_run_authority
     from orchestrator.workflow.run_ref.ledger import load_attempt_ledger
     from orchestrator.workflow.run_ref.confinement import confined_attempt_layout
-    prefix = discover_prefix(authority, snapshot)
+    prefix = discover_prefix(authority, snapshot) if prefix is None else prefix
     for reached in prefix.frontiers:
         started = snapshot.latest_starts.get(reached.identity)
         if reached.node['class'] != 'run_ref' or started is None or started.offset < from_offset:

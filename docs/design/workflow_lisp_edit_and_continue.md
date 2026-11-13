@@ -362,7 +362,7 @@ give the condition below as the reason no plan can be accepted.
 | The recomputed plan is not the plan the token names (decision 9) | The refusal plain `resume` gives now, with what changed and the new plan (§6); `resume_preflight_failed` when nothing needs accepting |
 | A committed run reference, agent turn or phased provider call at or after the cut (K8) | `invalidate_coordinator_committed` |
 | An agent turn attempt at or after the cut that is pending, dispatched, advanced or of uncertain outcome | `invalidate_agent_session_advanced` |
-| A pending run-reference or phased-provider attempt that is not kept (§3); a kept one is recovered by K4 and the phased rules, unchanged | `resume_program_changed`: restore the source and resume, so the attempt settles under the program that started it |
+| A pending run-reference or phased-provider attempt that is not kept (§3); a kept one is recovered by K4 and the phased rules, unchanged | `resume_program_changed`: restore the source and resume, so the attempt settles under the program that started it. For an `invalidated` plan (an unchanged program) the range is C8's, which retires such a start as `invalidate` does |
 | A confined child with a committed effect whose parent attempt is at or after the cut | The refusal of `guard_confined_invalidation` |
 | An uncommitted attempt with a retry baseline, anywhere in the journal, at a site that declares `must_not_repeat` in the program that wrote the attempt or in the edited program (decision 3a) | `lexical_restore_pending_effect_unsafe` |
 | A commit in the cancelled range at a site that declares `must_not_repeat` in the program that wrote the commit or in the edited program (decision 3b) | `lexical_restore_pending_effect_unsafe`; the recovery lines print `invalidate RUN_ID 'IDENTITY'` |
@@ -491,7 +491,9 @@ sets field after an unfinished attempt's script was rewritten.
 10. Memo replay.
     - *Unchanged program, no divergence at a committed effect:* as today.
     - *Unchanged program, a committed effect diverged, no token:* refuse
-      `effect_input_diverged`, as today; the plan is printed with it.
+      `effect_input_diverged`, as today; the plan is printed with it. That
+      plan takes its cut from the refusal and does not compare the commits
+      before it again: the refusing replay compared each, in order.
     - *With a token:* compute the plan. For a candidate program it is §3's.
       For an unchanged program the cut is the first diverged commit and the
       record is the `invalidated` range that `invalidate` would write. Check
