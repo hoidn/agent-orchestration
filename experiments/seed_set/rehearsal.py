@@ -168,8 +168,9 @@ def build_order(s):
 
 def withheld_run(root, s):
     """implement-check-repair on a real check-withheld package, on its own ledger."""
-    w = layout.Study(s.runtime, root / "w-work", root / "w-pools", root / "w-results", s.tasks_file, s.criterion,
-                     root / "w-state")
+    outside = Path(load(root / "study.json")["outside"])  # the trees must be where the sandbox sees them
+    w = layout.Study(s.runtime, outside / "w-work", outside / "w-pools", root / "w-results", s.tasks_file,
+                     s.criterion, root / "w-state")
     tranche("smoke")
     spec = layout.load_arms(w)["implement_check_repair"]
     fix = ladder.fix_commits(layout.task_rows(w))[WITHHELD_TASK]
@@ -186,23 +187,28 @@ def main(argv=None):
     top.add_argument("root")
     top.add_argument("--calibration-tasks", type=int, default=ladder.CALIBRATION_TASKS)
     top.add_argument("--in-runtime", action="store_true", help=argparse.SUPPRESS)
+    top.add_argument("--withheld-only", action="store_true", help="only the check-withheld launch")
     a = top.parse_args(argv)
     root = Path(a.root).resolve()
     if not a.in_runtime:  # set up, then run the stages from the runtime's own modules
         s = setup(root)
         try:
             subprocess.run([sys.executable, "-m", "experiments.seed_set.rehearsal", str(root), "--in-runtime",
-                            "--calibration-tasks", str(a.calibration_tasks)], cwd=s.runtime, check=True,
+                            "--calibration-tasks", str(a.calibration_tasks)] + ["--withheld-only"] * a.withheld_only,
+                           cwd=s.runtime, check=True,
                            env={**os.environ, "PYTHONPATH": str(s.runtime)})
         finally:
             outside = Path(load(root / "study.json")["outside"])
             open_up(outside)
             shutil.rmtree(outside)
         return
-    stages(root, study_at(root), a.calibration_tasks)
+    stages(root, study_at(root), a.calibration_tasks, a.withheld_only)
 
 
-def stages(root, s, count):
+def stages(root, s, count, withheld_only=False):
+    if withheld_only:  # the separate check-withheld launch alone, on its own ledger
+        dump(root / "withheld-run.json", withheld_run(root, s))
+        return
     rules.record_freeze(s)
     out = {"smoke_check": smoke(s)}
     tranche("redraw")
