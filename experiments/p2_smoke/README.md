@@ -243,3 +243,13 @@ when every check holds; `fail` naming the checks that do not. The readout also
 checks the recorded pins again: fixture, program copy (recorded and on disk),
 price table, the runtime commit against `P2SMOKE_RUNTIME_COMMIT`, and for a
 real run the CLI version, a clean runtime and the kit inside it.
+
+## Result (2026-11-13)
+
+The tranche ran once; the record is in the [Phase 2 plan](../../docs/plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md)'s
+ledger. Five calls, USD 0.022. Nine of the ten checks hold; the verdict is `fail` on the isolation check
+alone, because `criterion.json`'s `builtin_agents` lacks `web-fetch`, a built-in agent of CLI 2.1.323, and
+the rehearsal stand-in does not emit the real CLI's agent list. The kit is left as it ran (its manifest
+digest is the ledger's); a later run needs that list corrected from a real init event first, under a new
+ledger row.
+

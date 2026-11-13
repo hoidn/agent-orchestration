@@ -627,7 +627,10 @@ is manual. Phase plans are linked here as they start:
   Sessions comparison ran under the budget of decision 10 (16 calls, USD 0.33): outcome
   Retire, by cost (the session variant cost 1.74 and 1.38 times the plain baseline). The
   owner keeps Agent Sessions (decision 11): its value is the workflow patterns it allows, which
-  the comparison did not measure. The live best-of-N smoke is not approved.
+  the comparison did not measure. The live best-of-N smoke ran once on 2026-11-13 under the coordinator's
+  delegated approval (5 `claude-haiku-5-5` calls, USD 0.022): the parallel map, the kill mid-map, the resume and
+  the metering behaved as specified (nine of ten checks); the frozen verdict is fail on the isolation check,
+  because the criterion's list of the CLI's built-in agents was incomplete (the plan's ledger has the detail).
 - Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
   3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; its first task proves the design's open claims before any feature code.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
