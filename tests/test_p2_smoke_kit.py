@@ -27,6 +27,7 @@ NO_PROVIDER = REPO / "experiments" / "thread_m" / "no_provider"
 WRAPPER_FLAGS = ["--setting-sources", "project", "--strict-mcp-config", "--disable-slash-commands",
                  "--max-budget-usd", "0.5"]
 SOURCE = "experiments/orc_vs_single_call/workflows/best_of_n.orc"
+PINNED_CLI = json.loads((KIT / "criterion.json").read_text())["cli_version"]
 
 
 def _manifest(kit: Path, regenerate: bool = False) -> str:
@@ -111,18 +112,55 @@ def _runtime(tmp: Path, edit=None, *, commit_edit: bool = False) -> Path:
     return runtime
 
 
-def _flip_to_real(results: Path) -> None:
-    """Constructed results: the rehearsal's records with `rehearsal` false, so the readout gives a verdict."""
+def _probe(tmp: Path, *edits: tuple[str, str]) -> Path:
+    """A copy of the kit's stand-in (marker line kept) with `edits` applied; returns its directory."""
+    probe = tmp / "probe"
+    probe.mkdir(exist_ok=True)
+    text = (KIT / "rehearsal" / "claude").read_text()
+    for old, new in edits:
+        assert text.count(old) == 1, old
+        text = text.replace(old, new)
+    (probe / "claude").write_text(text)
+    (probe / "claude").chmod(0o700)
+    return probe
+
+
+def _fake_cli(tmp: Path, version: str) -> Path:
+    """A closed-PATH directory whose `claude` prints `version` and logs anything else (no marker line)."""
+    bin_dir = tmp / "fake-cli"
+    bin_dir.mkdir(exist_ok=True)
+    (bin_dir / "claude").write_text(f'#!/bin/sh\n[ "$1" = --version ] && {{ echo "{version} (Claude Code)"; exit 0; }}\n'
+                                    f'echo "$@" >> "{tmp}/fake-cli-ran"\n')
+    (bin_dir / "claude").chmod(0o700)
+    return bin_dir
+
+
+def _forge_real(results: Path, source: Path) -> None:
+    """Constructed results: a copy of `source`'s rehearsal records made to look like a real run in every field the
+    stand-in leaves (the flag, each launch's executed binary, the CLI version, each init event), so the readout
+    gives a verdict. The records are repointed at the copy, so edits to its attempts are what the readout reads."""
     for record in results.glob("smoke*/smoke.json"):
-        meta = json.loads(record.read_text())
-        meta["rehearsal"] = False
+        meta = json.loads(record.read_text().replace(str(source), str(results)))
+        meta.update(rehearsal=False, claude_version=f"{PINNED_CLI} (Claude Code)")
+        for entry in meta["launches"]:
+            entry["standin"] = False
+            stdout = Path(entry["bundle"]).parent / "stdout.txt"
+            if stdout.exists():
+                stdout.write_text(stdout.read_text().replace('"claude_code_version": "0.0.0"',
+                                                             f'"claude_code_version": "{PINNED_CLI}"'))
         record.write_text(json.dumps(meta))
+
+
+def _remove(path: Path) -> None:
+    """rmtree, after giving back write permission (the launcher makes each slot's bin/ read-only)."""
+    subprocess.run(["chmod", "-R", "u+rwx", str(path)], check=False)
+    shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest.fixture
 def tmp(tmp_path) -> Path:
     yield tmp_path
-    shutil.rmtree(tmp_path, ignore_errors=True)
+    _remove(tmp_path)
 
 
 @pytest.fixture(scope="module")
@@ -131,7 +169,7 @@ def rehearsal(tmp_path_factory) -> Path:
     launched = launch(tmp)
     assert launched.returncode == 0, launched.stderr
     yield tmp
-    shutil.rmtree(tmp, ignore_errors=True)
+    _remove(tmp)
 
 
 # --- refusals before anything is launched ---
@@ -186,8 +224,20 @@ def test_launcher_refuses_a_missing_runtime(tmp):
 
 def test_paid_run_refuses_a_runtime_with_uncommitted_changes(tmp):
     runtime = _runtime(tmp, lambda runtime: (runtime / "orchestrator" / "__init__.py").write_text("# changed\n"))
-    launched = launch(tmp, runtime=runtime, rehearsal=False, authorized=True, path=(_standin_bin(tmp),))
+    launched = launch(tmp, runtime=runtime, rehearsal=False, authorized=True, path=(_fake_cli(tmp, PINNED_CLI),))
     assert refused(launched, "uncommitted changes under orchestrator/") and nothing_launched(tmp), launched.stderr
+    assert not (tmp / "fake-cli-ran").exists()
+
+
+def test_paid_run_refuses_a_cli_other_than_the_pinned_version(tmp):
+    launched = launch(tmp, rehearsal=False, authorized=True, path=(_fake_cli(tmp, "2.1.322"),))
+    assert refused(launched, f"not the pinned {PINNED_CLI}") and nothing_launched(tmp), launched.stderr
+    assert not (tmp / "fake-cli-ran").exists()
+
+
+def test_paid_run_refuses_a_cli_that_is_a_rehearsal_stand_in(tmp):
+    launched = launch(tmp, rehearsal=False, authorized=True, path=(_standin_bin(tmp),))
+    assert refused(launched, "is a rehearsal stand-in") and nothing_launched(tmp), launched.stderr
 
 
 def test_launcher_refuses_inside_a_smoke(tmp):
@@ -297,6 +347,23 @@ def test_the_held_coders_never_reached_the_cli(rehearsal):
     assert meta["usage"]["run"]["unknown_attempts"] == 2
 
 
+def test_the_slot_bin_is_read_only(rehearsal):
+    bin_dir = rehearsal / "results" / "smoke" / "bin"
+    assert [path.name for path in (bin_dir, *bin_dir.iterdir()) if path.stat().st_mode & 0o222] == []
+
+
+def test_the_program_copy_binds_a_ten_minute_call_timeout(rehearsal):
+    import re
+    copy = (rehearsal / "results" / "smoke" / "workspace" / "workflows" / "best_of_n.orc").read_text()
+    assert set(re.findall(r":timeout-sec\s+([^\s()]+)", copy)) == {"600"}
+
+
+def test_a_retry_with_another_cli_than_the_first_slot_ran_is_refused(rehearsal):
+    again = launch(rehearsal, P2SMOKE_INFRA_RETRY="other cli", P2SMOKE_REHEARSAL_STANDINS=str(_probe(rehearsal)))
+    assert refused(again, "the first slot ran"), again.stderr
+    assert not (rehearsal / "results" / "smoke-retry").exists()
+
+
 def test_readout_gives_no_verdict_on_a_rehearsal(rehearsal):
     shown = readout(rehearsal / "results")
     found = json.loads(shown.stdout)
@@ -319,11 +386,34 @@ def test_a_retry_of_a_valid_observation_is_refused(rehearsal):
 # --- the readout on constructed results ---
 
 @pytest.fixture
+def copied(rehearsal, tmp) -> Path:
+    results = tmp / "results"
+    shutil.copytree(rehearsal / "results", results, symlinks=True)
+    for record in results.glob("smoke*/smoke.json"):
+        record.write_text(record.read_text().replace(str(rehearsal / "results"), str(results)))
+    return results
+
+
+@pytest.fixture
 def real(rehearsal, tmp) -> Path:
     results = tmp / "results"
     shutil.copytree(rehearsal / "results", results, symlinks=True)
-    _flip_to_real(results)
+    _forge_real(results, rehearsal / "results")
     return results
+
+
+def test_flipping_the_rehearsal_flag_alone_gets_no_verdict(copied):
+    record = copied / "smoke" / "smoke.json"
+    record.write_text(json.dumps({**json.loads(record.read_text()), "rehearsal": False}))
+    shown = readout(copied)
+    assert shown.returncode == 2 and "stand-in" in shown.stderr, shown.stderr
+
+
+def test_a_real_run_marked_as_a_rehearsal_is_refused(real):
+    record = real / "smoke" / "smoke.json"
+    record.write_text(json.dumps({**json.loads(record.read_text()), "rehearsal": True}))
+    shown = readout(real)
+    assert shown.returncode == 2 and "records disagree" in shown.stderr, shown.stderr
 
 
 def _verdict(results: Path) -> dict:
@@ -360,28 +450,86 @@ def _launched_attempt(results: Path, index: int = 0) -> Path:
     return _run_root(results) / "effects" / bundle.parent.parent.name / bundle.parent.name
 
 
-def _repoint(results: Path, rehearsal: Path) -> None:
-    """Make the copy's records name the copy, so edits to its attempts are what the readout reads."""
-    for record in results.glob("smoke*/smoke.json"):
-        record.write_text(record.read_text().replace(str(rehearsal / "results"), str(results)))
+def _edit_record(results: Path, edit, slot: str = "smoke") -> None:
+    record = results / slot / "smoke.json"
+    meta = json.loads(record.read_text())
+    edit(meta)
+    record.write_text(json.dumps(meta))
 
 
-def test_readout_does_not_pass_a_missing_usage_file(real, rehearsal):
-    _repoint(real, rehearsal)
+def test_readout_does_not_pass_a_missing_usage_file(real):
     (_launched_attempt(real) / "usage.json").unlink()
     found = _verdict(real)
     assert found["verdict"] == "undetermined" and any("usage not reported" in p for p in found["reasons"]), found
     assert found["checks"]["usage_recorded"] is False
 
 
-def test_readout_does_not_pass_another_model(real, rehearsal):
-    _repoint(real, rehearsal)
+def test_readout_fails_another_model(real):
     usage = _launched_attempt(real, 4) / "usage.json"
     value = json.loads(usage.read_text())
     value["rows"][0]["model"] = "claude-sonnet-5-5"
     usage.write_text(json.dumps(value))
     found = _verdict(real)
-    assert found["verdict"] == "undetermined" and any("another model" in p for p in found["reasons"]), found
+    assert (found["verdict"], found["checks"]["isolation"]) == ("fail", False), found
+    assert any("another model" in p for p in found["reasons"]), found
+
+
+@pytest.mark.parametrize("committed, held", [(1, 2), (3, 1), (2, 1), (0, 4)])
+def test_readout_does_not_accept_a_kill_other_than_the_planned_one(real, committed, held):
+    def edit(meta):
+        kill = meta["kill"]
+        coders = sorted(meta["committed_after"])[:4]
+        kill["committed_before"] = coders[:committed]
+        kill["held"] = (kill["held"] + [f"/nonexistent/held-{n}/result.json" for n in range(4)])[:held]
+    _edit_record(real, edit)
+    found = _verdict(real)
+    assert (found["verdict"], found["checks"]["stopped_mid_map"]) == ("undetermined", False), found
+
+
+def test_no_retry_after_a_kill_that_failed(real):
+    def edit(meta):
+        meta["kill"]["committed_before"] = meta["kill"]["committed_before"][:1]
+        meta["resume_exit"] = 1                       # not completed, so only the failed kill can refuse it
+    _edit_record(real, edit)
+    checked = readout(real, "--retry-check")
+    assert checked.returncode == 4 and json.loads(checked.stdout)["killed_as_planned"] is False, checked.stdout
+
+
+def test_no_retry_of_a_run_that_completed(real):
+    stdout = _launched_attempt(real, 0) / "stdout.txt"           # an infrastructure problem: version drift
+    stdout.write_text(stdout.read_text().replace(f'"claude_code_version": "{PINNED_CLI}"', '"claude_code_version": "9.9.9"'))
+    found = _verdict(real)
+    checked = readout(real, "--retry-check")
+    assert (found["verdict"], found["checks"]["completed"], checked.returncode) == ("undetermined", True, 4), checked.stdout
+
+
+def test_readout_fails_a_held_attempt_that_has_usage(real):
+    held = Path(json.loads((real / "smoke" / "smoke.json").read_text())["kill"]["held"][0]).parent
+    shutil.copy2(_launched_attempt(real) / "usage.json", held / "usage.json")
+    found = _verdict(real)
+    assert (found["verdict"], found["checks"]["held_never_launched"]) == ("fail", False), found
+
+
+def test_a_wrapper_spend_refusal_reads_as_fail(real):
+    judge = _launched_attempt(real, 4)
+    for name in ("stdout.txt", "usage.json"):
+        (judge / name).unlink()
+    _edit_record(real, lambda meta: meta["launches"][4].update(refused=True))
+    (real / "smoke" / "refused-calls.log").write_text("spend: launch-5 refused\n")
+    found = _verdict(real)
+    assert (found["verdict"], found["checks"]["no_cost_stop"], found["infrastructure"]) == ("fail", False, []), found
+
+
+@pytest.mark.parametrize("what", ["program", "price_table", "kit_in_runtime"])
+def test_readout_does_not_pass_a_run_off_the_pinned_runtime(real, what):
+    if what == "program":
+        copy = real / "smoke" / "workspace" / "workflows" / "best_of_n.orc"
+        copy.write_text(copy.read_text() + ";\n")
+    else:
+        _edit_record(real, lambda meta: meta.update({"price_table_sha256": "0" * 64} if what == "price_table"
+                                                     else {"kit_in_runtime": False}))
+    found = _verdict(real)
+    assert found["verdict"] == "undetermined", found
 
 
 def test_readout_fails_a_cost_over_the_ceiling(real):
@@ -410,7 +558,7 @@ def retried(tmp_path_factory) -> Path:
     retry = launch(tmp, P2SMOKE_INFRA_RETRY="gamma: API error")
     assert retry.returncode == 0, retry.stderr
     yield tmp
-    shutil.rmtree(tmp, ignore_errors=True)
+    _remove(tmp)
 
 
 def test_an_infrastructure_failure_gets_one_retry_by_resume_and_no_second(retried):
@@ -424,9 +572,69 @@ def test_an_infrastructure_failure_gets_one_retry_by_resume_and_no_second(retrie
 def test_the_readout_uses_the_retry_and_names_the_attempt_it_replaced(retried, tmp):
     results = tmp / "results"
     shutil.copytree(retried / "results", results, symlinks=True)
-    _flip_to_real(results)
+    _forge_real(results, retried / "results")
     found = _verdict(results)
     assert (found["verdict"], found["attempt_used"], len(found["facts"]["replaced_attempts"])) == ("pass", "retry", 1), found
+
+
+# --- review B1: a retry never erases evidence ---
+
+ISOLATION_PROBE = ('"general-purpose", "Plan", "statusline-setup"]', '"general-purpose", "Plan", "statusline-setup", "developer"]')
+
+
+def test_b1_a_completed_run_with_an_isolation_failure_gets_no_retry_and_reads_fail(tmp):
+    """The reviewer's case: every init event lists a user agent; the first attempt completes."""
+    probe = _probe(tmp, ISOLATION_PROBE)
+    first = launch(tmp, P2SMOKE_REHEARSAL_STANDINS=str(probe))
+    assert first.returncode == 0, first.stderr
+    checked = readout(tmp / "results", "--retry-check")
+    retry = launch(tmp, P2SMOKE_REHEARSAL_STANDINS=str(probe), P2SMOKE_INFRA_RETRY="isolation")
+    assert checked.returncode == 4 and refused(retry, "not an infrastructure failure"), checked.stdout + retry.stderr
+    assert len(calls(tmp)) == 5 and not (tmp / "results" / "smoke-retry").exists()
+    results = tmp / "copy"
+    shutil.copytree(tmp / "results", results, symlinks=True)
+    _forge_real(results, tmp / "results")
+    found = _verdict(results)
+    assert (found["verdict"], found["checks"]["isolation"]) == ("fail", False), found
+
+
+def test_b1_a_retry_keeps_the_problem_of_a_sibling_it_did_not_dispatch_again(tmp):
+    """gamma fails with an API error on resume and delta succeeds with a drifted CLI version; the retry
+    dispatches gamma and the judge again, and delta's problem stays."""
+    probe = _probe(tmp, ('"agents": agents, "claude_code_version": "0.0.0"}]',
+                         '"agents": agents, "claude_code_version": "9.9.9" if Path.cwd().name == "delta" else "0.0.0"}]'))
+    (tmp / "home" / ".claude").mkdir(parents=True)
+    (tmp / "home" / ".claude" / "fail-gamma").touch()
+    assert launch(tmp, P2SMOKE_REHEARSAL_STANDINS=str(probe)).returncode == 0
+    retry = launch(tmp, P2SMOKE_REHEARSAL_STANDINS=str(probe), P2SMOKE_INFRA_RETRY="gamma: API error")
+    assert retry.returncode == 0, retry.stderr
+    results = tmp / "copy"
+    shutil.copytree(tmp / "results", results, symlinks=True)
+    _forge_real(results, tmp / "results")
+    found = _verdict(results)
+    assert found["verdict"] == "undetermined" and len(found["facts"]["replaced_attempts"]) == 1, found
+    assert any("claude_code_version" in problem for problem in found["infrastructure"]), found
+
+
+# --- review M1: no call outlives the launcher ---
+
+def test_a_call_in_flight_when_the_run_stops_is_terminated_and_recorded(tmp):
+    """alpha fails at once, beta is still running: the driver stops the run, and the launcher terminates beta."""
+    probe = _probe(tmp, ("sys.stdin.read()\n", "sys.stdin.read()\nif Path.cwd().name == 'beta':\n"
+                                                "    __import__('time').sleep(60)\n"
+                                                "    (home / 'slept-beta').touch()\n"))
+    (tmp / "home" / ".claude").mkdir(parents=True)
+    (tmp / "home" / ".claude" / "fail-alpha").touch()
+    launched = launch(tmp, P2SMOKE_REHEARSAL_STANDINS=str(probe))
+    assert launched.returncode == 0, launched.stderr
+    meta = json.loads((tmp / "results" / "smoke" / "smoke.json").read_text())
+    (terminated,) = meta["terminated"]
+    with pytest.raises(ProcessLookupError):
+        os.kill(terminated["pid"], 0)
+    assert terminated["bundle"] in {entry["bundle"] for entry in meta["launches"]}
+    assert not (tmp / "home" / ".claude" / "slept-beta").exists()
+    found = json.loads(readout(tmp / "results").stdout)
+    assert any("terminated" in problem for problem in found["infrastructure"]), found
 
 
 # --- the frozen files ---

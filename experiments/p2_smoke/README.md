@@ -38,8 +38,10 @@ The workspace gets a copy of the runtime's
 map the deterministic tests add (`:parallel 2 :workspace repo`), target 2.40,
 its three `:model` literals set to `claude-haiku-5-5` and the coder's
 `:effort "medium"` set to `"high"` (the judge's is already `"high"`; it is
-the one value PQ-1c observed Haiku accept); `run_smoke.sh` refuses a source
-whose literals are not the expected ones. Four candidate repositories (`alpha` to `delta`) each hold
+the one value PQ-1c observed Haiku accept), and its three `:timeout-sec 5400`
+set to 600 (ten minutes per call); `run_smoke.sh` refuses a source whose
+literals are not the expected ones, and a copy whose SHA-256 is not
+`criterion.json`'s `program_sha256`. Four candidate repositories (`alpha` to `delta`) each hold
 `calc.py` with `add` returning `a - b`; the task is the deterministic test's
 (`inputs.json`).
 
@@ -51,6 +53,13 @@ It waits on files and the memo, never on a timer. `resume` then runs
 `gamma`, `delta` and the judge. Five paid calls in all; the two held
 attempts made no call and are the report's two `unknown_attempts` (so
 `run.usage.partial` is true).
+
+When the run stops for any other reason (a failed item, the run's own exit,
+the 25-minute deadline) or the launcher exits, the launcher terminates every
+call the wrapper started that is still alive (the runtime starts each provider
+in its own session, so killing the run does not reach it), waits for it, and
+lists it under `terminated` in `smoke.json`; the readout counts such a call as
+an infrastructure failure whose launch slot is spent.
 
 ## Files
 
@@ -80,14 +89,23 @@ and fails. Every call goes through `smoke_claude.sh`, first on the run's
 --disable-slash-commands --max-budget-usd 0.5` (user-level settings, plugins,
 hooks, skills and MCP servers are not loaded; the
 [PQ-1c README](../pq1c/README.md#how-the-models-and-calls-are-bound) has the
-evidence) and refuses a `claude` started from inside the smoke. The
+evidence) and refuses a `claude` started from inside the smoke. That
+evidence is from CLI 2.1.322; the kit pins 2.1.323 (`criterion.json`
+`cli_version`, the version now installed) and refuses another in a paid run.
+What matters is re-verified on every call of every run: the readout's
+init-event, hook-trace, native-session and launch-record checks fail the
+smoke when any user-level setting, plugin, hook, agent or CLI outside the
+wrapper shows. Each launch records the binary it executed and whether it is
+the rehearsal stand-in, so a rehearsal cannot pass as a real run by flipping
+its `rehearsal` flag, nor the reverse. The
 orchestrator runs from `RUNTIME` (`PYTHONPATH`; it refuses another import),
 with provider observation (tmux) off.
 
 ## Spend limits
 
 - USD 0.5 per call (`--max-budget-usd`); the CLI documents that the request in
-  flight can pass it, and the kit does not bound that overshoot.
+  flight can pass it, and the kit does not bound that overshoot. Each call
+  times out after 600 s.
 - At most 7 calls: the wrapper claims `launch-1` to `launch-7` in the slot
   ledger and refuses an eighth.
 - USD 3 for the smoke: the wrapper refuses a call when the runtime's cap
@@ -100,7 +118,31 @@ with provider observation (tmux) off.
   [CLI, "Spend cap"](../../specs/cli.md)), so the wrapper's limits above
   bound the resume's calls.
 - Planned: 5 calls. One retry by `resume` uses at most the 2 calls left.
-- A stop by a spend limit is an observation (`fail`), never retried.
+- **Worst case: 7 calls and about USD 3.5** (USD 3 by the wrapper's figure,
+  which is at or above real billing, plus the CLI's documented overshoot on at
+  most two calls in flight, about USD 0.26 each for Haiku).
+- A stop by a spend limit, including a wrapper refusal, is an observation
+  (`fail`), never retried.
+
+Known gaps, outside the kit's control:
+
+- An agent can run the real CLI by absolute path. Not prevented; detected
+  afterwards only when its session lands under the workspace's native-session
+  prefix.
+- **Never resume this run except through `run_smoke.sh`.** The runtime's
+  messages suggest `orchestrator resume <run>`; from the operator's shell,
+  `claude` is the real CLI with no wrapper, no flags and no count. Detected
+  afterwards: an attempt with output and no launch record, and native
+  sessions that differ from the launched attempts, fail the isolation check.
+- The agents run as the operator with bypassed permissions: the slot's `bin/`
+  is made read-only, but an agent could still change it or the slot ledger.
+  Not prevented; a changed wrapper shows only as missing launch records or
+  init problems, not reliably.
+- A SIGKILL of `run_smoke.sh` itself skips its exit trap; calls in flight
+  then still end at their 600 s timeout and `--max-budget-usd`.
+- A real run writes session transcripts and CLI state to the operator's
+  `~/.claude`, as any Claude session does; nothing from there is copied into
+  the results.
 
 ## Run it
 
@@ -118,28 +160,34 @@ Before anything is launched, `run_smoke.sh` refuses: from inside the smoke
 (nested); without the authorization; without the ledger's manifest digest, or
 with a kit file that differs from `manifest.json`; a binding other than
 `claude-haiku-5-5` on the metered template; a `claude` that is the blocking
-no-provider stub; a used slot; a runtime with uncommitted changes under
-`orchestrator/` or in the source, or a kit with uncommitted changes; a CLI
-version other than the first slot's; a run `PATH` where another directory
-holds a `claude` or `codex`; a program that does not compile. The slot ledger
+no-provider stub; a used slot; a CLI that is a rehearsal stand-in or is not
+the pinned version; a runtime with uncommitted changes under `orchestrator/`
+or in the source, a kit with uncommitted changes, or a kit that is not the
+runtime's own `experiments/p2_smoke`; a CLI other than the first slot's; a
+price table or program copy other than the pinned ones; a run `PATH` where
+another directory holds a `claude` or `codex`; a program that does not
+compile. The slot ledger
 is `~/.local/state/p2smoke`, whatever the results directory.
 
 Results: `RESULTS_DIR/smoke/` holds `smoke.json` (run id, exit codes, the kill
 facts: coders committed before the kill and the held attempts; coders
-committed after; every launch; native session ids; per-step and total usage
-and cost; CLI version; runtime commit; kit hashes), `workspace/`, `bin/`,
+committed after; every launch with the binary it executed and its pid; the
+calls terminated; native session ids; per-step and total usage and cost; CLI
+version; runtime commit; kit hashes), `workspace/`, `bin/`,
 `run.log`, `resume.log`, `report.json` and any `nested-calls.log`,
 `refused-calls.log` or `codex-calls.log`.
 
 **The one retry.** When `readout.py --retry-check RESULTS_DIR` exits 0 (the
-first attempt is an infrastructure failure: an API error, a CLI that did not
-start or answer, version drift, an isolation problem; after a kill as
-planned; and no spend stop), the same command with
+first attempt did not complete, was killed as planned, has an infrastructure
+failure such as an API error, a CLI that did not start or answer, or version
+drift, and has no isolation problem and no spend stop), the same command with
 `P2SMOKE_INFRA_RETRY="<reason>"` resumes the same run once more into
-`RESULTS_DIR/smoke-retry/`. The readout then uses the retry and lists the
-replaced attempts. A first attempt that filed no `smoke.json`, or whose kill
-did not happen as planned, cannot be retried by resume: it needs a new
-tranche.
+`RESULTS_DIR/smoke-retry/`, with the same CLI binary. The readout then uses
+the retry: an attempt counts as replaced only when the retry launched a later
+attempt of the same effect, and only a replaced attempt's infrastructure
+problems stop counting. Isolation problems are never erased. A first attempt
+that completed, filed no `smoke.json`, or whose kill did not happen as
+planned, cannot be retried by resume: it needs a new tranche.
 
 ## Rehearse
 
@@ -159,7 +207,11 @@ them (`~/.claude/projects/`).
 ## Verdict
 
 `readout.py` refuses (exit 2) a kit file that differs from the manifest, a
-slot that ran with another manifest, a retry of a valid observation, and any
-rehearsal. Otherwise: `undetermined` when an infrastructure failure holds
-(the list is in `criterion.json`), `pass` when every check holds, `fail`
-naming the checks that do not.
+slot that ran with another manifest, a retry the first attempt did not allow,
+records whose rehearsal flag disagrees with the binaries executed, and any
+rehearsal. Otherwise: `fail` when the isolation check does not hold, whatever
+else holds; `undetermined` when an infrastructure failure holds (the list is
+in `criterion.json`); `pass` when every check holds; `fail` naming the checks
+that do not. The readout also checks the recorded pins again: fixture,
+program copy (recorded and on disk), price table, and for a real run the CLI
+version, a clean runtime and the kit inside it.

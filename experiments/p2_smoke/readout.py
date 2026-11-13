@@ -2,17 +2,19 @@
 """Read out the P2 live smoke against the frozen criterion.
 
 Usage: readout.py RESULTS_DIR [--criterion PATH]
-       readout.py --retry-check RESULTS_DIR   (for run_smoke.sh: exit 0 when the first attempt is an
-                                               infrastructure failure, so the one retry is allowed)
+       readout.py --retry-check RESULTS_DIR   (for run_smoke.sh: exit 0 when the one retry is allowed: the first
+                                               attempt did not complete, was killed as planned, has an
+                                               infrastructure failure, no isolation failure and no spend stop)
 
-Refuses (exit 2) unless every file `manifest.json` lists has the listed SHA-256, and when a slot ran with
-another manifest or has a retry although its first attempt is a valid observation. Reads `RESULTS_DIR/smoke`
-and, when the retry ran, `RESULTS_DIR/smoke-retry`: `smoke.json` (the kill, the launches, the native
-sessions), `report.json`, the run's `memo.jsonl` and each launched attempt's `stdout.txt` and `usage.json`,
-`run.log`, `resume.log`, `nested-calls.log`, `codex-calls.log` and `refused-calls.log`. Prints one JSON object
-whose `verdict` is pass, fail or undetermined (an infrastructure failure), with the checks and facts. On a
-rehearsal it prints the checks with `verdict` null and exits 2. Measure-free: no quality claim. Calls no model
-and runs no orchestrator command.
+Refuses (exit 2) unless every file `manifest.json` lists has the listed SHA-256; when a slot ran with another
+manifest; when the smoke has a retry the first attempt did not allow; and when the records' rehearsal flag
+disagrees with the binaries the wrapper executed. Reads `RESULTS_DIR/smoke` and, when the retry ran,
+`RESULTS_DIR/smoke-retry`: `smoke.json` (the kill, the launches, the terminated calls, the native sessions),
+`terminated.jsonl`, `report.json`, the run's `memo.jsonl`, each provider attempt's `stdout.txt` and
+`usage.json`, the program copy, `run.log`, `nested-calls.log`, `codex-calls.log` and `refused-calls.log`.
+Prints one JSON object whose `verdict` is pass, fail or undetermined (an infrastructure failure), with the
+checks and facts. On a rehearsal it prints the checks with `verdict` null and exits 2. Measure-free: no
+quality claim. Calls no model and runs no command.
 """
 
 from __future__ import annotations
@@ -30,7 +32,8 @@ MANIFEST = KIT / "manifest.json"
 INIT_KEYS = ("plugins", "mcp_servers", "skills", "slash_commands", "agents", "model", "session_id",
              "claude_code_version")
 META_KEYS = ("slot", "rehearsal", "manifest_sha256", "run_id", "kill", "launches", "resume_exit", "report_exit",
-             "native_sessions", "native_hook_traces", "claude_version", "fixture_commit", "runtime_dirty", "status")
+             "native_sessions", "native_hook_traces", "claude_version", "fixture_commit", "runtime_dirty", "status",
+             "source_sha256", "price_table_sha256", "kit_in_runtime", "terminated")
 JUDGE = " / selection"
 CODER = "par-map:repo["
 
@@ -75,32 +78,38 @@ def _text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
 
 
-# --- one launched attempt's stream (the PQ-1c isolation rule, with the CLI version) ---
+# --- one launched attempt's stream: infrastructure (the call did not run properly) and isolation (it ran with
+# something the flags should have removed); the PQ-1c rule, with the CLI version ---
 
 def _listed(value) -> list:
     return value if isinstance(value, list) else [value]
 
 
-def _not_removed(init: dict, criterion: dict, version: str) -> dict:
+def _builtin(plugin) -> bool:
+    return isinstance(plugin, dict) and plugin.get("path") == "builtin" and str(plugin.get("source", "")).endswith("@builtin")
+
+
+def _not_removed(init: dict, criterion: dict) -> dict:
     builtin = criterion["isolation"]["builtin_agents"]
-    shown = {"plugins": [p for p in _listed(init["plugins"]) if not (isinstance(p, dict) and p.get("path") == "builtin"
-                                                                     and str(p.get("source", "")).endswith("@builtin"))],
+    shown = {"plugins": [plugin for plugin in _listed(init["plugins"]) if not _builtin(plugin)],
              "agents": [agent for agent in _listed(init["agents"]) if agent not in builtin],
              **{key: _listed(init[key]) for key in ("mcp_servers", "skills", "slash_commands")},
-             "model": [] if init["model"] == criterion["model"] else [init["model"]],
-             "claude_code_version": [] if init["claude_code_version"] == version else [init["claude_code_version"]]}
+             "model": [] if init["model"] == criterion["model"] else [init["model"]]}
     return {key: value for key, value in shown.items() if value}
 
 
-def _init_problem(rows: list[dict], criterion: dict, version: str) -> str | None:
+def _init(rows: list[dict], criterion: dict, version: str) -> tuple[list[str], list[str]]:
+    """(infrastructure, isolation) problems of the attempt's init event."""
     inits = [row for row in rows if row.get("type") == "system" and row.get("subtype") == "init"]
     if len(inits) != 1:
-        return f"{len(inits)} init events, not one"
+        return [f"{len(inits)} init events, not one"], []
     missing = [key for key in INIT_KEYS if key not in inits[0]]
     if missing:
-        return f"the init event lacks {missing}"
-    shown = _not_removed(inits[0], criterion, version)
-    return f"the init event shows {shown}" if shown else None
+        return [f"the init event lacks {missing}"], []
+    drift = [] if inits[0]["claude_code_version"] == version else [
+        f"the init event's claude_code_version is {inits[0]['claude_code_version']}, not {version}"]
+    shown = _not_removed(inits[0], criterion)
+    return drift, [f"the init event shows {shown}"] if shown else []
 
 
 def _api_error(row: dict) -> bool:
@@ -112,31 +121,34 @@ def _reported(usage) -> bool:
     return isinstance(usage, dict) and usage.get("status") == "reported" and usage.get("complete") is True
 
 
-def _usage_problem(usage, model: str) -> str | None:
+def _usage(usage, model: str) -> tuple[list[str], list[str]]:
+    """(infrastructure, isolation) problems of the attempt's usage.json."""
     if not _reported(usage):
-        return f"usage not reported and complete ({(usage or {}).get('status', 'absent')})"
+        return [f"usage not reported and complete ({(usage or {}).get('status', 'absent')})"], []
     rows = [row for row in usage.get("rows") or [] if isinstance(row, dict)]
     others = sorted({str(row.get("model")) for row in rows} - {model})
-    if others:
-        return f"usage of another model: {others}"
     output = sum((row.get("tokens") or {}).get("output") or 0 for row in rows)
-    return None if output > 0 else "no output tokens"
+    return ([] if output > 0 else ["no output tokens"]), ([f"usage of another model: {others}"] if others else [])
 
 
-def _stream_problems(rows: list[dict]) -> list[str]:
+def _stream(rows: list[dict]) -> tuple[list[str], list[str]]:
+    """(an API error result, hook events): hook events are always in a stream-json stream when a hook ran."""
     hooks = sorted({str(row.get("subtype")) for row in rows if str(row.get("subtype", "")).startswith("hook_")})
-    return ([f"hook events in the stream: {hooks}"] if hooks else []) + (
-        ["an API error result"] if any(_api_error(row) for row in rows) else [])
+    return (["an API error result"] if any(_api_error(row) for row in rows) else []), (
+        [f"hook events in the stream: {hooks}"] if hooks else [])
 
 
 def attempt(bundle: str, criterion: dict, version: str) -> dict:
-    """One launched attempt: its problems (infrastructure), sessions, budget stop and the CLI's reported cost."""
+    """One launched attempt: its infrastructure and isolation problems, sessions, budget stop, reported cost."""
     where = Path(bundle).parent
     rows, usage = _jsonl(where / "stdout.txt"), _json(where / "usage.json")
-    found = [_init_problem(rows, criterion, version.split()[0]), _usage_problem(usage, criterion["model"])]
-    problems = [p for p in found if p] + _stream_problems(rows)
+    init_infra, init_isolation = _init(rows, criterion, version)
+    usage_infra, usage_isolation = _usage(usage, criterion["model"])
+    stream_infra, stream_isolation = _stream(rows)
+    infra, isolation = init_infra + usage_infra + stream_infra, init_isolation + usage_isolation + stream_isolation
     cost = usage.get("reported_cost_usd") if isinstance(usage, dict) else None
-    return {"problems": [f"{where.parent.name[:12]}/{where.name}: {p}" for p in problems],
+    named = f"{where.parent.name[:12]}/{where.name}"
+    return {"infrastructure": [f"{named}: {p}" for p in infra], "isolation": [f"{named}: {p}" for p in isolation],
             "sessions": {str(row.get("session_id")) for row in rows if row.get("subtype") == "init"},
             "budget_stop": any(row.get("subtype") == "error_max_budget_usd" for row in rows),
             "reported_cost_usd": cost if isinstance(cost, (int, float)) else 0.0, "has_usage": _reported(usage)}
@@ -146,24 +158,56 @@ def attempt(bundle: str, criterion: dict, version: str) -> dict:
 
 def _meta(slot_dir: Path, manifest_sha256: str) -> dict | None:
     meta = _json(slot_dir / "smoke.json")
-    if not isinstance(meta, dict) or any(key not in meta for key in META_KEYS):
+    if not isinstance(meta, dict) or any(key not in meta for key in META_KEYS) or meta["slot"] != slot_dir.name:
         return None
     if meta["manifest_sha256"] != manifest_sha256:
         raise Refusal(f"{slot_dir} ran with manifest {meta['manifest_sha256']}, not {manifest_sha256}")
     return meta
 
 
+def rehearsal_of(metas: list[dict]) -> bool:
+    """The records' rehearsal flag, refused unless it agrees with what the wrapper executed (a binary carrying
+    the stand-in marker) and with the CLI version the launcher recorded."""
+    flags = {meta["rehearsal"] for meta in metas}
+    standin = any(launch.get("standin") for meta in metas for launch in meta["launches"]) or any(
+        "stand-in" in str(meta["claude_version"]) for meta in metas)
+    if len(flags) != 1 or flags != {standin}:
+        executed = "a rehearsal stand-in" if standin else "a real CLI"
+        raise Refusal(f"the records disagree: rehearsal flags {sorted(flags)}, but the wrapper executed {executed}")
+    return standin
+
+
+def _launched(meta: dict) -> list[str]:
+    return [launch["bundle"] or "" for launch in meta["launches"] if not launch.get("refused")]
+
+
+def _effect_attempt(bundle: str) -> tuple[str, int]:
+    where = Path(bundle).parent
+    return str(where.parent), int(where.name.rsplit("-", 1)[-1]) if where.name.startswith("attempt-") else 0
+
+
+def replaced_by_retry(first: dict, final: dict) -> set[str]:
+    """First-slot launches the retry superseded: it launched a later attempt of the same effect."""
+    later = [_effect_attempt(bundle) for bundle in set(_launched(final)) - set(_launched(first))]
+    return {bundle for bundle in _launched(first)
+            if any(effect == _effect_attempt(bundle)[0] and n > _effect_attempt(bundle)[1] for effect, n in later)}
+
+
 def _memo(first: Path, meta: dict) -> list[dict]:
     return _jsonl(first / "workspace" / ".orchestrate" / "runs" / str(meta["run_id"]) / "memo.jsonl")
 
 
-def kill_problem(kill, items: int) -> str | None:
-    """The kill evidence: some but not all coders committed, the rest held, nothing failed, no timeout."""
+def kill_problem(kill, criterion: dict) -> str | None:
+    """The planned kill: exactly the coders of committed_at_kill committed, the held_items held, nothing failed."""
     if not isinstance(kill, dict):
         return "no kill record"
-    committed, held = len(kill.get("committed_before", [])), len(kill.get("held", []))
-    if not 1 <= committed < items or committed + held != items or kill.get("failed_before") or kill.get("timed_out"):
-        return f"the kill did not happen as planned: {committed} committed, {held} held, failed {kill.get('failed_before')}, timed out {kill.get('timed_out')}"
+    committed, held = kill.get("committed_before", []), kill.get("held", [])
+    planned = sorted(criterion["committed_at_kill"])
+    found = sorted(item for item in planned for identity in committed if item in identity)
+    if found != planned or len(committed) != len(planned) or len(held) != len(criterion["held_items"]) \
+            or kill.get("failed_before") or kill.get("timed_out"):
+        return (f"the kill did not happen as planned: committed {len(committed)}, held {len(held)}, "
+                f"failed {kill.get('failed_before')}, timed out {kill.get('timed_out')}")
     return None
 
 
@@ -207,64 +251,96 @@ def _cost(run: dict, reported: float, ceiling: float) -> tuple[float | None, boo
     return (float(value) if number else None), number and value <= ceiling and reported <= ceiling
 
 
-def slot_problems(slot_dir: Path, meta: dict, criterion: dict) -> list[str]:
+def _pin_problems(first_dir: Path, meta: dict, criterion: dict, rehearsal: bool) -> list[str]:
+    """The pins: fixture, program copy (recorded and on disk), price table; for a real slot, the CLI version,
+    a clean runtime and the kit inside it."""
+    copy = first_dir / "workspace" / "workflows" / "best_of_n.orc"
+    problems = [] if meta["fixture_commit"] == criterion["fixture_commit"] else [f"fixture commit {meta['fixture_commit']}"]
+    problems += [] if meta["source_sha256"] == criterion["program_sha256"] == _sha256(copy) else [
+        "the program copy is not the pinned one"]
+    problems += [] if meta["price_table_sha256"] == criterion["price_table_sha256"] else ["the price table is not the pinned one"]
+    if rehearsal:
+        return problems
+    problems += [] if str(meta["claude_version"]).split(" ")[0] == criterion["cli_version"] else [
+        f"claude {meta['claude_version']}, not the pinned {criterion['cli_version']}"]
+    problems += ["ran on a runtime with uncommitted changes"] if meta["runtime_dirty"] else []
+    return problems + ([] if meta["kit_in_runtime"] else ["the kit was not the runtime's own experiments/p2_smoke"])
+
+
+def slot_problems(first_dir: Path, slot_dir: Path, meta: dict, criterion: dict, rehearsal: bool) -> list[str]:
     """What the slot's record and logs show that is not the workflow's own outcome."""
     problems = [] if meta["report_exit"] == 0 else [f"report exited {meta['report_exit']}"]
-    problems += [] if meta["fixture_commit"] == criterion["fixture_commit"] else [f"fixture commit {meta['fixture_commit']}"]
-    problems += ["ran on a runtime with uncommitted changes"] if not meta["rehearsal"] and meta["runtime_dirty"] else []
-    problems += ["the run could not meter a call (spend_cap_unmetered)"] if "spend_cap_unmetered" in _text(slot_dir / "run.log") else []
-    problems += [f"{meta['native_hook_traces']} hook records in the native transcripts"] if meta["native_hook_traces"] else []
-    return problems
+    problems += ["the run could not meter a call (spend_cap_unmetered)"] if "spend_cap_unmetered" in _text(first_dir / "run.log") else []
+    terminated = {row.get("launch") for path in {first_dir, slot_dir} for row in _jsonl(path / "terminated.jsonl")}
+    problems += [f"{len(terminated)} calls in flight were terminated when the run stopped: {sorted(terminated)}"] if terminated else []
+    return problems + _pin_problems(first_dir, meta, criterion, rehearsal)
+
+
+def _outside_wrapper(rows_dir: Path, launched: set[str]) -> list[str]:
+    """Provider attempts with output that no launch record names: a CLI ran without the wrapper."""
+    return [str(path.parent) for path in rows_dir.glob("effects/*/attempt-*/stdout.txt")
+            if path.stat().st_size and str(path.parent / "result.json") not in launched]
+
+
+def isolation_problems(first_dir: Path, final: dict, seen: dict) -> list[str]:
+    """Every attempt's isolation problems (never erased by a retry), and what ran outside the journal."""
+    problems = [p for a in seen["attempts"].values() for p in a["isolation"]]
+    problems += [f"{final['native_hook_traces']} hook records in the native transcripts"] if final["native_hook_traces"] else []
+    problems += ["codex was called"] if (first_dir / "codex-calls.log").exists() else []
+    problems += ["a claude was started inside the smoke (refused)"] if (first_dir / "nested-calls.log").exists() else []
+    native = sorted(final["native_sessions"])
+    problems += [] if native == seen["sessions"] else [
+        f"{len(native)} native sessions for the workspace, {len(seen['sessions'])} in the launched attempts"]
+    return problems + [f"output without a launch record: {where}" for where in seen["outside"]]
 
 
 def evaluate(root: Path, criterion: dict, manifest_sha256: str, *, first_only: bool = False) -> dict:
     """The checks, infrastructure problems and facts of the smoke (the first attempt, or with its retry)."""
     first_dir, retry_dir = root / "smoke", root / "smoke-retry"
     first = _meta(first_dir, manifest_sha256)
-    if first is None or first["slot"] != "smoke":
+    if first is None:
         return {"infrastructure": ["smoke/smoke.json is missing, incomplete or names another slot"], "present": False}
     use_retry = retry_dir.is_dir() and not first_only
     final = _meta(retry_dir, manifest_sha256) if use_retry else first
     if final is None:
-        return {"infrastructure": ["smoke-retry/smoke.json is missing or incomplete"], "present": False}
-    replaced = set()
-    if use_retry:
-        replaced = {launch["bundle"] for launch in first["launches"]
-                    if attempt(launch["bundle"] or "", criterion, first["claude_version"])["problems"]}
-    return _evaluate(first_dir, first, retry_dir if use_retry else first_dir, final, replaced, criterion)
+        return {"infrastructure": ["smoke-retry/smoke.json is missing, incomplete or names another slot"],
+                "present": False}
+    rehearsal = rehearsal_of([first, final])
+    replaced = replaced_by_retry(first, final) if use_retry else set()
+    later = _meta(retry_dir, manifest_sha256) if retry_dir.is_dir() else None     # its launches are not "outside"
+    known = set(_launched(later or final))
+    return _evaluate(first_dir, first, retry_dir if use_retry else first_dir, final, replaced, criterion, rehearsal,
+                     known)
 
 
-def _evaluate(first_dir: Path, first: dict, final_dir: Path, final: dict, replaced: set, criterion: dict) -> dict:
+def _evaluate(first_dir: Path, first: dict, final_dir: Path, final: dict, replaced: set, criterion: dict,
+              rehearsal: bool, known: set[str]) -> dict:
     rows, kill = _memo(first_dir, first), first["kill"] if isinstance(first["kill"], dict) else {}
-    launches = [launch["bundle"] or "" for launch in final["launches"]]
-    attempts = {bundle: attempt(bundle, criterion, final["claude_version"]) for bundle in launches}
+    launches = _launched(final)
+    attempts = {bundle: attempt(bundle, criterion, str(final["claude_version"]).split(" ")[0]) for bundle in launches}
     report = report_facts(_json(final_dir / "report.json"), rows)
     reported = sum(a["reported_cost_usd"] for a in attempts.values())
     sessions = sorted(set().union(*(a["sessions"] for a in attempts.values())))
     committed = {row.get("identity") for row in rows if row.get("record") == "committed"}
+    run_root = first_dir / "workspace" / ".orchestrate" / "runs" / str(first["run_id"])
     seen = {"rows": rows, "kill": kill, "launches": launches, "attempts": attempts, "report": report,
-            "reported": reported, "sessions": sessions, "committed": committed, "replaced": replaced}
+            "reported": reported, "sessions": sessions, "committed": committed, "replaced": replaced,
+            "outside": _outside_wrapper(run_root, known)}
+    isolation = isolation_problems(first_dir, final, seen)
+    infra = slot_problems(first_dir, final_dir, final, criterion, rehearsal)
+    infra += [p for bundle, a in attempts.items() if bundle not in replaced for p in a["infrastructure"]]
+    infra += [p for p in [kill_problem(kill, criterion)] if p]
     cost_usd, _ = _cost(report["run"], reported, criterion["spend"]["smoke_ceiling_usd"])
-    facts = {"run_id": first["run_id"], "claude_version": final["claude_version"], "status": report["status"],
+    facts = {"run_id": first["run_id"], "runtime_commit": first.get("runtime_commit"),
+             "claude_version": final["claude_version"], "status": report["status"],
              "committed_before_kill": kill.get("committed_before"), "held": kill.get("held", []),
              "committed_after": sorted(committed), "redispatched": redispatched(rows, []),
-             "paid_calls": len(launches), "replaced_attempts": sorted(replaced), "native_sessions": sessions,
-             "cost_usd": cost_usd, "cli_reported_cost_usd": round(reported, 6), "run_usage": report["run"],
-             "step_usage": report["steps"], "rehearsal": first["rehearsal"] or final["rehearsal"]}
-    return {"present": True, "infrastructure": infrastructure(first_dir, final_dir, final, seen, criterion),
-            "checks": checks(first_dir, final, seen, criterion), "facts": facts}
-
-
-def infrastructure(first_dir: Path, final_dir: Path, final: dict, seen: dict, criterion: dict) -> list[str]:
-    """Problems that are not the workflow's own outcome; a replaced attempt's problems no longer count."""
-    problems = slot_problems(final_dir, final, criterion)
-    problems += [p for bundle, a in seen["attempts"].items() if bundle not in seen["replaced"] for p in a["problems"]]
-    problems += [p for p in [kill_problem(seen["kill"], criterion["items"])] if p]
-    problems += ["codex was called"] if (first_dir / "codex-calls.log").exists() else []
-    problems += ["a claude was started inside the smoke (refused)"] if (first_dir / "nested-calls.log").exists() else []
-    native = sorted(final["native_sessions"])
-    return problems + ([] if native == seen["sessions"] else [
-        f"{len(native)} native sessions for the workspace, {len(seen['sessions'])} in the launched attempts"])
+             "paid_calls": len(launches), "refused_calls": len(final["launches"]) - len(launches),
+             "terminated_calls": final["terminated"], "replaced_attempts": sorted(replaced),
+             "native_sessions": sessions, "cost_usd": cost_usd, "cli_reported_cost_usd": round(reported, 6),
+             "run_usage": report["run"], "step_usage": report["steps"], "rehearsal": rehearsal}
+    return {"present": True, "infrastructure": infra, "isolation_problems": isolation,
+            "checks": checks(first_dir, final, seen, criterion, isolation), "facts": facts}
 
 
 def _completed(final: dict, seen: dict, criterion: dict) -> bool:
@@ -285,36 +361,48 @@ def _no_cost_stop(first_dir: Path, seen: dict) -> bool:
     return not stopped and "spend_cap_reached" not in _text(first_dir / "run.log")
 
 
-def checks(first_dir: Path, final: dict, seen: dict, criterion: dict) -> dict:
+def checks(first_dir: Path, final: dict, seen: dict, criterion: dict, isolation: list[str]) -> dict:
     """The criterion's checks, each true or false."""
     kill, held = seen["kill"], seen["kill"].get("held", [])
     launched_held = set(held) & set(seen["launches"]) or any((Path(b).parent / "usage.json").exists() for b in held)
-    return {"stopped_mid_map": kill_problem(kill, criterion["items"]) is None,
+    return {"stopped_mid_map": kill_problem(kill, criterion) is None,
             "completed": _completed(final, seen, criterion),
             "no_redispatch": not redispatched(seen["rows"], kill.get("committed_before", [])),
             "held_never_launched": not launched_held,
             "usage_recorded": _usage_recorded(seen),
             "report_tokens": seen["report"]["report_tokens"],
             "cost_under_ceiling": _cost(seen["report"]["run"], seen["reported"], criterion["spend"]["smoke_ceiling_usd"])[1],
-            "no_cost_stop": _no_cost_stop(first_dir, seen)}
+            "no_cost_stop": _no_cost_stop(first_dir, seen),
+            "isolation": not isolation}
 
 
 def verdict(found: dict) -> tuple[str, list[str]]:
+    """fail on an isolation problem whatever else holds; undetermined on infrastructure; else the checks."""
+    if not found["checks"]["isolation"]:
+        return "fail", ["isolation", *found["isolation_problems"]]
     if found["infrastructure"]:
         return "undetermined", found["infrastructure"]
     failing = [name for name, held in found["checks"].items() if not held]
     return ("fail", failing) if failing else ("pass", ["every check holds"])
 
 
+def retry_allowed(found: dict) -> bool:
+    """The one retry by resume: a first attempt that did not complete, was killed as planned (a resume cannot
+    redo a kill), has an infrastructure failure, no isolation failure and no spend stop."""
+    if not found["present"]:
+        return False
+    held = found["checks"]
+    return bool(found["infrastructure"]) and held["stopped_mid_map"] and held["isolation"] and held["no_cost_stop"] \
+        and not held["completed"]
+
+
 def readout(root: Path, criterion_path: Path) -> tuple[dict, int]:
     criterion, manifest_sha256 = load_kit(criterion_path)
-    if (root / "smoke-retry").is_dir():
-        first = evaluate(root, criterion, manifest_sha256, first_only=True)
-        if first["present"] and not first["infrastructure"]:
-            raise Refusal("the smoke has a retry, but its first attempt is a valid observation")
+    if (root / "smoke-retry").is_dir() and not retry_allowed(evaluate(root, criterion, manifest_sha256, first_only=True)):
+        raise Refusal("the smoke has a retry, but its first attempt did not allow one")
     found = evaluate(root, criterion, manifest_sha256)
-    outcome, reasons = verdict(found)
     rehearsal = found.get("facts", {}).get("rehearsal", False)
+    outcome, reasons = verdict(found) if found["present"] else ("undetermined", found["infrastructure"])
     shown = {"verdict": None if rehearsal else outcome, "reasons": reasons, "manifest_sha256": manifest_sha256,
              "rehearsal": rehearsal, "claims": criterion["claims"], "cannot_decide": criterion["cannot_decide"],
              "attempt_used": "retry" if (root / "smoke-retry").is_dir() else "first", **found}
@@ -324,15 +412,15 @@ def readout(root: Path, criterion_path: Path) -> tuple[dict, int]:
 
 
 def retry_check(root: Path, criterion_path: Path) -> int:
-    """0 when the first attempt is an infrastructure failure after a kill as planned, with no cost stop, else 4."""
+    """0 when the one retry is allowed (`retry_allowed`), else 4."""
     criterion, manifest_sha256 = load_kit(criterion_path)
     found = evaluate(root, criterion, manifest_sha256, first_only=True)
-    cost_stop = found["present"] and not found["checks"]["no_cost_stop"]
-    killed = found["present"] and found["checks"]["stopped_mid_map"]   # a resume cannot redo a kill that failed
-    allowed = bool(found["infrastructure"]) and killed and not cost_stop
-    print(json.dumps({"infrastructure_failure": found["infrastructure"], "cost_stop": cost_stop,
-                      "killed_as_planned": killed, "retry_allowed": allowed}, indent=2))
-    return 0 if allowed else 4
+    checks_found = found.get("checks", {})
+    print(json.dumps({"infrastructure_failure": found["infrastructure"], "isolation": found.get("isolation_problems"),
+                      "completed": checks_found.get("completed"), "cost_stop": not checks_found.get("no_cost_stop", True),
+                      "killed_as_planned": checks_found.get("stopped_mid_map", False),
+                      "retry_allowed": retry_allowed(found)}, indent=2))
+    return 0 if retry_allowed(found) else 4
 
 
 def main(argv: list[str]) -> int:

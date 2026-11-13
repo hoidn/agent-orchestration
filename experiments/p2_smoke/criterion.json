@@ -5,56 +5,70 @@
   "model": "claude-haiku-5-5",
   "effort": "high",
   "target": "2.40",
+  "call_timeout_sec": 600,
+  "cli_version": "2.1.323",
+  "program_sha256": "5f7d83cc38e3773c21ff049e553c45fd7ed478f5bb3b74ab8d69f73d3d5e967c",
+  "price_table_sha256": "77a237c6934a5ff1663a347c2d3757e52f576ac4752d8456facfd227cf52452b",
   "items": 4,
+  "committed_at_kill": ["par-map:repo[0]", "par-map:repo[1]"],
   "held_items": ["gamma", "delta"],
   "fixture_commit": "32ff2fc4c760ad49b02872c1b3e96a510aee0603",
+  "pins": "run_smoke.sh refuses a paid run whose CLI is not cli_version or carries the stand-in marker, whose kit is not the runtime's own experiments/p2_smoke, or (any run) whose program copy or price table differs from the pins; the readout checks the recorded values again and refuses a verdict to records whose rehearsal flag disagrees with the binaries the wrapper executed",
   "isolation": {
     "flags": "--setting-sources project --strict-mcp-config --disable-slash-commands --max-budget-usd 0.5 (smoke_claude.sh)",
     "builtin_agents": ["claude", "Explore", "general-purpose", "Plan", "statusline-setup"],
-    "rule": "every launched attempt has exactly one stream-json init event with the keys plugins, mcp_servers, skills, slash_commands, agents, model, session_id and claude_code_version; it lists no plugin but built-in ones (path builtin, source ending @builtin), no MCP server, skill or slash command, no agent outside builtin_agents, the model claude-haiku-5-5, and the CLI version the slot recorded"
+    "rule": "every launched attempt has exactly one stream-json init event with the keys plugins, mcp_servers, skills, slash_commands, agents, model, session_id and claude_code_version; it lists no plugin but built-in ones (path builtin, source ending @builtin), no MCP server, skill or slash command, no agent outside builtin_agents and the model claude-haiku-5-5; no hook event in any stream, no hook record in the native transcripts, no usage row of another model, no codex or nested claude call, no provider attempt with output that no launch record names, and the native sessions are exactly the sessions the launched attempts name. The built-in sets are those of 2.1.322 (PQ-1c); these checks re-verify the flags' effect on every call of 2.1.323"
   },
   "spend": {
     "paid_calls_planned": 5,
     "paid_calls_at_most": 7,
     "per_call_ceiling_usd": 0.5,
     "smoke_ceiling_usd": 3,
-    "how": "every call goes through smoke_claude.sh: the CLI's --max-budget-usd 0.5; launch slots launch-1 to launch-7 in the slot ledger (an eighth call is refused); a call is refused when the runtime's cap figure (cap_cost) of every earlier launch, with USD 0.5 for each launch without complete usage including this one, passes USD 3. The run also has --max-cost-usd 3. The resume has no --max-cost-usd: after the kill the held attempts have no usage.json, so a capped resume stops with spend_cap_unmetered by contract (specs/cli.md, Spend cap; observed in the rehearsal)",
-    "overshoot": "the CLI documents that spend can pass --max-budget-usd by the request in flight; the kit does not bound that overshoot",
-    "retry": "one retry in all, by resume of the same run (slot smoke-retry), only when the first attempt is an infrastructure failure; at most the 2 calls left under the 7"
+    "worst_case": "7 calls and about USD 3.5: the wrapper admits a call only while its figure (at or above real billing) stays at most USD 3, plus the CLI's documented overshoot of --max-budget-usd on at most two calls in flight (about USD 0.26 each for Haiku)",
+    "how": "every call goes through smoke_claude.sh: the CLI's --max-budget-usd 0.5; launch slots launch-1 to launch-7 in the slot ledger (an eighth call is refused); a call is refused when the runtime's cap figure (cap_cost) of every earlier launch, with USD 0.5 for each launch without complete usage including this one, passes USD 3. The run also has --max-cost-usd 3. The resume has no --max-cost-usd: after the kill the held attempts have no usage.json, so a capped resume stops with spend_cap_unmetered by contract (specs/cli.md, Spend cap; observed in the rehearsal). Each call times out after 600 s; when the run stops for any reason, the launcher terminates every call still alive and records it",
+    "retry": "one retry in all, by resume of the same run (slot smoke-retry), only of a first attempt that did not complete, was killed as planned, has an infrastructure failure, no isolation failure and no spend stop; at most the 2 calls left under the 7"
   },
   "checks": {
-    "stopped_mid_map": "the run was killed with between 1 and 3 coders committed, every other coder held by the wrapper before its CLI started (2 and 2 by design), no failed row and no timeout",
+    "stopped_mid_map": "the run was killed exactly as planned: the coders of committed_at_kill committed, the coders of held_items held by the wrapper before their CLI started, no failed row and no timeout",
     "completed": "after the last resume, report run.status is completed, the resume exited 0, and the four coders and the judge are committed",
     "no_redispatch": "no identity has a started row after its committed row, and every coder committed before the kill has exactly one started row",
     "held_never_launched": "no held attempt was launched (no launch record names it) and none has a usage.json",
-    "usage_recorded": "every launched attempt has a usage.json that is reported and complete with output tokens; report run.usage.unknown_attempts equals the held attempts plus replaced attempts without usage, so partial is true only because of attempts that made no call",
+    "usage_recorded": "every launched attempt that was not refused has a usage.json that is reported and complete with output tokens; report run.usage.unknown_attempts equals the held attempts plus replaced attempts without usage, so partial is true only because of attempts that made no call",
     "report_tokens": "report shows usage.tokens for each of the five provider steps and run.usage.tokens equal to their sum",
     "cost_under_ceiling": "report run.usage.cost_usd is a finite number above zero and at most 3, and the CLI-reported costs of the launches sum to at most 3",
-    "no_cost_stop": "no call was stopped by the CLI's per-call budget (error_max_budget_usd), the run's cap (spend_cap_reached) or the wrapper's count or spend refusal (refused-calls.log)"
+    "no_cost_stop": "no call was stopped by the CLI's per-call budget (error_max_budget_usd), the run's cap (spend_cap_reached) or the wrapper's count or spend refusal (refused-calls.log)",
+    "isolation": "the isolation rule holds for every launched attempt, replaced or not: an isolation problem is an observation and is never erased by a retry"
   },
   "infrastructure_failure": [
     "the slot's smoke.json is missing, incomplete or names another slot, or the report is missing or exited nonzero",
     "the kill did not happen as planned (stopped_mid_map false)",
+    "a call in flight was terminated by the launcher when the run stopped (its launch slot is spent)",
     "a launched attempt with no usage or no output tokens: the CLI did not start, log in or answer",
-    "a launched attempt's init event is missing, lacks a key, lists what isolation should remove, names another model or another CLI version (version drift)",
+    "a launched attempt's init event is missing or lacks a key, or names a CLI version other than the slot's (version drift)",
     "an API error result (is_error with api_error_status, or result text starting 'API Error')",
-    "a hook event in a call's stream, or a hook record in the native transcripts",
-    "a recorded usage row of another model",
-    "codex was called, or a claude was started inside the smoke (nested-calls.log)",
-    "the CLI's native sessions for the workspace differ from the sessions the launched attempts name",
     "the run could not meter a call (spend_cap_unmetered in run.log)",
-    "the fixture commit is not the pinned one, or a real slot ran on a runtime with uncommitted changes"
+    "the fixture commit, program copy or price table is not the pinned one; a real slot ran a CLI other than cli_version, on a runtime with uncommitted changes, or from a kit outside its runtime"
   ],
+  "replaced": "after the retry, a first-slot attempt counts as replaced only when the retry launched a later attempt of the same effect; the infrastructure problems of a replaced attempt no longer count, those of every other attempt stay",
   "decision_order": [
-    "no verdict on a rehearsal (readout.py exits 2)",
+    "no verdict on a rehearsal, or on records whose rehearsal flag disagrees with the binaries the wrapper executed (readout.py exits 2)",
+    "fail when the isolation check does not hold, whatever else holds",
     "undetermined when any infrastructure failure holds",
     "pass when every check holds",
     "fail otherwise, naming the checks that do not hold"
   ],
   "readings": [
     "the brief's 'unknown_attempts 0, partial false' cannot hold after a kill mid-map: the held attempts exist in the memo and have no usage; the criterion requires instead that they made no call and are the only unknown attempts",
-    "a stop by a spend limit is an observation (no_cost_stop false gives fail), never retried",
-    "a failure the model produced (a missing or invalid result) is a workflow outcome: completed false gives fail, never retried"
+    "a stop by a spend limit is an observation (no_cost_stop false gives fail), never retried; a wrapper refusal made no call and is not an attempt",
+    "a failure the model produced (a missing or invalid result) is a workflow outcome: completed false gives fail, never retried",
+    "isolation is stricter than the coordinator's ruling asked: its problems are never erased, even on a replaced attempt"
+  ],
+  "known_gaps": [
+    "an agent can run the real CLI by absolute path: not prevented; detected afterwards only when its session lands under the workspace's native-session prefix",
+    "an operator running `orchestrator resume` by hand: the plain `claude` on their PATH has no wrapper, no flags and no count; not prevented; detected afterwards: an attempt with output and no launch record, and native sessions that differ from the launched attempts, fail the isolation check",
+    "an agent editing the slot's bin/ (made read-only, but the agents run as the same user with bypassed permissions) or the slot ledger: not prevented; a changed wrapper shows as missing launch records or init problems, not reliably",
+    "a SIGKILL of run_smoke.sh itself skips its exit trap, so calls in flight are not terminated by it (each still times out after 600 s and is bounded by --max-budget-usd)",
+    "the real run writes session transcripts and CLI state to the operator's ~/.claude"
   ],
   "can_decide": [
     "whether a parallel best-of-N run with a real provider survives a kill mid-map and completes on resume",

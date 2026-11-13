@@ -8,7 +8,8 @@
 # RUNTIME is the frozen checkout whose `orchestrator` package runs the smoke and whose
 # experiments/orc_vs_single_call/workflows/best_of_n.orc is the program. The workspace gets a copy of that
 # source with the parallel map the deterministic tests add (`:parallel 2 :workspace repo`), target 2.40, every
-# `:model` literal set to claude-haiku-5-5 and every `:effort` to "high", both aliases bound to the Claude metered template,
+# `:model` literal set to claude-haiku-5-5, every `:effort` to "high" and every `:timeout-sec` to 600 (ten minutes
+# per call), both aliases bound to the Claude metered template,
 # and four candidate repositories. P2SMOKE_MANIFEST_SHA256 must equal the digest of manifest.json (the
 # plan ledger's value). Steps: compile; `run` under --max-cost-usd 3, killed (SIGKILL) once two coders have
 # committed and the coders of gamma and delta are held by the wrapper before their CLI starts; `resume`;
@@ -20,8 +21,11 @@
 # without the ledger's manifest digest, or a kit file differing from manifest.json; a binding other than
 # claude-haiku-5-5 on the Claude metered template; a claude that is the blocking no-provider stub; a
 # rehearsal stand-in without the kit's marker; a used slot or a second retry, or a retry of an observation;
-# in a paid run, a runtime or kit with uncommitted changes; a CLI version other than the first slot's; a run
-# PATH where another directory holds a claude or codex; a program that does not compile. Slots are claimed
+# in a paid run, a CLI that is a stand-in or is not the pinned version (criterion.json), a runtime or kit with
+# uncommitted changes, or a kit that is not the runtime's own experiments/p2_smoke; a CLI other than the first
+# slot's; a price table or program copy other than the pinned ones; a run PATH where another directory holds
+# a claude or codex; a program that does not compile. When the run stops, for any reason, and when this script
+# exits, every call the wrapper started that is still alive is terminated and listed in smoke.json. Slots are claimed
 # once, for good, in $HOME/.local/state/p2smoke (a rehearsal: RESULTS_DIR/rehearsal-ledger).
 # Output: RESULTS_DIR/<slot>/{smoke.json,workspace/,bin/,run.log,resume.log,report.json,...}.
 set -euo pipefail
@@ -36,8 +40,41 @@ CANDIDATES=(alpha beta gamma delta)           # gamma and delta are the coders h
 STANDIN_MARKER='# p2smoke-rehearsal-stand-in: makes no provider call'
 
 refuse() { echo "run_smoke.sh: refused: $*" >&2; exit 3; }
-PREP=
-cleanup() { rm -rf ${PREP:+"$PREP"}; }
+PREP= LEDGER= SLOT_DIR= CLAIMED=
+# reap PHASE: terminate (SIGKILL to its session's process group) every call the wrapper started that is still
+# alive, wait until each group is gone, and append each to SLOT_DIR/terminated.jsonl. The runtime starts each
+# provider in its own session, so killing the run never reaches a call in flight.
+reap() {
+  [ -n "$CLAIMED" ] || return 0            # only calls of a slot this launch claimed
+  "$PYTHON" - "$LEDGER" "$SLOT_DIR/terminated.jsonl" "$1" <<'EOF'
+import json, os, signal, sys, time
+from pathlib import Path
+ledger, out, phase = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+
+def alive(pid):
+    try:
+        return os.getsid(pid) == pid      # still the session the wrapper started (pid = sid = pgid)
+    except ProcessLookupError:
+        return False
+
+for record in sorted(ledger.glob("launch-*/pid")):
+    pid = int(record.read_text())
+    if not alive(pid):
+        continue
+    os.killpg(pid, signal.SIGKILL)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        try:
+            os.killpg(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.1)
+    bundle = (record.parent / "bundle").read_text().strip()
+    with out.open("a") as stream:
+        stream.write(json.dumps({"launch": record.parent.name, "pid": pid, "bundle": bundle, "phase": phase}) + "\n")
+EOF
+}
+cleanup() { reap exit || true; rm -rf ${PREP:+"$PREP"}; }
 trap cleanup EXIT
 
 [ -z "${P2SMOKE_IN_RUN:-}" ] || refuse "started from inside the smoke (P2SMOKE_IN_RUN is set): a nested session"
@@ -81,13 +118,16 @@ MANIFEST_SHA256=$(sha256sum "$KIT/manifest.json" | cut -d' ' -f1)
 [ "$P2SMOKE_MANIFEST_SHA256" = "$MANIFEST_SHA256" ] ||
   refuse "manifest.json is $MANIFEST_SHA256, not the ledger's $P2SMOKE_MANIFEST_SHA256"
 
+read -r CLI_PIN PROGRAM_PIN PRICE_PIN TIMEOUT_SEC < <("$PYTHON" -c 'import json, sys; c = json.load(open(sys.argv[1]))
+print(c["cli_version"], c["program_sha256"], c["price_table_sha256"], c["call_timeout_sec"])' "$KIT/criterion.json")
+
 # The bindings: both aliases on the Claude metered template, which sets no model of its own; the source copy
 # is the runtime's best_of_n.orc with exactly the listed changes, and every :model in it is $MODEL.
-PROGRAM=$(PYTHONPATH=$RUNTIME PYTHONDONTWRITEBYTECODE=1 "$PYTHON" - "$KIT" "$RUNTIME/$SOURCE" "$MODEL" "$TEMPLATE" "$TARGET" <<'EOF'
+PROGRAM=$(PYTHONPATH=$RUNTIME PYTHONDONTWRITEBYTECODE=1 "$PYTHON" - "$KIT" "$RUNTIME/$SOURCE" "$MODEL" "$TEMPLATE" "$TARGET" "$TIMEOUT_SEC" <<'EOF'
 import json, re, sys
 from pathlib import Path
 from orchestrator.providers.registry import ProviderRegistry
-kit, source, model, name, target = sys.argv[1:]
+kit, source, model, name, target, timeout = sys.argv[1:]
 def fail(message):
     sys.exit(f"run_smoke.sh: bindings: {message}")
 inputs = json.loads(Path(kit, "inputs.json").read_text())
@@ -103,7 +143,7 @@ text = Path(source).read_text()
 changes = [('(:target-dsl "2.35")', f'(:target-dsl "{target}")', 1),
            ("(list/map-effect ((repo repos)) :max 8\n", "(list/map-effect ((repo repos)) :max 8 :parallel 2 :workspace repo\n", 1),
            (':model "claude-sonnet-5-5"', f':model "{model}"', 1), (':model "gpt-6-sol"', f':model "{model}"', 2),
-           (':effort "medium"', ':effort "high"', 1)]
+           (':effort "medium"', ':effort "high"', 1), (":timeout-sec 5400", f":timeout-sec {timeout}", 3)]
 for old, new, count in changes:
     if text.count(old) != count:
         fail(f"{source} holds {old.strip()!r} {text.count(old)} times, not {count}")
@@ -114,6 +154,8 @@ if operands != {f'"{model}"'}:
 efforts = set(re.findall(r":effort\s+([^\s()]+)", text))
 if efforts != {'"high"'}:
     fail(f"the copy binds :effort to {sorted(efforts)}, not only to high")
+if set(re.findall(r":timeout-sec\s+([^\s()]+)", text)) != {timeout}:
+    fail(f"the copy has a :timeout-sec other than {timeout}")
 print(text, end="")
 EOF
 ) || refuse "a binding is not $MODEL on $TEMPLATE"
@@ -149,6 +191,8 @@ if [ -n "$RETRY_REASON" ]; then
   [ "$(sed -n 1p "$LEDGER/smoke/claimed")" = "$FIRST_DIR" ] ||
     refuse "the smoke ran under $(sed -n 1p "$LEDGER/smoke/claimed"), not $FIRST_DIR"
   [ -f "$FIRST_DIR/smoke.json" ] || refuse "the first attempt filed no smoke.json (still running, or died): no retry by resume"
+  [ "$(cat "$FIRST_DIR/bin/claude.target")" = "$CLAUDE" ] ||
+    refuse "the retry would run $CLAUDE, but the first slot ran $(cat "$FIRST_DIR/bin/claude.target")"
   "$PYTHON" -B "$KIT/readout.py" --retry-check "$ROOT" >&2 || refuse "the first attempt is not an infrastructure failure"
 else
   SLOT=smoke
@@ -157,17 +201,25 @@ fi
 SLOT_DIR=$ROOT/$SLOT
 [ ! -e "$SLOT_DIR" ] || refuse "$SLOT_DIR exists"
 
+if [ "$REHEARSAL" = false ]; then
+  ! grep -qxF "$STANDIN_MARKER" "$CLAUDE" || refuse "$CLAUDE is a rehearsal stand-in; a paid run needs the real CLI"
+fi
+VERSION=$(env -i "HOME=$HOME" PATH=/usr/bin:/bin DISABLE_AUTOUPDATER=1 "$CLAUDE" --version) || refuse "$CLAUDE --version failed"
+[ "$REHEARSAL" = true ] || [ "${VERSION%% *}" = "$CLI_PIN" ] ||
+  refuse "claude is $VERSION, not the pinned $CLI_PIN (criterion.json cli_version)"
 DIRTY=$(git -C "$RUNTIME" status --porcelain -- orchestrator "$SOURCE")
+KIT_IN_RUNTIME=$([ "$KIT" = "$(realpath -m "$RUNTIME/experiments/p2_smoke")" ] && echo true || echo false)
 if [ "$REHEARSAL" = false ]; then
   [ -z "$DIRTY" ] || refuse "the runtime $RUNTIME has uncommitted changes under orchestrator/ or in $SOURCE"
   KIT_STATE=$(git -C "$KIT" status --porcelain -- . 2>/dev/null) || refuse "the kit $KIT is not in a git checkout"
   [ -z "$KIT_STATE" ] || refuse "the kit $KIT has uncommitted changes"
+  [ "$KIT_IN_RUNTIME" = true ] || refuse "the kit $KIT is not the runtime's own experiments/p2_smoke"
 fi
-VERSION=$(env -i "HOME=$HOME" PATH=/usr/bin:/bin DISABLE_AUTOUPDATER=1 "$CLAUDE" --version) || refuse "$CLAUDE --version failed"
 [ ! -f "$LEDGER/claude-version" ] || [ "$(cat "$LEDGER/claude-version")" = "$VERSION" ] ||
   refuse "claude is $VERSION, but the first slot ran $(cat "$LEDGER/claude-version")"
 PYTHON_VERSION=$("$PYTHON" -c 'import sys; print(sys.version.split()[0])')
 PRICE_TABLE_SHA256=$(sha256sum "$RUNTIME/orchestrator/providers/price_table.json" | cut -d' ' -f1)
+[ "$PRICE_TABLE_SHA256" = "$PRICE_PIN" ] || refuse "the runtime's price table is $PRICE_TABLE_SHA256, not the pinned $PRICE_PIN"
 
 # Every orchestrator invocation: the frozen runtime's package, provider observation (tmux) off.
 DRIVER='import os, sys
@@ -197,6 +249,15 @@ run_env() {
     CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 DISABLE_AUTOUPDATER=1 "$@"
 }
 orc() { (cd "$WS" && run_env "$PYTHON" -c "$DRIVER" "$@"); }
+check_run_path() {
+  local dir cli
+  IFS=: read -r -a RUN_DIRS <<< "$(run_path)"
+  for dir in "${RUN_DIRS[@]:1}"; do
+    for cli in claude codex; do
+      [ ! -e "$dir/$cli" ] || refuse "$dir/$cli is on the smoke's PATH after the wrapper; the agent could reach it"
+    done
+  done
+}
 FRONTEND=(workflows/best_of_n.orc --entry-workflow "$ENTRY" --source-root workflows
           --provider-externs-file manifests/providers.json)
 
@@ -207,6 +268,8 @@ if [ -z "$RETRY_REASON" ]; then
   PREP=$(mktemp -d "$ROOT/.prep-XXXXXX")
   mkdir -p "$PREP/workspace/workflows" "$PREP/workspace/manifests" "$PREP/bin" "$PREP/control"
   printf '%s\n' "$PROGRAM" > "$PREP/workspace/workflows/best_of_n.orc"
+  [ "$(sha256sum "$PREP/workspace/workflows/best_of_n.orc" | cut -d' ' -f1)" = "$PROGRAM_PIN" ] ||
+    refuse "the program copy is not the pinned one (criterion.json program_sha256)"
   cp "$KIT/providers.json" "$PREP/workspace/manifests/providers.json"
   GIT_FIXED=(env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_AUTHOR_NAME="P2 smoke fixture"
              GIT_AUTHOR_EMAIL=fixture@example.invalid GIT_COMMITTER_NAME="P2 smoke fixture"
@@ -228,30 +291,29 @@ if [ -z "$RETRY_REASON" ]; then
     > "$PREP/bin/codex"
   chmod +x "$PREP/bin/claude" "$PREP/bin/codex"
   BIN=$PREP/bin WS=$PREP/workspace
-  IFS=: read -r -a RUN_DIRS <<< "$(run_path)"
-  for dir in "${RUN_DIRS[@]:1}"; do
-    for cli in claude codex; do
-      [ ! -e "$dir/$cli" ] || refuse "$dir/$cli is on the smoke's PATH after the wrapper; the agent could reach it"
-    done
-  done
+  check_run_path
   orc compile "${FRONTEND[@]}" > "$PREP/compile.json" 2> "$PREP/compile.stderr" ||
     { cat "$PREP/compile.stderr" >&2; refuse "the program copy does not compile with the kit's bindings"; }
   mkdir "$LEDGER/$SLOT" || refuse "slot $SLOT was claimed meanwhile"
+  CLAIMED=1
   printf '%s\n%s\n%s\n' "$SLOT_DIR" "$$" "$(date -u +%FT%TZ)" > "$LEDGER/$SLOT/claimed"
   [ -f "$LEDGER/claude-version" ] || printf '%s\n' "$VERSION" > "$LEDGER/claude-version"
   mv "$PREP" "$SLOT_DIR"
   PREP=
   BIN=$SLOT_DIR/bin WS=$SLOT_DIR/workspace
+  chmod -R a-w "$BIN"      # the agents run with bypassed permissions; a read-only bin/ is a speed bump, not a wall
   "$PYTHON" - "$KIT/inputs.json" "$WS" "${CANDIDATES[@]}" > "$WS/inputs.json" <<'EOF'
 import json, sys
 inputs, workspace, names = json.load(open(sys.argv[1])), sys.argv[2], sys.argv[3:]
 print(json.dumps({**inputs, "repos": [f"{workspace}/candidates/{name}" for name in names]}, indent=2))
 EOF
 else
+  BIN=$FIRST_DIR/bin WS=$FIRST_DIR/workspace
+  check_run_path
   mkdir "$LEDGER/$SLOT" || refuse "slot $SLOT was claimed meanwhile"
+  CLAIMED=1
   printf '%s\n%s\n%s\n' "$SLOT_DIR" "$$" "$(date -u +%FT%TZ)" > "$LEDGER/$SLOT/claimed"
   mkdir "$SLOT_DIR"
-  BIN=$FIRST_DIR/bin WS=$FIRST_DIR/workspace
   FIXTURE_COMMIT=$(git -C "$WS/candidates/alpha" rev-parse HEAD)
 fi
 SOURCE_SHA256=$(sha256sum "$WS/workflows/best_of_n.orc" | cut -d' ' -f1)
@@ -261,7 +323,8 @@ KILL=null RESUME_EXIT=null REPORT_EXIT=null RUN_ID=
 if [ -z "$RETRY_REASON" ]; then
   # The kill: `run` in its own session; once the wrapper holds both gamma and delta (so alpha and beta have
   # committed), SIGKILL the run's process group and the held wrappers. It stops waiting at a failed row, at
-  # the run's own exit, or after an hour, and kills whatever is left.
+  # the run's own exit, or after 25 minutes (each call times out after 10), and kills whatever is left; `reap`
+  # then terminates any call still in flight (each runs in its own session, out of the run's group).
   KILL=$(cd "$WS" && run_env "P2SMOKE_HOLD=$SLOT_DIR/control" "$PYTHON" - "$PYTHON" "$DRIVER" "$SLOT_DIR/run.log" \
     "${FRONTEND[@]}" --input-file inputs.json --max-cost-usd "$CAP_USD" <<'EOF'
 import json, os, signal, subprocess, sys, time
@@ -269,17 +332,24 @@ from pathlib import Path
 python, driver, log_path, *argv = sys.argv[1:]
 control = Path(os.environ["P2SMOKE_HOLD"])
 
+DEADLINE = 1500
+
 def memo():
     found = list(Path(".orchestrate/runs").glob("*/memo.jsonl"))
-    rows = [line for line in found[0].read_text().splitlines() if line.endswith("}")] if len(found) == 1 else []
-    return [json.loads(line) for line in rows]
+    rows = []
+    for line in found[0].read_text().splitlines() if len(found) == 1 else []:
+        try:
+            rows.append(json.loads(line))
+        except ValueError:      # a line still being written
+            continue
+    return rows
 
 with open(log_path, "wb") as log:
     process = subprocess.Popen([python, "-c", driver, "run", *argv], stdout=log, stderr=subprocess.STDOUT,
                                start_new_session=True)
 start = time.monotonic()
 while not (len(list(control.glob("held-*"))) >= 2 or process.poll() is not None
-           or any(row["record"] == "failed" for row in memo()) or time.monotonic() - start > 3600):
+           or any(row.get("record") == "failed" for row in memo()) or time.monotonic() - start > DEADLINE):
     time.sleep(0.1)
 held = [json.loads(path.read_text()) for path in sorted(control.glob("held-*"))]
 for kill in (lambda: os.killpg(process.pid, signal.SIGKILL), *(lambda pid=h["pid"]: os.kill(pid, signal.SIGKILL) for h in held)):
@@ -290,23 +360,26 @@ for kill in (lambda: os.killpg(process.pid, signal.SIGKILL), *(lambda pid=h["pid
 process.wait()
 rows = memo()
 print(json.dumps({"exit": process.returncode, "seconds": round(time.monotonic() - start),
-                  "held": sorted(h["bundle"] for h in held), "timed_out": time.monotonic() - start > 3600,
-                  "committed_before": [row["identity"] for row in rows if row["record"] == "committed"],
-                  "failed_before": [row["identity"] for row in rows if row["record"] == "failed"]}))
+                  "held": sorted(h["bundle"] for h in held), "timed_out": time.monotonic() - start > DEADLINE,
+                  "committed_before": [row["identity"] for row in rows if row.get("record") == "committed"],
+                  "failed_before": [row["identity"] for row in rows if row.get("record") == "failed"]}))
 EOF
 )
   RUN_ID=$(cd "$WS" && ls .orchestrate/runs 2>/dev/null | head -1)
   KILL=${KILL:-null}
+  reap run
   # Resume only a run killed as planned: two coders committed, two held, nothing else in flight.
   if [ -n "$RUN_ID" ] && echo "$KILL" | "$PYTHON" -c 'import json, sys; k = json.load(sys.stdin)
 sys.exit(0 if k and len(k["held"]) == 2 and len(k["committed_before"]) == 2 and not k["failed_before"] else 1)'; then
     orc resume "$RUN_ID" > "$SLOT_DIR/resume.log" 2>&1
     RESUME_EXIT=$?
+    reap resume
   fi
 else
   RUN_ID=$("$PYTHON" -c 'import json, sys; print(json.load(open(sys.argv[1]))["run_id"])' "$FIRST_DIR/smoke.json")
   orc resume "$RUN_ID" > "$SLOT_DIR/resume.log" 2>&1
   RESUME_EXIT=$?
+  reap resume
 fi
 if [ -n "$RUN_ID" ]; then
   orc report --run-id "$RUN_ID" --format json > "$SLOT_DIR/report.json" 2> "$SLOT_DIR/report.stderr"
@@ -321,7 +394,7 @@ set -e
   runtime_commit "$RUNTIME_COMMIT" runtime_dirty "$([ -n "$DIRTY" ] && echo true || echo false)" \
   source "$SOURCE" source_sha256 "$SOURCE_SHA256" manifest_sha256 "$MANIFEST_SHA256" python "$PYTHON" \
   python_version "$PYTHON_VERSION" price_table_sha256 "$PRICE_TABLE_SHA256" fixture_commit "$FIXTURE_COMMIT" \
-  run_id "$RUN_ID" resume_exit "$RESUME_EXIT" report_exit "$REPORT_EXIT" <<'EOF'
+  run_id "$RUN_ID" resume_exit "$RESUME_EXIT" report_exit "$REPORT_EXIT" kit "$KIT" kit_in_runtime "$KIT_IN_RUNTIME" <<'EOF'
 import json, os, re, sys
 from pathlib import Path
 out, home, workspace, ledger, report_path, kill, kit_files, *pairs = sys.argv[1:]
@@ -329,6 +402,7 @@ meta = dict(zip(pairs[::2], pairs[1::2]))
 for key in ("cap_usd", "resume_exit", "report_exit"):
     meta[key] = json.loads(meta[key])
 meta |= {"rehearsal": meta["rehearsal"] == "true", "runtime_dirty": meta["runtime_dirty"] == "true",
+         "kit_in_runtime": meta["kit_in_runtime"] == "true",
          "retry_reason": meta["retry_reason"] or None, "kill": json.loads(kill), "kit_files": json.loads(kit_files)}
 # The CLI's sessions for the workspace and its candidates (projects/<path, non-alphanumerics replaced by ->):
 # each <id>.jsonl transcript and each <id>/ folder, and the hook records in the transcripts.
@@ -345,8 +419,15 @@ for transcript in (p for d in stores for p in d.glob("*.jsonl")):
             continue
         traces += isinstance(attachment, dict) and ("hookEvent" in attachment or str(attachment.get("type", "")).startswith("hook_"))
 meta["native_hook_traces"] = traces
-meta["launches"] = [{"launch": d.name, "bundle": (d / "bundle").read_text().strip() if (d / "bundle").is_file() else None}
+def field(launch, name):
+    return (launch / name).read_text().strip() if (launch / name).is_file() else None
+
+meta["launches"] = [{"launch": d.name, "bundle": field(d, "bundle"), "target": field(d, "target"),
+                     "standin": field(d, "standin") == "yes", "pid": int(field(d, "pid") or 0) or None,
+                     "refused": (d / "refused").exists()}
                     for d in sorted(Path(ledger).glob("launch-*"), key=lambda d: int(d.name.split("-")[1]))]
+terminated = Path(out).parent / "terminated.jsonl"
+meta["terminated"] = [json.loads(line) for line in terminated.read_text().splitlines()] if terminated.is_file() else []
 runs = sorted(Path(workspace, ".orchestrate", "runs").glob("*/memo.jsonl"))
 rows = [json.loads(line) for line in runs[0].read_text().splitlines() if line.endswith("}")] if runs else []
 meta["committed_after"] = [row["identity"] for row in rows if row["record"] == "committed"]

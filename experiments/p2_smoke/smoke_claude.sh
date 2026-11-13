@@ -11,7 +11,12 @@
 #     logged to <slot>/refused-calls.log. The spend is the runtime's own cap figure (`cap_cost`: the larger of
 #     the CLI's reported cost and the highest-tier price) of every earlier launch, and USD 0.5 for each launch
 #     without complete usage yet, this one included.
-#  4. The CLI runs with user-level settings, plugins, hooks, MCP servers, skills and slash commands left
+#     A refused launch keeps its slot (counted as used) and is marked `refused`; it made no call and the
+#     spend figure leaves it out.
+#  4. Before exec, the launch records its pid (the runtime starts each provider in its own session, so this is
+#     the call's session and process group: run_smoke.sh terminates any still alive when the run stops), the
+#     binary it executes and whether that binary is a rehearsal stand-in (carries the kit's marker line).
+#  5. The CLI runs with user-level settings, plugins, hooks, MCP servers, skills and slash commands left
 #     out and a per-call ceiling of USD 0.5.
 here=$(cd "$(dirname "$0")" && pwd -P)
 if [ -n "${P2SMOKE_IN_RUN:-}" ]; then
@@ -43,6 +48,8 @@ from pathlib import Path
 from orchestrator.providers.pricing import cap_cost, load_price_table
 table, total = load_price_table(), 0.0
 for launch in Path(sys.argv[1]).glob("launch-*"):
+    if (launch / "refused").exists():
+        continue
     bundle = (launch / "bundle").read_text().strip() if (launch / "bundle").is_file() else ""
     usage = Path(bundle).parent / "usage.json" if bundle else None
     try:
@@ -54,9 +61,18 @@ sys.exit(f"spend: the smoke's figure would be {total:.4f} USD, above 3" if total
 EOF
 then
   echo "$(date -u +%FT%TZ) spend: launch-$n refused; $*" >> "$here/../refused-calls.log"
+  : > "$ledger/launch-$n/refused"
   exit 98
 fi
+target=$(cat "$here/claude.target")
+printf '%s\n' "$target" > "$ledger/launch-$n/target"
+if grep -qxF '# p2smoke-rehearsal-stand-in: makes no provider call' "$target" 2>/dev/null; then
+  echo yes > "$ledger/launch-$n/standin"
+else
+  echo no > "$ledger/launch-$n/standin"
+fi
+printf '%s\n' "$$" > "$ledger/launch-$n/pid"
 P2SMOKE_IN_RUN=1
 export P2SMOKE_IN_RUN
-exec "$(cat "$here/claude.target")" --setting-sources project --strict-mcp-config --disable-slash-commands \
+exec "$target" --setting-sources project --strict-mcp-config --disable-slash-commands \
   --max-budget-usd 0.5 "$@"
