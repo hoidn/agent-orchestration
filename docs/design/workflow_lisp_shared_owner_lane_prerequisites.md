@@ -1,5 +1,9 @@
 # Workflow Lisp Shared Owner-Lane Prerequisites
 
+Status: **Historical — archived in place.** Superseded: the `std/drain` and `std/resource` modules whose adoption it gated (`backlog-drain`, `finalize-selected-item`) were removed on 2026-11-12 and refuse with `form_retired`; its surviving rules (stdlib forms resolve through their imported definitions; refined match binders) are in the frontend specification. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [frontend specification §6](workflow_lisp_frontend_specification.md#6-name-resolution) and [§11](workflow_lisp_frontend_specification.md#11-pattern-matching). Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#shared_owner_lane_prerequisites).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current scope: this page records minimum shared-owner contracts and consumer
 claim limits. WCC/schema-2 generated projections, callable-boundary bridges and
 family migration examples below describe their historical substrate. Their

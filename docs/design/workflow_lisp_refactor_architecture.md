@@ -1,5 +1,9 @@
 # Workflow Lisp Refactor Architecture
 
+Status: **Historical — archived in place.** Superseded: the June 2026 refactor it guided is closed, and the lowering facade and flat route it targeted were deleted; the two rules of it the code keeps are stated in the code map. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [core calculus, current ownership](workflow_lisp_core_calculus_middle_end.md#current-ownership-and-invariants), the [code map](../../orchestrator/workflow_lisp/README.md#pipeline), [frontend specification §36](workflow_lisp_frontend_specification.md#36-macro-outputs) and the [design principles](workflow_language_design_principles.md). Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#refactor_architecture).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current architecture: `workflow_lisp/compiler.py` coordinates shared parsing,
 linking, typed analysis and specialization; `workflow_lisp/closed/` owns checked
 program construction. The evaluated loader/checker and runtime own execution.
