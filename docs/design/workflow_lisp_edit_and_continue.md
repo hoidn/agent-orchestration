@@ -491,7 +491,9 @@ sets field after an unfinished attempt's script was rewritten.
 10. Memo replay.
     - *Unchanged program, no divergence at a committed effect:* as today.
     - *Unchanged program, a committed effect diverged, no token:* refuse
-      `effect_input_diverged`, as today; the plan is printed with it.
+      `effect_input_diverged`, as today; the plan is printed with it. That
+      plan takes its cut from the refusal and does not compare the commits
+      before it again: the refusing replay compared each, in order.
     - *With a token:* compute the plan. For a candidate program it is §3's.
       For an unchanged program the cut is the first diverged commit and the
       record is the `invalidated` range that `invalidate` would write. Check

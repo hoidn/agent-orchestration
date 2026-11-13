@@ -113,16 +113,20 @@ def _plan_with(run_root: Path, workspace: Path, run_files) -> Plan:
     return compute_plan(authority, candidate, inputs, workspace=workspace, provider_io=provider_io)
 
 
-def compute_plan(authority, candidate: ClosedProgram, inputs, *, workspace: Path, provider_io) -> Plan:
+def compute_plan(authority, candidate: ClosedProgram, inputs, *, workspace: Path, provider_io, diverged=None) -> Plan:
     """Rule C10 for `candidate` against the run's journal, the refusals of design §5, then the strict replay on the
     journal as it will be. Raises `PlanRefusal` (or the strict pass's own coded error) when no plan can be accepted,
-    `resume_preflight_failed` when nothing needs accepting."""
+    `resume_preflight_failed` when nothing needs accepting.
+
+    `diverged`: the `_EffectInputDiverged` today's strict pass just raised under the run's program (`candidate` is
+    that program). That pass compared, in offset order, every reached commit before the divergent one, so neither
+    the cut nor the strict replay on the journal as it will be compares them again."""
     rebased = candidate.digest != authority.program.digest
     if rebased:
         _check_candidate(authority, candidate)
     snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=authority.run_files)
     planning = _planning_authority(authority, candidate, snapshot) if rebased else authority
-    cut, reason = _cut(planning, snapshot, inputs, workspace, provider_io)
+    cut, reason = _cut(planning, snapshot, inputs, workspace, provider_io, diverged)
     if not rebased and cut is None:
         raise PlanRefusal("resume_preflight_failed", "no committed step's input changed under the run's program: "
                           "there is no plan to accept")
@@ -132,7 +136,7 @@ def compute_plan(authority, candidate: ClosedProgram, inputs, *, workspace: Path
     kept, cancelled, retired = _split(snapshot, cut)
     _refuse(authority, snapshot, candidate, cut, cancelled, retired, written)
     after = _journal_after(authority, snapshot, candidate if rebased else None, cut)
-    prefix = _strict_replay(planning, after, inputs, workspace, provider_io)
+    prefix = _strict_replay(planning, after, inputs, workspace, provider_io, commits_proven=diverged is not None)
     from .attempts import unproven_reason
     asked = _of_class(snapshot, (*cancelled, *retired), "request_input")
     unproven = _unproven(after, prefix, workspace)
@@ -222,7 +226,7 @@ def _not_reusable(exc: Exception) -> str | None:
     return detail if detail in _NOT_REUSABLE else None
 
 
-def _cut(planning, snapshot, inputs, workspace, provider_io) -> tuple[int | None, str]:
+def _cut(planning, snapshot, inputs, workspace, provider_io, known=None) -> tuple[int | None, str]:
     """(cut, what is at the cut and why): the smallest offset among commits not reused and pending starts not kept."""
     lenient = _Lenient(_Discovery(planning, snapshot))
     try:
@@ -237,7 +241,11 @@ def _cut(planning, snapshot, inputs, workspace, provider_io) -> tuple[int | None
     stale = [(entry.offset, identity, lenient.why.get(identity, unreached))
              for identity, entry in snapshot.active_commits.items() if identity not in discovery.consumed]
     stale += _pending_not_kept(planning, snapshot, discovery, workspace, lambda identity: lenient.why.get(identity, unreached))
-    diverged = _first_divergence(planning, snapshot, discovery.prefix.commits, workspace, min(stale)[0] if stale else None)
+    if known is None:
+        diverged = _first_divergence(planning, snapshot, discovery.prefix.commits, workspace,
+                                     min(stale)[0] if stale else None)
+    else:           # today's strict pass refused here, having compared every commit before it
+        diverged = snapshot.active_commits[known.identity].offset, known.identity, _what_changed(known)
     stale += [diverged] if diverged is not None else []
     if not stale:
         return None, ""
@@ -395,14 +403,16 @@ def _journal_after(authority, snapshot, candidate, cut):
                        (*earlier_tables(authority), site_classes(authority.program)))
 
 
-def _strict_replay(planning, after, inputs, workspace, provider_io):
-    """Today's resume preflight, unchanged, on the journal as it will be. The token binds the unfinished command
-    attempts the plan lists, so their changed files are accepted here as the token accepts them."""
+def _strict_replay(planning, after, inputs, workspace, provider_io, *, commits_proven=False):
+    """Today's resume preflight, unchanged, on the journal as it will be (design §7: the planner is not trusted for
+    it). The token binds the unfinished command attempts the plan lists, so their changed files are accepted here as
+    the token accepts them. `commits_proven`: today's strict pass has just compared the kept commits' fresh inputs
+    (it refused at the cut's commit), so that comparison is not run a second time."""
     from .resume_prefix import checked_resume_prefix
 
     _snapshot, prefix = checked_resume_prefix(
         replace(planning, accept_changes=True), inputs, run_id=planning.header["run_id"], workspace=workspace,
-        provider_io=provider_io, site_classes=site_classes(planning.program), snapshot=after)
+        provider_io=provider_io, site_classes=site_classes(planning.program), snapshot=after, commits_proven=commits_proven)
     return prefix
 
 

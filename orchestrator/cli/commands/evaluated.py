@@ -256,7 +256,7 @@ def _divergence_plan(exc, authority, inputs, workspace, provider_io):
     if snapshot is None or getattr(exc, "identity", None) not in snapshot.active_commits:
         return None
     return _plan_or_reason(lambda: compute_plan(authority, authority.program, inputs, workspace=workspace,
-                                                provider_io=provider_io))
+                                                provider_io=provider_io, diverged=exc))
 
 
 def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False, max_cost_usd: float | None = None, accept_changes: bool = False) -> int:
