@@ -65,8 +65,9 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   (coordinator ruling on review2 M8): with the message alone every T2 statement falls under the 80-character
   floor and the rung disappears. T2 differs from T1 by the commits selected (up to two files and 60 lines,
   against one file and 20), not by the form of the statement; the probe measures the difference.
-- A unit's copied credentials are removed when it ends (settled, refused, or after its judge's launch); a pool
-  whose judges never launched keeps them in `<pool>/.private-homes` until it is deleted (review2 minor 7).
+- A unit's copied credentials are removed when it ends in any way (settled, refused, failed, or after its judge's
+  launch), and a pool's `<pool>/.private-homes` copies are removed when pooling ends, refused or not; no command
+  leaves a credential under a results or pool directory (coordinator ruling, round 4).
 - A runner that dies between launch and settle leaves the agents' tree on disk until `settle` (a calibration
   run) or the next `probe` (a probe run) settles it (review2 minor 9).
 
