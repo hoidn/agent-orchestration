@@ -1,5 +1,9 @@
 # Workflow Lisp Pure-Call Expression Composition
 
+Status: **Historical — archived in place.** Superseded: its rules now live in the language reference. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [`defun`](workflow_lisp_frontend_specification.md#86-defun) and the [pure-expression surface](workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface) of the frontend specification; [evaluated execution](workflow_lisp_evaluated_execution.md) for program identity. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#pure_call_composition).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
 Pre-2.35 introduction gates below are historical; data readers remain separate.
 

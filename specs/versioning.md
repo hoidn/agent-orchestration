@@ -774,8 +774,8 @@ own delivery status and captured evidence.
   - Target 2.34 exists. Apart from the surface listed below, it accepts and
     lowers exactly what 2.33 accepts; only the version recorded in each build
     artifact, and the digests and build key computed over it, differ.
-  - Decimal literals and numeric operators (rules N1 to N5 and N8 of the
-    [numeric surface](../docs/design/workflow_lisp_numeric_surface.md)):
+  - Decimal literals and numeric operators (the reference is the
+    [pure-expression surface](../docs/design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface)):
     - A decimal literal is an expression wherever an expression is admitted.
       In a module at 2.34, a token with an exponent (`2e-3`, `1.0E6`,
       `-1.25e+2`) reads as a float; below 2.34 it still reads as a symbol. A
@@ -797,7 +797,7 @@ own delivery status and captured evidence.
       each refusal is the one of 2.33.
   - Repetition reduction remains a separate unapproved proposal; no repetition
     syntax is implemented at target 2.34. State schema remains `2.1`.
-  - Finite values at boundaries (numeric surface rule N6): at 2.34 a
+  - Finite values at boundaries: at 2.34 a
     non-finite `Float` in a workflow input, a command or provider result field
     or an expected output file is refused with `float_not_finite`, which names
     the field (`specs/io.md`, deterministic artifact contracts). Compilation

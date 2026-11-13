@@ -1010,8 +1010,8 @@ Symbol
 and recursively valid string-keyed objects. It is distinct from the
 non-transportable internal `Json` type and from concrete records and unions,
 whose declared fields and variants remain part of their contracts. `Value` is
-reserved against local or imported shadowing, but authored occurrences require
-target DSL 2.19 or later.
+a prelude type at every admitted source target, reserved against local or
+imported shadowing. Diagnostics: `prelude_type_name_reserved`.
 
 Source compatibility is exact. `Value` flows only to `Value`; no narrower
 scalar, enum, path, record, union, optional, list, or map value is implicitly
@@ -1019,14 +1019,23 @@ widened to `Value`, and `Value` is never implicitly narrowed to one of those
 types. It grants no field, variant, numeric, path, collection, or control-flow
 operations. Authors may use exact `Value` in function, procedure, workflow,
 provider-result, command-result, and workflow-call parameters or returns; in
-record/union payload fields; and under `Optional[Value]`, `List[Value]`, or
-`Map[String, Value]` where the surrounding transportable position is supported.
+record/union payload fields; as a provider prompt input; and under
+`Optional[Value]`, `List[Value]`, or `Map[String, Value]` where the surrounding
+transportable position is supported.
 
 ```text
 Value -> Value  accepted
 T -> Value      rejected for every narrower T
 Value -> T      rejected for every narrower T
 ```
+
+A narrower value where `Value` is declared, or a `Value` where a narrower type
+is declared, is refused. There is no cast, decoder, field projection or dynamic
+type test from `Value`: a field read, a `Bool` condition or an operator on a
+`Value` is refused by that form's own check, and `Value` satisfies no structural
+constraint such as `is-record`. Diagnostics: `type_mismatch`,
+`return_type_mismatch`, `record_field_unknown`, `if_condition_not_bool`,
+`pure_expr_operand_type_mismatch`, `parametric_constraint_unsatisfied`.
 
 A direct `Value` result lowers to a sole compiler-owned `output_bundle` field:
 
@@ -1037,14 +1046,17 @@ type: value
 ```
 
 The producer writes the JSON value at the document root. There is no authored
-or hidden `{"value": ...}` envelope. A public workflow boundary uses
-`kind: value` with `type: value`; the classification remains opaque and never
-changes with an observed payload shape.
+or hidden `{"value": ...}` envelope; state and debug projections may show the
+`__result__` name, while source sees only `Value`. A public workflow boundary
+uses `kind: value` with `type: value`; the classification remains opaque and
+never changes with an observed payload shape.
 
-The shared validator preserves the recursively validated value. File-backed
-malformed JSON and non-standard non-finite constants fail with the existing
-`invalid_json_document` contract; in-memory non-finite numbers, non-string
-object keys, cycles, or other non-JSON leaves fail as
+The shared validator returns the recursively validated value without coercion:
+booleans stay booleans, integers stay integers, and lists and objects keep
+their order and keys. Malformed JSON fails with `invalid_json_document`; a
+non-finite number anywhere in the value, written as a non-standard constant,
+fails with `float_not_finite` and its value path; in-memory non-finite numbers,
+non-string object keys, cycles, or other non-JSON leaves fail as
 `invalid_transportable_value`, reporting the first invalid RFC 6901 value
 path. JSON `null` is a present valid value, not a missing bundle or pointer.
 
@@ -1056,8 +1068,10 @@ shape. Resume validates the same declared contract as the original boundary;
 it neither reparses the payload into a narrower type nor re-executes an already
 committed compatible provider boundary.
 
-`(result Value ...)` may carry `:description` and `:format-hint` for provider
-contract guidance. `:example` is rejected with
+The provider contract describes a `Value` result as one JSON value at the
+document root and names no fields. `(result Value ...)` may carry
+`:description` and `:format-hint` for provider contract guidance. `:example`
+is rejected with
 `value_guidance_example_unsupported` because target 2.19 has no checked source
 constructor that erases a narrower literal to exact `Value`. Guidance does not
 narrow validation or change state, checkpoint, or resume behavior.
@@ -1459,8 +1473,30 @@ evaluation through hygienic lexical bindings. Bindings inside short-circuit
 operands remain inside those operands. Final strict checking also covers
 uncalled functions and generic bases.
 
-The shared pure-expression schema 3 represents ordered lexical `let` bindings;
-there is no runtime procedure interpreter. Call/definition/specialization
+Admission is structural, after resolution and specialization: a helper's name,
+module or authored `:effects ()` never admits a call, and an effectful callee is
+refused with its effect named. A call whose resolved body does not reduce to an
+effect-free inline pure expression, such as a `:lowering private-workflow`
+procedure of a 2.35 to 2.38 module, is refused as unrepresentable rather than as
+an effect. A recursive pure helper is refused. Diagnostics:
+`pure_function_has_effect`, `list_map_body_effect_forbidden`,
+`procedure_effect_ceiling_exceeded`, `pure_call_representation_unsupported`,
+`function_cycle`.
+
+Each actual argument is evaluated once, in source order and in the caller's
+scope, before the callee's formals are bound, also when the formal is unused, so
+an unused argument's failure still fails the call. Work inside an untaken `if`
+branch, a skipped `and`/`or` operand or an empty `list/map` body is not
+evaluated; a `list/map` evaluates its body once per element in input order. A
+selected hook is expanded under its own specialization and defining module; a
+caller's procedure of the same name never captures it. The call's work belongs
+to the enclosing workflow; no helper result is stored.
+
+The shared pure-expression schema 3 represents ordered lexical `let` bindings:
+each initializer sees the earlier bindings, an inner scope may shadow an outer
+name, a duplicate name in one binding list is refused, no binding escapes its
+body, and payload schemas 1 and 2 refuse `let`. There is no runtime procedure
+interpreter. Call/definition/specialization
 provenance and deterministic compilation are retained. Effectful calls, private
 execution frames, unresolved runtime-selected callables, and bodies outside the
 supported pure-expression representation are not admitted by this rule. Existing
@@ -1832,16 +1868,27 @@ generated `pure_projection` step with a validated payload, typed binding refs,
 payload digest, and a private managed result bundle. Literal-only trees may
 still fold away entirely at compile time through the same evaluator.
 
+A decimal literal (`1.5`, `-0.25`, `.5`, `2e-3`, `1.0E6`) is an expression
+wherever an expression is admitted. There is no literal for infinity or for a
+value that is not a number, and a literal that does not fit a finite double is
+refused when the module is read. Diagnostics: `float_literal_not_finite`.
+
+Each operator's name, operand types, result type and evaluation are defined
+once, in the catalog of `orchestrator/workflow/pure_expr.py`, which the
+typechecker, the compiler and the runtime read. A refusal names the operator
+and prints its operands. An application whose operands are all literals is
+evaluated when the program is compiled, so its refusal is a compile error.
+
 Supported operators are exact and closed:
 
 | Group | Operators | Allowed operand/result shapes | Notes |
 | --- | --- | --- | --- |
-| Equality | `=`, `!=` | `String`, `Int`, `Bool`, `Symbol`, same-type enums | No float equality, deep union equality, or deep record equality. |
+| Equality | `=`, `!=` | `String`, `Int`, `Bool`, `Symbol`, same-type enums | No float equality (`pure_expr_float_equality_forbidden`), deep union equality, or deep record equality. |
 | Ordering | `<`, `<=`, `>`, `>=` | `Int x Int`, `Float x Float` -> `Bool` | Ordering is allowed for `Float`; equality is not. |
 | Boolean | `and`, `or`, `not` | `Bool` -> `Bool` | Computed `Bool` values remain proof-neutral. |
 | Arithmetic, targets through 2.33 | `+`, `-`, `*`, `min`, `max` | `Int` -> `Int` | `+`, `-`, and `*` fail closed on signed 64-bit overflow. |
-| Arithmetic, target 2.34 | `+`, `*`, `min`, `max` (two or more operands); `-`, `/`, `int/div`, `int/mod` (two); `float/abs`, `float/sqrt`, `float/log` (one) | `+ - * min max`: all `Int` or all `Float` -> same type; `/` and the `float/` operators: `Float` -> `Float`; `int/div` and `int/mod`: `Int` -> `Int` only | [Numeric surface](workflow_lisp_numeric_surface.md) rules N2 and N4: mixed operands refused at compile time; refusals `pure_expr_division_by_zero`, `pure_expr_float_domain`, `pure_expr_float_not_finite`, `pure_expr_overflow` name the operator and print the operands. |
-| Conversion, target 2.34 | `int/to-float`, `float/floor`, `float/round` | `Int` -> `Float`; `Float` -> `Int` | Numeric surface rule N3: nothing converts silently; `float/round` rounds halves to even; a result outside 64 bits is refused. |
+| Arithmetic, target 2.34 | `+`, `*`, `min`, `max` (two or more operands); `-`, `/`, `int/div`, `int/mod` (two); `float/abs`, `float/sqrt`, `float/log` (one) | `+ - * min max`: all `Int` or all `Float` -> same type; `/` and the `float/` operators: `Float` -> `Float`; `int/div` and `int/mod`: `Int` -> `Int` only | Mixed `Int` and `Float` operands are refused at compile time; no operand is converted (`pure_expr_operand_type_mismatch`). `int/div` rounds toward negative infinity and `int/mod` has the sign of the divisor, so `(+ (* (int/div a b) b) (int/mod a b))` is `a`. `float/log` is the natural logarithm; unlike the other operators, which give the same double on every platform, it may differ in the last unit between mathematical libraries, and so may a digest that holds its result. Refusals: `pure_expr_division_by_zero` (a zero divisor of `/`, `int/div` or `int/mod`), `pure_expr_float_domain` (`float/sqrt` of a negative value, `float/log` of zero or a negative value), `pure_expr_float_not_finite` (an infinite or not-a-number result), `pure_expr_overflow` (an `Int` result outside 64 bits). |
+| Conversion, target 2.34 | `int/to-float`, `float/floor`, `float/round` | `Int` -> `Float`; `Float` -> `Int` | Conversion is explicit; nothing converts silently. `int/to-float` gives the nearest double and never refuses; `float/floor` rounds down; `float/round` rounds halves to even. A result outside 64 bits is refused (`pure_expr_overflow`). |
 | String | `string/concat`, `string/empty?`, `symbol/name` | `String`/`Symbol` | Path values are not strings for concatenation. |
 | Option | `some?`, `or-else` | `Optional[T]` with typed fallback | Optional access still requires proof or an explicit option operator. |
 | Record | `record-update` | base record plus typed field overrides | Unknown fields remain `record_field_unknown`. |
