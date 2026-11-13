@@ -143,8 +143,9 @@ through calls in ordinary effect-admitting control: bounded loop bodies,
 budgets and seeds, `match` subjects, and the one-effect body of serial
 `list/map-effect`. Preserve ordinary types, union/arm proofs, structural
 evaluation order, collection transportability and traversal bounds. A direct
-path run reference is also an admitted one-effect map body; the map source
-and body arguments remain pure. This does not select general or parallel map.
+path run reference, or an admitted call holding one, is the whole body of a
+`list/map-effect` that holds it, with pure arguments; any other map body is any
+expression ([frontend specification §10.3](workflow_lisp_frontend_specification.md#103-target-218-bounded-list-traversal)).
 
 `:on-exhausted` remains a pure projection at 2.35: retain both its specific
 run-ref/trial guard and its rejection of any nonempty effect summary. Other

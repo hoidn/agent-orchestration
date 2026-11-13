@@ -2565,6 +2565,31 @@ def _elaborate_list_map(
     )
 
 
+def _serial_max_clause(datum: SyntaxList, *, form_path: tuple[str, ...]) -> bool:
+    """Check a serial map's `:max` clause; return whether `:max` is an expression, not a literal."""
+    items = datum.items
+    shape = len(items) == 5 and isinstance(items[2], SyntaxKeyword) and items[2].value == ":max"
+    if shape and not isinstance(items[3], (SyntaxInt, SyntaxKeyword)):
+        return True
+    max_value = (
+        items[3].value if len(items) > 3 and isinstance(items[3], SyntaxInt) and type(items[3].value) is int
+        else None
+    )
+    if shape and max_value is not None and max_value > 0:
+        return False
+    limit_detail = "minimum=1" if max_value is None else f"value={max_value}, minimum=1"
+    _raise_error(
+        (
+            "`list/map-effect` requires `:max` followed by a positive integer "
+            f"literal or an `Int` expression; {limit_detail}"
+        ),
+        code="list_map_effect_max_invalid",
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
 def _elaborate_list_map_effect(
     datum: SyntaxList,
     *,
@@ -2585,35 +2610,7 @@ def _elaborate_list_map_effect(
             datum, target=session_state.target_dsl_version or "",
             form_path=form_path, raise_error=_raise_error,
         )
-    computed_max = (
-        parallel_options is None and len(datum.items) == 5
-        and isinstance(datum.items[2], SyntaxKeyword) and datum.items[2].value == ":max"
-        and not isinstance(datum.items[3], (SyntaxInt, SyntaxKeyword))
-    )
-    if parallel_options is None and not computed_max and (
-        len(datum.items) != 5
-        or not isinstance(datum.items[2], SyntaxKeyword)
-        or datum.items[2].value != ":max"
-        or not isinstance(datum.items[3], SyntaxInt)
-        or isinstance(datum.items[3].value, bool)
-        or datum.items[3].value <= 0
-    ):
-        max_value = datum.items[3].value if len(datum.items) > 3 and isinstance(datum.items[3], SyntaxInt) else None
-        limit_detail = (
-            f"value={max_value}, minimum=1"
-            if max_value is not None and not isinstance(max_value, bool)
-            else "minimum=1"
-        )
-        _raise_error(
-            (
-                "`list/map-effect` requires `:max` followed by a positive integer "
-                f"literal or an `Int` expression; {limit_detail}"
-            ),
-            code="list_map_effect_max_invalid",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
+    computed_max = parallel_options is None and _serial_max_clause(datum, form_path=form_path)
     raw_binders = datum.items[1]
     if (
         not isinstance(raw_binders, SyntaxList)

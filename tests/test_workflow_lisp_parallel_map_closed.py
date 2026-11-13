@@ -256,13 +256,13 @@ def test_pure_nested_inline_helper_retains_checked_maps(tmp_path):
     assert program.sites == ()
 
 
-@pytest.mark.parametrize('body', [
-    '(worker (command-result fetch :argv ("python" "probe.py") :returns String))',
-    '(list/map-effect ((other (list repo))) :max 1 :parallel 1 :workspace other (identity other))',
-    '(let* ((copy repo)) (worker copy))',
-    '(if true (worker repo) (worker repo))',
+@pytest.mark.parametrize('body, map_count, site_count', [
+    ('(worker (command-result fetch :argv ("python" "probe.py") :returns String))', 2, 1),
+    ('(list/map-effect ((other (list repo))) :max 1 :parallel 1 :workspace other (identity other))', 2, 0),
+    ('(let* ((copy repo)) (worker copy))', 2, 0),
+    ('(if true (worker repo) (worker repo))', 3, 0),
 ])
-def test_nested_inline_bodies_of_any_shape_and_effectful_arguments_build(tmp_path, body):
+def test_nested_inline_bodies_of_any_shape_and_effectful_arguments_build(tmp_path, body, map_count, site_count):
     # Surface coherence I1: only a body that holds a run reference keeps the one-call and pure-argument rules.
     program = checked(tmp_path, PURE_NESTED_INLINE.replace('(worker repo)', body))
-    assert maps(program)
+    assert (len(maps(program)), len(program.sites)) == (map_count, site_count)
