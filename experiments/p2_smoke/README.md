@@ -156,8 +156,9 @@ Known gaps, outside the kit's control:
   still enforces each call's 600 s timeout; if it is killed too (the whole
   process tree), only `--max-budget-usd` bounds a call in flight.
 - An interrupt (Ctrl-C) during the resume lets the runtime drain its calls
-  and exit 1; the readout then reads `fail`. An interrupted run is a lost
-  tranche.
+  and exit 1; the readout then reads `fail`. In the run phase it leaves
+  `orchestrator run` alive until its killed items fail (no extra calls were
+  observed). An interrupted run is a lost tranche.
 - A real run writes session transcripts and CLI state to the operator's
   `~/.claude`, as any Claude session does; nothing from there is copied into
   the results.
