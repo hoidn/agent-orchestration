@@ -15,9 +15,13 @@ Scenarios (the reply depends on the request, so side requests and subagents get 
   refusal   a reply ending with stop_reason "refusal"
   max_tokens  a reply ending with stop_reason "max_tokens"
   context   HTTP 400 "prompt is too long", as the API answers a request over the context window
+  context_late  a Bash call reporting a prompt of 990,000 tokens, then HTTP 400 "prompt is too long" for
+            every request that declares Bash (a request without it, such as a summary, gets text)
   timeout   `sleep 30` Bash calls forever, until the harness kills the session
   subagent  the main session starts a subagent (Agent or Task tool); the subagent makes SUB_TURNS
             priced Bash calls and ends; then the main session ends
+  subagent_override  as subagent, but the call runs in the foreground and asks for model "fable" and
+            effort "max" (the Agent tool's own override fields)
   web       a WebFetch call, then a WebSearch call, then an end
 """
 
@@ -31,6 +35,7 @@ SUB_TURNS = 3
 PROBE = ("curl -sS -m 10 -o /dev/null -w 'vendor-api http=%{http_code}\\n' https://api.anthropic.com/v1/messages;"
          " echo curl_rc=$?; echo stub-normal > /tmp/stub-normal.txt")
 SMALL = {"input_tokens": 1000, "output_tokens": 100, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+FULL = {"input_tokens": 990000, "output_tokens": 100, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
 DEAR = {"input_tokens": 20000, "output_tokens": 100000, "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 0}
 REDACT = ("x-api-key", "authorization")
@@ -65,7 +70,7 @@ def _bash(body, command, usage=SMALL):
     return [_tool("Bash", {"command": command, "description": "stub step"})], "tool_use", usage
 
 
-def _subagent(body, turn):
+def _subagent(body, turn, override=None):
     if SUB_MARK in _first_user_text(body):
         if turn < SUB_TURNS:
             return _bash(body, f"echo subagent turn {turn}", DEAR)
@@ -73,9 +78,15 @@ def _subagent(body, turn):
     agent = _declared(body, "Agent", "Task")
     if turn == 0 and agent:
         args = {"description": "stub subagent", "prompt": f"{SUB_MARK}: run three echo commands",
-                "subagent_type": "general-purpose"}
+                "subagent_type": "general-purpose", **(override or {})}
         return [_tool(agent, args)], "tool_use", SMALL
     return [_text("main done")], "end_turn", SMALL
+
+
+def _context_late(body, turn):
+    if turn == 0:
+        return _bash(body, "true", FULL)
+    return None if _declared(body, "Bash") else ([_text("summary")], "end_turn", SMALL)
 
 
 def _web(body, turn):
@@ -91,6 +102,8 @@ def reply(scenario, body):
     turn = _turn(body)
     if scenario == "context":
         return None
+    if scenario == "context_late":
+        return _context_late(body, turn)
     if scenario == "refusal":
         return [_text("I can't help with that.")], "refusal", SMALL
     if scenario == "max_tokens":
@@ -101,6 +114,8 @@ def reply(scenario, body):
         return _bash(body, "sleep 30")
     if scenario == "subagent":
         return _subagent(body, turn)
+    if scenario == "subagent_override":
+        return _subagent(body, turn, {"run_in_background": False, "model": "fable", "effort": "max"})
     if scenario == "web":
         return _web(body, turn)
     if turn == 0:
