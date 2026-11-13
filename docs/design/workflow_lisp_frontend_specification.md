@@ -3554,6 +3554,7 @@ WCC-generated Core AST validation are historical architecture.
 - `lowering_no_backend_for_form`
 - `resource_transition_requires_runtime_backend`
 - `proc_lowering_cycle`
+- `workflow_call_cycle`
 - `specialization_cycle`
 - `workflow_call_version_mismatch`
 - `source_map_missing`
