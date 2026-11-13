@@ -1,5 +1,9 @@
 # Workflow Lisp Legacy Adapter
 
+Status: **Historical — archived in place.** Superseded: its adapter-quarantine policy is now stated in the command adapter contract, which also records that the code enforces only the stable-command rule. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [command adapter contract, Legacy Adapters](workflow_command_adapter_contract.md#legacy-adapters). Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#legacy_adapter).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: current adapter-quarantine policy; historical flat projections
 Depends on: `docs/design/workflow_language_design_principles.md`,
 `docs/design/workflow_command_adapter_contract.md`
