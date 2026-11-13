@@ -1,5 +1,9 @@
 # Workflow Lisp Consolidation
 
+Status: **Historical — archived in place.** Superseded: the extraction it designed is done and its retirement is closed; its module topology and the compiler-free runtime rule are in the code map, and its contracts are stated by `specs/`. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [code map, Runtime Boundary](../../orchestrator/workflow_lisp/README.md#runtime-boundary) for the module owners and the import boundary; [State](../../specs/state.md#memo-records) for the artifact, identities and memo; [CLI](../../specs/cli.md#resume-preflight-precedence) for resume and its refusals. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#consolidation).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 ## Metadata
 
 - **Status:** current ownership topology after completed extraction and selected

@@ -90,6 +90,28 @@ migration target is `evaluated_execution` closed-program evidence or
 lowering route/schema fields and use public CLI evidence; the registry does
 not select compiler/runtime behavior or certify evaluated LSP support.
 
+## Runtime Boundary
+
+The compiler (this package) and the runtime meet at the checked closed program.
+What runs a program never imports `orchestrator.workflow_lisp`, also not through a
+deferred import: loading, checking and evaluating an artifact, running its commands
+and providers, reading its views, and settling and reconciling run-reference
+children (`tests/test_workflow_closed_program_isolation.py` blocks the import and
+runs each of these). The CLI's `compile`, `run` and `resume` prepare through the
+compiler (resume rebuilds and compares before it executes), and so does the
+run-reference child compile entry, at its own process boundary.
+
+| Responsibility | Owner |
+| --- | --- |
+| Loading, canonical serialization and semantic digest of the artifact | `orchestrator/contracts/closed_program/program.py` |
+| Source-free checker and its wire helpers | `orchestrator/contracts/closed_program/` (`check.py`, `command_check.py`, `names.py`, `sites.py`) |
+| Target admission facts, shared with `syntax.py` | `orchestrator/contracts/closed_program/targets.py` |
+| Normalized program identity | `orchestrator/contracts/program_identity.py`; package hashing and `compute_compiler_runtime_identity` stay in `orchestrator/workflow/run_ref/contracts.py` |
+| Provider IO carriers and checked binding | `orchestrator/workflow/evaluated/provider_io.py`; the compiler selects the IO (`closed/frontend.py`) and builds the carriers before the boundary |
+| Typed prompt rendering | `orchestrator/workflow/typed_prompt_inputs.py` |
+| Run-reference wire and path checks | `orchestrator/workflow/run_ref/wire.py`, `path_contracts.py`; `step_config.py` holds `RunRefStepConfig` and `StepCommonConfig` |
+| Reading source, typing, specialization, WCC, artifact construction | this package |
+
 ## Main Data Shapes
 
 - `sexpr.py`: raw source parse nodes.
@@ -189,16 +211,16 @@ The larger design split these internal concepts into separate documents:
 - [Core Statement Taxonomy](../../docs/design/workflow_lisp_core_stmt_taxonomy.md) (historical; code removed 2026-11-12)
 - [Semantic Workflow IR](../../docs/design/workflow_lisp_semantic_workflow_ir.md) (historical; code removed 2026-11-12)
 - [Executable IR](../../docs/design/workflow_lisp_executable_ir.md) (historical; code removed 2026-11-12)
-- [Reference Catalog](../../docs/design/workflow_lisp_reference_catalog.md)
-- [Type Catalog](../../docs/design/workflow_lisp_type_catalog.md)
+- [Reference Catalog](../../docs/design/workflow_lisp_reference_catalog.md) (historical; rules carried into current owners 2026-11-13)
+- [Type Catalog](../../docs/design/workflow_lisp_type_catalog.md) (historical; rules carried into current owners 2026-11-13)
 - [Effect Graph](../../docs/design/workflow_lisp_effect_graph.md)
-- [Proof Graph](../../docs/design/workflow_lisp_proof_graph.md)
+- [Proof Graph](../../docs/design/workflow_lisp_proof_graph.md) (historical; rules carried into current owners 2026-11-13)
 - [State Layout](../../docs/design/workflow_lisp_state_layout.md) (historical; code removed 2026-11-12)
-- [Source Map](../../docs/design/workflow_lisp_source_map.md)
-- [Runtime Migration Foundation](../../docs/design/workflow_lisp_runtime_migration_foundation.md)
+- [Source Map](../../docs/design/workflow_lisp_source_map.md) (historical; rules carried into current owners 2026-11-13)
+- [Runtime Migration Foundation](../../docs/design/workflow_lisp_runtime_migration_foundation.md) (historical; rules carried into current owners 2026-11-13)
 - [Post-Foundation Composition And Stdlib Migration](../../docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md)
 - [Generic Core, Expression Surface, And Adapter Retirement](../../docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
-- [Legacy Adapter](../../docs/design/workflow_lisp_legacy_adapter.md)
+- [Legacy Adapter](../../docs/design/workflow_lisp_legacy_adapter.md) (historical; rules carried into current owners 2026-11-13)
 - [Debug YAML Renderer](../../docs/design/workflow_lisp_debug_yaml_renderer.md) (retired with the flat route)
 
 Some of those docs describe intended future architecture more broadly than the

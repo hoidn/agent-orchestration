@@ -1001,10 +1001,17 @@ Int
 Float
 Bool
 Json
-TimestampNs
 RunId
 Symbol
+PathRel
 ```
+
+These are prelude types, with `Value` (§7.1.1) and the capability types `Provider` and `Prompt`.
+The prelude also defines the path types `Path.state-root` (under `state`) and
+`Path.artifact-root` (under `artifacts`), both `:must-exist false`, and the union
+`ProviderSteeringDirective`.
+`Json` is not transportable: a workflow parameter of type `Json` is refused, and so is a `Json`
+return at a boundary (§8.10). Diagnostics: `json_surface_unsupported`.
 
 ### 7.1.1 Transportable `Value` (Target 2.19)
 
@@ -1077,7 +1084,7 @@ document root and names no fields. `(result Value ...)` may carry
 is rejected with
 `value_guidance_example_unsupported` because target 2.19 has no checked source
 constructor that erases a narrower literal to exact `Value`. Guidance does not
-narrow validation or change state, checkpoint, or resume behavior.
+narrow validation; where it is kept is stated in §8.10.
 
 ### 7.2 Enum Types
 
@@ -1130,7 +1137,7 @@ Path types are refined contracts.
 (defpath Path.execution-report-target
   :kind relpath
   :under "artifacts/work"
-  :must-exist-target false)
+  :must-exist false)
 
 (defpath Path.review-report
   :kind relpath
@@ -1138,7 +1145,16 @@ Path types are refined contracts.
   :must-exist true)
 ```
 
-Path refinements must not weaken inherited contracts.
+A `defpath` gives `:kind relpath`, a string `:under` and a boolean `:must-exist`, each once.
+Diagnostics: `path_definition_invalid`.
+
+Path types are nominal for parameters, arguments and results: a value of one path type is
+refused where another is declared, also when its root lies under the other's or its existence
+check is stricter. Diagnostics: `type_mismatch`. A structural constraint (`has-field`,
+`has-shared-union-field`, §7.9) is the one place where another path type is accepted: one with
+the same `:under` root and an equal or stricter existence check (`:must-exist true` where the
+constraint says `false`); a different root, a child root or a weaker check is refused.
+Diagnostics: `parametric_constraint_unsatisfied`.
 
 A value of type:
 
@@ -1224,7 +1240,7 @@ and runtime state.
 
 They are passed to a `defproc` formal of a `WorkflowRef[...]` type, which calls
 the workflow (§15). The compiler checks signatures before lowering, and a
-`WorkflowRef` return type must be a record or union.
+`WorkflowRef` return type must be a record or union. Diagnostics: `workflow_ref_type_invalid`.
 
 Use `WorkflowRef` only when whole-workflow identity is part of static
 orchestration. Use `ProcRef` for normal internal reusable behavior. A
@@ -1807,6 +1823,60 @@ that needs reuse but not that identity is a workflow-to-procedure migration
 candidate only after it passes the procedure-first migration test in Section
 105.4.
 
+### 8.10 Return Types And Result Guidance
+
+A return is written after `->` in `defun`, `defproc` and `defworkflow`, and as `:returns` of
+`provider-result` and `command-result`.
+
+- Every type the structured-result contract admits is valid in every return position: a
+  function, a procedure, a provider or command effect, a workflow call and a public workflow
+  boundary. Those types are `String`, `Int`, `Float`, `Bool`, `Value`, enums, path types,
+  records, unions, and `Optional[T]`, `List[T]` and `Map[String, T]` whose element type `T` is
+  one of these; a scalar or collection needs no one-field wrapper record. The one exception is
+  the return in a `WorkflowRef[...]` type, which is a record or union (§7.7).
+- A workflow, `provider-result` or `command-result` return must be one of those types; `Json`, a
+  `ProcRef` or a collection of `Json` is refused. A `defun` or `defproc` return is not a
+  boundary and is not held to this rule. Diagnostics: `workflow_return_type_invalid`,
+  `provider_result_return_type_invalid`, `command_result_return_type_invalid`.
+- A record result is one JSON object and a union result one tagged JSON object (§7.4, §7.5).
+  Any other result is one JSON value at the root of the result document: the producer writes
+  `true`, not `{"value": true}`. The checked program names that value `__result__`; neither
+  source nor a provider's output contract names it, and the call, including a workflow call,
+  binds the value directly at its declared type. A field read on a scalar result is refused.
+  Diagnostics: `record_field_unknown`.
+- The result document is required, also for `Optional[T]`, where JSON `null` is the absent
+  value. A path result is a JSON string checked against its path type, existence included. A
+  document of the wrong shape fails the effect with the violation it breaks; a `Bool` also
+  accepts the strings `"true"` and `"false"` in any letter case. Diagnostics:
+  `command_result_missing`, `provider_result_missing`, `evaluated_execution_failed` (with a
+  violation such as `invalid_bool`, `invalid_json_document` or `missing_target`).
+- `(result T key value ...)` in a return position is that return with guidance; types and
+  checks see only `T`, which must be a type name, and `(result T)` without keys is `T`.
+  `result` is not a type: a parameter declared `(result T)` is refused. Diagnostics:
+  `result_guidance_invalid`, `frontend_parse_error`.
+- Guidance keys are `:description` and `:format-hint`, each a non-empty string, and
+  `:example`. A field of `defrecord`, `defunion` or `defschema` takes the same keys after its
+  type. An unknown or repeated key, a key without a value, or an empty or non-string text is
+  refused. Diagnostics: `result_guidance_invalid`.
+- An `:example` is an effect-free constant expression (literals, `record`, `list` and pure
+  operators over them; no parameter or effect) whose value satisfies the declared type. A path
+  example is checked against its path type's root and safety, but its target need not exist.
+  A `Value` takes no example (§7.1.1). Examples are checked on every declaration, also one never
+  called. Diagnostics: `result_guidance_example_not_constant`,
+  `result_guidance_example_type_mismatch`, `value_guidance_example_unsupported`.
+- Guidance never changes a type or the values a result contract accepts.
+- Guidance on a `provider-result` or `command-result`, and the field guidance of the types it
+  returns, is part of that effect's result contract in the checked program, so changing it
+  changes the program digest. A provider is shown it as data beside the value or field it
+  describes, examples as canonical JSON; a command is shown nothing. Guidance on a `defun`,
+  `defproc` or `defworkflow` return is checked and then dropped: it reaches neither the checked
+  program nor a prompt.
+- Field guidance is kept through `defschema` inclusion, imports and generic specialization. A
+  field whose type is a record keeps its own guidance, and the fields inside keep theirs. A
+  field shared by union variants carries one guidance when the variants agree and one per
+  variant when they differ. A local field named like an included one is a duplicate, not an
+  override. Diagnostics: `record_field_duplicate`.
+
 ## Part II. Expression And Control Forms
 
 ## 9. Pure Expressions
@@ -1962,15 +2032,26 @@ the compiler knows that:
 - `completed.execution-report` is available
 - blocked-only fields are unavailable
 
-Lowering:
+Rules:
 
-- core match over discriminant
-- `ProofContext variant=COMPLETED`
-- variant-aware artifact refs permitted inside branch
-- runtime `requires_variant` guard retained
-
-This maps directly to the v2.14 rule that variant-only references require proof
-via `match` or explicit `requires_variant`.
+- The subject of `match` is a union value, and the arms name each of its variants once.
+  Diagnostics: `match_subject_not_union`, `union_variant_unknown`,
+  `union_match_non_exhaustive` (a missing or a repeated arm).
+- An arm's binder is in scope only in that arm, and on it only the fields of that arm's
+  variant are read. Diagnostics: `variant_ref_wrong_variant`, `name_unknown`.
+- Outside an arm, a field read on a union value of a concrete union type is refused, also when
+  every variant declares that field with one type; `variant` is always read. Inside a generic
+  procedure, a parameter whose type is constrained `has-shared-union-field` (§7.9) reads that
+  field outside any arm; a call is admitted only when every variant of the concrete union
+  declares the field with the constrained type. A computed `Bool` proves nothing (§10.2); §12
+  states the discriminant test of `if`. Diagnostics: `variant_ref_unproved`,
+  `parametric_constraint_unsatisfied`.
+- A workflow call yields its declared return value and no proof made inside the callee: a
+  caller reads a variant field of a returned union only in its own `match`. Diagnostics:
+  `variant_ref_unproved`.
+- At run time a `match` selects the arm by the value's `variant`, and a field read checks again
+  that the value carries the field. Diagnostics: `closed_case_variant`,
+  `pure_expr_operand_type_mismatch`.
 
 The target-2.29 composition implementation extends this shared proof contract
 to an exact scoped discriminant: `{ref, allowed}` guards carry finite declared
@@ -2002,7 +2083,7 @@ flowchart TD
     BlockedProof --> ProgressReport["blocked.progress-report available"]
     BlockedProof --> CompletedFieldsNo["completed-only fields unavailable"]
 
-    ExecReport --> CoreMatch["CoreMatch + runtime requires_variant guard"]
+    ExecReport --> CoreMatch["case node + run-time field check"]
     ProgressReport --> CoreMatch
 ```
 
@@ -2332,23 +2413,12 @@ published artifacts store values rather than pointer-file paths.
 
 ### 17.1 Private Frontend-Lowered Value Lane
 
-The runtime migration foundation adds a private executable value-transport lane
-for lowered Workflow Lisp values that are richer than the public authored-YAML
-boundary. The frontend may lower scalar, relpath, list, map, record-like,
-tagged, and nested relpath-containing values into validated executable
-contracts without making those shapes ordinary public YAML artifacts.
-
-When such values must cross materialization, publish, consume, prompt
-rendering, or reusable-call boundaries:
-
-- normalized typed values remain semantic authority;
-- scalar/list/map materialized files are value views, not pointer authority;
-- collection or record-like private artifacts use executable-private catalog
-  identities plus additive state ledgers, not the public `artifact_versions`
-  shape;
-- prompt consume rendering is a deterministic view over resolved values;
-- public authored YAML compatibility restrictions remain in force unless
-  `specs/dsl.md` deliberately widens them.
+A step's validated result is a value: a record, union, list or map, also one holding paths,
+passes to a later step, a provider's `:inputs` (rendered into the prompt, §22.4) or a command's
+`:inputs` (a typed input document, which the runtime writes for that attempt) as that value.
+The checked program binds it by name and the run's memo records it; no file or pointer that a
+step writes carries it to the next. A path value names a file; it is not a file that holds a
+value.
 
 For review/revise loops, review-provider output is decision evidence, not
 carried-artifact identity authority. Consumed evidence such as checks reports,

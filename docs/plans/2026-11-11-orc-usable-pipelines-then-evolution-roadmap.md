@@ -366,6 +366,27 @@ every removed test is listed with the code it covered".
      tests that assert it cannot be reached from a compile); a template-bound
      name in the first position of a list is never renamed by macro expansion
      (being closed with the loop-binder change).
+   - added 2026-11-13 (third batch): an inner binding that is not a procedure
+     reference does not hide an outer procedure reference of the same name
+     (`(let* ((g (proc-ref p))) (let* ((g 5)) (g 1)))` compiles and calls
+     `p`); the fix refuses source that compiles today, so it goes with the
+     one-target cut, beside refusing a `let-proc` local named like a function
+     or a form; a `defproc` parameter of procedure-reference type forwarded
+     through `let*` fails with `name_unknown`; reading a variant field on a
+     `match` subject instead of the arm's binder passes the typechecker and
+     fails with `compiler_defect` (confirmed by a second agent; the
+     variant-field fix branch does not change it).
+   - added 2026-11-13 (fourth batch, each confirmed by an independent probe
+     on `main`): a prompt declared with a missing `input_file` does not fail,
+     and the provider runs with no authored prompt (first in line with the
+     guard hole above: a paid call with no instruction); `defpath` silently
+     ignores unknown keywords; return guidance on a workflow, procedure or
+     function is checked and then discarded (an accepted form with no
+     effect); a `Bool` result accepts the strings "true" and "false";
+     `TimestampNs` is documented as a type and does not exist; a prompt
+     extern's path is checked only when the call runs, not at compile.
+     Not a defect, a spec correction: result guidance on a provider or
+     command effect is part of program identity (the specs said it was not).
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
@@ -470,9 +491,9 @@ until it is, this section is the staging.
 | Step | What | Gate | State (2026-11-13) |
 | --- | --- | --- | --- |
 | 1 | Survey of public benchmarks; choose the candidate tasks | None (no spend) | Done; findings to be carried into the plan |
-| 2 | Build, run and grade the tasks on this machine without Docker (rootless Podman, the published harness unchanged); the oracle check | None (no spend) | Nearly done: 13 tasks tried, 10 of 11 Terminal-Bench 4 tasks pass both halves unchanged; one needs a wider user-id range, one verifier is timing-sensitive under load |
+| 2 | Build, run and grade the tasks on this machine without Docker (rootless Podman, the published harness unchanged); the oracle check | None (no spend) | Done for 13 tasks (11 of the 16, 2 science tasks): 12 pass both halves with task logic unchanged, one needs a wider user-id range or a one-line verifier change; one verifier is timing-sensitive under load. Five of the 16 are untried, and none has been run five times ([report](../reports/2026-11-13-long-horizon-benchmark-survey-and-feasibility.md)) |
 | 3 | Seed design, with scripted runs and kill-and-resume | None (no spend) | Done on the spike branch; not on `main` |
-| 4 | The plan with its ledger: task list, network policy, what is withheld from the agent, metering, stop rules, readout | Independent review | Next |
+| 4 | The [plan](2026-11-13-long-horizon-task-family-and-seed-plan.md) with its ledger: task list, network policy, what is withheld from the agent, metering, stop rules, readout | Independent review | Accepted 2026-11-13 after review and one revision; about 79 hours of work and a quiet machine for 35 to 45 hours |
 | 5 | Guarded launcher: only the approved model and efforts, a reservation before every attempt, the dollar ceiling, reference solutions and verifier tests never in the agent's container | Independent review; a zero-spend rehearsal with stand-ins | Not started |
 | 6 | Effort ladder: direct Haiku at effort low, medium and high, five attempts per task, at most 240 attempts, ceiling USD 200 | Steps 2, 4 and 5; approved (decision 16) | Not started |
 | 7 | Freeze the task set from the ladder: tasks in the band, and the answer on whether success falls as effort rises | Reported to the owner | After step 6 |
