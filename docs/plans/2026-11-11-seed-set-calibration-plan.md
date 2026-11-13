@@ -425,6 +425,7 @@ may vary, each a binding of that program and not a new program:
 | Effort per role (owner, 2026-11-13) | for each role that is present, one of the CLI's levels `low`, `medium`, `high`, `xhigh`, `max`; chosen per role, independently of that role's model |
 | Revision rounds (reviewer present) | 1, 2 |
 | Conversation (owner decision 11 of the roadmap keeps Agent Sessions) | each later step of a role starts fresh, or continues that role's session; only between steps bound to one model |
+| Prompt wording (owner, 2026-11-13: "remember that the prompt too is mutable") | the text of any step's prompt. For the long-horizon seed this includes what the setup step initialises (`AGENTS.md`, the project layout, the document catalogue, the log, the topic notes) and the documentation rules it writes for later steps: the current wording is a starting point, not a fixed part of the seed. A mutation rewrites one prompt and changes nothing else. Coordinator's reading: text has no small set of values to enumerate, so it is searched by proposal after the effort space, not inside the first space below |
 
 That is 18 model placements before effort, rounds and conversation. With effort per role the
 space is no longer small: three roles, two models and even three effort levels give 216

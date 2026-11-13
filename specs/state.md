@@ -422,7 +422,10 @@ turn attempt, or one closed `failed` with `agent_bootstrap_restarted`,
 and adjacent terminals are refused. `input_digest`, `result_digest` and
 `depends_on` are checked for spelling, matching and active-commit membership,
 not generally recomputed from `input_parts` or from files: a committed result is never
-revalidated against the filesystem. Target-2.40 request rows additionally validate
+revalidated against the filesystem. A committed `value` is the result, not the files the effect
+wrote: replay returns it without running the effect again, without restoring a file it names
+and without checking that file, also for a path type declared `:must-exist true`. It records
+what the effect was given (`input_parts`), not what a provider read on its own. Target-2.40 request rows additionally validate
 their frozen payload, semantic parts, canonical inline reply and provenance
 under the [host-input rules](#evaluated-durable-host-input-target-240).
 
