@@ -1178,8 +1178,13 @@ def elaborate_expression(
     prompt_catalog: PromptCatalog | None = None,
     session_state: ElaborationSessionState | None = None,
     extern_names: frozenset[str] = frozenset(),
+    workflow_names: frozenset[str] = frozenset(),
 ) -> ExprNode:
-    """Elaborate one syntax node into a supported Workflow Lisp expression."""
+    """Elaborate one syntax node into a supported Workflow Lisp expression.
+
+    `workflow_names` holds canonical workflow names; it only lets `(w n)` on a
+    workflow say how a workflow is called.
+    """
 
     session_state = session_state or CompilerSession().elaboration
     previous_state = ElaborationSessionState(
@@ -1189,6 +1194,8 @@ def elaborate_expression(
         function_names=session_state.function_names,
         extern_names=session_state.extern_names,
         local_proc_names=session_state.local_proc_names,
+        local_proc_body=session_state.local_proc_body,
+        workflow_names=session_state.workflow_names,
         loop_body_depth=session_state.loop_body_depth,
         let_proc_depth=session_state.let_proc_depth,
         guidance_example=session_state.guidance_example,
@@ -1201,6 +1208,8 @@ def elaborate_expression(
     session_state.procedure_name_resolver = procedure_name_resolver
     session_state.workflow_name_resolver = workflow_name_resolver
     session_state.local_proc_names = frozenset()
+    session_state.local_proc_body = None
+    session_state.workflow_names = workflow_names
     session_state.let_proc_depth = 0
     session_state.guidance_example = guidance_example
     session_state.target_dsl_version = target_dsl_version
@@ -1220,6 +1229,8 @@ def elaborate_expression(
         session_state.function_names = previous_state.function_names
         session_state.extern_names = previous_state.extern_names
         session_state.local_proc_names = previous_state.local_proc_names
+        session_state.local_proc_body = previous_state.local_proc_body
+        session_state.workflow_names = previous_state.workflow_names
         session_state.loop_body_depth = previous_state.loop_body_depth
         session_state.let_proc_depth = previous_state.let_proc_depth
         session_state.guidance_example = previous_state.guidance_example
@@ -1278,6 +1289,14 @@ def _elaborate(
             bound_names=bound_names,
             procedure_names=procedure_names,
             session_state=session_state,
+        )
+    if isinstance(datum, SyntaxKeyword):
+        _raise_error(
+            f"keyword `{datum.value}` is not a value; keywords name a `call` binding or a form's option",
+            code="keyword_argument_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
         )
     raise TypeError(f"unsupported expression datum: {type(datum)!r}")
 
@@ -1422,6 +1441,7 @@ def _elaborate_list(
                 session_state=session_state,
             )
     if head.resolved_name in session_state.function_names:
+        _refuse_keyword_arguments(datum, "a function", form_path)
         return _elaborate_function_call(
             datum,
             form_path=form_path,
@@ -1430,6 +1450,7 @@ def _elaborate_list(
             session_state=session_state,
         )
     if head.resolved_name in procedure_names:
+        _refuse_keyword_arguments(datum, "a procedure", form_path)
         return _elaborate_procedure_call(
             datum,
             form_path=form_path,
@@ -1438,14 +1459,15 @@ def _elaborate_list(
             session_state=session_state,
         )
     if head.resolved_name in session_state.local_proc_names:
-        _raise_error(
-            f"`{head.display_name}` is a local `let-proc` binding and must be referenced with `proc-ref`",
-            code="let_proc_bare_name_invalid",
-            span=head.span,
+        return _elaborate_local_proc_call(
+            datum,
             form_path=form_path,
-            expansion_stack=head.expansion_stack,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+            session_state=session_state,
         )
     if head.resolved_name in available_names:
+        _refuse_keyword_arguments(datum, None, form_path)
         return _elaborate_procedure_call(
             datum,
             form_path=form_path,
@@ -1469,6 +1491,14 @@ def _elaborate_list(
             form_path=form_path,
             expansion_stack=head.expansion_stack,
         )
+    if _names_workflow(head, form_path, session_state):
+        _raise_error(
+            f"`{head.display_name}` is a workflow; call it as `(call {head.display_name} :x …)`",
+            code="procedure_call_unknown",
+            span=head.span,
+            form_path=form_path,
+            expansion_stack=head.expansion_stack,
+        )
     _raise_error(
         f"unknown same-file procedure callee `{head.display_name}`",
         code="procedure_call_unknown",
@@ -1476,6 +1506,103 @@ def _elaborate_list(
         form_path=form_path,
         expansion_stack=head.expansion_stack,
     )
+
+
+# The reserved alias a local called by name is bound to (see `_elaborate_local_proc_call`).
+LOCAL_CALL_ALIAS_PREFIX = "%let-proc-call."
+
+
+def _refuse_keyword_arguments(datum: SyntaxList, kind: str | None, form_path: tuple[str, ...]) -> None:
+    """A function, procedure or procedure reference takes positional arguments.
+
+    `kind` names a callable known here; None is a bound name, which may also
+    be a workflow reference.
+    """
+
+    keyword = next((item for item in datum.items[1:] if isinstance(item, SyntaxKeyword)), None)
+    if keyword is None:
+        return
+    name = syntax_head(datum).display_name
+    message = (
+        f"`{name}` is {kind}; call it as `({name} …)` with positional arguments, without `{keyword.value}`"
+        if kind is not None
+        else f"keyword `{keyword.value}` in a positional call: call a procedure reference as "
+        f"`({name} …)` with positional arguments, and a workflow reference as `(call {name} :x …)`"
+    )
+    _raise_error(
+        message,
+        code="keyword_argument_invalid",
+        span=keyword.span,
+        form_path=form_path,
+        expansion_stack=keyword.expansion_stack,
+    )
+
+
+def _elaborate_local_proc_call(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> LetStarExpr:
+    """`(f a …)` on a `let-proc` local is its alias call `(let* ((g (proc-ref f))) (g a …))`.
+
+    It builds the same program as that alias, which compiles today. A local's
+    own body sees neither itself nor its siblings (surface coherence, rule 3).
+    """
+
+    head = syntax_head(datum)
+    caller = session_state.local_proc_body
+    if caller == head.resolved_name:
+        _raise_error(
+            f"`let-proc` local procedure `{head.display_name}` cannot call itself: recursion is refused",
+            code="let_proc_recursive_unsupported",
+            span=head.span,
+            form_path=form_path,
+            expansion_stack=head.expansion_stack,
+        )
+    if caller is not None:
+        _raise_error(
+            f"a `let-proc` local cannot call local `{head.display_name}`: the locals of one "
+            f"`let-proc` do not see each other; define `{head.display_name}` with `defproc`",
+            code="let_proc_sibling_call_unsupported",
+            span=head.span,
+            form_path=form_path,
+            expansion_stack=head.expansion_stack,
+        )
+    _refuse_keyword_arguments(datum, "a local procedure", form_path)
+    # A reserved alias name: the arguments must not see a bare reference.
+    alias = f"{LOCAL_CALL_ALIAS_PREFIX}{head.resolved_name}"
+    provenance = {"span": datum.span, "form_path": form_path, "expansion_stack": datum.expansion_stack}
+    call = ProcedureCallExpr(
+        callee_name=alias,
+        args=tuple(
+            _elaborate(
+                item,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+                session_state=session_state,
+            )
+            for item in datum.items[1:]
+        ),
+        authored_callee_span=_direct_authored_callee_span(datum, head),
+        **provenance,
+    )
+    reference = ProcRefLiteralExpr(
+        target_name=head.resolved_name,
+        authored_name=head.resolved_name,
+        **provenance,
+    )
+    return LetStarExpr(bindings=((alias, reference),), body=call, binding_labels=(None,), **provenance)
+
+
+def _names_workflow(head: SyntaxIdentifier, form_path: tuple[str, ...], session_state) -> bool:
+    resolve = session_state.workflow_name_resolver
+    if resolve is None or "." in head.resolved_name:
+        return False
+    return resolve(head.resolved_name, head.span, form_path) in session_state.workflow_names
 
 
 def _dispatch_elaboration_route(
@@ -4365,6 +4492,7 @@ def _elaborate_let_proc(
     session_state.local_proc_names = session_state.local_proc_names | frozenset({name_identifier.resolved_name})
     session_state.let_proc_depth += 1
     try:
+        session_state.local_proc_body = name_identifier.resolved_name
         local_body = _elaborate(
             binding_node.items[6],
             form_path=form_path,
@@ -4372,6 +4500,7 @@ def _elaborate_let_proc(
             procedure_names=procedure_names,
             session_state=session_state,
         )
+        session_state.local_proc_body = None
         body = _elaborate(
             datum.items[2],
             form_path=form_path,
@@ -4382,6 +4511,7 @@ def _elaborate_let_proc(
     finally:
         session_state.local_proc_names = previous_local_proc_names
         session_state.let_proc_depth = previous_let_proc_depth
+        session_state.local_proc_body = None
 
     return LetProcExpr(
         binding=LetProcBinding(
@@ -4453,9 +4583,11 @@ def _elaborate_local_hooks(datum, *, form_path, bound_names, procedure_names, se
                 explicit_captures = tuple(capture_names)
                 index += 2
             if index != len(node.items)-1: fail(node, "invalid local binding clauses")
+            session_state.local_proc_body = name
             local_body = _elaborate(node.items[index], form_path=form_path,
                 bound_names=bound_names | frozenset(param.name for param in params),
                 procedure_names=procedure_names, session_state=session_state)
+            session_state.local_proc_body = None
             from .expression_traversal import free_expr_names
             used = free_expr_names(
                 local_body, bound=frozenset(param.name for param in params),
@@ -4469,6 +4601,7 @@ def _elaborate_local_hooks(datum, *, form_path, bound_names, procedure_names, se
             procedure_names=procedure_names, session_state=session_state)
     finally:
         session_state.local_proc_names, session_state.let_proc_depth = previous_names, previous_depth
+        session_state.local_proc_body = None
     return LetProcExpr(binding=bindings[0], additional_bindings=tuple(bindings[1:]), body=body,
         span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
 

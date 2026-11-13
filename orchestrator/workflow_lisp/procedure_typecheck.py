@@ -256,6 +256,7 @@ def typecheck_procedure_definitions(
                 ),
                 prompt_catalog=prompt_catalog,
                 session_state=compiler_session.elaboration,
+                workflow_names=frozenset(getattr(workflow_catalog, "signatures_by_name", ())),
             )
         else:
             body_expr = procedure_def.body
@@ -1568,6 +1569,7 @@ def _validate_local_hook_sites(consumer, bindings):
         if isinstance(node, LetProcExpr):
             # This declaration/consumer has its own scoped local bindings.
             return
+        _refuse_unsigned_local_call(node, incomplete)
         if isinstance(node, ProcRefLiteralExpr):
             binding = incomplete.get(node.target_name)
             if binding is not None:
@@ -1603,6 +1605,26 @@ def _validate_local_hook_sites(consumer, bindings):
                             for call in sites[name].values()),
             )
     return sites
+
+
+def _refuse_unsigned_local_call(node, incomplete):
+    """A local called by name declares its signature (surface coherence, rule 3)."""
+    from .expressions import LOCAL_CALL_ALIAS_PREFIX
+
+    if not isinstance(node, LetStarExpr) or len(node.bindings) != 1:
+        return
+    alias, reference = node.bindings[0]
+    if not (isinstance(reference, ProcRefLiteralExpr) and reference.target_name in incomplete
+            and alias == LOCAL_CALL_ALIAS_PREFIX + reference.target_name):
+        return
+    binding = incomplete[reference.target_name]
+    _raise_error(
+        f"give `{reference.authored_name}` a signature to call it by name: typed parameters and "
+        f"`-> Type`; a local without one can only be passed with `(proc-ref {reference.authored_name})`",
+        code="let_proc_signature_required", span=node.span,
+        form_path=node.form_path, expansion_stack=node.expansion_stack,
+        notes=(f"local `{binding.local_name}` declared at {binding.span.start.path}:{binding.span.start.line}",),
+    )
 
 
 def _prepare_local_hook_call(call, bindings, *, creator, signature, recurse):

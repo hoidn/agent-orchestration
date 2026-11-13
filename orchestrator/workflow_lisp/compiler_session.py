@@ -51,6 +51,11 @@ class ElaborationSessionState:
     function_names: frozenset[str] = frozenset()
     extern_names: frozenset[str] = frozenset()
     local_proc_names: frozenset[str] = frozenset()
+    # The `let-proc` local whose body is being elaborated: locals do not see
+    # each other or themselves (surface coherence, rule 3).
+    local_proc_body: str | None = None
+    # Canonical workflow names, so `(w n)` on a workflow names `call`.
+    workflow_names: frozenset[str] = frozenset()
     loop_body_depth: int = 0
     let_proc_depth: int = 0
     guidance_example: bool = False
