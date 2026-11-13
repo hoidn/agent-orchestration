@@ -354,6 +354,17 @@ every removed test is listed with the code it covered".
    - a `let-proc` local whose body is a loop crashes with an internal error;
    - dead code: the prompt snapshot and attempt-identity builders and the
      fragment-identity projection have no caller in the package.
+   - added 2026-11-13 (second batch): an empty `(list)` in a `match` arm,
+     and a `list/map` with a `match` body used directly as an `if` condition
+     inside a loop body, each fail with `compiler_defect` (the staged-authoring
+     plan fixes both as its first task); a nested loop used directly as an
+     operand fails with an internal `KeyError`, with or without a macro; an
+     `Int` literal beyond 64 bits fails with `compiler_defect`; the `and`/`or`
+     item above has its cause (the proof facts are lost when the condition is
+     hoisted into a binding, so the refinement in the typechecker and the
+     tests that assert it cannot be reached from a compile); a template-bound
+     name in the first position of a list is never renamed by macro expansion
+     (being closed with the loop-binder change).
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
@@ -374,7 +385,18 @@ every removed test is listed with the code it covered".
    - **Why it matters for the search:** changing one role's model or effort,
      or switching a role between a fresh call and a continued conversation,
      becomes a one-token edit in one place.
-   - Order: design and plan first (in progress); independent review; code only
+   - Design and plan drafted 2026-11-13 as proposed
+     ([design](../design/workflow_lisp_staged_workflow_authoring.md),
+     [plan](2026-11-13-staged-workflow-authoring-revisions-plan.md); about 118
+     hours in 15 tasks). The probes corrected the findings: a prompt as a
+     value is not the only missing piece (a provider cannot be an argument, a
+     reference to a generic procedure does not instantiate, and an agent
+     cannot be a `bind-proc` argument), and model and effort per role are
+     already one-token edits today through inputs with literal defaults, so
+     the first search space needs none of this; what prompt values buy is
+     structural edits in one place (conversation scope, adding or splitting a
+     role).
+   - Order: independent review of the design and plan (in progress); code only
      after acceptance. First-class prompts come first, since the timeout and
      document-fill questions meet them (when a fill is read: at the creation
      of the prompt value or at the call). The changes follow the surface
