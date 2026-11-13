@@ -324,6 +324,32 @@ every removed test is listed with the code it covered".
      designs marked historical.
    Order: the design for the effect rule and the iteration and callable
    conventions first; code only after it is accepted.
+6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
+   a compact long-horizon seed under the 50-line limit; owner decisions 14 and
+   15). Six things the language made awkward, each reproduced by probe before
+   any design: a role (provider, model, effort, timeout) cannot be bound once
+   for fresh calls; a timeout must be a literal; an empty list as loop state
+   needs a type carrier; a document fill on a file that later steps edit
+   blocks `resume`; a list longer than a map's cap fails the run after the
+   work is done; a list cannot be reduced.
+   - **The principled fix for roles (owner direction):** ordinary partial
+     application with what the language already has. A typed prompt becomes a
+     first-class value (`Prompt[T]`), so one generic procedure can wrap
+     `provider-result`, and a role is that procedure with its provider, model,
+     effort and timeout bound once by `bind-proc`. No new `role` form. Probes
+     on 2026-11-13 showed that `bind-proc`, generic procedures and a provider
+     call inside a procedure all work today, that a macro wrapping the call is
+     refused on purpose (`macro_hidden_effect`), and that the one missing
+     piece is that a prompt is not a value.
+   - **Why it matters for the search:** changing one role's model or effort,
+     or switching a role between a fresh call and a continued conversation,
+     becomes a one-token edit in one place.
+   - Order: design and plan first (in progress); independent review; code only
+     after acceptance. First-class prompts come first, since the timeout and
+     document-fill questions meet them (when a fill is read: at the creation
+     of the prompt value or at the call). The changes follow the surface
+     coherence changes of stage 5 and land before the long-horizon seed is
+     frozen, so the seed is written once in the revised language.
 
 - **Exit test:** the named packages are gone and nothing imports them; one
   admitted target for new source; any retained older target is listed with its
@@ -445,6 +471,7 @@ the owner can amend any of them.
 | 12 | Who approves provider spend | Delegated to the coordinator, 2026-11-12, "within reason": planned-size tranches with a cap recorded in the plan ledger before the first call, Haiku by default and nothing above the Sonnet/Terra ceiling. The coordinator still asks for a tranche above about USD 100, cumulative spend above about USD 300, a new experiment line, or a top-up after a null result ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
 | 13 | How far to take edited-program resume (Phase 3b) | 2026-11-12: the owner asked why resume and effect tracking take so much effort, and chose to finish the two remaining tasks (accepting a plan; guides and closeout) and then stop. No scope is added to that lane after them: the open design question about resuming a run that uses a run reference after a package change stays parked, and capacity moves to the seed-set calibration and the language cleanup |
 | 14 | A long-horizon seed and task family | 2026-11-13, owner direction, added to the seed work: tasks with a long horizon on which `claude-haiku-5-5` succeeds 10 to 30 percent of the time, in software, machine learning and scientific programming or reasoning, extracted individually from public benchmarks; and one compact `.orc` seed (few lines) that stages the work (a clean project repository with its documentation structure and agent guides, then spec-driven targets, then design and planning, then implementation) with feedback at several timescales and semantic levels. Nothing like it exists in the repository yet. A benchmark survey and a seed design are in progress; the plan follows them. Added the same day: mutations of the seed vary model (Haiku or Sonnet) and effort level per agent role |
+| 15 | How a role is bound once | 2026-11-13: the owner asked for "a nice schemey partial application simple fix" and then for the design and roadmap staging of "the principled fix that this points to". Decided direction: a typed prompt is a first-class value and a role is a generic procedure wrapping `provider-result`, partially applied with `bind-proc`; no new `role` form. The design must still report any guarantee this would break (effect identity per call site, the provider declaration digest, metering, the closures boundary) before code is written |
 
 ## Process rules
 
@@ -519,6 +546,11 @@ is manual. Phase plans are linked here as they start:
   accepted. A wrong-value defect the review found in constructor fields is fixed first; the
   changes that only admit refused source follow; the loop binder rewrite rides the stage 4
   sweep and the `fn` form goes at the stage 4 cut.
+- Lane D, authoring revisions for staged workflows (stage 6): design and plan being drafted
+  (`docs/design/workflow_lisp_staged_workflow_authoring.md`,
+  `docs/plans/2026-11-13-staged-workflow-authoring-revisions-plan.md`; neither exists until the
+  draft is committed). Direction fixed by owner decision 15: roles by partial application over
+  first-class prompts.
 - Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
   after every record; memo reduction now continues from the last fold, a start the evaluator has
   just reached is published without a replay, and two compile passes skip work that cannot matter.
