@@ -280,11 +280,14 @@ def _spend_cap_reached(exc, context: _Context) -> list[str]:
 
 
 def _session_advanced(exc, context: _Context) -> list[str]:
-    """A pending agent turn is reconciled by `resume` under the run's own program; with the source edited, that
-    program is the restored source."""
+    """A pending agent turn is reconciled by `resume` under the run's own program: with the source edited (a token
+    was given), restore it first; otherwise the usual pointer, as before."""
     if getattr(exc, "program_edited", False):
         return [*_restore(context), "then edit again: resume prints a new plan"]
-    return ["resume reconciles it:", context.resume()]
+    return [_POINTER.format(code=exc.code)]
+
+
+_POINTER = "about [{code}]: see \"Diagnostics\" in the CLI contract (specs/cli.md)"
 
 
 _UNMETERED_FIX = {
@@ -334,7 +337,7 @@ def recovery_lines(exc: Exception, *, run_id: str, launcher: str, state_dir: str
         return _in_force(exc, context)
     recover = _RECOVERY.get(code)
     if recover is None:
-        return [f"about [{code}]: see \"Diagnostics\" in the CLI contract (specs/cli.md)"]
+        return [_POINTER.format(code=code)]
     return recover(exc, context)
 
 
