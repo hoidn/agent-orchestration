@@ -534,7 +534,7 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-upstream": [],
-    "load": 49.015625
+    "load": 162.5859375
    },
    {
     "1f424cc9ae-base": [
@@ -545,7 +545,7 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-upstream": [],
-    "load": 50.021484375
+    "load": 138.10400390625
    },
    {
     "1f424cc9ae-base": [
@@ -556,7 +556,7 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-upstream": [],
-    "load": 48.44091796875
+    "load": 127.375
    }
   ],
   "sha256": "62625469b96f247c77b9099a25052d21b2ad88250721fd752fd15ae329208888",
@@ -575,7 +575,7 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-withheld-upstream": [],
-    "load": 49.015625
+    "load": 167.7998046875
    },
    {
     "1f424cc9ae-withheld-base": [
@@ -586,7 +586,7 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-withheld-upstream": [],
-    "load": 50.021484375
+    "load": 140.56787109375
    },
    {
     "1f424cc9ae-withheld-base": [
@@ -597,14 +597,17 @@
      "tests/test_prompt_dependency_evidence.py::test_publication_reuses_complete_directory_chain_without_recreating_it"
     ],
     "1f424cc9ae-withheld-upstream": [],
-    "load": 48.44091796875
+    "load": 124.2216796875
    }
   ],
   "sha256": "245cf34a35cd05529ee5dcf8844cab6d03a6a94b1c85534e44b5ebeb3c6453e3",
   "stable": true
  },
  "1fd10ab4c3": {
-  "reference_failing": [],
+  "reference_failing": [
+   "tests/test_run_lock.py",
+   "tests/test_run_lock.py::test_resume_of_a_run_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
+  ],
   "reps": 3,
   "runs": [
    {
@@ -613,8 +616,10 @@
      "tests/test_run_lock.py",
      "tests/test_run_lock.py::test_resume_of_a_run_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
     ],
-    "1fd10ab4c3-upstream": [],
-    "load": 49.11083984375
+    "1fd10ab4c3-upstream": [
+     "tests/test_run_lock.py"
+    ],
+    "load": 125.32568359375
    },
    {
     "1fd10ab4c3-base": [
@@ -622,8 +627,11 @@
      "tests/test_run_lock.py",
      "tests/test_run_lock.py::test_resume_of_a_run_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
     ],
-    "1fd10ab4c3-upstream": [],
-    "load": 51.3310546875
+    "1fd10ab4c3-upstream": [
+     "tests/test_run_lock.py",
+     "tests/test_run_lock.py::test_resume_of_a_run_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
+    ],
+    "load": 143.6162109375
    },
    {
     "1fd10ab4c3-base": [
@@ -631,15 +639,21 @@
      "tests/test_run_lock.py",
      "tests/test_run_lock.py::test_resume_of_a_run_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
     ],
-    "1fd10ab4c3-upstream": [],
-    "load": 42.10009765625
+    "1fd10ab4c3-upstream": [
+     "tests/test_run_lock.py",
+     "tests/test_run_lock.py::test_resume_of_a_run_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
+    ],
+    "load": 91.74658203125
    }
   ],
   "sha256": "4a1956ce60a15c9069d37ceca7e6fea861b070b34e33f0ec62c398cc4d81c0b8",
-  "stable": true
+  "stable": false
  },
  "1fd10ab4c3-withheld": {
-  "reference_failing": [],
+  "reference_failing": [
+   "tests/test_run_lock.py",
+   "tests/test_run_lock.py::test_resume_of_a_run_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
+  ],
   "reps": 3,
   "runs": [
    {
@@ -648,8 +662,10 @@
      "tests/test_run_lock.py",
      "tests/test_run_lock.py::test_resume_of_a_run_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
     ],
-    "1fd10ab4c3-withheld-upstream": [],
-    "load": 49.11083984375
+    "1fd10ab4c3-withheld-upstream": [
+     "tests/test_run_lock.py"
+    ],
+    "load": 125.5283203125
    },
    {
     "1fd10ab4c3-withheld-base": [
@@ -657,8 +673,11 @@
      "tests/test_run_lock.py",
      "tests/test_run_lock.py::test_resume_of_a_run_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
     ],
-    "1fd10ab4c3-withheld-upstream": [],
-    "load": 51.39208984375
+    "1fd10ab4c3-withheld-upstream": [
+     "tests/test_run_lock.py",
+     "tests/test_run_lock.py::test_resume_of_a_run_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
+    ],
+    "load": 139.927734375
    },
    {
     "1fd10ab4c3-withheld-base": [
@@ -666,12 +685,14 @@
      "tests/test_run_lock.py",
      "tests/test_run_lock.py::test_resume_of_a_run_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
     ],
-    "1fd10ab4c3-withheld-upstream": [],
-    "load": 42.10009765625
+    "1fd10ab4c3-withheld-upstream": [
+     "tests/test_run_lock.py"
+    ],
+    "load": 93.599609375
    }
   ],
   "sha256": "9c9738d8b9dd99a669dcea23fbcc510c47483ae92e8cfe54c4b60e58bdcace4a",
-  "stable": true
+  "stable": false
  },
  "2138361feb": {
   "reference_failing": [],
@@ -981,7 +1002,7 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-upstream": [],
-    "load": 23.9208984375
+    "load": 113.58544921875
    },
    {
     "3442aef203-base": [
@@ -990,7 +1011,7 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-upstream": [],
-    "load": 21.4501953125
+    "load": 111.36962890625
    },
    {
     "3442aef203-base": [
@@ -999,7 +1020,7 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-upstream": [],
-    "load": 23.1015625
+    "load": 87.7509765625
    }
   ],
   "sha256": "38a569f89c19fa64c3432865c137f7736e856a23b224badf212efa4ea48f4c96",
@@ -1016,7 +1037,7 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-withheld-upstream": [],
-    "load": 21.9375
+    "load": 113.58544921875
    },
    {
     "3442aef203-withheld-base": [
@@ -1025,7 +1046,7 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-withheld-upstream": [],
-    "load": 20.78271484375
+    "load": 114.73046875
    },
    {
     "3442aef203-withheld-base": [
@@ -1034,7 +1055,7 @@
      "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results"
     ],
     "3442aef203-withheld-upstream": [],
-    "load": 24.32763671875
+    "load": 83.1416015625
    }
   ],
   "sha256": "3f63918d858d2801ca1465f57c8fd0cf2f7e7630da7894db3e39c512cfb475b0",
@@ -1121,7 +1142,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-upstream": [],
-    "load": 25.37744140625
+    "load": 82.9697265625
    },
    {
     "3f5008fcaf-base": [
@@ -1130,7 +1151,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-upstream": [],
-    "load": 25.10986328125
+    "load": 133.1044921875
    },
    {
     "3f5008fcaf-base": [
@@ -1139,7 +1160,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-upstream": [],
-    "load": 26.74658203125
+    "load": 137.7529296875
    }
   ],
   "sha256": "60cc4d87d02d482008b1713dc5874f721300f24de3d2e1afb16a47a37e9ccfd7",
@@ -1156,7 +1177,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-t0-upstream": [],
-    "load": 25.10986328125
+    "load": 85.07666015625
    },
    {
     "3f5008fcaf-t0-base": [
@@ -1165,7 +1186,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-t0-upstream": [],
-    "load": 26.74658203125
+    "load": 133.1044921875
    },
    {
     "3f5008fcaf-t0-base": [
@@ -1174,7 +1195,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-t0-upstream": [],
-    "load": 26.9169921875
+    "load": 133.1806640625
    }
   ],
   "sha256": "4b50e48f6030e9ac23925de417341b98e90e3990d68182c58f29de22e23ffa66",
@@ -1191,7 +1212,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-withheld-upstream": [],
-    "load": 25.10986328125
+    "load": 133.1044921875
    },
    {
     "3f5008fcaf-withheld-base": [
@@ -1200,7 +1221,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-withheld-upstream": [],
-    "load": 26.74658203125
+    "load": 132.84814453125
    },
    {
     "3f5008fcaf-withheld-base": [
@@ -1209,7 +1230,7 @@
      "tests/test_yaml_frontend_retirement.py"
     ],
     "3f5008fcaf-withheld-upstream": [],
-    "load": 26.9169921875
+    "load": 96.60400390625
    }
   ],
   "sha256": "cc13ef1a0fc01e3993e1ab483cef3fc1539b45b6759b6183c3cf5591f10ba536",
@@ -2523,7 +2544,10 @@
   "stable": false
  },
  "9a7547ed4c-t0": {
-  "reference_failing": [],
+  "reference_failing": [
+   "tests/test_provider_interactive_terminal_recovery.py",
+   "tests/test_provider_interactive_terminal_recovery.py::test_subreaper_controller_reaps_only_its_exact_owned_server"
+  ],
   "reps": 3,
   "runs": [
    {
@@ -2531,28 +2555,35 @@
      "tests/test_provider_interactive_terminal_recovery.py",
      "tests/test_provider_interactive_terminal_recovery.py::test_subreaper_controller_reaps_only_its_exact_owned_server"
     ],
-    "9a7547ed4c-t0-upstream": [],
-    "load": 21.30322265625
+    "9a7547ed4c-t0-upstream": [
+     "tests/test_provider_interactive_terminal_recovery.py"
+    ],
+    "load": 134.8154296875
    },
    {
     "9a7547ed4c-t0-base": [
      "tests/test_provider_interactive_terminal_recovery.py",
      "tests/test_provider_interactive_terminal_recovery.py::test_subreaper_controller_reaps_only_its_exact_owned_server"
     ],
-    "9a7547ed4c-t0-upstream": [],
-    "load": 22.306640625
+    "9a7547ed4c-t0-upstream": [
+     "tests/test_provider_interactive_terminal_recovery.py",
+     "tests/test_provider_interactive_terminal_recovery.py::test_subreaper_controller_reaps_only_its_exact_owned_server"
+    ],
+    "load": 73.63232421875
    },
    {
     "9a7547ed4c-t0-base": [
      "tests/test_provider_interactive_terminal_recovery.py",
      "tests/test_provider_interactive_terminal_recovery.py::test_subreaper_controller_reaps_only_its_exact_owned_server"
     ],
-    "9a7547ed4c-t0-upstream": [],
-    "load": 17.20654296875
+    "9a7547ed4c-t0-upstream": [
+     "tests/test_provider_interactive_terminal_recovery.py"
+    ],
+    "load": 94.28515625
    }
   ],
   "sha256": "cfe3d163169b8bdd4e728d19bb19eba94cbb56a8cfa21c13e024ac75ef9d0de0",
-  "stable": true
+  "stable": false
  },
  "9a7547ed4c-withheld": {
   "reference_failing": [],
@@ -2599,7 +2630,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-upstream": [],
-    "load": 19.16845703125
+    "load": 86.2412109375
    },
    {
     "9f46516eae-base": [
@@ -2610,7 +2641,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-upstream": [],
-    "load": 17.5302734375
+    "load": 72.46044921875
    },
    {
     "9f46516eae-base": [
@@ -2621,7 +2652,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-upstream": [],
-    "load": 22.83349609375
+    "load": 85.1533203125
    }
   ],
   "sha256": "eeae3556b246961f3c7936021c61455f58ccb48a7d15347f302db9a2960c61cb",
@@ -2640,7 +2671,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-withheld-upstream": [],
-    "load": 17.2705078125
+    "load": 86.2412109375
    },
    {
     "9f46516eae-withheld-base": [
@@ -2651,7 +2682,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-withheld-upstream": [],
-    "load": 22.2421875
+    "load": 73.1103515625
    },
    {
     "9f46516eae-withheld-base": [
@@ -2662,7 +2693,7 @@
      "tests/test_workflow_lisp_strict_boolean_control_flow.py"
     ],
     "9f46516eae-withheld-upstream": [],
-    "load": 25.03173828125
+    "load": 95.6875
    }
   ],
   "sha256": "70febeeb0642e484c987f64fa9a6f4192b79dc3a9041a1a6c6e1ecbd1a769b4a",
@@ -3156,7 +3187,7 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-upstream": [],
-    "load": 61.828125
+    "load": 71.4912109375
    },
    {
     "bb9f34adf6-base": [
@@ -3169,7 +3200,7 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-upstream": [],
-    "load": 63.54052734375
+    "load": 72.931640625
    },
    {
     "bb9f34adf6-base": [
@@ -3182,7 +3213,7 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-upstream": [],
-    "load": 67.1630859375
+    "load": 72.29736328125
    }
   ],
   "sha256": "d5dc0c7cb79c913912129e7269826a5fdfbcdf0c88d3e316487dd388e9c8b14b",
@@ -3203,7 +3234,7 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-withheld-upstream": [],
-    "load": 61.47412109375
+    "load": 84.88623046875
    },
    {
     "bb9f34adf6-withheld-base": [
@@ -3216,7 +3247,7 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-withheld-upstream": [],
-    "load": 65.54638671875
+    "load": 77.7265625
    },
    {
     "bb9f34adf6-withheld-base": [
@@ -3229,7 +3260,7 @@
      "tests/test_provider_attempt_allocation.py::test_unaffected_repair_retains_legacy_copy_without_durable_writer"
     ],
     "bb9f34adf6-withheld-upstream": [],
-    "load": 65.63037109375
+    "load": 95.48876953125
    }
   ],
   "sha256": "0b5100d5f55816e4016c091d4db2ed5dc05e71ef79c6bc77724065d11dd4b374",
