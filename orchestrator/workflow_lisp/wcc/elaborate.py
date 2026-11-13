@@ -2260,13 +2260,9 @@ def _elaborate_parallel_map_to_body(
         procedure_return_types=procedure_return_types, effect_summary=effect_summary,
         procedure_edges_by_site=procedure_edges_by_site, active_phase_scope=active_phase_scope)
     source_scope = scope.child_scope("parallel-source")
-    if _contains_effect(expr.source_expr):
-        # The source's effects run once, before any item.
-        prefix, source = _body_to_prefix_and_value(_elaborate_expr_to_body(expr.source_expr,
-            scope=source_scope, value_env=value_env, compile_time_bindings=compile_time_bindings, **inputs))
-    else:
-        prefix, source = _elaborate_expr_to_value(expr.source_expr, scope=source_scope,
-            value_env=value_env, compile_time_bindings=compile_time_bindings, **inputs)
+    # The source's effects run once, before any item; a pure source lowers to the same value either way.
+    prefix, source = _body_to_prefix_and_value(_elaborate_expr_to_body(expr.source_expr,
+        scope=source_scope, value_env=value_env, compile_time_bindings=compile_time_bindings, **inputs))
     prefix, source = hoist_without_capture(prefix, source,
         over=((expr.workspace_expr, frozenset({expr.binder_name})),
               (expr.body_expr, frozenset({expr.binder_name}))),

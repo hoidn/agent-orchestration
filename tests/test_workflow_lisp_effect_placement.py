@@ -308,12 +308,12 @@ def test_parallel_map_with_a_pure_conditional_source_runs(tmp_path: Path) -> Non
 
 
 def test_effectful_map_source_bindings_do_not_capture_body_names(tmp_path: Path) -> None:
-    write(tmp_path, "List[Int]", f"(let* ((y 5)) (list/map ((x (let* ((y {E(1)})) (list y)))) (+ x y)))")
+    write(tmp_path, "List[Int]", f"(let* ((y {E(5)})) (list/map ((x (let* ((y {E(1)})) (list y)))) (+ x y)))")
 
     result = run(tmp_path)
 
     assert result.returncode == 0, result.stderr
-    assert (value(result), calls(tmp_path)) == ([6], ["1"])
+    assert (value(result), calls(tmp_path)) == ([6], ["5", "1"])
 
 
 # Kill, failure and `must_not_repeat`: each newly admitted form beside the equivalent `let*`.
