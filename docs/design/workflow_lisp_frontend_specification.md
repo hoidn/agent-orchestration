@@ -1055,7 +1055,11 @@ Every union has:
 
 Variant-specific fields are only accessible inside proof contexts created by
 `match`, explicit `requires`, or a frontend construct that lowers to one of
-those.
+those. A typed discriminant comparison in `if` or `cond` (Section 12) is such a
+construct: a branch that reads a variant-specific field lowers to a closed `case`
+on the tested value, and when the other branch would be reached by more than one
+variant and holds an effect or a call, the compiler refuses the conditional
+with `closed_program_gap` and the read is written with `match`.
 
 ### 7.6 Optional And List Types
 
