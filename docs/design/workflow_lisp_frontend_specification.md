@@ -1202,9 +1202,11 @@ construct: a branch that reads a variant-specific field of the tested binding
 lowers to a closed `case` on it, and the compiler refuses with
 `closed_program_gap` the two shapes the closed program cannot hold, where the
 read is written with `match`: a branch that more than one variant reaches (or
-that stands in for a variant the enclosing conditions excluded) and that runs
-an effect or a call, and two branches that both read variant-specific fields
-while the enclosing conditions excluded a third variant.
+that stands in for a variant an earlier test excluded) and that runs an effect
+(a command, a provider, a request for input, or a call of a procedure that has
+effects), and a test whose two branches both read variant-specific fields after
+an earlier test excluded a third variant (in a `cond`, an excluding-only clause
+placed before the reading clauses; placed after them, it lowers).
 
 ### 7.6 Optional And List Types
 

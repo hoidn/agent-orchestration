@@ -114,9 +114,13 @@ closed program has no unreachable arm and no branch shared between arms, so two
 bounded shapes of that admitted form are refused with `closed_program_gap`,
 naming the value, the variant and the `match` form that lowers: a branch that
 more than one arm must hold (reached by more than one variant, or standing in
-for a variant the enclosing conditions excluded) and that runs an effect or a
-call; and two branches that both read a variant-only field while the enclosing
-conditions excluded a third variant.
+for a variant an earlier test excluded) and that runs an effect (a command, a
+provider, a request for input, or a call of a procedure that has effects); and
+a test whose two branches both read a variant-only field after an earlier test
+excluded a third variant. In a `cond` the second shape is a clause order: an
+earlier clause that only excludes a variant, then a reading clause followed by
+reading code; testing the variants that are only excluded after the reading
+clauses lowers.
 Calls include the existing compile-time `WorkflowRef`, `ProcRef`, `bind-proc`
 and bounded `let-proc` forms. Explicit supplied compiled imports require the
 matching producer-owned typed snapshot (§4.2.1); ordinary source calls remain

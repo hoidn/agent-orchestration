@@ -16,12 +16,12 @@ def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]
     elif isinstance(value, w.WccNameAtom):
         result = {
             "k": "name",
-            "n": (d.narrowed_reads or {}).get(id(value)) or d.ref(value.name, value.metadata.binding_identity),
+            "n": d.ref(value.name, value.metadata.binding_identity),
         }
     elif isinstance(value, w.WccFieldAccessAtom):
         result = {
             "k": "field",
-            "base": translate_value(builder, value.base, d, env),
+            "base": _field_base(builder, value, d, env),
             "path": list(value.fields),
         }
         if value.shared_field_types:
@@ -74,6 +74,12 @@ def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]
     else:
         raise ValueError(f"WCC value {type(value).__name__} has no closed translation")
     return {**result, **builder.provenance(metadata)}
+
+
+def _field_base(builder: Any, value: w.WccFieldAccessAtom, d: Any, env: Mapping[str, TypeRef]) -> dict[str, Any]:
+    """The base of a field read; a read narrowed by a variant proof reads the `case` binder."""
+    binder = (d.narrowed_reads or {}).get(id(value))
+    return {"k": "name", "n": binder} if binder is not None else translate_value(builder, value.base, d, env)
 
 
 def _select(builder: Any, value: w.WccSelect, d: Any, env: Mapping[str, TypeRef]) -> dict[str, Any]:
