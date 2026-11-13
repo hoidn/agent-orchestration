@@ -68,17 +68,34 @@ def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]
     elif isinstance(value, w.WccPureOp):
         result = _operator(builder, value, d, env)
     elif isinstance(value, w.WccSelect):
-        result = {
-            "k": "select",
-            "cond": translate_value(builder, value.condition, d, env),
-            "then": _select_arm(builder, value.then_arm, d, env),
-            "else": _select_arm(builder, value.else_arm, d, env),
-        }
+        result = _select(builder, value, d, env)
     elif isinstance(value, w.WccPhaseTargetAtom):
         raise ValueError(f"phase target {value.target_name!r} escaped WCC elaboration")
     else:
         raise ValueError(f"WCC value {type(value).__name__} has no closed translation")
     return {**result, **builder.provenance(metadata)}
+
+
+def _select(builder: Any, value: w.WccSelect, d: Any, env: Mapping[str, TypeRef]) -> dict[str, Any]:
+    from .variant_proof import variant_case
+
+    arms = (value.then_arm, value.else_arm)
+
+    def select(scopes):
+        return {
+            "k": "select",
+            "cond": translate_value(builder, value.condition, d, env),
+            "then": _select_arm(builder, arms[0], *scopes[0]),
+            "else": _select_arm(builder, arms[1], *scopes[1]),
+        }
+
+    def branch(side, local, local_env):
+        arm = _select_arm(builder, arms[side], local, local_env)
+        return _prepend_lets({"k": "halt", "value": arm["value"]}, [{"k": "let", **row} for row in arm["prefix"]])
+
+    case = variant_case(builder, value, arms, d, env, branch=branch,
+                        both=lambda scopes: {"k": "halt", "value": select(scopes)})
+    return select(((d, env), (d, env))) if case is None else {"k": "block", "body": case}
 
 
 def _select_arm(builder: Any, arm: w.WccSelectArm, d: Any, env: Mapping[str, TypeRef]) -> dict[str, Any]:
