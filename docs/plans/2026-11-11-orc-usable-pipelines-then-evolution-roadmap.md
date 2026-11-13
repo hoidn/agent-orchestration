@@ -394,6 +394,16 @@ every removed test is listed with the code it covered".
      renaming it moves the digest of macro programs that compile today, so it
      goes with the one-target cut; a `let-proc` local that forwards a captured
      outer procedure reference fails with `compiler_defect`.
+   - added 2026-11-13 (sixth batch, from the third review of the loop-binder
+     change): macro hygiene in head position. A template-bound name at the
+     head of a list is never renamed, so a caller's binding of the same name
+     answers a call the template meant for its own local (a silent wrong
+     value; reached through a direct procedure reference, an alias, or
+     `bind-proc`). Two attempts to fix it inside the hygiene pass each let a
+     new wrong case through, because what a head names is the resolver's
+     knowledge; it needs one resolver-aware change, not a patch. Also: a
+     workflow defined by a macro gets its parameters renamed, so it cannot be
+     called or used as an entry through its public inputs.
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
