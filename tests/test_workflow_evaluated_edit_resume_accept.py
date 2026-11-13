@@ -317,3 +317,62 @@ def test_each_edit_kind_accepted_ends_at_the_value_of_a_fresh_run(completed, tmp
     tag = lambda name: name.split("#")[0].split("/")[-1]  # noqa: E731 - the step's logged tag
     only_kept = {tag(name) for name in kept} - {tag(name) for name in cancelled}
     assert not only_kept & set(log(root)), log(root)
+
+
+# ---- refusals before any write that only the write path can meet --------------------------------------------------
+
+@pytest.mark.parametrize("failure", ["unavailable", "refused"])
+def test_a_file_system_without_rename_noreplace_refuses_before_any_write(completed, tmp_path, monkeypatch, failure):
+    """Decision 5: where the run root's file system cannot publish without replacing, nothing is written."""
+    import errno
+    from orchestrator._common.io_atomic import RenameNoreplaceError, RenameNoreplaceUnavailableError
+    from orchestrator.workflow import workspace_files
+    root, run_root = _copy(completed(serial), tmp_path)
+    edit(root, "           (s2 ", f"           (x {NEW})\n           (s2 ")
+    words = accept_command(refused(root, run_root).stderr)
+
+    def rename(*args):
+        if failure == "unavailable":
+            raise RenameNoreplaceUnavailableError("renameat2 is unavailable")
+        raise RenameNoreplaceError(errno.EINVAL, "renameat2 refused")
+
+    monkeypatch.setattr(workspace_files, "rename_noreplace_at", rename)
+    done = refused(root, run_root, "resume_preflight_failed", *words[2:])
+
+    assert artifacts(run_root) == [] and records(run_root, "rebased") == []
+    assert not [path for path in run_root.iterdir() if path.name.endswith(".tmp")], done.stderr
+
+
+def test_a_confined_child_root_is_never_rebased(completed, tmp_path):
+    """A confined run-reference child changes program only with its parent; its root refuses before any read."""
+    from dataclasses import replace
+    from orchestrator.workflow.evaluated.authority import PROGRAM_FILENAME, load_run_authority
+    from orchestrator.workflow.evaluated.rebase import PlanRefusal, accept_plan
+    root, run_root = _copy(completed(serial), tmp_path)
+    authority = load_run_authority(run_root)
+    header = {**authority.header, "workflow_file": (run_root / PROGRAM_FILENAME).as_posix(),
+              "resume_request": {**authority.header["resume_request"], "source_roots": []}}
+    confined = replace(authority, header=header)
+    assert confined.confined
+    before = tree(root)
+
+    with pytest.raises(PlanRefusal) as refusal:
+        accept_plan(confined, authority.program, {}, TOKEN, workspace=root, provider_io=None)
+
+    assert refusal.value.code == "resume_program_changed"
+    assert_unchanged(root, before)
+
+
+def test_a_planted_artifact_that_does_not_verify_refuses_before_the_record(completed, tmp_path):
+    """A file under the edited program's artifact name is reused only if it verifies; else `memo_inconsistent`."""
+    root, run_root = _copy(completed(serial), tmp_path)
+    edit(root, "           (s2 ", f"           (x {NEW})\n           (s2 ")
+    printed = refused(root, run_root).stderr
+    words = accept_command(printed)
+    from orchestrator.workflow.evaluated.rebase import plan_resume
+    name = f"closed_program.{plan_resume(run_root, root).program.digest.removeprefix('sha256:')}.json"
+    (run_root / name).write_text('{"planted": true}')
+
+    refused(root, run_root, "memo_inconsistent", *words[2:])
+
+    assert records(run_root, "rebased") == [] and (run_root / name).read_text() == '{"planted": true}'
