@@ -1,6 +1,6 @@
 (workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule staged)
-  (import common :only (Change CheckReport Outcome DocPath Spec Plan Verdict))
+  (import common :only (Change CheckReport Outcome DocPath Spec Milestone Plan Verdict))
   (export run)
 
   ;; Candidate A. Guides, spec, plan; then rounds of: work through the plan, run
@@ -14,8 +14,8 @@
     "Work in the git repository at {repo} and nowhere else. Read AGENTS.md and follow it. Write docs/plan.md, replacing your own earlier plan (another name under docs/ if the repository already had that file): the design in brief, then ordered milestones M1, M2, ..., each a small working increment that names the targets of {spec} it meets. Write no code.\n\nReport `doc`: the path you wrote. `milestones`: each with `id`, `goal` and `targets`.")
   (defprompt work (:fills (repo :text) (plan :path DocPath) (notes :value List[String])) -> Change
     "Work in the git repository at {repo} and nowhere else. Read AGENTS.md and follow it. Carry out {plan}, milestone by milestone; run the project's check as you go. Reasons the last round was refused, empty on the first; fix each one that is right:\n{notes}\n\nAppend what you learned to docs/memory.md. Report `summary`: one sentence. `account`: what you changed and why.")
-  (defprompt review (:fills (repo :text) (scope :text) (spec :path DocPath) (report :value CheckReport)) -> Verdict
-    "Review the git repository at {repo}. Read the code; change nothing. Under review: {scope}\nThe visible check just reported:\n{report}\nMET if every target of {spec} within that scope holds; give the evidence per target. NOT_MET otherwise; each reason names the target or the gap, the input or scenario that goes wrong, and the check output that shows it.")
+  (defprompt review (:fills (repo :text) (scope :value Milestone) (spec :path DocPath) (report :value CheckReport)) -> Verdict
+    "Review the git repository at {repo}. Read the code; change nothing. Under review:\n{scope}\nThe visible check just reported:\n{report}\nMET if the goal is reached and each of its targets, as {spec} states them, holds; give the evidence per target. NOT_MET otherwise; each reason names the target or the gap, the input or scenario that goes wrong, and the check output that shows it.")
 
   (defworkflow run ((task String) (intent String) (repo String)
                     (planner String) (coder String) (reviewer String) (effort String)) -> Outcome
@@ -24,7 +24,8 @@
            (spec (provider-result providers.planner :model planner :effort effort :timeout-sec 1200
                    :prompt (specify :task task :repo repo)))
            (plan (provider-result providers.planner :model planner :effort effort :timeout-sec 1200
-                   :prompt (plan :repo repo :spec spec.doc))))
+                   :prompt (plan :repo repo :spec spec.doc)))
+           (whole (record Milestone :id "all" :goal intent :targets spec.targets)))
       (loop/recur :max 4 :state (loop-state (notes List[String] (list)))
         :on-exhausted (variant Outcome BLOCKED :reason "round limit reached")
         (fn (state)
@@ -34,6 +35,6 @@
             (if (not report.passed)
               (continue (loop-state :like state :notes (list/append report.failing report.excerpt)))
               (match (provider-result providers.reviewer :model reviewer :effort effort :timeout-sec 1200
-                       :prompt (review :repo repo :scope intent :spec spec.doc :report report))
+                       :prompt (review :repo repo :scope whole :spec spec.doc :report report))
                 ((MET met) (done (variant Outcome DONE :summary "accepted")))
                 ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons)))))))))))
