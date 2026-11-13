@@ -226,53 +226,28 @@ def _iter_specialized_loop_effect_values(
             active_procedures=active_procedures,
         )
         return
-    if isinstance(body, WccIf):
-        yield from _iter_specialized_loop_effect_values(
-            body.then_body,
-            context=context,
-            active_procedures=active_procedures,
-        )
-        yield from _iter_specialized_loop_effect_values(
-            body.else_body,
-            context=context,
-            active_procedures=active_procedures,
-        )
-        return
-    if isinstance(body, WccCase):
-        for arm in body.arms:
-            yield from _iter_specialized_loop_effect_values(
-                arm.body,
-                context=context,
-                active_procedures=active_procedures,
-            )
-        return
-    if isinstance(body, WccJoin):
-        yield from _iter_specialized_loop_effect_values(
-            body.body,
-            context=context,
-            active_procedures=active_procedures,
-        )
-        yield from _iter_specialized_loop_effect_values(
-            body.continuation,
-            context=context,
-            active_procedures=active_procedures,
-        )
-        return
-    if isinstance(body, WccRecJoin):
-        yield from _iter_specialized_loop_effect_values(
-            body.body,
-            context=context,
-            active_procedures=active_procedures,
-        )
-        if body.exhaustion is not None:
-            yield from _iter_specialized_loop_effect_values(
-                body.exhaustion,
-                context=context,
-                active_procedures=active_procedures,
-            )
-        return
     if isinstance(body, WccParallelMap):
         yield body  # one boundary; its effect summary says what its items reach
+        return
+    for nested in _nested_control_bodies(body):
+        yield from _iter_specialized_loop_effect_values(
+            nested,
+            context=context,
+            active_procedures=active_procedures,
+        )
+
+
+def _nested_control_bodies(body: WccBody) -> tuple[WccBody, ...]:
+    """The bodies an `if`, `case`, join or loop runs, in order; none for a terminal."""
+    if isinstance(body, WccIf):
+        return (body.then_body, body.else_body)
+    if isinstance(body, WccCase):
+        return tuple(arm.body for arm in body.arms)
+    if isinstance(body, WccJoin):
+        return (body.body, body.continuation)
+    if isinstance(body, WccRecJoin):
+        return (body.body,) if body.exhaustion is None else (body.body, body.exhaustion)
+    return ()
 
 
 def _loop_effect_compile_error(
