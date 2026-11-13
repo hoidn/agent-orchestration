@@ -356,6 +356,34 @@ def rebuild(tier, work, workers, runs, out=b.HERE, repo=b.ROOT, tip=b.TIP, prior
     verify(out)
 
 
+UNSTABLE = "anchor not stable under study conditions: "
+
+
+def reject_unstable(rows, stability):
+    """The manifest with every row whose package (either form) is unstable in `stability` rejected, naming the
+    reference's failing tests; each tier's probe flags then move to its next usable rows in seed order until it has
+    four again, and a rejected smoke moves to the first usable T2 task that is not a probe task (ruling 1). The draw
+    refills by its own rules, since a rejected row is no package."""
+    rows = [dict(row) for row in rows]
+    for row in rows:
+        failed = [(pid, stability[pid]) for pid in (row["id"], row.get("withheld_id"))
+                  if pid in stability and not stability[pid]["stable"]]
+        if failed and not row.get("rejected"):
+            row["rejected"] = UNSTABLE + "; ".join(
+                (f"{pid}: " if pid != row["id"] else "") + ", ".join(entry.get("reference_failing") or ["base"])
+                for pid, entry in failed)
+            row["probe"] = False
+    usable = [row for row in rows if not row.get("rejected") and row["set"] != "smoke"]
+    for tier in dict.fromkeys(row["tier"] for row in usable):
+        spare = [row for row in usable if row["tier"] == tier and not row.get("probe")]
+        while sum(row.get("probe", False) for row in usable if row["tier"] == tier) < PROBE and spare:
+            spare.pop(0)["probe"] = True
+    for old in [row for row in rows if row["set"] == "smoke" and row.get("rejected")]:
+        old["set"] = "rejected"
+        next(row for row in usable if row["tier"] == "T2" and not row.get("probe"))["set"] = "smoke"
+    return rows
+
+
 def verify(out=b.HERE):
     """Exit non-zero unless every listed package (both forms) hashes as recorded and none is unlisted."""
     lines = [json.loads(line) for line in (out / "tasks.jsonl").read_text().splitlines()]
@@ -385,8 +413,15 @@ if __name__ == "__main__":
         command.add_argument("--prior", action="append", default=[],
                              help="screening.jsonl or rows.jsonl of an earlier build")
     sub.add_parser("verify")
+    sub.add_parser("reject-unstable", help="reject the rows anchor_stability.json shows unstable, then verify")
     args = parser.parse_args()
     if args.cmd == "verify":
+        verify()
+    elif args.cmd == "reject-unstable":
+        manifest = b.HERE / "tasks.jsonl"
+        lines = reject_unstable([json.loads(line) for line in manifest.read_text().splitlines()],
+                                json.loads((b.HERE / anchors.FILE).read_text()))
+        manifest.write_text("".join(json.dumps(line, sort_keys=True) + "\n" for line in lines))
         verify()
     elif args.cmd == "build":
         build(args.work.resolve(), args.workers, args.runs, prior=args.prior)

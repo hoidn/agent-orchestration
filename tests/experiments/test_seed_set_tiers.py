@@ -11,6 +11,7 @@ import pytest
 
 from experiments.compare import repos
 from experiments.seed_set import build_tasks as b, forms, tiers
+from tests.experiments.seed_set_offline_support import manifest_rows
 from experiments.seed_set.programs import dev_check
 
 REAL = b.HERE / "tasks" / "1f424cc9ae"  # a T3 package whose visible check runs in about a second
@@ -173,3 +174,23 @@ def test_withheld_check_passes_with_the_reference_fix_and_leaves_the_tree_as_it_
         assert (dev_check.check(clone, pkg / "withheld")["passed"], forms.tree_digest(clone)) == (True, before)
     finally:
         repos.git(clone, "apply", "-R", "--binary", str(pkg / "anchors" / f"{pkg.name}-upstream.diff"))
+
+
+def test_an_unstable_package_rejects_its_row_and_its_probe_flag_moves_to_the_next_usable_task():
+    rows = manifest_rows({"T2": 7, "T3": 6})
+    stability = {"T3-01": {"stable": False, "reference_failing": ["tests/test_x.py"]},
+                 "T2w-02": {"stable": False, "reference_failing": ["tests/test_y.py::t"]}}
+    out = tiers.reject_unstable(rows, stability)
+    by = {r["id"]: r for r in out}
+    assert ([r["id"] for r in out if r.get("probe") and r["tier"] == "T3"],
+            [r["id"] for r in out if r.get("probe") and r["tier"] == "T2"],
+            by["T3-01"]["rejected"], by["T2-02"]["rejected"]) == (
+        ["T3-00", "T3-02", "T3-03", "T3-04"], ["T2-00", "T2-01", "T2-03", "T2-04"],
+        "anchor not stable under study conditions: tests/test_x.py",
+        "anchor not stable under study conditions: T2w-02: tests/test_y.py::t")
+
+
+def test_an_unstable_smoke_moves_the_smoke_to_the_first_usable_t2_task_that_is_not_a_probe_task():
+    rows = manifest_rows({"T2": 7})
+    out = tiers.reject_unstable(rows, {"smoke": {"stable": False, "reference_failing": []}})
+    assert [r["id"] for r in out if r["set"] == "smoke"] == ["T2-04"]
