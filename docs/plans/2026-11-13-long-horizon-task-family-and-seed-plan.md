@@ -1,11 +1,12 @@
 # Long-Horizon Task Family And Staged Seed Plan (Roadmap Phase 5b)
 
-**Status: Plan; not reviewed; no spend.** This page turns the staging of
+**Status: Plan; accepted by the coordinator on 2026-11-13 after an independent review and one revision; no spend.** This page
+turns the staging of
 [roadmap Phase 5b](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-5b-long-horizon-task-family-and-staged-seed)
 into a plan: the effort ladder that owner decision 16 approved (steps 4 to 6), and steps 7 to 9
 in outline. The roadmap owns the direction. `AGENTS.md` ("Experiment rules") owns the approval
 and its limits. The [structural search driver](../design/orc_structural_search_driver.md#task-family-and-evaluator)
-owns the qualification, dominance and cost rules. The
+owns the dominance and cost rules. The
 [survey and feasibility report](../reports/2026-11-13-long-horizon-benchmark-survey-and-feasibility.md)
 holds the evidence cited here as "report §n". This plan owns its task list, limits, thresholds
 and readout. Its commands are for this machine and are not copyable examples. Spend is
@@ -22,9 +23,13 @@ counts by effort and the effort verdict, or the stop that prevented it.
   attempts each; at most 240 attempts, ceiling USD 200; no other model, no top-up after a null.
   First: the oracle check passes here, the network policy is fixed, the launcher has passed an
   independent review, and this plan and its ledger exist.
-- **Kind of experiment.** The family is oracle-scored: its qualification is the oracle check,
-  with no judge. The ladder is the difficulty calibration with effort as the varied quantity,
-  under the same task, tools and limits at every level.
+- **Kind of experiment.** The family is oracle-scored and qualifies by the oracle check, with
+  no judge. The ladder places tasks and measures how success responds to effort, under the same
+  task, tools and limits at every level. It is not a calibration whose stronger arm must win.
+- **A stated difference from the design.** The driver's rule for an oracle family is an oracle
+  that accepts two structurally different correct submissions and rejects a broken one. This
+  tranche applies the approval's rule (the reference passes, an untouched environment fails);
+  the ladder's passing agent runs can supply the second correct submission before step 9.
 - **Not approved:** the seed comparison (step 9), any task outside the 16, any other model. No
   claim about any workflow comes from this tranche. "Better" below always means Pareto
   dominance over quality and priced-token cost.
@@ -34,25 +39,38 @@ counts by effort and the effort verdict, or the stop that prevented it.
 - **Can show:** which tasks are at the floor or clearly above the band for a direct session;
   a pooled change of success with effort of about 17 points or more; cost and time per attempt
   by effort; whether containers, network policy and metering hold over 240 runs.
-- **Cannot show:** that any task's true rate lies in 10 to 30 percent (that needs about 90
-  attempts per task and setting; report §9); an ordering of tasks; an effort effect for a single
-  task; a pooled change under about 12 points (detected half the time); anything about `xhigh`
-  or `max`, another model, or a workflow.
+- **Cannot show:** that any task's true rate lies in 10 to 30 percent (about 90 attempts per
+  task and setting; report §9); an ordering of tasks; an effort effect for one task; a pooled
+  change under about 12 points (detected half the time); that success "does not fall" with
+  effort (only that a fall above a stated bound is ruled out); anything about `xhigh` or `max`,
+  another model, or a workflow.
+- **For the owner, in plain numbers** (the reviewer's model: public counts at `max` scaled by
+  the vendor's effort ratios, before any task is dropped or the allowlist lowers rates). About
+  10 of the 16 tasks are expected to screen in (9.7), with about a 45 percent chance of fewer
+  than ten, the smallest size step 9 can use. There is about one chance in two that the dollar
+  rule ends the tranche before attempt 240 (it does when spend runs above about USD 176). The
+  likely effort verdicts are "rises" or "not resolved"; neither confirms decision 14's
+  assumption beyond the bound the readout states.
 
 ## Decisions frozen before spend
+
+**No frozen rule may name a string, key or value that no recording shows.** The classification
+table, the stand-in responses, the smoke checks, the stops and the scan terms are written from
+the recordings of Task 1, and a test holds each to a recorded line.
 
 ### D1. Task list and task identity
 
 A task is **the same task** when every file of its directory equals the benchmark's published
-4.1.0 digest. Host-side steps (an image pulled by full name, a registry alias, a wider sub-id
-range, longer harness probes) change no task file. The network overlay of D3 changes the
-execution condition, not the task, and is recorded. Any other edit makes a **modified task**,
-admitted only as the vba row says. Task files, reference solutions and verifier tests stay
-outside this repository; the kit holds names and digests.
+4.1.0 digest, with `task.toml` compared after removing exactly two keys: the agent phase's
+network mode and its allowed hosts. The launcher writes those two keys (D3); their digest is
+recorded per task and per attempt. Host-side steps (an image pulled by full name, a registry
+alias, a wider sub-id range, longer harness probes) change no task file. Any other edit makes
+a **modified task**, admitted only as the vba row says. Task files, reference solutions and
+verifier tests stay outside this repository; the kit holds names and digests.
 
 | Task | Oracle state (report §5) | To do before spend | Per-attempt cap, USD |
 | --- | --- | --- | --- |
-| vba-userform-port | Fails unchanged | Widen the sub-id range (owner question 2); else the one-line verifier change, labelled "modified verifier" | 14.19 |
+| vba-userform-port | Fails unchanged | Widen the sub-id range (owner question 3); else the one-line verifier change, labelled "modified verifier" | 14.19 |
 | vf2-speedup-networkx | Not tried | Oracle check | 17.37 |
 | wal-recovery-ordering | Reference 1 of 2 under load | Five of five on a quiet host; on the load-sensitive list (D5) | 3.00 |
 | session-window-debug | Pass, once | Repeat | 3.00 |
@@ -69,49 +87,53 @@ outside this repository; the kit holds names and digests.
 | retro-console-soc | Pass, once | Repeat | 17.70 |
 | roy-polymorph-cn | Pass, once | Repeat | 5.58 |
 
-- **Qualification rule.** A task runs in the ladder only if, on the pinned 4.1.0 content, under
-  the final network policy, with the host load below the gate of D2, the reference solution
-  earns reward 1 five times of five and the untouched environment reward 0 five times of five.
-  Reason: the harness's guidance asks for five, and single runs hid one unstable verifier.
-- **A task that fails the rule and has no host-side fix is dropped.** It is not replaced, and
-  its 15 slots are not given to other tasks: the approval names 16 tasks and five attempts per
-  cell. The tranche shrinks. Replacement by a task outside the 16 is owner question 3.
-- **A task whose reference passes five of five quiet but failed under load** stays, on the
-  load-sensitive list, which is frozen from the oracle evidence before spend.
+- **Qualification rule.** A task runs only if, on the pinned 4.1.0 content, under the final
+  network policy, on the ladder's CPU set at its concurrency of four, with the load below the
+  gate of D2, the reference solution earns reward 1 five times of five and the untouched
+  environment reward 0 five times of five.
+- **A task that fails the rule and has no host-side fix is dropped.** It is not replaced and
+  its 15 slots are not given to other tasks. Replacement from outside the 16 is owner
+  question 4. A task whose reference passes five of five quiet but failed under load stays, on
+  the load-sensitive list, frozen from the oracle evidence before spend.
 
 ### D2. What an attempt is
 
 - **The agent runs inside the task's agent container,** as the published harness runs its
-  Claude Code agent (report §8): one non-interactive session with the task's instruction.
-  Reason: this is what the public per-task figures measured, and the instructions assume an
-  agent with root, a package manager and background processes there. A host-side session
-  driving the container would change the tool surface.
-- **How the binary and the credential get in.** The harness downloads the CLI inside the
-  container with the vendor's bootstrap script, pinned by version; nothing is mounted (report
-  §4), and the host's own CLI, which updates itself, is never used. The credential is one
-  dedicated API key, read from a file of mode 600 outside the checkout into the harness
-  process's environment, which the harness passes to the container. The host home, its Claude
-  configuration and its login never enter a container. The agent can see the key: the upstream
-  design, and a stated residual risk (D3).
-- **Binding.** Model `claude-haiku-5-5` by exact id; effort one of `low`, `medium`, `high`,
-  passed as the CLI's `--effort`; every model variable of the CLI (default, small-fast, the four
-  tier defaults, subagent model) pinned to the same id; no fallback model; auto-update, the
-  advisor tool and the refusal fallback off. A fresh container has no user settings, plugins,
-  hooks or memory.
-- **CLI version:** 2.1.311, the version of the public row, installed by pin in every container.
-  If the release host no longer serves it or it rejects an effort level for this model (both
-  probed without spend or in the smoke), the pin becomes the newest version that passes, and the
-  ledger records it. The version each session reports is checked; another version is a stop.
+  Claude Code agent (report §8): one non-interactive session with the task's instruction. This
+  is what the public per-task figures measured, and the instructions assume an agent with root,
+  a package manager and background processes there.
+- **The binary.** The harness downloads the CLI inside the container with the vendor's
+  bootstrap script, pinned by version. Nothing is mounted (report §4), and the host's own CLI,
+  which updates itself, is never used. The agent-setup log is kept per attempt; it names the
+  system packages the harness adds.
+- **The credential: the agent never sees the key.** A host-side passthrough (D4) holds the one
+  API key. The container gets a base URL pointing at the passthrough and a per-slot dummy
+  token. The host home, its Claude configuration and its login never enter a container. With a
+  base URL set, the harness itself pins every tier alias and the subagent model to the bound
+  model (report §8).
+- **Binding.** Model `claude-haiku-5-5` by exact id; effort `low`, `medium` or `high` as the
+  CLI's `--effort`; no fallback model; auto-update off. The switches for the advisor tool and
+  the refusal fallback are named in the criterion once a recording shows that they exist.
+- **CLI version:** the one with real recordings: 2.1.311 if the public trial archives of that
+  row can be fetched and it still installs; otherwise 2.1.323, for which real sessions are on
+  file from the Phase 2 smoke. The ledger records the choice. Each session's reported version
+  is checked; another version is a stop.
 - **Harness and limits:** Harbor 0.25.0 and podman-compose 1.6.0 from a pinned environment,
   one harness run per attempt, its retry count at zero. Equal at every effort level: the task's
   own agent limit (28,800 s for all 16) and verifier limit, multiplier 1; its CPUs and memory;
   a process limit of 4,096; the dollar cap of D4.
-- **Load.** Load slows the agent's commands, not the model, so the same wall limit buys less
-  computing here than in the public row, and one verifier is timing-sensitive. An attempt is
-  launched only when the 1-minute and 5-minute load averages are at or below 24 (of 32 cores).
-  Load is recorded at launch, at the end of the session and around the verifier; during a
-  session it is recorded, not enforced.
-- **Concurrency:** four attempts, two until every effort level has one clean observation.
+- **Load and CPUs.** Load slows the agent's commands, not the model, and some verifiers depend
+  on timing. (1) Attempts and their verifiers run on a fixed set of 24 CPUs, by an affinity the
+  launcher sets and its containers inherit. This keeps the ladder off the other eight; it does
+  not keep other work off the 24, because the CPU-set controller is not delegated to this user.
+  (2) The coordinator runs no other heavy work of this session during the tranche. (3) An
+  attempt is launched only when the 1-minute and 5-minute load averages are at or below 24 (of
+  32 cores); the gate is never moved. (4) If the gate stays closed for two hours while no
+  attempt is in flight, the tranche pauses and the coordinator reports to the owner; a ruling
+  may resume or end it. Load is recorded at launch, at the session's end and around the
+  verifier.
+- **Concurrency:** four attempts, two until every effort level has one clean observation. The
+  ladder's own containers count toward the gate, so it will often run two or three.
 - **Withheld:** `tests/` and `solution/` never enter the agent's container, and the verifier
   image receives only the declared artifacts: the harness's construction, checked in rehearsal.
 
@@ -120,337 +142,414 @@ outside this repository; the kit holds names and digests.
 - **Declared:** no agent network mode on any of the 16 (open internet); no internet for two
   verifiers. **Enforced under rootless Podman:** no-network verifier phases, by the harness's
   egress sidecar (report §7). Its allowlist mode was not tried.
-- **Policy for the ladder: agent phase on an allowlist.** One list for every task and effort:
-  the model API host; the Python, Node and Rust package indexes; the system package mirrors of
-  the three base distributions. A task whose instruction or reference solution needs another
-  host gets that host added by name in `tasks.json`. Code hosts, search engines, the benchmark's
-  hub and the open web are not on it. Image build and agent setup keep the open network (the
-  agent is not running then). Verifiers keep what they declare. The CLI's web search and fetch
-  tools are off: the search tool runs at the provider and would bypass the container's egress.
-- **Reason and consequence.** The reference solutions are public in the benchmark's repository;
-  with open internet a pass may mean the agent found the answer. The rates are then not
-  comparable with the public row, and the later comparison must use the same policy.
-- **Cannot be enforced:** what the model remembers of the benchmark (published August 2026 with
-  a canary string); content reachable through an allowed host; a direct request to the model API
-  with the key, for any model the key allows, outside the session records. The last is limited
-  by owner question 1 (a workspace spend limit, restricted to this model if the console allows)
-  and detected afterwards: transcripts are scanned for the API host and the key's variable
-  name, and the console's usage by model is compared with the metered total.
-- **If the allowlist cannot be enforced here,** the plan stops before spend. The ladder does
-  not run on an open network on this plan's authority.
+- **Policy for the ladder: agent phase on an allowlist,** applied by the two `task.toml` keys
+  of D1, because the harness ignores run-level hosts when a task's policy is open (report §8).
+  One list for every task and effort: the passthrough's address, listed explicitly (the harness
+  stops adding the inference host once any host is given); the Python, Node and Rust package
+  indexes; the system package mirrors of the three base distributions. The vendor's API host
+  is not on it. A task that needs another host gets it by name in `tasks.json`. Image build and
+  agent setup keep the open network (the agent is not running then). Verifiers keep what they
+  declare. The CLI's web search and fetch tools and any built-in web agent are off: the search
+  tool runs at the provider and would bypass the container's egress.
+- **The egress log is kept:** copied out before the container is deleted, part of the
+  attempt's record and of the scan.
+- **Reason and consequence.** The reference solutions are public; with open internet a pass may
+  mean the agent found the answer. The rates are then not comparable with the public row, and
+  the later comparison must use the same policy.
+- **Cannot be enforced:** what the model remembers (the vendor's help page gives a training
+  cutoff of June 2026, read through a search result; the tasks were published in August 2026
+  with a canary string); content on an allowed host, since package indexes can hold anything;
+  name lookups and ping, which the sidecar allows; a request that names an allowed host but is
+  routed elsewhere, since filtering is by the requested name.
+- **If the allowlist cannot be enforced here,** the plan stops before spend.
 
 ### D4. Metering, price and the ceiling
 
-- **Tokens** come from the session's own usage records: the session files the harness copies
-  out of the container, one row per assistant message, deduplicated by message id, read by
-  `orchestrator/providers/usage.py`. A session that ends by itself also reports its own cost.
+- **The passthrough** is a small host-side process, part of the kit and of the pre-spend
+  review: the only holder of the key and the only route from a container to the model. For
+  every request it maps the dummy token to a slot and refuses an unknown one; refuses any model
+  other than `claude-haiku-5-5`; refuses when the slot's metered spend has reached its cap,
+  when all slots together have reached USD 200, or when the tranche is stopped; prices the
+  response's usage with the frozen table and appends it to the slot's log. What it does with
+  requests that declare provider-side tools is fixed from the recordings.
 - **Price table:** `orchestrator/providers/price_table.json` at the frozen commit, by SHA-256
   (dated 2026-11-11; this model: input 0.10, output 0.50, cache read 0.01, cache write 0.20 USD
   per million tokens, five times that above 100,000 prompt tokens in a request). Cost is the
-  list-price equivalent from this table, not billed spend.
-- **Per-attempt cap,** passed to the CLI as its own budget limit:
-  `max(3.00, 3 × the task's public mean cost per trial at effort max)` (the table in D1). The
-  largest public trial of any of the 16 cost 2.45 times its task's mean at `max`, and the three
-  levels run here should cost less. **The cap depends on the task, never on the effort.**
-  Reason: the calibration rule requires the same limits at every level, and a cap that tightened
-  with lower effort, or bound more often at higher effort, would manufacture an effort effect.
-- **Reservation before every attempt:** the cap plus USD 1.00 (the CLI may pass its budget by
-  the requests in flight; USD 1.00 covers several at the long-context rate). Under one lock,
-  the launcher computes *committed* = settled cost of every start + every open reservation, and
-  launches only if *committed* + reservation ≤ 200.00 and starts < 240.
-- **Settlement** replaces a reservation with the larger of the table price and the CLI's figure.
-  Unreadable or missing usage settles at the full reservation, never at zero.
+  list-price equivalent, not the bill; the table is checked against public token counts first.
+- **Per-attempt cap:** `max(3.00, 3 × the task's public mean cost per trial at effort max)`
+  (the table in D1), enforced by the passthrough and, as a second guard, by the CLI's own
+  budget limit. The largest public trial of any of the 16 cost 2.45 times its task's mean.
+  **The cap depends on the task, never on the effort:** the comparison requires equal limits,
+  and a cap that bound more often at higher effort would manufacture an effort effect.
+- **Reservation before every attempt:** the cap plus USD 1.00 for requests in flight. Under one
+  lock the launcher computes *committed* = settled cost of every start + every open
+  reservation, and launches only if *committed* + reservation ≤ 200.00 and starts < 240.
+- **Settlement** replaces a reservation with the largest of four figures: the passthrough's
+  meter, the session records priced by the table, the CLI's own cost figure, and the CLI's
+  per-model usage priced by the table. Unreadable usage settles at the full reservation.
 - **What ends the tranche:** nothing in flight and the next slot's reservation does not fit; 240
   starts; a stop rule of D7. The launcher never skips ahead to a cheaper slot.
 - **Expected spend (planner's estimate):** about USD 173 for all 240 (low 33, medium 53, high
-  87), from the two public cost points (report §9). Plausible range 145 to 255. Above 200 the
-  ceiling ends the tranche inside round 4 or 5, which D7's order makes harmless.
+  87), from two public cost points (report §9); plausible range 145 to 255.
+
+**Worst case when one guard fails** (list-price dollars; the middle column is the design before
+the passthrough, kept to show what it changes):
+
+| Guard that fails | Without the passthrough | With it |
+| --- | --- | --- |
+| The CLI's budget limit does not stop a session, or subagents run past it | Four sessions run to their natural end: about USD 260 to 330 | The passthrough refuses at the cap: USD 200 plus the requests in flight, a few dollars |
+| The launcher's reservation | Caps still hold: USD 2,086 in theory, USD 145 to 255 in practice | The passthrough's own total stops at USD 200 |
+| The key is used directly from a container | No bound in the kit | Not possible: the container holds no key and has no route to the API |
+| The passthrough's meter under-counts | (no such guard) | The launcher's reservation and the CLI's limit still hold, as in the design without it |
+| The price table is wrong | The bill differs from every meter by the error | The same: every meter shares the table |
+| A process of this host user reads the key file | No bound in the kit | No bound in the kit |
+
+The last two rows make the workspace's own spend limit a precondition, not a backstop (owner
+question 1). **The passthrough cannot stop:** requests already in flight when a cap is reached;
+spend inside a slot's cap that is not the session's own (a second `claude`, or a direct request
+with the dummy token: metered and capped, but absent from the session records); a wrong price
+table; another process of the same host user reading the key file.
 
 ### D5. Infrastructure failure against model failure
 
-Classified by a table frozen in the criterion, from the harness's result and the stream's last
-event, without reading the reward.
+Classified by a table frozen in the criterion, with one recorded fixture per harness exception
+class and per ending of the stream, without reading the reward. **A session has started** when
+its stream holds an init event or the passthrough has metered a request for its slot.
 
 | Outcome | Counts against 240 | Cost against 200 | In k and n | Run again |
 | --- | --- | --- | --- | --- |
-| **Observation:** the session started and ended by itself, at the task's time limit, at the dollar cap or in a refusal, and the verifier returned a reward | Yes | Yes | Yes, with its reward (limit, cap and refusal are flagged) | Never |
-| **Infrastructure failure:** the session started and ended in a provider error, or the host, Podman or the launcher died | Yes | Yes | No; listed, never scored zero | Never |
-| **Pre-session failure:** image build, pull, agent setup or version check failed; no session began and no usage exists | No | Nothing was spent | No | At most twice per slot |
-| **Verifier gave no reward** after a finished session | (already counted) | (already counted) | See below | Verifier only |
+| **Observation:** the session started and ended by itself, at the task's time limit, at the dollar cap, in a refusal, or at a context or output limit | Yes | Yes | Yes, with the verifier's reward, and reward 0 if it gives none (each ending is flagged) | Never |
+| **Infrastructure failure:** the session started and ended in a provider fault (rate limit, overload, server error, lost connection), or the host, Podman, the passthrough or the launcher died | Yes | Yes | No; listed, never scored zero | Never |
+| **Pre-session failure:** image build, pull, agent setup, version check, or an authentication or parameter error before any request; no session started | No | Nothing was spent | No | At most twice; after the third failure the slot is lost and its cell has one observation fewer |
+| **Verifier gave no reward** after a session that ended by itself | (already counted) | (already counted) | See below | Verifier only |
 
-- **The agent is never run twice for one slot.** A retry therefore cannot turn a model failure
-  into a pass. With 240 slots and a cap of 240 a replacement would only take a slot elsewhere.
+- **Model-side endings are never excluded.** A dollar-cap stop, a refusal and a context or
+  output limit are the longest and dearest sessions and come mostly from the higher efforts;
+  excluding them would let effort decide which attempts are dropped. The harness files several
+  of them in the same error family as provider faults, so each class gets its own fixture and
+  recorded reason. A class or ending with no fixture pauses the launcher for a recorded ruling.
+- **The agent is never run twice for one slot,** so a retry cannot turn a model failure into a
+  pass.
 - **Verifier-only regrade** (no model call, the saved artifacts unchanged), in two cases. (1)
-  No reward was produced: up to two regrades below the load gate; a reward then stands; a
-  verifier timeout twice is reward 0 (the limit is part of the task); still no reward file is an
-  infrastructure failure. (2) A task on the load-sensitive list returned reward 0 while the load
-  was above the gate during verification: one regrade below the gate, and its reward stands
-  either way. If the harness cannot regrade on Podman (unverified), case 1 becomes an
-  infrastructure failure and case 2 is excluded as "indeterminate".
-- A session that ended in a provider error is excluded whatever its reward: counting it would
-  lower the rates of the longer sessions, which are the higher effort levels. An outcome the
-  table does not name pauses the launcher for a recorded ruling.
+  No reward after a normal ending: up to two regrades below the load gate; a reward then
+  stands; a verifier timeout twice is reward 0 (the limit is part of the task); still no reward
+  file is an infrastructure failure. (2) A task on the load-sensitive list returned reward 0
+  while the load was above the gate during verification: one regrade below the gate, and its
+  reward stands. Only a reward of 0 is regraded, because the known defect of such a verifier
+  under load is a false failure of correct work. If the harness cannot regrade on Podman, case
+  1 becomes an infrastructure failure and case 2 is excluded as "indeterminate".
 
 ### D6. The readout
 
-- **Per task and effort:** k of n with the exact (Clopper–Pearson) 95% interval; flags;
-  exclusions listed. Complete cells have n = 5; a cell with n under 5 is labelled incomplete.
-- **Placement, pooled over a task's 15 attempts** (K of n): K = 0 is "floor" (upper bound 21.8%
-  at 15); 1/15 ≤ K/n ≤ 1/3 is "screened in"; above is "above the band". A screened-in task
-  records its band effort: the level whose cell has k = 1, else k = 2, ties to the lower
-  level. The rule accepts a task of constant true rate 2%, 5%, 10%, 20%, 30%, 50% with
-  probability 0.26, 0.54, 0.79, 0.90, 0.72, 0.15. The label is "screened at 15 attempts",
-  never "in the 10 to 30 percent band".
+- **Per task and effort:** k of n with the exact (Clopper–Pearson) 95% interval and a label:
+  k = 0 "floor", 1 or 2 of 5 "screened in", 3 or more "above". A cell with n under 5 is
+  labelled incomplete. Flags and exclusions are listed.
+- **Per task, pooled** (K of its n attempts): K = 0 is "floor" (upper bound 21.8% at 15);
+  1/15 ≤ K/n ≤ 1/3 is "screened in"; above is "above the band". The pooled label admits a
+  task to the family; the per-effort labels are printed beside it, because a pooled count mixes
+  three rates. The rule accepts a task of constant true rate 2%, 5%, 10%, 20%, 30%, 50% with
+  probability 0.26, 0.54, 0.79, 0.90, 0.72, 0.15. The label is "screened at 15 attempts", never
+  "in the 10 to 30 percent band".
+- **Band effort,** for every screened-in task: among the levels with at least one success, the
+  one whose k/n is closest to 0.2, ties to the lower level. Every screened-in task has such a
+  level. It is labelled "noisy, one cell of five", and flagged when that cell is 3 or more. A
+  floor or above-band task has none.
 - **Effort test, fixed before the data.** A (task, round) triple is complete when its three
   slots are all observations. Over complete triples, `s_i(e)` is task i's successes at effort e
-  and `d_i` a difference between two levels. The test is the exact sign-flip permutation test
-  over tasks on the sum of `d_i`, one-sided.
-  - **Falls** (counts against the assumption): high against low sums below zero with p ≤ 0.05,
-    or an adjacent pair sums below zero with p ≤ 0.025.
-  - **Rises:** pooled successes satisfy low ≤ medium ≤ high, and high against low sums above
-    zero with p ≤ 0.05.
-  - **Not resolved:** anything else, reported with the pooled counts.
+  and `d_i` a difference between two levels. The test is the exact one-sided sign-flip
+  permutation test over tasks on the sum of `d_i`.
+  - **Falls:** high against low sums below zero with p ≤ 0.05, or an adjacent pair sums below
+    zero with p ≤ 0.025. **Rises:** pooled successes satisfy low ≤ medium ≤ high, and high
+    against low sums above zero with p ≤ 0.05. **Not resolved:** anything else.
+  - **Always reported: the bound on the fall,** the one-sided 95% upper bound on the pooled fall
+    from low to high in points (bootstrap over tasks, 10,000 resamples, fixed seed). "Not
+    resolved" means only that no fall above that bound was ruled out; it is never read as "does
+    not fall".
   - Sensitivity (simulated, 16 tasks with five at zero): a pooled change of 12 points is
-    detected in 52% of runs, 17 points in 79%, 20 points in 88%; false alarm 4%. The public
-    aggregate difference between `low` and `high` is 12 points.
+    detected in about half of runs, 17 points in 79%, 20 points in 88%; false alarm 5%. With
+    ten tasks at the floor a 17-point fall is detected in about a fifth of runs.
 - **Cost:** per effort, mean priced cost and minutes per observation, tokens by kind, and cost
-  per success (the cost of every start at that level over its successes; undefined without
-  one). An effort level is named dominated only when another has more pooled successes beyond
-  the interval and lower cost; otherwise "not resolved".
+  per success (the cost of every start at that level over its successes). An effort level is
+  named dominated only when another level beats it on the same sign-flip test at p ≤ 0.05 and
+  has a lower mean cost; otherwise "not resolved".
 - **Adaptive order: rejected.** Running `high` first and skipping the lower levels of a task at
-  0 of 5 assumes the thing under test and removes the tasks where a violation would show (high
-  fails, low passes); leaving those tasks out instead keeps tasks selected for success at high.
-  D7's order gives the saving that matters, a graceful stop, without either.
-- **Contamination scan:** transcripts are searched for the benchmark's repository and hub
-  names, its reference-solution file names, the canary string and direct API use. A hit excludes
+  0 of 5 assumes the thing under test and removes the tasks where a violation would show;
+  leaving those tasks out instead keeps tasks selected for success at high.
+- **Contamination scan:** over transcripts and the egress log, for specific strings frozen
+  after a dry run on the oracle jobs and the recordings (the benchmark repository's path, the
+  canary's identifier, the reference solution's full path in that repository). A hit excludes
   the attempt and is listed. A readout that ends in a stop prints no placement.
 
 ### D7. Order and stop rules
 
-1. **Smoke:** one attempt, gsea-proteomics at `low` (cheap, short, and it needs a package index,
-   so it exercises the allowlist). Then stop and read: the pinned CLI version ran in the
-   container; every usage row names the bound model; the effort and the dollar cap are on the
-   recorded command line; web tools are off; denied hosts are logged and allowed ones work;
-   usage is priced and within 5% of the CLI's figure; the verifier returned a reward; the key's
-   value is in no kept file; the slot settled. A pass makes it slot 1 of round 1. A kit change
-   after it means a new manifest hash and ledger row; the start stays counted and is excluded.
+1. **Smoke:** one attempt, gsea-proteomics at `low` (cheap, short, and it needs a package
+   index). Then stop and read, each check against a recorded form: the pinned CLI version ran;
+   the passthrough saw only the bound model; the init event lists no web tool or web agent, and
+   no provider-side tool was used; effort and cap are as bound; the egress log shows denied
+   hosts denied and allowed ones served; the four settlement figures agree within 5%; the
+   verifier returned a reward; the key's value is in no kept file and no command line; the slot
+   settled. A pass makes it slot 1 of round 1. A kit change after it means a new manifest hash
+   and ledger row; the start stays counted and is excluded.
 2. **Rounds.** Five rounds, each one attempt of every task at every level (48 slots), in an
    order fixed by a hash of a frozen seed, the round, the task and the effort. A stop for money
    leaves the cells balanced, and effort is not confounded with time of day or load.
 3. **Stop and read after round 1:** classification counts, cost per effort against the
    estimate, the scan, the load record. The projection goes in the ledger; no threshold moves.
-4. **Stops:** a failed smoke; a usage row naming another model; a session on another CLI
-   version; infrastructure failures above 10% of starts (from 20 starts on) or above 20% at one
-   level; five pre-session failures in a row or 24 in all; contaminated attempts on three tasks;
-   the key's value in a kept file; under 20 GB free; an unclassified outcome (a pause). A high
-   load is a wait, not a stop.
+4. **Stops:** a failed smoke; a response with non-zero usage that names another model; a
+   session on another CLI version; infrastructure failures above 10% of starts (from 20 starts
+   on) or above 20% at one level; five pre-session failures in a row or 24 in all; contaminated
+   attempts on three tasks; the key's value in a kept file; under 20 GB free. **Pauses:** the
+   load wait of D2; the passthrough down; an outcome with no fixture.
 5. Nothing is topped up, moved between cells or re-thresholded after the first paid start.
 
 ## Steps 7 to 9, in outline
 
 **Step 7: freeze the task set.** `family.json` lists the screened-in tasks with digests, counts
-and intervals by effort, band effort, the network policy and harness versions, and the effort
-verdict; the floor and above-band tasks are listed beside them. It is reported to the owner with
-the ladder's cost. Proposed reading of the verdict for the search: "rises" lets it walk one
-role's effort at a time; "falls" drops the walk; "not resolved" keeps the walk and adds both
-corners. Fewer than ten screened-in tasks is reported as too few for step 9's smallest design.
+and labels by effort, band effort, the network policy and harness versions, the effort verdict
+and the bound on the fall, with the floor and above-band tasks beside them. It is reported to
+the owner with the ladder's cost. Reading for the search: only "rises" lets it walk one role's
+effort at a time; "falls" drops the walk; on "not resolved" the ladder has not confirmed the
+assumption, and the owner chooses, with the bound in hand, between the walk with both corners
+added and a direct comparison of the points. Fewer than ten screened-in tasks, about as likely
+as not, is reported as too few for step 9's smallest design.
 
 **Step 8: merge and freeze the seed.** `milestones.orc` (49 lines on `spike/long-horizon-seed`)
 is written once, after the surface-coherence changes of Lane D stage 5 merge (46 lines
 expected). Required: it compiles at the current target under 50 lines; an effort input per role
-(owner, 2026-11-13); its five stand-in scenarios (clean, a failed check, a refused review, a
-kill and resume, a kill inside a second attempt) become a test; a registry row; a hash in the
+(owner, 2026-11-13); its five stand-in scenarios become a test; a registry row; a hash in the
 family record. **The deterministic check on the setup step earns its place, in its cheapest
 form:** the setup step returns the paths of the files later steps read, typed so that a missing
 file fails that step, as the spec and plan paths already are. Prompt wording of the setup step
 is a search dimension, so a mutated prompt needs a mechanical floor. It checks existence only;
 a content check would freeze what the search may vary. No command step and no new script.
 
-**Step 9: seed against a direct session at matched priced-token cost. NOT APPROVED.**
-
-- Arms, all `claude-haiku-5-5`, same container, limits and network policy: a direct session at
-  the task's band effort, fresh runs (the ladder's runs chose the tasks and would bias the
-  baseline); the seed with every role at that effort.
-- Bar: the seed's pass rate against the re-roll curve `Q(k*)` of the direct arm, `k*` being the
-  seed's mean priced cost over a direct run's. Beating one direct run but not `Q(k*)` is a null.
-- Smallest useful size: ten tasks, 8 direct and 4 seed runs each. It detects a difference of
-  about 32 points; twenty tasks, about 21 (the seed design's computation, not re-derived).
-- Rough cost: 80 direct runs at USD 0.7 to 1.1 is about USD 55 to 90. A seed run's cost is
-  unknown; at four to eight direct runs each, 40 seed runs are about USD 110 to 350. Total about
-  USD 170 to 440, after a measure-free smoke of two seed runs (about USD 15) that measures the
-  seed's cost in direct-run equivalents.
-- Open design work first: how a workflow's steps run inside a task container, and what the
-  seed uses as its visible check, since these tasks ship none.
+**Step 9: seed against a direct session at matched priced-token cost. NOT APPROVED.** Arms, all
+`claude-haiku-5-5`, same container, limits and network policy: a direct session at the task's
+band effort, in fresh runs (the ladder's runs chose the tasks), and the seed with every role at
+that effort. The bar is the direct arm's re-roll curve `Q(k*)`, `k*` being the seed's mean
+priced cost over a direct run's: a seed that costs eight direct runs must pass about 83% of the
+time where direct passes 20%, so the most likely outcome is a null against re-rolling. Smallest
+useful size: ten tasks, 8 direct and 4 seed runs each, which detects about 32 points (twenty
+tasks, about 21; the seed design's computation on its own assumed rates). Rough cost: about
+USD 170 to 440, after a measure-free smoke of two seed runs (about USD 15), and excluding any
+ladder for added tasks. Open design work, larger than one line: how a workflow's steps run
+inside a task container, and what the seed uses as its visible check, since the tasks ship none.
 
 ## Tasks
 
 Branch `feat/lh-ladder` from `spike/long-horizon-tasks`, in its own worktree; kit under
-`experiments/long_horizon_tasks/`. Every command has the blocking provider stubs first on
-`PATH`. Roles are named per the subagent policy.
+`experiments/long_horizon_tasks/`, tests in `tests/experiments/test_long_horizon_ladder.py`,
+each failing first for its stated reason. Every command has the blocking provider stubs first
+on `PATH`. Tasks 1 and 2 come before the criterion and the launcher, because they set both.
 
-### Task 1: pin and qualify the 16 (impl_code; 8 h plus about 8 h of machine time)
+### Task 1: recordings (impl_code; 8 h)
 
-**Files:** create `tasks.json` (name, 4.1.0 digest, cap, extra hosts, oracle evidence); modify
-`oracle_check.sh` (repeat count, the network overlay, a load gate); `summarize.py` (counts).
+**Files:** create `stub_api.py` (a local stand-in for the model API: canned streams with chosen
+usage, tool calls and a subagent) and `recordings.json` (name, source and SHA-256 of each
+recording; the recordings stay outside the repository).
 
-- [ ] Fetch the 16 at the published 4.1.0 digests; record any mismatch with the copies checked.
-- [ ] Probe the allowlist with the `oracle` agent (no model call): a package index answers, a
-      code host is denied and logged, and the route that sets the mode leaves task files
-      byte-identical if the harness offers one.
-- [ ] Oracle and do-nothing runs, five each, under the final policy and the load gate.
-- [ ] Install-only probe of the pinned CLI in one image of each base distribution.
+- [ ] The pinned CLI, installed in one task image by the harness's install-only mode, run
+      against the stub on the host with no key and no route to the real API (the task's brief
+      says in words that this run makes no provider call). Recorded: the init event with its
+      tools and built-in agents; the stream, exit code and harness exception class for a normal
+      end, a budget stop, a refusal, a context-limit end and a timeout kill; the session files'
+      usage rows; per-model usage; every model id the CLI asks for; whether subagent usage
+      reaches the records and the budget; whether the advisor and refusal-fallback switches
+      exist.
+- [ ] Two or three public trial archives of the leaderboard row for the same CLI version,
+      fetched as public data with a generic client.
+- [ ] One fixture per harness exception class and stream ending, cut without task content.
+
+**Verify:** `recordings.json` lists every scenario with a digest; a note records each
+assumption of this plan that a recording contradicts.
+
+### Task 2: pin, probe and qualify the 16 (impl_code; 10 h plus about 10 h of machine time)
+
+**Files:** create `tasks.json` (name, 4.1.0 digest, overlay digest, cap, extra hosts, oracle
+evidence); modify `oracle_check.sh` (repeats, the two-key overlay, the CPU set, the load gate)
+and `summarize.py` (counts).
+
+- [ ] The sub-id range is widened first, with no container running (owner question 3). The 16
+      are fetched at the 4.1.0 digests; any mismatch with the copies checked is recorded.
+- [ ] Allowlist probe with the `oracle` and `nop` agents: an allowed index answers; a code host
+      is denied and logged; a request that names an allowed host but goes to a denied address
+      is refused; setup runs on the open network; a host listener is reached through the list;
+      the egress log is captured before teardown. The affinity reaches both containers.
+- [ ] Oracle and do-nothing runs, five each, under the final policy, four at a time.
+- [ ] A dry run of the contamination terms over these jobs and the recordings, then the terms
+      are frozen. The price table is checked against the archives' token counts.
 
 **Verify:** `python -I experiments/long_horizon_tasks/summarize.py <jobs>` prints, per task,
 reference 5 of 5 and untouched 0 of 5; the ledger gets the surviving list.
 
-### Task 2: criterion and manifest (impl_code; 2 h)
+### Task 3: criterion and manifest (impl_code; 2 h)
 
 **Files:** create `ladder.json` (model, efforts, versions, digests, caps, ceiling, schedule
-seed, allowlist, load gate, classification table, readout rules, price-table hash) and
-`manifest.json` (SHA-256 of every kit file). Test:
-`test_criterion_caps_follow_the_frozen_formula_and_are_equal_across_efforts`.
+seed, allowlist, CPU set, load gate and wait, the classification table with the recording each
+row cites, readout rules, scan terms, price-table hash) and `manifest.json` (SHA-256 of every
+kit file). Tests: caps follow the formula and are equal across efforts; every string a frozen
+rule matches occurs in a recording.
 
-### Task 3: the launcher (impl_code; 14 h)
+### Task 4: the passthrough (impl_code; 8 h)
 
-**Files:** create `experiments/long_horizon_tasks/ladder.py` and
-`tests/experiments/test_long_horizon_ladder.py`.
+**Files:** create `passthrough.py`. Tests, with `stub_api.py` as the upstream:
 
-**Interface:** `ladder.py plan | launch | status`. A paid launch needs `LH_SPEND_AUTHORIZED=yes`,
-`LH_MANIFEST_SHA256` and `LH_RUNTIME_COMMIT` (both from the ledger) and `LH_KEY_FILE`; a
-rehearsal needs `LH_REHEARSAL_STANDINS=<dir>` and refuses if any of those is set. State lives
-outside the checkout (`$HOME/.local/state/lh-ladder`; another root for rehearsals): one
-directory per slot, claimed by `mkdir`, with the reservation, the launcher's pid and start
-time, and later the settlement. It runs from a detached checkout of the frozen commit and
-refuses code imported from elsewhere. It reuses the package's usage reader and price table.
+- [ ] It refuses an unknown token; a model other than the exact id (Sonnet, Fable, an alias);
+      a request for a slot at its cap; any request once the total reaches USD 200 or while the
+      tranche is stopped.
+- [ ] Its meter prices streamed and plain responses as the table does; a request in flight at
+      the cap is metered to its end; the key appears only in the upstream request.
+- [ ] The passthrough going down pauses the tranche.
 
-Tests, each failing first for its stated reason, against a stand-in harness on a closed `PATH`:
+### Task 5: the launcher (impl_code; 16 h)
+
+**Files:** create `ladder.py`. **Interface:** `ladder.py plan | launch | status`. A paid launch
+needs `LH_SPEND_AUTHORIZED=yes`, `LH_MANIFEST_SHA256` and `LH_RUNTIME_COMMIT` (both from the
+ledger) and `LH_KEY_FILE`, which only the passthrough opens; a rehearsal needs
+`LH_REHEARSAL=<dir>` and refuses if any of those is set. State lives outside the checkout
+(`$HOME/.local/state/lh-ladder`; another root for rehearsals): one directory per slot, claimed
+by `mkdir`, with the reservation, the dummy token, the launcher's pid and start time, and later
+the settlement. It runs from a detached checkout of the frozen commit, refuses code imported
+from elsewhere, and reuses the package's usage reader and price table.
+
+Tests, against a stand-in harness that replays the recorded fixtures on a closed `PATH`:
 
 - [ ] Refusals: no authorization; a manifest or runtime commit other than the ledger's; a dirty
-      kit; a model or effort outside the criterion (Sonnet, Fable, an alias, `max`); a task
-      whose digest differs; a harness environment other than the pinned one; a key file inside
-      the checkout or readable by others; a rehearsal with a key; a stand-in without its marker.
-- [ ] `test_sixty_concurrent_launches_never_commit_more_than_the_ceiling`.
-- [ ] `test_a_slot_that_does_not_fit_waits_and_is_never_skipped`; `test_start_241_is_refused`.
-- [ ] `test_unreadable_usage_settles_at_the_full_reservation`;
-      `test_settlement_takes_the_larger_of_table_price_and_cli_figure`.
-- [ ] `test_classification`, over one fixture per row of D5 and an unknown exception.
-- [ ] `test_a_slot_whose_session_started_is_never_launched_again`;
-      `test_a_pre_session_failure_is_relaunched_at_most_twice`.
-- [ ] `test_reconcile_stops_only_the_containers_of_a_dead_launcher`: pid and start time must
-      both match; an open reservation without a live launcher is stopped, then settled.
-- [ ] `test_harness_command_carries_model_effort_version_cap_and_zero_retries`;
-      `test_the_key_value_is_in_no_file_under_the_job_and_state_roots`.
-- [ ] `test_schedule_is_deterministic_balanced_and_begins_with_the_smoke_slot`;
-      `test_round_two_waits_for_the_recorded_round_one_read`.
+      kit; a model or effort outside the criterion; a task whose digest differs outside the two
+      overlay keys; another harness environment; a key file inside the checkout or readable by
+      others; a rehearsal with a key.
+- [ ] Money: sixty concurrent launches never commit more than the ceiling; a slot that does not
+      fit waits and is never skipped; start 241 is refused; settlement takes the largest of
+      four figures; unreadable usage settles at the full reservation.
+- [ ] Classification over every recorded fixture: a budget stop, a refusal and a context limit
+      are observations; a class with no fixture pauses. A slot whose session started is never
+      launched again; a slot is lost after its third pre-session failure; a regrade never
+      starts the agent; reconcile stops only the containers of a dead launcher (pid and start
+      time both match).
+- [ ] Host: the load gate waits, and pauses after two hours with nothing in flight; low disk
+      stops the tranche; the egress log is kept before teardown. The harness command carries
+      model, effort, version, cap, base URL and zero retries; the key's value is in no file and
+      no command line. The schedule is deterministic, balanced and begins with the smoke slot;
+      round two waits for the recorded round-one read.
 
 **Verify:** `pytest -q tests/experiments/test_long_horizon_ladder.py`, `--collect-only` on it,
 then the sampled broad check.
 
-### Task 4: the readout (impl_code; 5 h)
+### Task 6: the readout (impl_code; 6 h)
 
-**Files:** create `experiments/long_horizon_tasks/readout.py`; tests in the same test module.
+**Files:** create `readout.py`. Tests: intervals match the report's table; cell and pooled
+labels; the band effort is defined for every screened-in pattern; the effort verdict and the
+bound on the fall on constructed tables; a ceiling stop leaves partial rounds out of complete
+triples; exclusions are listed and never scored zero; a stop readout prints no placement;
+`family.json` names the criterion and the digests.
 
-- [ ] `test_intervals_match_the_report_table`; `test_placement_labels_on_constructed_counts`.
-- [ ] `test_effort_verdict_falls_rises_and_not_resolved`; `test_incomplete_triples_are_left_out`.
-- [ ] `test_exclusions_are_listed_and_never_scored_zero`;
-      `test_a_stop_readout_prints_no_placement`; `test_family_json_names_criterion_and_digests`.
-
-### Task 5: zero-spend rehearsal (impl_code; 6 h)
+### Task 7: zero-spend rehearsal (impl_code; 6 h)
 
 - [ ] In the suite: the whole schedule against the stand-in harness, ending inside both caps.
-- [ ] On containers, no key on the machine's path: three tasks with a stand-in `claude` placed
-      in a rehearsal copy of the agent image at the pinned version, so the harness skips the
-      install. The stand-in records its command line and environment, probes an allowed and a
-      denied host, looks for `/tests`, `/solution` and any host path, and writes session
-      records. One slot is killed mid-session and reconciled; one verifier is regraded.
+- [ ] On containers, with no key on the machine: three tasks with the real pinned CLI, the
+      passthrough, and `stub_api.py` as its upstream. One session runs to a budget stop, one
+      past a shortened time limit, one is killed and reconciled, one verifier is regraded.
 
-**Verify:** the rehearsal's readout, the D7 smoke checks on its records, and a `grep` for a
-dummy key value over the job and state roots finding nothing. Results go in the ledger.
+**Verify:** the D7 smoke checks on the rehearsal's records; the stub's streams match the
+recordings in form; a dummy key value in no file under the job and state roots and in no
+command line. Results go in the ledger.
 
-### Task 6: independent pre-spend review (review_code; 3 h, plus 5 h of fixes and re-review)
+### Task 8: independent pre-spend review (review_code; 4 h, plus 6 h of fixes and re-review)
 
-By a reviewer who wrote none of the kit. Its brief lists the holes earlier launcher reviews
-found: a retry that turns a failure into a pass; a CLI that updated itself after the pin; a
-sweep that matched a reused pid; a launch between reservation and record; a runtime commit
-recorded but not enforced. The reviewer mutates each guard and reports the survivors.
+By a reviewer who wrote none of the kit; the passthrough is in scope. Its brief lists the holes
+earlier reviews found: a retry that turns a failure into a pass; a CLI that updated itself after
+the pin; a sweep that matched a reused pid; a launch between reservation and record; a runtime
+commit recorded but not enforced; a rule written for output nobody had observed; an identity
+check the overlay defeats; a credential an agent can reach. The reviewer mutates each guard.
 
-### Task 7: freeze and ledger (coordinator; 1 h)
+### Tasks 9 to 12: freeze (1 h), smoke (2 h), the run (6 h of attention), readout and step 7 (4 h)
 
-Before the first attempt the ledger holds: the surviving task list and digests; the manifest
-hash and runtime commit; the CLI and harness versions; the price-table hash; the network
-policy; the key's workspace limit; the review verdict; the rehearsal result; spend to date 0.
+Before the first attempt the ledger holds: the surviving tasks with task and overlay digests;
+the manifest hash and runtime commit; the CLI and harness versions; the price-table hash; the
+network policy; the workspace limit and rate-limit tier as read in the console; the quiet
+window; the review verdict; the rehearsal result; spend to date 0. The run needs about 35 to 45
+hours of a quiet host at four concurrent attempts, up to about 60 when its own load holds it to
+two or three; it runs in tmux. The last task writes `results/readout.md`, `family.json`, a
+report under `docs/reports/`, the actual spend in the ledger, and the roadmap's step table.
 
-### Tasks 8 to 10: smoke (2 h), the run (6 h of attention), readout and step 7 (4 h)
-
-The run needs about 35 to 45 hours of a quiet host at four concurrent attempts, in tmux. The
-last task writes `results/readout.md`, `family.json`, a report under `docs/reports/`, the
-actual spend in the ledger, and the roadmap's step table. **Hours in all:** about 56 of
-engineering and review, plus machine time.
+**Hours in all:** about 79 of engineering and review (56 before the review; the recordings and
+the passthrough add 8 each, the probes, launcher, readout and review 7 between them), plus
+machine time.
 
 ## What This Makes Harder
 
 - The family is tied to one benchmark, harness and CLI version and one network policy; a later
   comparison must reuse all four or re-qualify. The allowlist ends comparability with the
   public leaderboard.
-- Reservations far above expected cost leave the last USD 10 to 25 unusable, and "no agent
-  retry" means provider incidents reduce n for good.
-- Task files live outside the repository: a clean clone must fetch them by digest to rerun.
+- The passthrough is reviewed code that every later long-horizon run needs. Reservations far
+  above expected cost leave the last USD 10 to 25 unusable, and "no agent retry" means provider
+  incidents reduce n for good.
+- Task files and recordings live outside the repository: a clean clone fetches them by digest.
 
 ## Not Verified While Planning
 
-| Assumed | Probe that settles it |
-| --- | --- |
-| Allowlist mode works under rootless Podman, and the mode can be set without editing a task file | Task 1's oracle probe; the harness's config print |
-| Agent setup runs outside the agent-phase policy, so the installer's host need not be allowed (source read) | Task 1's install-only probe under the allowlist |
-| The release host still serves CLI 2.1.311; the installed version is checked by the harness | Install-only probe; the version in the result record |
-| `low` and `medium` are accepted for this model (only `high` was seen here) | The smoke (`low`); the first `medium` observation |
-| The CLI's budget limit stops a session in a container, subagents included | Recorded command line in rehearsal; cost against cap in round 1; the console limit as backstop |
-| Session records copied out of the container cover subagent usage and survive a killed session | Rehearsal kill; the 5% agreement check in the smoke |
-| The harness keeps the key out of its job files | The rehearsal's `grep` with a dummy value |
-| The verifier still runs after an agent timeout or a dollar-cap stop | Rehearsal with a stand-in that sleeps past a shortened limit |
-| The harness can regrade saved artifacts on Podman | Rehearsal regrade |
-| Task content at the checked commit equals the 4.1.0 digests | Task 1's fetch by digest |
-| Per-effort costs at `low` and `high` (interpolated); the secondary source's USD 0.68 | Round 1 |
-| The price table's rates are still the vendor's | Re-read at freeze; no lookup was made while planning |
-| Benchmark licence allows this use (Apache-2.0 read in the repository; the canary asks only that data stay out of training sets) | Owner's reading if redistribution is ever wanted; none is planned |
-| Four concurrent sessions stay inside the key's rate limits | Round 1's provider-error count |
-| Image builds stay reproducible over a multi-day run | Pre-session failure count; image digest per attempt |
-| The host can be held at or below a load of 24 | Scheduling by the coordinator; today it ran at 80 to 165 |
+**Before the launcher is written** (Tasks 1 and 2; these set its design and the criterion):
 
-## Rulings Made While Planning
+1. The allowlist under rootless Podman: allowed, denied and wrongly routed requests; setup on
+   the open network; the passthrough's address reachable; the egress log captured.
+2. What Task 1 records: stream, session-file and result forms; a real budget stop and its
+   harness class; the model ids requested; subagent accounting; the switches for web tools, the
+   advisor and the refusal fallback; whether a custom base URL changes the CLI's behaviour.
+3. The pinned CLI still installs, in one image per base distribution, and reports its version.
+4. The credential route: the console's spend limit is hard and prompt; the rate-limit tier.
+5. The contamination terms give no false hit on the oracle jobs and the archives.
+6. The price table and the training cutoff against the vendor's pages and public token counts.
+7. The host plan: the affinity reaches both containers; the quiet window; the sub-id widening.
+8. Task content at the checked commit equals the 4.1.0 digests (the checked copies carry other
+   version numbers; every task is re-run in Task 2 either way).
 
-Each is a coordinator ruling to confirm; all stay inside the approval.
+**At the rehearsal:** the verifier runs after a timeout and after a budget stop on Podman (the
+harness source says it does); a regrade on Podman; kill and reconcile; the model variables
+reach the session; the dummy key is in no file and no command line; the stub reproduces the
+recordings in form.
 
-1. A dropped task is not replaced and its slots are not reassigned (D1).
-2. Host-side fixes keep a task the same task; the vba verifier change, if used, is labelled (D1).
-3. The agent phase runs on an allowlist, not the declared open network; unenforceable means
-   no spend (D3).
-4. The dollar cap and reservation depend on the task, not on the effort as this plan's request
-   suggested: the calibration rule requires equal limits (D4).
-5. A launch that fails before a session begins is not an attempt and is not counted against
-   the 240; every started session is, with its cost (D5).
-6. No agent retry at all; verifier-only regrade in two stated cases (D5).
-7. No outcome-adaptive order; balanced rounds instead (D6, D7).
-8. Load gate 24, four concurrent attempts, the task's own time limit, CLI 2.1.311 (D2).
-9. Placement by the pooled count with a band effort; the three effort verdicts (D6).
-10. A passed smoke is slot 1 of round 1 (D7).
-11. Settlement at the larger of two figures; unreadable usage costs the full reservation (D4).
+**At the smoke or in round 1:** `low` and `medium` are accepted for this model at the API (only
+`high` was seen here); cost per effort (`low` and `high` are interpolated); provider errors at
+four concurrent sessions; image builds stay reproducible over days.
+
+**Not probed:** the benchmark's licence beyond its text (Apache-2.0, with a canary asking that
+data stay out of training sets); no redistribution is planned.
+
+## Rulings
+
+The planner's eleven rulings are adopted with the reviewer's amendments (2026-11-13) and are the
+rules of D1 to D7: no replacement of a dropped task; host-side fixes and the two network keys
+keep task identity; an allowlist or no spend; cap and reservation by task, not by effort; a
+launch that fails before a session starts is not an attempt; no agent retry, and regrade of the
+verifier only; balanced rounds, no adaptive order; the load gate, four slots, the task's own
+time limit and the CLI version with real recordings; placement per effort and pooled with a
+bound on the fall; a passed smoke as slot 1; settlement at the largest of four figures. The
+coordinator's rulings of the revision are in the ledger's last row. All thirteen review minors
+are applied and none is rejected; minor 8 (the training cutoff) rests on a search result until
+the vendor's page is read in Task 2.
 
 ## Owner questions
 
 Only what the approval does not cover.
 
-1. **Credential.** The ladder needs a dedicated API key that the agent can see, in a workspace
-   with a spend limit of USD 200, restricted to `claude-haiku-5-5` if the console allows it.
-   This is billed API spend, not subscription usage. Is that the route, and will the owner
-   create the key?
-2. **vba-userform-port.** Will the owner run the one root command that widens the sub-id range
-   (report §5)? If not, the task runs with the one-line verifier change, labelled.
-3. **Tasks outside the 16.** Replacing a dropped task, or adding tasks if fewer than ten screen
-   in (the Science suite, the compose tasks), is not covered and needs its own ladder: new
-   spend. This plan does neither. Does the owner want a rule for a later tranche?
-4. **Step 9** will be requested once, after step 7, with the size and cost above (about USD 170
-   to 440 after a USD 15 smoke); nothing is asked now.
+1. **One API key,** in a workspace with a spend limit of USD 200, readable only by the
+   passthrough. This is billed API usage, not the subscription, and would be the project's
+   first. Will the owner create it, and confirm in the console that the limit is hard and what
+   the workspace's rate-limit tier is?
+2. **A quiet window on this machine, about 35 to 45 hours** (up to about 60), as a condition of
+   the run: no other heavy work, the load at or below 24. Without it the ladder does not run on
+   this plan. The results that would otherwise measure the neighbours are those of
+   wal-recovery-ordering (a thread-timing verifier; its reference failed once under load) and,
+   likely but untested, vf2-speedup-networkx (a speed target) and the tasks that train or
+   compile inside their limits (lake-temp-glm, pretrain-shard-corruption, vpp-loss-divergence,
+   retro-console-soc). A smaller tranche without those six is a choice the owner could make.
+3. **Two root commands.** Widening the sub-id range (report §5), with no container running;
+   without it vba-userform-port runs with the one-line verifier change, labelled. Optionally,
+   delegating the CPU-set controller to this user, which turns D2's affinity into a reservation.
+4. **Tasks outside the 16.** Fewer than ten screened-in tasks is about as likely as not.
+   Replacing a dropped task or adding tasks (the Science suite, the compose tasks) is not
+   covered and needs its own ladder, new spend. Does the owner want a rule for a later tranche?
+5. **Step 9** will be requested once, after step 7, with the size and cost above.
 
 ## Ledger
 
@@ -459,5 +558,7 @@ Only what the approval does not cover.
 | 2026-11-13 | Owner approval (roadmap decision 16; `AGENTS.md` experiment rules): the long-horizon effort ladder, one calibration tranche. |
 | 2026-11-13 | Cap: at most 240 attempts (16 tasks × 3 effort levels × 5), ceiling USD 200. An attempt is one whole agent session. No top-up after a null. |
 | 2026-11-13 | Model: `claude-haiku-5-5` only, effort `low`, `medium`, `high`. No other model; no judge. Reason for nothing higher: none is needed. |
-| 2026-11-13 | Conditions before the first attempt, all open: oracle check on this machine; network policy fixed; launcher independently reviewed; plan and ledger written (this page, unreviewed). |
-| 2026-11-13 | Planner's proposals awaiting coordinator confirmation: rulings 1 to 11 above. Expected spend about USD 173 (range 145 to 255) under a hard ceiling of USD 200 enforced by reservation. Spend to date: 0. |
+| 2026-11-13 | Conditions before the first attempt, all open: oracle check on this machine; network policy fixed; launcher independently reviewed; plan and ledger written. |
+| 2026-11-13 | Plan proposed. Expected spend about USD 173 (range 145 to 255) under a ceiling of USD 200 enforced by reservation. Spend to date: 0. |
+| 2026-11-13 | Independent review of the plan and the report: accept after fixes (1 blocker, 6 majors, 13 minors); nothing exceeds the approval; the stated arithmetic was recomputed and holds. Coordinator rulings, all applied in this revision: recordings of the real CLI and the public archives before the criterion and the launcher, and no frozen rule naming what no recording shows; budget stops, refusals and context-limit endings are attempts, never excluded; the allowlist as two exempt `task.toml` keys with a recorded digest; a host-side passthrough that holds the key, admits only the bound model, meters, and enforces each reservation and the USD 200 ceiling; the load gate kept, with a fixed CPU set, no other heavy work of the session, and a pause after a two-hour wait; placement per effort, a band effort for every pattern, the verdict as a bound on the fall; the unverified list ordered by probe time; the worst case per failed guard (about USD 260 to 330 without the passthrough if the CLI's limit fails; USD 200 plus requests in flight with it; the workspace limit as precondition). The planner's eleven rulings adopted with the reviewer's amendments. Hours re-estimated at about 79. Spend to date: 0. |
+| 2026-11-13 | Plan accepted by the coordinator | The review's blocker and six majors are applied (all thirteen minors too). Confirmed readings: a budget stop, a refusal or a context-limit ending is an attempt and takes the verifier's reward (0 only when the verifier gives none); the two-hour load-wait clock runs only while no attempt is in flight. Acceptance covers the plan, not spend: the first attempt still needs Tasks 1 to 8, the owner's answers to questions 1 and 2, and the ledger rows of Task 9. Tasks 1 and 2 (recordings and probes, no spend) may start. |
