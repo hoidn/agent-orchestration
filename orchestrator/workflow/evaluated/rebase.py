@@ -19,6 +19,7 @@ from dataclasses import dataclass, field, replace
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 import re
 import time
@@ -127,9 +128,11 @@ def compute_plan(authority, candidate: ClosedProgram, inputs, *, workspace: Path
     `diverged`: the `_EffectInputDiverged` today's strict pass just raised under the run's program (`candidate` is
     that program). That pass compared, in offset order, every reached commit before the divergent one, so neither
     the cut nor the strict replay on the journal as it will be compares them again."""
+    _refuse_child(authority)
     rebased = candidate.digest != authority.program.digest
     if rebased:
         _check_candidate(authority, candidate)
+        _check_artifact(authority, candidate)
     snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=authority.run_files)
     planning = _planning_authority(authority, candidate, snapshot) if rebased else authority
     cut, reason, divergence = _cut(planning, snapshot, inputs, workspace, provider_io, diverged)
@@ -347,6 +350,47 @@ def _check_candidate(authority, candidate) -> None:
                           f"{', '.join(unpinned) or exc}; spell it by path or start a new run") from exc
 
 
+def _refuse_child(authority) -> None:
+    """Design §5 (spike ruling 8): an edit never reaches a run-reference child. Its parent re-reads the child's
+    journal with one program on every resume, so a record written here would make the parent unresumable."""
+    if authority.confined:
+        raise PlanRefusal("resume_program_changed", "a confined run-reference child never changes program; resume "
+                          "its parent run")
+    parent = _run_ref_parent(Path(authority.run_root))
+    if parent is not None:
+        raise PlanRefusal("resume_program_changed", "a run-reference child changes program only with its parent; "
+                          f"resume its parent run {parent}")
+
+
+def _run_ref_parent(run_root: Path) -> str | None:
+    """The parent run of a run-reference child root, else None. The child's root is
+    `RUN_REF_ROOT/[effect-instances/D/]runs/PARENT/STEP/VISIT/N/workspace/.orchestrate/runs/ID`, and the parent wrote
+    `child-request.json` naming ID beside `workspace/` (`run_ref/runtime.py`)."""
+    above = [run_root, *run_root.parents]            # a run root under a short `--state-dir` has few parents
+    if len(above) < 8:
+        return None
+    try:
+        child = json.loads((above[4] / "child-request.json").read_bytes()).get("child_run_id")
+    except FileNotFoundError:
+        return None
+    return above[7].name if child == run_root.name else None
+
+
+def _check_artifact(authority, candidate) -> None:
+    """A file already under the edited program's artifact name is reused at acceptance only if it verifies; one that
+    does not would refuse every acceptance, so the plan is refused here, naming it."""
+    from .authority import _read_file, program_artifact_name, verified_program
+
+    files, name = authority.run_files, program_artifact_name(candidate.digest)
+    if files is None or not files.exists(name):
+        return
+    try:
+        verified_program(lambda file: _read_file(authority.run_root / file, files), candidate.digest)
+    except ValueError as exc:
+        raise PlanRefusal("memo_inconsistent", f"{name} in the run root is not the edited program ({exc}); remove "
+                          "that file and resume") from exc
+
+
 def _refuse(authority, snapshot, candidate, cut, cancelled, retired, written) -> None:
     """Design §5 on the plan, before anything could be written; each raises its own code."""
     _refuse_repeat(authority, snapshot, candidate, cancelled)
@@ -502,9 +546,6 @@ def accept_plan(authority, candidate: ClosedProgram, inputs, token: str, *, work
     tail is repaired; the record is appended and synchronized; the view is published under the program in force.
     `report(plan)` runs once the record is durable. A failed sync, or any failure after the record, carries
     `change_in_force` ("may" or "is"): the caller stops, dispatches nothing and says so."""
-    if authority.confined:
-        raise PlanRefusal("resume_program_changed", "a confined run-reference child never changes program; resume "
-                          "its parent run")
     plan = compute_plan(authority, candidate, inputs, workspace=workspace, provider_io=provider_io)
     changed = token_difference(token, plan.token)
     if changed:
@@ -520,10 +561,34 @@ def accept_plan(authority, candidate: ClosedProgram, inputs, token: str, *, work
         if report is not None:
             report(plan)
         _views().publish_evaluated_view(current, entry)
-    except Exception as exc:
-        exc.change_in_force = "is"
-        raise
+    except Exception as exc:        # the record is durable: whatever failed, the caller must say so and dispatch nothing
+        raise _in_force(exc, "is") from exc
     return current
+
+
+def _in_force(exc: Exception, state: str) -> Exception:
+    """`exc` marked with `change_in_force`; an exception the command line does not report (not an `OSError` or
+    `ValueError`) is carried by a coded refusal, so the in-force lines are printed instead of a traceback."""
+    error = exc if isinstance(exc, (OSError, ValueError)) else PlanRefusal(
+        "resume_preflight_failed", f"{type(exc).__name__}: {exc}")
+    error.change_in_force = state
+    return error
+
+
+def _probe_rename_noreplace(files) -> None:
+    """Rename-without-replace of an absent name: `ENOENT` where the system call exists, so a system without it
+    refuses before the temporary file is created. A file system that rejects the flag only on a real rename is met
+    by `publish_new`, which removes its temporary file."""
+    import errno
+    from orchestrator._common.io_atomic import RenameNoreplaceError
+    from orchestrator.workflow import workspace_files
+
+    absent = ".rename-noreplace-probe"
+    try:
+        workspace_files.rename_noreplace_at(files.root_fd, absent, files.root_fd, absent + ".target")
+    except RenameNoreplaceError as exc:
+        if exc.errno != errno.ENOENT:
+            raise
 
 
 def _views():
@@ -556,6 +621,7 @@ def _write(authority, plan) -> JournalEntry:
     if files is None:
         raise ValueError("accepting a plan requires the run's retained file owner")
     snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=files)
+    os.close(memo._open_append(authority.memo_path, files))   # a journal that cannot take the record refuses first
     if plan.record == "rebased":
         _store(authority, plan.program)
         row = {"record": "rebased", "program_digest": plan.program.digest, "from_offset": plan.cut, "time": time.time()}
@@ -565,8 +631,7 @@ def _write(authority, plan) -> JournalEntry:
         memo.repair_torn_tail(authority.memo_path, snapshot, run_files=files)
         return memo.append_record(authority.memo_path, row, run_files=files)
     except Exception as exc:        # after the artifact is stored: a record may have been appended (W4)
-        exc.change_in_force = "may"
-        raise
+        raise _in_force(exc, "may") from exc
 
 
 def _store(authority, program) -> None:
@@ -577,11 +642,13 @@ def _store(authority, program) -> None:
     files, name = authority.run_files, program_artifact_name(program.digest)
     if not files.exists(name):
         try:
+            _probe_rename_noreplace(files)
             files.publish_new(name, program.artifact().encode("utf-8"))
             return
         except FileExistsError:
             pass                    # published since the check: verified below like any other
         except (RenameNoreplaceUnavailableError, RenameNoreplaceError) as exc:
             raise PlanRefusal("resume_preflight_failed", "the run root's file system cannot publish the edited "
-                              f"program without replacing a file ({exc}); nothing was written") from exc
+                              f"program without replacing a file ({exc}); the journal and the run's programs are "
+                              "unchanged") from exc
     verified_program(lambda file: _read_file(authority.run_root / file, files), program.digest)

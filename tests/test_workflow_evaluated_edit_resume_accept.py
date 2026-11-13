@@ -166,9 +166,11 @@ def test_must_not_repeat_refuses_until_invalidated_then_runs_once(tmp_path, decl
     if declared_by == "the edit":
         manifest(root, True)
     edit(root, cmd("s2", "s1"), cmd("s2", "(+ s1 1)"))
-    refused_with(root, run_root, "lexical_restore_pending_effect_unsafe", TOKEN)
+    with_token = refused_with(root, run_root, "lexical_restore_pending_effect_unsafe", TOKEN).stderr
     printed = refused(root, run_root).stderr
     (invalidate,) = [line.strip() for line in printed.splitlines() if line.startswith("    ") and " invalidate " in line]
+    assert [line.strip() for line in with_token.splitlines()
+            if line.startswith("    ") and " invalidate " in line] == [invalidate]
     words = shlex.split(invalidate)
     assert cli_inprocess(root, *words[words.index("invalidate"):]).returncode == 0
     (root / "log.txt").write_text("")
@@ -337,9 +339,11 @@ def test_a_file_system_without_rename_noreplace_refuses_before_any_write(complet
         raise RenameNoreplaceError(errno.EINVAL, "renameat2 refused")
 
     monkeypatch.setattr(workspace_files, "rename_noreplace_at", rename)
+    listing = run_root.stat().st_mtime_ns
     done = refused(root, run_root, "resume_preflight_failed", *words[2:])
 
     assert artifacts(run_root) == [] and records(run_root, "rebased") == []
+    assert run_root.stat().st_mtime_ns == listing, "a temporary file was created in the run root"
     assert not [path for path in run_root.iterdir() if path.name.endswith(".tmp")], done.stderr
 
 
@@ -373,8 +377,11 @@ def test_a_planted_artifact_that_does_not_verify_refuses_before_the_record(compl
     name = f"closed_program.{plan_resume(run_root, root).program.digest.removeprefix('sha256:')}.json"
     (run_root / name).write_text('{"planted": true}')
 
+    plain = refused(root, run_root).stderr
     refused(root, run_root, "memo_inconsistent", *words[2:])
 
+    assert "--accept-changes=plan-" not in plain and f"no plan can be accepted: [memo_inconsistent]" in plain
+    assert name in plain
     assert records(run_root, "rebased") == [] and (run_root / name).read_text() == '{"planted": true}'
 
 
@@ -395,3 +402,102 @@ def test_a_planner_that_misses_a_divergence_is_stopped_by_the_strict_pass(comple
     refused_with(root, run_root, "effect_input_diverged", token)
 
     assert records(run_root, "rebased") == [] and artifacts(run_root) == []
+
+
+# ---- review fixes (round 1) ---------------------------------------------------------------------------------------
+
+def test_a_run_reference_child_is_never_rebased_and_its_parent_still_resumes(tmp_path):
+    """Design §5: a child whose own program changed refuses under its own header. The edited child prints no accept
+    command; a token is refused before any write; the parent the refusal names still resumes to its value."""
+    from tests.test_workflow_evaluated_edit_resume_plan import cli, run_ref_run
+    parent, run_root, refs = run_ref_run(tmp_path / "r")
+    (child_header,) = refs.rglob("run.json")
+    child_root = child_header.parent
+    child_workspace = child_root.parents[2]
+    source = (child_workspace / "candidate.orc").read_text()
+    edit(child_workspace, "-> Bool true", "-> Bool false", "candidate.orc")
+    before = {path: path.read_bytes() for path in sorted(refs.rglob("*")) if path.is_file() and path.name != "run.lock"}
+
+    plain = cli(child_workspace, "resume", child_root.name)
+    with_token = cli(child_workspace, "resume", child_root.name, f"--accept-changes={TOKEN}")
+
+    after = {path: path.read_bytes() for path in sorted(refs.rglob("*")) if path.is_file() and path.name != "run.lock"}
+    assert plain.returncode == 2 and plain.stderr.startswith("[resume_program_changed] "), plain.stderr
+    assert "--accept-changes=plan-" not in plain.stderr
+    assert f"resume its parent run {run_root.name}" in plain.stderr
+    assert with_token.returncode == 2 and with_token.stderr.startswith("[resume_program_changed] "), with_token.stderr
+    assert after == before
+    (child_workspace / "candidate.orc").write_text(source)          # the parent captures the child's clone
+    resumed = cli(parent, "resume", run_root.name)
+    assert resumed.returncode == 0, resumed.stderr
+
+
+def test_an_accepted_input_change_under_the_run_program_keeps_the_commits_before_the_cut(completed, tmp_path):
+    """The `invalidated` record an acceptance writes cancels from the changed commit, as `invalidate` does: a
+    script only `s2` declares changed, so `s1` is kept and never dispatched again."""
+    root, run_root = _copy(completed(own_tools), tmp_path)
+    (root / "t2.py").write_text(STEP + "# changed under s2's commit\n")
+    clean = tmp_path / "clean"
+    shutil.copytree(root, clean, ignore=shutil.ignore_patterns(".orchestrate", "log.txt"))
+    fresh = cli_inprocess(clean, "run", *RUN_ARGS)
+    assert fresh.returncode == 0, fresh.stderr
+    s2 = [at for at, row in zip(fx.offsets(run_root), fx.rows(run_root))
+          if row["record"] == "committed" and row["identity"] == P + "s2"][0]
+    (root / "log.txt").write_text("")
+
+    done = accepted(root, accept_command(refused(root, run_root, "effect_input_diverged").stderr))
+
+    assert log(root) == ["s2", "s3", "s4"]
+    assert [row["from_commit"] for row in records(run_root, "invalidated")] == [s2]
+    assert done.stdout.splitlines()[-1] == fresh.stdout.splitlines()[-1]
+
+
+def test_token_journal_field_binds_the_run_id(completed, tmp_path):
+    """Two journals equal but for the run they belong to never share a token."""
+    from dataclasses import replace
+    from orchestrator.workflow.evaluated.authority import load_run_authority
+    from orchestrator.workflow.evaluated.machine import site_classes
+    from orchestrator.workflow.evaluated.memo import read_memo
+    from orchestrator.workflow.evaluated.rebase import _token, token_difference
+    _root, run_root = _copy(completed(serial), tmp_path)
+    authority = load_run_authority(run_root)
+    snapshot = read_memo(authority.memo_path, site_classes(authority.program))
+    other = replace(authority, header={**authority.header, "run_id": authority.header["run_id"] + "x"})
+
+    tokens = [_token(owner, snapshot, authority.program, "rebased", None, (), (), (), ())
+              for owner in (authority, other)]
+
+    assert token_difference(*tokens) == ["journal"]
+
+
+def test_a_journal_that_cannot_be_appended_refuses_before_the_artifact(completed, tmp_path):
+    """The journal is opened for append before the program is stored: nothing is written and nothing is in force."""
+    root, run_root = _copy(completed(serial), tmp_path)
+    edit(root, "           (s2 ", f"           (x {NEW})\n           (s2 ")
+    words = accept_command(refused(root, run_root).stderr)
+    (run_root / "memo.jsonl").chmod(0o400)
+    try:
+        done = refused(root, run_root, "memo_inconsistent", *words[2:])
+    finally:
+        (run_root / "memo.jsonl").chmod(0o600)
+
+    assert artifacts(run_root) == [] and "in force" not in done.stderr
+
+
+def test_a_pending_agent_turn_refused_with_a_token_prints_the_route_that_reconciles_it(tmp_path):
+    """The pending turn is reconciled under the run's own program: the refusal prints restore-and-resume, and that
+    command, followed after restoring the source, continues the run."""
+    from tests.test_workflow_evaluated_edit_resume_plan import cli, pending_turn_run
+    root, run_root, env = pending_turn_run(tmp_path)
+    source = (root / "pipe.orc").read_text()
+    edit(root, '"c" 0)', '"c" 1)')
+
+    done = cli(root, "resume", run_root.name, f"--accept-changes={TOKEN}", env=env)
+    (pipe,) = [line for line in done.stderr.splitlines()
+               if line.startswith("    ") and line.split()[-1:] == [run_root.name] and " resume " in line]
+    (root / "pipe.orc").write_text(source)
+    words = shlex.split(pipe)
+    resumed = cli(root, *words[words.index("resume"):], env=env)
+
+    assert done.returncode == 2 and done.stderr.startswith("[invalidate_agent_session_advanced] "), done.stderr
+    assert resumed.returncode == 0, resumed.stderr

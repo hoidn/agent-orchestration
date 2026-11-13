@@ -264,6 +264,8 @@ def _with_fresh_run(reason: str):
 
 def _not_repeatable(exc, context: _Context) -> list[str]:
     identity = getattr(exc, "identity", None) or "a step"
+    if getattr(exc, "committed", False):            # a plan would cancel its commit (a token was given)
+        return _invalidate_to_repeat(identity, context)
     return [f"{identity} declares that it must not be repeated, and its last attempt did not finish",
             "check whether that attempt took effect: a new run performs it again",
             *context.fresh_run("start a new run:")]
@@ -275,6 +277,14 @@ def _spend_cap_reached(exc, context: _Context) -> list[str]:
         return ["no provider call started; to continue, resume without a cap:", context.resume()]
     return ["no provider call started; to continue, resume with a higher cap:",
             context.command("resume", context.run_id, "--max-cost-usd", f"{higher:.6g}")]
+
+
+def _session_advanced(exc, context: _Context) -> list[str]:
+    """A pending agent turn is reconciled by `resume` under the run's own program; with the source edited, that
+    program is the restored source."""
+    if getattr(exc, "program_edited", False):
+        return [*_restore(context), "then edit again: resume prints a new plan"]
+    return ["resume reconciles it:", context.resume()]
 
 
 _UNMETERED_FIX = {
@@ -303,6 +313,7 @@ _RECOVERY = {
     "resume_request_missing": lambda exc, context: [
         "this run was recorded without a rebuild recipe, so it cannot be resumed; start it again with run"],
     "lexical_restore_pending_effect_unsafe": _not_repeatable,
+    "invalidate_agent_session_advanced": _session_advanced,
     "spend_cap_reached": _spend_cap_reached,
     "spend_cap_unmetered": _spend_cap_unmetered,
 }
@@ -405,6 +416,10 @@ def _no_plan(failure: Exception, context: _Context) -> list[str]:
     code = getattr(failure, "code", "resume_preflight_failed")
     lines = [f"no plan can be accepted: [{code}] {failure}"]
     if code == "lexical_restore_pending_effect_unsafe" and getattr(failure, "committed", False):
-        lines += ["to let that step run again, invalidate it explicitly; resume then prints a new plan:",
-                  context.command("invalidate", context.run_id, failure.identity)]
+        lines += _invalidate_to_repeat(failure.identity, context)
     return lines
+
+
+def _invalidate_to_repeat(identity: str, context: _Context) -> list[str]:
+    return ["to let that step run again, invalidate it explicitly; resume then prints a new plan:",
+            context.command("invalidate", context.run_id, identity)]

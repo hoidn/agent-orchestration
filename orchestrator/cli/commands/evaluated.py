@@ -310,8 +310,12 @@ def _prepared(run_root, workspace, token, reporter, *, run_files, **options):
         authority, candidate, inputs, provider_io = candidate_preflight(exc, run_root, workspace, run_files)
     if token is None:
         return authority, inputs, provider_io
-    current = accept_plan(authority, candidate, inputs, token, workspace=workspace, provider_io=provider_io,
-                          report=reporter.accepted)
+    try:
+        current = accept_plan(authority, candidate, inputs, token, workspace=workspace, provider_io=provider_io,
+                              report=reporter.accepted)
+    except ValueError as exc:
+        exc.program_edited = candidate is not authority.program     # the recovery lines restore the source first
+        raise
     return current, inputs, provider_io.bind(current.program)
 
 

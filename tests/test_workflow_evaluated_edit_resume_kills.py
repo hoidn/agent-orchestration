@@ -253,14 +253,17 @@ def test_journal_with_a_record_reduced_without_the_kind_is_memo_inconsistent(tmp
     assert {name: after[name] for name in before} == before
 
 
-def test_view_failure_after_the_record_exits_2_and_says_the_change_is_in_force(tmp_path, monkeypatch):
+@pytest.mark.parametrize("failure", ["view error", "unexpected error"])
+def test_view_failure_after_the_record_exits_2_and_says_the_change_is_in_force(tmp_path, monkeypatch, failure):
+    """Any failure once the record is durable, an unexpected exception included, exits 2 with the in-force lines."""
     from orchestrator.workflow.evaluated import views
     root, run_root, token = edited(tmp_path)
     dispatched, real = log(root), views.publish_evaluated_view
+    error = views.ViewPublicationError if failure == "view error" else RuntimeError
 
     def publish(authority, entry, **kwargs):
         if entry.data["record"] == "rebased":
-            raise views.ViewPublicationError("injected view failure")
+            raise error("injected view failure")
         return real(authority, entry, **kwargs)
 
     monkeypatch.setattr(views, "publish_evaluated_view", publish)

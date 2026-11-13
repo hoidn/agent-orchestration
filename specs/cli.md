@@ -659,19 +659,17 @@ authority, memo, attempts or views, in this order:
    relationship, is accepted.
 7. A fresh in-memory build from the recipe (source, ordered roots, entry and
    manifests resolved under the effective workspace; no build cache read or
-   published): compile errors refuse. The run's current program is the header's, or the one named by the journal's last `rebased` record, the only records read here. `resume_program_changed` when the fresh digest differs and no plan token is given; the plan is then computed read-only and printed with the refusal, or the reason no plan can be shown. With `--accept-changes=TOKEN` the fresh program is the candidate of step 10; `resume_program_changed` when its entry, target, representation or bare interpreters do not fit the run. The plan is then computed read-only, by steps 8 to
-   10 on the fresh program, and printed with the refusal, or the reason no
-   plan can be shown; the refusal's code and exit status do not change.
+   published): compile errors refuse. The run's current program is the header's, or the one named by the journal's last `rebased` record, the only records read here. `resume_program_changed` when the fresh digest differs and no plan token is given; the plan is then computed read-only and printed with the refusal, or the reason no plan can be shown. With `--accept-changes=TOKEN` the fresh program is the candidate of step 10; `resume_program_changed` when its entry, target, representation or bare interpreters do not fit the run; otherwise the plan is computed and its token compared at step 10.
    Formatting and provenance-only changes build the same digest;
    `workflow_checksum` is not compared.
 8. Fresh inputs: the recipe's `input_file` is read anew, `input_overrides`
    applied and the result bound against the fresh program; binding errors
    refuse; `resume_inputs_changed` when the digest differs.
-9. Stored authority: the checked form of every program of the lineage, the first against the header digest and each later one against the `rebased` record that names it (a missing or unverified artifact is `memo_inconsistent`) (a
-   stored command without argv transport is `memo_inconsistent` here; step
-   7 normally refuses such a run first with `resume_program_changed`) and interpreter pins (equal to the first program's bare interpreters, a superset of every later program's; `resume_interpreter_missing`; `interpreter_changed` is
+9. Stored authority: the checked form of every program of the lineage, the first against the header digest and each later one against the `rebased` record that names it (a missing or unverified artifact is `memo_inconsistent`, and so is a
+   stored command without argv transport, which step 7 normally refuses
+   first with `resume_program_changed`) and interpreter pins (equal to the first program's bare interpreters, a superset of every later program's; `resume_interpreter_missing`; `interpreter_changed` is
    logged and execution continues on the recorded path).
-10. Memo replay: reduce the journal (`memo_inconsistent`). With `--accept-changes=TOKEN`, for a candidate program or a divergence at a committed effect: compute the plan (rule C10) and its refusals, check it by this step's replay over the journal as it will be, and compare its token; a token that names another plan refuses, with what changed and the new plan. Without a token a divergence at a committed effect refuses `effect_input_diverged` as today, and the plan is printed with it. Otherwise replay the active committed prefix in journal order re-resolving every input
+10. Memo replay: reduce the journal (`memo_inconsistent`). With `--accept-changes=TOKEN`, for a candidate program or a divergence at a committed effect: compute the plan (rule C10) and its refusals (a run-reference child root never accepts one: `resume_program_changed` names its parent run; a file under the candidate's artifact name that does not verify is `memo_inconsistent`, naming the file), check it by this step's replay over the journal as it will be, and compare its token; a token that names another plan refuses, with what changed and the new plan. Without a token a divergence at a committed effect refuses `effect_input_diverged` as today, and the plan is printed with it. Otherwise replay the active committed prefix in journal order re-resolving every input
     (`effect_input_diverged` at the first divergence, and for a committed
     effect the plan is printed with it; `result_root_missing`
     at a reached result-path form of a header without `result_root`;

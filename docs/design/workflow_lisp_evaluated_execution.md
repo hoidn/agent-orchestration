@@ -1395,7 +1395,7 @@ view never invokes reconciliation.
 | Memo holds for `i` | Action |
 | --- | --- |
 | A committed result with input digest equal to the digest of `x`, not invalidated | Return the result. Run nothing. For a coordinator effect, `reconcile` first (K3) |
-| A committed result with another input digest | Stop with `effect_input_diverged`, located at the site, showing both digests, which parts of the input differ and which files; in resume preflight the refusal prints the plan, and an accepted plan cancels from that commit (C10); in resume preflight the refusal also prints the plan an acceptance would apply |
+| A committed result with another input digest | Stop with `effect_input_diverged`, located at the site, showing both digests, which parts of the input differ and which files; in resume preflight the refusal prints the plan, and an accepted plan cancels from that commit (C10) |
 | A `started` agent turn with no commit | Classify from receipt and native store ([Agent Sessions](workflow_lisp_agent_sessions.md), Persistence); never the generic retry rule |
 | A `started` or `failed` attempt with no commit | Before retry, enforce C4's implementation-file comparison below. If the boundary declares `must_not_repeat`, stop with `lexical_restore_pending_effect_unsafe` regardless. Otherwise record `effect_rerun`, naming the identity and its earlier attempts (and the declared files that changed, when §8.1 accepted a change), and run the next attempt |
 | An `invalidated` range or a `rebased` cut covers the last commit, with no newer uncommitted attempt | Run the next attempt. No rerun diagnostic |
@@ -2894,9 +2894,10 @@ may ask; transitive parallel workers, pure contexts and child `run-ref` programs
 refuse. The artifact checker independently enforces these limits.
 
 Before attempt views exist, `started` durably contains the complete immutable
-request: run/header/program/effect/ordinal-bound ID The program is the one in force when the request started; a later program of the lineage checks the ID against that one., rendered question, full
+request: run/header/program/effect/ordinal-bound ID, rendered question, full
 contracts/digests, evidence snapshot, dependencies, creation time and fixed
-deadline. Semantic inputs exclude clock values and show-only file bytes. One
+deadline. The ID's program is the one in force when the request started; a
+later program of the lineage checks the ID against that one. Semantic inputs exclude clock values and show-only file bytes. One
 `suspended` row refers to that payload; intentional suspension stops evaluation
 without terminal/failure and exits `0`. Recovering a start-to-suspension gap
 reuses the payload, ordinal and deadline instead of reissuing the request.
