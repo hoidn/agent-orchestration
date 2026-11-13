@@ -13,8 +13,9 @@ LINK = re.compile(r"\]\(<?(?![a-z][a-z0-9+.-]*:)([^)\s>]+)>?(?:\s+\"[^\"]*\")?\)
 
 @cache
 def anchors(path: Path) -> frozenset[str]:
-    names, seen = set(), {}
-    for title in re.findall(r"^#{1,6}\s+(.+?)(?:\s+#+)?\s*$", FENCE.sub("", path.read_text(encoding="utf-8")), re.M):
+    text = FENCE.sub("", path.read_text(encoding="utf-8"))
+    names, seen = set(re.findall(r"<a\s+(?:id|name)=\"([^\"]+)\"", text)), {}
+    for title in re.findall(r"^#{1,6}\s+(.+?)(?:\s+#+)?\s*$", text, re.M):
         slug = re.sub(r"[^\w\- ]", "", re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", title).lower()).replace(" ", "-")
         names.add(f"{slug}-{seen[slug]}" if slug in seen else slug)  # GitHub suffixes repeated headings
         seen[slug] = seen.get(slug, 0) + 1
