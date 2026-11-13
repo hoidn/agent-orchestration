@@ -1744,15 +1744,23 @@ surface:
 - eligible whole-list values may cross pure projections, callable contracts,
   and `loop/recur` state; and
 - `list/map-effect` erases to the existing bounded loop and ordinary
-  effect-call/checkpoint machinery, with exactly one supported effectful call
-  expression per element after specialization.
+  effect-call/checkpoint machinery. Its body is any expression, evaluated once
+  per element with its effects in written order; a body that holds a run
+  reference is exactly one call with pure arguments. A serial map's `:max` is
+  a positive integer literal or any `Int` expression, evaluated once after the
+  source and before the first element (a non-`Int` one refuses with
+  `list_map_effect_max_invalid`); a parallel map's `:max` and `:parallel` are
+  positive integer literals. A list longer than `:max`: a serial map runs its
+  first `:max` elements and then fails with `list_map_effect_cap_exceeded`, as
+  does a computed `:max` below 1; a parallel map fails with that code before
+  any element.
 
 The type boundary is structural and opt-in. The shared whole-list
 transportability predicate decides list eligibility; target 2.18 does not add
 a nominal list taxonomy. A named path family is required only because its
 rooted containment and deferred existence policy are load-bearing. Record and
-union list elements, higher-order or `ProcRef` mapping, general effectful map
-bodies, indexing, and unbounded traversal remain outside this tranche.
+union list elements, higher-order or `ProcRef` mapping, indexing, and
+unbounded traversal remain outside this tranche.
 
 Pure payload schema 2 carries the new list/map/path expression kinds while
 pre-2.18 payloads remain schema 1. The effectful binder introduces no new Core,
