@@ -157,7 +157,10 @@ YAML-fenced snippets are structural notation, not authored workflow files.
     - `:on-exhausted` supports direct state roots/fields and recursively nested
       record/variant packaging, including renamed fields and scalar literals.
       `:on-exhausted` is an expression evaluated on exhaustion with the last
-      state in scope. A normal `done` result
+      state in scope. A `continue` value that holds an effect under a
+      conditional other than one that is the whole value is refused with
+      `effect_not_permitted`; bind it first, `(let* ((next <value>)) (continue next))`.
+      A normal `done` result
       retains its own payload even if its variant matches the exhaustion variant.
     - Top-level Optional/Map state remains unsupported. This does not widen workflow-input
       boundaries merely because a supported provider result can enter a loop.
@@ -804,7 +807,8 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       reviewed target owns effect-loop settlement. Under a 2.35 or 2.36 entry a
       path-mode `run-ref` is additionally admitted in a loop body, in a
       budget or seed expression, as a `match` subject and as the one-effect
-      body of a serial `list/map-effect`, directly or through admitted
+      body of a serial `list/map-effect`, and in the record and variant
+      fields and list elements of a workflow body, directly or through admitted
       calls, including older-target helpers; a run reference stays refused
       in `:on-exhausted`, a map source and the pure places, and trials, bundle mode and effectful
       children stay excluded. Older entries (2.24–2.34) keep the rejection

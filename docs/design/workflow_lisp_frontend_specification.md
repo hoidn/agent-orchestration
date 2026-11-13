@@ -2080,7 +2080,14 @@ fields, list elements, `call` and procedure arguments, operator operands,
   (`list_map_effect_workspace_invalid`).
 - *A run reference keeps its own placement contract:* not in `:on-exhausted`,
   not in a map source (`run_ref_placement_invalid`), alone as a map body, with
-  a pure `:commit`.
+  a pure `:commit`. Elsewhere in a workflow body it takes the places above,
+  record and variant fields and list elements included.
+- *A `continue` value with a conditional effect inside it is bound first:* a
+  `continue` value that holds an effect under an `if`, `cond`, `match`, `and` or
+  `or`, other than one that is the whole value, is refused with
+  `effect_not_permitted`; write `(let* ((next <value>)) (continue next))`. The
+  same value is admitted everywhere else: as a `done` value, a loop `:state`,
+  `:on-exhausted`, a `let*` binding or a workflow or procedure result.
 - *A pure operator waits for its value:* it is computed when the value around
   it is built, after the effects of its sibling operands, and `print` is one.
   `(+ (print 1) (fetch) (print 3))` fetches, then prints `1` and `3`; a `let*`
@@ -2100,9 +2107,19 @@ ordinal among the unnamed effects of its scope, in evaluation order;
 `#k / body / then|else|<variant> / …` inside a selected branch, and
 `loop:<label> / exhausted / …` in `:on-exhausted`. No aggregate position enters
 an identity, so an effect in a field has the same identity whether or not a
-sibling field is a `match`. Only a `let*` in statement position keeps its
-name: `(let* ((z E)) (+ z 1))` names the step `z`, `(+ (let* ((z E)) z) 1)`
-names it `#1`; bind there the step someone will `invalidate` by name.
+sibling field is a `match`.
+
+A `let*` names its step by its binding name when the `let*` is a statement (a
+`let*` body or binding value, a branch of `if`, `cond` or `match`, a loop or
+procedure body), a procedure or workflow argument, a command `:argv` item, a
+loop `:state` or `:max`, a `done` or `continue` value, the whole `:on-exhausted`
+value, a `list/map-effect` source, or a field of a constructor that is itself a
+`match` subject. As an operator operand (an `if` or `cond` condition and an
+`and` or `or` operand included), a constructor or `record-update` field, a list
+element, a `path/join-under` child, a `list/map` source, a `match` subject or
+an operand inside `:on-exhausted`, its step is `#k`: `(let* ((z E)) (+ z 1))`
+names the step `z`, `(+ (let* ((z E)) z) 1)` names it `#1`. Bind a step as a
+statement when someone will `invalidate` it by name.
 
 ## 17. Artifact Authority
 
