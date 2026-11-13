@@ -785,7 +785,7 @@ entry here or in a heading.
 | `provider-result` | A provider step with a typed result | [§22](#22-provider-result) |
 | `provider-bundle-path` | The path of a provider result's committed bundle | [§22](#22-provider-result) |
 | `command-result` | A command step with a typed result | [§23](#23-command-result) |
-| `request-input` | Durable input from the host | [Durable host input](workflow_lisp_durable_host_input.md) |
+| `request-input` | Durable input from the host; its `HostReply` type comes from `(import std/host :only (HostReply))` | [Durable host input](workflow_lisp_durable_host_input.md) |
 | `run-ref` | A pinned child run | [Run references](workflow_lisp_run_ref_expression_environments.md) |
 | `agent` | A run-local agent session | [Agent sessions](workflow_lisp_agent_sessions.md) |
 | `with-live-providers` | Live provider supervision; the build refuses it (`closed_program_gap`) | [Providers](../../specs/providers.md) |
@@ -826,7 +826,7 @@ Recommended file extension:
 .orc
 ```
 
-Every source file uses the admitted workflow wrapper and a module declaration:
+Every source file uses the workflow wrapper, and every module but an entry file declares its name:
 
 ```lisp
 (workflow-lisp
@@ -839,8 +839,9 @@ Every source file uses the admitted workflow wrapper and a module declaration:
 ```
 
 `workflow-lisp` is the one top-level form of a file: its `(:language ...)` and `(:target-dsl ...)`
-header clauses are required, and a target whose execution is retired is refused.
-Diagnostics: `frontend_parse_error`, `workflow_execution_target_retired`.
+header clauses are required, an unknown language version is refused, and a target whose
+execution is retired is refused. Diagnostics: `frontend_parse_error`,
+`language_version_unsupported`, `workflow_execution_target_retired`.
 
 A module declared `(defmodule a/b)` (or `a.b`) is the file `a/b.orc` under one of its source
 roots; otherwise compilation refuses. Only an entry file without `defmodule` is exempt, and such a
@@ -1056,8 +1057,8 @@ never changes with an observed payload shape.
 The shared validator returns the recursively validated value without coercion:
 booleans stay booleans, integers stay integers, and lists and objects keep
 their order and keys. Malformed JSON fails with `invalid_json_document`; a
-non-finite number anywhere in the value, written as a non-standard constant,
-fails with `float_not_finite` and its value path; in-memory non-finite numbers,
+non-finite number anywhere in the value, written as a non-standard constant or
+too large for a double, fails with `float_not_finite` and its value path; in-memory non-finite numbers,
 non-string object keys, cycles, or other non-JSON leaves fail as
 `invalid_transportable_value`, reporting the first invalid RFC 6901 value
 path. JSON `null` is a present valid value, not a missing bundle or pointer.
@@ -1221,23 +1222,19 @@ code or structured runtime inputs. They target named `defworkflow` boundaries,
 resolve before WCC and Core AST projection, and are erased before executable IR
 and runtime state.
 
-They are used for higher-order orchestration such as:
-
-```lisp
-(backlog-drain
-  :selector selector/run
-  :run-item selected-item/run
-  :gap-drafter gap/draft)
-```
-
-The compiler checks signatures before lowering.
+They are passed to a `defproc` formal of a `WorkflowRef[...]` type, which calls
+the workflow (§15). The compiler checks signatures before lowering, and a
+`WorkflowRef` return type must be a record or union.
 
 Use `WorkflowRef` only when whole-workflow identity is part of static
-orchestration. Use `ProcRef` for normal internal reusable behavior.
-Compile-time formal WorkflowRef/ProcRef parameters are supported and erased;
-neither reference type may become a runtime-bound public workflow input
-contract or cross outputs, records, unions, artifacts, provider or command
-results, ledgers, or loop-carried runtime state.
+orchestration. Use `ProcRef` for normal internal reusable behavior. A
+`WorkflowRef` formal of a `defproc` and a `ProcRef` formal are compile-time
+parameters, erased before runtime; neither reference type may become a
+runtime-bound public workflow input contract or cross outputs, records, unions,
+artifacts, provider or command results, ledgers, or loop-carried runtime state.
+A `defworkflow` with a `WorkflowRef` formal is refused with `compiler_defect`
+when it is the entry or is called, so a workflow reference is passed only to a
+`defproc`.
 
 ### 7.8 Procedure References
 
@@ -1476,14 +1473,19 @@ operands remain inside those operands. Final strict checking also covers
 uncalled functions and generic bases.
 
 Admission is structural, after resolution and specialization: a helper's name,
-module or authored `:effects ()` never admits a call, and an effectful callee is
-refused with its effect named. A call whose resolved body does not reduce to an
-effect-free inline pure expression, such as a `:lowering private-workflow`
-procedure of a 2.35 to 2.38 module, is refused as unrepresentable rather than as
-an effect. A recursive pure helper is refused. Diagnostics:
-`pure_function_has_effect`, `list_map_body_effect_forbidden`,
+module or authored `:effects ()` never admits a call. An effectful callee in a
+function body is refused with `pure_function_has_effect`, whose notes name the
+helper's call site and definition, and in a `list/map` body with
+`list_map_body_effect_forbidden`, which names the position; neither names the
+effect. An authored `:effects ()` that the inferred effects exceed is refused
+with `procedure_effect_ceiling_exceeded`, which names them. A call whose
+resolved body does not reduce to an effect-free inline pure expression, such as
+a procedure of a 2.35 to 2.38 module with `:lowering private-workflow`, is refused as unrepresentable rather than as an
+effect; from 2.39 an authored `:lowering` is itself refused. A recursive pure
+helper is refused, also when the cycle passes through a procedure it calls.
+Diagnostics: `pure_function_has_effect`, `list_map_body_effect_forbidden`,
 `procedure_effect_ceiling_exceeded`, `pure_call_representation_unsupported`,
-`function_cycle`.
+`proc_lowering_annotation_invalid`, `function_cycle`, `proc_lowering_cycle`.
 
 Each actual argument is evaluated once, in source order and in the caller's
 scope, before the callee's formals are bound, also when the formal is unused, so
@@ -1860,15 +1862,13 @@ explicitly supports parallelism.
 
 ### 10.2 Closed Pure-Expression Surface
 
-Workflow Lisp now accepts a closed, effect-free pure-expression surface that is
-shared by compile-time folding and runtime projection execution. The runtime
-evaluator owns the semantics; the frontend typechecks and lowers into that
-shared payload rather than maintaining a separate evaluator.
-
-Maximal runtime-visible pure regions lower through WCC/schema 2 into one
-generated `pure_projection` step with a validated payload, typed binding refs,
-payload digest, and a private managed result bundle. Literal-only trees may
-still fold away entirely at compile time through the same evaluator.
+Workflow Lisp accepts a closed, effect-free pure-expression surface shared by
+compile-time folding and run-time evaluation. The evaluator of
+`orchestrator/workflow/pure_expr.py` owns the semantics; the frontend typechecks
+into its payload rather than maintaining a separate evaluator. The closed
+program carries checked pure value nodes, which the evaluated runtime evaluates
+in lexical scope; a pure region writes no generated step or result bundle.
+Literal-only trees fold away at compile time through the same evaluator.
 
 A decimal literal (`1.5`, `-0.25`, `.5`, `2e-3`, `1.0E6`) is an expression
 wherever an expression is admitted. There is no literal for infinity or for a
@@ -1879,7 +1879,9 @@ Each operator's name, operand types, result type and evaluation are defined
 once, in the catalog of `orchestrator/workflow/pure_expr.py`, which the
 typechecker, the compiler and the runtime read. A refusal names the operator
 and prints its operands. An application whose operands are all literals is
-evaluated when the program is compiled, so its refusal is a compile error.
+evaluated when the program is compiled, so its refusal is a compile error that
+points at the failing application, also when it is nested; a refusal at run time
+carries no source location.
 
 Supported operators are exact and closed:
 
@@ -2196,14 +2198,14 @@ Lowering:
 ## 15. Higher-Order Workflow Parameters
 
 ```lisp
-(defworkflow backlog-drain
-  ((ctx DrainCtx)
-   (selector WorkflowRef[DrainCtx -> SelectionResult])
-   (run-item WorkflowRef[SelectedItemInput -> SelectedItemResult])
-   (gap-drafter WorkflowRef[GapInput -> GapResult])
-   (max-iterations Int))
-  -> DrainResult
-  ...)
+(defproc invoke-runner
+  ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])
+   (input WorkflowInput))
+  -> WorkflowOutput
+  (call runner :input input))
+
+(defworkflow entry ((input WorkflowInput)) -> WorkflowOutput
+  (invoke-runner (workflow-ref echo-helper) input))
 ```
 
 Workflow refs are resolved at compile time or module-link time.
@@ -2212,8 +2214,8 @@ They are not runtime arbitrary code.
 
 `(workflow-ref name)` is a compile-time reference to a `defworkflow` in scope,
 passed where a `WorkflowRef[...]` parameter of a `defproc` is expected; the workflow's signature
-must match the parameter's type. Diagnostics: `workflow_ref_unknown`,
-`workflow_ref_signature_invalid`.
+must match the parameter's type, whose return type is a record or union. Diagnostics:
+`workflow_ref_unknown`, `workflow_ref_signature_invalid`, `workflow_ref_type_invalid`.
 
 ## Part III. Effects And Authority
 

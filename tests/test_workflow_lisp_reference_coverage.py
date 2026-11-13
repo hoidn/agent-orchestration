@@ -18,8 +18,8 @@ NOT_DIAGNOSTICS = {
     "materialized_value_view": "removed generated-path role (18.1)",
     "on_exhausted": "loop step field (13.1)",
     "pre_snapshot": "step field listed in removed section 24",
-    "prompt_context": "report field (22.8)",
-    "pure_projection": "generated step kind (10.2, 12)",
+    "prompt_context": "stale: a removed report field, named in 22.8",
+    "pure_projection": "stale: no such step in the code; still named in section 12 (T4d)",
     "requires_variant": "runtime guard field (8.5, 11)",
     "select_variant_output": "removed step kind (22.7, 24)",
     "target_param": "call-policy binding field (22.4)",
@@ -49,8 +49,10 @@ def _language_parts() -> str:
 
 
 def _entries(text: str) -> set[str]:
+    """Heads backticked in a heading, or in the first cell of a Form Index or Removed forms row."""
+    index = text[text.index("\n## Form Index") : text.index("\n## 4. ")]
     lines = [line for line in text.splitlines() if line.startswith("#")]
-    lines += [line.split("|")[1] for line in text.splitlines() if line.startswith("| ")]
+    lines += [line.split("|")[1] for line in index.splitlines() if line.startswith("| ")]
     return {name for line in lines for name in re.findall(r"`([^`\s]+)`", line)}
 
 
@@ -62,6 +64,12 @@ def test_every_registered_and_retired_form_has_an_entry() -> None:
     heads = set(registered_form_heads(target_dsl_version=CURRENT_TARGET_DSL_VERSION)) | set(RETIRED_FORMS)
 
     assert sorted(heads - _entries(_language_parts())) == []
+
+
+def test_a_table_row_outside_the_form_index_is_not_an_entry() -> None:
+    text = "\n## Form Index\n| Head |\n| `cond` | x |\n\n## 4. Files\n| `print` | incidental |\n### 9 `if`\n"
+
+    assert _entries(text) == {"cond", "if"}
 
 
 def test_every_named_code_is_a_string_literal_in_the_code() -> None:
