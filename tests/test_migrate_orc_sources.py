@@ -527,19 +527,20 @@ def test_report_lists_changed_files_and_hand_work(tmp_path: Path) -> None:
         [str(good)], [(str(left), 7, "loop", "reorder")])
 
 
-def test_an_orc_file_whose_text_a_module_matches_is_left_when_a_pattern_moves(tmp_path: Path) -> None:
-    fixture = _write(tmp_path / "fixtures" / "probe.orc", NESTED_FN)
-    named = _write(tmp_path / "fixtures" / "named.orc", OLD_ORC)
+def test_loops_stay_when_their_rewrite_moves_a_pattern_a_module_matches_against_the_file(tmp_path: Path) -> None:
+    fixture = _write(tmp_path / "fixtures" / "grow.orc", OLD_ORC)
+    named = _write(tmp_path / "fixtures" / "named.orc", NESTED_FN)
     other = _write(tmp_path / "fixtures" / "other.orc", NESTED_FN.replace("(defmodule probe)", "(defmodule other)"))
     _write(tmp_path / "test_seed.py", 'from pathlib import Path\n\n'
-           'SOURCE = (Path(__file__).parent / "fixtures/probe.orc").read_text()\n'
+           'SOURCE = (Path(__file__).parent / "fixtures/grow.orc").read_text()\n'
            'NAMED = "fixtures/named.orc"\n'
-           f'SEEDED = SOURCE.replace({"(fn (outer)"!r}, "(fn (state)").replace("probe", "start")\n')
+           'SEEDED = SOURCE.replace("(fn (pads)", "(fn (state)").replace("\\n", "\\r\\n")\n')
     report = tmp_path / "report.json"
 
     _migrate("--report", report, tmp_path)
 
     rows = json.loads(report.read_text(encoding="utf-8"))["hand_work"]
+    header_only = OLD_ORC.replace('"2.38"', '"2.40"').replace("    :effects ((uses-command step)) :lowering inline\n", "")
     assert (fixture.read_text(encoding="utf-8"), named.read_text(encoding="utf-8"), other.read_text(encoding="utf-8"),
             {row["category"] for row in rows if row["path"] == str(fixture)}) == (
-        NESTED_FN, NEW_ORC, NESTED_BINDER.replace("(defmodule probe)", "(defmodule other)"), {"pattern"})
+        header_only, NESTED_BINDER, NESTED_BINDER.replace("(defmodule probe)", "(defmodule other)"), {"pattern"})

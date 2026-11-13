@@ -72,6 +72,7 @@ the repository root with the tree to migrate on `PYTHONPATH`.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import ast
 import codecs
 from dataclasses import dataclass, field
@@ -755,14 +756,26 @@ def migrate_loops(unit: Unit, origin: Path | None, report: Report, verify: bool)
             report.leave(line, *left)
 
 
-def migrate_unit(unit: Unit, origin: Path | None, report: Report, verify: bool) -> None:
-    """Header and clauses, then loops; a unit the reader refuses changes in nothing."""
+def migrate_unit(unit: Unit, origin: Path | None, report: Report, verify: bool,
+                 moved: Callable[[str, str], str | None] = lambda before, after: None) -> None:
+    """Header and clauses, then loops; a unit the reader refuses changes in nothing.
+
+    `moved(before, after)` judges the loop rewrites alone; when it gives a reason the loops are
+    undone and listed under `pattern` (`_moved_pattern`).
+    """
     tree = _read(unit.value)
     migrate_header(unit, tree, report)
     if tree is None:
         _skip(unit, report, "reader", "the reader refuses the source")
         return
-    migrate_loops(unit, origin, report, verify)
+    headed, loops = unit.src, Report(report.path)
+    migrate_loops(unit, origin, loops, verify)
+    reason = moved(headed, unit.src)
+    if reason is None:
+        report.absorb(loops)
+        return
+    _undo(unit, headed)
+    _skip(unit, report, "pattern", reason)
 
 
 def _skip(unit: Unit, report: Report, category: str, reason: str) -> None:
@@ -973,9 +986,11 @@ Pattern = tuple[str, str]  # (where: "module.py:line", the text a module matches
 def text_patterns(paths: list[Path]) -> dict[str, list[Pattern]]:
     """For each `.orc` path literal in a module among `paths`, the module's text patterns.
 
-    A pattern is a string constant that is directly an operand of a text call or a comparison
-    (`_guarded_operands`): what a test may match against a fixture's text after reading it. A
-    module that cannot be read or parsed is skipped here; `migrate_file` reports it.
+    A pattern is a string constant of at least three characters with a parenthesis that is directly
+    an operand of a text call or a comparison (`_guarded_operands`): Workflow Lisp text a test may
+    match against a fixture after reading it. A pattern without a parenthesis (a version, a word,
+    a separator) is not one. A module that cannot be read or parsed is skipped here;
+    `migrate_file` reports it.
     """
     named = {}
     for path in (path for path in paths if path.suffix == ".py"):
@@ -985,11 +1000,16 @@ def text_patterns(paths: list[Path]) -> dict[str, list[Pattern]]:
             continue
         patterns = [(f"{path}:{operand.lineno}", operand.value) for node in ast.walk(tree)
                     for operand, category, _ in _guarded_operands(node)
-                    if category != "docstring" and isinstance(operand, ast.Constant) and isinstance(operand.value, str)]
+                    if category != "docstring" and _lisp_text(operand)]
         for node in ast.walk(tree) if patterns else ():
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.endswith(".orc"):
                 named.setdefault(node.value.removeprefix("./"), []).extend(patterns)
     return named
+
+
+def _lisp_text(node: ast.AST) -> bool:
+    return (isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) >= 3
+            and ("(" in node.value or ")" in node.value))
 
 
 def _moved_pattern(path: Path, source: str, new: str, named: dict[str, list[Pattern]]) -> str | None:
@@ -997,7 +1017,7 @@ def _moved_pattern(path: Path, source: str, new: str, named: dict[str, list[Patt
     target = "/" + path.resolve().as_posix()
     for suffix, patterns in named.items():
         for where, pattern in patterns if target.endswith("/" + suffix) else ():
-            if pattern and pattern in source and source.count(pattern) != new.count(pattern):
+            if pattern in source and source.count(pattern) != new.count(pattern):
                 return f"{where} matches {pattern!r} against this file's text"
     return None
 
@@ -1005,24 +1025,18 @@ def _moved_pattern(path: Path, source: str, new: str, named: dict[str, list[Patt
 def migrate_file(path: Path, *, check: bool, verify: bool, patterns: dict[str, list[Pattern]] | None = None) -> Report:
     """Migrate one file; a file that cannot be read, tokenized or parsed is reported and left.
 
-    A `.orc` file is also left whole, and reported, when the migration would change how often a
-    pattern of a module that names it (`text_patterns`) occurs in its text: the module rewrites or
-    inspects that text, and the two change together by hand.
+    In a `.orc` file the loops stay in the `fn` form, and are listed, when their rewrite would change
+    how often a pattern of a module that names the file (`text_patterns`) occurs in its text: that
+    module rewrites or inspects the text, and the two change together by hand. The header and
+    clauses are migrated as `migrate2.py` does whatever a module matches.
     """
     report = Report(str(path))
     try:
         with path.open(encoding="utf-8", newline="") as handle:
             source = handle.read()
-        new = _migrated(path, source, report, verify)
+        new = _migrated(path, source, report, verify, patterns or {})
     except (OSError, UnicodeDecodeError, SyntaxError, tokenize.TokenError) as error:
         report.error = f"cannot be migrated ({type(error).__name__}: {error}); left as it was"
-        return report
-    moved = _moved_pattern(path, source, new, patterns or {}) if path.suffix != ".py" and new else None
-    if moved is not None:
-        report = Report(str(path))
-        if OLD_VERSION.search(source):
-            report.note(1, "pattern", moved)
-        _skip(Unit(source), report, "pattern", moved)
         return report
     if new is not None and new != source and not check:
         with path.open("w", encoding="utf-8", newline="") as handle:
@@ -1030,10 +1044,12 @@ def migrate_file(path: Path, *, check: bool, verify: bool, patterns: dict[str, l
     return report
 
 
-def _migrated(path: Path, source: str, report: Report, verify: bool) -> str | None:
+def _migrated(path: Path, source: str, report: Report, verify: bool,
+              patterns: dict[str, list[Pattern]]) -> str | None:
     if path.suffix != ".py":
         unit = Unit(source)
-        migrate_unit(unit, path.resolve(), report, verify)
+        migrate_unit(unit, path.resolve(), report, verify,
+                     lambda before, after: _moved_pattern(path, before, after, patterns))
         return unit.src
     new = migrate_python(source, report, verify)
     try:
