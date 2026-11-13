@@ -254,7 +254,26 @@ step workflow:grow::run / loop:pads[1] / else / padded was committed with other 
 to run this step and every later one again (workspace files are not rolled back):
     orchestrator invalidate 20261112T060138Z-bq9zwh 'workflow:grow::run / loop:pads[1] / else / padded'
     orchestrator resume 20261112T060138Z-bq9zwh
+if accepted, this run cancels from the changed step, as invalidate does:
+  kept      1 committed step:
+    workflow:grow::run / loop:pads[1] / words
+  cancelled 4 committed steps, which run again when reached:
+    workflow:grow::run / loop:pads[1] / else / padded
+    workflow:grow::run / loop:pads[2] / words
+    workflow:grow::run / loop:pads[2] / else / padded
+    workflow:grow::run / loop:pads[3] / words
+  retired   none
+  the cut is at workflow:grow::run / loop:pads[1] / else / padded: its input changed (parts: implementation_files; files: pad.py)
+  asked again: none
+  unfinished steps retried: none
+  runs first: workflow:grow::run / loop:pads[1] / else / padded
+  files that cancelled steps wrote in the workspace are not rolled back
+plan token: plan-2cadffd4-610b7111-1cc50b4d-6373171f
 ```
+
+The lines from `if accepted` on are the plan: which committed steps are
+kept and which run again. No command takes the plan token yet; the two
+commands above do what the plan says.
 
 **Invalidate** tells the run to forget a committed step, so `resume` runs it
 and every later step again:

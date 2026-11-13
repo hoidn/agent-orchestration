@@ -195,16 +195,68 @@ def prepare_evaluated_resume(run_root: Path, *, workspace: Path, force_restart=F
     refuse_confined_run_ref_sites(fresh.program)
     if fresh.program.digest != current_digest(run_root, header["program_digest"], run_files=run_files):
         raise _ResumeRefusal("resume_program_changed", "current program differs from the run's program in force",
-                             fresh_program=fresh.program)
-    inputs = _bind_recipe(fresh.program, recipe, workspace, run_files)
-    if canonical_sha256(inputs) != header["input_digest"]:
-        recorded = header.get("bound_inputs", {})
-        raise _ResumeRefusal("resume_inputs_changed", "current bound inputs differ from the run header",
-                             changed_inputs=sorted(name for name in {*recorded, *inputs} if recorded.get(name) != inputs.get(name)))
+                             fresh_program=fresh.program, fresh_provider_io=fresh.provider_io)
+    inputs = _checked_inputs(fresh.program, header, workspace, run_files)
     authority = load_run_authority(run_root, header=header, run_files=run_files)
     remember_tables(authority)           # read_memo, at every effect start, parses no artifact again
     provider_io = fresh.provider_io.bind(authority.program)
     return authority, inputs, provider_io
+
+
+def _checked_inputs(program, header, workspace, run_files):
+    """Resume step 8: the recipe's inputs bound against `program`, equal to the header's digest."""
+    inputs = _bind_recipe(program, header["resume_request"], workspace, run_files)
+    if canonical_sha256(inputs) != header["input_digest"]:
+        recorded = header.get("bound_inputs", {})
+        raise _ResumeRefusal("resume_inputs_changed", "current bound inputs differ from the run header",
+                             changed_inputs=sorted(name for name in {*recorded, *inputs} if recorded.get(name) != inputs.get(name)))
+    return inputs
+
+
+def candidate_preflight(refusal, run_root: Path, workspace: Path, run_files=None):
+    """Resume steps 8 and 9 for the fresh program a `resume_program_changed` refusal carries, read-only and only
+    after that refusal is decided: (authority, candidate, inputs, provider_io) for planning (rebase.py)."""
+    header = load_run_header(run_root, run_files=run_files)
+    inputs = _checked_inputs(refusal.fresh_program, header, workspace, run_files)
+    authority = load_run_authority(run_root, header=header, run_files=run_files)
+    remember_tables(authority)
+    return authority, refusal.fresh_program, inputs, refusal.fresh_provider_io.bind(refusal.fresh_program)
+
+
+def _plan_or_reason(compute):
+    """The plan printed with a refusal, or the error that is the reason none can be shown: a coded one, or an
+    `OSError` or `ValueError`, which the preflight reports as `resume_preflight_failed`. That refusal's own code and
+    exit status do not change. Any other error is a defect, not a reason, and propagates."""
+    try:
+        return compute()
+    except Exception as failure:
+        if not (getattr(failure, "code", None) or isinstance(failure, (OSError, ValueError))):
+            raise
+        return failure
+
+
+def _edit_plan(exc, run_root, workspace, run_files):
+    """Steps 8 to 10 on the fresh program, for the text of a `resume_program_changed` refusal (design §6, step 7)."""
+    from orchestrator.workflow.evaluated.rebase import compute_plan
+    if getattr(exc, "code", None) != "resume_program_changed" or not hasattr(exc, "fresh_program"):
+        return None
+
+    def compute():
+        authority, candidate, inputs, provider_io = candidate_preflight(exc, run_root, workspace, run_files)
+        return compute_plan(authority, candidate, inputs, workspace=workspace, provider_io=provider_io)
+    return _plan_or_reason(compute)
+
+
+def _divergence_plan(exc, authority, inputs, workspace, provider_io):
+    """The plan printed beside `invalidate` when a committed step's input changed under the run's program."""
+    from orchestrator.workflow.evaluated.rebase import compute_plan
+    if getattr(exc, "code", None) != "effect_input_diverged":
+        return None
+    snapshot = _memo_or_none(authority)
+    if snapshot is None or getattr(exc, "identity", None) not in snapshot.active_commits:
+        return None
+    return _plan_or_reason(lambda: compute_plan(authority, authority.program, inputs, workspace=workspace,
+                                                provider_io=provider_io, diverged=exc))
 
 
 def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False, max_cost_usd: float | None = None, accept_changes: bool = False) -> int:
@@ -221,8 +273,10 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
         authority = replace(authority, accept_changes=accept_changes)
         _warn_changed_interpreters(authority)
         reporter.announce(lazy=True)
+        planned = authority
         exit_code, _ = _execute_reported(
             reporter, execute_pure_resume, authority, inputs, stored_program=authority.program,
+            plan_for=lambda exc: _divergence_plan(exc, planned, inputs, workspace, provider_io),
             spend_cap_usd=max_cost_usd, run_id=run_root.name, workspace=workspace, provider_io=provider_io, stream_output=stream_output)
         return exit_code
     except LispFrontendCompileError as exc:
@@ -231,7 +285,7 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
         return 2
     except (OSError, UnicodeError, ValueError, ReservedRunRootError) as exc:
         logger.error("[%s] %s", getattr(exc, "code", "resume_preflight_failed"), exc)
-        reporter.error(exc, **_stored_context(exc, run_root, run_files))
+        reporter.error(exc, plan=_edit_plan(exc, run_root, workspace, run_files), **_stored_context(exc, run_root, run_files))
         return 2
 
 
@@ -416,10 +470,12 @@ def _run_outputs(exit_code, value):
 
 
 def _execute_reported(reporter: TerminalReporter, execute, authority, inputs, *, stored_program=None,
-                      spend_cap_usd=None, **kwargs):
-    """Run `execute` with the reporter as memo observer and error sink; Ctrl-C also prints the resume line."""
+                      spend_cap_usd=None, plan_for=None, **kwargs):
+    """Run `execute` with the reporter as memo observer and error sink; Ctrl-C also prints the resume line.
+    `plan_for(exc)` gives the plan printed with a refusal (resume only)."""
     def on_error(exc: Exception) -> None:
-        reporter.error(exc, header=authority.header, stored_program=stored_program, snapshot=_memo_or_none(authority))
+        reporter.error(exc, header=authority.header, stored_program=stored_program, snapshot=_memo_or_none(authority),
+                       plan=None if plan_for is None else plan_for(exc))
 
     try:
         cut_off = None if spend_cap_usd is None else _pending_at_start(authority)
