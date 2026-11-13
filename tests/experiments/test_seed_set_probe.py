@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -416,3 +417,12 @@ def test_the_redraw_incident_threshold_counts_the_extensions_probe_units(s):  # 
     probed(s, "first", dict.fromkeys(ladder.FLAT, 4))
     probed(s, "extension", {"T2w": 0, "T3w": 0, "T4w": 0})
     assert rules.planned_runs(s, "redraw") == 32
+
+
+def test_host_checks_keep_bytecode_in_their_box_and_reuse_it(monkeypatch):  # the 1fd10ab4c3 anchor cause
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    done, _ = host.guarded([sys.executable, "-c", "import os, sys; print(os.environ.get('PYTHONDONTWRITEBYTECODE'),"
+                                                  " sys.dont_write_bytecode, sys.pycache_prefix)"])
+    flag, dont_write, prefix = done.stdout.split()
+    assert (flag, dont_write, Path(prefix).name, Path(prefix).parent.name.startswith("seed-set-host-")) == (
+        "None", "False", "pycache", True)

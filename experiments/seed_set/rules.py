@@ -18,7 +18,8 @@ when the task list lies outside the runtime, when the code or the packages hold 
 files and the results directory, written after the commit, excepted), and when
 `criterion.json` does not name, under "sha256", the current sha256 of the task list, every program, the rubric
 `score_functional.orc` and `judge-calibration.json` (plan Step 1f; keys are runtime-relative paths, the judge
-criterion by its file name). A second freeze after a start needs a reason, which the ledger keeps.
+criterion by its file name), and when a package the study can draw, probe or smoke on has no stable entry at its
+current hash in `anchor_stability.json` (`anchors.py`; coordinator ruling, 2026-11-12). A second freeze after a start needs a reason, which the ledger keeps.
 """
 
 import shutil
@@ -27,7 +28,7 @@ import tempfile
 from pathlib import Path
 
 from experiments.compare.repos import git, load, runtime_commit, sha256_file
-from experiments.seed_set import gates, layout, ladder, spend, units
+from experiments.seed_set import anchors, gates, layout, ladder, spend, units
 from experiments.seed_set.layout import CHOSEN, PLANNED, study_runs, tranche_tasks
 
 JUDGE_EFFORT = "high"  # score_functional.orc's fixed judge effort
@@ -56,10 +57,15 @@ def frozen_identity(study):
     named, required = load(study.frozen).get("sha256", {}), required_hashes(study)
     if wrong := sorted(key for key, digest in required.items() if named.get(key) != digest):
         raise SystemExit(f"{study.frozen} does not name the current sha256 of {wrong} (plan Step 1f)")
+    stability = study.tasks_file.parent / anchors.FILE
+    if lost := anchors.unstable(layout.task_rows(study), load(stability) if stability.is_file() else {},
+                                study.tasks_file.parent / "tasks"):
+        raise SystemExit(f"no stable anchors under study conditions ({stability}) for {lost[:5]} "
+                         f"({len(lost)} packages): run `python -m experiments.seed_set.anchors`, reject what fails")
     return {"criterion_sha256": sha256_file(study.frozen), "judge_criterion_sha256": sha256_file(study.criterion),
             "runtime_commit": runtime_commit(runtime), "code_tree": tree(runtime, *CODE),
             "packages": tree(runtime, f"{packages}/"),
-            "tasks_sha256": sha256_file(study.tasks_file),
+            "tasks_sha256": sha256_file(study.tasks_file), "anchor_stability_sha256": sha256_file(stability),
             "programs": {path.name: sha256_file(path) for path in sorted(study.programs.glob("*.orc"))}}
 
 

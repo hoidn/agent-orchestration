@@ -14,7 +14,7 @@ import pytest
 
 from experiments.compare.repos import sha256_file
 from experiments.seed_set import host, layout, rules, spend, study, units
-from tests.experiments.seed_set_offline_support import committed_runtime, write_frozen_criterion
+from tests.experiments.seed_set_offline_support import committed_runtime, stable_anchors, write_frozen_criterion
 
 H, S = spend.HAIKU, spend.SONNET
 ROOT = Path(__file__).resolve().parents[2]
@@ -577,3 +577,18 @@ def test_only_the_providers_own_error_in_stream_json_stdout_is_an_incident(tmp_p
     (tmp_path / "calls" / "1").mkdir(parents=True)
     (tmp_path / "calls" / "1" / "stdout.txt").write_text(json.dumps(line) + "\n")
     assert (units.provider_incident(tmp_path) is not None) == incident
+
+
+@pytest.mark.parametrize("state", ["missing", "unstable", "stale"])
+def test_the_freeze_refuses_a_package_without_stable_anchors(runner, state):  # r2: the one usable (smoke) package
+    stability = runner.tasks_file.parent / "anchor_stability.json"
+    if state == "missing":
+        stability.unlink()
+    elif state == "unstable":
+        stable_anchors(runner.tasks_file, unstable={"r2"})
+    else:
+        (layout.task_dir(runner, "r2")).mkdir(parents=True)
+        (layout.task_dir(runner, "r2") / "task.txt").write_text("changed after the check\n")
+    commit_runtime(runner)
+    with pytest.raises(SystemExit, match="no stable anchors"):
+        rules.record_freeze(runner)

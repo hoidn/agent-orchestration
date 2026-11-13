@@ -28,7 +28,7 @@ from tests.experiments.compare_harness_support import (
     OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up, skip_without_sandbox, write_test_sandbox_config,
 )
 from tests.agent_session_shims import closed_path
-from tests.experiments.seed_set_offline_support import STUB, write_frozen_criterion
+from tests.experiments.seed_set_offline_support import STUB, stable_anchors, write_frozen_criterion
 
 REPO = Path(__file__).resolve().parents[2]
 H, S = spend.HAIKU, spend.SONNET
@@ -107,6 +107,7 @@ def world(tmp_path, monkeypatch):
         listed, plan["tasks"][task] = write_task(runtime / "seedset", task, base, fixes[task], task_repo, row)
         rows.append(listed)
     (runtime / "seedset" / "tasks.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    stable_anchors(runtime / "seedset" / "tasks.jsonl")
     git(runtime, "add", "-A", "seedset")
     git(runtime, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "tasks")
     OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)

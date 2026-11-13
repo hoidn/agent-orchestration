@@ -22,6 +22,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 
 EXCERPT_CHARS = 4000
 
@@ -93,9 +94,11 @@ def check(tree=Path("."), withheld=None) -> dict:
     source = Path(withheld or os.environ.get("SEED_SET_WITHHELD", ""))
     if not str(source) or str(source) == "." or not source.is_dir():
         return {"passed": False, "failing": ["withheld check source unavailable"], "excerpt": ""}
-    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
-    env.pop("SEED_SET_WITHHELD", None)
-    with placed(tree, source):
+    # the placed tests' bytecode goes outside the tree (none is left for the agent to read) and is reused, so a
+    # test whose subprocess imports the package under a short timeout is not slowed past it
+    with tempfile.TemporaryDirectory(prefix="dev-check-pycache-") as cache, placed(tree, source):
+        env = {key: value for key, value in os.environ.items()
+               if key not in ("SEED_SET_WITHHELD", "PYTHONDONTWRITEBYTECODE")} | {"PYTHONPYCACHEPREFIX": cache}
         code, output = run(argv, timeout, tree, env)
     return report(argv, timeout, code, output)
 

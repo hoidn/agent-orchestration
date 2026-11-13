@@ -64,9 +64,8 @@ def launch_env(model, calls, home=None, withheld=None):
     dev_check.py's pytest of candidate code, see no credentials; review2 minor 2). Neither carries the spend
     switch. `withheld` (a check-withheld run's staged test files) is named for dev_check.py; the agents' sandbox
     clears its environment, so an agent never sees the path."""
-    env = {**os.environ, "COMPARE_CLAUDE_MODELS": model, "COMPARE_MAX_CALLS": str(calls),
-           "PYTHONDONTWRITEBYTECODE": "1"}
-    for name in ("SEED_SET_WITHHELD", spend.AUTHORIZATION) + (("CLAUDE_CONFIG_DIR", "CODEX_HOME") if home else ()):
+    env = {**os.environ, "COMPARE_CLAUDE_MODELS": model, "COMPARE_MAX_CALLS": str(calls)}
+    for name in ("SEED_SET_WITHHELD", "PYTHONDONTWRITEBYTECODE", spend.AUTHORIZATION) + (("CLAUDE_CONFIG_DIR", "CODEX_HOME") if home else ()):
         env.pop(name, None)
     if home:
         Path(home).mkdir()

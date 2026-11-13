@@ -40,7 +40,7 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
-from experiments.seed_set import build_tasks as b, forms, leak_audit
+from experiments.seed_set import anchors, build_tasks as b, forms, leak_audit
 
 CAP, PROBE = 12, 4
 T5_ADDED, T6_ADDED = (300, 999), (1000, 3000)
@@ -365,7 +365,11 @@ def verify(out=b.HERE):
     extra = sorted({p.name for p in (out / "tasks").iterdir()} - {pid for pid, _ in listed})
     if bad or extra:
         raise SystemExit(f"changed: {bad}; unlisted: {extra}")
-    print(f"{len(listed)} packages of {len(lines)} tasks verified")
+    stability = out / anchors.FILE
+    if lost := anchors.unstable(lines, json.loads(stability.read_text()) if stability.is_file() else {}, out / "tasks"):
+        raise SystemExit(f"{len(lost)} usable packages lack stable anchors under study conditions ({lost[:5]}): run "
+                         "`python -m experiments.seed_set.anchors --work W` and reject what fails")
+    print(f"{len(listed)} packages of {len(lines)} tasks verified; anchors stable under study conditions")
 
 
 if __name__ == "__main__":

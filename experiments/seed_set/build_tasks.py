@@ -347,7 +347,8 @@ def sandboxed(work, tid):
     box = work / tid
     remove(box)
     saved = dict(os.environ)  # restored after: TMPDIR and PATH below name the box, which is removed
-    os.environ.update(TMPDIR=str(box / "tmp"), PYTHONDONTWRITEBYTECODE="1")
+    os.environ.update(TMPDIR=str(box / "tmp"), PYTHONPYCACHEPREFIX=str(box / "pycache"))  # as host.guarded
+    os.environ.pop("PYTHONDONTWRITEBYTECODE", None)
     tempfile.tempdir = None  # a reused worker process caches the previous task's (deleted) TMPDIR
     (box / "tmp").mkdir(parents=True)
     shutil.copytree(GUARD, box / "guard/no_provider")  # its stubs log to box/guard/no-provider.log

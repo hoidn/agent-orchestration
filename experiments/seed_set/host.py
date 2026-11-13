@@ -27,11 +27,13 @@ def guarded(argv, cwd=None, timeout=None):
         box = Path(directory)
         shutil.copytree(STUBS, box / "guard" / "no_provider")  # they log to box/guard/no-provider.log
         (box / "home").mkdir()
-        env = {key: value for key, value in os.environ.items()
-               if key not in CREDENTIALS and not key.startswith(("COMPARE_", "SEED_SET_", "ANTHROPIC_"))}
+        env = {key: value for key, value in os.environ.items() if key != "PYTHONDONTWRITEBYTECODE"
+               and key not in CREDENTIALS and not key.startswith(("COMPARE_", "SEED_SET_", "ANTHROPIC_"))}
+        # bytecode goes to the box, never into a tree, and is reused: with none written, a test whose subprocess
+        # imports the package under a short timeout failed under load (1fd10ab4c3, coordinator ruling 2026-11-12)
         env |= {"PATH": f"{box / 'guard' / 'no_provider'}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
                 "HOME": str(box / "home"), "CLAUDE_CONFIG_DIR": str(box / "home" / ".claude"),
-                "CODEX_HOME": str(box / "home" / ".codex"), "PYTHONDONTWRITEBYTECODE": "1"}
+                "CODEX_HOME": str(box / "home" / ".codex"), "PYTHONPYCACHEPREFIX": str(box / "pycache")}
         done = subprocess.run(argv, cwd=cwd or ROOT, env=env, capture_output=True, text=True, timeout=timeout)
         log = box / "guard" / "no-provider.log"
         return done, log.read_text().splitlines() if log.is_file() else []

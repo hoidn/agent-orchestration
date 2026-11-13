@@ -96,6 +96,7 @@ def committed_runtime(root, rows):
     (root / rules.RUBRIC_FILE).write_bytes((checkout / rules.RUBRIC_FILE).read_bytes())
     tasks = root / "experiments" / "seed_set" / "tasks.jsonl"
     tasks.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    stable_anchors(tasks)
     for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rt"]):
         subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
     return tasks
@@ -107,3 +108,15 @@ def write_frozen_criterion(study, **extra):
 
     from experiments.seed_set import rules
     study.frozen.write_text(json.dumps({"sha256": rules.required_hashes(study), **extra}))
+
+
+def stable_anchors(tasks, unstable=()):
+    """anchor_stability.json beside `tasks` (a task list): a stable entry at the current hash for every package the
+    study can use, except the `unstable` ids."""
+    import json
+
+    from experiments.seed_set import anchors, build_tasks
+    rows = [json.loads(line) for line in tasks.read_text().splitlines()]
+    entries = {pid: {"sha256": build_tasks.package_hash(tasks.parent / "tasks" / pid), "stable": pid not in unstable}
+               for pid in anchors.packages(rows)}
+    (tasks.parent / anchors.FILE).write_text(json.dumps(entries))
