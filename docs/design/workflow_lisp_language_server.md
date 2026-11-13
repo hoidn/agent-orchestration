@@ -2,8 +2,7 @@
 
 Evaluated availability: CLI/LSP source graph, builtin-helper, root/hash and
 read-trace selection parity does not establish a successful evaluated snapshot,
-semantic navigation or terminal diagnostic parity. Demonstrated evaluated W3
-compiles still terminate in LSP with `evaluated_execution_unavailable`.
+semantic navigation or terminal diagnostic parity.
 F2 remains **OPEN_NOT_WAIVED**. L2 may return its frozen static-form recovery
 response, never stale callables. Use the [setup guide](../workflow_lisp_language_server_setup.md)
 for supported editor use.
@@ -65,7 +64,7 @@ of the existing compile entry points, exactly as
 [Compiler Artifact Compatibility](#compiler-artifact-compatibility) requires (it
 implements "no parallel parser, type checker, linter or workflow validator"). Version 1 performs one serialized, full Stage-3
 compile when an opened document exactly matches disk text and after each save.
-It delivers diagnostics, go-to-definition, ten-kind direct-authored document
+It delivers diagnostics, go-to-definition, eight-kind direct-authored document
 symbols, and namespace-preserving procedure/workflow/form completion with
 compiler-rendered callable signatures from that compile's structured
 diagnostics and closed symbol surfaces. It never imports Stage 1, falls back to
@@ -1409,7 +1408,8 @@ exactly:
 ```
 
 The admitted `kind` values are `module`, `procedure`, `workflow`, `enum`,
-`path`, `record`, `union`, `schema`, `resource`, and `transition`. The
+`path`, `record`, `union` and `schema` (`authored_symbols.py`; the former
+`resource` and `transition` kinds went with their removed forms). The
 projection uses only compiler-retained original syntax and compiler-owned
 syntax/definition helpers. It does not read source text, ask the LSP to parse
 or classify a form, or inspect expanded syntax as authored provenance.
@@ -1419,7 +1419,7 @@ one matching definition in the successful compiled module:
 
 - `module` matches the compiled module identity;
 - `procedure` and `workflow` match their separate compiler catalogs; and
-- `enum`, `path`, `record`, `union`, `schema`, `resource`, and `transition`
+- `enum`, `path`, `record`, `union` and `schema`
   match their corresponding compiled semantic definition collections.
 
 A missing, multiply matching, kind-mismatched, name-mismatched, or
@@ -1437,7 +1437,7 @@ Each document symbol uses:
 - `range = definition_span`, the complete authored definition form; and
 - `selectionRange = selection_span`, the exact authored name token.
 
-This applies uniformly to all ten admitted kinds. A missing or invalid
+This applies uniformly to all eight admitted kinds. A missing or invalid
 selection span omits no individual best-effort answer: it fails the index
 closed. Symbols are returned in `(definition_span.start.offset,
 source_ordinal)` order. Their protocol presentation is fixed:
@@ -1452,8 +1452,6 @@ source_ordinal)` order. Their protocol presentation is fixed:
 | `record` | `Struct` |
 | `union` | `Enum` |
 | `schema` | `Interface` |
-| `resource` | `Object` |
-| `transition` | `Event` |
 
 This table is presentation, not a nominal subtype hierarchy. The implemented
 L5 amendment still does not add go-to-definition for type tokens, schemas,

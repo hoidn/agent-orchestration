@@ -1391,7 +1391,7 @@ definition forms. Diagnostics: `macro_arity_error`, `macro_reserved_name`,
   converts nothing. Each slot name is declared once. Diagnostics:
   `prompt_slot_kind_unknown`, `prompt_slot_duplicate`.
 - Admissible fills: `:doc`, a workspace `relpath` path type that must exist;
-  `:text`, exact `String`; `:value`, a type the canonical-JSON renderer takes
+  `:text`, exact `String`, rendered verbatim; `:value`, a type the canonical-JSON renderer takes
   (`String`, `Int`, `Float`, `Bool`, `Json`, `Value`, enums, paths, records,
   unions, and lists of these); `:path`, any path type, rendered as one POSIX
   path line. `Optional`, `Map` and other shapes have no renderer. Diagnostics:
@@ -1431,31 +1431,27 @@ Delivery at run time is §22.6. The former text of §8.7.1 to §8.7.3 is
   occurs once, directly after `:path`, and on no other kind. Diagnostics:
   `prompt_output_position_syntax_invalid`, `prompt_output_position_kind_invalid`.
 - The refinement, if any, and the fill's type are each a workspace `relpath`
-  that need not exist. Diagnostics: `prompt_output_position_refinement_invalid`,
+  declared `:must-exist false`. Diagnostics: `prompt_output_position_refinement_invalid`,
   `prompt_output_position_fill_invalid`.
 - The slot and its fill are the only authority for the output: the call requires
   one UTF-8 file, named after the slot, at the fill's path, which is the path the
   prompt renders. No caller form overrides its name, path, type or requiredness.
 - After a successful attempt the output files are validated first, then the
   structured result; if either fails, the attempt fails and nothing is
-  committed. An output name that is also an artifact name of the structured
-  result fails the attempt. Diagnostics: `missing_output_file`,
-  `invalid_output_path`, `duplicate_artifact_name`, `provider_result_invalid`.
-
+  committed, but files the provider already wrote are not removed. An output
+  name that is also an artifact name of the structured result fails the attempt,
+  after the provider has run. Diagnostics: `provider_result_invalid`, whose
+  violations name `missing_output_file`, `invalid_output_path` or
+  `duplicate_artifact_name`.
 
 ### 8.7.3 Implemented Prompt-Attempt Identity (Target 2.22)
 
-- The compiler gives each application a fragment identity,
-  `compiled_prompt_fragment_identity.v1`, or `.v2` when a slot is an output
-  position: a `sha256:` digest of the declaration (qualified name, template,
-  slots, return) and the fill expressions, without runtime values, file
-  contents, provider policy or source positions. A malformed identity refuses.
-  Diagnostics: `compiled_prompt_fragment_identity_invalid`.
-- The evaluated runtime publishes no prompt snapshot and no prompt-attempt
-  identity record. A provider effect's resolved input binds its assembled prompt,
-  its prompt source and every file the prompt reads by digest
+- A fragment-backed call has no prompt identity of its own in the checked
+  program, and the evaluated runtime publishes no prompt snapshot and no
+  prompt-attempt identity record. A provider effect's identity is its resolved
+  input, which binds its assembled prompt, its prompt source and every file the
+  prompt reads by digest
   ([evaluated execution §7.2](workflow_lisp_evaluated_execution.md#72-the-resolved-input)).
-
 
 ### 8.7.4 Implemented Phased Contract Delivery (Target 2.23)
 
@@ -2970,9 +2966,15 @@ and error list are [preserved in the history file](../reports/documentation-hist
 
 ## 34. Hygiene
 
-- A name the template introduces is renamed for its expansion: it cannot
-  capture a caller's name or be captured by one. A name the caller passes in
-  keeps its identity. There is no intentional capture.
+- A name the template binds (with `let*`, for example) is renamed for its
+  expansion. Caller code passed in as an argument cannot see it, and a caller's
+  `y` passed into a template that binds its own `y` keeps the caller's value.
+- A free name in the template, one the template uses but does not bind,
+  resolves where the macro is called: to a binding in scope at the call site,
+  or to a definition visible in the calling module, not in the module that
+  defines the macro. Diagnostics: `name_unknown`, `procedure_call_unknown`.
+- A name the caller passes in keeps its identity. There is no syntax for
+  intentional capture.
 - A binding the template introduces, such as a `let*` local bound to a call of
   an imported `defproc`, is an ordinary lexical binding afterwards, field access
   included. A macro creates no variant proof.
@@ -2991,9 +2993,10 @@ and error list are [preserved in the history file](../reports/documentation-hist
   a removed head refuses as removed. Diagnostics: `macro_emits_invalid_ast`,
   `form_retired`.
 - A provider or command effect written in the template is a hidden effect and
-  refuses. The same effect written by the caller and passed through the macro
-  is the caller's and is checked as usual, as is a call to an imported
-  `defproc` that the template introduces. Diagnostics: `macro_hidden_effect`.
+  refuses, before any command-boundary or provider check. The same effect
+  written by the caller and passed through the macro is the caller's and is
+  checked as usual, as is a call to an imported `defproc` that the template
+  introduces. Diagnostics: `macro_hidden_effect`.
 - A `defmacro` may not bind a reserved head (a registered form that is not
   marked bindable; library heads such as `review-revise-loop` are bindable), and
   a module may not define a macro twice. Diagnostics: `macro_reserved_name`.
@@ -3358,7 +3361,7 @@ Commands (`compile`, `run`, `resume`, `report`, the refused `explain` and flat e
 <a id="87-stddrain"></a>
 <a id="871-stdimprove"></a>
 
-Library modules are owned by the [library reference](../lisp_library_reference.md) and their sources under `orchestrator/workflow_lisp/stdlib_modules/std/` (`context`, `host`, `improve`, `phase`); `review-revise-loop` is §27 and context records are §19. `std/drain` and `std/resource` were removed on 2026-11-12: importing either fails with `module_not_found`, and the message names git tag `archive/pre-one-target-2026-11-12`. The former text of §81 to §87.1 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#81-stdtypes).
+`std/improve` and `std/host` are described by the [library reference](../lisp_library_reference.md). `std/context` exports `RunCtx`, `PhaseCtx`, `ItemCtx`, `DrainCtx`, `SelectionCtx` and `RecoveryCtx` (records in §19), and `std/phase` exports `with-phase`, `phase-scope`, `review-revise-loop` (§27) and `review-revise-loop-proc` with their enum, record and path types; the export list of each module's source under `orchestrator/workflow_lisp/stdlib_modules/std/` is the owner. `std/drain` and `std/resource` were removed on 2026-11-12: importing either fails with `module_not_found`, and the message names git tag `archive/pre-one-target-2026-11-12`. The former text of §81 to §87.1 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#81-stdtypes).
 
 <a id="part-xv-example-end-to-end-design"></a>
 <a id="88-types"></a>
@@ -3520,7 +3523,7 @@ Runtime workflow refs create dynamic loading/versioning problems.
 <a id="109-debug-yaml"></a>
 <a id="110-type-flattening"></a>
 
-Both former open decisions are settled: debug-YAML emission refuses (see the [CLI specification](../../specs/cli.md)), and typed values cross workflow boundaries as typed input documents ([evaluated execution §9.1.1](workflow_lisp_evaluated_execution.md#911-typed-command-input-documents)). The former text of §109 and §110 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#109-debug-yaml).
+Both former open decisions are settled: debug-YAML emission refuses (see the [CLI specification](../../specs/cli.md)), and typed values cross workflow boundaries as typed input documents ([evaluated execution §9.1.1](workflow_lisp_evaluated_execution.md#911-typed-command-input-documents)). The refusal of a public formal that collides with a generated hidden context input is in the [middle-end](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts). The former text of §109 and §110 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#109-debug-yaml).
 
 ## Final Design Center
 
