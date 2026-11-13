@@ -7,8 +7,8 @@
 #
 # RUNTIME is the frozen checkout whose `orchestrator` package runs the smoke and whose
 # experiments/orc_vs_single_call/workflows/best_of_n.orc is the program. The workspace gets a copy of that
-# source with exactly the changes the deterministic tests make (target 2.37, `:parallel 2 :workspace repo`)
-# and every `:model` literal set to claude-haiku-5-5, both aliases bound to the Claude metered template,
+# source with the parallel map the deterministic tests add (`:parallel 2 :workspace repo`), target 2.40, every
+# `:model` literal set to claude-haiku-5-5 and every `:effort` to "high", both aliases bound to the Claude metered template,
 # and four candidate repositories. P2SMOKE_MANIFEST_SHA256 must equal the digest of manifest.json (the
 # plan ledger's value). Steps: compile; `run` under --max-cost-usd 3, killed (SIGKILL) once two coders have
 # committed and the coders of gamma and delta are held by the wrapper before their CLI starts; `resume`;
@@ -29,7 +29,7 @@ set -euo pipefail
 MODEL=claude-haiku-5-5                        # every call; checked by exact id
 TEMPLATE=claude_unrestricted_workspace_metered
 CAP_USD=3                                     # the run's --max-cost-usd and the wrapper's smoke ceiling
-TARGET=2.37
+TARGET=2.40                                   # the target the repository admits; parallel map is available
 SOURCE=experiments/orc_vs_single_call/workflows/best_of_n.orc
 ENTRY=best_of_n::best-of-n
 CANDIDATES=(alpha beta gamma delta)           # gamma and delta are the coders held at the kill
@@ -102,7 +102,8 @@ if template is None or template.command[0] != "claude" or template.defaults.get(
 text = Path(source).read_text()
 changes = [('(:target-dsl "2.35")', f'(:target-dsl "{target}")', 1),
            ("(list/map-effect ((repo repos)) :max 8\n", "(list/map-effect ((repo repos)) :max 8 :parallel 2 :workspace repo\n", 1),
-           (':model "claude-sonnet-5-5"', f':model "{model}"', 1), (':model "gpt-6-sol"', f':model "{model}"', 2)]
+           (':model "claude-sonnet-5-5"', f':model "{model}"', 1), (':model "gpt-6-sol"', f':model "{model}"', 2),
+           (':effort "medium"', ':effort "high"', 1)]
 for old, new, count in changes:
     if text.count(old) != count:
         fail(f"{source} holds {old.strip()!r} {text.count(old)} times, not {count}")
@@ -110,6 +111,9 @@ for old, new, count in changes:
 operands = set(re.findall(r":model\s+([^\s()]+)", text))
 if operands != {f'"{model}"'}:
     fail(f"the copy binds :model to {sorted(operands)}, not only to {model}")
+efforts = set(re.findall(r":effort\s+([^\s()]+)", text))
+if efforts != {'"high"'}:
+    fail(f"the copy binds :effort to {sorted(efforts)}, not only to high")
 print(text, end="")
 EOF
 ) || refuse "a binding is not $MODEL on $TEMPLATE"

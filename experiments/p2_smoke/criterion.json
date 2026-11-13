@@ -3,6 +3,8 @@
   "plan": "docs/plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#a3-the-best-of-n-consumer-m",
   "claims": "measure-free figures only: no judge, no calibration, no quality claim, no comparison",
   "model": "claude-haiku-5-5",
+  "effort": "high",
+  "target": "2.40",
   "items": 4,
   "held_items": ["gamma", "delta"],
   "fixture_commit": "32ff2fc4c760ad49b02872c1b3e96a510aee0603",

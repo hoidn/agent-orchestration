@@ -34,11 +34,12 @@ N. Measure-free figures only: no judge, no quality claim.
 ## The program and the kill
 
 The workspace gets a copy of the runtime's
-`experiments/orc_vs_single_call/workflows/best_of_n.orc` with exactly the
-changes the deterministic tests make (target 2.37, the candidate map
-`:parallel 2 :workspace repo`) and its three `:model` literals set to
-`claude-haiku-5-5`; `run_smoke.sh` refuses a source whose literals are not
-the expected ones. Four candidate repositories (`alpha` to `delta`) each hold
+`experiments/orc_vs_single_call/workflows/best_of_n.orc` with the candidate
+map the deterministic tests add (`:parallel 2 :workspace repo`), target 2.40,
+its three `:model` literals set to `claude-haiku-5-5` and the coder's
+`:effort "medium"` set to `"high"` (the judge's is already `"high"`; it is
+the one value PQ-1c observed Haiku accept); `run_smoke.sh` refuses a source
+whose literals are not the expected ones. Four candidate repositories (`alpha` to `delta`) each hold
 `calc.py` with `add` returning `a - b`; the task is the deterministic test's
 (`inputs.json`).
 
@@ -70,8 +71,8 @@ retry, the readout on constructed results), on a closed `PATH`.
 
 ## How models and calls are bound
 
-Every call is `claude-haiku-5-5`: the source copy's literals, checked by exact
-id, and every model variable of the run's fresh environment (`env -i`). Both
+Every call is `claude-haiku-5-5` at effort `high`: the source copy's
+literals, checked by exact value, and every model variable of the run's fresh environment (`env -i`). Both
 aliases are on the Claude metered template, so every call prints transport
 JSON and records `usage.json`; `codex` on the run's `PATH` is a stub that logs
 and fails. Every call goes through `smoke_claude.sh`, first on the run's
@@ -94,10 +95,10 @@ with provider observation (tmux) off.
   reported cost and the highest-tier price), with USD 0.5 for each launch
   without complete usage including this one, passes USD 3. The `run` also
   has `--max-cost-usd 3`.
-- `resume` has no `--max-cost-usd`. After the kill the held attempts have no
-  `usage.json`, and a capped resume stops with `spend_cap_unmetered` by
-  contract ([CLI, "Spend cap"](../../specs/cli.md)); the rehearsal confirmed
-  it. The wrapper's limits apply to the resume's calls.
+- `resume` runs without `--max-cost-usd`, because a capped resume refuses
+  the held attempts the kill left unmetered (`spend_cap_unmetered`,
+  [CLI, "Spend cap"](../../specs/cli.md)), so the wrapper's limits above
+  bound the resume's calls.
 - Planned: 5 calls. One retry by `resume` uses at most the 2 calls left.
 - A stop by a spend limit is an observation (`fail`), never retried.
 

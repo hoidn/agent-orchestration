@@ -169,10 +169,12 @@ def test_launcher_refuses_any_binding_but_the_claude_metered_template(tmp, bindi
     assert refused(launched, "bindings:") and nothing_launched(tmp), launched.stderr
 
 
-def test_launcher_refuses_a_source_whose_models_are_not_the_ones_it_rebinds(tmp):
+@pytest.mark.parametrize("old, new", [(':model "gpt-6-sol"', ':model "claude-fable-5-1"'),
+                                      (':effort "high"', ':effort "low"')], ids=["model", "effort"])
+def test_launcher_refuses_a_source_whose_literals_are_not_the_ones_it_rebinds(tmp, old, new):
     def edit(runtime):
         source = runtime / SOURCE
-        source.write_text(source.read_text().replace(':model "gpt-6-sol"', ':model "claude-fable-5-1"', 1))
+        source.write_text(source.read_text().replace(old, new, 1))
     launched = launch(tmp, runtime=_runtime(tmp, edit, commit_edit=True))
     assert refused(launched, "bindings:") and nothing_launched(tmp), launched.stderr
 
@@ -272,13 +274,13 @@ def test_the_wrapper_refuses_a_claude_started_inside_the_smoke(tmp):
 
 # --- the rehearsal ---
 
-def test_rehearsal_makes_five_calls_each_through_the_wrapper_on_haiku(rehearsal):
+def test_rehearsal_makes_five_calls_each_through_the_wrapper_on_haiku_at_high_effort(rehearsal):
     made = calls(rehearsal)
     assert len(made) == 5
     for call in made:
         argv = call["argv"]
-        assert (argv[:len(WRAPPER_FLAGS)], argv[argv.index("--model") + 1], "stream-json" in argv, call["in_run"]) == (
-            WRAPPER_FLAGS, MODEL, True, "1")
+        assert (argv[:len(WRAPPER_FLAGS)], argv[argv.index("--model") + 1], argv[argv.index("--effort") + 1],
+                "stream-json" in argv, call["in_run"]) == (WRAPPER_FLAGS, MODEL, "high", True, "1")
 
 
 def test_rehearsal_is_killed_mid_map_and_completes_on_resume(rehearsal):
