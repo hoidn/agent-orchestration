@@ -904,3 +904,92 @@ true, 1 open. Five documents are marked Historical (notices added, 0 lines delet
 - 19.3: `legacy_adapter_missing_fixture` is a declared lint that nothing emits.
 - 14.5: open for T10, which must write the 2.35 to 2.38 exact-effects rule before retiring
   `effect_ledger_simplification`.
+
+## T3b: Closed Migration Designs
+
+Lane B, after T3a. The four documents were read in full. Written: specification
+[§17.1](../design/workflow_lisp_frontend_specification.md#171-private-frontend-lowered-value-lane) (values between steps, replacing the
+flat private-lane text) and the code map's
+[Runtime Boundary](../../orchestrator/workflow_lisp/README.md#runtime-boundary) (module owners
+and the import boundary); the code map's design list marks the documents retired by T3a and
+T3b. Owners in blocked files (`specs/cli.md`) are quoted only where the sentence was read in
+`main`'s working copy. Probes: under `/tmp/lb2/r` (compile, and runs with the stand-in command
+or a stand-in `codex` on a closed `PATH`).
+
+### `consolidation`
+
+| # | Document, section | Rule as written | Class | Owner | Owner's sentence | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| 20.1 | Ownership And Target Topology, table | Which module owns loading, checking, target facts, program identity, provider IO, typed prompt rendering, run-reference wire checks; what stays compiler-owned | written | [Code map, Runtime Boundary](../../orchestrator/workflow_lisp/README.md#runtime-boundary) | The table (eight rows) | Each module exists; `syntax.py` and `closed/target.py` import `contracts/closed_program/targets.py`; `evaluated/prompts.py` imports `workflow/typed_prompt_inputs.py`; `workflow_lisp/diagnostics.py` imports `contracts/program_identity`; `compute_compiler_runtime_identity` in `run_ref/contracts.py` |
+| 20.2 | Ownership And Target Topology | Parent evaluation, read-only inspection and coordinator recovery never import the compiler, also through deferred imports; the run-reference child compile entry stays compiler-owning | written | Code map, Runtime Boundary | "What runs a program never imports `orchestrator.workflow_lisp`, also not through a deferred import ... and so does the run-reference child compile entry, at its own process boundary." | `tests/test_workflow_closed_program_isolation.py` (six tests under an import blocker) |
+| 20.3 | Ownership; Contracts 8 | The CLI is compiler-owning; resume rebuilds and compares before execution | present | [CLI, Resume preflight precedence](../../specs/cli.md#resume-preflight-precedence) | "A fresh in-memory build from the recipe ... `resume_program_changed` when the fresh digest differs." | Read in `main`'s working copy |
+| 20.4 | Ownership | Serialized programs contain no physical IO roots | present | [State](../../specs/state.md) | The `closed_program.json` row: "Its provenance-free digest equals the header `program_digest`" (no roots in the artifact); the run root is recorded in the header (`result_root`) | T4e `vl`: the closed program holds `let`, `name`, `perform`, `halt` nodes and no workspace path |
+| 20.5 | Ownership (provider IO) | `ProviderIOContext.bind` checks the call mapping, slots, sites, entry and digest; missing or mismatched bindings fail closed; asset prompts keep their owner's root | present | Code map, Runtime Boundary (owner); [frontend §22.3](../design/workflow_lisp_frontend_specification.md#223-prompt-extern-source-semantics) | §22.3: "explicit `{ \"asset_file\": \"...\" }` entries are workflow-source-relative and may not escape the workflow source tree" | `tests/test_workflow_closed_program_isolation.py::test_imported_reader_routes_and_binding_refusals_without_compiler`; run `px` with `asset_file: ../outside.md`: "asset path traversal outside the workflow source tree is not allowed" |
+| 20.6 | Contracts 1, 2 | One checked artifact through `ClosedProgram.from_artifact`; schema `workflow-lisp/closed-program/1`, `table/1`; canonical bytes and digest | present | [State](../../specs/state.md) | "The checked closed program (`schema: workflow-lisp/closed-program/1`, `representation: table/1`, ...): authority for the run's first program; never replaced. Its provenance-free digest equals the header `program_digest`; its byte content equals the canonical artifact serialization" | Read |
+| 20.7 | Contracts 3 | Effect identity is site plus activation path, independent of inputs; equal inputs at two sites do not merge | present | [State](../../specs/state.md) | "The dynamic effect identity is the ordinary owner/site, procedure activation ..." (line 1984) | Read |
+| 20.8 | Contracts 4, 5, 6 | Honest package pins; format changes are separate migrations; extraction preserves behavior | history | - | - | Obligations of the closed extraction |
+| 20.9 | Contracts 7 | Writer locks, journal validation, suffix invalidation; a committed effect is not redispatched; coordinators `prepare` → `committed` → `settle`, `reconcile` | present | [State, Memo records](../../specs/state.md#memo-records) | "a committed result is never ..." (line 424); `settled`: "A coordinator's final commit, after its `committed`"; CLI steps 1, 2: `run_already_active`, `memo_inconsistent` | Read |
+| 20.10 | Contracts 8 | Unsupported classes are build refusals, never a flat fallback | present | [CLI](../../specs/cli.md) | Diagnostics table: "`closed_program_gap`, ... `compile`; `run`; the fresh build of `resume`" | Literal in `closed/build.py` |
+| 20.11 | Summary; Problem; Migration contract; Evidence; Operations | Extraction plan, cutover, acceptance scenarios, delivery | history | [Retirement closeout](../reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md) | - | - |
+
+### `runtime_migration_foundation`
+
+| # | Document, section | Rule as written | Class | Owner | Owner's sentence | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| 21.1 | §8, §9, §15.1 | Command bundle: runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` wins over authored values; parent prepared before launch; validated after exit 0; missing or invalid fails; stdout is not authority; nonzero exit is primary | present | [Step IO](../../specs/io.md) | "The runtime-owned value wins over any caller-provided environment value for the same name." ... "the runtime creates or validates the parent directory before launching the command." ... "The bundle file, not stdout JSON, is semantic authority" ... "If the command exits non-zero, the command failure remains primary." | Runs: `rt opt` writing nothing: `command_result_missing`; `rt` with an unknown mode (exit 1): `command_exit_nonzero` |
+| 21.2 | §11, §15.2 | Provider bundle: runtime-owned binding; prompt text is guidance; wrong-path writes fail, no copy-recovery | present | [Step IO](../../specs/io.md) | "prompt text is guidance. The declared bundle file remains the semantic authority." ... "If the provider exits `0` but writes the bundle to any other path, the step fails as an output-contract failure." | T4e run `pm` (stand-in writes nothing): `provider_result_missing` |
+| 21.3 | §12 | Prompt externs: string means `asset_file`; `asset_file` source-relative and cannot escape; `input_file` workspace-relative | present | [Spec §22.3](../design/workflow_lisp_frontend_specification.md#223-prompt-extern-source-semantics) | "string prompt extern entries are backward-compatible shorthand for `asset_file`" ... "may not escape the workflow source tree" ... "explicit `{ \"input_file\": \"...\" }` entries are workspace-relative" | Runs `px` (stand-in `codex`, closed `PATH`): string `"p.md"` commits; `input_file: outside.md` commits; `asset_file: ../outside.md` fails `evaluated_execution_failed` "asset path traversal outside the workflow source tree is not allowed". Compile accepts all four: the check runs when the call runs |
+| 21.4 | §12.2 | "Diagnostics say whether a missing prompt was resolved as source-relative asset or workspace-relative input" | not true of the code | - | - | Run `px` with `asset_file: missing.md`: "[Errno 2] No such file or directory: '/tmp/lb2/r/px/src/missing.md'" (the resolved path only) |
+| 21.5 | §10, §15.3, §16.3 | Lowered values (lists, maps, records, nested paths) cross steps as validated values, not pointer files or prose | written | [Spec §17.1](../design/workflow_lisp_frontend_specification.md#171-private-frontend-lowered-value-lane) | "A step's validated result is a value ... passes to a later step, a provider's `:inputs` ... or a command's `:inputs` ... as that value. The checked program binds it by name and the run's memo records it; no file or pointer is written to carry it between steps." | `vl` (a record holding `List[Doc]` passed to a command's `:inputs` and a provider's `:inputs`) builds; its closed program has no node that writes a file; [State](../../specs/state.md#memo-records): "The validated typed `value` is the result" |
+| 21.6 | §10.3, §10.4 | Materialized value views; private artifact catalog; `private_artifact_versions`; consume preflight and consume prompt blocks | removed code | - | - | `materialize-view` in `RETIRED_FORMS`; no `consumes` in Workflow Lisp; §17.1's former text replaced |
+| 21.7 | §8, §14, §15.5, §16.4 | `StateLayout`/`PathAllocator`, hidden `__write_root__` inputs, run-isolated generated paths | removed code; run isolation present | [State](../../specs/state.md) | Attempt results live under the run root (`effects/<identity>/attempt-N/result.json`, [Step IO](../../specs/io.md#evaluated-command-and-provider-io-target-235)) | `grep`: no `PathAllocator`, `StateLayout` class or `__write_root__` in `orchestrator/` |
+| 21.8 | §15.5 | Formatting-only source edits do not change resume identity | present | [CLI, Resume preflight precedence](../../specs/cli.md#resume-preflight-precedence) | "Formatting and provenance-only changes build the same digest" | T4e probes `ida`/`ide` (whitespace only): same `program_digest` |
+| 21.9 | §13, §15.4, §16.2, §21.5, §22.4 | Promotion gate, `non_regressive`, parity reports | history | [Capability matrix](../capability_status_matrix.md) (route-readiness registry) | "Use the route-readiness registry and its current owner evidence to decide whether a workflow is suitable for copying." | T5b.25 |
+| 21.10 | §1 to §7, §17 to §23 (rest) | Purpose, sequencing, invalidation list, evidence, tests, scenarios | history | - | - | - |
+
+### `private_runtime_state_and_consumer_value_flow`
+
+| # | Document, section | Rule as written | Class | Owner | Owner's sentence | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| 22.1 | Recovery boundary | Old runs are read-only history; recovery needs an exact release; no shim, replay or repair | present | [State, State Integrity and Recovery](../../specs/state.md#state-integrity-and-recovery); [CLI](../../specs/cli.md#executable-support-boundary) | As rows 8.1 and 8.2 (T1) | Read |
+| 22.2 | Recovery boundary | Positive absence selects one unique nearest prior boundary; unusable or ambiguous state fails closed without scanning older boundaries | present | State, State Integrity and Recovery | As row 8.3 (T1): "default resume never searches an older point" | Read |
+| 22.3 | §2, §7.1, §12 | Typed values are the carrier; checkpoints are disposable cache, never authority | present (values); removed code (checkpoints) | [Spec §17.1](../design/workflow_lisp_frontend_specification.md#171-private-frontend-lowered-value-lane); State | As 21.5; the evaluated runtime keeps no checkpoint (row 8.5) | - |
+| 22.4 | C1 | Scalar, record and relpath `provider-result :inputs` render at the prompt seam without a producer file | present | [Spec §22.4](../design/workflow_lisp_frontend_specification.md#224-call-local-provider-policy) | "Automatic typed-value rendering into the provider prompt follows the existing implicit renderer selection: supported scalars, records, relpaths, target-2.19 exact `Value`, and recursively admitted lists do not need family-profile metadata." | `vl` builds; `ri1` (`Map[String, Int]`) and `ri2` (`Optional[Int]`) build too |
+| 22.5 | C1 | Evidence rows (renderer id/version, value and byte digests) match bindings one-to-one before provider preparation | removed code (off the execution path) | - | - | T4b P.11, F.3: the evaluated runtime publishes no prompt evidence; the input digests are in the memo |
+| 22.6 | C6 | Missing or ambiguous renderer selection fails before provider launch | present | Spec §22.4 | "Phase lowerings retain their atomic whole-input fallback or fail before launch when no fallback exists." | Read |
+| 22.7 | §7.2, §7.6, §8, C2 to C5, rest of C6 | Rendering lanes, path classification census, `:publish`, bridge metadata | history (dropped by the [roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions)) | - | - | No `:publish` keyword or bridge metadata in the code |
+| 22.8 | Track R, §12 failure modes, §16.1, §16.2 | Lexical checkpoints and their resume | removed code | [State](../../specs/state.md#state-integrity-and-recovery) | "The checksum, projection, lexical-checkpoint and backup details below describe the retired flat runtime" | Row 8.5 (T1) |
+| 22.9 | §14 | `resume-or-start` is domain state, not execution position | removed code | - | - | `resume-or-start` in `RETIRED_FORMS` |
+| 22.10 | §1 to §6, §13, §15 to §18 | Purpose, census, evidence, scenarios | history | - | - | - |
+
+### `procedure_migration_identity_compatibility`
+
+| # | Document, section | Rule as written | Class | Owner | Owner's sentence | Check |
+| --- | --- | --- | --- | --- | --- | --- |
+| 23.1 | Header; Summary; Decision | A procedure-first migration is strict-compatible by default; identity retirement is never available to public, exported, promoted or live callees or with a supported old-identity consumer; retirement remaps nothing | present; **OPEN for T10** | [Procedure-first reuse contract](../design/workflow_lisp_procedure_first_reuse_contract.md#migration-test), which T10 retires | "A procedure-first migration is strict-compatible by default. ... Identity retirement is never available to a public or exported callee, a promoted or live route, or any migration with a supported consumer of the old identity. It supplies evidence only and does not remap old state." | T10 carries the boundary rule of the reuse contract; it must keep this sentence |
+| 23.2 | General upgrader boundary; Strict-compatible scenario | A changed source cannot resume an old run; a general upgrader is deferred | present | [CLI, Resume preflight precedence](../../specs/cli.md#resume-preflight-precedence) | "`resume_program_changed` when the fresh digest differs" ... "Formatting and provenance-only changes build the same digest; `workflow_checksum` is not compared." | Read in `main`'s working copy |
+| 23.3 | Header | Old-profile resume refuses before writes | present | [State, State Integrity and Recovery](../../specs/state.md#state-integrity-and-recovery) | As row 8.1 (T1) | Read |
+| 23.4 | Header; invariants | Public wrappers, contracts, typed artifacts, resolved effects and provenance survive a migration | present; **OPEN for T10** | Procedure-first reuse contract, Migration Test item 6 | "Before/after executable comparison proves public inputs/outputs, terminal states, artifacts/publications, effects, source maps, state/write roots, checkpoint identities, and resume/reuse behavior equivalent." | As 23.1 |
+| 23.5 | Prerequisite A | Lowering resolved once in Stage 3 and carried unchanged | compiler internal; 2.39 removes authored `:lowering` | [Spec §8.8](../design/workflow_lisp_frontend_specification.md#88-defproc) | "Authored `:lowering` is rejected; reusable procedures use caller-owned inline composition." | T4a row 12.23 probe (`proc_lowering_annotation_invalid` at 2.40) |
+| 23.6 | Prerequisite B | Inline procedures add no workflow-call checkpoint; checkpoints come from the body's effects | present (as identity) | [State](../../specs/state.md) | "The dynamic effect identity is the ordinary owner/site, procedure activation ..." | No checkpoints in the evaluated runtime; effects in an inlined procedure are sites of the caller (T4e `p1`: the `p-list` command is a site of `run`) |
+| 23.7 | Prerequisite C | Persisted source-map notes carry procedure definition and call site | not true of the checked program | - | - | Row 18.7 (T3a) |
+| 23.8 | Prerequisite D; retirement record; scanner | Evidence-only retirement record, store attestation, root and callee checksum rejection before `WorkflowExecutor` | removed code | - | - | Generator removed (M1, per the document); `WorkflowExecutor` gone; old profiles refuse (23.3) |
+| 23.9 | No family-name special cases | Prerequisites and decisions never key on family, module or procedure names | present | [Design principles §28](../design/workflow_language_design_principles.md) | "Authority never keys on identifier spelling." | Read |
+| 23.10 | Pilot, verification, stop criteria, documentation impact | Pilot evidence and checklist | history | - | - | - |
+
+**Counts.** 41 rows. `consolidation` 11: 2 written, 7 present, 2 history.
+`runtime_migration_foundation` 10: 1 written, 4 present, 2 removed code, 1 not true of the code,
+2 history. `private_runtime_state_and_consumer_value_flow` 10: 5 present (22.3 also removed code),
+3 removed code, 2 history. `procedure_migration_identity_compatibility` 10: 6 present (23.1 and
+23.4 OPEN for T10, on a current owner that T10 retires), 1 compiler internal, 1 not true of the
+checked program, 1 removed code, 1 history. In all: 3 written, 22 present, 6 removed code, 2 not
+true, 1 compiler internal, 7 history; 2 open for T10 on a current owner. All four documents are
+marked Historical (notices added, 0 lines deleted).
+
+**Findings.**
+
+- 21.3: prompt extern paths are checked when the call runs, not at compile time; a bad
+  `asset_file` passes `compile`.
+- 21.4: a missing prompt file is reported as a bare `[Errno 2]` with the resolved path, not with
+  the source kind, as the document promised.
+- Not edited (outside T3b's files): §22.3 could state that the extern check happens at run time.

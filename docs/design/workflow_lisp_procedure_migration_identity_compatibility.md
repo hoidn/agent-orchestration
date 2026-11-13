@@ -1,5 +1,9 @@
 # Workflow Lisp Procedure-Migration Identity Compatibility
 
+Status: **Historical — archived in place.** Superseded: its strict-compatibility default and the bounds of the reviewed retirement class are stated in the procedure-first reuse contract; a changed program refusing resume is stated by CLI; its retirement-record generator, flat checksums and `WorkflowExecutor` proofs describe removed code. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [procedure-first reuse contract](workflow_lisp_procedure_first_reuse_contract.md#migration-test); [CLI, Resume preflight precedence](../../specs/cli.md#resume-preflight-precedence). Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#procedure_migration_identity_compatibility).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current boundary: identity/checksum evidence is never a state remap. Strict
 compatibility remains the default for supported callers; public wrappers,
 contracts, typed artifacts, resolved effects and source provenance must survive

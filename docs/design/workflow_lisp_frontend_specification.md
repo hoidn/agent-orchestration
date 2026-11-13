@@ -2400,23 +2400,11 @@ published artifacts store values rather than pointer-file paths.
 
 ### 17.1 Private Frontend-Lowered Value Lane
 
-The runtime migration foundation adds a private executable value-transport lane
-for lowered Workflow Lisp values that are richer than the public authored-YAML
-boundary. The frontend may lower scalar, relpath, list, map, record-like,
-tagged, and nested relpath-containing values into validated executable
-contracts without making those shapes ordinary public YAML artifacts.
-
-When such values must cross materialization, publish, consume, prompt
-rendering, or reusable-call boundaries:
-
-- normalized typed values remain semantic authority;
-- scalar/list/map materialized files are value views, not pointer authority;
-- collection or record-like private artifacts use executable-private catalog
-  identities plus additive state ledgers, not the public `artifact_versions`
-  shape;
-- prompt consume rendering is a deterministic view over resolved values;
-- public authored YAML compatibility restrictions remain in force unless
-  `specs/dsl.md` deliberately widens them.
+A step's validated result is a value: a record, union, list or map, also one holding paths,
+passes to a later step, a provider's `:inputs` (rendered into the prompt, §22.4) or a command's
+`:inputs` (a typed input document) as that value. The checked program binds it by name and the
+run's memo records it; no file or pointer is written to carry it between steps. A path value
+names a file; it is not a file that holds a value.
 
 For review/revise loops, review-provider output is decision evidence, not
 carried-artifact identity authority. Consumed evidence such as checks reports,
