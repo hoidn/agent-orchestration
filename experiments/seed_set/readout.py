@@ -31,6 +31,11 @@ LIMITS = (  # stated on every readout, one line each; recorded, not changed (coo
     "A check-withheld run whose patch creates or edits the withheld test's path fails the host visible check (its "
     "patch does not apply to the in-tree view); this touches the visible-check figures only, not the gates.",
     "A T5 choice is always a stop: T4 and T5 hold 11 tasks together, short of the 20 the frozen thresholds need.",
+    "A probe rung that kept 3 usable runs of 4 has its passes counted on four as round(4 x passes / 3) (the probe "
+    "readout states the raw counts); this chooses the rung only and is not a quality gate.",
+    "T2 is a short commit message plus the names of the files to change (a recorded deviation: with the message "
+    "alone every T2 statement falls under the plan's 80-character floor); T2 differs from T1 by the commits "
+    "selected (up to two files and 60 lines, against one file and 20), not by the form of the statement.",
 )
 
 

@@ -162,7 +162,15 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
     record = load(records / "record.json")
     if record["claude_model"] != spec["model"]:
         shutil.rmtree(record["tree"])
+        units.forget_credentials(record["sandbox"]["home"])
         raise SystemExit(f"{records}: prepared for {record['claude_model']}, not {spec['model']}; nothing started")
+    try:  # the unit's copied credentials go however it ends (review2 minor 7, coordinator ruling)
+        return records, start_run(study, tranche, arm, spec, task, fix, limit, records, record, extra)
+    finally:
+        units.forget_credentials(record["sandbox"]["home"])
+
+
+def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extra):
     boundaries(study, Path(record["candidates"][0]))
     env = launch_env(spec["model"], spec["max_calls"], records / "host-home",
                      withheld=stage_withheld(task_dir(study, task), records))
@@ -175,11 +183,10 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
     except SystemExit:
         (records / "study.json").unlink()  # refused: nothing started, nothing left on disk
         shutil.rmtree(record["tree"])
-        units.forget_credentials(record["sandbox"]["home"])
         raise
     facts["exit"] = launch(records / "command.sh", env, records / "run.log", spec["max_calls"] * CALL_SEC + SLACK_SEC)
     dump(records / "study.json", facts)
-    return records, finish(study, records, facts, fix)
+    return finish(study, records, facts, fix)
 
 
 def finish(study, records, facts, fix):
@@ -278,6 +285,7 @@ def build_pools(study, tranche, kind, tasks):
             shutil.rmtree(out, ignore_errors=True)
             pool_incident(study, task, kind, f"not pooled: {error}")
             continue
+        units.forget_credentials(out / ".private-homes")  # a judge copies its own at launch (one_judge)
         units.disable_resume(*(out / "records").glob("resume-*.sh"))
         hits = blinding.scan_pool(out, task_dir(study, task), blinding.identity_tokens(study, load_arms(study), runs))
         dump(out / "records" / "identity-scan.json", {"hits": hits})
@@ -318,10 +326,14 @@ def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     pooling.verify_pool(out)
     judged = blinding.judged_patches(out, mapping)  # what this judge reads, bound to its ratings in the readout
     spend.reserve(study.ledger, tranche, "judge", model, batches, f"{out}#{model}", task=task, pool=kind)
-    start = time.time()
-    facts = {"judged_patches": judged, "exit": launch(records / f"score-{model}.sh", launch_env(
-        model, batches, records / f"host-home-{model}"), records / f"judge-{model}.log", batches * JUDGE_SEC + SLACK_SEC)}
-    units.forget_credentials(mapping["judges"][model]["sandbox"]["home"])
+    start, home = time.time(), mapping["judges"][model]["sandbox"]["home"]
+    units.copy_credentials(home)  # the pool keeps none; the judge's own home holds them for its launch only
+    try:
+        facts = {"judged_patches": judged, "exit": launch(records / f"score-{model}.sh", launch_env(
+            model, batches, records / f"host-home-{model}"), records / f"judge-{model}.log",
+            batches * JUDGE_SEC + SLACK_SEC)}
+    finally:
+        units.forget_credentials(home)
     facts |= {"wall_clock_sec": time.time() - start, "calls": units.physical_calls(records / "judges" / model)}
     if facts["calls"] > batches:
         raise SystemExit(f"{out}#{model}: {facts['calls']} provider calls exceed the {batches} reserved; stop")

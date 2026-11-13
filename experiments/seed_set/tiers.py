@@ -11,7 +11,7 @@ count files and added plus deleted lines under `orchestrator/` (`tier_of`, first
 | T6 | a run adding 1,000-3,000 source lines | the run's subjects in order | withheld |
 | T4 | 6-15 files or 200-600 lines (at most 15 files and 600 lines) | message | both |
 | T1 | one file, at most 20 lines | message plus "The change is in <file>." | both |
-| T2 | at most two files and 60 lines | message (one under 80 characters is dropped, review2 M8) | both |
+| T2 | at most two files and 60 lines | short commit message plus the names of the files to change (a body-less one under 80 characters; recorded deviation from the plan, coordinator ruling on review2 M8: with the message alone every T2 statement falls under the 80-character floor) | both |
 | T3 | the tasks of the first build (`tasks.jsonl`), unchanged; one failing the leak audit gets `rejected` | message | both |
 | T0 | a variant of each T1 package whose statement also quotes the visible check's failing `E` lines, identical in all five oracle base runs | | in-tree |
 
@@ -28,8 +28,8 @@ probe tasks.
 Outputs: `tasks/<id>/` (in-tree), `tasks/<id>-withheld/`, `tasks/<id>-t0/`; `tasks.jsonl` (one row per task,
 with tier, form and both forms' sha256; `verify` rechecks them); `ladder_screening.jsonl` (every commit and run
 considered, its tier and reason, and wall times). `rebuild --tier T` evaluates one tier again and replaces only
-its packages, rows and screening records (T2 after review2 M8; the smoke moves to the new T2's first task that is
-not a probe task, ruling 1). Depends on `build_tasks`, `forms` and git.
+its packages, rows and screening records (a T2 rebuild moves the smoke to the new T2's first task that is not a
+probe task, ruling 1). Depends on `build_tasks`, `forms` and git.
 """
 
 import argparse
@@ -73,7 +73,9 @@ def tier_statement(tier, cand):
     text = cand.get("statement") or b.statement(cand["message"])
     if tier == "T1":
         return text + f"\nThe change is in {cand['source_files'][0]}.\n"
-    return text  # T2 and up: the message alone (coordinator ruling on review2 M8: no file names for T2)
+    if tier == "T2" and len(text.strip()) < b.MIN_TEXT and "\n" not in text.strip():
+        return text + f"\nThe change is in {' and '.join(cand['source_files'])}.\n"
+    return text
 
 
 def topic_runs(repo=b.ROOT, tip=b.TIP):

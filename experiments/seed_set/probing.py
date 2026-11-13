@@ -81,6 +81,11 @@ def results(study, phase):
                 figures[rung]["incomplete"] = True
             else:
                 passes[rung] = round(Fraction(ladder.PROBE_TASKS * figures[rung]["passes"], len(good)))
+                if len(good) < ladder.PROBE_TASKS:
+                    figures[rung]["counted_on_four"] = (
+                        f"{figures[rung]['passes']} of {len(good)} usable runs counted as {passes[rung]} of "
+                        f"{ladder.PROBE_TASKS}: round(4 x passes / usable), for the choice of rung only, not a "
+                        "quality gate")
     return passes, figures
 
 
@@ -251,7 +256,10 @@ def probe_readout(study):
     now, (first, first_figures), (extension, extension_figures) = (
         answer(study), results(study, "first"), results(study, "extension"))
     share = self_check_share(first_figures)
-    out = {"answer": now, "first": first_figures, "extension": extension_figures, "self_check_share": share}
+    out = {"answer": now, "first": first_figures, "extension": extension_figures, "self_check_share": share,
+           "counted_on_four": {f"{phase}/{rung}": f["counted_on_four"] for phase, figures in
+                               (("first", first_figures), ("extension", extension_figures))
+                               for rung, f in figures.items() if "counted_on_four" in f}}
     path, facts = study.results / CHOSEN, {}
     if ("chosen" in now or "split" in now) and not path.is_file():
         draw(study, now, extension if now["phase"] == "extension" else first, share, out)
@@ -263,7 +271,8 @@ def probe_readout(study):
         rules.stop(study, now.get("stop") or out["stop"])
     study.results.mkdir(parents=True, exist_ok=True)
     dump(study.results / "probe-readout.json", out)
-    print(json.dumps({**now, "drawn": out.get("drawn")}))
+    print(json.dumps({**now, "drawn": out.get("drawn"), **({"counted_on_four": out["counted_on_four"]}
+                                                           if out["counted_on_four"] else {})}))
     return out
 
 

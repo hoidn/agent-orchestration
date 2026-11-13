@@ -121,7 +121,8 @@ def world(tmp_path, monkeypatch):
     declaration = write_test_sandbox_config(fakebin, outside / "sandbox.json", readonly_files=(stub_plan,),
                                             environment_names=("SEED_SET_STUB_PLAN",))
     empty = tmp_path / "empty-home"
-    empty.mkdir()
+    (empty / ".claude").mkdir(parents=True)
+    (empty / ".claude" / ".credentials.json").write_text("{}")  # a stand-in the sandbox copies into each unit
     for key, value in {"PATH": closed_path(fakebin), "COMPARE_SANDBOX": declaration, "SEED_SET_STUB_PLAN": stub_plan,
                        "HOME": empty,
                        "CODEX_HOME": empty / ".codex", "CLAUDE_CONFIG_DIR": empty / ".claude"}.items():
@@ -141,6 +142,12 @@ def world(tmp_path, monkeypatch):
     shutil.rmtree(outside)
     shutil.rmtree(runtime)
     shutil.rmtree(main)
+
+
+def credentials(s):
+    """Credential files left under the work root, the pools or the results."""
+    return sorted(str(p) for root in (s.work, s.pools, s.results) if root.exists()
+                  for p in root.rglob("*") if p.name in (".credentials.json", "auth.json"))
 
 
 def calls_before_reservation(rows):
@@ -173,15 +180,19 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     spend.record(s.ledger, "smoke", passed=True)  # the smoke itself is the next test
     study.candidates(s, "calibration", "direct", tasks)
     study.candidates(s, "calibration", "direct_sonnet", tasks)
+    left = [credentials(s)]
     for kind in ("first", "retest"):
         study.build_pools(s, "calibration", kind, tasks)
+        left.append(credentials(s))  # a pool whose judges have not launched (or never will) holds none
         if kind == "retest":
             with pytest.raises(SystemExit, match="before the early judge look"):
                 study.judge(s, "calibration", kind, tasks)
             assert rules.early_look(s)["passed"] is True  # the reference scores 8 above the base on both tasks
         study.judge(s, "calibration", kind, tasks)
+        left.append(credentials(s))
         study.summarize_pools(s, kind, tasks)
     report = study.write_readout(s)
+    assert left == [[]] * 5  # copied credentials never outlive a command
 
     rows = spend.rows(s.ledger)
     totals = study.ledger_report(s)["calibration"]
@@ -322,6 +333,7 @@ def test_offline_pool_with_a_patch_naming_its_model_is_refused_before_any_judge(
     study.candidates(s, "calibration", "direct", [task])
     study.build_pools(s, "calibration", "first", [task])
     study.judge(s, "calibration", "first", [task])
+    assert credentials(s) == []  # nor a refused pool's
     incident = json.loads((s.results / "pools" / f"{task}-first" / "incident.json").read_text())
     assert ("arm-identifying text" in incident["reason"], "claude-haiku-5-5" in incident["reason"],
             (s.pools / task / "first").exists(), [r["kind"] for r in spend.starts(spend.rows(s.ledger))]) == (

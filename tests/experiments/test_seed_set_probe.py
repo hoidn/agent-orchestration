@@ -362,6 +362,7 @@ def test_a_relaunched_incident_launches_no_third_time_and_its_task_is_excluded(s
     flat_with(s, "T3", units)
     figures = probing.results(s, "first")
     assert (figures[0]["T3"], figures[1]["T3"]["excluded"]) == (3, ["T3-00"])  # 2 of 3 usable pass: 3 on four
+    assert probing.probe_readout(s)["counted_on_four"]["first/T3"].startswith("2 of 3 usable runs counted as 3")
 
 
 def test_a_rung_with_two_usable_runs_of_four_stops_the_probe_with_no_list(s):

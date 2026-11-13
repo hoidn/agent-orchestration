@@ -16,7 +16,9 @@
 """
 
 import json
+import os
 import re
+import shutil
 from pathlib import Path
 
 from experiments.compare import scan
@@ -36,6 +38,17 @@ def forget_credentials(home):
     for path in Path(home).rglob("*"):
         if path.name in (".credentials.json", "auth.json") and path.is_file():
             path.unlink()
+
+
+def copy_credentials(home):
+    """The Claude credentials into a unit's private home, as the sandbox's `prepare_unit` copies them (from
+    CLAUDE_CONFIG_DIR or ~/.claude), when the provider has a credentials file; `forget_credentials` removes them."""
+    source = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path(os.environ.get("HOME") or Path.home()) / ".claude")
+    source, destination = source / ".credentials.json", Path(home) / ".claude" / ".credentials.json"
+    if source.is_file():
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        shutil.copyfile(source, destination)
+        destination.chmod(0o600)
 
 
 def calls(records):
