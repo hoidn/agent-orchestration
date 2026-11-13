@@ -233,3 +233,18 @@ def test_a_refusal_without_an_identity_does_not_print_none() -> None:
                            run_id="r1", launcher="orchestrator", state_dir=None, header=HEADER)
 
     assert not any("None" in line for line in lines)
+
+
+@pytest.mark.parametrize("recorded", ["this orchestrator", "another orchestrator"])
+def test_program_change_offers_restoring_the_source_only_when_that_can_restore_it(recorded: str) -> None:
+    """A run reference records the compiler and runtime identity: after the installed orchestrator changed, restoring
+    the source does not restore the run's program, so that line is not offered (Phase 3b T7)."""
+    from types import SimpleNamespace
+    from orchestrator.workflow.run_ref.contracts import compute_compiler_runtime_identity
+    identity = compute_compiler_runtime_identity().digest if recorded == "this orchestrator" else "sha256:" + "0" * 64
+    stored = SimpleNamespace(tree={"definitions": {"run": {"config": {"compiler_runtime_identity_digest": identity}}}})
+    error = type("Refusal", (ValueError,), {"code": "resume_program_changed"})("current program differs")
+
+    lines = recovery_lines(error, run_id="RUN", launcher="orchestrator", state_dir=None, stored_program=stored)
+
+    assert ("restore the source as it was and resume:" in lines) == (recorded == "this orchestrator")
