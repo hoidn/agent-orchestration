@@ -116,8 +116,41 @@ def _program_changed(exc, context: _Context) -> list[str]:
         changed = _changed_sites(context.stored_program, fresh)
         lines = (["effect sites that differ from the recorded program:", *changed] if changed
                  else ["no effect site changed: only code between effects differs"])
-    return [*lines, "restore the source as it was and resume:", context.resume(),
+    return [*lines, *_plan(context), *_restore(context),
             *context.fresh_run("or start a new run, in which every step runs again:")]
+
+
+def _restore(context: _Context) -> list[str]:
+    """How to resume under the run's own program: restore the source; not when the installed orchestrator changed
+    under a run reference, whose recorded identity no source edit restores."""
+    if context.stored_program is not None and _compiler_changed(context.stored_program):
+        return ["the installed orchestrator differs from the one this run's run references recorded, so restoring "
+                "the source does not restore the run's program"]
+    return ["restore the source as it was and resume:", context.resume()]
+
+
+def _compiler_changed(program) -> bool:
+    from orchestrator.workflow.run_ref.contracts import compute_compiler_runtime_identity
+
+    recorded = set(_values_of(program.tree, "compiler_runtime_identity_digest"))
+    return bool(recorded) and recorded != {compute_compiler_runtime_identity().digest}
+
+
+def _values_of(node, key: str):
+    """Every value stored under `key` anywhere in a JSON tree."""
+    stack = [node]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, Mapping):
+            if key in item:
+                yield item[key]
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+
+
+def _plan(context: _Context) -> list[str]:
+    return [] if context.plan is None else plan_lines(context)
 
 
 def _inputs_changed(exc, context: _Context) -> list[str]:
@@ -148,7 +181,7 @@ def _effect_diverged(exc, context: _Context) -> list[str]:
     shared = ([f"the change also affects {', '.join(unfinished)}, whose last attempt did not finish"
                + ("; resuming accepts its changed files" if unproven else "")] if unfinished else [])
     return [f"step {identity} was committed with other inputs; changed: {parts}; files: {files}", *shared,
-            *(_flag_accepts(context, unproven) if unproven else []),
+            *(_flag_accepts(context, unproven) if unproven else []), *_plan(context),
             "to run this step and every later one again (workspace files are not rolled back):",
             context.command("invalidate", context.run_id, identity),
             context.resume("--accept-changes") if unproven else context.resume()]
@@ -285,22 +318,44 @@ def recovery_lines(exc: Exception, *, run_id: str, launcher: str, state_dir: str
     `plan` (computed read-only after the refusal was decided) is a `rebase.Plan` or the reason none can be accepted.
     """
     code = getattr(exc, "code", "resume_preflight_failed")
+    context = _Context(run_id, launcher, state_dir, header, stored_program, snapshot, plan)
+    if getattr(exc, "change_in_force", None) is not None:
+        return _in_force(exc, context)
     recover = _RECOVERY.get(code)
     if recover is None:
         return [f"about [{code}]: see \"Diagnostics\" in the CLI contract (specs/cli.md)"]
-    context = _Context(run_id, launcher, state_dir, header, stored_program, snapshot, plan)
-    return [*recover(exc, context), *([] if plan is None else plan_lines(context))]
+    return recover(exc, context)
+
+
+def _in_force(exc, context: _Context) -> list[str]:
+    """A failure after an accepted plan's record was appended (window W4) or made durable: nothing was dispatched."""
+    state = "may be" if exc.change_in_force == "may" else "is"
+    return [f"the accepted change {state} in force; nothing was dispatched", "report lists the run's programs:",
+            context.command("report", context.run_id),
+            "resume continues under the program in force:", context.resume()]
 
 
 def plan_lines(context: _Context) -> list[str]:
-    """The plan an acceptance would apply, then its `plan token:` line; or why no plan can be accepted (design §6)."""
+    """The plan an acceptance would apply, then the command that accepts it; or why no plan can be accepted
+    (design §6)."""
     plan = context.plan
     if isinstance(plan, Exception):
         return _no_plan(plan, context)
-    costs = dict(plan.costs)
     return [("if accepted, this run continues under the edited program:" if plan.record == "rebased"
              else "if accepted, this run cancels from the changed step, as invalidate does:"),
-            *_plan_section("kept     ", [_id(entry) for entry in plan.kept], ""),
+            *_plan_body(plan), "to accept this plan:", context.resume(f"--accept-changes={plan.token}")]
+
+
+def accepted_lines(plan) -> list[str]:
+    """The plan an acceptance applied (printed once its record is durable)."""
+    return [("accepted: this run continues under the edited program:" if plan.record == "rebased"
+             else "accepted: this run cancels from the changed step, as invalidate does:"),
+            *(line for line in _plan_body(plan) if not line.startswith("  question "))]
+
+
+def _plan_body(plan) -> list[str]:
+    costs = dict(plan.costs)
+    return [*_plan_section("kept     ", [_id(entry) for entry in plan.kept], ""),
             *_plan_section("cancelled", [_id(entry) + _cost(costs, _id(entry)) for entry in plan.cancelled],
                            ", which run again when reached"),
             *_plan_section("retired  ", [_id(entry) for entry in plan.retired], ", unfinished attempts that are dropped",
@@ -311,8 +366,7 @@ def plan_lines(context: _Context) -> list[str]:
               for identity in plan.waiting),
             *_retried(plan),
             "  runs first: " + (", ".join(plan.runs_first) or "nothing: the run is complete"),
-            *(["  files that cancelled steps wrote in the workspace are not rolled back"] if plan.cancelled else []),
-            f"plan token: {plan.token}"]
+            *(["  files that cancelled steps wrote in the workspace are not rolled back"] if plan.cancelled else [])]
 
 
 def _cost(costs: Mapping[str, float | None], identity: str) -> str:

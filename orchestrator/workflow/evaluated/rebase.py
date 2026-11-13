@@ -15,11 +15,13 @@ are rehashed and never written. Holds no state.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import hashlib
 import json
+import logging
 from pathlib import Path
 import re
+import time
 from typing import Any
 
 from orchestrator.contracts.closed_program.program import ClosedProgram
@@ -32,6 +34,8 @@ from .machine import evaluate_closed_program, site_classes, site_nodes
 from .memo import _encode_record, earlier_tables, read_memo
 from .memo_reducer import _DYNAMIC_INDEX, JournalEntry, is_coordinator_class, reduce_memo
 from .replay import MissingCommit, _Discovery, discover_prefix
+
+logger = logging.getLogger(__name__)
 
 # Exactly the failures of conditions 2 to 4 that mean "not reusable": order, dependencies, the agent cursor and the
 # host payload; the value fit is the one whose cause is a pure coercion fault. Any other `memo_inconsistent` refuses.
@@ -73,6 +77,8 @@ class Plan:
     unproven_reasons: tuple[str, ...] = ()
     waiting: tuple[str, ...] = ()
     costs: tuple[tuple[str, float | None], ...] = ()
+    # The `_EffectInputDiverged` at the cut when a changed input is why it is there; None otherwise.
+    divergence: Exception | None = field(default=None, compare=False, repr=False)
 
 
 class PlanRefusal(ValueError):
@@ -126,7 +132,7 @@ def compute_plan(authority, candidate: ClosedProgram, inputs, *, workspace: Path
         _check_candidate(authority, candidate)
     snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=authority.run_files)
     planning = _planning_authority(authority, candidate, snapshot) if rebased else authority
-    cut, reason = _cut(planning, snapshot, inputs, workspace, provider_io, diverged)
+    cut, reason, divergence = _cut(planning, snapshot, inputs, workspace, provider_io, diverged)
     if not rebased and cut is None:
         raise PlanRefusal("resume_preflight_failed", "no committed step's input changed under the run's program: "
                           "there is no plan to accept")
@@ -146,7 +152,7 @@ def compute_plan(authority, candidate: ClosedProgram, inputs, *, workspace: Path
                 _token(authority, snapshot, candidate, record, cut, cancelled, retired, asked, unproven),
                 tuple(unproven_reason(after, identity) for identity, _attempt, _evidence in unproven),
                 tuple(map(_id, _of_class(after, after.pending_starts.values(), "request_input"))),
-                _costs(authority, snapshot, cancelled))
+                _costs(authority, snapshot, cancelled), divergence)
 
 
 def _split(snapshot, cut):
@@ -226,8 +232,9 @@ def _not_reusable(exc: Exception) -> str | None:
     return detail if detail in _NOT_REUSABLE else None
 
 
-def _cut(planning, snapshot, inputs, workspace, provider_io, known=None) -> tuple[int | None, str]:
-    """(cut, what is at the cut and why): the smallest offset among commits not reused and pending starts not kept."""
+def _cut(planning, snapshot, inputs, workspace, provider_io, known=None):
+    """(cut, what is at the cut and why, the divergence when that is why): the smallest offset among commits not
+    reused and pending starts not kept."""
     lenient = _Lenient(_Discovery(planning, snapshot))
     try:
         evaluate_closed_program(planning.program, inputs, effect_handler=lenient, run_id=planning.header["run_id"],
@@ -245,12 +252,12 @@ def _cut(planning, snapshot, inputs, workspace, provider_io, known=None) -> tupl
         diverged = _first_divergence(planning, snapshot, discovery.prefix.commits, workspace,
                                      min(stale)[0] if stale else None)
     else:           # today's strict pass refused here, having compared every commit before it
-        diverged = snapshot.active_commits[known.identity].offset, known.identity, _what_changed(known)
-    stale += [diverged] if diverged is not None else []
+        diverged = snapshot.active_commits[known.identity].offset, known.identity, _what_changed(known), known
+    stale += [diverged[:3]] if diverged is not None else []
     if not stale:
-        return None, ""
+        return None, "", None
     offset, identity, why = min(stale)
-    return offset, f"{identity}: {why}"
+    return offset, f"{identity}: {why}", diverged[3] if diverged is not None and diverged[0] == offset else None
 
 
 def _pending_not_kept(planning, snapshot, discovery, workspace, why_unreached):
@@ -275,7 +282,7 @@ def _first_divergence(planning, snapshot, reused, workspace, before):
                                                    item.commit, workspace, snapshot, item.owner,
                                                    launch_workspace=item.launch_workspace)
         except effect_inputs._EffectInputDiverged as exc:
-            return item.commit.offset, item.identity, _what_changed(exc)
+            return item.commit.offset, item.identity, _what_changed(exc), exc
     return None
 
 
@@ -465,3 +472,116 @@ def _costs(authority, snapshot, cancelled) -> tuple[tuple[str, float | None], ..
 
     per_step, _total = run_usage(authority.run_root, metered, load_price_table())
     return tuple((row["identity"], per_step[row["identity"]]["cost_usd"]) for row in metered)
+
+
+# ---- acceptance: step 10's gate and step 11's write (design §4, §6) ------------------------------------------------
+
+_STALE = {
+    "journal": lambda plan: "the journal has new records",
+    "program": lambda plan: "the program changed again",
+    "cut": lambda plan: f"the cut moved; it is now at {plan.cut_reason}" if plan.cut is not None else "the cut moved",
+    "sets": lambda plan: "the cancelled steps, the questions asked again, or the unfinished steps or their files changed",
+}
+
+
+def plan_token_argument(text: str) -> str:
+    """argparse `type` of `--accept-changes=TOKEN`. A run id written after the flag is never taken for a token."""
+    import argparse
+
+    if _TOKEN.fullmatch(text) is None:
+        raise argparse.ArgumentTypeError("expected a plan token; write the run id before --accept-changes")
+    return text
+
+
+def accept_plan(authority, candidate: ClosedProgram, inputs, token: str, *, workspace: Path, provider_io,
+                report=None):
+    """Accept the plan `token` names, under the run writer lock the caller holds; return the authority in force.
+
+    The plan is recomputed with the full strict pass and compared with the token here, at one place, before any
+    write (design §6). Then the edited program is published, or a verified artifact of its digest reused; a torn
+    tail is repaired; the record is appended and synchronized; the view is published under the program in force.
+    `report(plan)` runs once the record is durable. A failed sync, or any failure after the record, carries
+    `change_in_force` ("may" or "is"): the caller stops, dispatches nothing and says so."""
+    if authority.confined:
+        raise PlanRefusal("resume_program_changed", "a confined run-reference child never changes program; resume "
+                          "its parent run")
+    plan = compute_plan(authority, candidate, inputs, workspace=workspace, provider_io=provider_io)
+    changed = token_difference(token, plan.token)
+    if changed:
+        raise _stale(authority, candidate, plan, changed)
+    entry = _write(authority, plan)
+    from .authority import load_run_authority
+    from .memo import remember_tables
+
+    try:
+        current = load_run_authority(authority.run_root, header=dict(authority.header), run_files=authority.run_files)
+        remember_tables(current)
+        logger.warning("[changes_accepted] %s: record %s at journal byte %d", token, plan.record, entry.offset)
+        if report is not None:
+            report(plan)
+        _views().publish_evaluated_view(current, entry)
+    except Exception as exc:
+        exc.change_in_force = "is"
+        raise
+    return current
+
+
+def _views():
+    from . import views
+    return views
+
+
+def _stale(authority, candidate, plan, changed) -> PlanRefusal:
+    """The refusal plain `resume` gives now, naming what changed; it carries the new plan for the recovery lines."""
+    why = "; ".join(_STALE[name](plan) for name in changed)
+    message = f"the plan token names another plan: {why}"
+    if plan.record == "rebased":
+        error = PlanRefusal("resume_program_changed", message, fresh_program=candidate)
+    else:
+        divergence = plan.divergence
+        error = PlanRefusal("effect_input_diverged", message, getattr(divergence, "identity", None),
+                            changed_parts=getattr(divergence, "changed_parts", []),
+                            changed_files=getattr(divergence, "changed_files", []))
+    error.plan = plan
+    error.snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=authority.run_files)
+    return error
+
+
+def _write(authority, plan) -> JournalEntry:
+    """Store the program (W1, W2), repair a torn tail (W3), append and synchronize the record (W4)."""
+    from . import memo
+
+    files = authority.run_files
+    if files is None:
+        raise ValueError("accepting a plan requires the run's retained file owner")
+    snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=files)
+    if plan.record == "rebased":
+        _store(authority, plan.program)
+        row = {"record": "rebased", "program_digest": plan.program.digest, "from_offset": plan.cut, "time": time.time()}
+    else:
+        row = {"record": "invalidated", "from_commit": plan.cut, "time": time.time()}
+    memo.repair_torn_tail(authority.memo_path, snapshot, run_files=files)
+    try:
+        return memo.append_record(authority.memo_path, row, run_files=files)
+    except memo.MemoError as exc:
+        if exc.code == "memo_sync_failed":
+            exc.change_in_force = "may"
+        raise
+
+
+def _store(authority, program) -> None:
+    """Publish `closed_program.<digest>.json` without replacing, or reuse the file of that name if it verifies."""
+    from orchestrator._common.io_atomic import RenameNoreplaceError, RenameNoreplaceUnavailableError
+    from .authority import _read_file, program_artifact_name, verified_program
+
+    files, name = authority.run_files, program_artifact_name(program.digest)
+    if not files.exists(name):
+        try:
+            files.publish_new(name, program.artifact().encode("utf-8"))
+            return
+        except FileExistsError:
+            pass                    # published since the check: verified below like any other
+        except (RenameNoreplaceUnavailableError, RenameNoreplaceError) as exc:
+            raise PlanRefusal("resume_preflight_failed", "the run root's file system cannot publish the edited "
+                              f"program without replacing a file ({exc}); nothing was written") from exc
+    verified_program(lambda file: _read_file(authority.run_root / file, files), program.digest)
