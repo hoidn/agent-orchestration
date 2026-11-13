@@ -78,6 +78,20 @@ def _effect_of(summaries, *, context: TypecheckContext):
     return (merge_effect_summaries(*summaries) if effectful else EMPTY_EFFECT_SUMMARY), effectful
 
 
+def _first_direct_effect(expr):
+    """The first provider, command, workflow-call, agent or run-reference form in `expr`, or None.
+
+    A procedure call is not one: it may be pure, so its own effects are found inside it, if inlined.
+    """
+
+    from .conditionals import _EFFECT_EXPRS
+    from .expression_traversal import iter_child_exprs
+
+    if isinstance(expr, _EFFECT_EXPRS) and not isinstance(expr, ProcedureCallExpr):
+        return expr
+    return next((found for child in iter_child_exprs(expr) if (found := _first_direct_effect(child)) is not None), None)
+
+
 def _check_map_effect_body(expr):
     from .conditionals import _is_helper_expanded
     from .expressions import RunRefExpr
@@ -288,12 +302,13 @@ def typecheck_structural_value_expr(
         if not _is_pure_or_provisional_procedure_call(
             typed_body.effect_summary, context=context
         ):
+            where = _first_direct_effect(typed_body.expr) or expr.body_expr
             raise_error(
                 "`list/map` body must be pure",
                 code="list_map_body_effect_forbidden",
-                span=expr.body_expr.span,
-                form_path=expr.body_expr.form_path,
-                expansion_stack=expr.body_expr.expansion_stack,
+                span=where.span,
+                form_path=where.form_path,
+                expansion_stack=where.expansion_stack,
             )
         result_type = ListTypeRef(
             name=f"List[{typed_body.type_ref.name}]",

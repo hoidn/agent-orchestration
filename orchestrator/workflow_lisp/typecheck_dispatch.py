@@ -98,7 +98,20 @@ from .typecheck_effects import (
 from .typecheck_loop_recur import typecheck_loop_recur_expr
 from .typecheck_pure_ops import typecheck_pure_expr as _typecheck_pure_expr
 from .typecheck_run_ref import typecheck_run_ref_expr
-from .typecheck_structural_values import typecheck_structural_value_expr
+from .typecheck_structural_values import _is_pure_or_provisional_procedure_call, typecheck_structural_value_expr
+
+
+def _effectful_non_match_field(fields, summaries, context) -> bool:
+    """Whether a constructor field other than a `match` holds an effect.
+
+    Pure fields and provisional procedure calls do not count, so a constructor
+    that compiled while fields had to be pure keeps its lowering.
+    """
+
+    return any(
+        not isinstance(field_expr, MatchExpr) and not _is_pure_or_provisional_procedure_call(summary, context=context)
+        for (_, field_expr), summary in zip(fields, summaries, strict=True)
+    )
 from .typecheck_proofs import (
     BindingIdentity,
     ProofScope,
@@ -680,7 +693,8 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         return _typed(
-            expr=replace(expr, fields=tuple(rewritten_fields)),
+            expr=replace(expr, fields=tuple(rewritten_fields),
+                         effectful_fields=_effectful_non_match_field(rewritten_fields, field_summaries, context)),
             type_ref=record_type,
             effect=merge_effect_summaries(*field_summaries),
         )
@@ -768,7 +782,8 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         return _typed(
-            expr=replace(expr, fields=tuple(rewritten_fields)),
+            expr=replace(expr, fields=tuple(rewritten_fields),
+                         effectful_fields=_effectful_non_match_field(rewritten_fields, field_summaries, context)),
             type_ref=union_type,
             effect=merge_effect_summaries(*field_summaries),
         )

@@ -216,6 +216,12 @@ class RecordExpr:
     resolved_type: "TypeRef | None" = field(
         default=None, repr=False, hash=False, metadata={"json_omit_if_none": True}
     )
+    # Set by the typechecker when a field other than a `match` holds an effect: the
+    # constructor then lowers as other effectful values do, whatever its `match` fields.
+    effectful_fields: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -421,6 +427,12 @@ class UnionVariantExpr:
     expansion_stack: ExpansionStack = ()
     resolved_type: "TypeRef | None" = field(
         default=None, repr=False, hash=False, metadata={"json_omit_if_none": True}
+    )
+    # Set by the typechecker when a field other than a `match` holds an effect: the
+    # constructor then lowers as other effectful values do, whatever its `match` fields.
+    effectful_fields: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
 
 

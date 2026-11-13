@@ -1613,6 +1613,10 @@ def _wcc_route_schema_version(metadata) -> str:
     return WccIdentityFactory.route_schema_version
 
 
+class NonLinearValueBodyError(TypeError):
+    """A value was needed as bindings then a value, and its body branches or joins."""
+
+
 def _body_to_prefix_and_value(body: WccBody) -> tuple[tuple[WccLet, ...], WccValue]:
     prefix: list[WccLet] = []
     current = body
@@ -1620,8 +1624,40 @@ def _body_to_prefix_and_value(body: WccBody) -> tuple[tuple[WccLet, ...], WccVal
         prefix.append(current)
         current = current.body
     if not isinstance(current, WccHalt):
-        raise TypeError(f"expected linear WCC value body, found `{type(current).__name__}`")
+        raise NonLinearValueBodyError(f"expected linear WCC value body, found `{type(current).__name__}`")
     return tuple(prefix), current.result
+
+
+def _normalize_effectful_fields(expr):
+    """Bind the effects of a constructor's effectful fields in written order; leave its pure fields in place.
+
+    A pure field, a `match` or `if` among them, stays a value of the constructor, so the
+    steps of the other fields are named the same whatever their effect-free siblings are.
+    """
+
+    bindings: list[tuple[str, object]] = []
+    fields = []
+    for index, (name, field_expr) in enumerate(expr.fields):
+        if _contains_effect(field_expr):
+            prefix, field_expr = _normalize_operand(field_expr, path=(index,))
+            bindings.extend(prefix)
+        fields.append((name, field_expr))
+    return tuple(bindings), replace(expr, fields=tuple(fields))
+
+
+def _continue_value_needs_binding(expr: ContinueExpr) -> LispFrontendCompileError:
+    """The refusal of a `continue` value whose effects sit under a conditional inside it."""
+
+    return LispFrontendCompileError((LispFrontendDiagnostic(
+        code="effect_not_permitted",
+        message=(
+            "this `continue` value holds an effect under a conditional (`if`, `cond`, `match`, `and`, `or`) "
+            "inside a larger value; bind the value with `let*` first: `(let* ((next <value>)) (continue next))`"
+        ),
+        span=expr.state_expr.span,
+        form_path=expr.state_expr.form_path,
+        expansion_stack=expr.state_expr.expansion_stack,
+    ),))
 
 
 def _wrap_prefix_lets(prefix: tuple[WccLet, ...], tail: WccBody) -> WccBody:
@@ -1833,18 +1869,22 @@ def _elaborate_expr_to_body(
                 compile_time_bindings=compile_time_bindings,
                 active_phase_scope=active_phase_scope,
             )
-        prefix, state_value = _elaborate_expr_to_value(
-            expr.state_expr,
-            scope=scope.child_scope("loop-continue", authored_binding_name="state"),
-            type_env=type_env,
-            value_env=value_env,
-            workflow_return_types=workflow_return_types,
-            procedure_return_types=procedure_return_types,
-            effect_summary=effect_summary,
-            procedure_edges_by_site=procedure_edges_by_site,
-            compile_time_bindings=compile_time_bindings,
-            active_phase_scope=active_phase_scope,
-        )
+        try:
+            prefix, state_value = _elaborate_expr_to_value(
+                expr.state_expr,
+                scope=scope.child_scope("loop-continue", authored_binding_name="state"),
+                type_env=type_env,
+                value_env=value_env,
+                workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types,
+                effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope,
+            )
+        except NonLinearValueBodyError as exc:
+            # Only a state that cannot lower reaches here, so no program that builds changes.
+            raise _continue_value_needs_binding(expr) from exc
         continue_node = WccLoopContinue(
             metadata=scope.body_metadata(
                 role="loop:continue",
@@ -1994,7 +2034,7 @@ def _elaborate_expr_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
-    if isinstance(expr, (RecordExpr, UnionVariantExpr)) and any(
+    if isinstance(expr, (RecordExpr, UnionVariantExpr)) and not expr.effectful_fields and any(
         isinstance(field_expr, MatchExpr) for _, field_expr in expr.fields
     ):
         return _elaborate_constructor_field_matches_to_body(
@@ -2010,10 +2050,13 @@ def _elaborate_expr_to_body(
             active_phase_scope=active_phase_scope,
         )
     if _contains_effect(expr):
-        prefix, terminal = _normalize_operand(
-            expr,
-            path=(),
-        )
+        if isinstance(expr, (RecordExpr, UnionVariantExpr)) and expr.effectful_fields:
+            prefix, terminal = _normalize_effectful_fields(expr)
+        else:
+            prefix, terminal = _normalize_operand(
+                expr,
+                path=(),
+            )
         if prefix:
             return _elaborate_let_star(
                 LetStarExpr(
@@ -3707,52 +3750,10 @@ def _elaborate_expr_to_value(
             source=source,
         )
     if isinstance(expr, ListExpr):
-        from .anf import normalize_wcc_body_to_anf
-
-        if len(expr.items) != len(expr.item_type_refs):
-            raise TypeError("typed list is missing its resolved child types")
-        list_metadata = scope.atom_metadata(
-            role="list", type_ref=_infer_expr_type(
-                expr, type_env=type_env, value_env=value_env,
-                workflow_return_types=workflow_return_types,
-                procedure_return_types=procedure_return_types,
-            ),
-            source_span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
-        )
-        if expr.effectful_items:
-            # Items with effects are operands: their effects run in order, before the list.
-            prefix, values = _elaborate_operands_to_values(
-                tuple((item, scope.child_scope(f"list-item:{index}")) for index, item in enumerate(expr.items)),
-                type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
-                procedure_return_types=procedure_return_types, effect_summary=effect_summary,
-                procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
-                active_phase_scope=active_phase_scope,
-            )
-            return prefix, WccList(metadata=list_metadata, items=tuple(
-                replace(value, metadata=replace(value.metadata, type_ref=item_type))
-                for value, item_type in zip(values, expr.item_type_refs, strict=True)))
-        items = []
-        for index, (item, item_type) in enumerate(zip(expr.items, expr.item_type_refs, strict=True)):
-            item_scope = scope.child_scope(f"list-item:{index}")
-            body = normalize_wcc_body_to_anf(_elaborate_expr_to_body(
-                item,
-                scope=item_scope,
-                type_env=type_env,
-                value_env=value_env,
-                workflow_return_types=workflow_return_types,
-                procedure_return_types=procedure_return_types,
-                effect_summary=EMPTY_EFFECT_SUMMARY,
-                procedure_edges_by_site=procedure_edges_by_site,
-                compile_time_bindings=compile_time_bindings,
-                active_phase_scope=active_phase_scope,
-            ))
-            metadata = item_scope.value_metadata(
-                role="list-item", type_ref=item_type, source_span=item.span,
-                form_path=item.form_path, expansion_stack=item.expansion_stack,
-            )
-            items.append(replace(body.result, metadata=replace(body.result.metadata, type_ref=item_type))
-                if isinstance(body, WccHalt) else WccBlock(metadata=metadata, body=body))
-        return (), WccList(metadata=list_metadata, items=tuple(items))
+        return _elaborate_list_to_value(expr, scope=scope, type_env=type_env, value_env=value_env,
+            workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope)
     if isinstance(expr, (LoopStateSeedExpr, LoopStateUpdateExpr, CompilerListNonemptyHeadExpr, PathJoinUnderExpr)):
         from .anf import normalize_wcc_body_to_anf
 
@@ -3809,16 +3810,11 @@ def _elaborate_expr_to_value(
         source_scope = scope.child_scope("map-source")
         source_prefix: tuple[WccLet, ...] = ()
         if expr.effectful_source:
-            # The source's effects run once, before the pure map; the body cannot see their bindings.
-            source_prefix, source = _body_to_prefix_and_value(_elaborate_expr_to_body(expr.source_expr,
-                scope=source_scope, type_env=type_env, value_env=value_env,
-                workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types,
-                effect_summary=effect_summary, procedure_edges_by_site=procedure_edges_by_site,
-                compile_time_bindings=compile_time_bindings, active_phase_scope=active_phase_scope))
-            source_prefix, source = hoist_without_capture(source_prefix, source,
-                over=((expr.body_expr, frozenset({expr.binder_name})),), scope=source_scope,
-                value_env=value_env, compile_time_bindings=compile_time_bindings)
-            source = replace(source, metadata=replace(source.metadata, type_ref=source_type))
+            source_prefix, source = _elaborate_effectful_map_source(expr, scope=source_scope, source_type=source_type,
+                type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope)
         else:
             source_body = normalize_wcc_body_to_anf(_elaborate_expr_to_body(expr.source_expr,
                 scope=source_scope, type_env=type_env, value_env=value_env,
@@ -4079,6 +4075,96 @@ def _elaborate_expr_to_value(
             active_phase_scope=active_phase_scope,
         )
     raise TypeError(f"unsupported WCC elaboration node: {type(expr).__name__}")
+
+
+def _elaborate_list_to_value(
+    expr: ListExpr,
+    *,
+    scope: WccIdentityFactory,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary,
+    procedure_edges_by_site: Mapping[tuple[object, tuple[str, ...]], str],
+    compile_time_bindings: Mapping[str, object],
+    active_phase_scope: WccPhaseScope | None = None,
+) -> tuple[tuple[WccLet, ...], WccValue]:
+    """A list value: effect-free items as values or blocks; items with effects as ordered operands."""
+
+    from .anf import normalize_wcc_body_to_anf
+
+    if len(expr.items) != len(expr.item_type_refs):
+        raise TypeError("typed list is missing its resolved child types")
+    list_metadata = scope.atom_metadata(
+        role="list", type_ref=_infer_expr_type(
+            expr, type_env=type_env, value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        ),
+        source_span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
+    )
+    if expr.effectful_items:
+        # Items with effects are operands: their effects run in order, before the list.
+        prefix, values = _elaborate_operands_to_values(
+            tuple((item, scope.child_scope(f"list-item:{index}")) for index, item in enumerate(expr.items)),
+            type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+        return prefix, WccList(metadata=list_metadata, items=tuple(
+            replace(value, metadata=replace(value.metadata, type_ref=item_type))
+            for value, item_type in zip(values, expr.item_type_refs, strict=True)))
+    items = []
+    for index, (item, item_type) in enumerate(zip(expr.items, expr.item_type_refs, strict=True)):
+        item_scope = scope.child_scope(f"list-item:{index}")
+        body = normalize_wcc_body_to_anf(_elaborate_expr_to_body(
+            item,
+            scope=item_scope,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=EMPTY_EFFECT_SUMMARY,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        ))
+        metadata = item_scope.value_metadata(
+            role="list-item", type_ref=item_type, source_span=item.span,
+            form_path=item.form_path, expansion_stack=item.expansion_stack,
+        )
+        items.append(replace(body.result, metadata=replace(body.result.metadata, type_ref=item_type))
+            if isinstance(body, WccHalt) else WccBlock(metadata=metadata, body=body))
+    return (), WccList(metadata=list_metadata, items=tuple(items))
+
+
+def _elaborate_effectful_map_source(
+    expr: ListMapExpr,
+    *,
+    scope: WccIdentityFactory,
+    source_type: TypeRef,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary,
+    procedure_edges_by_site: Mapping[tuple[object, tuple[str, ...]], str],
+    compile_time_bindings: Mapping[str, object],
+    active_phase_scope: WccPhaseScope | None = None,
+) -> tuple[tuple[WccLet, ...], WccValue]:
+    """A `list/map` source with effects: they run once, before the pure map, and the body cannot see their bindings."""
+
+    prefix, source = _body_to_prefix_and_value(_elaborate_expr_to_body(expr.source_expr,
+        scope=scope, type_env=type_env, value_env=value_env,
+        workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types,
+        effect_summary=effect_summary, procedure_edges_by_site=procedure_edges_by_site,
+        compile_time_bindings=compile_time_bindings, active_phase_scope=active_phase_scope))
+    prefix, source = hoist_without_capture(prefix, source,
+        over=((expr.body_expr, frozenset({expr.binder_name})),), scope=scope,
+        value_env=value_env, compile_time_bindings=compile_time_bindings)
+    return prefix, replace(source, metadata=replace(source.metadata, type_ref=source_type))
 
 
 def _elaborate_operands_to_values(

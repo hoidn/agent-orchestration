@@ -136,10 +136,12 @@ def test_public_union_owner_mismatch_refuses_before_dispatch(tmp_path):
 
 
 @pytest.mark.parametrize("locality", ["direct", "same", "imported"])
-@pytest.mark.parametrize("position", ["body", "budget", "seed", "match", "map", "branch", "loop", "serial-map"])
+@pytest.mark.parametrize("position", ["body", "budget", "seed", "match", "map", "branch", "loop", "serial-map",
+                                      "list-element", "variant-field"])
 def test_public_run_ref_placement_commits_and_reuses_exact_child(tmp_path, monkeypatch, position, locality):
     files, input_file = prepare_placement(tmp_path, position, locality)
-    expected = ["placement", "second"] if position == "serial-map" else ["placement"] if position == "map" else "placement"
+    expected = (["placement", "second"] if position == "serial-map"
+                else ["placement"] if position in ("map", "list-element") else "placement")
     count = 2 if position == "serial-map" else 1
     exercise_placement(files, input_file, expected, count, monkeypatch)
 

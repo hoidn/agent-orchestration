@@ -211,6 +211,8 @@ def replace_placement_body(source, revision, position, locality):
     value = f'(let* ((child {perform})) child.value)' if locality == "direct" else '(invoke payload)'
     bodies = {
         "branch": f'(if true {value} "unselected")',
+        "list-element": f'(list {value})',
+        "variant-field": f'(let* ((chosen (variant Choice YES :value {value}))) (match chosen ((YES held) held.value)))',
         "loop": f'''(loop/recur :max 1 :state (loop-state (n Int 0)) :on-exhausted "exhausted"
           (fn (outer) (done (loop/recur :max 1 :state (loop-state (n Int 0))
             :on-exhausted "exhausted" (fn (inner) (done {value}))))))''',
@@ -223,7 +225,7 @@ def replace_placement_body(source, revision, position, locality):
     body = syntax_node_datum(workflow).items[-1]
     text = source.read_text()
     text = text[:body.span.start.offset] + bodies[position] + text[body.span.end.offset:]
-    if position == "serial-map":
+    if position in ("serial-map", "list-element"):
         result_type = syntax_node_datum(workflow).items[-2]
         text = text[:result_type.span.start.offset] + "List[String]" + text[result_type.span.end.offset:]
     source.write_text(text)
