@@ -20,6 +20,7 @@ from orchestrator.workflow.evaluated.authority import (
     publish_run_authority, load_run_authority, load_run_header,
 )
 from orchestrator.workflow.evaluated.commands import workspace_relative_path
+from orchestrator.workflow.evaluated.effect_inputs import _PreflightRefusal
 from orchestrator.workflow.evaluated.interpreters import check_command_interpreter
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.evaluated.machine import site_classes
@@ -284,7 +285,8 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
         for diagnostic in exc.diagnostics:
             logger.error(render_diagnostic(diagnostic))
         return 2
-    except (OSError, UnicodeError, ValueError, ReservedRunRootError) as exc:
+    except (OSError, UnicodeError, ValueError, ReservedRunRootError, _PreflightRefusal) as exc:
+        # a coded preflight refusal also comes from the strict pass of an acceptance (rebase.accept_plan)
         logger.error("[%s] %s", getattr(exc, "code", "resume_preflight_failed"), exc)
         plan = getattr(exc, "plan", None) or _edit_plan(exc, run_root, workspace, run_files)
         reporter.error(exc, plan=plan, snapshot=getattr(exc, "snapshot", None),

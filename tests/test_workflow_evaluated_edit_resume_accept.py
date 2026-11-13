@@ -376,3 +376,22 @@ def test_a_planted_artifact_that_does_not_verify_refuses_before_the_record(compl
     refused(root, run_root, "memo_inconsistent", *words[2:])
 
     assert records(run_root, "rebased") == [] and (run_root / name).read_text() == '{"planted": true}'
+
+
+def test_a_planner_that_misses_a_divergence_is_stopped_by_the_strict_pass(completed, tmp_path, monkeypatch):
+    """Design §7: the planner is not trusted for soundness. With its condition 5 broken, the plan keeps `s2`, whose
+    script changed; acceptance still runs the full strict pass, which refuses before any write."""
+    from orchestrator.workflow.evaluated import rebase
+    root, run_root = _copy(completed(own_tools), tmp_path)
+    (root / "t2.py").write_text(STEP + "# changed under a kept commit\n")
+    edit(root, cmd("s4", "s3").replace("step", "t4").replace('"t.py"', '"t4.py"'),
+         cmd("s4", "(+ s3 1)").replace("step", "t4").replace('"t.py"', '"t4.py"'))
+    monkeypatch.setattr(rebase, "_first_divergence", lambda *args: None)
+    strict = rebase._strict_replay
+    with monkeypatch.context() as unchecked:                 # the token of the faulty plan: cut at s4, s2 kept
+        unchecked.setattr(rebase, "_strict_replay", lambda *args, **kwargs: strict(*args, commits_proven=True))
+        token = rebase.plan_resume(run_root, root).token
+
+    refused_with(root, run_root, "effect_input_diverged", token)
+
+    assert records(run_root, "rebased") == [] and artifacts(run_root) == []
