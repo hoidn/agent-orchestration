@@ -231,30 +231,9 @@ STAGES = (
     ("/workflow/steps/pure_projection.py:", "runtime pure projection"),
 )
 
-# Codes that the typechecker reports for a restriction, with the place that raises each one.
-# A rule cell must also fail in the typecheck stage: some of these codes are raised later too.
-RESTRICTION_CODES = frozenset({
-    "effect_not_permitted",  # typecheck_dispatch._typecheck: record and variant fields must be pure
-    "loop_recur_contract_invalid",  # typecheck_loop_recur: the `:on-exhausted` value must be pure
-})
-
-# Typecheck rejects the cell: (form, position) -> code. Each form here has a real effect:
-# the same command written inline with `command-result`, without a procedure call, is
-# rejected with the same code in the same position.
-RULES = {
-    ("command-call", "record-field"): "effect_not_permitted",
-    ("command-call", "variant-field"): "effect_not_permitted",
-    ("command-call", "on-exhausted-value"): "loop_recur_contract_invalid",
-    ("command-call-field", "record-field"): "effect_not_permitted",
-    ("command-call-field", "variant-field"): "effect_not_permitted",
-    ("command-call-field", "on-exhausted-value"): "loop_recur_contract_invalid",
-    ("imported-wrapper-call", "record-field"): "effect_not_permitted",
-    ("imported-wrapper-call", "variant-field"): "effect_not_permitted",
-    ("imported-wrapper-call", "on-exhausted-value"): "loop_recur_contract_invalid",
-    ("generic-hook-call", "record-field"): "effect_not_permitted",
-    ("generic-hook-call", "variant-field"): "effect_not_permitted",
-    ("generic-hook-call", "on-exhausted-value"): "loop_recur_contract_invalid",
-}
+# Typecheck rejects the cell: (form, position) -> code. None remain: record and variant
+# fields and `:on-exhausted` admit effects (workflow_lisp_surface_coherence.md, E1).
+RULES: dict[tuple[str, str], str] = {}
 
 # The workflow return boundary rejects a union inside a returned variant, whatever the body:
 # form -> (code, stage), for the program `program(form, "return-boundary", probe)`.
@@ -301,10 +280,6 @@ DEFECTS = {
     "d": ("pure replay binding references an unknown result member", "pure-result replay, case d: a pure "
         "`match` whose arms build a record, as a variant field or procedure argument "
         "(workflow/pure_result_replay.py `_validate_result_member`)"),
-    "on-exhausted-call-edge": ("`loop/recur` exhaustion projection must be pure", "typecheck restriction wrongly "
-        "applied: the `:on-exhausted` check compares the whole effect summary, procedure-call edges included, "
-        "with the empty summary, so a call to a `defproc` declared `:effects ()` is rejected; the variant it "
-        "returns, written directly, compiles (typecheck_loop_recur.py `typecheck_loop_recur_expr`)"),
 }
 
 
@@ -339,7 +314,6 @@ KNOWN_DEFECTS = {
     ("pure-proc-call", "match-subject"): Defect("subject-producer", 2, "wcc_lowering_route_unsupported", "defunctionalization"),
     ("pure-proc-call", "variant-field"): Defect("nested-union-result", 2, "collection_element_type_unsupported", "lowering"),
     ("pure-proc-call", "loop-state-field"): Defect("loop-state-union", 2, "compiler_defect", "lowering"),
-    ("pure-proc-call", "on-exhausted-value"): Defect("on-exhausted-call-edge", 2, "loop_recur_contract_invalid", "typecheck"),
     ("pure-proc-call", "procedure-argument"): Defect("replay-union-argument", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("pure-proc-call", "match-arm-result"): Defect("replay-frame-scope", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("command-call", "loop-state-field"): Defect("loop-call-argument", 2, "workflow_signature_mismatch", "lowering"),

@@ -32,6 +32,7 @@ CONTROL_EXPECTED = {
     "loop_continue_and_done": (2, ["next-val 0", "next-val 1", "done-val 2"]),
     "nested_loop_in_done": (True, ["seed 0", "budget 3", "check 1"]),
     "list_map_value_block": ([3, 4], []),
+    "effectful_loop_exhaustion": (0, ["done-val 0"]),
 }
 LEFT = {"variant": "LEFT", "payload": {"n": 7, "label": "á雪"}}
 RIGHT = {"variant": "RIGHT", "count": 9}
@@ -75,7 +76,6 @@ def test_public_control_alternative_does_not_evaluate_unselected_work(tmp_path, 
 
 @pytest.mark.parametrize("route", ["direct", "same_module", "imported_old_source"])
 @pytest.mark.parametrize(("case", "code"), [
-    ("effectful_loop_exhaustion", "loop_recur_contract_invalid"),
     ("effectful_list_map_body", "list_map_body_effect_forbidden"),
 ])
 def test_public_control_refuses_pure_context_before_dispatch(tmp_path, case, code, route):

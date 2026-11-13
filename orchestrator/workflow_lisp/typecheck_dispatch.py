@@ -12,7 +12,6 @@ from .diagnostics import LispFrontendCompileError
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
     EffectSummary,
-    effect_summary_is_procedure_edge_only,
     merge_effect_summaries,
 )
 from .expressions import (
@@ -111,12 +110,6 @@ from .typecheck_proofs import (
 )
 
 
-def _is_pure_or_provisional_procedure_call(
-    summary: EffectSummary, *, allow_provisional_procedure_calls: bool
-) -> bool:
-    return summary == EMPTY_EFFECT_SUMMARY or (
-        (allow_provisional_procedure_calls) and (effect_summary_is_procedure_edge_only(summary))
-    )
 from .type_env import (
     DiscriminantTypeRef,
     FrontendTypeEnvironment,
@@ -665,17 +658,6 @@ def _typecheck(
                 prompt_catalog=prompt_catalog,
                 expected_type=field_expected_type,
             )
-            if not _is_pure_or_provisional_procedure_call(
-                typed_field.effect_summary,
-
-                allow_provisional_procedure_calls=context.allow_provisional_procedure_calls,
-            ):
-                _raise_error(
-                    "record field expressions must be pure; bind effectful work in `let*` first",
-                    code="effect_not_permitted",
-                    span=field_expr.span,
-                    form_path=field_expr.form_path,
-                )
             field_summaries.append(typed_field.effect_summary)
             rewritten_fields.append((field_name, typed_field.expr))
             if not _type_refs_compatible(
@@ -764,17 +746,6 @@ def _typecheck(
                 prompt_catalog=prompt_catalog,
                 expected_type=field_expected_type,
             )
-            if not _is_pure_or_provisional_procedure_call(
-                typed_field.effect_summary,
-
-                allow_provisional_procedure_calls=context.allow_provisional_procedure_calls,
-            ):
-                _raise_error(
-                    "union variant field expressions must be pure; bind effectful work in `let*` first",
-                    code="effect_not_permitted",
-                    span=field_expr.span,
-                    form_path=field_expr.form_path,
-                )
             field_summaries.append(typed_field.effect_summary)
             rewritten_fields.append((field_name, typed_field.expr))
             if not _type_refs_compatible(

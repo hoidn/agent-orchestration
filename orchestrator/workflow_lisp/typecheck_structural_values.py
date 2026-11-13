@@ -9,6 +9,7 @@ from .effects import (
     EMPTY_EFFECT_SUMMARY,
     effect_summary_contains_runs_ref,
     effect_summary_is_procedure_edge_only,
+    merge_effect_summaries,
 )
 from .expressions import (
     CallExpr,
@@ -64,6 +65,17 @@ def _is_pure_or_provisional_procedure_call(summary, *, context: TypecheckContext
     return summary == EMPTY_EFFECT_SUMMARY or (
         (context.allow_provisional_procedure_calls) and (effect_summary_is_procedure_edge_only(summary))
     )
+
+
+def _effect_of(summaries, *, context: TypecheckContext):
+    """The merged summary of operands that may hold an effect, and whether one does.
+
+    Operands that are pure, or provisional procedure calls, keep the summary
+    and lowering they had when these operands had to be pure.
+    """
+
+    effectful = any(not _is_pure_or_provisional_procedure_call(summary, context=context) for summary in summaries)
+    return (merge_effect_summaries(*summaries) if effectful else EMPTY_EFFECT_SUMMARY), effectful
 
 
 def _check_map_effect_body(expr):
@@ -204,19 +216,6 @@ def typecheck_structural_value_expr(
                     expansion_stack=expr.expansion_stack,
                 )
             typed_items = tuple(item.expr for item in typed_item_values)
-            if any(
-                not _is_pure_or_provisional_procedure_call(
-                    item.effect_summary, context=context
-                )
-                for item in typed_item_values
-            ):
-                raise_error(
-                    "list constructor elements must be pure",
-                    code="effect_not_permitted",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                    expansion_stack=expr.expansion_stack,
-                )
         if not _is_transportable_result_type(list_type, type_env=type_env):
             raise_error(
                 (
@@ -228,15 +227,17 @@ def typecheck_structural_value_expr(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
+        effect, effectful = _effect_of([item.effect_summary for item in typed_item_values], context=context)
         return typed_factory(
             expr=replace(
                 expr,
                 items=typed_items,
                 element_type_ref=item_type,
                 item_type_refs=tuple(item.type_ref for item in typed_item_values),
+                effectful_items=effectful,
             ),
             type_ref=list_type,
-            effect=EMPTY_EFFECT_SUMMARY,
+            effect=effect,
         )
     if isinstance(expr, ListMapExpr):
         typed_source = recurse(expr.source_expr)
@@ -248,15 +249,10 @@ def typecheck_structural_value_expr(
                 form_path=expr.source_expr.form_path,
                 expansion_stack=expr.source_expr.expansion_stack,
             )
-        if not _is_pure_or_provisional_procedure_call(
-            typed_source.effect_summary, context=context
-        ):
-            raise_error(
-                "`list/map` source must be pure",
-                code="list_map_body_effect_forbidden",
-                span=expr.source_expr.span,
-                form_path=expr.source_expr.form_path,
-                expansion_stack=expr.source_expr.expansion_stack,
+        if effect_summary_contains_runs_ref(typed_source.effect_summary):
+            raise_run_ref_placement_invalid(
+                typed_source.expr,
+                reason="is not permitted in a `list/map` source",
             )
         if not _is_transportable_result_type(
             typed_source.type_ref,
@@ -328,6 +324,7 @@ def typecheck_structural_value_expr(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
+        effect, effectful = _effect_of([typed_source.effect_summary], context=context)
         return typed_factory(
             expr=replace(
                 expr,
@@ -336,9 +333,10 @@ def typecheck_structural_value_expr(
                 source_item_type_ref=typed_source.type_ref.item_type_ref,
                 result_item_type_ref=typed_body.type_ref,
                 binding_identity=binding_identity,
+                effectful_source=effectful,
             ),
             type_ref=result_type,
-            effect=EMPTY_EFFECT_SUMMARY,
+            effect=effect,
         )
     if isinstance(expr, CompilerListNonemptyHeadExpr):
         typed_source = recurse(expr.source_expr)
@@ -380,14 +378,6 @@ def typecheck_structural_value_expr(
             raise_error(
                 "`list/map-effect` source must have a List type",
                 code="pure_expr_operand_type_mismatch",
-                span=expr.source_expr.span,
-                form_path=expr.source_expr.form_path,
-                expansion_stack=expr.source_expr.expansion_stack,
-            )
-        if typed_source.effect_summary != EMPTY_EFFECT_SUMMARY:
-            raise_error(
-                "`list/map-effect` source must be pure",
-                code="list_map_effect_body_unsupported",
                 span=expr.source_expr.span,
                 form_path=expr.source_expr.form_path,
                 expansion_stack=expr.source_expr.expansion_stack,
@@ -759,21 +749,15 @@ def typecheck_structural_value_expr(
                 form_path=expr.child_expr.form_path,
                 expansion_stack=expr.child_expr.expansion_stack,
             )
-        if typed_child.effect_summary != EMPTY_EFFECT_SUMMARY:
-            raise_error(
-                "`path/join-under` child must be pure",
-                code="effect_not_permitted",
-                span=expr.child_expr.span,
-                form_path=expr.child_expr.form_path,
-                expansion_stack=expr.child_expr.expansion_stack,
-            )
+        effect, effectful = _effect_of([typed_child.effect_summary], context=context)
         return typed_factory(
             expr=replace(
                 expr,
                 child_expr=typed_child.expr,
                 path_type_ref=path_type,
+                effectful_child=effectful,
             ),
             type_ref=path_type,
-            effect=EMPTY_EFFECT_SUMMARY,
+            effect=effect,
         )
     return None

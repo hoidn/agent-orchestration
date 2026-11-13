@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .effects import (
-    EMPTY_EFFECT_SUMMARY,
     EffectSummary,
     effect_summary_contains_runs_ref,
     merge_effect_summaries,
@@ -133,13 +132,6 @@ def typecheck_loop_recur_expr(
                 f"`loop/recur` exhaustion result expected `{_type_label(typed_body.type_ref.result_type_ref)}`"
                 f" but got `{_type_label(typed_exhausted.type_ref)}`",
                 code="loop_recur_done_type_mismatch",
-                span=expr.on_exhausted_result_expr.span,
-                form_path=expr.on_exhausted_result_expr.form_path,
-            )
-        if typed_exhausted.effect_summary != EMPTY_EFFECT_SUMMARY:
-            raise_error(
-                "`loop/recur` exhaustion projection must be pure",
-                code="loop_recur_contract_invalid",
                 span=expr.on_exhausted_result_expr.span,
                 form_path=expr.on_exhausted_result_expr.form_path,
             )

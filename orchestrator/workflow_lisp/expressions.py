@@ -242,6 +242,11 @@ class ListExpr:
         default=(), repr=False, compare=False, hash=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
+    # Set by the typechecker when an item has an effect: the items then lower as operands.
+    effectful_items: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -268,6 +273,11 @@ class ListMapExpr:
         repr=False,
         compare=False,
         hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    # Set by the typechecker when the source has an effect: it then lowers as an operand.
+    effectful_source: bool = field(
+        default=False, repr=False, compare=False, hash=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
 
@@ -324,6 +334,11 @@ class PathJoinUnderExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    # Set by the typechecker when the child has an effect: it then lowers as an operand.
+    effectful_child: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)

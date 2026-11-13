@@ -24,7 +24,8 @@ INVALID_MISSING_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_missing_done.o
 INVALID_CONTINUE_FIXTURE = FIXTURES / "invalid" / "loop_recur_continue_type_mismatch.orc"
 INVALID_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_done_type_mismatch.orc"
 INVALID_FN_OUTSIDE_FIXTURE = FIXTURES / "invalid" / "loop_recur_fn_outside_loop.orc"
-INVALID_ON_EXHAUSTED_IMPURE_FIXTURE = FIXTURES / "invalid" / "loop_recur_on_exhausted_impure.orc"
+# Under invalid/ for the evidence that names it; it compiles since effects are admitted in `:on-exhausted`.
+ON_EXHAUSTED_EFFECTFUL_FIXTURE = FIXTURES / "invalid" / "loop_recur_on_exhausted_impure.orc"
 INVALID_ON_EXHAUSTED_TYPE_MISMATCH_FIXTURE = (
     FIXTURES / "invalid" / "loop_recur_on_exhausted_type_mismatch.orc"
 )
@@ -88,11 +89,8 @@ def test_typecheck_loop_recur_rejects_done_type_mismatch(tmp_path: Path) -> None
     _assert_diagnostic_code(excinfo, "loop_recur_done_type_mismatch")
 
 
-def test_typecheck_loop_recur_rejects_impure_on_exhausted(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(INVALID_ON_EXHAUSTED_IMPURE_FIXTURE, tmp_path=tmp_path)
-
-    _assert_diagnostic_code(excinfo, "loop_recur_contract_invalid")
+def test_typecheck_loop_recur_admits_effectful_on_exhausted(tmp_path: Path) -> None:
+    _compile(ON_EXHAUSTED_EFFECTFUL_FIXTURE, tmp_path=tmp_path)
 
 
 def test_typecheck_loop_recur_rejects_on_exhausted_type_mismatch(tmp_path: Path) -> None:

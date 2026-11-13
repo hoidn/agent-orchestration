@@ -64,18 +64,12 @@ REPRO_VALUES = {
 
 
 def cell_refusal(form, position):
-    _, locality, base = axes(form)
+    _, _, base = axes(form)
     if base.startswith("repro:"):
         return None
     value = form_value(form, FORMS, "probe.py")
     if position == "match-subject" and value.type in ("Int", "Float", "Box"):
         return "match_subject_not_union"
-    if position in ("record-field", "variant-field") and value.calls:
-        return "effect_not_permitted"
-    if position == "on-exhausted-value" and value.calls:
-        return "loop_recur_contract_invalid"
-    if position == "on-exhausted-value" and base == "pure-proc-call" and locality != "inline":
-        return "loop_recur_contract_invalid"
     return None
 
 
