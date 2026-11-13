@@ -92,7 +92,7 @@ authoring changes do not introduce a new result-acceptance profile.
       allowed, but `example` is rejected with
       `value_guidance_example_unsupported`. From target 2.34 the non-finite
       constants are refused per field instead, as below.
-    - Target 2.34 finite values (numeric surface rule N6): a `Float` that
+    - Target 2.34 finite values: a `Float` that
       enters a run is finite. Workflow inputs, fields of command and provider
       result bundles (plain, variant and nested in a record, union, list or
       map) and expected output files refuse, with the violation

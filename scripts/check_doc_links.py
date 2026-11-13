@@ -9,12 +9,20 @@ from urllib.parse import unquote
 
 FENCE = re.compile(r"^\s*(```|~~~).*?^\s*\1", re.M | re.S)
 LINK = re.compile(r"\]\(<?(?![a-z][a-z0-9+.-]*:)([^)\s>]+)>?(?:\s+\"[^\"]*\")?\)", re.I)
+HTML_ID = re.compile(r"<a\s[^>]*?\b(?:id|name)\s*=\s*[\"']([^\"']+)[\"']", re.I)
+INLINE_CODE = re.compile(r"`[^`\n]*`")
+
+
+def html_ids(text: str) -> list[str]:
+    """Lower-cased `<a id>`/`<a name>` anchors outside inline code (fences are removed by the caller)."""
+    return [name.lower() for name in HTML_ID.findall(INLINE_CODE.sub("", text))]
 
 
 @cache
 def anchors(path: Path) -> frozenset[str]:
-    names, seen = set(), {}
-    for title in re.findall(r"^#{1,6}\s+(.+?)(?:\s+#+)?\s*$", FENCE.sub("", path.read_text(encoding="utf-8")), re.M):
+    text = FENCE.sub("", path.read_text(encoding="utf-8"))
+    names, seen = set(html_ids(text)), {}
+    for title in re.findall(r"^#{1,6}\s+(.+?)(?:\s+#+)?\s*$", text, re.M):
         slug = re.sub(r"[^\w\- ]", "", re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", title).lower()).replace(" ", "-")
         names.add(f"{slug}-{seen[slug]}" if slug in seen else slug)  # GitHub suffixes repeated headings
         seen[slug] = seen.get(slug, 0) + 1
@@ -22,7 +30,10 @@ def anchors(path: Path) -> frozenset[str]:
 
 
 def problems(source: Path) -> list[str]:
-    found, text = [], re.sub(r"`[^`\n]*`", "", FENCE.sub("", source.read_text(encoding="utf-8")))
+    unfenced = FENCE.sub("", source.read_text(encoding="utf-8"))
+    ids = html_ids(unfenced)
+    found = [f"{source}: duplicate anchor id {name}" for name in sorted({n for n in ids if ids.count(n) > 1})]
+    text = INLINE_CODE.sub("", unfenced)
     for target in LINK.findall(text):
         ref, _, fragment = target.partition("#")
         destination = source.parent / unquote(ref) if ref else source

@@ -704,6 +704,120 @@ primitives. Domain-specific forms belong in modules or macro libraries.
 
 ## Part I. Language Surface
 
+## Form Index
+
+Every head the compiler knows at target 2.40, with the section that defines it. Forms removed from
+the language follow in [Removed forms](#removed-forms).
+`tests/test_workflow_lisp_reference_coverage.py` fails when a registered or removed head has no
+entry here or in a heading.
+
+| Head | Meaning | Defined in |
+| --- | --- | --- |
+| `workflow-lisp` | The file wrapper: header clauses, then the module's forms | [§4](#4-file-format-and-module-form) |
+| `defmodule` | Names the module; the name follows the file's path | [§4](#4-file-format-and-module-form) |
+| `import` | Makes another module's exports visible, whole, aliased or selected | [§4.2](#42-import-forms) |
+| `export` | Names the definitions importing modules may see | [§4.3](#43-export-forms) |
+| `defschema` | A reusable field schema | [§8.1](#81-defschema) |
+| `defpath` | A path type: kind, root, existence | [§8.2](#82-defpath) |
+| `defenum` | A scalar enum type | [§8.3](#83-defenum) |
+| `defrecord` | A record (product) type | [§8.4](#84-defrecord) |
+| `defunion` | A tagged union type, generic with `:forall` | [§8.5](#85-defunion) |
+| `defun` | A pure helper function | [§8.6](#86-defun) |
+| `defmacro` | A compile-time syntax transformation | [§8.7](#87-defmacro) |
+| `defprompt` | A typed prompt fragment | [§8.7.1](#871-defprompt-target-220) |
+| `defproc` | A reusable effectful procedure | [§8.8](#88-defproc) |
+| `defworkflow` | A public, callable workflow boundary | [§8.9](#89-defworkflow) |
+| `record` | Constructs a record value | [§7.4](#74-records) |
+| `variant` | Constructs one variant of a union | [§8.5](#85-defunion) |
+| `let*` | Sequential bindings | [§10](#10-sequential-binding-let) |
+| `match` | Branches on a union's variant; each arm's binder sees that variant's fields | [§11](#11-pattern-matching) |
+| `if` | Two-way branch on an exact `Bool` | [§12](#12-conditionals) |
+| `cond` | Ordered clauses on exact `Bool` conditions | [§12.1](#121-cond) |
+| `loop/recur` | A bounded loop over typed state | [§13.1](#131-bounded-loop) |
+| `fn` | The loop body function of `loop/recur` | [§13.1](#131-bounded-loop) |
+| `continue` | Ends a loop iteration with the next state | [§13.1](#131-bounded-loop) |
+| `done` | Ends a loop with its result | [§13.1](#131-bounded-loop) |
+| `loop-state` | A typed record of loop state, built or copied with overrides | [§13.2](#132-loop-state) |
+| `call` | Calls a workflow | [§14](#14-workflow-calls) |
+| `workflow-ref` | A compile-time reference to a workflow | [§15](#15-higher-order-workflow-parameters) |
+| `proc-ref` | A compile-time reference to a procedure | [§7.8](#78-procedure-references) |
+| `bind-proc` | Binds some arguments of a procedure reference | [§7.8](#78-procedure-references) |
+| `let-proc` | Local procedures with captures | [§7.8](#78-procedure-references) |
+| `=` | Equality on `String`, `Int`, `Bool`, `Symbol`, same-type enums | [§10.2](#102-closed-pure-expression-surface) |
+| `!=` | Inequality, same operands as `=` | [§10.2](#102-closed-pure-expression-surface) |
+| `<` | Less than, `Int` or `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `<=` | Less than or equal, `Int` or `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `>` | Greater than, `Int` or `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `>=` | Greater than or equal, `Int` or `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `and` | Boolean and | [§10.2](#102-closed-pure-expression-surface) |
+| `or` | Boolean or | [§10.2](#102-closed-pure-expression-surface) |
+| `not` | Boolean negation | [§10.2](#102-closed-pure-expression-surface) |
+| `+` | Sum, all `Int` or all `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `-` | Difference of two, `Int` or `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `*` | Product, all `Int` or all `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `/` | Float division | [§10.2](#102-closed-pure-expression-surface) |
+| `min` | Least operand, all `Int` or all `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `max` | Greatest operand, all `Int` or all `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `int/div` | Integer division | [§10.2](#102-closed-pure-expression-surface) |
+| `int/mod` | Integer remainder | [§10.2](#102-closed-pure-expression-surface) |
+| `float/abs` | Absolute value of a `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `float/sqrt` | Square root of a `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `float/log` | Natural logarithm of a `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `int/to-float` | `Int` to `Float` | [§10.2](#102-closed-pure-expression-surface) |
+| `float/floor` | `Float` to `Int`, rounding down | [§10.2](#102-closed-pure-expression-surface) |
+| `float/round` | `Float` to `Int`, halves to even | [§10.2](#102-closed-pure-expression-surface) |
+| `string/concat` | Joins strings | [§10.2](#102-closed-pure-expression-surface) |
+| `string/empty?` | Whether a string is empty | [§10.2](#102-closed-pure-expression-surface) |
+| `symbol/name` | A symbol's name as a `String` | [§10.2](#102-closed-pure-expression-surface) |
+| `some?` | Whether an `Optional` holds a value | [§10.2](#102-closed-pure-expression-surface) |
+| `or-else` | An `Optional`'s value, or a typed fallback | [§10.2](#102-closed-pure-expression-surface) |
+| `record-update` | A copy of a record with some fields replaced | [§10.2](#102-closed-pure-expression-surface) |
+| `list/empty?` | Whether a list is empty | [§10.2](#102-closed-pure-expression-surface) |
+| `list/head` | A list's first element as an `Optional` | [§10.2](#102-closed-pure-expression-surface) |
+| `list/rest` | A list without its first element | [§10.2](#102-closed-pure-expression-surface) |
+| `list/append` | A list with one element added at the end | [§10.2](#102-closed-pure-expression-surface) |
+| `list/length` | A list's length | [§10.2](#102-closed-pure-expression-surface) |
+| `print` | Writes a value to stdout and returns it | [§10.2](#102-closed-pure-expression-surface) |
+| `list` | Constructs a `List[T]` | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/map` | Maps a pure body over a list | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/map-effect` | Maps one effectful call over a list, at most `:max` elements | [§10.3](#103-target-218-bounded-list-traversal) |
+| `path/join-under` | A path of a named rooted path type | [§10.3](#103-target-218-bounded-list-traversal) |
+| `provider-result` | A provider step with a typed result | [§22](#22-provider-result) |
+| `provider-bundle-path` | The path of a provider result's committed bundle | [§22](#22-provider-result) |
+| `command-result` | A command step with a typed result | [§23](#23-command-result) |
+| `request-input` | Durable input from the host; its `HostReply` type comes from `(import std/host :only (HostReply))` | [Durable host input](workflow_lisp_durable_host_input.md) |
+| `run-ref` | A pinned child run | [Run references](workflow_lisp_run_ref_expression_environments.md) |
+| `agent` | A run-local agent session | [Agent sessions](workflow_lisp_agent_sessions.md) |
+| `with-live-providers` | Live provider supervision; the build refuses it (`closed_program_gap`) | [Providers](../../specs/providers.md) |
+| `with-live-provider-peers` | Provider peer groups; the build refuses it (`closed_program_gap`) | [Providers](../../specs/providers.md) |
+| `review-revise-loop` | The library review and revise loop (`std/phase`) | [§27](#27-review-revise-loop) |
+| `with-phase` | The phase scope; only through `(import std/phase)` | [§21](#21-phase-context) |
+| `phase-target` | A phase-owned output path; only inside `with-phase` | [§6](#target-239-source-admission) |
+| `__with-phase__` | Private expansion form of `std/phase`; refused when written by hand | [§6](#target-239-source-admission) |
+| `__generated-relpath-seed__` | Private expansion form of the library; refused when written by hand | [§6](#target-239-source-admission) |
+
+### Removed forms
+
+These heads refuse with `form_retired` at every target. The message names the git tag of the last
+version that had the form.
+
+| Head | What it was | Tag | What replaces it |
+| --- | --- | --- | --- |
+| `trial` | Blinded trials | `archive/dead-executors-2026-11-11` | Nothing in the language; a pinned child run is `run-ref` |
+| `defresource` | Resource declarations | `archive/pre-one-target-2026-11-12` | Nothing |
+| `deftransition` | Resource transition declarations | `archive/pre-one-target-2026-11-12` | Nothing |
+| `resource-transition` | Resource transitions | `archive/pre-one-target-2026-11-12` | Nothing |
+| `materialize-view` | Materialized value views | `archive/pre-one-target-2026-11-12` | Nothing; the typed value is the authority |
+| `finalize-selected-item` | Selected-item fan-in | `archive/pre-one-target-2026-11-12` | Nothing |
+| `backlog-drain` | The `std/drain` backlog drain | `archive/pre-one-target-2026-11-12` | The [verified-iteration drain](verified_iteration_drain.md) |
+| `resume-or-start` | Reusable phase state | `archive/pre-one-target-2026-11-12` | Nothing; a run resumes with `orchestrator resume` |
+| `run-provider-phase` | Provider phases | `archive/pre-one-target-2026-11-12` | `provider-result` |
+| `produce-one-of` | Produced-outcome selection | `archive/pre-one-target-2026-11-12` | `provider-result` returning a union |
+| `provider` | The producer section of `produce-one-of` | `archive/pre-one-target-2026-11-12` | `provider-result` |
+
+The library modules `std/drain` and `std/resource` went with them: importing either refuses with
+`module_not_found`.
+
 ## 4. File Format And Module Form
 
 Recommended file extension:
@@ -712,7 +826,7 @@ Recommended file extension:
 .orc
 ```
 
-Every source file uses the admitted workflow wrapper and a module declaration:
+Every source file uses the workflow wrapper, and every module but an entry file declares its name:
 
 ```lisp
 (workflow-lisp
@@ -723,6 +837,16 @@ Every source file uses the admitted workflow wrapper and a module declaration:
   (defworkflow run () -> Int
     1))
 ```
+
+`workflow-lisp` is the one top-level form of a file: its `(:language ...)` and `(:target-dsl ...)`
+header clauses are required, an unknown language version is refused, and a target whose
+execution is retired is refused. Diagnostics: `frontend_parse_error`,
+`language_version_unsupported`, `workflow_execution_target_retired`.
+
+A module declared `(defmodule a/b)` (or `a.b`) is the file `a/b.orc` under one of its source
+roots; otherwise compilation refuses. Only an entry file without `defmodule` is exempt, and such a
+file may not `import` or `export`; an imported module always declares one. Diagnostics:
+`module_path_mismatch`, `module_declaration_missing`.
 
 ### 4.1 Module Responsibilities
 
@@ -889,8 +1013,8 @@ Symbol
 and recursively valid string-keyed objects. It is distinct from the
 non-transportable internal `Json` type and from concrete records and unions,
 whose declared fields and variants remain part of their contracts. `Value` is
-reserved against local or imported shadowing, but authored occurrences require
-target DSL 2.19 or later.
+a prelude type at every admitted source target, reserved against local or
+imported shadowing. Diagnostics: `prelude_type_name_reserved`.
 
 Source compatibility is exact. `Value` flows only to `Value`; no narrower
 scalar, enum, path, record, union, optional, list, or map value is implicitly
@@ -898,14 +1022,23 @@ widened to `Value`, and `Value` is never implicitly narrowed to one of those
 types. It grants no field, variant, numeric, path, collection, or control-flow
 operations. Authors may use exact `Value` in function, procedure, workflow,
 provider-result, command-result, and workflow-call parameters or returns; in
-record/union payload fields; and under `Optional[Value]`, `List[Value]`, or
-`Map[String, Value]` where the surrounding transportable position is supported.
+record/union payload fields; as a provider prompt input; and under
+`Optional[Value]`, `List[Value]`, or `Map[String, Value]` where the surrounding
+transportable position is supported.
 
 ```text
 Value -> Value  accepted
 T -> Value      rejected for every narrower T
 Value -> T      rejected for every narrower T
 ```
+
+A narrower value where `Value` is declared, or a `Value` where a narrower type
+is declared, is refused. There is no cast, decoder, field projection or dynamic
+type test from `Value`: a field read, a `Bool` condition or an operator on a
+`Value` is refused by that form's own check, and `Value` satisfies no structural
+constraint such as `is-record`. Diagnostics: `type_mismatch`,
+`return_type_mismatch`, `record_field_unknown`, `if_condition_not_bool`,
+`pure_expr_operand_type_mismatch`, `parametric_constraint_unsatisfied`.
 
 A direct `Value` result lowers to a sole compiler-owned `output_bundle` field:
 
@@ -916,14 +1049,17 @@ type: value
 ```
 
 The producer writes the JSON value at the document root. There is no authored
-or hidden `{"value": ...}` envelope. A public workflow boundary uses
-`kind: value` with `type: value`; the classification remains opaque and never
-changes with an observed payload shape.
+or hidden `{"value": ...}` envelope; state and debug projections may show the
+`__result__` name, while source sees only `Value`. A public workflow boundary
+uses `kind: value` with `type: value`; the classification remains opaque and
+never changes with an observed payload shape.
 
-The shared validator preserves the recursively validated value. File-backed
-malformed JSON and non-standard non-finite constants fail with the existing
-`invalid_json_document` contract; in-memory non-finite numbers, non-string
-object keys, cycles, or other non-JSON leaves fail as
+The shared validator returns the recursively validated value without coercion:
+booleans stay booleans, integers stay integers, and lists and objects keep
+their order and keys. Malformed JSON fails with `invalid_json_document`; a
+non-finite number anywhere in the value, written as a non-standard constant or
+too large for a double, fails with `float_not_finite` and its value path; in-memory non-finite numbers,
+non-string object keys, cycles, or other non-JSON leaves fail as
 `invalid_transportable_value`, reporting the first invalid RFC 6901 value
 path. JSON `null` is a present valid value, not a missing bundle or pointer.
 
@@ -935,8 +1071,10 @@ shape. Resume validates the same declared contract as the original boundary;
 it neither reparses the payload into a narrower type nor re-executes an already
 committed compatible provider boundary.
 
-`(result Value ...)` may carry `:description` and `:format-hint` for provider
-contract guidance. `:example` is rejected with
+The provider contract describes a `Value` result as one JSON value at the
+document root and names no fields. `(result Value ...)` may carry
+`:description` and `:format-hint` for provider contract guidance. `:example`
+is rejected with
 `value_guidance_example_unsupported` because target 2.19 has no checked source
 constructor that erases a narrower literal to exact `Value`. Guidance does not
 narrow validation or change state, checkpoint, or resume behavior.
@@ -1031,6 +1169,10 @@ Records map to:
 - workflow input groups
 - semantic IR product types
 
+`(record Type :field value ...)` constructs a record value: every declared field is given once,
+with a value of the field's type. Diagnostics: `record_field_unknown`, `record_field_missing`,
+`record_field_duplicate`, `type_mismatch`.
+
 ### 7.5 Unions
 
 ```lisp
@@ -1080,23 +1222,19 @@ code or structured runtime inputs. They target named `defworkflow` boundaries,
 resolve before WCC and Core AST projection, and are erased before executable IR
 and runtime state.
 
-They are used for higher-order orchestration such as:
-
-```lisp
-(backlog-drain
-  :selector selector/run
-  :run-item selected-item/run
-  :gap-drafter gap/draft)
-```
-
-The compiler checks signatures before lowering.
+They are passed to a `defproc` formal of a `WorkflowRef[...]` type, which calls
+the workflow (§15). The compiler checks signatures before lowering, and a
+`WorkflowRef` return type must be a record or union.
 
 Use `WorkflowRef` only when whole-workflow identity is part of static
-orchestration. Use `ProcRef` for normal internal reusable behavior.
-Compile-time formal WorkflowRef/ProcRef parameters are supported and erased;
-neither reference type may become a runtime-bound public workflow input
-contract or cross outputs, records, unions, artifacts, provider or command
-results, ledgers, or loop-carried runtime state.
+orchestration. Use `ProcRef` for normal internal reusable behavior. A
+`WorkflowRef` formal of a `defproc` and a `ProcRef` formal are compile-time
+parameters, erased before runtime; neither reference type may become a
+runtime-bound public workflow input contract or cross outputs, records, unions,
+artifacts, provider or command results, ledgers, or loop-carried runtime state.
+A `defworkflow` with a `WorkflowRef` formal is refused with `compiler_defect`
+when it is the entry or is called, so a workflow reference is passed only to a
+`defproc`.
 
 ### 7.8 Procedure References
 
@@ -1334,8 +1472,35 @@ evaluation through hygienic lexical bindings. Bindings inside short-circuit
 operands remain inside those operands. Final strict checking also covers
 uncalled functions and generic bases.
 
-The shared pure-expression schema 3 represents ordered lexical `let` bindings;
-there is no runtime procedure interpreter. Call/definition/specialization
+Admission is structural, after resolution and specialization: a helper's name,
+module or authored `:effects ()` never admits a call. An effectful callee in a
+function body is refused with `pure_function_has_effect`, whose notes name the
+helper's call site and definition, and in a `list/map` body with
+`list_map_body_effect_forbidden`, which names the position; neither names the
+effect. An authored `:effects ()` that the inferred effects exceed is refused
+with `procedure_effect_ceiling_exceeded`, which names them. A call whose
+resolved body does not reduce to an effect-free inline pure expression, such as
+a procedure of a 2.35 to 2.38 module with `:lowering private-workflow`, is refused as unrepresentable rather than as an
+effect; from 2.39 an authored `:lowering` is itself refused. A recursive pure
+helper is refused, also when the cycle passes through a procedure it calls.
+Diagnostics: `pure_function_has_effect`, `list_map_body_effect_forbidden`,
+`procedure_effect_ceiling_exceeded`, `pure_call_representation_unsupported`,
+`proc_lowering_annotation_invalid`, `function_cycle`, `proc_lowering_cycle`.
+
+Each actual argument is evaluated once, in source order and in the caller's
+scope, before the callee's formals are bound, also when the formal is unused, so
+an unused argument's failure still fails the call. Work inside an untaken `if`
+branch, a skipped `and`/`or` operand or an empty `list/map` body is not
+evaluated; a `list/map` evaluates its body once per element in input order. A
+selected hook is expanded under its own specialization and defining module; a
+caller's procedure of the same name never captures it. The call's work belongs
+to the enclosing workflow; no helper result is stored.
+
+The shared pure-expression schema 3 represents ordered lexical `let` bindings:
+each initializer sees the earlier bindings, an inner scope may shadow an outer
+name, a duplicate name in one binding list is refused, no binding escapes its
+body, and payload schemas 1 and 2 refuse `let`. There is no runtime procedure
+interpreter. Call/definition/specialization
 provenance and deterministic compilation are retained. Effectful calls, private
 execution frames, unresolved runtime-selected callables, and bodies outside the
 supported pure-expression representation are not admitted by this rule. Existing
@@ -1348,116 +1513,110 @@ ordering, representation and compatibility boundaries.
 
 Defines compile-time AST transformation.
 
+A macro is a top-level template whose calls are replaced by copies of its body
+before typechecking (Part VII):
+
 ```lisp
-(defmacro with-phase ((ctx phase-name) &body body)
-  ...)
+(defmacro my-let (binding &body body)
+  (let* (binding) (splice body)))
 ```
 
-Macros operate on syntax objects, not raw strings.
-
-Macros may:
-
-- construct AST
-- introduce hygienic bindings
-- expand shorthand into typed forms
-- emit source-map frames
-- emit helper-composed `let*` bindings whose imported `defproc` calls remain
-  ordinary effect-visible workflow expressions
-
-Macros may not:
-
-- perform filesystem I/O
-- perform network I/O
-- depend on wall-clock time
-- call providers
-- run commands
-- weaken contracts
-- emit executable IR directly
-
-A macro expands to frontend AST, which must still pass validation. Imported
-helper-result locals introduced by that AST are typed and lowered as ordinary
-lexical bindings after hygiene rewriting; direct macro-owned variant proof
-remains deferred to ordinary helper bodies and `match`.
+The expansion is checked like authored source. A macro performs no I/O, reads
+no clock, introduces no effect of its own, and at top level emits only
+definition forms. Diagnostics: `macro_arity_error`, `macro_reserved_name`,
+`macro_expansion_cycle`, `macro_emits_invalid_ast`, `macro_hidden_effect`
+(§32 to §37).
 
 ### 8.7.1 `defprompt` (Target 2.20)
 
-`defprompt` declares compile-time provider-prompt structure in a distinct
-module namespace:
-
 ```lisp
-(defprompt review-design-doc
+(defprompt review-doc
   (:fills
-    (target_doc :doc DesignDocPath)
-    (context_docs :value List[DesignDocPath])
-    (review_focus :text)
-    (checks_report :path WorkReportPath))
+    (target :doc DesignDocPath)
+    (context :value List[DesignDocPath])
+    (focus :text)
+    (report :path :out ReviewReportTarget))
   -> ReviewDecision
-  "Review the injected target with {review_focus}.
-   Context paths: {context_docs}
-   Checks report: {checks_report}")
+  "Review the injected document for {focus}. Context: {context}. Write the review to {report}.")
 ```
 
-The closed slot kinds are `:doc`, `:text`, `:value`, and `:path`. A slot may
-carry only the kind-compatible optional refinement; refinements narrow the
-existing renderer contract and never create conversions or new renderers. A
-declaration owns one optional `ReturnSpec`, defaulting to exact `Value`, and
-one deterministic brace-placeholder template.
+- A declaration has a name, slots in declaration order, an optional `-> T` with
+  the usual result guidance (exact `Value` when omitted, never inferred) and one
+  template string (one line: a string literal does not span lines; write `\n`).
+  Prompts form their own namespace and are exported and imported like other
+  definitions.
+- A prompt is not a value, procedure or `ProcRef`. Its one use is a direct, fully
+  applied application as the `:prompt` of `provider-result` (agent turns
+  included). A bare prompt name or `(proc-ref p)` there refuses; an application
+  anywhere else is an unknown call; `proc-ref` of a prompt is an unknown
+  reference. Diagnostics: `prompt_partial_application_unsupported`,
+  `procedure_call_unknown`, `proc_ref_unknown`.
+- Slot kinds are closed: `:doc`, `:text`, `:value`, `:path`. A kind says how the
+  fill is delivered, not what type it has: `:value` is not the type `Value` and
+  converts nothing. Each slot name is declared once. Diagnostics:
+  `prompt_slot_kind_unknown`, `prompt_slot_duplicate`.
+- Admissible fills: `:doc`, a workspace `relpath` path type that must exist;
+  `:text`, exact `String`, rendered verbatim; `:value`, a type the canonical-JSON renderer takes
+  (`String`, `Int`, `Float`, `Bool`, `Json`, `Value`, enums, paths, records,
+  unions, and lists of these); `:path`, any path type, rendered as one POSIX
+  path line. `Optional`, `Map` and other shapes have no renderer. Diagnostics:
+  `prompt_slot_type_mismatch`, `prompt_fill_renderer_unsupported`.
+- A refinement after the kind narrows the admissible fills, must itself be
+  admissible for the kind, and creates no conversion; `:text` takes none.
+  Diagnostics: `prompt_slot_refinement_invalid`.
+- A placeholder is `{name}`, the name matching `[A-Za-z_][A-Za-z0-9_-]*`; `{{`
+  and `}}` are literal braces, and any other brace, space inside braces or
+  expression is invalid. A placeholder names a declared slot. Every `:text`,
+  `:value` and `:path` slot appears at least once (repeats render the same
+  bytes); a `:doc` slot never appears inline. Diagnostics:
+  `prompt_placeholder_syntax_invalid`, `prompt_placeholder_undeclared`,
+  `prompt_placeholder_missing`, `prompt_doc_placeholder_forbidden`.
+- An application fills every slot exactly once, as `:slot expr`, in any order;
+  compilation normalizes the fills to declaration order. Diagnostics:
+  `prompt_fill_duplicate`, `prompt_fill_unknown`, `prompt_slot_undischarged`.
+- A fill expression is a literal, a lexical name or a field path from a lexical
+  name; bind anything else with `let*` first. Diagnostics:
+  `prompt_fill_identity_unsupported`.
+- The declaration owns the call's result type and everything the provider is
+  shown: a fragment-backed `provider-result` may not also write `:returns`,
+  `:inputs` or `:prompt-dependencies`. Diagnostics:
+  `prompt_return_redeclaration_forbidden`, `prompt_inputs_redeclaration_forbidden`,
+  `prompt_dependency_redeclaration_forbidden`.
+- Refusals come in this order: the declaration (syntax, slots, kinds,
+  refinements, placeholders), module resolution, fill names and completeness,
+  fill types and renderers, then the result.
 
-A prompt declaration is importable and exportable, but is not a runtime value,
-procedure, `ProcRef`, provider, or general callable. Its only use is one fully
-applied named application in `provider-result :prompt`. Q1 was introduced at
-target 2.20; every admitted source target includes it. Direct syntax/import
-analysis rejects pre-2.35 source or typed-program imports with
-`target_dsl_unsupported`, including transitive dependencies. Public CLI old-entry
-preflight retains `workflow_execution_target_retired` precedence; see
-[CLI admission](../../specs/cli.md#executable-support-boundary). The original Q1
-feature gate is retired.
+Delivery at run time is §22.6. The former text of §8.7.1 to §8.7.3 is
+[preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#87-prompt-sections-former-text).
+
 
 ### 8.7.2 Implemented `:path :out` Slots (Target 2.21)
 
-**Status:** accepted Q2 design after `Q2_DESIGN_SPEC_REAPPROVED` then
-`Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
-At introduction, the additive target-2.21 change preserved target-2.20 Q1
-source, compiled bytes and runtime behavior. That historical comparison does
-not admit pre-2.35 source/imports or old-profile resume.
-
-Q2 adds exactly one slot spelling:
-
-```lisp
-(report_target :path :out [PathType])
-```
-
-`:out` is an optional role modifier on `:path`, not a kind or type. It occurs at
-most once and immediately after `:path`; any other placement or kind is invalid.
-The optional refinement and the resolved fill type must each be a workspace
-`relpath` with `must_exist=false`. Every output-position slot still requires
-one exact named fill and at least one placeholder. The caller cannot override
-the output name, path, type, requiredness, postcondition, or delivery mode.
-
-The same declaration slot and fill own both POSIX path rendering and the
-required post-attempt file contract described in Section 22.7. A Q1-only
-application continues to use byte-identical
-`compiled_prompt_fragment_identity.v1`, including when compiled at target 2.21.
-An application containing `:out` uses
-`compiled_prompt_fragment_identity.v2`, whose slot projection adds
-`output_role=required_string_file` for `:out` and `output_role=none` otherwise.
-It also uses the closed `compiler_prompt_fragment_contract.v2` carrier defined
-in Section 22.7; Q1-only applications retain the exact v1 carrier bytes.
+- `(slot :path :out [PathType])` makes a path slot an output position. `:out`
+  occurs once, directly after `:path`, and on no other kind. Diagnostics:
+  `prompt_output_position_syntax_invalid`, `prompt_output_position_kind_invalid`.
+- The refinement, if any, and the fill's type are each a workspace `relpath`
+  declared `:must-exist false`. Diagnostics: `prompt_output_position_refinement_invalid`,
+  `prompt_output_position_fill_invalid`.
+- The slot and its fill are the only authority for the output: the call requires
+  one UTF-8 file, named after the slot, at the fill's path, which is the path the
+  prompt renders. No caller form overrides its name, path, type or requiredness.
+- After a successful attempt the output files are validated first, then the
+  structured result; if either fails, the attempt fails and nothing is
+  committed, but files the provider already wrote are not removed. An output
+  name that is also an artifact name of the structured result fails the attempt,
+  after the provider has run. Diagnostics: `provider_result_invalid`, whose
+  violations name `missing_output_file`, `invalid_output_path` or
+  `duplicate_artifact_name`.
 
 ### 8.7.3 Implemented Prompt-Attempt Identity (Target 2.22)
 
-Q3 adds no authored form. Selecting target 2.22 for a direct fragment-backed
-`provider-result` requires the compiler/runtime carrier pair
-`workflow_prompt_attempt_identity.v1` and
-`compiler_prompt_attempt_binding_plan.v1`. The binding plan retains exact
-declaration order and existing dependency, renderer, refinement, and output
-role authority; runtime never reconstructs it from source. Targets 2.20 and
-2.21 omit the pair and preserve their existing bytes.
-
-The detailed record, role, comparison, failure, report, and compatibility
-contract is `workflow_lisp_prompt_identity_diagnostics.md`. This target does
-not add prompt values, judgments, coordinated-provider fragments, or identity
-for arbitrary provider calls.
+- A fragment-backed call has no prompt identity of its own in the checked
+  program, and the evaluated runtime publishes no prompt snapshot and no
+  prompt-attempt identity record. A provider effect's identity is its resolved
+  input, which binds its assembled prompt, its prompt source and every file the
+  prompt reads by digest
+  ([evaluated execution §7.2](workflow_lisp_evaluated_execution.md#72-the-resolved-input)).
 
 ### 8.7.4 Implemented Phased Contract Delivery (Target 2.23)
 
@@ -1697,26 +1856,37 @@ explicitly supports parallelism.
 
 ### 10.2 Closed Pure-Expression Surface
 
-Workflow Lisp now accepts a closed, effect-free pure-expression surface that is
-shared by compile-time folding and runtime projection execution. The runtime
-evaluator owns the semantics; the frontend typechecks and lowers into that
-shared payload rather than maintaining a separate evaluator.
+Workflow Lisp accepts a closed, effect-free pure-expression surface shared by
+compile-time folding and run-time evaluation. The evaluator of
+`orchestrator/workflow/pure_expr.py` owns the semantics; the frontend typechecks
+into its payload rather than maintaining a separate evaluator. The closed
+program carries checked pure value nodes, which the evaluated runtime evaluates
+in lexical scope; a pure region writes no generated step or result bundle.
+Literal-only trees fold away at compile time through the same evaluator.
 
-Maximal runtime-visible pure regions lower through WCC/schema 2 into one
-generated `pure_projection` step with a validated payload, typed binding refs,
-payload digest, and a private managed result bundle. Literal-only trees may
-still fold away entirely at compile time through the same evaluator.
+A decimal literal (`1.5`, `-0.25`, `.5`, `2e-3`, `1.0E6`) is an expression
+wherever an expression is admitted. There is no literal for infinity or for a
+value that is not a number, and a literal that does not fit a finite double is
+refused when the module is read. Diagnostics: `float_literal_not_finite`.
+
+Each operator's name, operand types, result type and evaluation are defined
+once, in the catalog of `orchestrator/workflow/pure_expr.py`, which the
+typechecker, the compiler and the runtime read. A refusal names the operator
+and prints its operands. An application whose operands are all literals is
+evaluated when the program is compiled, so its refusal is a compile error that
+points at the failing application, also when it is nested; a refusal at run time
+carries no source location.
 
 Supported operators are exact and closed:
 
 | Group | Operators | Allowed operand/result shapes | Notes |
 | --- | --- | --- | --- |
-| Equality | `=`, `!=` | `String`, `Int`, `Bool`, `Symbol`, same-type enums | No float equality, deep union equality, or deep record equality. |
+| Equality | `=`, `!=` | `String`, `Int`, `Bool`, `Symbol`, same-type enums | No float equality (`pure_expr_float_equality_forbidden`), deep union equality, or deep record equality. |
 | Ordering | `<`, `<=`, `>`, `>=` | `Int x Int`, `Float x Float` -> `Bool` | Ordering is allowed for `Float`; equality is not. |
 | Boolean | `and`, `or`, `not` | `Bool` -> `Bool` | Computed `Bool` values remain proof-neutral. |
 | Arithmetic, targets through 2.33 | `+`, `-`, `*`, `min`, `max` | `Int` -> `Int` | `+`, `-`, and `*` fail closed on signed 64-bit overflow. |
-| Arithmetic, target 2.34 | `+`, `*`, `min`, `max` (two or more operands); `-`, `/`, `int/div`, `int/mod` (two); `float/abs`, `float/sqrt`, `float/log` (one) | `+ - * min max`: all `Int` or all `Float` -> same type; `/` and the `float/` operators: `Float` -> `Float`; `int/div` and `int/mod`: `Int` -> `Int` only | [Numeric surface](workflow_lisp_numeric_surface.md) rules N2 and N4: mixed operands refused at compile time; refusals `pure_expr_division_by_zero`, `pure_expr_float_domain`, `pure_expr_float_not_finite`, `pure_expr_overflow` name the operator and print the operands. |
-| Conversion, target 2.34 | `int/to-float`, `float/floor`, `float/round` | `Int` -> `Float`; `Float` -> `Int` | Numeric surface rule N3: nothing converts silently; `float/round` rounds halves to even; a result outside 64 bits is refused. |
+| Arithmetic, target 2.34 | `+`, `*`, `min`, `max` (two or more operands); `-`, `/`, `int/div`, `int/mod` (two); `float/abs`, `float/sqrt`, `float/log` (one) | `+ - * min max`: all `Int` or all `Float` -> same type; `/` and the `float/` operators: `Float` -> `Float`; `int/div` and `int/mod`: `Int` -> `Int` only | Mixed `Int` and `Float` operands are refused at compile time; no operand is converted (`pure_expr_operand_type_mismatch`). `int/div` rounds toward negative infinity and `int/mod` has the sign of the divisor, so `(+ (* (int/div a b) b) (int/mod a b))` is `a`. `float/log` is the natural logarithm; unlike the other operators, which give the same double on every platform, it may differ in the last unit between mathematical libraries, and so may a digest that holds its result. Refusals: `pure_expr_division_by_zero` (a zero divisor of `/`, `int/div` or `int/mod`), `pure_expr_float_domain` (`float/sqrt` of a negative value, `float/log` of zero or a negative value), `pure_expr_float_not_finite` (an infinite or not-a-number result), `pure_expr_overflow` (an `Int` result outside 64 bits). |
+| Conversion, target 2.34 | `int/to-float`, `float/floor`, `float/round` | `Int` -> `Float`; `Float` -> `Int` | Conversion is explicit; nothing converts silently. `int/to-float` gives the nearest double and never refuses; `float/floor` rounds down; `float/round` rounds halves to even. A result outside 64 bits is refused (`pure_expr_overflow`). |
 | String | `string/concat`, `string/empty?`, `symbol/name` | `String`/`Symbol` | Path values are not strings for concatenation. |
 | Option | `some?`, `or-else` | `Optional[T]` with typed fallback | Optional access still requires proof or an explicit option operator. |
 | Record | `record-update` | base record plus typed field overrides | Unknown fields remain `record_field_unknown`. |
@@ -1882,6 +2052,14 @@ Preferred:
   ((BLOCKED blocked) ...))
 ```
 
+### 12.1 `cond`
+
+`(cond (condition result) ... (else result))` yields the result of the first clause whose
+condition is true; each clause is a two-element list, each condition is exactly `Bool`, and a
+single `else` clause comes last and is required unless the clauses are provably exhaustive. The
+compiler erases `cond` into nested `if`. Diagnostics: `cond_clause_invalid`,
+`cond_condition_not_bool`, `cond_else_invalid`, `cond_non_exhaustive`.
+
 ## 13. Loops
 
 ### 13.1 Bounded Loop
@@ -1970,6 +2148,22 @@ Required behavior:
   route, but any later variant-specific access still requires fresh proof on
   the carried value rather than hidden cross-iteration proof.
 
+### 13.2 `loop-state`
+
+`(loop-state (name Type value) ...)` builds a typed loop-state record for `loop/recur :state`,
+read as `state.name`; `(loop-state :like state :name value ...)` copies a loop-state record with
+some fields replaced. Each field is declared once, its value has its declared type, `:like` takes
+a loop-state record and names only its fields, and no field carries a type that cannot cross a
+runtime boundary, such as `WorkflowRef`. Diagnostics: `loop_state_requires_typed_fields`,
+`loop_state_duplicate_field`, `loop_state_field_type_mismatch`, `loop_state_like_not_loop_state`,
+`loop_state_unknown_field`, `loop_state_runtime_transport_forbidden`.
+
+```lisp
+(loop/recur :max 3 :state (loop-state (i Int 0)) :on-exhausted state.i
+  (fn (state)
+    (if (= state.i 2) (done state.i) (continue (loop-state :like state :i (+ state.i 1))))))
+```
+
 ## 14. Workflow Calls
 
 ```lisp
@@ -1998,19 +2192,24 @@ Lowering:
 ## 15. Higher-Order Workflow Parameters
 
 ```lisp
-(defworkflow backlog-drain
-  ((ctx DrainCtx)
-   (selector WorkflowRef[DrainCtx -> SelectionResult])
-   (run-item WorkflowRef[SelectedItemInput -> SelectedItemResult])
-   (gap-drafter WorkflowRef[GapInput -> GapResult])
-   (max-iterations Int))
-  -> DrainResult
-  ...)
+(defproc invoke-runner
+  ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])
+   (input WorkflowInput))
+  -> WorkflowOutput
+  (call runner :input input))
+
+(defworkflow entry ((input WorkflowInput)) -> WorkflowOutput
+  (invoke-runner (workflow-ref echo-helper) input))
 ```
 
 Workflow refs are resolved at compile time or module-link time.
 
 They are not runtime arbitrary code.
+
+`(workflow-ref name)` is a compile-time reference to a `defworkflow` in scope,
+passed where a `WorkflowRef[...]` parameter of a `defproc` is expected; the workflow's signature
+must match the parameter's type, whose return type is a record or union. Diagnostics:
+`workflow_ref_unknown`, `workflow_ref_signature_invalid`, `workflow_ref_type_invalid`.
 
 ## Part III. Effects And Authority
 
@@ -2467,6 +2666,11 @@ sequenceDiagram
     State->>Artifacts: expose selected variant fields
 ```
 
+`(provider-bundle-path r :as PathType)` is the path of the committed result bundle of `r`, a
+`provider-result` binding in scope, typed as `PathType`: a relpath type rooted under
+`.orchestrate/runs`. Diagnostics: `provider_bundle_path_source_invalid`,
+`provider_bundle_path_target_invalid`.
+
 ### 22.1 Provider Output Authority
 
 The provider must produce structured state, not only prose.
@@ -2648,281 +2852,35 @@ behavior. YAML content injection remains a legacy authoring surface.
 
 ### 22.6 Workflow Lisp Prompt Fragments (Target 2.20)
 
-A fragment-backed provider call applies one resolved `defprompt` directly and
-fully:
+A fragment-backed call applies one `defprompt` (§8.7.1):
 
 ```lisp
 (provider-result providers.review
-  :prompt
-    (review-design-doc
-      :target_doc completed.target_doc
-      :context_docs completed.context_docs
-      :review_focus inputs.review_focus
-      :checks_report inputs.checks_report)
-  :model inputs.review_model
-  :effort inputs.review_effort
-  :timeout-sec 3600)
+  :prompt (review-doc :target t :context ctx :focus focus :report report_target)
+  :model review_model)
 ```
 
-Every declared slot appears exactly once as a named fill. Fill spelling order
-is not semantic; compilation normalizes bindings into declaration order.
-Unknown, duplicate, missing, partial, nested, or value-position applications
-fail closed. Fragment-backed calls do not admit parallel `:inputs`,
-`:prompt-dependencies`, or `:returns`: the declaration owns all
-provider-visible fills and the sole result contract. Extern-backed calls keep
-those existing forms unchanged.
+- `:text`, `:value` and `:path` fills are rendered into the template once per
+  attempt. `:doc` fills become required prompt dependencies, delivered as one
+  block prepended to the rendered template with the default instruction; a
+  fragment has no instruction or position of its own. The output-position block
+  and then the structured-result block are appended last.
+- The rows that render the output positions are the rows that validate them
+  (§8.7.2). The validated result, not the provider's prose, is the result.
 
-Delivery is kind-driven:
+The former text of §22.6 to §22.8 is
+[preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#226-prompt-sections-former-text).
 
-- `:doc` accepts a workspace `relpath` contract with `must_exist=true`, forbids
-  an inline placeholder, and lowers to the existing required/prepend immutable
-  prompt-dependency lane;
-- `:text` accepts exact `String` and renders raw UTF-8;
-- `:value` selects the unique canonical-JSON renderer by resolved static type;
-  target 2.20 adds recursive `List[T]` selection only when `T` is already a
-  supported scalar, enum, path, record, exact `Value`, or recursively supported
-  list type; and
-- `:path` selects the existing POSIX path-line renderer for a declared path
-  type.
-
-`Optional`, `Map`, union, reference, resource, schema, and other unsupported or
-ambiguous fragment renderer shapes remain unavailable. Rendering happens in
-the existing composition owner: render the base template, prepend the one
-canonical document dependency block, apply consumed artifacts, append the one
-generated output contract, and deliver through the existing provider
-transport. The validated output bundle remains result authority.
-
-Compilation produces one
-`compiled_prompt_fragment_identity.v1` canonical SHA-256 identity from the
-resolved declaration, exact template UTF-8, declaration-ordered slot contract,
-normalized prompt-owned `ReturnSpec`, and declaration-ordered closed
-literal/name/field-path fill identities. It excludes runtime values, file
-contents, provider policy, ambient state, source spans, host representations,
-and runtime-owned prompt contributions. The compiler also carries a closed
-`CompilerPromptFragmentContract` containing the exact template and selected
-renderers. Contract and identity remain paired through Core, Semantic IR,
-Executable IR, persisted provider configuration, and lexical checkpoints.
-
-Before provider preparation, the Semantic IR identity, Executable IR identity,
-compiler fragment-contract identity, and receiving-attempt identity must be
-present, well formed, and byte-equal. The attempt publishes the closed
-`workflow_prompt_fragment_snapshot.functional.v1` sibling under the existing
-schema-2.1 `record_kind=prompt_snapshot` allocator and terminal validator. Its
-dependency origin is `workflow_lisp_prompt_fragment`; zero-document fragments
-publish explicit empty dependency/injection rows. Prompt snapshot evidence is
-an audit view and is never execution, checkpoint, or resume authority.
-Compatible completed-result reuse follows the existing lexical-checkpoint and
-program-identity guards without provider re-execution; a changed fragment
-identity is program drift.
-
-The Q1-specific refusal codes are:
-
-- `prompt_slot_kind_unknown`, `prompt_slot_duplicate`,
-  `prompt_slot_refinement_invalid`;
-- `prompt_placeholder_syntax_invalid`, `prompt_placeholder_undeclared`,
-  `prompt_placeholder_missing`, `prompt_doc_placeholder_forbidden`;
-- `prompt_fill_duplicate`, `prompt_fill_unknown`,
-  `prompt_slot_undischarged`, `prompt_slot_type_mismatch`,
-  `prompt_fill_renderer_unsupported`, `prompt_fill_identity_unsupported`,
-  `prompt_partial_application_unsupported`;
-- `prompt_return_redeclaration_forbidden`,
-  `prompt_inputs_redeclaration_forbidden`,
-  `prompt_dependency_redeclaration_forbidden`;
-- `compiled_prompt_fragment_identity_missing`,
-  `compiled_prompt_fragment_identity_invalid`,
-  `compiled_prompt_fragment_identity_mismatch`.
-
-Q1 does not implement output-position slots (Q2), role-separated
-fragment/dependency/runtime/provider-policy identity or comparison diagnostics
-(Q3), or judgment views (Q4). It does not add residual prompt values, nested
-fragments, procedure/provider substitution, schema 2.2, or a second result,
-snapshot, or resume channel.
 
 ### 22.7 Implemented Prompt Output Positions (Target 2.21)
 
-**Status:** accepted Q2 design after `Q2_DESIGN_SPEC_REAPPROVED` then
-`Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
-The owning detailed contract is the implemented Q2 amendment in
-`workflow_lisp_prompt_calculus.md`.
+Output positions are §8.7.2; their delivery is §22.6.
 
-For every `(slot :path :out [PathType])`, the compiler projects one ordinary
-required-file row from the same slot and fill used by the prompt renderer:
-
-```json
-{
-  "name": "<slot-name>",
-  "path": "<resolved-fill-template>",
-  "type": "string",
-  "required": true
-}
-```
-
-The row is compiler-owned `expected_outputs` structure. Slot name supplies
-`name`; one compiler helper derives `path` from the typed fill's frozen Q1
-runtime binding source: exact `{"ref": R}` becomes `${R}`, and an admitted
-string literal remains that exact validated literal. Source spelling, host
-representation, and a second reconstruction are forbidden. No caller or
-parallel authoring form may replace either field. The static path contract must
-already be workspace-relative with `must_exist=false`. It owns resolution and
-containment before launch; the row requires one UTF-8 file at that resolved path
-after a successful provider attempt. Before launch, the typed value used by the
-POSIX path-line renderer and resolved `expected_outputs.path` must be the same
-canonical workspace-relative POSIX path. The fill expression is the primary
-source-map owner, with the slot declaration and `:out` token related.
-
-A fragment-backed `provider-result` also has exactly one prompt-owned structured
-result contract, so Q2 requires one generic output-contract composition rule:
-
-- `expected_outputs` may coexist with exactly one of `output_bundle` or
-  `variant_output`;
-- every other multi-contract combination, including any combination with
-  `select_variant_output`, remains invalid;
-- possible artifact names across the file rows and structured contract must be
-  disjoint before provider launch;
-- after path resolution, output-position destinations must be pairwise distinct
-  and disjoint from the resolved structured-result bundle path even when their
-  artifact names differ; aliasing reports both source owners before launch;
-- the provider prompt appends the expected-output block once and then the
-  structured-result block once;
-- post-attempt validation checks both in that same deterministic order and
-  exposes neither artifact mapping unless both pass; and
-- successful disjoint mappings merge into the one existing step-artifact map.
-
-Atomicity here is state atomicity: failure of either contract produces one
-failed step and commits neither mapping, but does not roll back files the
-provider wrote. Q2 creates no second artifact store, result channel, snapshot,
-or checkpoint surface.
-
-This is a generic correction to the existing owners:
-
-- `orchestrator/workflow/validation.py`: declared-output-contract admission,
-  `_validate_expected_outputs`, structured contract validation, and name
-  collision;
-- `orchestrator/workflow/prompting.py`:
-  `PromptComposer.apply_output_contract_prompt_suffix`, changed from selecting
-  one contract to rendering the admitted pair in fixed order;
-- `orchestrator/workflow/executor.py`:
-  `WorkflowExecutor._resolve_output_contract_paths` and
-  `_apply_expected_outputs_contract`, changed from selecting one validation
-  result to validating and atomically merging the admitted pair;
-- `orchestrator/contracts/output_contract.py`:
-  `validate_expected_outputs`, `validate_output_bundle`, and
-  `validate_variant_output_bundle`;
-- the then-existing Surface/Core/Semantic/Executable/persisted/runtime carriers
-  (removed by 2026-11-12; local git tag `archive/old-ir-stack-2026-11-12`) in
-  `orchestrator/workflow/surface_ast.py`,
-  `orchestrator/workflow/core_ast.py`,
-  `orchestrator/workflow/semantic_ir.py`,
-  `orchestrator/workflow/executable_ir.py`,
-  `orchestrator/workflow/persisted_surface.py`,
-  `orchestrator/workflow/lowering.py`,
-  `orchestrator/workflow/elaboration.py`, and
-  `orchestrator/workflow/runtime_step.py`; and
-- `orchestrator/workflow_lisp/prompts.py`,
-  `orchestrator/workflow_lisp/lowering/phase_scope.py`, and
-  `orchestrator/workflow_lisp/lowering/effects.py` for slot parsing,
-  typechecking, v2 identity, row projection, and provider-step installation.
-
-Current checked preparation preserves declaration-ordered rows, source
-provenance, fragment identity, structured results and effect identity inputs.
-The historical classic/WCC equality oracle does not restore a flat route.
-Q1-only fragments retain the exact v1 canonical identity projection and digest.
-Q2 fragments use `compiled_prompt_fragment_identity.v2`, adding per-slot
-`output_role` without otherwise changing Q1 ordering or identity fields.
-They also use `compiler_prompt_fragment_contract.v2`, which preserves the v1
-template/rendered-slot fields and adds declaration-ordered
-`output_positions` rows shaped as:
-
-```text
-(slot_name,
- output_role=required_string_file,
- expected_output={name, path, type=string, required=true})
-```
-
-The v2 carrier validator requires exact keys, unique names, and unique
-declaration-relative-order correspondence with the subset of rendered path
-slots whose normalized role is `required_string_file`; ordinary
-`output_role=none` path slots have no carrier row. Compiler construction proves
-every normalized output-role slot has exactly one row and feeds both the v2
-identity slot projection and the carrier from one normalized slot-role record
-rather than reconstructing either independently. The v1 carrier serialization remains
-byte-for-byte unchanged and admits no output-position rows. At every compiler,
-IR, persisted, checkpoint, and runtime boundary, the v2 pair validator compares
-the carrier's nested `expected_output` objects exactly and in order with the
-provider configuration's `expected_outputs`. Missing, extra, reordered, or
-contradictory row/identity/carrier carriage fails before provider preparation.
-A completed checkpoint is reusable only if both contracts committed at the
-original boundary; compatible reuse does not execute the provider again, while
-v1/v2 or projected-contract drift is program drift.
-
-The closed Q2 diagnostics are:
-
-- `prompt_output_position_syntax_invalid`;
-- `prompt_output_position_kind_invalid`;
-- `prompt_output_position_refinement_invalid`;
-- `prompt_output_position_fill_invalid`;
-- `prompt_output_position_contract_collision`;
-- `prompt_output_position_destination_collision`; and
-- `prompt_output_position_contract_mismatch`.
-
-Destination collision is a preparation-time, pre-provider diagnostic whenever
-runtime substitution is required; the compiler may emit it earlier only for
-statically proven literal collisions. Contract mismatch is validated at the
-carrier boundary where the mismatch becomes observable.
-
-Source target admission precedes slot checking. In admitted targets, slot-tail
-recognition detects `:out`; modifier multiplicity/placement and the `:path`
-requirement precede ordinary Q1
-duplicate-slot, kind, refinement, and placeholder checks on the normalized
-slot, followed by Q2 output-refinement validation. Module resolution then
-precedes application discharge; Q1 fill type/renderer checks precede Q2
-output-fill compatibility; return compatibility precedes collision and
-identity/carrier validation; runtime checks remain last. Slots without `:out`
-retain exact Q1 precedence and diagnostics.
-Runtime failures reuse existing expected-output violations such as
-`invalid_output_path` and `missing_output_file`, now with the Q2 fill and slot
-source subjects.
-
-The historical first consumer is retained as the source/type fixture
-`tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc`
-(its executable target is retired):
-`review-design-doc.review_report_target_path` becomes
-`:path :out ReviewReportTargetPath` and remains filled by
-`inputs.review_report_target_path`. The existing `ReviewDecision` remains
-structured authority. Consumer E2E must prove the filled path drives rendering
-and required-file validation, the returned review path is the intended same
-path, and clean/resumed execution performs one provider call. Q2 does not infer
-a general correspondence between output slots and arbitrary result fields.
-
-Q2 excludes arbitrary file content schemas, optional files, directories, globs,
-dynamic output names or sets, call-site overrides, implicit result-field
-mapping, new runtime channels, and any change to Q1-only identities or behavior.
 
 ### 22.8 Implemented Prompt-Attempt Identity And Diagnostics (Target 2.22)
 
-The unchanged Q1/Q2 compiled fragment digest supplies the `fragment_program`
-role. One declaration-ordered binding plan and the existing render,
-dependency, composition, and invocation owners supply four additional closed
-roles: `resolved_bindings`, `injected_dependencies`,
-`runtime_contributions`, and `provider_policy`. Q3 seals their digests with
-the exact prepared final-prompt digest and composition digest without
-persisting prompt bodies, values, dependency content, commands, environment,
-or ambient workspace identity.
+Not produced by the evaluated runtime; see §8.7.3.
 
-The successful order is allocate, render/snapshot/compose once, prepare the
-exact invocation and policy, validate and publish
-`workflow_prompt_fragment_snapshot.functional.v2`, then launch. Preparation
-failure publishes the closed Q3 failure record; publication failure leaves an
-ordinary allocation-only gap; neither launches a provider.
-
-The pure comparator reports unchanged context or fixed-order instruction,
-input, dependency-content, runtime-prelude, and provider-policy drift. Equal
-role digests with unequal final-prompt digests fail closed. JSON and Markdown
-reports expose the content-free result under additive `prompt_context`,
-including running attempts, but never become execution, result, checkpoint,
-retry, or resume authority. Target-2.20/2.21 compiler, checkpoint, runtime,
-functional-v1 evidence, provider, result, and completed-boundary reuse remain
-compatible.
 
 ### 22.9 Implemented Phased Contract Delivery (Target 2.23)
 
@@ -3018,45 +2976,7 @@ by the runtime migration foundation.
 
 ## 24. Produced Outcome
 
-Removed on 2026-11-12 (`produce-one-of` and its `provider` producer; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
-
-Some producers create candidate files rather than a canonical structured bundle.
-For those, use a higher-level form:
-
-```lisp
-(produce-one-of ImplementationAttempt
-  :ctx ctx
-  :producer
-    (provider providers.execute
-      :prompt prompts.implementation.execute
-      :inputs (inputs.design inputs.plan))
-  :candidates
-    ((COMPLETED
-       (execution-report
-         :target inputs.execution-report-target
-         :schema Path.execution-report))
-
-     (BLOCKED
-       (progress-report
-         :target (phase-target ctx 'progress-report)
-         :schema Path.progress-report)
-       (blocker Blocker
-         :source structured-sidecar))))
-```
-
-But the preferred provider protocol should be structured `provider-result`.
-
-`produce-one-of` lowers to:
-
-- `pre_snapshot`
-- producer step
-- snapshot_diff evidence
-- `select_variant_output`
-- atomic bundle commit
-- variant-aware artifact registration
-
-This preserves the v2.14 rule that fresh selection uses content-hash evidence,
-not mtime-only checks.
+Removed on 2026-11-12 (`produce-one-of` and its `provider` producer; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. Its former text is [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#24-produced-outcome).
 
 ## 25. No Ordinary Text Extractors
 
@@ -3080,83 +3000,19 @@ Have the provider/command produce blocker-class in the structured output bundle.
 
 ## Part VI. Standard Procedural Library
 
-Status scope: versioned library/type contracts and explicitly marked design
-sketches. Module availability does not admit every reachable effect. The
-review/revise schemas in §27 are current; §26 and §28–§31 describe forms removed
-on 2026-11-12 (git tag `archive/pre-one-target-2026-11-12`) and are historical.
-The projection diagram records the old backend and supplies no launch authority.
+Status scope: versioned library/type contracts. Module availability does not
+admit every reachable effect. The review/revise schemas in §27 are current; §26
+and §28–§31 name forms removed on 2026-11-12 (git tag
+`archive/pre-one-target-2026-11-12`). Their former text and the old projection
+diagram are [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#part-vi-standard-procedural-library).
 
 The standard library is the compression layer. Its forms are not privileged
 syntax unless the compiler can lower them into explicit core statements,
 effects, contracts, and source maps.
 
-```mermaid
-flowchart TB
-    subgraph AuthorForms["High-level authoring forms"]
-        ProviderPhase["run-provider-phase"]
-        ReviewLoop["review-revise-loop"]
-        ResumeStart["resume-or-start"]
-        ResourceTransition["resource-transition"]
-        Finalize["finalize-selected-item"]
-        Drain["backlog-drain"]
-    end
-
-    subgraph CoreSemantics["Lowered core semantics"]
-        ProviderResult["provider-result / command-result"]
-        PureProjection["pure_projection"]
-        MaterializeView["materialize_view"]
-        Repeat["repeat_until / loop"]
-        Match["match + variant proof"]
-        Call["workflow call"]
-        Adapter["certified command adapter compatibility"]
-        ResourceEffect["runtime-native resource_transition"]
-        Bundle["output_bundle / variant_output"]
-    end
-
-    ProviderPhase --> ProviderResult --> Bundle
-    ReviewLoop --> Repeat
-    ReviewLoop --> ProviderResult
-    ReviewLoop --> Match
-    ResumeStart --> Match
-    ResumeStart --> Call
-    ResourceTransition --> ResourceEffect
-    ResourceTransition -. compatibility .-> Adapter
-    Finalize --> Match
-    Finalize --> ResourceEffect
-    Finalize --> MaterializeView
-    Drain --> Repeat
-    Drain --> Call
-    Drain --> Match
-    Drain --> PureProjection
-    Drain --> MaterializeView
-```
-
 ## 26. `run-provider-phase`
 
-Removed on 2026-11-12 (`run-provider-phase`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
-
-High-level phase execution.
-
-```lisp
-(run-provider-phase implementation
-  :ctx ctx
-  :inputs inputs
-  :provider providers.execute
-  :prompt prompts.implementation.execute
-  :returns ImplementationAttempt)
-```
-
-Expected lowering:
-
-- derive phase state path
-- derive canonical bundle path
-- inject provider output contract
-- run provider
-- validate typed union
-- atomic commit
-- register typed artifact refs
-
-It should not require manual state paths.
+Removed on 2026-11-12 (`run-provider-phase`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. Its former text is [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#26-run-provider-phase).
 
 ## 27. `review-revise-loop`
 
@@ -3265,434 +3121,116 @@ state.
 
 ## 28. `resume-or-start`
 
-Removed on 2026-11-12 (`resume-or-start`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
-
-```lisp
-(resume-or-start plan-gate
-  :ctx ctx
-  :resume-from selected.final-plan-gate-state
-  :valid-when APPROVED
-
-  :start
-    (call plan/run
-      :ctx (phase-ctx ctx 'plan)
-      :selected selected
-      :roadmap roadmap
-      :providers providers.plan)
-
-  :returns PlanGateResult)
-```
-
-Meaning:
-
-- validate prior canonical state
-- if reusable, return typed resumed value
-- otherwise run fresh workflow/procedure
-- normalize both branches to same return type
-
-This replaces brittle recovery gates.
+Removed on 2026-11-12 (`resume-or-start`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. Its former text is [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#28-resume-or-start).
 
 ## 29. `resource-transition`
 
-Removed on 2026-11-12 (`resource-transition`, `defresource` and `deftransition`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
-
-```lisp
-(resource-transition
-  :transition write-drain-status
-  :resource drain-run-state
-  :expect-version current-version
-  :request (record DrainStatusRequest
-    :status "BLOCKED"
-    :reason "runtime_native_fixture"
-    :summary_path summary-path))
-```
-
-Return type:
-
-```lisp
-(defrecord DrainStatusResult
-  (status String)
-  (summary_path WorkReportTarget))
-```
-
-The generalized authored surface is a declared `Transition<TRequest, TResult>`
-reference plus one concrete resource binding. The selected `deftransition`
-declaration owns:
-
-- request/result types;
-- preconditions;
-- update ops and write set;
-- idempotency fields;
-- result projection; and
-- audit projection.
-
-The runtime owns:
-
-- version checks;
-- precondition evaluation;
-- idempotent replay;
-- result validation;
-- append-only transition-audit rows; and
-- resume replay keyed on idempotency evidence.
-
-The legacy queue-move/resource-routing shape remains available as a
-compatibility/library route. It keeps the old `:from` / `:to` / `:ledger` /
-`:event` shape and lowers through the certified `apply_resource_transition`
-adapter only when an explicit compatibility contract selects that backend.
+Removed on 2026-11-12 (`resource-transition`, `defresource` and `deftransition`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. Its former text is [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#29-resource-transition).
 
 ### 29.1 Lowering Options
 
-`resource-transition` must not pretend to be more atomic than the substrate
-supports.
-
-Valid backends:
-
-- legacy certified command adapter + typed `output_bundle`
-- compiler-generated runtime-native `resource_transition` statement family
-- transaction-capable state operation
-
-If it lowers to a command adapter, the adapter must be:
-
-- registered
-- fixture-tested
-- contract-validated
-- source-mapped
-- effect-declared
-
-Repeated semantically critical transitions target the runtime-native backend on
-the WCC/schema-2 route. Certified adapters are migration backends, not the
-long-term target, for those transitions.
-
-If a transition needs stronger atomic file move, ledger, or multi-resource
-transactionality than the runtime-native backend provides, the authored surface
-must select a backend that actually provides those guarantees. It must not
-overclaim atomicity.
+Removed with `resource-transition`. Its former text is [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#291-lowering-options).
 
 ## 30. `finalize-selected-item`
 
-Removed on 2026-11-12 (`finalize-selected-item`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
-
-```lisp
-(finalize-selected-item
-  :ctx ctx
-  :selected selected
-  :plan plan
-  :implementation implementation)
-```
-
-Meaning:
-
-- match typed phase results
-- record completed or blocked item result through a declared transition
-- update workflow-managed resources if needed
-- write structured selected-item outcome
-- materialize summary views from typed terminal state
-- return `SelectedItemResult`
-
-This replaces fan-in through multiple handwritten blocked/completed scripts.
-
-The authoring route is the imported `std/resource` definition. The semantic
-route is typed `match` plus runtime-native declared transition plus
-`materialize-view` summary rendering. Bare-form lowerers and command adapters
-for the same behavior are compatibility surfaces and are not part of the
-current stdlib contract.
+Removed on 2026-11-12 (`finalize-selected-item`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. Its former text is [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#30-finalize-selected-item).
 
 ## 31. `backlog-drain`
 
-Removed on 2026-11-12 (`backlog-drain`, with `std/drain` and `std/resource`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. The text below is historical and selects no work.
-
-```lisp
-(backlog-drain neurips
-  :ctx ctx
-  :selector selector/run
-  :run-item selected-item/run
-  :gap-drafter gap/draft
-  :max-iterations max-iterations)
-```
-
-Return type:
-
-```lisp
-(defunion DrainResult
-  (EMPTY)
-
-  (BLOCKED
-    (stage FailedStage)
-    (reason String)
-    (summary MaterializedView[DrainSummary]))
-
-  (COMPLETED
-    (items-processed Int)
-    (summary MaterializedView[DrainSummary])))
-```
-
-Lowering:
-
-- `loop/recur` or `repeat_until`
-- selector workflow call
-- selected item workflow call
-- gap drafter workflow call
-- typed loop state accumulator
-- pure projections for routing and terminal values
-- runtime-native resource transitions for durable state changes
-- materialized views for reports and compatibility outputs
-- terminal typed result
-
-This is the high-level construct that should materially shrink top-level
-backlog-drain authoring.
-
-The authoring route is the imported `std/drain` definition. Lowering must expose
-the generated calls, transitions, projections, views, source maps, and Semantic
-IR effects; it must not hide selection, terminal routing, or resource mutation
-inside command scripts.
+Removed on 2026-11-12 (`backlog-drain`, with `std/drain` and `std/resource`; git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. Its former text is [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#31-backlog-drain).
 
 ## Part VII. Macro System
 
 ## 32. Macro Phases
 
-Compiler phases:
+A macro is a template over syntax; the former phase model, syntax-object sketch
+and error list are [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#part-vii-macro-system-former-text).
 
-```text
-P0 read source
-P1 parse S-expressions into syntax objects
-P2 resolve module imports and macro bindings
-P3 expand macros hygienically
-P4 elaborate definitions and type signatures
-P5 type-check expressions/procedures/workflows
-P6 lower procedures to core workflow AST
-P7 shared workflow validation
-P8 semantic IR construction
-P9 executable IR construction
-```
-
-Macro expansion occurs before full typechecking, but macro outputs are
-typechecked.
-
-Typed macros may optionally declare expected shapes.
+- `defmacro` is a module top-level form; anywhere else it refuses. A module's
+  macros are collected before its other forms expand, so a macro may be called
+  above its definition. Diagnostics: `top_level_definition_in_expression_position`.
+- A macro is not a value: its name outside the head of a call is unknown, and
+  nothing of a macro reaches the checked program. Diagnostics: `name_unknown`.
+- A macro is visible in another module when that module exports it and the
+  importer names it unqualified through `:only`, through an alias (`alias.m`) or
+  by module path (`mod/m`). A local macro wins over an `:only` import of the same
+  name. Ambiguity is refused by import resolution before expansion.
+  Diagnostics: `module_import_ambiguous`, `module_alias_duplicate`,
+  `module_export_missing`.
+- Expansion runs after import resolution and before elaboration and
+  typechecking, and repeats until no macro call is left; an expansion that
+  re-enters itself refuses. Diagnostics: `macro_expansion_cycle`.
+- Macro output is elaborated, typechecked and checked like authored source.
 
 ## 33. Syntax Objects
 
-Every syntax object carries:
-
-- datum
-- source span
-- module context
-- hygiene marks
-- expansion stack
-
-Example internal shape:
-
-```python
-Syntax(
-    datum=List([...]),
-    span=Span(file="foo.orc", line=12, col=3),
-    module="neurips.implementation",
-    marks=[MacroMark("with-phase", id="...")],
-    expansion_stack=[...],
-)
-```
+- Parameters are positional names, optionally ending in one `&rest` or `&body`
+  capture. A call with too few or too many arguments refuses. Diagnostics:
+  `macro_arity_error`, `frontend_parse_error`.
+- A template is syntax, not text. `(splice name)` inserts a `&rest` or `&body`
+  capture into the enclosing list and is refused anywhere else. Diagnostics:
+  `macro_emits_invalid_ast`.
+- Every expanded node keeps its source span, form path and expansion stack: one
+  frame per macro call, with the macro name, a deterministic expansion id
+  (`m0001`, ...), the call site and the definition site.
 
 ## 34. Hygiene
 
-Macros introduce generated names with hygiene marks.
-
-Example:
-
-```lisp
-(with-phase ctx implementation
-  body)
-```
-
-may introduce:
-
-```text
-%phase_ctx_17
-%phase_state_17
-```
-
-but these names cannot capture or be captured by user names.
-
-Authors can request intentional capture only through explicit forms:
-
-```lisp
-(bind-as phase-ctx ...)
-```
-
-Initial version should avoid intentional capture.
+- A name the template binds (with `let*`, for example) is renamed for its
+  expansion. Caller code passed in as an argument cannot see it, and a caller's
+  `y` passed into a template that binds its own `y` keeps the caller's value.
+- A free name in the template, one the template uses but does not bind,
+  resolves where the macro is called: to a binding in scope at the call site,
+  or to a definition visible in the calling module, not in the module that
+  defines the macro. Diagnostics: `name_unknown`, `procedure_call_unknown`.
+- A name the caller passes in keeps its identity. There is no syntax for
+  intentional capture.
+- A binding the template introduces, such as a `let*` local bound to a call of
+  an imported `defproc`, is an ordinary lexical binding afterwards, field access
+  included. A macro creates no variant proof.
 
 ## 35. Macro Determinism
 
-Macros must be deterministic.
-
-Forbidden:
-
-- random
-- current time
-- filesystem reads
-- environment variables
-- network
-- provider calls
-- command execution
-
-Allowed:
-
-- syntax inspection
-- static module metadata
-- type descriptors
-- declared compile-time constants
+- Expansion evaluates nothing: no file, network, clock, environment, provider or
+  command access at compile time. The same source expands to the same forms and
+  expansion ids.
 
 ## 36. Macro Outputs
 
-Macros emit frontend AST only.
-
-Forbidden:
-
-- emitting semantic IR directly
-- emitting executable IR directly
-- bypassing source-map creation
-- bypassing validation
+- At top level an expansion yields one of `defenum`, `defpath`, `defproc`,
+  `defprompt`, `defrecord`, `defschema`, `defun`, `defunion`, `defworkflow`. An
+  empty form, a head that is not a symbol, `defmacro` or any other head refuses;
+  a removed head refuses as removed. Diagnostics: `macro_emits_invalid_ast`,
+  `form_retired`.
+- A provider or command effect written in the template is a hidden effect and
+  refuses, before any command-boundary or provider check. The same effect
+  written by the caller and passed through the macro is the caller's and is
+  checked as usual, as is a call to an imported `defproc` that the template
+  introduces. Diagnostics: `macro_hidden_effect`.
+- A `defmacro` may not bind a reserved head (a registered form that is not
+  marked bindable; library heads such as `review-revise-loop` are bindable), and
+  a module may not define a macro twice. Diagnostics: `macro_reserved_name`.
 
 ## 37. Macro Error Model
 
-Macro expansion errors:
-
-- `macro_unknown`
-- `macro_arity_error`
-- `macro_keyword_unknown`
-- `macro_keyword_missing`
-- `macro_expansion_cycle`
-- `macro_hygiene_violation`
-- `macro_non_deterministic`
-- `macro_emits_invalid_ast`
-- `macro_emits_untyped_hole`
-- `macro_weakens_contract`
-- `macro_hidden_effect`
+- A failure in expanded code keeps the code of the check that found it and
+  carries the expansion stack; rendered, each frame shows its call site and then
+  its definition site, outermost first.
+- The macro codes are `macro_arity_error`, `macro_reserved_name`,
+  `macro_expansion_cycle`, `macro_emits_invalid_ast` and `macro_hidden_effect`.
 
 ## Part VIII. Compiler Intermediates
 
-## 38. Intermediate Overview
+<a id="38-intermediate-overview"></a>
+<a id="39-source-text"></a>
+<a id="40-s-expression-parse-tree"></a>
+<a id="41-syntax-ast"></a>
+<a id="42-resolved-frontend-ast"></a>
+<a id="43-expanded-frontend-ast"></a>
+<a id="44-typed-frontend-ast"></a>
+<a id="441-workflow-core-calculus"></a>
 
-```text
-Source text -> SExpr -> resolved/expanded frontend AST -> typed frontend AST
-  -> typed elaboration, specialization and scope/effect/proof analysis
-  -> checked closed program -> evaluated runtime and effect memo
-  -> derived report/dashboard views
-```
-
-The typed frontend also supplies read-only catalogs and exact source provenance
-to LSP and historical readers. The checked artifact, input document and memo own
-executable identity and persistence; see [evaluated execution](workflow_lisp_evaluated_execution.md).
-Flat Core AST projection, Executable IR, debug YAML and positional replay are
-historical and cannot be emitted or executed by importing an old source header.
-
-## 39. Source Text
-
-Input file:
-
-```text
-*.orc
-```
-
-Properties:
-
-- human-authored
-- module-scoped
-- source-mapped
-- not trusted until compiled
-
-## 40. S-Expression Parse Tree
-
-Low-level parse result.
-
-Contains:
-
-- lists
-- atoms
-- strings
-- numbers
-- source positions
-
-No semantic meaning yet.
-
-## 41. Syntax AST
-
-Adds:
-
-- module context
-- hygiene marks
-- macro expansion metadata
-
-Used by macro system.
-
-## 42. Resolved Frontend AST
-
-After imports and name resolution.
-
-Contains:
-
-- fully qualified names
-- resolved module references
-- unexpanded macro calls marked
-- definition table
-
-## 43. Expanded Frontend AST
-
-After macros.
-
-Contains no unresolved macro calls.
-
-Still contains:
-
-- `defworkflow`
-- `defproc`
-- `defun`
-- typed expressions
-- high-level standard procedures
-
-## 44. Typed Frontend AST
-
-After typechecking.
-
-Contains:
-
-- type of every expression
-- effect signature of every effectful form
-- proof context annotations
-- resolved workflow references
-- record/union layouts
-- path contract descriptors
-
-Example:
-
-```text
-attempt : ImplementationAttempt
-inside COMPLETED branch:
-  completed : ImplementationAttempt.COMPLETED
-  completed.execution-report : Path.execution-report
-```
-
-## 44.1 Workflow Core Calculus
-
-WCC and typed elaboration retain compiler-internal effect/proof and ownership
-rules used by checked closed-program construction. Historical schemas 1/2
-identify predecessor compiler contracts, not a current flat executor. ANF and
-scope analysis remain where needed; defunctionalization to flat steps and
-positional/checkpoint replay are removed by the selected retirement. Current
-nested control/loop/stdlib work must preserve admitted typed and evaluated
-contracts, without restoring a compatibility backend.
-
-The [retained WCC closure contract](workflow_lisp_core_calculus_middle_end.md#132-retained-executable-wcc-closure)
-requires source checking and specialization to carry resolved child types,
-nominal/proof ownership and capture-creation facts forward into structured WCC.
-Preparation synthesizes types for its own generated values. Closed translation
-consumes those prepared operands without rebuilding frontend expressions or
-re-inferring source children; the independent artifact checker still verifies
-every claimed type. Semantic closure and exact request inventory are checked
-before emission. This construction contract preserves source admission,
-historical import rules and execution-mode defaults.
-
-Detailed contract:
-[Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md).
+Compiler internals. The pipeline, provenance and private-context rules are owned by the [core calculus middle-end](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts), WCC and its closure by [its §13.2](workflow_lisp_core_calculus_middle_end.md#132-retained-executable-wcc-closure), and checked-program construction by [evaluated execution](workflow_lisp_evaluated_execution.md#4-the-closed-program). The former text of §38 to §44.1 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#38-intermediate-overview).
 
 <a id="45-core-workflow-ast"></a>
 <a id="46-validated-core-workflow-ast"></a>
@@ -3900,16 +3438,11 @@ Checks:
 
 ## 68. Macro Errors
 
-- `macro_unknown`
 - `macro_arity_error`
-- `macro_keyword_unknown`
-- `macro_keyword_missing`
+- `macro_reserved_name`
 - `macro_expansion_cycle`
-- `macro_hygiene_violation`
-- `macro_non_deterministic`
-- `macro_hidden_effect`
 - `macro_emits_invalid_ast`
-- `macro_weakens_contract`
+- `macro_hidden_effect`
 
 ## 69. Type Errors
 
@@ -4008,534 +3541,37 @@ These error classes are already part of the v2.14 handoff's intended taxonomy.
 
 ## Part XII. Source Maps And Observability
 
-## 74. Source Map Requirements
+<a id="74-source-map-requirements"></a>
+<a id="75-runtime-observability"></a>
+<a id="76-build-artifacts"></a>
+<a id="761-editor-and-lint-tooling-compatibility"></a>
+<a id="accepted-l1-authored-symbol-and-completion-compatibility"></a>
+<a id="implemented-l2-recovery-safe-static-completion-compatibility"></a>
 
-Every generated core AST node must map to:
-
-- source file
-- source line/column
-- source form path
-- macro expansion stack
-- procedure/workflow origin
-- generated name origin
-
-Imported stdlib and generic-specialization routes must also map:
-
-- caller call site;
-- imported stdlib definition;
-- specialization arguments;
-- generated monomorphic helper or private workflow;
-- generated loop frame;
-- generated match arms;
-- generated materialization/projection steps;
-- generated paths and bundle roots;
-- selected ProcRef definitions.
-
-Missing source-map origin for any generated helper, step, boundary field, path,
-or projection is a compile-time failure in promoted routes.
-
-Generated structured-result contracts must preserve authored union-field
-identity through runtime validation. Each authored variant field has a stable
-source-map subject whose origin resolves to that field's exact source span and
-form path. Shared field names retain one origin per variant, and runtime
-validation selects the origin for the active contract rule. Runtime violations
-carry only the stable subject reference; the canonical source-map sidecar owns
-the authored span, expansion, and form metadata.
-
-Runtime source attribution must not recompile source, infer identity from a
-field name, or make the generated contract a second source-map authority. A
-build produced before field-level lineage was available may fall back to its
-enclosing generated step, but a newly promoted route must fail source-map
-validation if its emitted field subject is dangling or ambiguous. Both the
-canonical source-map validator and the Semantic IR source-map bridge must
-recognize the field origin section and its validation subjects. The detailed
-component contract is
-[Workflow Lisp Source Map](workflow_lisp_source_map.md).
-
-Example diagnostic:
-
-```text
-variant_ref_unproved
-
-Generated step:
-  %implementation.review.publish_execution_report
-
-Origin:
-  neurips/implementation.orc:84
-  form: (match implementation ...)
-  macro stack:
-    review-revise-loop
-    publish-result
-```
-
-```mermaid
-flowchart TB
-    Orc["neurips/implementation.orc:84"] --> Macro["Macro/procedure expansion frames"]
-    Macro --> CoreNode["Generated Core AST node"]
-    CoreNode --> SemanticNode["Semantic IR node"]
-    SemanticNode --> ExecStep["Executable step"]
-    ExecStep --> RuntimeError["Runtime or validation diagnostic"]
-    RuntimeError --> Report["Diagnostic reports original source span, form, and expansion stack"]
-```
-
-## 75. Runtime Observability
-
-Runtime logs should display both:
-
-- generated executable step name
-- high-level source form
-
-Example:
-
-```text
-Running step %implementation_attempt.provider_execute
-  source: neurips/implementation.orc:42
-  form: (provider-result providers.execute ...)
-```
-
-## 76. Build Artifacts
-
-Current `compile` persists `.orchestrate/build/<build_key>/closed_program.json`
-and `manifest.json` (§77). The historical flat recommendation was:
-
-```text
-.orchestrate/build/<hash>/frontend_ast.json
-.orchestrate/build/<hash>/expanded_frontend_ast.json
-.orchestrate/build/<hash>/typed_frontend_ast.json
-.orchestrate/build/<hash>/core_workflow_ast.json
-.orchestrate/build/<hash>/semantic_ir.json
-.orchestrate/build/<hash>/executable_ir.json
-.orchestrate/build/<hash>/source_map.json
-.orchestrate/build/<hash>/expanded.debug.yaml   # optional
-```
-
-## 76.1 Editor And Lint Tooling Compatibility
-
-The compiler should expose diagnostics and source metadata in a
-machine-readable form suitable for future CLI linting and Language Server
-Protocol integration.
-
-This is a compatibility requirement on compiler artifacts, not a requirement
-to build editor tooling in the first frontend tranche.
-
-Compiler outputs should support:
-
-- stable diagnostic codes;
-- source spans for parse, syntax, type, effect, proof, and lowering failures;
-- symbol locations for definitions, fields, variants, workflow names, and
-  module exports;
-- type, contract, availability, and effect metadata for hover-style
-  explanations;
-- source-map links from frontend forms to generated Core AST, Semantic IR, and
-  executable steps;
-- lint classifications for brittle authoring patterns such as hidden command
-  effects, report parsing, pointer-as-authority, manual state paths, unproved
-  variant references, and command adapters without typed contracts.
-
-The implemented Workflow Lisp language-server v1 plus L0, L1, L2, L3, L4,
-and L5 consumes those shared surfaces for:
-
-- compiler diagnostics on clean disk-equal open/save through one serialized
-  full Stage-3 compile;
-- go-to-definition for exact compiler-provenanced direct procedure/workflow
-  call heads, authored prompt-application heads, and only final unexpanded
-  direct-retained `proc-ref` name tokens in authored non-generated,
-  non-specialized owners;
-- document symbols for authored modules, procedures, workflows, enums, paths,
-  records, unions, schemas, resources, and transitions; and
-- namespace-preserving procedure/workflow completion with compiler-rendered
-  signatures plus completion from the form registry.
-
-L3 accepts one immutable `entry_workflows` source-path-to-export-name object
-at initialization. Each compile request performs exact canonical source-path
-lookup: a listed application receives its configured exported-workflow name,
-while an unlisted library receives `entry_workflow=None` and keeps the
-production compiler's unchanged zero/one/many-export selection semantics. The
-removed process-wide scalar is rejected. Map validation and real-stdio
-refusals use the closed structured initialization-error contract owned by the
-language-server design. No editor focus, source content, basename, ancestor,
-or default selection is inferred.
-
-It owns exactly one canonical workspace root, treats the compiler-owned builtin
-stdlib root as its sole additional source allowance, binds results to exact
-source/configuration content, requires restart after configuration or root
-drift, returns null navigation for dirty/pending/failed/invalidated/stale
-documents, and writes no workspace files. It uses the fixed production compile
-policy and does not infer a nominal type taxonomy. See
-`docs/workflow_lisp_language_server_setup.md`.
-
-L4 keeps diagnostic ownership and presentation separate. Retained
-contribution tuples continue to own invalidation, replacement, and target
-clearing, while only clean, current, terminal, generation-matched owners enter
-the published aggregate. Dirty, pending, invalidated, unavailable,
-server-failed, configuration-stale, closed, and unassociated owners are hidden
-without deleting their tuples; current success or language-error completion
-reveals one atomic replacement.
-
-When the initialized client advertises `window.workDoneProgress=true`, one
-transport-local, indeterminate, non-cancellable lifecycle covers one logical
-serialized compile-pump busy interval. Coalesced entries and superseding
-generations share its token. Capability absence, create/begin/end transport
-failure, late acknowledgment, and presentation-only client cancellation never
-delay, validate, cancel, or otherwise change compilation. This adds no
-percentage, telemetry, persistence, runtime reporting, compiler callback, or
-public compile-cancellation surface.
-
-L5 is a read-only consumer of already-retained original syntax, typed prompt
-or proc-ref occurrences, and compiler prompt/procedure catalogs. Each admitted
-edge joins one exact authored token to one canonical compiler target and one
-authored definition span, and every edge uses the existing current-success
-definition preflight. A missing, duplicate, kind-, identity-, or
-span-mismatched join fails the whole navigation index. Macro heads remain null
-shape-wide, as do macro-consumed, erased, expanded, generated-owner, and
-specialized-owner proc-refs. Existing direct-call behavior remains unchanged,
-and WCC-reconstructed/generated calls remain excluded. These navigation rules
-do not define a second syntax, resolution, catalog, or compiler contract.
-
-Still-deferred tooling may include:
-
-- `orchestrate lint workflow.orc`;
-- hover information for types, contracts, effects, and proof contexts;
-- richer completion for variants, fields, and type-directed contexts;
-- formatting and simple code actions.
-
-These tools must consume the same compiler diagnostics, source maps, catalogs,
-and validation results used by normal compilation. They must not implement a
-parallel parser, type checker, linter, or workflow validator.
-The language-server implementation does not authorize the separately deferred
-P1–P5 frontend prerequisites: diagnostic accumulation, reader recovery,
-hover-type sidecars, unsaved source overlays, or compile caching.
-
-The implemented L0 reliability amendment tightens that consumer without
-changing compiler authority:
-
-- one `didSave` disk snapshot selects either the existing reverse-revision
-  observer for a changed revision (including sentinel transitions) or the
-  existing local save transition for an equal revision (including equal
-  sentinels), never both;
-- structured `LispFrontendCompileError` failures during production
-  initialization loading become intentional invalid-params responses carrying
-  an ordered closed array of stable diagnostic code/path rows, while
-  unstructured failures retain their existing server-failure classification;
-- the LSP presentation appends ordered compiler notes and renders structured
-  macro/helper, call/definition, name, and nullable expansion-ID provenance
-  without changing raw diagnostic contributions or parity identity; and
-- the untraced pure-projection export-info cache keys canonical source identity
-  by exact content as well as path, while compiler-traced reads continue to
-  bypass it.
-
-This amendment remains save-driven full compilation. It does not select source
-overlays, diagnostic recovery, type sidecars, general compile caching, or
-incremental compilation. L1 authored symbols and callable signatures are now
-implemented without changing the L0 boundary. L2 recovery-safe static
-completion is also implemented without changing definition/document-symbol
-freshness or any P1–P5 boundary.
-
-Evaluated-entry availability is narrower than the legacy LSP surface. For
-the demonstrated W3 sources, CLI and LSP select the same source graph and
-builtin helper, but the LSP still terminates with
-`evaluated_execution_unavailable` after graph
-compilation. Selection/root/hash/read-trace parity does not establish a
-successful evaluated snapshot, semantic navigation or terminal diagnostic
-parity. Evaluated F2 remains **OPEN_NOT_WAIVED**; the existing F2 acceptance
-contract remains unchanged; migrated current-target controls retain its
-semantic obligations. L2 may supply its existing frozen
-static-form recovery response, never stale callables.
-
-### Accepted L1 Authored Symbol And Completion Compatibility
-
-This L1 contract is implemented after `L1_DESIGN_SPEC_APPROVED` then
-`L1_DESIGN_QUALITY_APPROVED`, the reviewed L1 implementation plan, and its
-repository-real stdio/status closure. It does not change the implemented v1 or
-L0 freshness and compiler-authority bounds.
-
-The compiler, not the language server, must derive one closed original-syntax
-symbol projection from each `ResolvedModuleSource.syntax_module`. Each row is:
-
-```text
-(kind, name, definition_span, selection_span, source_ordinal)
-```
-
-The admitted kinds are `module`, `procedure`, `workflow`, `enum`, `path`,
-`record`, `union`, `schema`, `resource`, and `transition`. Every directly
-authored row must match exactly one same-kind definition in the successful
-compiled module; missing, duplicate, kind/name-mismatched, or span-ambiguous
-rows fail index construction. Expanded/generated definitions without a direct
-original-syntax row, specialized procedures/workflows, and generated local
-procedures are excluded rather than treated as missing authored rows. The LSP
-must not read or parse source text, classify syntax independently, strip names
-from canonical identities, or fall back to a whole-form span.
-
-For all ten kinds, the document-symbol `range` is the complete authored
-definition span and `selectionRange` is the exact authored name-token span.
-Symbols remain in source order. Protocol presentation is exactly:
-
-| Internal kind | LSP `SymbolKind` |
-| --- | --- |
-| `module` | `Module` |
-| `procedure` | `Function` |
-| `workflow` | `Function` |
-| `enum` | `Enum` |
-| `path` | `Class` |
-| `record` | `Struct` |
-| `union` | `Enum` |
-| `schema` | `Interface` |
-| `resource` | `Object` |
-| `transition` | `Event` |
-
-Completion retains distinct `procedure`, `workflow`, and `form` internal kinds.
-Same-label cross-namespace rows coexist. Local labels come from direct authored
-definitions; imported labels are the exact
-`ModuleImportScope.procedure_bindings` and `.workflow_bindings` keys, preserving
-compiler-admitted `alias.member`, `module/member`, and `:only` unqualified
-spellings. Rows sort by `(label, kind_rank, canonical_target)`, where kind rank
-is procedure, workflow, form and a form head is its own canonical target.
-
-Details use only existing resolved signatures and renderers:
-
-```text
-procedure (<name>: <render_type_ref>, ...) -> <render_type_ref> effects <render_effect_set>
-workflow (<name>: <render_type_ref>, ...) -> <render_type_ref>
-form
-```
-
-Zero parameters render as `()`. Procedure effects are exactly
-`ProcedureSignature.declared_effects`; inferred direct/transitive summaries do
-not enter completion. Workflow effects are not inferred. Procedure and workflow
-protocol kinds remain `CompletionItemKind.Function`, and form remains
-`CompletionItemKind.Keyword`.
-
-L1 changes only the complete index of a current successful snapshot. Current
-success remains `isIncomplete=false`; dirty, pending, invalidated, failed,
-superseded, closed, configuration-stale, source/configuration-stale, and
-unassociated documents use the L2 behavior below for completion while
-definition and document-symbol requests retain the implemented null behavior.
-P1-P5,
-nominal/type-directed filtering, hover, type-token definition, references,
-rename, signature inference, snippets, and insertion rewriting remain
-unchanged or deferred.
-
-Acceptance requires both-direction compiler-projection, exact-range,
-generated/specialized exclusion, mismatch, alias/namespace, signature/effect,
-ordering, freshness/null, and repository-real stdio LSP evidence before an
-implementation status change.
-
-### Implemented L2 Recovery-Safe Static Completion Compatibility
-
-L2 is an implemented editor-consumer amendment, not a compiler-language feature.
-After successful production initialization, the server captures one
-**process-frozen form registry** from
-`registered_form_heads(target_dsl_version=None)`. The tuple must be unique and
-lexicographically ordered, is immutable for that server lifetime, and supplies
-the identical form rows used by full and recovery completion. The request path
-must not re-read the registry, parse source, derive a target version, consult a
-stale navigation index, or invent additional labels.
-
-After the existing configuration-currentness preflight, completion selects one
-closed result:
-
-- a clean current successful snapshot whose navigation index builds returns
-  the complete L1 callable-plus-form union with `isIncomplete=false`;
-- an associated open entry in a valid dirty-idle, current-pending,
-  current-language-error, or current-server-error state returns exactly the
-  frozen form rows with `isIncomplete=true`; and
-- configuration-stale, unavailable, closed, unassociated, clean-idle,
-  malformed or contradictory state, non-current pending state, and
-  navigation-index failure return `items=()` with `isIncomplete=false`.
-
-The recovery response uses `CompletionItemKind.Keyword`, `detail="form"`, and
-`sortText=head` for every lexicographically ordered row. It contains **no stale
-callable**, signature, import label, source-derived target filter, generated
-symbol, snippet, or last-good index value. A prior accepted snapshot does not
-authorize any recovery callable. Unknown or contradictory state fails closed
-to the empty branch.
-
-Definition and document-symbol freshness remain unchanged. L2 adds no parser,
-partial AST, overlay compilation, compile trigger, target inference,
-cursor/type filtering, general cache, diagnostic recovery, hover, rename,
-formatting, or P1–P5 prerequisite. Compile scheduling, single-writer generation
-acceptance, diagnostic ownership, restart-on-configuration-drift, and the
-single canonical workspace root remain unchanged.
-
-The reviewed implementation supplies both-direction
-state/driver/navigation/server evidence for
-all three branches, frozen-snapshot stability, no stale callable leakage,
-malformed-state and index-failure closure, plus one repository-real stdio
-transition from recovery-static completion to current full completion.
-Implementation landed through `70b83f32`, `b399c041`, `ee213a43`, and
-`10e3ccc3`, followed by ordered `L2_FINAL_SPEC_APPROVED` then
-`L2_FINAL_QUALITY_APPROVED`.
+Source provenance is owned by [evaluated execution §4.1, P6](workflow_lisp_evaluated_execution.md#41-properties) and the [middle-end](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts); editor and lint compatibility by the [language server](workflow_lisp_language_server.md#compiler-artifact-compatibility); build artifacts by the [CLI specification](../../specs/cli.md). The former text of §74 to §76.1 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#74-source-map-requirements).
 
 ## Part XIII. CLI
 
-## 77. Compile
+<a id="77-compile"></a>
+<a id="78-run"></a>
+<a id="781-historical-migration-promotion-gates"></a>
+<a id="79-explain-expansion"></a>
+<a id="80-emit-debug-yaml"></a>
 
-Use the public evaluated [compile contract](../../specs/cli.md) and the
-[complete recipe](../lisp_workflow_drafting_guide.md#a-complete-235-recipe-compile-run-resume-report-invalidate):
-
-```bash
-python -m orchestrator compile workflows/examples/plan_review_execute.orc \
-  --entry-workflow plan_review_execute::run \
-  --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json
-```
-
-Compilation checks the closed program and persists `closed_program.json` and
-its manifest. Flat Core-AST, Semantic/Executable IR and source-map emissions
-are retired. The read-only typed core remains available for analysis/LSP.
-
-## 78. Run
-
-Public `run`, `--dry-run`, `resume` and `invalidate` use the evaluated profile.
-Supply the entry's declared input and binding manifests as shown in the linked
-recipe; executable entries through 2.34 refuse before publication or effects.
-`report` and the dashboard refuse historical runs with `workflow_execution_profile_retired`; there is no conversion or replay.
-
-### 78.1 Historical Migration Promotion Gates
-
-Replacing a historical YAML primary with a `.orc` candidate required
-machine-readable migration evidence, not compile/dry-run success alone. The
-retired manifest-driven gate had two strict modes:
-
-- `--require-non-regressive`: selected targets must have schema-valid, fresh,
-  complete evidence and tooling-computed `non_regressive=true`;
-- `--require-promotable`: selected targets must also be eligible for primary
-  surface selection.
-
-`primary_surface` is a gate-derived view or gate-evaluation output, not an
-authored manifest field and not a per-target report authority field. A
-non-regressive but ineligible candidate may pass evidence checks and still must
-not replace the YAML primary.
-
-The generator and manifest are retired. Current route claims use
-`docs/workflow_lisp_route_readiness_registry.json` plus the direct owner tests
-cited there; preserved reports remain frozen history.
-
-## 79. Explain Expansion
-
-The flat `explain` command is retired; the `explain` subcommand refuses with
-`workflow_explain_retired` and `compile --diagnostics-json` is the current
-check. No evaluated replacement is selected.
-Retained editor diagnostics and REPL introspection use their own public contracts.
-
-## 80. Emit Debug YAML
-
-Flat debug-YAML emission is retired. Its renderer/layout descriptions are
-historical design evidence, not an execution or persistence authority.
+Commands (`compile`, `run`, `resume`, `report`, the refused `explain` and flat export flags) are owned by the [CLI specification](../../specs/cli.md). The former text of §77 to §80 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#77-compile).
 
 ## Part XIV. Standard Library Sketch
 
-## 81. `std/types`
+<a id="81-stdtypes"></a>
+<a id="82-stdpaths"></a>
+<a id="83-stdcontext"></a>
+<a id="84-stdprovider"></a>
+<a id="85-stdphase"></a>
+<a id="86-stdresource"></a>
+<a id="87-stddrain"></a>
+<a id="871-stdimprove"></a>
 
-```text
-String
-Int
-Bool
-Json
-Optional[T]
-List[T]
-Map[K,V]
-Resource[TState]
-Transition[TRequest,TResult]
-MaterializedView[T]
-```
-
-## 82. `std/paths`
-
-```lisp
-(defpath Path.state-root ...)
-(defpath Path.state-file ...)
-(defpath Path.state-existing ...)
-(defpath Path.artifact-root ...)
-(defpath Path.work-report ...)
-(defpath Path.work-report-target ...)
-(defpath Path.review-report ...)
-(defpath Path.checks-report ...)
-```
-
-## 83. `std/context`
-
-`orchestrator/workflow_lisp/stdlib_modules/std/context.orc` is an ordinary
-stdlib type module exporting these records:
-
-- `RunCtx`
-- `PhaseCtx`
-- `ItemCtx`
-- `DrainCtx`
-- `SelectionCtx`
-- `RecoveryCtx`
-
-These are Workflow Lisp library records, not runtime-owned domain nouns.
-Private executable-context recognition is structural and `RunCtx`-anchored.
-Hidden promoted-entry bindings record schema-versioned per-input role metadata
-in
-`PrivateExecContextBinding.projection_hints`:
-
-- `context_binding_schema_version = 1`
-- `context_input_roles[input_name] in {run_anchor:run-id, run_anchor:state-root, run_anchor:artifact-root, compile_time_default}`
-
-The runtime bootstrap lane derives only `RunCtx` anchor values directly at
-execution time. Any additional generated context input must already carry a
-compile-time default or the compile fails closed. Author-facing workflow
-boundaries expose only public authored inputs. Generated
-private executable-context bindings, managed write roots, and compatibility
-bridge values are runtime-owned boundary classes and must stay off the public
-input surface even when they appear as generated internal inputs in lowered
-artifacts.
-
-## 84. `std/provider`
-
-- `provider-result`
-- `command-result`
-- `produce-one-of`
-
-## 85. `std/phase`
-
-- `run-provider-phase`
-- `review-revise-loop`
-- `ReviewFindingsJsonPath`
-- `ReviewFindings`
-- `ReviewDecision`
-- `ReviewLoopResult`
-- `resume-or-start`
-- `with-phase`
-- `phase-target`
-- `phase-state`
-
-## 86. `std/resource`
-
-- `resource-transition`
-- `resource-location`
-- `queue`
-- `ledger-event`
-- imported stdlib module for declared transitions and selected-item finalization
-- owns `finalize-selected-item` as typed match/projection plus transition/view
-  composition
-
-## 87. `std/drain`
-
-- `backlog-drain`
-- `SelectionResult`
-- `DrainResult`
-- `GapResult`
-- imported stdlib module for drain/backlog orchestration
-- owns `backlog-drain` as ordinary imported `.orc` composition over typed
-  selector results, loop state, workflow calls, transitions, projections, and
-  materialized views
-
-## 87.1 `std/improve`
-
-- `Decision[F B]`
-- `Improvement[S F B]`
-- `improve`
-- introduced at target 2.33; both packaged `std/improve` module variants now
-  declare 2.35 to meet the source floor. Source-graph selection chooses the
-  context-explicit or W3 four-argument API; the maintained 2.39 caller retains
-  imported 2.35 definition contracts (§106). The helper provides a bounded
-  review/revise loop that returns the candidate together with its outcome
-- owns `improve` as ordinary `.orc` composition over generic unions, `ProcRef`
-  hooks, and loop state; its contract and limits are in
-  [Composition-First Procedures](workflow_lisp_composition_first.md)
-- `std/phase` `review-revise-loop` remains available
+`std/improve` and `std/host` are described by the [library reference](../lisp_library_reference.md). `std/context` exports `RunCtx`, `PhaseCtx`, `ItemCtx`, `DrainCtx`, `SelectionCtx` and `RecoveryCtx` (records in §19), and `std/phase` exports `with-phase`, `phase-scope`, `review-revise-loop` (§27) and `review-revise-loop-proc` with their enum, record and path types; the export list of each module's source under `orchestrator/workflow_lisp/stdlib_modules/std/` is the owner. `std/drain` and `std/resource` were removed on 2026-11-12: importing either fails with `module_not_found`, and the message names git tag `archive/pre-one-target-2026-11-12`. The former text of §81 to §87.1 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#81-stdtypes).
 
 <a id="part-xv-example-end-to-end-design"></a>
 <a id="88-types"></a>
@@ -4605,83 +3641,13 @@ surfaces when a legacy consumer still requires them.
 
 ## Part XVII. Testing Strategy
 
-## 94. Unit Tests
+<a id="94-unit-tests"></a>
+<a id="95-lowering-tests"></a>
+<a id="96-behavioral-equivalence-tests"></a>
+<a id="97-negative-tests"></a>
+<a id="98-metrics-tests"></a>
 
-- parser tests
-- module resolver tests
-- macro expansion tests
-- hygiene tests
-- type checker tests
-- effect checker tests
-- source map tests
-
-## 95. Lowering Tests
-
-For each standard procedure:
-
-- source `.orc`
-- expected core AST
-- expected semantic IR facts
-- expected validation errors for misuse
-
-Each implementation tranche that changes authoring behavior must also name an
-end-to-end usage scenario. For Workflow Lisp, that usually means writing or
-updating a small `.orc` workflow, compiling it, and running at least a dry-run
-when runtime support exists. Focused parser, type, and lowering tests are still
-required, but they are not enough by themselves for a composability claim.
-
-## 96. Behavioral Equivalence Tests
-
-For migrated workflows:
-
-- legacy/current behavior
-- v2.14 YAML behavior
-- Lisp frontend behavior
-
-Compare:
-
-- published artifacts
-- typed outcomes
-- run state
-- error codes
-- snapshot evidence
-- variant selection
-
-## 97. Negative Tests
-
-Required negative fixtures:
-
-- semantic field parsed from markdown
-- variant field accessed outside match
-- pointer path published as artifact value
-- resource transition without capability
-- macro emits hidden provider call
-- imported stdlib expansion hides provider or command effects
-- type parameter leaks into runtime-visible loop state or contracts
-- loop-state carrier includes runtime-forbidden values such as ProcRefs,
-  provider refs, prompt refs, or workflow refs
-- review output attempts to replace carried evidence identity
-- promoted `review-revise-loop` attempts to use legacy provider/prompt operands
-  or compiler-special review-loop lowering
-- `defun` performs effect
-- workflow ref signature mismatch
-- line-prefix legacy adapter without fixture
-
-## 98. Metrics Tests
-
-Track:
-
-- authored LOC
-- semantic LOC
-- gate-pattern count
-- manual pointer count
-- manual state-path count
-- manual candidate-path count
-- helper script count
-- variant-proof boilerplate count
-
-Success should be based on reductions in brittle correctness surfaces, not only
-LOC.
+Test strategy is not part of the language; the repository's test expectations are in [AGENTS.md](../../AGENTS.md). The former text of §94 to §98 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#94-unit-tests).
 
 <a id="part-xviii-implementation-staging"></a>
 <a id="99-stage-1-frontend-core-without-workflow-execution"></a>
@@ -4749,16 +3715,7 @@ older module must not import a target-2.39 definition.
 
 ## 107. Resource Transition Backend
 
-The historical WCC/schema-2 route used a runtime-native declared transition
-backend with certified adapters as explicit compatibility implementations. Neither
-that history nor the library import admits a resource-transition effect to the
-current evaluated route. Any later admission must preserve declared inputs,
-outputs, effects, fixtures, path safety and source provenance.
-
-A transition must not claim stronger atomicity than its backend provides. The
-runtime-native file-backed backend may provide single-resource atomic commit and
-fail-closed multi-resource sequencing with audit evidence; stronger
-transactionality requires a backend that actually supports it.
+Removed with `resource-transition` on 2026-11-12 (git tag `archive/pre-one-target-2026-11-12`): the head refuses with `form_retired` at every target. Its former text is [preserved in the history file](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#107-resource-transition-backend).
 
 ## 108. Workflow Refs (Resolved)
 
@@ -4773,20 +3730,10 @@ Runtime workflow refs create dynamic loading/versioning problems.
 
 ## Part XX. Open Design Decisions
 
-## 109. Debug YAML
+<a id="109-debug-yaml"></a>
+<a id="110-type-flattening"></a>
 
-Resolved by the executor retirement: flat debug-YAML emission is retired (§80)
-and no renderer is maintained. The original question and recommendation:
-
-The retired renderer is retained only in its [historical contract](workflow_lisp_debug_yaml_renderer.md). Reports and inspection remain derived views of their structured authority.
-
-## 110. Type Flattening
-
-Current evaluated input documents preserve typed structured values under the
-[checked-program input contract](workflow_lisp_evaluated_execution.md). Older
-flattened private boundaries retain their versioned import/type restrictions,
-including ambiguous-path refusal. They do not select an old executor or create
-an unresolved choice for the current runtime.
+Both former open decisions are settled: debug-YAML emission refuses (see the [CLI specification](../../specs/cli.md)), and typed values cross workflow boundaries as typed input documents ([evaluated execution §9.1.1](workflow_lisp_evaluated_execution.md#911-typed-command-input-documents)). The refusal of a public formal that collides with a generated hidden context input is in the [middle-end](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts). The former text of §109 and §110 is [preserved](../reports/documentation-history/workflow_lisp_frontend_specification-history.md#109-debug-yaml).
 
 ## Final Design Center
 
