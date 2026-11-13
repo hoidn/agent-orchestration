@@ -24,8 +24,8 @@ def exponent_float_literal(token: str) -> float | None:
     """Return the value of a decimal literal written with an exponent, else None.
 
     The reader keeps such a token a symbol, as every target before 2.34 reads it;
-    the syntax layer reads it as a float for a module at 2.34 or newer (rule N1 of
-    docs/design/workflow_lisp_numeric_surface.md).
+    the syntax layer reads it as a float for a module at 2.34 or newer (decimal
+    literals, docs/design/workflow_lisp_frontend_specification.md, section 10.2).
     """
 
     return float(token) if _EXPONENT_FLOAT_RE.match(token) else None

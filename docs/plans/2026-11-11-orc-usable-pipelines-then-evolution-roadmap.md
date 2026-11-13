@@ -103,8 +103,9 @@ From the reviewers' memory of the literature; verify before citing.
 Phase 0 ─ Phase 1 ─┬─ Consumer thread (continuous, selects Phase 3 and 4 items)
                    ├─ Phase 2 ─ Phase 3 ─ Phase 4
                    └─ Lane D (background, time-boxed)
-Phase 5 (seed set) runs beside the phases; each of its paid tranches and
-Phase 6 open only by owner budget decision.
+Phase 5 (seed set) and Phase 5b (long-horizon task family and staged seed)
+run beside the phases; each of their paid tranches and Phase 6 open only by
+owner budget decision.
 ```
 
 Phase 3 and each Phase 4 item enter only with a named friction item from the
@@ -354,6 +355,17 @@ every removed test is listed with the code it covered".
    - a `let-proc` local whose body is a loop crashes with an internal error;
    - dead code: the prompt snapshot and attempt-identity builders and the
      fragment-identity projection have no caller in the package.
+   - added 2026-11-13 (second batch): an empty `(list)` in a `match` arm,
+     and a `list/map` with a `match` body used directly as an `if` condition
+     inside a loop body, each fail with `compiler_defect` (the staged-authoring
+     plan fixes both as its first task); a nested loop used directly as an
+     operand fails with an internal `KeyError`, with or without a macro; an
+     `Int` literal beyond 64 bits fails with `compiler_defect`; the `and`/`or`
+     item above has its cause (the proof facts are lost when the condition is
+     hoisted into a binding, so the refinement in the typechecker and the
+     tests that assert it cannot be reached from a compile); a template-bound
+     name in the first position of a list is never renamed by macro expansion
+     (being closed with the loop-binder change).
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
@@ -374,7 +386,18 @@ every removed test is listed with the code it covered".
    - **Why it matters for the search:** changing one role's model or effort,
      or switching a role between a fresh call and a continued conversation,
      becomes a one-token edit in one place.
-   - Order: design and plan first (in progress); independent review; code only
+   - Design and plan drafted 2026-11-13 as proposed
+     ([design](../design/workflow_lisp_staged_workflow_authoring.md),
+     [plan](2026-11-13-staged-workflow-authoring-revisions-plan.md); about 118
+     hours in 15 tasks). The probes corrected the findings: a prompt as a
+     value is not the only missing piece (a provider cannot be an argument, a
+     reference to a generic procedure does not instantiate, and an agent
+     cannot be a `bind-proc` argument), and model and effort per role are
+     already one-token edits today through inputs with literal defaults, so
+     the first search space needs none of this; what prompt values buy is
+     structural edits in one place (conversation scope, adding or splitting a
+     role).
+   - Order: independent review of the design and plan (in progress); code only
      after acceptance. First-class prompts come first, since the timeout and
      document-fill questions meet them (when a fill is read: at the creation
      of the prompt value or at the call). The changes follow the surface
@@ -416,6 +439,54 @@ this section only summarizes it.
   approval after the calibration result is reported.
 - **Output:** the seed programs, the frozen task list and per-run results, in
   a place a later search can load.
+
+### Phase 5b: Long-horizon task family and staged seed
+
+Added 2026-11-13 by owner decisions 14 and 16. Its plan is not written yet;
+until it is, this section is the staging.
+
+- **Aim:** a task family of long tasks on which a direct `claude-haiku-5-5`
+  session succeeds 10 to 30 percent of the time (software, machine learning,
+  scientific programming and reasoning), and one compact `.orc` seed that
+  stages such a task with feedback at several timescales, as the starting
+  point of the Phase 6 search.
+- **Tasks:** individual tasks taken from public benchmarks. First candidate
+  set: 16 named Terminal-Bench 4 tasks (single image, no GPU), with
+  Terminal-Bench-Science as a second source. Scoring is each task's own
+  verifier, so the family is oracle-scored: its qualification is the oracle
+  check (the reference solution passes, an untouched environment fails), not
+  a judge.
+- **Seed:** `milestones.orc` (49 lines; branch `spike/long-horizon-seed`):
+  set up the project (directories, `AGENTS.md`, a document catalogue, an
+  append-only log, topic notes), write spec targets, then rounds of plan,
+  build each milestone (work, check, review), check and acceptance. Two
+  neighbours are kept as comparison points (`staged`, one flat loop; `roles`,
+  the same with Agent Sessions).
+- **Search dimensions:** in the
+  [seed-set plan](2026-11-11-seed-set-calibration-plan.md), "Search dimensions
+  around one seed". First space: one model (Haiku), effort per role. Prompt
+  wording, the setup step's included, is a later dimension.
+
+| Step | What | Gate | State (2026-11-13) |
+| --- | --- | --- | --- |
+| 1 | Survey of public benchmarks; choose the candidate tasks | None (no spend) | Done; findings to be carried into the plan |
+| 2 | Build, run and grade the tasks on this machine without Docker (rootless Podman, the published harness unchanged); the oracle check | None (no spend) | Nearly done: 13 tasks tried, 10 of 11 Terminal-Bench 4 tasks pass both halves unchanged; one needs a wider user-id range, one verifier is timing-sensitive under load |
+| 3 | Seed design, with scripted runs and kill-and-resume | None (no spend) | Done on the spike branch; not on `main` |
+| 4 | The plan with its ledger: task list, network policy, what is withheld from the agent, metering, stop rules, readout | Independent review | Next |
+| 5 | Guarded launcher: only the approved model and efforts, a reservation before every attempt, the dollar ceiling, reference solutions and verifier tests never in the agent's container | Independent review; a zero-spend rehearsal with stand-ins | Not started |
+| 6 | Effort ladder: direct Haiku at effort low, medium and high, five attempts per task, at most 240 attempts, ceiling USD 200 | Steps 2, 4 and 5; approved (decision 16) | Not started |
+| 7 | Freeze the task set from the ladder: tasks in the band, and the answer on whether success falls as effort rises | Reported to the owner | After step 6 |
+| 8 | Merge the seed to `main` and freeze it | Surface-coherence changes merged (the seed is written once, in the language as revised); the staged-authoring revisions are not required for the first search space | Waits on Lane D stage 5 |
+| 9 | Seed against a direct session at matched priced-token cost on the frozen tasks | **A new owner approval** (not covered by decision 16) | Not requested |
+
+- **Exit test:** a frozen task list with each task's measured direct success
+  rate by effort; a seed on `main` that completes those tasks' stages under
+  stand-ins and resumes after a kill; and either a measured Pareto comparison
+  of the seed against a direct session or a recorded decision not to buy it.
+- **Limits:** five attempts per cell resolve only large differences (a task
+  at 20 percent shows 0 of 5 about a third of the time), so step 7 places
+  tasks in bands and makes no fine ranking. No claim about any workflow comes
+  from step 6.
 
 ### Phase 6: Program evolution
 
@@ -500,7 +571,7 @@ the owner can amend any of them.
 | 11 | Agent Sessions after the comparison | Kept, 2026-11-12. The owner values sessions for versatility in workflow patterns, not efficiency. The comparison's cost finding (1.4 to 1.7 times the plain handoff on a four-turn pattern; a committed turn cannot be invalidated) is the known price, not a reason to retire |
 | 12 | Who approves provider spend | Delegated to the coordinator, 2026-11-12, "within reason": planned-size tranches with a cap recorded in the plan ledger before the first call, Haiku by default and nothing above the Sonnet/Terra ceiling. The coordinator still asks for a tranche above about USD 100, cumulative spend above about USD 300, a new experiment line, or a top-up after a null result ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
 | 13 | How far to take edited-program resume (Phase 3b) | 2026-11-12: the owner asked why resume and effect tracking take so much effort, and chose to finish the two remaining tasks (accepting a plan; guides and closeout) and then stop. No scope is added to that lane after them: the open design question about resuming a run that uses a run reference after a package change stays parked, and capacity moves to the seed-set calibration and the language cleanup |
-| 14 | A long-horizon seed and task family | 2026-11-13, owner direction, added to the seed work: tasks with a long horizon on which `claude-haiku-5-5` succeeds 10 to 30 percent of the time, in software, machine learning and scientific programming or reasoning, extracted individually from public benchmarks; and one compact `.orc` seed (few lines) that stages the work (a clean project repository with its documentation structure and agent guides, then spec-driven targets, then design and planning, then implementation) with feedback at several timescales and semantic levels. Nothing like it exists in the repository yet. A benchmark survey and a seed design are in progress; the plan follows them. Added the same day: mutations of the seed vary model (Haiku or Sonnet) and effort level per agent role; the first space searched keeps one model (Haiku) and varies only effort per role, after an effort ladder confirms that success does not fall as effort rises |
+| 14 | A long-horizon seed and task family | 2026-11-13, owner direction, added to the seed work: tasks with a long horizon on which `claude-haiku-5-5` succeeds 10 to 30 percent of the time, in software, machine learning and scientific programming or reasoning, extracted individually from public benchmarks; and one compact `.orc` seed (few lines) that stages the work (a clean project repository with its documentation structure and agent guides, then spec-driven targets, then design and planning, then implementation) with feedback at several timescales and semantic levels. Nothing like it exists in the repository yet. Staged as [Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed). Added the same day: mutations of the seed vary model (Haiku or Sonnet) and effort level per agent role; the first space searched keeps one model (Haiku) and varies only effort per role, after an effort ladder confirms that success does not fall as effort rises |
 | 15 | How a role is bound once | 2026-11-13: the owner asked for "a nice schemey partial application simple fix" and then for the design and roadmap staging of "the principled fix that this points to". Decided direction: a typed prompt is a first-class value and a role is a generic procedure wrapping `provider-result`, partially applied with `bind-proc`; no new `role` form. The design must still report any guarantee this would break (effect identity per call site, the provider declaration digest, metering, the closures boundary) before code is written |
 | 16 | Budget for the long-horizon effort ladder | Approved 2026-11-13 ("ok" to the stated request): 16 named benchmark tasks, a direct `claude-haiku-5-5` session at effort low, medium and high, five attempts each; at most 240 attempts, ceiling USD 200 (requested as about USD 170 at reported prices). Conditions before the first attempt: the oracle check passes here, the network policy is fixed, a guarded launcher is reviewed, the plan and its ledger exist. It places tasks relative to the 10 to 30 percent band and tests whether success falls as effort rises; the workflow comparison is a separate request ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
 
@@ -560,6 +631,7 @@ is manual. Phase plans are linked here as they start:
 - Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
   3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; its first task proves the design's open claims before any feature code.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
+- Phase 5b, in preparation: staged in this roadmap ([Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed)); survey, machine feasibility and seed design are done on spike branches (`spike/long-horizon-tasks`, `spike/long-horizon-seed`); its plan is being written. The effort ladder is the only approved spend (decision 16).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
 - Lane D, dashboard, done: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).
   `report` and the dashboard read evaluated runs only and refuse retired runs
