@@ -1807,6 +1807,59 @@ that needs reuse but not that identity is a workflow-to-procedure migration
 candidate only after it passes the procedure-first migration test in Section
 105.4.
 
+### 8.10 Return Types And Result Guidance
+
+A return is written after `->` in `defun`, `defproc` and `defworkflow`, and as `:returns` of
+`provider-result` and `command-result`.
+
+- Every type the structured-result contract admits is valid in every return position: a
+  function, a procedure, a provider or command effect, a workflow call and a public workflow
+  boundary. Those types are `String`, `Int`, `Float`, `Bool`, `Value`, enums, path types,
+  records, unions, and `Optional[T]`, `List[T]` and `Map[String, T]` whose element type `T` is
+  one of these; a scalar or collection needs no one-field wrapper record.
+- A workflow, `provider-result` or `command-result` return must be one of those types; `Json`, a
+  `ProcRef` or a collection of `Json` is refused. A `defun` or `defproc` return is not a
+  boundary and is not held to this rule. Diagnostics: `workflow_return_type_invalid`,
+  `provider_result_return_type_invalid`, `command_result_return_type_invalid`.
+- A record result is one JSON object and a union result one tagged JSON object (§7.4, §7.5).
+  Any other result is one JSON value at the root of the result document: the producer writes
+  `true`, not `{"value": true}`. The checked program names that value `__result__`; neither
+  source nor a provider's output contract names it, and the call, including a workflow call,
+  binds the value directly at its declared type. A field read on a scalar result is refused.
+  Diagnostics: `record_field_unknown`.
+- The result document is required, also for `Optional[T]`, where JSON `null` is the absent
+  value. A path result is a JSON string checked against its path type, existence included. A
+  document of the wrong shape fails the effect with the violation it breaks; a `Bool` also
+  accepts the strings `"true"` and `"false"` in any letter case. Diagnostics:
+  `command_result_missing`, `provider_result_missing`, `evaluated_execution_failed` (with a
+  violation such as `invalid_bool`, `invalid_json_document` or `missing_target`).
+- `(result T key value ...)` in a return position is that return with guidance; types and
+  checks see only `T`, which must be a type name, and `(result T)` without keys is `T`.
+  `result` is not a type: a parameter declared `(result T)` is refused. Diagnostics:
+  `result_guidance_invalid`, `frontend_parse_error`.
+- Guidance keys are `:description` and `:format-hint`, each a non-empty string, and
+  `:example`. A field of `defrecord`, `defunion` or `defschema` takes the same keys after its
+  type. An unknown or repeated key, a key without a value, or an empty or non-string text is
+  refused. Diagnostics: `result_guidance_invalid`.
+- An `:example` is an effect-free constant expression (literals, `record`, `list` and pure
+  operators over them; no parameter or effect) whose value satisfies the declared type. A path
+  example is checked against its path type's root and safety, but its target need not exist.
+  A `Value` takes no example (§7.1.1). Examples are checked on every declaration, also one never
+  called. Diagnostics: `result_guidance_example_not_constant`,
+  `result_guidance_example_type_mismatch`, `value_guidance_example_unsupported`.
+- Guidance never changes a type or the values a result contract accepts.
+- Guidance on a `provider-result` or `command-result`, and the field guidance of the types it
+  returns, is part of that effect's result contract in the checked program, so changing it
+  changes the program digest. A provider is shown it as data beside the value or field it
+  describes, examples as canonical JSON; a command is shown nothing. Guidance on a `defun`,
+  `defproc` or `defworkflow` return is checked and then dropped: it reaches neither the checked
+  program nor a prompt.
+- Field guidance is kept through `defschema` inclusion, imports and generic specialization. A
+  field whose type is a record keeps its own guidance, and the fields inside keep theirs. A
+  field shared by union variants carries one guidance when the variants agree and one per
+  variant when they differ. A local field named like an included one is a duplicate, not an
+  override. Diagnostics: `record_field_duplicate`.
+
 ## Part II. Expression And Control Forms
 
 ## 9. Pure Expressions
