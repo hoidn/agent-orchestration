@@ -511,7 +511,9 @@ every removed test is listed with the code it covered".
      value is not the only missing piece (a provider cannot be an argument, a
      reference to a generic procedure does not instantiate, and an agent
      cannot be a `bind-proc` argument), and model and effort per role are
-     already one-token edits today through inputs with literal defaults, so
+     already one-token edits today, as string literals at each role's call
+     sites (not as inputs: a resumed run with changed inputs reuses nothing,
+     [mutant generator plan](2026-11-13-phase-6-mutant-generator-plan.md#the-first-space-is-programs-not-bindings)), so
      the first search space needs none of this; what prompt values buy is
      structural edits in one place (conversation scope, adding or splitting a
      role).
