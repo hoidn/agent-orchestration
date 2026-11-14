@@ -100,7 +100,6 @@ def crash(error: str, where: str) -> tuple:
 # The known defects. Signatures were read from runs on `main`, never typed from the plan.
 
 ELABORATE = "workflow_lisp/wcc/elaborate.py"
-OPERAND = crash("TypeError", f"{ELABORATE}:_body_to_prefix_and_value")
 NO_ELABORATION = crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value")
 BINDER_OUT_OF_SCOPE = crash("KeyError", f"{ELABORATE}:_infer_expr_type")
 CAPTURED_COMMAND = crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind")
@@ -117,8 +116,6 @@ KNOWN: dict[str, tuple] = {
     "B7-int": value(404),
     "B7-same-written": refused("procedure_lowering_unresolved"),
     "C1": value(7, "libw"),
-    "D20": OPERAND,
-    "D4-loop": NO_ELABORATION, "D4-map-value": NO_ELABORATION, "D4-map-bound": NO_ELABORATION,
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
     "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
@@ -128,7 +125,6 @@ KNOWN: dict[str, tuple] = {
     "D12-literal": NO_ELABORATION,
     "D12-name": BINDER_OUT_OF_SCOPE,
     "D13": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._value"),
-    "D19": crash("SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
     "D21": crash("TypeError", f"{ELABORATE}:_replace_halts_with_jump"),
     "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
@@ -648,9 +644,9 @@ ROWS: dict[str, Row] = {
                "(proc-ref increment) (proc-ref increment)))) (g 1))", INC),
     "D17-effect": row(value(2, "m", "m"), D17_RUN, D17_EFFECT),
     "D17-pure": row(value(2), D17_RUN, D17_PURE),
-    "D19": row(None, D19.replace("EXIT", "continue").replace("VALUE", D19_VALUE), inputs=("n=1",)),
+    "D19": row(refused("effect_not_permitted"), D19.replace("EXIT", "continue").replace("VALUE", D19_VALUE), inputs=("n=1",)),
     "D19-done": row(value(1, "e"), D19.replace("EXIT", "done").replace("VALUE", D19_VALUE), inputs=("n=1",)),
-    "D20": row(None, f"((n Int)) -> Int (match {D20_SUBJECT} {D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
+    "D20": row(value(1, "e1"), f"((n Int)) -> Int (match {D20_SUBJECT} {D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
     "D20-bound": row(value(1, "e1"), f"((n Int)) -> Int (let* ((shape {D20_SUBJECT})) (match shape {D20_ARMS}))",
                      SHAPE, D20_MK, inputs=("n=1",)),
     # Tenth batch: `done` where the loop body's value is not the control form itself. Specification 13.1

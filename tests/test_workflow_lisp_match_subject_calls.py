@@ -260,19 +260,28 @@ open(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"], "w").write(sys.argv[2])
 A_3 = '{"variant":"A","n":3}'
 
 
-def _run_workflow(root: Path, run: str, *inputs: str) -> tuple[object, list[str]]:
-    """The value `python -m orchestrator run` prints for workflow `run` of module `m`, and the command log."""
-    source = f'(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n  (defmodule m) (export run)\n  {U}\n  (defworkflow run {run}))\n'
+def cli_run(root: Path, run: str, *inputs: str, definitions: tuple[str, ...] = (U,)) -> subprocess.CompletedProcess:
+    """`python -m orchestrator run` of workflow `run` of module `m`, beside the stand-in command `c`."""
+    forms = "\n  ".join(definitions)
+    source = f'(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n  (defmodule m) (export run)\n  {forms}\n  (defworkflow run {run}))\n'
     (root / "m.orc").write_text(source, encoding="utf-8")
     (root / "c.py").write_text(COMMAND, encoding="utf-8")
     (root / "commands.json").write_text(json.dumps({"c": {"stable_command": ["python", "c.py"], "closure": ["c.py"]}}))
     env = {**os.environ, "PATH": closed_path(REPO / "experiments" / "thread_m" / "no_provider"), "PYTHONPATH": str(REPO)}
-    done = subprocess.run([sys.executable, "-B", "-m", "orchestrator", "run", "m.orc", "--entry-workflow", "m::run",
+    return subprocess.run([sys.executable, "-B", "-m", "orchestrator", "run", "m.orc", "--entry-workflow", "m::run",
         "--source-root", ".", "--command-boundaries-file", "commands.json",
         *(flag for item in inputs for flag in ("--input", item))], cwd=root, env=env, capture_output=True, text=True)
+
+
+def command_log(root: Path) -> list[str]:
+    return (root / "log.txt").read_text(encoding="utf-8").split() if (root / "log.txt").exists() else []
+
+
+def run_workflow(root: Path, run: str, *inputs: str, definitions: tuple[str, ...] = (U,)) -> tuple[object, list[str]]:
+    """The value the run prints, and the command log."""
+    done = cli_run(root, run, *inputs, definitions=definitions)
     assert done.returncode == 0, done.stderr
-    log = (root / "log.txt").read_text(encoding="utf-8").split() if (root / "log.txt").exists() else []
-    return json.loads(done.stdout.splitlines()[-1]), log
+    return json.loads(done.stdout.splitlines()[-1]), command_log(root)
 
 
 @pytest.mark.parametrize(("run", "inputs", "wanted"), [
@@ -286,11 +295,37 @@ def _run_workflow(root: Path, run: str, *inputs: str) -> tuple[object, list[str]
      ":returns U))) (match u ((A a) u.n) ((B b) 0)))", (), (4, ["make"])),
 ], ids=["arm-value", "other-arm", "operand", "nested-match", "command-argv", "effect-result-subject"])
 def test_field_read_on_the_subject_inside_its_arm(tmp_path, run, inputs, wanted):
-    assert _run_workflow(tmp_path, run, *inputs) == wanted
+    assert run_workflow(tmp_path, run, *inputs) == wanted
 
 
 def test_a_subject_rebound_inside_its_arm_is_read_as_the_new_binding(tmp_path):
     run = ("((u U)) -> Int (match u ((A a) (let* ((u (variant U A :n 9))) (if (= u.variant A) u.n 0))) "
            "((B b) 0))")
 
-    assert _run_workflow(tmp_path, run, f"u={A_3}") == (9, [])
+    assert run_workflow(tmp_path, run, f"u={A_3}") == (9, [])
+
+
+SHAPE = "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))"
+MKSHAPE = "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))"
+E1_OR_E2 = ('(if (> n 0) (command-result c :argv ("python" "c.py" "e1" "1") :returns Int) '
+            '(command-result c :argv ("python" "c.py" "e2" "2") :returns Int))')
+SHAPE_ARMS = "((CIRCLE c) c.r) ((SQUARE s) 0)"
+
+
+@pytest.mark.parametrize(("subject", "n", "wanted"), [
+    (f"(mkshape {E1_OR_E2})", 1, (1, ["e1"])),
+    (f"(mkshape {E1_OR_E2})", 0, (2, ["e2"])),
+    (f"(let* ((r {E1_OR_E2})) (variant Shape CIRCLE :r r))", 0, (2, ["e2"])),
+], ids=["call-then", "call-else", "let-subject"])
+def test_subject_whose_binding_holds_a_conditional_effect_runs_it_once(tmp_path, subject, n, wanted):
+    """A pure procedure call with an effectful `if` argument, or a `let*` binding such an `if`, as the subject:
+    it runs as the subject bound with `let*` first does."""
+    run = f"((n Int)) -> Int (match {subject} {SHAPE_ARMS})"
+
+    assert run_workflow(tmp_path, run, f"n={n}", definitions=(SHAPE, MKSHAPE)) == wanted
+
+
+def test_subject_bound_first_with_a_conditional_effect_argument_runs_it_once(tmp_path):
+    run = f"((n Int)) -> Int (let* ((shape (mkshape {E1_OR_E2}))) (match shape {SHAPE_ARMS}))"
+
+    assert run_workflow(tmp_path, run, "n=0", definitions=(SHAPE, MKSHAPE)) == (2, ["e2"])

@@ -433,3 +433,70 @@ def test_typecheck_loop_recur_rich_list_root_record_state_preserves_descriptors(
     assert workflow.signature.return_type_ref == state_type
     assert workflow.typed_body.type_ref == state_type
     assert tuple(field.name for field in state_type.item_type_ref.definition.fields) == ("task_id",)
+
+
+# A `match` as a loop's `:max` or `:state`, and a `continue` value whose branch is an `if` holding an
+# effect, through the public `run` (defect backlog plan, Task TD1).
+from tests.test_workflow_lisp_match_subject_calls import U, cli_run, command_log, run_workflow  # noqa: E402
+
+MATCH_MAX = "(match u ((A a) a.n) ((B b) 1))"
+A_3 = 'u={"variant":"A","n":3}'
+B_X = 'u={"variant":"B","why":"x"}'
+COUNT_TO_EXHAUSTION = ":on-exhausted s (if (> s 10) (done s) (continue (+ s 1)))"
+M = '(command-result c :argv ("python" "c.py" "m" "1") :returns Int)'
+
+
+@pytest.mark.parametrize(("run", "inputs", "wanted"), [
+    (f"((u U)) -> Int (loop/recur ((s 0)) :max {MATCH_MAX} {COUNT_TO_EXHAUSTION})", (A_3,), (3, [])),
+    (f"((u U)) -> Int (loop/recur ((s 0)) :max {MATCH_MAX} {COUNT_TO_EXHAUSTION})", (B_X,), (1, [])),
+    (f"((u U)) -> Int (loop/recur :max {MATCH_MAX} :state 0 :on-exhausted s "
+     "(fn (s) (if (> s 10) (done s) (continue (+ s 1)))))", (A_3,), (3, [])),
+    (f"((u U)) -> Int (loop/recur ((s {MATCH_MAX})) :max 2 :on-exhausted 9 (done s))", (A_3,), (3, [])),
+    (f"((u U)) -> List[Int] (list/map-effect ((x (list 1 2 3))) :max {MATCH_MAX} {M})", (A_3,), ([1, 1, 1], ["m"] * 3)),
+    (f"((u U)) -> Int (let* ((ys (list/map-effect ((x (list 1 2))) :max {MATCH_MAX} {M}))) (list/length ys))",
+     (A_3,), (2, ["m", "m"])),
+], ids=["loop-max-A", "loop-max-B", "fn-form-max", "loop-state", "serial-map-value", "serial-map-bound"])
+def test_match_as_a_loop_budget_or_seed_runs(tmp_path: Path, run: str, inputs: tuple[str, ...], wanted) -> None:
+    assert run_workflow(tmp_path, run, *inputs) == wanted
+
+
+@pytest.mark.parametrize("budget", ["(if (> n 0) 3 1)", "(cond ((> n 5) 1) (true 3))"], ids=["if", "cond"])
+def test_conditional_as_a_loop_budget_runs(tmp_path: Path, budget: str) -> None:
+    run = f"((n Int)) -> Int (loop/recur ((s 0)) :max {budget} {COUNT_TO_EXHAUSTION})"
+
+    assert run_workflow(tmp_path, run, "n=1") == (3, [])
+
+
+def test_match_as_a_serial_map_cap_bounds_the_map(tmp_path: Path) -> None:
+    done = cli_run(tmp_path, f"((u U)) -> List[Int] (list/map-effect ((x (list 1 2 3))) :max {MATCH_MAX} {M})", B_X)
+
+    assert (done.returncode, "[list_map_effect_cap_exceeded]" in done.stderr, command_log(tmp_path)) == (1, True, ["m"])
+
+
+E = '(command-result c :argv ("python" "c.py" "e" "1") :returns Int)'
+INNER_IF_VALUES = {
+    "then": f"(if (> n 0) (if (> n 0) {E} 0) 0)",
+    "else": f"(if (> n 0) 0 (if (> n 0) {E} 0))",
+    "cond": f"(cond ((> n 5) 2) ((> n 0) {E}) (else 0))",
+    "let": f"(if (> n 0) (if (> n 0) (let* ((y {E})) y) 0) 0)",
+}
+
+
+@pytest.mark.parametrize("form", ["binder", "fn"])
+@pytest.mark.parametrize("value", INNER_IF_VALUES)
+def test_continue_value_whose_branch_is_an_if_holding_an_effect_is_refused(tmp_path: Path, value: str, form: str) -> None:
+    step = f"(if (> s 0) (done s) (continue {INNER_IF_VALUES[value]}))"
+    loop = (f"(loop/recur ((s 0)) :max 2 :on-exhausted 0 {step})" if form == "binder"
+            else f"(loop/recur :max 2 :state 0 :on-exhausted 0 (fn (s) {step}))")
+
+    done = cli_run(tmp_path, f"((n Int)) -> Int {loop}", "n=1")
+
+    assert (done.returncode, "[effect_not_permitted]" in done.stderr, command_log(tmp_path)) == (2, True, []), done.stderr
+
+
+@pytest.mark.parametrize("step", [f"(done {INNER_IF_VALUES['then']})",
+                                  f"(let* ((next {INNER_IF_VALUES['then']})) (continue next))"], ids=["done", "bound"])
+def test_the_same_value_as_done_or_bound_first_runs(tmp_path: Path, step: str) -> None:
+    run = f"((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) {step}))"
+
+    assert run_workflow(tmp_path, run, "n=1") == (1, ["e"])

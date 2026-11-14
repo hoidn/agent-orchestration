@@ -1693,11 +1693,30 @@ def _elaborate_continue_state(expr: ContinueExpr, **inputs):
     so no program that builds is refused."""
 
     try:
-        return _elaborate_expr_to_value(expr.state_expr, **inputs)
+        prefix, value = _elaborate_expr_to_value(expr.state_expr, **inputs)
     except TypeError as exc:
         if not getattr(exc, "non_linear_value_body", False):
             raise
         raise _continue_value_needs_binding(expr) from exc
+    if _branch_is_a_select_that_runs_effect(value):
+        # An `if` in a branch of the top `if` with an effect in its own branches: the closed program
+        # cannot place that effect, which was a `compiler_defect`.
+        raise _continue_value_needs_binding(expr)
+    return prefix, value
+
+
+def _branch_is_a_select_that_runs_effect(value) -> bool:
+    return isinstance(value, WccSelect) and any(_select_runs_effect(arm.value) for arm in (value.then_arm, value.else_arm))
+
+
+def _select_runs_effect(value) -> bool:
+    """Whether `value` is a select one of whose arms runs a command, provider or request. A workflow call is
+    left out: whether it has an effect is known only to the closed program, which runs a pure one here."""
+
+    return isinstance(value, WccSelect) and any(
+        any(isinstance(let.bound_value, WccPerform) and let.bound_value.perform_kind != "workflow_call"
+            for let in arm.prefix) or _select_runs_effect(arm.value)
+        for arm in (value.then_arm, value.else_arm))
 
 
 def _bound_first(consumer, attr: str, *, scope: WccIdentityFactory, value_env, compile_time_bindings, role: str) -> LetStarExpr:
@@ -3234,6 +3253,16 @@ def _bind_effectful_loop_operands(
     )
 
 
+def _elaborate_loop_operand_to_value(operand, *, scope: WccIdentityFactory, **inputs):
+    """A loop's `:state` or `:max` as (prefix, value). A pure `match` there is a block value, as an operand's
+    is; an effectful one was bound with `let*` before (`_bind_effectful_loop_operands`)."""
+
+    if isinstance(operand, MatchExpr):
+        prefix, (value,) = _elaborate_operands_to_values(((operand, scope),), **inputs)
+        return prefix, value
+    return _elaborate_expr_to_value(operand, scope=scope, **inputs)
+
+
 def _elaborate_loop_recur_to_body(
     expr: LoopRecurExpr,
     *,
@@ -3265,7 +3294,7 @@ def _elaborate_loop_recur_to_body(
     loop_name = f"__wcc_loop_{expr.binding_name}_{loop_scope.scope_id.rsplit(':', 1)[-1]}"
     state_scope = loop_scope.child_scope("loop-state", authored_binding_name=expr.binding_name)
     budget_scope = loop_scope.child_scope("loop-budget", authored_binding_name=expr.binding_name)
-    state_prefix, initial_state = _elaborate_expr_to_value(
+    state_prefix, initial_state = _elaborate_loop_operand_to_value(
         expr.initial_state_expr,
         scope=state_scope,
         type_env=type_env,
@@ -3277,7 +3306,7 @@ def _elaborate_loop_recur_to_body(
         compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope,
     )
-    budget_prefix, budget = _elaborate_expr_to_value(
+    budget_prefix, budget = _elaborate_loop_operand_to_value(
         expr.max_iterations_expr,
         scope=budget_scope,
         type_env=type_env,
@@ -4670,7 +4699,7 @@ def _elaborate_match_to_body(
         procedure_return_types=procedure_return_types, effect_summary=effect_summary,
         procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope)
-    if holds_effect_in_a_value(expr.subject):
+    if _subject_is_bound_first(expr.subject):
         bound_scope = scope.child_scope("match-subject-bound")
         return _elaborate_let_star(_bound_first(expr, "subject", scope=bound_scope, value_env=value_env,
             compile_time_bindings=compile_time_bindings, role="subject"), scope=bound_scope, **inputs)
@@ -4699,6 +4728,16 @@ def _elaborate_match_to_body(
         active_phase_scope=active_phase_scope,
     )
     return _wrap_prefix_lets(subject_prefix, case_body)
+
+
+def _subject_is_bound_first(subject) -> bool:
+    """Whether a `match` subject lowers as its `let*` spelling: a constructor, list, path child or map source
+    in it holds an effect, or it is a `let*` (written, or left by an inlined procedure call) with an `if` or a
+    `match` binding that holds one. Such a binding lowers to a join, which a subject value cannot hold; it was
+    a `compiler_defect`, so no program that builds lowers differently."""
+
+    return holds_effect_in_a_value(subject) or isinstance(subject, LetStarExpr) and any(
+        isinstance(value, (IfExpr, MatchExpr)) and _contains_effect(value) for _, value in subject.bindings)
 
 
 def _elaborate_match_case_with_subject(
