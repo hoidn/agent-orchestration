@@ -3468,6 +3468,27 @@ def _elaborate_loop_recur(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> LoopRecurExpr:
+    """Elaborate either spelling of `loop/recur`: the binder form or the `fn` form."""
+
+    binder_form = len(datum.items) > 1 and isinstance(datum.items[1], SyntaxList)
+    elaborate = _elaborate_loop_recur_binder if binder_form else _elaborate_loop_recur_fn
+    return elaborate(
+        datum,
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+        session_state=session_state,
+    )
+
+
+def _elaborate_loop_recur_fn(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> LoopRecurExpr:
     if len(datum.items) < 6:
         _raise_error(
             "`loop/recur` requires :max, :state, and one loop-body `fn`",
@@ -3540,46 +3561,183 @@ def _elaborate_loop_recur(
         procedure_names=procedure_names,
         session_state=session_state,
     )
-    loop_bound_names = frozenset(set(bound_names) | {body_fn.binding_name})
-    on_exhausted_node = sections.get(":on-exhausted")
+    return _loop_recur_expr(
+        datum,
+        max_node=max_node,
+        state_node=state_node,
+        on_exhausted_node=sections.get(":on-exhausted"),
+        body=body_fn,
+        operand_evaluation_order=tuple(
+            keyword
+            for keyword in sections
+            if keyword in {":max", ":state"}
+        ),
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+        session_state=session_state,
+    )
+
+
+def _loop_recur_expr(
+    datum: SyntaxList,
+    *,
+    max_node: object,
+    state_node: object,
+    on_exhausted_node: object | None,
+    body: LoopBodyFnExpr,
+    operand_evaluation_order: tuple[str, ...],
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> LoopRecurExpr:
+    """Build the one loop node both spellings elaborate to, the body already elaborated.
+
+    `:max`, the initial state and `:on-exhausted` are elaborated in that order after the
+    body for either spelling, so the two forms of one loop give the same node; only the
+    operand order the parser read differs, and it reaches the program only when both
+    operands hold an effect.
+    """
+
+    def elaborate(node: object, names: frozenset[str]) -> ExprNode:
+        return _elaborate(
+            node,
+            form_path=form_path,
+            bound_names=names,
+            procedure_names=procedure_names,
+            session_state=session_state,
+        )
+
+    loop_bound_names = frozenset(set(bound_names) | {body.binding_name})
     return LoopRecurExpr(
-        max_iterations_expr=_elaborate(
-            max_node,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-            session_state=session_state,
-        ),
-        initial_state_expr=_elaborate(
-            state_node,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-            session_state=session_state,
-        ),
-        binding_name=body_fn.binding_name,
-        body_expr=body_fn.body_expr,
+        max_iterations_expr=elaborate(max_node, bound_names),
+        initial_state_expr=elaborate(state_node, bound_names),
+        binding_name=body.binding_name,
+        body_expr=body.body_expr,
         on_exhausted_result_expr=(
-            _elaborate(
-                on_exhausted_node,
-                form_path=form_path,
-                bound_names=loop_bound_names,
-                procedure_names=procedure_names,
-                session_state=session_state,
-            )
+            elaborate(on_exhausted_node, loop_bound_names)
             if on_exhausted_node is not None
             else None
         ),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
-        binding_label=body_fn.binding_label,
-        operand_evaluation_order=tuple(
-            keyword
-            for keyword in sections
-            if keyword in {":max", ":state"}
+        binding_label=body.binding_label,
+        operand_evaluation_order=operand_evaluation_order,
+    )
+
+
+_LOOP_BINDER_SHAPE = "`loop/recur` binder must be `((name initial-state))`"
+
+
+def _elaborate_loop_recur_binder(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> LoopRecurExpr:
+    """Elaborate `(loop/recur ((state init)) :max n [:on-exhausted e] body)`.
+
+    The binder form of the map forms. It builds the node of the `fn` form
+    `(loop/recur :state init :max n [:on-exhausted e] (fn (state) body))`: the
+    initial state runs before `:max`, whatever the order of the options.
+    """
+
+    def fail(node: object, message: str, code: str = "loop_recur_contract_invalid") -> None:
+        _raise_error(
+            message,
+            code=code,
+            span=getattr(node, "span"),
+            form_path=form_path,
+            expansion_stack=getattr(node, "expansion_stack", ()),
+        )
+
+    binder_node, state_node = _loop_recur_binder_parts(datum.items[1], fail)
+    if len(datum.items) < 3:
+        fail(datum, "`loop/recur` requires :max and a body after the binder")
+    sections = _loop_recur_binder_options(datum.items[2:-1], datum, fail)
+    body_node = datum.items[-1]
+    body_head = syntax_identifier(body_node.items[0]) if isinstance(body_node, SyntaxList) and body_node.items else None
+    if body_head is not None and body_head.resolved_name == "fn":
+        fail(
+            body_node,
+            "with the binder `((name initial-state))` the body is the expression itself: write "
+            "`(loop/recur ((state init)) :max n body)` without `fn`, or the `fn` form "
+            "`(loop/recur :max n :state init (fn (state) body))` without the binder",
+            code="loop_recur_fn_invalid",
+        )
+    session_state.loop_body_depth += 1
+    try:
+        body_expr = _elaborate(
+            body_node,
+            form_path=form_path,
+            bound_names=frozenset(set(bound_names) | {binder_node.resolved_name}),
+            procedure_names=procedure_names,
+            session_state=session_state,
+        )
+    finally:
+        session_state.loop_body_depth -= 1
+    body = LoopBodyFnExpr(
+        binding_name=binder_node.resolved_name,
+        body_expr=body_expr,
+        span=body_node.span,
+        form_path=form_path,
+        expansion_stack=body_node.expansion_stack,
+        binding_label=(
+            binder_node.display_name
+            if binder_node.introduced_by_expansion_id is None
+            else None
         ),
     )
+    return _loop_recur_expr(
+        datum,
+        max_node=sections[":max"],
+        state_node=state_node,
+        on_exhausted_node=sections.get(":on-exhausted"),
+        body=body,
+        operand_evaluation_order=(":state", ":max"),
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+        session_state=session_state,
+    )
+
+
+def _loop_recur_binder_parts(binders: SyntaxList, fail) -> tuple[SyntaxIdentifier, object]:
+    if binders.items and all(isinstance(item, SyntaxList) for item in binders.items) and len(binders.items) > 1:
+        fail(
+            binders,
+            "`loop/recur` takes one binder `((name initial-state))`; carry several values "
+            "in one `loop-state` record",
+        )
+    pair = binders.items[0] if len(binders.items) == 1 else None
+    if not isinstance(pair, SyntaxList) or len(pair.items) != 2 or syntax_identifier(pair.items[0]) is None:
+        fail(binders, _LOOP_BINDER_SHAPE)
+    return syntax_identifier(pair.items[0]), pair.items[1]
+
+
+def _loop_recur_binder_options(options: tuple[object, ...], datum: SyntaxList, fail) -> dict[str, object]:
+    sections: dict[str, object] = {}
+    if len(options) % 2:
+        fail(datum, "`loop/recur` options after the binder must be keyword/value pairs before one body")
+    for key, value in zip(options[::2], options[1::2]):
+        if isinstance(key, SyntaxKeyword) and key.value == ":state":
+            fail(
+                key,
+                "the binder `((name initial-state))` already gives the initial state: drop `:state`, "
+                "or write the `fn` form `(loop/recur :max n :state init (fn (state) body))`",
+            )
+        if not isinstance(key, SyntaxKeyword) or key.value not in {":max", ":on-exhausted"}:
+            fail(key, "`loop/recur` takes the options `:max` and `:on-exhausted` after the binder")
+        if key.value in sections:
+            fail(key, f"`loop/recur` duplicated keyword `{key.value}`")
+        sections[key.value] = value
+    if ":max" not in sections:
+        fail(datum, "`loop/recur` requires :max: `(loop/recur ((state init)) :max n body)`")
+    return sections
 
 
 def _elaborate_loop_body_fn(
