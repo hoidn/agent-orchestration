@@ -2073,8 +2073,8 @@ element of `source`, in the source's order; an empty source gives the empty list
   field or an element inside the source).
 - `body` reads `name` at the element type and the names in scope around the map. It is pure:
   operators, `if`, `let*`, `match`, calls of functions and of procedures without effects, another
-  `list/map`. A command, a provider, a workflow call and a procedure that holds an effect are
-  refused. Diagnostics: `list_map_body_effect_forbidden`; `pure_expr_operand_type_mismatch` when
+  `list/map`. A command, a workflow call and a procedure that holds an effect are refused.
+  Diagnostics: `list_map_body_effect_forbidden`; `pure_expr_operand_type_mismatch` when
   the form around the map expects another list type.
 - A body that fails for one element, by a division by zero or a refused `path/join-under` child
   for example, fails the run with that failure's own code. A map over literals that fails for
@@ -2094,11 +2094,12 @@ source's order. An empty source gives the empty list and evaluates no body.
 - *Body.* In a program that contains no run reference the body is any expression: a pure one,
   several effects, an `if`, a loop, another map. Its effects run in the order written, for one
   element before the next. In a program that contains a run reference anywhere, the body of
-  every `list/map-effect`, serial or parallel, is exactly one provider, command, workflow or
-  procedure call with pure arguments, after specialization, or the run reference itself; a pure
-  body is refused there too. The program is the final closed program: the entry and every
-  definition it reaches. A workflow the entry does not reach does not count. `list/map` is not
-  concerned. Diagnostics: `list_map_effect_body_unsupported`.
+  every `list/map-effect`, serial or parallel, is exactly one call with pure arguments: a
+  provider, a command, a workflow call, a procedure call whose body holds exactly one such
+  effect after specialization, or the run reference itself. A pure body, a procedure without an
+  effect and a procedure with two are refused there. The program is the final closed program:
+  the entry and every definition it reaches. A workflow the entry does not reach does not count.
+  `list/map` is not concerned. Diagnostics: `list_map_effect_body_unsupported`.
 - *`:max`* of a serial map is a positive integer literal or any `Int` expression, which may hold
   an effect. It is evaluated once, after the source and before the first element, and does not
   see the binder. Diagnostics: `list_map_effect_max_invalid` (absent, a literal below 1, or not
