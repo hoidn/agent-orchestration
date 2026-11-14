@@ -14,7 +14,7 @@ _REPO_ROOT = Path(orchestrator.__file__).parents[1]
 
 _COMMAND_WORKFLOW = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule entry)
   (export run)
   (defworkflow run () -> String

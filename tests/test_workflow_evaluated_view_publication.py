@@ -29,7 +29,7 @@ from tests.agent_session_shims import closed_path
 
 def test_pure_failure_after_commit_preserves_ordinary_failed_terminal(tmp_path):
     source = tmp_path / "failure.orc"
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule failure) (export run) (defworkflow run ((divisor Float)) -> Float
         (let* ((value (command-result value :argv ("python" "value.py") :returns Float)))
           (/ value divisor))))''')

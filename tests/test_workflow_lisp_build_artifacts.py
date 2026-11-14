@@ -193,7 +193,7 @@ def test_compiled_imported_bundle_preserves_recursive_orc_workflow_imports(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule recursive/types)",
                 "  (export WorkReport ChecksResult ImplementationSummary)",
                 "  (defpath WorkReport",
@@ -215,7 +215,7 @@ def test_compiled_imported_bundle_preserves_recursive_orc_workflow_imports(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule recursive/child)",
                 "  (import recursive/types",
                 "    :only (ChecksResult ImplementationSummary WorkReport))",
@@ -236,7 +236,7 @@ def test_compiled_imported_bundle_preserves_recursive_orc_workflow_imports(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule recursive/root)",
                 "  (import recursive/types",
                 "    :only (ChecksResult ImplementationSummary WorkReport))",

@@ -19,7 +19,7 @@ MESSAGE = "[entry_workflow_required] `--entry-workflow` is required when the ent
 
 def module(names: list[str], exports: list[str]) -> str:
     workflows = "".join(f"\n  (defworkflow {name} () -> Int 1)" for name in names)
-    return (f'(workflow-lisp (:language "0.1") (:target-dsl "2.39")\n  (defmodule pick) (export {" ".join(exports)})'
+    return (f'(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n  (defmodule pick) (export {" ".join(exports)})'
             f"{workflows})\n")
 
 

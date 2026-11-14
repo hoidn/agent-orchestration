@@ -19,7 +19,7 @@ from tests.workflow_evaluated_consumer_sources import PROGRAMS, install
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> Result
@@ -210,9 +210,10 @@ COMMITTED = {"attempt", "depends_on", "effect_class", "identity", "implementatio
              "input_parts", "record", "result_digest", "result_path", "time", "value"}
 PARTS = {"declaration", "delivery", "dependency_rows", "params", "policy", "prompt", "source:asset_file:prompt.md",
          "values"}
-# Recorded with `orchestrator compile` before usage.json existed (B1 commit c238e5cf).
+# Recorded with `orchestrator compile` before usage.json existed (B1 commit c238e5cf). `reviewed_change` was
+# recorded again when its source moved to target 2.40: the target is a digest input, the program is otherwise the same.
 DIGESTS = {"best_of_n": "sha256:991a8302be2705206e88f385fc4c82f3b43480b81a0770da0727255b7b0271a7",
-           "reviewed_change": "sha256:fa8a2b27a827498bfdc3e1cfc373116f38dd3e5180db83430637c6c9d9be11c7",
+           "reviewed_change": "sha256:5596cc62c132c1975d48be065d602d2f5b3094e682d863fa834eb891a92d47ef",
            "design_review_execute_agents":
                "sha256:4eb2e5cfb2fa9eee9889b90ab6f4b8c171b4f53ed713d1276e9b7fb961f991a8"}
 

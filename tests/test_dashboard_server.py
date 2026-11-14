@@ -28,7 +28,7 @@ from tests.agent_session_shims import closed_path
 
 
 FAILING_SOURCE = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule fresh_flow) (export run)
   (defworkflow run () -> String
     (let* ((shown (command-result shown :argv ("python" "shown.py") :returns String))
@@ -164,7 +164,7 @@ def test_runs_index_filters_by_status_workflow_recency_and_search(tmp_path: Path
 
 
 HOSTILE_ERROR_SOURCE = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule hostile) (export run)
   (defworkflow run () -> Int
     (command-result hostile :argv ("<script>boom" "x") :returns Int)))

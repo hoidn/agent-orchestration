@@ -283,9 +283,8 @@ def _assert_failed_retry_preservation(root, state):
 
 @pytest.mark.parametrize("input_uses_model", [False, True])
 def test_provider_c9_includes_dynamic_policy_without_input_masking(tmp_path, monkeypatch, input_uses_model):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule main) (export run)
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule main) (export run)
       (defproc ask ((model String)) -> String
-        :effects ((uses-provider providers.review)) :lowering private-workflow
         (provider-result providers.review :prompt prompts.base :inputs (model) :model model :returns String))
       (defworkflow run ((message String)) -> String
         (let* ((chosen (provider-result providers.review :prompt prompts.base :inputs () :returns String)))
@@ -446,7 +445,7 @@ def test_provider_c9_keeps_selected_input_fill_and_dependency_lineage(tmp_path, 
         "doc": ':prompt (document :note chosen)',
         "dependency": ':prompt prompts.base :inputs ("independent") :prompt-dependencies (:required (chosen)) :returns Bool',
     }
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule main) (export run)
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule main) (export run)
       (defpath Note :kind relpath :under "artifacts" :must-exist true)
       (defprompt document (:fills (note :doc Note)) -> Bool "Review document")
       (defworkflow run ((message String)) -> Bool

@@ -29,19 +29,18 @@ from tests.test_workflow_evaluated_command_lifecycle import _publish
 from tests.test_workflow_evaluated_memo import _started
 from tests.workflow_lisp_closed_program_helpers import build
 
-TICK = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+TICK = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule tick)
   (export run)
   (defworkflow run ((n Int)) -> Int
-    (loop/recur :max 1000 :state 0
+    (loop/recur ((i 0)) :max 1000
       :on-exhausted i
-      (fn (i)
-        (if (>= i n)
-          (done i)
-          (let* ((j (command-result tick :argv ("sh" "tick.sh" i) :returns Int)))
-            (continue j)))))))
+      (if (>= i n)
+        (done i)
+        (let* ((j (command-result tick :argv ("sh" "tick.sh" i) :returns Int)))
+          (continue j))))))
 '''
-FANOUT = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+FANOUT = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule fanout) (export run)
   (defworkflow run () -> List[Int]
     (list/map-effect ((repo (list "a" "b" "c" "d"))) :max 4 :parallel 2
@@ -228,7 +227,7 @@ def test_fast_and_reference_paths_give_the_same_program_memo_views_and_report(tm
     assert fast == slow
 
 
-BRANCH = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+BRANCH = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule branch) (export run)
   (defworkflow run ((flag Bool)) -> Int
     (if flag

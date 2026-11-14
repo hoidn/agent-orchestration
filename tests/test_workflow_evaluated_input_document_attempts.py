@@ -213,12 +213,12 @@ def test_imported_same_label_uses_exact_owner_protocol_after_source_deletion(tmp
     certified = {name: replace(binding, closure=("emit.py",), stable_command=("python", "emit.py"))
         for name, binding in _adapter_commands(tmp_path, "Int").items()}
     external = {name: replace(binding, closure=("emit.py",)) for name, binding in _commands(tmp_path).items()}
-    producer_path = install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+    producer_path = install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule producer) (export run) (defworkflow run ((n Int)) -> String
         (command-result emit :adapter emit :inputs ((payload n)) :returns String)))''')
     producer = compile_typed_program(producer_path, entry_workflow="run", source_roots=(tmp_path,),
         workspace_root=tmp_path, command_boundaries=certified)
-    consumer_path = install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+    consumer_path = install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule consumer) (export run) (defworkflow run () -> Int
         (let* ((ignored (command-result emit :argv ("python" "emit.py" "--extra")
           :inputs ((payload (call producer :n 7))) :returns String))) 5)))''')
@@ -311,7 +311,7 @@ def test_checked_local_definition_null_configuration_uses_root_document_binding(
         'value=json.loads(Path(sys.argv[-1]).read_bytes())\nPath("observed.json").write_text(json.dumps(value))\n'
         'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text("5")\n')
     source, original = _program(tmp_path, '(emit 7)',
-        declarations='''(defproc emit ((n Int)) -> Int :effects ((uses-command consume)) :lowering private-workflow
+        declarations='''(defproc emit ((n Int)) -> Int
           (command-result consume :argv ("python" "consumer.py") :inputs ((n n)) :returns Int))''',
         bindings={"consume": "consumer.py"})
     tree = deepcopy(original.tree)

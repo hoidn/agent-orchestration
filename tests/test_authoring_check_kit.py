@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parents[1]
 KIT = REPO / "experiments" / "authoring_check"
 MODEL = "claude-haiku-5-5"
 
-HEADER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+HEADER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule tally) (export run)
   (defrecord Tally (lines Int) (rounds Int))
   (defworkflow run ((file String) (target Int)) -> Tally

@@ -496,7 +496,7 @@ def test_relocated_control_parameter_identity_keeps_its_binding_owner(tmp_path, 
     if control == 'join':
         body = f'(let* ((state (if flag {stable} n))) {tail})'
     else:
-        body = f'(loop/recur :max 1 :state n :on-exhausted 0 (fn (state) (let* ((out {tail})) (done out))))'
+        body = f'(loop/recur ((state n)) :max 1 :on-exhausted 0 (let* ((out {tail})) (done out)))'
     declaration = '(defproc helper ((n Int) (flag Bool)) -> Int :effects ((uses-command echo)) :lowering inline ' + body + ')'
     first = _compile(tmp_path / 'first', '(helper n flag)', params='(n Int) (flag Bool)', declarations=declaration)
     _, children, builder = _prepared_entry(first)
@@ -585,7 +585,7 @@ def test_compiled_control_parameter_metadata_identity_uses_its_own_namespace(tmp
         body = f'(let* ((state (if flag {stable} n))) {tail})'
         node_type, scope_field = WccJoin, 'continuation'
     else:
-        body = f'(loop/recur :max 1 :state n :on-exhausted 0 (fn (state) (let* ((out {tail})) (done out))))'
+        body = f'(loop/recur ((state n)) :max 1 :on-exhausted 0 (let* ((out {tail})) (done out)))'
         node_type, scope_field = WccRecJoin, 'body'
     declaration = '(defproc helper ((n Int) (flag Bool)) -> Int :effects ((uses-command echo)) :lowering inline ' + body + ')'
 
@@ -669,3 +669,158 @@ def test_reused_carrier_record_keeps_its_local_nominal_and_run_ref_owner(tmp_pat
     assert diagnostic.code == 'compiler_defect'
     assert isinstance(diagnostic.cause, CanonicalNameError if mutation in {'phantom-producer', 'signature'} else ValueError)
     assert len(seen) == 1
+
+
+_ONE_LINE = ('(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule m) (export run) '
+             '(defworkflow run () -> Int 1))')
+
+
+def test_internal_typecheck_failure_is_a_compiler_defect(tmp_path, monkeypatch):
+    from orchestrator.workflow_lisp import typecheck_dispatch
+    from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("injected typecheck failure")
+
+    monkeypatch.setattr(typecheck_dispatch, "typecheck_structural_value_expr", fail)
+    with pytest.raises(LispFrontendCompileError) as exc:
+        build(tmp_path, _ONE_LINE)
+    (diagnostic,) = exc.value.diagnostics
+    assert (diagnostic.code, diagnostic.phase, type(diagnostic.cause)) == (
+        "compiler_defect", "typecheck", RuntimeError)
+
+
+def test_an_unreadable_imported_source_is_not_a_compiler_defect(tmp_path):
+    """Control: a read error of an imported module passes the typecheck boundary unchanged."""
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    (tmp_path / "m").mkdir()
+    (tmp_path / "m" / "lib.orc").write_bytes(b"\xff(")
+    with pytest.raises(UnicodeDecodeError):
+        build(tmp_path, {"m.orc": _ONE_LINE.replace("(export run)", "(import m/lib) (export run)")},
+              entry_workflow="m::run")
+
+
+def _fail_typecheck_on(monkeypatch, value):
+    """Make the typechecker raise `RuntimeError` on the integer literal `value` and only there."""
+    from orchestrator.workflow_lisp import typecheck_dispatch
+
+    original = typecheck_dispatch.typecheck_structural_value_expr
+
+    def fail(expr, **kwargs):
+        if getattr(expr, "value", None) == value:
+            raise RuntimeError("injected typecheck failure")
+        return original(expr, **kwargs)
+
+    monkeypatch.setattr(typecheck_dispatch, "typecheck_structural_value_expr", fail)
+
+
+def _printed_codes(stderr):
+    import re
+
+    return re.findall(r":\d+:\d+: \[([a-z_0-9]+)\]", stderr)
+
+
+def _cli_project(root, *, bundle=False):
+    import json
+
+    (root / "m.orc").write_text(_ONE_LINE, encoding="utf-8")
+    (root / "commands.json").write_text("{}", encoding="utf-8")
+    flags = ["--entry-workflow", "m::run", "--source-root", ".", "--command-boundaries-file", "commands.json"]
+    if bundle:
+        lib = _ONE_LINE.replace("(defmodule m)", "(defmodule lib)").replace("-> Int 1", "-> Int 7")
+        (root / "lib.orc").write_text(lib, encoding="utf-8")
+        (root / "bundles.json").write_text(json.dumps(
+            {"lib": {"kind": "compiled", "path": "lib.orc", "entry_workflow": "lib::run"}}), encoding="utf-8")
+        flags += ["--imported-workflow-bundles-file", "bundles.json"]
+    return flags
+
+
+@pytest.mark.parametrize("command", ["compile", "run"])
+def test_a_typecheck_compiler_defect_exits_2_on_the_command_line(tmp_path, monkeypatch, command):
+    from tests.workflow_inprocess_cli_helpers import cli_inprocess
+
+    _fail_typecheck_on(monkeypatch, 1)
+    done = cli_inprocess(tmp_path, command, "m.orc", *_cli_project(tmp_path))
+    assert (done.returncode, _printed_codes(done.stderr)) == (2, ["compiler_defect"])
+
+
+@pytest.mark.parametrize("command", ["compile", "run"])
+def test_a_typecheck_failure_in_an_imported_bundle_is_a_compiler_defect(tmp_path, monkeypatch, command):
+    from tests.workflow_inprocess_cli_helpers import cli_inprocess
+
+    _fail_typecheck_on(monkeypatch, 7)  # the bundle's literal: the entry module typechecks
+    done = cli_inprocess(tmp_path, command, "m.orc", *_cli_project(tmp_path, bundle=True))
+    assert (done.returncode, _printed_codes(done.stderr)) == (2, ["compiler_defect"])
+
+
+def test_a_compiler_defect_names_the_innermost_package_function(tmp_path, monkeypatch):
+    from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+    from tests.workflow_lisp_closed_program_helpers import build, crash_signature
+
+    _fail_typecheck_on(monkeypatch, 1)
+    with pytest.raises(LispFrontendCompileError) as exc:
+        build(tmp_path, _ONE_LINE)
+    (diagnostic,) = exc.value.diagnostics
+    site = crash_signature(diagnostic.cause)[1]
+    assert (diagnostic.message.rsplit(" ", 1)[-1], site) == (site, "workflow_lisp/typecheck_dispatch.py:_typecheck")
+
+
+def test_a_source_changed_during_typecheck_is_not_a_compiler_defect(tmp_path, monkeypatch):
+    """Control: the reader's refusal of an entry module edited while it is compiled passes the boundary."""
+    from orchestrator.workflow_lisp.closed import frontend
+    from orchestrator.workflow_lisp.reader import SourceChangedDuringReadError
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    original = frontend.read_sexpr_file
+
+    def read_then_edit(path, *, source_read_trace=None):
+        tree = original(path, source_read_trace=source_read_trace)
+        path.write_text("; edited while compiling\n" + path.read_text(encoding="utf-8"), encoding="utf-8")
+        return tree
+
+    monkeypatch.setattr(frontend, "read_sexpr_file", read_then_edit)
+    with pytest.raises(SourceChangedDuringReadError):
+        build(tmp_path, _ONE_LINE)
+
+
+_TOO_LONG = "1" * 5000  # beyond CPython's limit on converting a decimal string to `int`
+
+
+def _module(name, *forms):
+    return f'(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule {name}) {" ".join(forms)})'
+
+
+def _too_long_literal_project(root, where):
+    """`m.orc` and its flags, with a too-long literal in the entry module, an imported module, or a module that a
+    workflow bundle imports."""
+    import json
+
+    run = "(defworkflow run () -> Int 1)"
+    big = f"(export big) (defproc big () -> Int {_TOO_LONG})"
+    entry = {"entry": _module("m", "(export run)", run.replace(" 1)", f" {_TOO_LONG})")),
+             "import": _module("m", "(import m/lib) (export run)", run)}.get(where, _module("m", "(export run)", run))
+    (root / "m.orc").write_text(entry, encoding="utf-8")
+    (root / "commands.json").write_text("{}", encoding="utf-8")
+    flags = ["--entry-workflow", "m::run", "--source-root", ".", "--command-boundaries-file", "commands.json"]
+    if where == "import":
+        (root / "m").mkdir()
+        (root / "m" / "lib.orc").write_text(_module("m/lib", big), encoding="utf-8")
+    if where == "bundle-import":
+        (root / "lib").mkdir()
+        (root / "lib" / "x.orc").write_text(_module("lib/x", big), encoding="utf-8")
+        (root / "lib.orc").write_text(_module("lib", "(import lib/x) (export run)", run), encoding="utf-8")
+        (root / "bundles.json").write_text(json.dumps(
+            {"lib": {"kind": "compiled", "path": "lib.orc", "entry_workflow": "lib::run"}}), encoding="utf-8")
+        flags += ["--imported-workflow-bundles-file", "bundles.json"]
+    return flags
+
+
+@pytest.mark.parametrize("where", ["entry", "import", "bundle-import"])
+@pytest.mark.parametrize("command", ["compile", "run"])
+def test_an_integer_literal_too_long_to_convert_is_a_parse_error(tmp_path, command, where):
+    from tests.workflow_inprocess_cli_helpers import cli_inprocess
+
+    done = cli_inprocess(tmp_path, command, "m.orc", *_too_long_literal_project(tmp_path, where))
+    assert (done.returncode, _printed_codes(done.stderr)) == (2, ["frontend_parse_error"])

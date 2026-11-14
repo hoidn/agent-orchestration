@@ -34,7 +34,7 @@ from tests.test_workflow_evaluated_resume_kills import _cli as _env_cli, _env
 
 
 _REPLY = json.dumps("Here is the move:\n\n   " + "e2e4 " * 80)
-_ROOT_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+_ROOT_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow run ((message String)) -> String
     (provider-result providers.review :prompt prompts.base
@@ -383,7 +383,7 @@ def test_public_missing_result_names_the_reply_head_and_resume_retries(tmp_path,
 def test_public_file2_nested_guided_calls_compile_run_and_resume_without_dispatch(tmp_path):
     from tests.test_workflow_evaluated_resume import _snapshot
 
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defpath Report :kind relpath :under "artifacts/review" :must-exist false)
       (defrecord Notes (notes String :description "call one leaf"))

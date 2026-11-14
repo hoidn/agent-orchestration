@@ -102,7 +102,6 @@ ELABORATE = "workflow_lisp/wcc/elaborate.py"
 OPERAND = crash("TypeError", f"{ELABORATE}:_body_to_prefix_and_value")
 NO_ELABORATION = crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value")
 BINDER_OUT_OF_SCOPE = crash("KeyError", f"{ELABORATE}:_infer_expr_type")
-LOCAL_LOOP_STATE = ("traceback", "RuntimeError", "workflow_lisp/loop_state.py:_typecheck_loop_state_seed")
 CAPTURED_COMMAND = crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind")
 CAPTURED_PROVIDER_INPUT = crash("TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind")
 LAUNCHED_WITH_OUTSIDE_TEXT = ("ran", 0, 1, 1)
@@ -119,7 +118,6 @@ KNOWN: dict[str, tuple] = {
     "D5": crash("TypeError", f"{ELABORATE}:_infer_expr_type"),
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
-    "D9-name": LOCAL_LOOP_STATE, "D9-ref": LOCAL_LOOP_STATE, "D9-fn": LOCAL_LOOP_STATE, "D9-map": LOCAL_LOOP_STATE,
     "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
     "D11": CAPTURED_PROVIDER_INPUT, "D11-R1": CAPTURED_PROVIDER_INPUT, "D11-R2": CAPTURED_PROVIDER_INPUT,
     "D11-R5": CAPTURED_PROVIDER_INPUT,
@@ -129,15 +127,14 @@ KNOWN: dict[str, tuple] = {
     "D13": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._value"),
     "D19": crash("SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
     "D21": crash("TypeError", f"{ELABORATE}:_replace_halts_with_jump"),
-    "D22": ("traceback", "AttributeError",
-            "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
+    "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
     "E6": refused("name_unknown"),
     "E7": refused("procedure_call_unknown"),
     "E8": refused("procedure_lowering_unresolved"),
-    "E9": refused("procedure_call_unknown"),
+    "E9": refused("procedure_call_unknown"), "E9-local": refused("procedure_call_unknown"),
     "E11": refused("workflow_signature_mismatch"),
     "E12": BUILDS,
     "E13": ("digests", 1),
@@ -204,6 +201,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "E7": ("refused", "procedure_call_unknown"),
     "E8": ("refused", "procedure_lowering_unresolved"),
     "E9": ("refused", "procedure_call_unknown"),
+    "E9-local": ("refused", "procedure_call_unknown"),
     "E11": ("refused", "workflow_signature_mismatch"),
     "E12": ("builds",),
     "E13": ("digests", 1),
@@ -306,6 +304,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "E7": ("value", 2, "g", "g"),
     "E8": ("value", 3),
     "E9": ("value", 1),
+    "E9-local": ("value", 5),
     "E9-direct": ("builds",),
     "E9-effect-callee": ("builds",),
     "E9-effect-caller": ("builds",),
@@ -344,12 +343,16 @@ WANTED_AT_T0: dict[str, tuple | None] = {
 #
 # `AMENDED_WANTED`, for wanted outcomes: the new wanted outcome of a row, known, control or pin. Stating an
 # outcome where none was stated, or a value where only `builds` was, needs no entry; any other change does.
-AMENDED: dict[str, tuple[tuple | None, str]] = {}
+TYPECHECK_BOUNDARY = "2026-11-13, Task TP1: a typecheck failure is reported as compiler_defect, not a traceback"
+AMENDED: dict[str, tuple[tuple | None, str]] = {
+    "D9-ref": (None, "2026-11-13, coordinator ruling: D9-ref's remaining outcome is E9, entered as E9-local"),
+    "D22": (KNOWN["D22"], TYPECHECK_BOUNDARY),
+}
 AMENDED_WANTED: dict[str, tuple[tuple | None, str]] = {}
 
 # Rows the plan names as needing a control whatever their signature.
 PAIRED = frozenset({"A2-C", "A2-G", "A2-M", "A3-path", "A3-string", "A4-abs", "A4-dotdot", "A4-symlink", "B1",
-                    "B2-let", "B2-arm", "B4", "C1", "D5", "D9-name", "D9-ref", "D9-fn", "D9-map",
+                    "B2-let", "B2-arm", "B4", "C1", "D5", "D9-name", "D9-fn", "D9-map",
                     "D11-R1", "D11-R2", "D11-R5"})
 
 # Known row -> the control rows that exercise the guard it gets past (or, for a crash, the nearest
@@ -365,7 +368,7 @@ CONTROLS: dict[str, tuple[str, ...]] = {
     "D4-loop": ("D4-if", "D4-cond"), "D4-map-value": ("D4-map",), "D4-map-bound": ("D4-map",),
     "D7": ("D7-bound",), "D7-hoisted": ("D7-bound",),
     "D5": ("D5-if", "D5-arm-binder", "D5-other-variant"),
-    "D9-name": ("D9-scalar-state",), "D9-ref": ("D9-scalar-state",), "D9-fn": ("D9-scalar-state",),
+    "D9-name": ("D9-scalar-state",), "D9-fn": ("D9-scalar-state",),
     "D9-map": ("D9-scalar-state",),
     "D11-R1": ("D11-R3", "D11-R4"), "D11-R2": ("D11-R3", "D11-R4"), "D11-R5": ("D11-R3", "D11-R4"),
     "D12-entry": ("D12-declared",), "D12-literal": ("D12-declared",), "D12-name": ("D12-declared",),
@@ -550,7 +553,6 @@ ROWS: dict[str, Row] = {
               "(list/map ((v (list u u))) (match v ((A a) a.n) ((B b) 0)))) 2) (done 1) (continue (+ s 1))))",
               U, inputs=U_IS_A_3),
     "D9-name": row(value(5), d9(D9_STATE), inputs=("n=1",)),
-    "D9-ref": row(value(5), d9(D9_STATE, "(apply1 (proc-ref h) n)"), AP, inputs=("n=1",)),
     "D9-fn": row(value(5), d9(D9_FN), inputs=("n=1",)),
     "D9-map": row(value(2, "m", "m"), d9(D9_MAP), inputs=("n=1",)),
     "D9-scalar-state": row(value(5), d9("(loop/recur ((s 5)) :max 1 :on-exhausted 0 (done s))"), inputs=("n=1",)),
@@ -615,6 +617,7 @@ ROWS: dict[str, Row] = {
     "E8": row(value(3), "() -> Int (outer 2)", AP, ADD,
               "(defproc outer ((k Int)) -> Int (apply1 (bind-proc (proc-ref add) :n k) 1))"),
     "E9": row(value(1), E9_RUN, AP, E9_H, inputs=("n=1",)),
+    "E9-local": row(value(5), d9(D9_STATE, "(apply1 (proc-ref h) n)"), AP, inputs=("n=1",)),
     "E9-direct": row(BUILDS, "((n Int)) -> Int (h n)", AP, E9_H),
     "E9-effect-callee": row(BUILDS, E9_RUN, AP, E9_H.replace("(done s)", f"(done {E('e', 4, 'Int')})")),
     "E9-effect-caller": row(BUILDS, E9_RUN, E9_H, AP.replace("(f v)", f"(let* ((w {E('w', 1, 'Int')})) (f v))")),

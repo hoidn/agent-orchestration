@@ -26,7 +26,7 @@ def program(tmp_path_factory):
     source = workspace / "authority" / "pure.orc"
     source.parent.mkdir()
     source.write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule authority/pure) (export run) '
         '(defworkflow run () -> String "ok"))\n',
         encoding="utf-8",
@@ -57,7 +57,7 @@ def _float_input_program(root: Path):
     source = root / "authority" / "inputs.orc"
     source.parent.mkdir(parents=True)
     source.write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule authority/inputs) (export run) '
         '(defworkflow run ((score Float)) -> Float score))\n',
         encoding="utf-8",
