@@ -2507,11 +2507,12 @@ a procedure never publishes it implicitly.
 
 An effect may be written wherever a value is expected in a workflow or
 procedure body; effects run in the order written, each once, and `if`, `cond`,
-`match`, `and` and `or` run only the branch they take. `call` and procedure
-arguments, operator operands, `record-update` operands, `if` and `cond`
-conditions, a `let*` binding, a `done` value, a loop `:state` and `:max` and a
-command's `:argv` take any expression that holds an effect; a `continue` value
-and a `match` subject do, with the exceptions below.
+`match`, `and` and `or` run only the branch they take. `call` arguments,
+operator operands, `record-update` operands, `if` and `cond` conditions, a
+`let*` binding, a `done` value, a loop `:state` and `:max` and a command's
+`:argv` take any expression that holds an effect. So do a procedure or
+function argument, a `continue` value and a `match` subject, with the
+exceptions below.
 
 - *A record or variant field, a list element, a `path/join-under` child, a
   `list/map` or `list/map-effect` source and an `:on-exhausted` value take an
