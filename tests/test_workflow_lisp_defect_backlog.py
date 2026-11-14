@@ -1,0 +1,651 @@
+"""The compiler and runtime defect backlog: every reproduction, and the list of known defects.
+
+Source: `docs/plans/2026-11-13-compiler-and-runtime-defect-backlog-plan.md` (its Defect Table and
+Reproductions). A row is one program with the outcome wanted for it. A row that does not give that
+outcome today is in `KNOWN` with today's signature, read from a run:
+
+    ("crash", class, "file.py:function")      `compiler_defect`; the class of its cause and the innermost
+                                              function under `orchestrator/` in the cause's traceback
+    ("traceback", class, "file.py:function")  the exception left the build uncaught (exit 1 on the command line)
+    ("refused", code, ...)                    the diagnostic codes
+    ("builds",)                               the public build wrote a closed program
+    ("value", value, command labels...)       the result of the public `run` and its command log
+    ("digests", n)                            n distinct program digests among the row's two spellings
+    ("ran", exit code, launches, leaks, code...)
+                                              a provider row: requests the stand-in received, how many of
+                                              them carried the text of a file outside the workspace, and
+                                              the codes printed after a launch (a refusal before any launch
+                                              is recorded without its code: `fix/missing-prompt-file`
+                                              renames that code)
+
+Rules, each enforced here:
+- a known row must still give exactly its signature. A fix makes its row fail: delete the row from
+  `KNOWN` (and state the wanted outcome, where the row has none);
+- a known row that moves to a different wrong outcome fails. It is re-entered only with a row in the
+  plan's ledger naming the commit that moved it, and only as a refusal code;
+- `KNOWN` only shrinks: its ids are a subset of `KNOWN_AT_T0`. A new defect is added to both, with a
+  ledger row;
+- a known row that builds, commits or gives a value where a refusal is wanted names a control row,
+  not in `KNOWN`, that exercises the guard it gets past (`CONTROLS`).
+
+A row whose wanted outcome is `None` is owned by another decision (the one-target cut, or a fix that
+chooses a code): only today's outcome is recorded.
+
+No program, listed only (plan row id):
+
+    | Row  | Why there is no row here                                                          |
+    | ---- | --------------------------------------------------------------------------------- |
+    | A1   | missing prompt `input_file`: branch `fix/missing-prompt-file` carries its tests   |
+    | E16  | bare `[Errno 2]` for a missing prompt file: the same branch                       |
+    | D14  | empty `(list)` in a `match` arm: not reproduced, no program                       |
+    | D18  | provider extern used as a value in reached code: not re-run, no program           |
+    | E3   | the `variant_ref_unproved` message: a message is not asserted                     |
+    | E14  | `TimestampNs` documented as a type: closed by the documentation, no program       |
+    | E17  | dead prompt identity code: a `grep`, not a program                                |
+    | E21  | a pure operand renames the effects beside it: not re-run, no program              |
+    | E22  | local names are part of the program digest: a property the cut decides            |
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import traceback
+
+import pytest
+
+import orchestrator
+from orchestrator.workflow_lisp.build import FrontendBuildRequest
+from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from tests import test_workflow_evaluated_providers as provider_fixture
+from tests import test_workflow_lisp_run_ref_workflow_program as run_ref_fixture
+from tests.agent_session_shims import closed_path
+
+REPO = Path(__file__).resolve().parents[1]
+PACKAGE = Path(orchestrator.__file__).resolve().parent
+BUILDS = ("builds",)
+
+
+def refused(*codes: str) -> tuple:
+    return ("refused", *codes)
+
+
+def value(result, *log: str) -> tuple:
+    return ("value", result, *log)
+
+
+def crash(error: str, where: str) -> tuple:
+    return ("crash", error, where)
+
+
+# ---------------------------------------------------------------------------------------------
+# The known defects. Signatures were read from runs on `main`, never typed from the plan.
+
+ELABORATE = "workflow_lisp/wcc/elaborate.py"
+OPERAND = crash("TypeError", f"{ELABORATE}:_body_to_prefix_and_value")
+LOCAL_LOOP_STATE = ("traceback", "RuntimeError", "workflow_lisp/loop_state.py:_typecheck_loop_state_seed")
+CAPTURED_COMMAND = crash("ValueError", "workflow_lisp/closed/command_templates.py:bind")
+CAPTURED_PROVIDER_INPUT = crash("TypeError", "workflow/evaluated/provider_io.py:bind")
+CLOSED_CHECK = crash("CheckedFormError", "contracts/closed_program/check.py:fail")
+LAUNCHED_THEN_REFUSED = ("ran", 1, 1, 0, "provider_result_invalid")
+LAUNCHED_WITH_OUTSIDE_TEXT = ("ran", 0, 1, 1)
+
+KNOWN: dict[str, tuple] = {
+    "A2-C": BUILDS, "A2-G": BUILDS, "A2-M": BUILDS,
+    "A3-path": LAUNCHED_THEN_REFUSED, "A3-string": LAUNCHED_THEN_REFUSED,
+    "A4-abs": LAUNCHED_WITH_OUTSIDE_TEXT, "A4-dotdot": LAUNCHED_WITH_OUTSIDE_TEXT,
+    "A4-symlink": LAUNCHED_WITH_OUTSIDE_TEXT,
+    "B1": ("ran", 0, 1, 0),
+    "B2-let": value(2), "B2-arm": value(2), "B3": value(100), "B4": value(10), "B5": value(6),
+    "C1": value(7, "libw"),
+    "D1": OPERAND, "D2": OPERAND, "D3": OPERAND, "D20": OPERAND,
+    "D4-loop": crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value"),
+    "D5": crash("TypeError", f"{ELABORATE}:_infer_expr_type"),
+    "D6": CLOSED_CHECK,
+    "D7": crash("KeyError", f"{ELABORATE}:_infer_expr_type"),
+    "D8": crash("KeyError", f"{ELABORATE}:_infer_expr_type"),
+    "D9-name": LOCAL_LOOP_STATE, "D9-ref": LOCAL_LOOP_STATE, "D9-fn": LOCAL_LOOP_STATE, "D9-map": LOCAL_LOOP_STATE,
+    "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
+    "D11": CAPTURED_PROVIDER_INPUT, "D11-R1": CAPTURED_PROVIDER_INPUT, "D11-R2": CAPTURED_PROVIDER_INPUT,
+    "D11-R5": CAPTURED_PROVIDER_INPUT,
+    "D12-entry": crash("CanonicalNameError", "workflow_lisp/closed/names.py:build"),
+    "D12-literal": crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value"),
+    "D12-name": crash("KeyError", f"{ELABORATE}:_infer_expr_type"),
+    "D13": CLOSED_CHECK,
+    "D19": crash("SiteAssignmentError", "contracts/closed_program/sites.py:_value_has_effect"),
+    "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
+    "E2": refused("variant_ref_unproved"),
+    "E4": refused("variant_tag_union_mismatch"),
+    "E6": refused("name_unknown"),
+    "E7": refused("procedure_call_unknown"),
+    "E8": refused("procedure_lowering_unresolved"),
+    "E9": refused("procedure_call_unknown"),
+    "E11": refused("workflow_signature_mismatch"),
+    "E12": BUILDS,
+    "E13": ("digests", 1),
+    "E23-local": refused("name_unknown"), "E23-input": refused("name_unknown"),
+    "E24": refused("path_join_under_type_invalid"),
+    "E26": refused("procedure_call_unknown"),
+}
+
+KNOWN_AT_T0: tuple[str, ...] = (
+    "A2-C", "A2-G", "A2-M", "A3-path", "A3-string", "A4-abs", "A4-dotdot", "A4-symlink",
+    "B1", "B2-arm", "B2-let", "B3", "B4", "B5", "C1",
+    "D1", "D2", "D3", "D4-loop", "D5", "D6", "D7", "D8", "D9-fn", "D9-map", "D9-name", "D9-ref",
+    "D10", "D10-R1", "D11", "D11-R1", "D11-R2", "D11-R5", "D12-entry", "D12-literal", "D12-name",
+    "D13", "D19", "D20",
+    "E1-and", "E1-or", "E2", "E4", "E6", "E7", "E8", "E9", "E11", "E12", "E13",
+    "E23-input", "E23-local", "E24", "E26",
+)
+
+# Known row -> the control rows that exercise the guard it gets past (or, for a crash, the nearest
+# spelling that works). A control is never in `KNOWN`.
+CONTROLS: dict[str, tuple[str, ...]] = {
+    "A2-C": ("A2-named", "A2-path"), "A2-G": ("A2-named", "A2-path"), "A2-M": ("A2-named", "A2-path"),
+    "A3-path": ("A3-two-names",), "A3-string": ("A3-two-names",),
+    "A4-abs": ("A4-asset-abs",), "A4-dotdot": ("A4-asset-dotdot",), "A4-symlink": ("A4-asset-symlink",),
+    "B1": ("B1-two-paths",),
+    "B2-let": ("B2-no-reference",), "B2-arm": ("B2-no-reference",),
+    "B4": ("B4-no-caller-binding",),
+    "C1": ("C1-local",),
+    "D4-loop": ("D4-if",),
+    "D5": ("D5-if", "D5-arm-binder", "D5-other-variant"),
+    "D9-name": ("D9-scalar-state",), "D9-ref": ("D9-scalar-state",), "D9-fn": ("D9-scalar-state",),
+    "D9-map": ("D9-scalar-state",),
+    "D11-R1": ("D11-R3", "D11-R4"), "D11-R2": ("D11-R3", "D11-R4"), "D11-R5": ("D11-R3", "D11-R4"),
+    "D12-entry": ("D12-declared",), "D12-literal": ("D12-declared",), "D12-name": ("D12-declared",),
+    "D13": ("D13-folded",),
+    "D19": ("D19-done",), "D20": ("D20-bound",),
+    "E2": ("E2-parallel", "E2-pure"),
+    "E9": ("E9-direct", "E9-effect-callee", "E9-effect-caller"),
+    "E23-local": ("E23-bound",), "E23-input": ("E23-bound",),
+    "E24": ("E24-imported", "E24-qualified"),
+}
+
+
+# ---------------------------------------------------------------------------------------------
+# Programs: the body of one module `m` at target 2.40, entry `run`.
+
+def E(label: str, result, type_: str) -> str:
+    return f'(command-result c :argv ("python" "c.py" "{label}" "{result}") :returns {type_})'
+
+
+U = "(defunion U (A (n Int)) (B (why String)))"
+SHAPE = "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))"
+INC = "(defproc increment ((value Int)) -> Int (+ value 1))"
+DBL = "(defproc dbl ((value Int)) -> Int (* value 2))"
+AP = "(defproc apply1 ((f ProcRef[Int -> Int]) (v Int)) -> Int (f v))"
+STEP = f"(defproc step ((n Int)) -> Int {E('step', 1, 'Int')})"
+CHK = f"(defproc check ((n Int)) -> Bool {E('check', 'true', 'Bool')})"
+ADD = "(defproc add ((n Int) (x Int)) -> Int (+ n x))"
+ADDE = f"(defproc add ((n Int) (x Int)) -> Int {E('add', 3, 'Int')})"
+EACH = ("(defproc each ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int\n"
+        "    (list/length (list/map-effect ((x xs)) :max 2 (f x))))")
+A3 = ('u={"variant":"A","n":3}',)
+
+COMMAND = '''import os, sys
+from pathlib import Path
+with open("log.txt", "a", encoding="utf-8") as log:
+    log.write(sys.argv[1] + "\\n")
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(sys.argv[2], encoding="utf-8")
+'''
+
+
+def module(run: str, *definitions: str, name: str = "m", head: str = "(export run)") -> str:
+    forms = "\n  ".join((*definitions, f"(defworkflow run {run})"))
+    return f'(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n  (defmodule {name}) {head}\n  {forms})\n'
+
+
+@dataclass(frozen=True)
+class Row:
+    """One program. `source` is the text of `m.orc`, or files by path with the entry file first."""
+
+    wanted: tuple | None
+    source: str | dict[str, str]
+    inputs: tuple[str, ...] = ()
+    entry: str = "m::run"
+    versus: str | None = None  # a second spelling: the outcome is the number of distinct digests
+
+
+def row(wanted: tuple | None, run: str, *definitions: str, inputs: tuple[str, ...] = ()) -> Row:
+    return Row(wanted, module(run, *definitions), inputs)
+
+
+MM_B4 = "(defmacro mm (x) (let* ((f (proc-ref increment))) (f x)))"
+WITH_BUMP = "(defmacro with-bump (k body) (let-proc ((bump ((x Int)) -> Int (+ x k))) body))"
+LIB_W = f"(defworkflow lib-w ((n Int)) -> Int {E('libw', 7, 'Int')})"
+C1_P = "(defproc p ((n Int)) -> Int :effects ((calls-workflow lib-w)) (call lib-w :n n))"
+D3_VIA = ("(defproc via-cont ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int\n"
+          "    (loop/recur :max 3 :state 0 :on-exhausted 0\n"
+          "      (fn (s) (if (= s 0) (continue (list/length (list/map-effect ((x xs)) :max 2 (f x)))) (done s)))))")
+D9_STATE = "(loop/recur ((s (loop-state (i Int 0)))) :max 1 :on-exhausted 0 (done s.i))"
+D9_FN = "(loop/recur :max 1 :state (loop-state (i Int 0)) :on-exhausted 0 (fn (s) (done s.i)))"
+D9_MAP = f"(list/length (list/map-effect ((x (list 1 2))) :max 2 {E('m', 1, 'Int')}))"
+
+
+def d9(body: str, call: str = "(h n)") -> str:
+    return f"((n Int)) -> Int (let-proc ((h ((v Int)) -> Int {body})) {call})"
+
+
+D11_VIA = ("(defproc via ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int\n"
+           "    (list/length (list/map-effect ((x xs)) :max 2 (f x))))")
+ROLE = "(let* ((role (bind-proc (proc-ref add) :n 1))) BODY)"
+ROLE_STEP = ROLE.replace("BODY", "(let-proc ((step ((x Int)) -> Int (role x))) BODY)")
+MAP_12 = "(list/length (list/map-effect ((x (list 1 2))) :max 2 CALL))"
+D12 = ("(defrecord Box (n Int))", "(defworkflow helper ((b Box)) -> Box b)",
+       "(defworkflow invoke ((runner WorkflowRef[Box -> Box])) -> Box (record Box :n 1))")
+D17_EFFECT = ("(defproc total ((n Int) (xs List[Int])) -> Int\n"
+              f"    (list/length (list/map-effect ((x xs)) :max 2 {E('m', 1, 'Int')})))")
+D17_PURE = "(defproc total ((n Int) (xs List[Int])) -> Int (list/length (list/map ((x xs)) (+ x n))))"
+D17_RUN = "() -> Int (let* ((r (bind-proc (proc-ref total) :n 1))) (r (list 1 2)))"
+D19_VALUE = f"(if (> n 0) (if (> n 0) {E('e', 1, 'Int')} 0) 0)"
+D19 = "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (EXIT VALUE)))"
+D20_MK = "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))"
+D20_SUBJECT = f"(mkshape (if (> n 0) {E('e1', 1, 'Int')} {E('e2', 2, 'Int')}))"
+D20_ARMS = "((CIRCLE c) c.r) ((SQUARE s) 0)"
+E2_COMMAND = '(command-result c :argv ("python" "c.py" "m" u.n) :returns Int)'
+E4_PICK = ("(defproc pick :forall (T) ((x T))\n"
+           "    :where ((T has-union-variant OK (n Int)) (T has-union-variant BAD (why String)))\n"
+           "    -> Int (if (= x.variant OK) 1 0))")
+E9_H = "(defproc h ((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted 0 (done s)))"
+E9_RUN = "((n Int)) -> Int (apply1 (proc-ref h) n)"
+E18_MM = "(defmacro mm (x) (let* ((v (list x x))) (list/length (list/map ((BINDER v)) (+ BINDER 1)))))"
+E23_BIND = "(apply1 (bind-proc (proc-ref add) :n NAME) 1)"
+E24_LIB = ('(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n  (defmodule m/lib) (export P Box mk)\n'
+           '  (defpath P :kind relpath :under "artifacts/work" :must-exist false)\n  (defrecord Box (p P))\n'
+           '  (defproc mk () -> Box (record Box :p (path/join-under P "x.json"))))\n')
+
+
+def c1(*definitions: str, head: str) -> dict[str, str]:
+    lib = module("() -> Int 1", LIB_W, name="lib", head="(export lib-w run)")
+    return {"m.orc": module("() -> Int (p 1)", *definitions, C1_P, head=head), "lib.orc": lib}
+
+
+def e24(imports: str, lib: str = E24_LIB) -> Row:
+    direct = module("() -> Box (mk)", name="m/direct", head=f"(import m/lib :only ({imports})) (export run)")
+    return Row(BUILDS, {"m/direct.orc": direct, "m/lib.orc": lib}, entry="m/direct::run")
+
+
+ROWS: dict[str, Row] = {
+    # Class B: a silent wrong value or wrong callee. B2 to B5 are the one-target cut's.
+    "B2-let": row(None, "() -> Int (let* ((g (proc-ref increment))) (let* ((g 5)) (g 1)))", INC),
+    "B2-arm": row(None, "((u U)) -> Int (let* ((g (proc-ref increment))) (match u ((A g) (g 1)) ((B b) 0)))",
+                  U, INC, inputs=A3),
+    "B2-no-reference": row(refused("procedure_call_unknown"), "() -> Int (let* ((g 5)) (g 1))"),
+    "B3": row(None, "() -> Int (let-proc ((f ((x Int)) -> Int (+ x 1))) (f 1))",
+              "(defun f ((n Int)) -> Int (* n 100))"),
+    "B4": row(None, "() -> Int (let* ((f (proc-ref dbl))) (+ 0 (mm 5)))", INC, DBL, MM_B4),
+    "B4-no-caller-binding": row(refused("procedure_call_unknown"), "() -> Int (+ 0 (mm 5))", INC, DBL, MM_B4),
+    "B5": row(None, "((n Int)) -> Int (with-bump 5 (bump n))", WITH_BUMP, inputs=("n=1",)),
+    # Not fixed: specification 8.10 states that a `Bool` result accepts the strings.
+    "B6": row(value(True, "strb"), "() -> Bool " + E("strb", r'\"TRUE\"', "Bool")),
+
+    # Class C: the declared effects ceiling over an imported workflow.
+    "C1": Row(refused("procedure_effect_ceiling_exceeded"),
+              c1(head="(import lib :only (lib-w)) (export run)")),
+    "C1-local": Row(refused("procedure_effect_ceiling_exceeded"), module("() -> Int (p 1)", LIB_W, C1_P)),
+
+    # Class D: a crash on source the language admits.
+    "D1": row(value(1005), "() -> Int (let* ((c 1000)) (+ c (let* ((c 5)) "
+              "(match (variant Shape SQUARE :side 2) ((CIRCLE k) k.r) ((SQUARE s) c)))))", SHAPE),
+    "D2": row(refused("effect_not_permitted"),
+              "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) "
+              f"(continue (+ (if (> n 0) {E('e', 1, 'Int')} 0) 9))))", inputs=("n=1",)),
+    "D3": row(refused("effect_not_permitted"), "() -> Int (via-cont (proc-ref step) (list 1 2))", STEP, D3_VIA),
+    "D4-loop": row(value(0), "((u U)) -> Int (loop/recur ((s 0)) :max (match u ((A a) a.n) ((B b) 1)) "
+                   ":on-exhausted 0 (done s))", U, inputs=A3),
+    "D4-if": row(value(0), "((n Int)) -> Int (loop/recur ((s 0)) :max (if (> n 0) 1 2) :on-exhausted 0 (done s))",
+                 inputs=("n=1",)),
+    "D4-map": row(value(2, "m", "m"), "((u U)) -> Int (list/length (list/map-effect ((x (list 1 2))) "
+                  f":max (match u ((A a) a.n) ((B b) 1)) {E('m', 1, 'Int')}))", U, inputs=A3),
+    "D5": row(value(3), "((u U)) -> Int (match u ((A a) u.n) ((B b) 0))", U, inputs=A3),
+    "D5-other-variant": row(refused("variant_ref_wrong_variant"),
+                            '((u U)) -> String (match u ((A a) u.why) ((B b) "x"))', U),
+    "D5-arm-binder": row(value(3), "((u U)) -> Int (match u ((A u) u.n) ((B b) 0))", U, inputs=A3),
+    "D5-if": row(value(3), "((u U)) -> Int (if (= u.variant A) u.n 0)", U, inputs=A3),
+    "D6": row(BUILDS, "((u U)) -> Int (+ (let* ((u (variant U A :n 1))) (if (= u.variant A) u.n 0)) "
+              "(if (= u.variant A) u.n 0))", U),
+    "D7": row(BUILDS, "() -> Int (let* ((tmp (step 3))) (+ tmp (let* ((tmp (step 1))) "
+              "(loop/recur :max 2 :state tmp :on-exhausted s (fn (s) (if (check s) (done s) "
+              "(continue (loop/recur :max 1 :state (+ s tmp) :on-exhausted u (fn (u) (done (step u)))))))))))",
+              STEP, CHK),
+    # Task 0b of the staged-authoring plan removes D8, E7 and E8.
+    "D8": row(BUILDS, "((u U)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (= (list/length "
+              "(list/map ((v (list u u))) (match v ((A a) a.n) ((B b) 0)))) 2) (done 1) (continue (+ s 1))))", U),
+    "D9-name": row(value(0), d9(D9_STATE), inputs=("n=1",)),
+    "D9-ref": row(value(0), d9(D9_STATE, "(apply1 (proc-ref h) n)"), AP, inputs=("n=1",)),
+    "D9-fn": row(value(0), d9(D9_FN), inputs=("n=1",)),
+    "D9-map": row(value(2, "m", "m"), d9(D9_MAP), inputs=("n=1",)),
+    "D9-scalar-state": row(value(0), d9("(loop/recur ((s 0)) :max 1 :on-exhausted 0 (done s))"), inputs=("n=1",)),
+    "D10": row(value(2), "() -> Int (let* ((p (proc-ref increment))) "
+               "(let-proc ((f ((x Int)) -> Int (p x))) (f 1)))", INC),
+    "D10-R1": row(value(2), "() -> Int " + ROLE_STEP.replace("BODY", "(step 1)"), ADD),
+    "D11": row(value(2, "step", "step"), "() -> Int (let* ((g (proc-ref step))) "
+               "(let-proc ((h ((n Int)) -> Int (g n))) (via (proc-ref h) (list 1 2))))", STEP, D11_VIA),
+    "D11-R1": row(value(3, "add"), "() -> Int " + ROLE_STEP.replace("BODY", "(step 1)"), ADDE),
+    "D11-R2": row(value(2, "add", "add"),
+                  "() -> Int " + ROLE_STEP.replace("BODY", MAP_12.replace("CALL", "(step x)")), ADDE),
+    "D11-R5": row(value(2, "add", "add"),
+                  "() -> Int " + ROLE_STEP.replace("BODY", "(each (proc-ref step) (list 1 2))"), ADDE, EACH),
+    "D11-R3": row(value(2, "add", "add"),
+                  "() -> Int " + ROLE.replace("BODY", MAP_12.replace("CALL", "(role x)")), ADDE),
+    "D11-R4": row(value(2, "add", "add"), "() -> Int " + ROLE.replace("BODY", "(each role (list 1 2))"), ADDE, EACH),
+    "D12-entry": Row(None, module("() -> Int 1", *D12, head="(export run invoke)"), entry="m::invoke"),
+    "D12-literal": row(None, "() -> Box (call invoke :runner (workflow-ref helper))", *D12),
+    "D12-name": row(None, "() -> Box (call invoke :runner helper)", *D12),
+    "D12-declared": row(BUILDS, "() -> Int 1", *D12),
+    "D13": row(refused("pure_expr_overflow"), "() -> Int 9223372036854775808"),
+    "D13-folded": row(refused("pure_expr_overflow"), "() -> Int (+ 9223372036854775807 1)"),
+    # Regression pins: closed, or not reproduced in the planner's shape.
+    "D15": row(BUILDS, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (done (list/length "
+               f'(list/map-effect ((r (list "a" "b"))) :max 2 :parallel 2 :workspace r {E("p", 1, "Int")}))))'),
+    "D16": row(refused("proc_ref_literal_required"), "((n Int)) -> Int (let* ((g (if (> n 0) "
+               "(proc-ref increment) (proc-ref increment)))) (g 1))", INC),
+    "D17-effect": row(value(2, "m", "m"), D17_RUN, D17_EFFECT),
+    "D17-pure": row(value(2), D17_RUN, D17_PURE),
+    "D19": row(None, D19.replace("EXIT", "continue").replace("VALUE", D19_VALUE), inputs=("n=1",)),
+    "D19-done": row(value(1, "e"), D19.replace("EXIT", "done").replace("VALUE", D19_VALUE), inputs=("n=1",)),
+    "D20": row(None, f"((n Int)) -> Int (match {D20_SUBJECT} {D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
+    "D20-bound": row(value(1, "e1"), f"((n Int)) -> Int (let* ((shape {D20_SUBJECT})) (match shape {D20_ARMS}))",
+                     SHAPE, D20_MK, inputs=("n=1",)),
+
+    # Class E: a refusal of good source, a misleading code, an accepted form with no effect.
+    "E1-and": row(BUILDS, "((u U) (r Bool)) -> Int (if (and (= u.variant A) r) u.n 0)", U),
+    "E1-or": row(BUILDS, "((u U) (r Bool)) -> Int (if (or (!= u.variant A) r) 0 u.n)", U),
+    "E2": row(BUILDS, "((u U)) -> List[Int] (if (= u.variant A) "
+              f"(list/map-effect ((y (list 1 2))) :max 2 {E2_COMMAND}) (list 0))", U),
+    "E2-parallel": row(BUILDS, "((u U)) -> List[Int] (if (= u.variant A) "
+                       f'(list/map-effect ((y (list "a"))) :max 2 :parallel 1 :workspace y {E2_COMMAND}) (list 0))', U),
+    "E2-pure": row(BUILDS, "((u U)) -> List[Int] (if (= u.variant A) (list/map ((y (list 1 2))) (+ y u.n)) (list 0))", U),
+    "E4": row(None, "((u U)) -> Int (pick u)", "(defunion U (OK (n Int)) (BAD (why String)))", E4_PICK),
+    # Not fixed: reserving the names would refuse source that compiles.
+    "E5-if": row(value(1), "((x Int)) -> Int (let* ((if 1)) if)", inputs=("x=0",)),
+    "E5-cond": row(value(1), "((x Int)) -> Int (let* ((cond 1)) cond)", inputs=("x=0",)),
+    "E5-match": row(value(1), "((x Int)) -> Int (let* ((match 1)) match)", inputs=("x=0",)),
+    "E6": row(value(2), "() -> Int (fw (proc-ref increment) 1)", INC,
+              "(defproc fw ((p ProcRef[Int -> Int]) (x Int)) -> Int (let* ((g p)) (g x)))"),
+    "E7": row(BUILDS, "() -> Int (list/length (list/map-effect ((x (list 1 2))) :max 2 (gstep x)))",
+              f"(defproc gstep :forall (T) ((v T)) -> T (let* ((x {E('g', 1, 'Int')})) v))"),
+    "E8": row(BUILDS, "() -> Int (outer 2)", AP, ADD,
+              "(defproc outer ((k Int)) -> Int (apply1 (bind-proc (proc-ref add) :n k) 1))"),
+    "E9": row(BUILDS, E9_RUN, AP, E9_H),
+    "E9-direct": row(BUILDS, "((n Int)) -> Int (h n)", AP, E9_H),
+    "E9-effect-callee": row(BUILDS, E9_RUN, AP, E9_H.replace("(done s)", f"(done {E('e', 4, 'Int')})")),
+    "E9-effect-caller": row(BUILDS, E9_RUN, E9_H, AP.replace("(f v)", f"(let* ((w {E('w', 1, 'Int')})) (f v))")),
+    # Not fixed: specification 34 states that a free name in a template resolves at the call site.
+    "E10": row(value(6), "((y Int)) -> Int (uses-y)", "(defmacro uses-y () (+ y 1))", inputs=("y=5",)),
+    # The one-target cut's: E11 to E13.
+    "E11": row(None, "() -> Int (call child :n 2)",
+               "(defmacro mk (name) (defworkflow name ((n Int)) -> Int (+ n 1)))", "(mk child)"),
+    "E12": row(None, "() -> Int 1",
+               '(defpath P :kind relpath :under "state" :must-exist true :must-exist-target false)'),
+    "E13": Row(None, module("() -> Int (f 1)", '(defun f ((x Int)) -> (result Int :description "fmarker") x)'),
+               versus=module("() -> Int (f 1)", "(defun f ((x Int)) -> Int x)")),
+    # Not a defect: the binder has the name of a template local, as the program written in place has.
+    "E18-macro": row(refused("list_map_binder_invalid"), "() -> Int (mm 1)", E18_MM.replace("BINDER", "v")),
+    "E18-in-place": row(refused("list_map_binder_invalid"),
+                        "() -> Int (let* ((v (list 1 1))) (list/length (list/map ((v v)) (+ v 1))))"),
+    "E18-other-binder": row(value(2), "() -> Int (mm 1)", E18_MM.replace("BINDER", "w")),
+    "E19": row(value(4), "() -> Int (twice 1)",
+               "(defmacro twice (a) (let-proc ((h ((x Int)) -> Int (+ x 1))) (+ (h a) (h a))))"),
+    "E20": row(value(1), "() -> Int (let* ((flag false)) (mm 1))",
+               "(defmacro mm (x) (let* ((flag true)) (cond (flag 1) (true 0))))"),
+    "E23-local": row(value(2), "() -> Int (let* ((tmp 1)) " + E23_BIND.replace("NAME", "tmp") + ")", AP, ADD),
+    "E23-input": row(value(2), "((k Int)) -> Int " + E23_BIND.replace("NAME", "k"), AP, ADD, inputs=("k=1",)),
+    "E23-bound": row(value(2), "() -> Int (let* ((tmp 1) (role (bind-proc (proc-ref add) :n tmp))) (apply1 role 1))",
+                     AP, ADD),
+    "E24": e24("Box mk"),
+    "E24-imported": e24("Box mk P"),
+    "E24-qualified": e24("Box mk", E24_LIB.replace("(path/join-under P", "(path/join-under m/lib/P")),
+    "E25": row(BUILDS, "() -> Int (if (= (list/length (list/map-effect "
+               f'((r (list "a"))) :max 1 :parallel 1 :workspace r {E("p", 1, "Int")})) 1) 1 0)'),
+    "E26": row(None, f"() -> Int (apply1 (bind-proc (proc-ref add2) :n {E('e', 1, 'Int')}) 1)", AP,
+               "(defproc add2 ((n Int) (x Int)) -> Int (+ n x))"),
+}
+
+
+# ---------------------------------------------------------------------------------------------
+# A2: the confined controller of the run-reference tests, at 2.40.
+
+A2_ROUTES = '''
+  (defproc hide1r ((n Int)) -> Int (call one :seed n :revision "r"))
+  (defproc hidepr ((n Int)) -> Int (call onep :seed n :revision "r"))
+  (defproc viaparam1 ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int
+    (list/length (list/map-effect ((x xs)) :max 2 (f x))))
+  (defproc par1 ((f ProcRef[Int -> Int])) -> Int
+    (list/length (list/map-effect ((repo (list "a"))) :max 1 :parallel 1 :workspace repo (f 1))))
+'''
+P12 = refused("run_ref_placement_invalid")
+A2_ROWS: dict[str, tuple[tuple, str]] = {
+    "A2-C": (P12, "(let* ((xs (viaparam1 (proc-ref hide1r) (list 1 2)))) 1)"),
+    "A2-G": (P12, '(let* ((xs (let-proc ((h ((n Int)) -> Int (call one :seed n :revision "r"))) '
+                  "(viaparam1 (proc-ref h) (list 1 2))))) 1)"),
+    "A2-M": (P12, "(let* ((xs (par1 (proc-ref hide1r)))) 1)"),
+    "A2-named": (P12, "(list/length (list/map-effect ((x (list 1 2))) :max 2 (hide1r x)))"),
+    "A2-path": (BUILDS, "(list/length (list/map-effect ((x (list 1 2))) :max 2 (hidepr x)))"),
+}
+
+
+# ---------------------------------------------------------------------------------------------
+# Provider rows: the fixture of the evaluated provider tests, its source at 2.40, a stand-in `codex`.
+
+OUTSIDE = "TEXT OF A FILE OUTSIDE THE WORKSPACE"
+SLOTS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule main) (export run)
+  (defpath Report :kind relpath :under "artifacts" :must-exist false)
+  (defrecord Result FIELDS)
+  (defprompt review (:fills FILLS) -> Result "TEMPLATE")
+  (defworkflow run (PARAMETERS) -> Result
+    (provider-result providers.review :prompt (review ARGUMENTS))))'''
+
+
+def slots(fields: str, fills: str, template: str, arguments: str, parameters: str = "(message String) (report Report)"):
+    return (SLOTS.replace("FIELDS", fields).replace("FILLS", fills).replace("TEMPLATE", template)
+            .replace("ARGUMENTS", arguments).replace("PARAMETERS", parameters))
+
+
+@dataclass(frozen=True)
+class ProviderRow:
+    wanted: tuple
+    source: str = provider_fixture.SOURCE.replace('"2.35"', '"2.40"')
+    prompt: tuple[str, str] | None = None  # the prompt extern's kind and path; "OUTSIDE" is the outside file
+    inputs: tuple[str, ...] = ()
+    payload: str = '{"ok":true}'
+
+
+REPORT = ("--input", "report=artifacts/report.txt")
+ONE_SLOT = "(report :path :out Report)"
+REFUSED_BEFORE_LAUNCH = ("ran", 1, 0, 0)
+COMMITTED = ("ran", 0, 1, 0)
+PROVIDER_ROWS: dict[str, ProviderRow] = {
+    "A3-path": ProviderRow(REFUSED_BEFORE_LAUNCH, slots("(ok Bool) (report Report)", ONE_SLOT, "Report={report}",
+                           ":report report"), inputs=REPORT, payload='{"ok":true,"report":"artifacts/report.txt"}'),
+    "A3-string": ProviderRow(REFUSED_BEFORE_LAUNCH, slots("(ok Bool) (report String)", ONE_SLOT, "Report={report}",
+                             ":report report"), inputs=REPORT, payload='{"ok":true,"report":"x"}'),
+    "A3-two-names": ProviderRow(COMMITTED, slots("(ok Bool) (summary String)", ONE_SLOT, "Report={report}",
+                                ":report report"), inputs=REPORT, payload='{"ok":true,"summary":"x"}'),
+    "B1": ProviderRow(REFUSED_BEFORE_LAUNCH, slots("(ok Bool)", "(a :path :out Report) (b :path :out Report)",
+                      "A={a} B={b}", ":a report :b report"), inputs=REPORT),
+    "B1-two-paths": ProviderRow(COMMITTED, slots("(ok Bool)", "(a :path :out Report) (b :path :out Report)",
+                                "A={a} B={b}", ":a report :b other", "(message String) (report Report) (other Report)"),
+                                inputs=(*REPORT, "--input", "other=artifacts/other.txt")),
+    "A4-abs": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("input_file", "OUTSIDE")),
+    "A4-dotdot": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("input_file", "../outside.md")),
+    "A4-symlink": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("input_file", "link.md")),
+    "A4-asset-abs": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("asset_file", "OUTSIDE")),
+    "A4-asset-dotdot": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("asset_file", "../outside.md")),
+    "A4-asset-symlink": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("asset_file", "link.md")),
+    # Not planned (E15): the extern's path is checked when the call runs; the build does not read it.
+    "E15-missing": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("asset_file", "missing.md")),
+    "E15-outside": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("asset_file", "../outside.md")),
+}
+
+WANTED = {**{name: entry.wanted for name, entry in ROWS.items()},
+          **{name: wanted for name, (wanted, _body) in A2_ROWS.items()},
+          **{name: entry.wanted for name, entry in PROVIDER_ROWS.items()}}
+
+
+# ---------------------------------------------------------------------------------------------
+# Observation.
+
+def _signature(error: BaseException) -> tuple[str, str]:
+    """The class of `error` and the innermost function under `orchestrator/` in its traceback."""
+    frames = [frame for frame in traceback.extract_tb(error.__traceback__)
+              if PACKAGE in Path(frame.filename).resolve().parents]
+    return type(error).__name__, f"{Path(frames[-1].filename).resolve().relative_to(PACKAGE).as_posix()}:{frames[-1].name}"
+
+
+def _build_outcome(build) -> tuple:
+    """The outcome of the in-process public build `build()`, with the cause of a crash."""
+    try:
+        build()
+    except LispFrontendCompileError as stopped:
+        codes = [diagnostic.code for diagnostic in stopped.diagnostics]
+        if codes == ["compiler_defect"]:
+            return ("crash", *_signature(stopped.diagnostics[0].cause))
+        return refused(*codes)
+    except Exception as escaped:  # what the command line prints as a traceback: recorded, not hidden
+        return ("traceback", *_signature(escaped))
+    return BUILDS
+
+
+def _env(*bin_dirs: Path) -> dict[str, str]:
+    path = closed_path(REPO / "experiments" / "thread_m" / "no_provider", *bin_dirs)
+    return {**os.environ, "PATH": path, "PYTHONPATH": str(REPO), "PYTHONDONTWRITEBYTECODE": "1"}
+
+
+def _install(root: Path, files: dict[str, str]) -> Path:
+    """Write the sources, the stand-in command and its boundary under `root`; the entry file's path."""
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text, encoding="utf-8")
+    (root / "c.py").write_text(COMMAND, encoding="utf-8")
+    (root / "commands.json").write_text(
+        json.dumps({"c": {"stable_command": ["python", "c.py"], "closure": ["c.py"]}}), encoding="utf-8")
+    return root / next(iter(files))
+
+
+def _build(root: Path, source: str, entry: str = "m::run"):
+    root.mkdir(exist_ok=True)
+    path = _install(root, {"m.orc": source})
+    return build_closed_program_bundle(FrontendBuildRequest(source_path=path, source_roots=(root,),
+        entry_workflow=entry, command_boundaries_path=root / "commands.json", workspace_root=root))
+
+
+def _run(root: Path, entry_file: Path, entry: str, inputs: tuple[str, ...]) -> tuple[tuple, str]:
+    """The public `run` of a program that built: its value and command log, and the text to show on a failure."""
+    flags = [flag for item in inputs for flag in ("--input", item)]
+    done = subprocess.run([sys.executable, "-B", "-m", "orchestrator", "run", str(entry_file.relative_to(root)),
+        "--entry-workflow", entry, "--source-root", ".", "--command-boundaries-file", "commands.json", *flags],
+        cwd=root, env=_env(), capture_output=True, text=True, check=False)
+    log = (root / "log.txt").read_text(encoding="utf-8").split() if (root / "log.txt").exists() else []
+    if done.returncode:
+        return ("exit", done.returncode, *log), done.stderr
+    return value(json.loads(done.stdout), *log), done.stderr
+
+
+def observe(row_id: str, root: Path) -> tuple[tuple, str]:
+    entry = ROWS[row_id]
+    if entry.versus is not None:
+        return ("digests", len({_build(root / name, text).program.digest
+                                for name, text in (("a", entry.source), ("b", entry.versus))})), ""
+    files = entry.source if isinstance(entry.source, dict) else {"m.orc": entry.source}
+    path = _install(root, files)
+    outcome = _build_outcome(lambda: build_closed_program_bundle(FrontendBuildRequest(
+        source_path=path, source_roots=(root,), entry_workflow=entry.entry,
+        command_boundaries_path=root / "commands.json", workspace_root=root)))
+    stated = {(WANTED[row_id] or ("",))[0], KNOWN.get(row_id, ("",))[0]}
+    if outcome == BUILDS and "value" in stated:
+        return _run(root, path, entry.entry, entry.inputs)
+    return outcome, ""
+
+
+def observe_provider(row_id: str, tmp_path: Path) -> tuple[tuple, str]:
+    entry = PROVIDER_ROWS[row_id]
+    root = tmp_path / "workspace"
+    root.mkdir()
+    outside = tmp_path / "outside.md"
+    outside.write_text(OUTSIDE + "\n", encoding="utf-8")
+    (root / "link.md").symlink_to(outside)
+    (root / "artifacts").mkdir()
+    for name in ("report.txt", "other.txt"):
+        (root / "artifacts" / name).write_text("report\n", encoding="utf-8")
+    fixture = provider_fixture._fixture(root, entry.source)
+    if entry.prompt is not None:
+        kind, path = entry.prompt
+        fixture[2].write_text(json.dumps({"prompts.base": {kind: str(outside) if path == "OUTSIDE" else path}}),
+                              encoding="utf-8")
+    built = _build_outcome(lambda: build_closed_program_bundle(fixture[3]))
+    if built != BUILDS:
+        return built, ""
+    done = provider_fixture._cli(root, fixture, extra=entry.inputs, payload=entry.payload)
+    requests = provider_fixture._requests(root)
+    codes = re.findall(r"^\[([a-z_0-9]+)\]", done.stderr, re.MULTILINE) if requests else []
+    leaks = sum(OUTSIDE in request["prompt"] for request in requests)
+    return ("ran", done.returncode, len(requests), leaks, *codes), done.stderr
+
+
+def settle(row_id: str, observed: tuple, detail: str = "") -> None:
+    """The one rule for every row: a known row gives its signature, any other row its wanted outcome."""
+    wanted = WANTED[row_id]
+    if row_id not in KNOWN:
+        assert wanted is not None, f"{row_id} is not in KNOWN and states no wanted outcome: state it"
+        assert observed == wanted, f"{row_id}: wanted {wanted}, got {observed}\n{detail}"
+        return
+    assert observed != wanted, (
+        f"{row_id} now gives its wanted outcome {wanted}: the defect is fixed, delete its row from KNOWN")
+    assert observed == KNOWN[row_id], (
+        f"{row_id} moved from its known signature {KNOWN[row_id]} to {observed}. If this is the fix, delete "
+        "its row from KNOWN and state the wanted outcome. If it is a different wrong outcome, stop: it is "
+        f"re-entered only as a refusal code, with a row in the plan's ledger naming the commit.\n{detail}")
+
+
+# ---------------------------------------------------------------------------------------------
+# Tests.
+
+@pytest.mark.parametrize("row_id", sorted(ROWS))
+def test_program_row(row_id, tmp_path):
+    settle(row_id, *observe(row_id, tmp_path))
+
+
+@pytest.mark.parametrize("row_id", sorted(A2_ROWS))
+def test_confined_site_reached_from_a_map_body_row(row_id, tmp_path, monkeypatch):
+    controller = run_ref_fixture.CONFINED.replace('"2.38"', '"2.40"').replace("EXTRA", "EXTRA " + A2_ROUTES)
+    monkeypatch.setattr(run_ref_fixture, "CONFINED", controller)
+
+    settle(row_id, _build_outcome(
+        lambda: run_ref_fixture._built(run_ref_fixture._map_program(tmp_path, A2_ROWS[row_id][1]))))
+
+
+@pytest.mark.parametrize("row_id", sorted(PROVIDER_ROWS))
+def test_provider_row(row_id, tmp_path):
+    settle(row_id, *observe_provider(row_id, tmp_path))
+
+
+def test_known_list_only_shrinks():
+    assert set(KNOWN) <= set(KNOWN_AT_T0)
+
+
+def test_every_known_row_is_a_row():
+    assert set(KNOWN_AT_T0) <= set(WANTED)
+
+
+def test_every_shadowing_row_has_a_control():
+    """A known row that builds, commits or gives a value where a refusal is wanted names a live control."""
+    shadowing = {row_id for row_id, signature in KNOWN.items()
+                 if signature[0] in ("builds", "value", "ran")
+                 and WANTED[row_id] is not None and WANTED[row_id][0] in ("refused", "ran")}
+
+    assert {row_id for row_id in shadowing if not CONTROLS.get(row_id)} == set()
+
+
+def test_no_control_is_a_known_row():
+    controls = {control for group in CONTROLS.values() for control in group}
+
+    assert (controls - set(WANTED), controls & set(KNOWN)) == (set(), set())
