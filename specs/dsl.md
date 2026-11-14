@@ -163,7 +163,8 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       holds an effect is bound first, as a `done` value is, and runs. Any other
       `continue` value that holds an effect under a conditional (`if`, `cond`,
       `match`, `and`, `or`), a loop or a map that is not the whole value, an
-      `if` branch that is an `if` holding an effect included, is refused with
+      `if` branch that is an `if` holding a provider, command, agent, workflow
+      call or run reference included, is refused with
       `effect_not_permitted`; bind it first,
       `(let* ((next <value>)) (continue next))`. A `record-update` is not a
       record here: an effect under a conditional in its field is refused.

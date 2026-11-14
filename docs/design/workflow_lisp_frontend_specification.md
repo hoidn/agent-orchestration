@@ -2496,7 +2496,8 @@ fields, list elements, `call` and procedure arguments, operator operands,
   effectful source of a parallel map. Any other `continue` value that holds an
   effect under a conditional (`if`, `cond`, `match`, `and`, `or`), a loop or a
   map that is not the whole value, such as `(continue (+ (if c (fetch) 0) 9))`
-  or `(continue (if c (if d (fetch) 0) 0))`, is refused with
+  or `(continue (if c (if d (fetch) 0) 0))` (an inner `if` holding a
+  provider, command, agent, workflow call or run reference), is refused with
   `effect_not_permitted`; write `(let* ((next <value>)) (continue next))`. A
   `record-update` is not a record here: `(continue (record-update s :a (if c
   (fetch) 0)))` is refused, `(continue (record-update s :a (fetch)))` runs. The
