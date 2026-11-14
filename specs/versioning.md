@@ -1313,7 +1313,14 @@ change of the [surface-coherence design](../docs/design/workflow_lisp_surface_co
 - **I2a, the binder form of `loop/recur`.** `(loop/recur ((state init)) :max n [:on-exhausted e]
   body)` is accepted beside the `fn` form and builds the same closed program, digest and effect
   identities. Inside a macro template the loop state, a `let-proc` parameter and each item of a
-  `cond` clause are bindings or expressions of the template, in both forms.
+  `cond` clause are bindings or expressions of the template, in both forms. One exception to
+  "a program that built before keeps its program": a macro template that binds one of these three
+  itself (a loop state in the `fn` form, a `let-proc` parameter, a name in a `cond` clause) under
+  a name the caller's code also binds or uses built before with the two confused, and now builds
+  with the template's own binding. Such a program can change its value and its digest, and a run
+  recorded before the change resumes only through the edited-program route. It is kept as a
+  correction of a silent wrong value, not deferred to the release that removes the older targets;
+  the closed-program corpus test over the repository's workflows and examples kept every digest.
 - **A variant-only field after a discriminant test.** `(if (= x.variant V) x.f …)` and the `cond`
   form, which the typechecker accepted and the closed build then failed on, build and run, also
   when the read is inside an effect's payload. The shapes that stay refused are stated in the
