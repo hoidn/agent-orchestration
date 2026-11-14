@@ -10,11 +10,12 @@ and a harness procedure that copies a stopped run whole. Part 2 is designed
 and deferred: a snapshot store, a fork at an earlier step, the container
 route and the pause at a usage limit.
 
-**Status.** Planned, in the sense of the
-[documentation conventions](../documentation_conventions.md#status-labels): a
-roadmap position exists, the design is in review and not accepted, and
-nothing here is available in the checkout. Hypothesis H-E2 of the roadmap is
-what the design serves; it makes no claim that H-E2 holds.
+**Status.** Draft; in review, not accepted, not implemented. In the terms of
+the [documentation conventions](../documentation_conventions.md#status-labels)
+this is `Planned`: a roadmap position exists, the governing design is not
+accepted, and implementation must not begin. Nothing here is available in
+the checkout. Hypothesis H-E2 of the roadmap is what the design serves; it
+makes no claim that H-E2 holds.
 
 **What owns the behavior today.** [Evaluated execution](workflow_lisp_evaluated_execution.md)
 (the journal, rules C8 and C10, §8.1 to §8.5), the
