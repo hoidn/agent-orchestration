@@ -1614,8 +1614,16 @@ def _wcc_route_schema_version(metadata) -> str:
     return WccIdentityFactory.route_schema_version
 
 
-class NonLinearValueBodyError(TypeError):
-    """A value was needed as bindings then a value, and its body branches or joins."""
+def _non_linear_value_body(body: WccBody) -> TypeError:
+    """The error of a value needed as bindings then a value whose body branches or joins.
+
+    A plain `TypeError` with the message it always had, so a defect that ends here keeps its recorded
+    signature; the mark lets the `continue` lowering refuse such a value by name.
+    """
+
+    error = TypeError(f"expected linear WCC value body, found `{type(body).__name__}`")
+    error.non_linear_value_body = True
+    return error
 
 
 def _body_to_prefix_and_value(body: WccBody) -> tuple[tuple[WccLet, ...], WccValue]:
@@ -1625,7 +1633,7 @@ def _body_to_prefix_and_value(body: WccBody) -> tuple[tuple[WccLet, ...], WccVal
         prefix.append(current)
         current = current.body
     if not isinstance(current, WccHalt):
-        raise NonLinearValueBodyError(f"expected linear WCC value body, found `{type(current).__name__}`")
+        raise _non_linear_value_body(current)
     return tuple(prefix), current.result
 
 
@@ -1651,7 +1659,9 @@ def _elaborate_continue_state(expr: ContinueExpr, **inputs):
 
     try:
         return _elaborate_expr_to_value(expr.state_expr, **inputs)
-    except NonLinearValueBodyError as exc:
+    except TypeError as exc:
+        if not getattr(exc, "non_linear_value_body", False):
+            raise
         raise _continue_value_needs_binding(expr) from exc
 
 

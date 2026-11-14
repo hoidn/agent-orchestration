@@ -117,7 +117,7 @@ KNOWN: dict[str, tuple] = {
     "B2-let": value(2), "B2-arm": value(2), "B3": value(100), "B3-print": value(1), "B4": value(10),
     "B5": value(6), "B5-ref": value(6),
     "C1": value(7, "libw"),
-    "D1": OPERAND, "D2": OPERAND, "D3": OPERAND, "D20": OPERAND,
+    "D20": OPERAND,
     "D4-loop": NO_ELABORATION, "D4-map-value": NO_ELABORATION, "D4-map-bound": NO_ELABORATION,
     "D5": crash("TypeError", f"{ELABORATE}:_infer_expr_type"),
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
