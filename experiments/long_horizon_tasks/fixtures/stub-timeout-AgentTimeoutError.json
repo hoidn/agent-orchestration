@@ -1,0 +1,219 @@
+{
+ "source": "local recording s3-timeout-low (stub_api.py scenario timeout, CLI 2.1.311, three tools, via the relay)",
+ "harness_exception": "AgentTimeoutError",
+ "cli_exit_code": null,
+ "agent_result": {
+  "n_input_tokens": 5000,
+  "n_cache_tokens": 0,
+  "n_output_tokens": 500,
+  "cost_usd": 0.0007499999999999999,
+  "model_usage": {
+   "claude-haiku-5-5": {
+    "n_input_tokens": 5000,
+    "n_cache_tokens": 0,
+    "n_output_tokens": 500,
+    "cost_usd": 0.0007499999999999999
+   }
+  },
+  "rollout_details": null,
+  "metadata": null
+ },
+ "verifier_result": {
+  "rewards": {
+   "reward": 0.0
+  }
+ },
+ "init": {
+  "type": "system",
+  "subtype": "init",
+  "cwd": "/app",
+  "session_id": "2ab4e671-d158-4475-bce5-528114a050fe",
+  "tools": [
+   "Bash",
+   "Edit",
+   "Read"
+  ],
+  "mcp_servers": [],
+  "model": "claude-haiku-5-5",
+  "permissionMode": "bypassPermissions",
+  "slash_commands": [
+   "deep-research",
+   "dataviz",
+   "update-config",
+   "verify",
+   "debug",
+   "code-review",
+   "simplify",
+   "batch",
+   "fewer-permission-prompts",
+   "doctor",
+   "loop",
+   "claude-api",
+   "workflow-authoring",
+   "run",
+   "run-skill-generator",
+   "plugin-authoring",
+   "agents",
+   "auto-mode-setup",
+   "autocompact",
+   "clear",
+   "color",
+   "compact",
+   "config",
+   "output-style",
+   "context",
+   "effort",
+   "fast",
+   "focus",
+   "heapdump",
+   "init",
+   "mcp",
+   "model",
+   "__remote-workflow",
+   "workflow-launch-exec",
+   "reload-plugins",
+   "reload-skills",
+   "rename",
+   "security-review",
+   "usage",
+   "insights",
+   "recap",
+   "goal",
+   "list-agents",
+   "team-onboarding"
+  ],
+  "terminal_slash_commands": [
+   "doctor",
+   "color",
+   "focus",
+   "reload-plugins"
+  ],
+  "apiKeySource": "ANTHROPIC_API_KEY",
+  "claude_code_version": "2.1.311",
+  "output_style": "default",
+  "agents": [
+   "claude",
+   "Explore",
+   "general-purpose",
+   "Plan",
+   "statusline-setup"
+  ],
+  "skills": [
+   "deep-research",
+   "dataviz",
+   "update-config",
+   "verify",
+   "debug",
+   "code-review",
+   "simplify",
+   "batch",
+   "fewer-permission-prompts",
+   "doctor",
+   "loop",
+   "claude-api",
+   "workflow-authoring",
+   "run",
+   "run-skill-generator",
+   "plugin-authoring"
+  ],
+  "plugins": [
+   {
+    "name": "cc-plugin-agents-md",
+    "path": "builtin",
+    "source": "cc-plugin-agents-md@builtin"
+   },
+   {
+    "name": "cc-plugin-plugin-authoring",
+    "path": "builtin",
+    "source": "cc-plugin-plugin-authoring@builtin"
+   }
+  ],
+  "capabilities": [
+   "interrupt_receipt_v1",
+   "interrupt_cancel_queued_v1",
+   "interrupt_send_now_v1",
+   "interrupt_requeue_taken_v1",
+   "msg_lifecycle_v1",
+   "request_marker_lists_v1",
+   "lifecycle_wakeup_source_v1",
+   "sdk_mcp_tools_list_changed",
+   "sdk_mcp_manifests",
+   "mcp_read_resource_v1",
+   "mcp_tool_ui_meta_v1",
+   "ui_surface_v1",
+   "mcp_call_result_not_for_model_v1"
+  ],
+  "analytics_disabled": true,
+  "product_feedback_disabled": true,
+  "uuid": "ab18a1cb-67c5-4c2f-9922-a82bff9168e4",
+  "original_cwd": "/app",
+  "additional_directories": [],
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "per_turn_effort_active": true,
+  "view_mode": "default"
+ },
+ "n_events": 14,
+ "n_api_retry": 0,
+ "stream_tail": [
+  {
+   "type": "assistant",
+   "parent_tool_use_id": null,
+   "timestamp": "2026-11-14T01:53:32.961Z",
+   "message": {
+    "model": "claude-haiku-5-5",
+    "stop_reason": null,
+    "usage": {
+     "input_tokens": 1000,
+     "output_tokens": 1,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    },
+    "content": [
+     {
+      "type": "tool_use",
+      "name": "Bash"
+     }
+    ]
+   }
+  },
+  {
+   "type": "tool_progress",
+   "tool_use_id": "toolu_stub0007-heartbeat-0",
+   "tool_name": "Bash",
+   "parent_tool_use_id": "toolu_stub0007",
+   "elapsed_time_seconds": 30,
+   "heartbeat": true,
+   "session_id": "2ab4e671-d158-4475-bce5-528114a050fe",
+   "uuid": "d29f5c1e-aafa-4fe9-86b6-8de8608c48c6"
+  },
+  {
+   "type": "user",
+   "parent_tool_use_id": null,
+   "tool_result_is_error": [
+    false
+   ]
+  },
+  {
+   "type": "assistant",
+   "parent_tool_use_id": null,
+   "timestamp": "2026-11-14T01:54:03.031Z",
+   "message": {
+    "model": "claude-haiku-5-5",
+    "stop_reason": null,
+    "usage": {
+     "input_tokens": 1000,
+     "output_tokens": 1,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    },
+    "content": [
+     {
+      "type": "tool_use",
+      "name": "Bash"
+     }
+    ]
+   }
+  }
+ ]
+}
