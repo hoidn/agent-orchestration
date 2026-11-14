@@ -105,15 +105,12 @@ BINDER_OUT_OF_SCOPE = crash("KeyError", f"{ELABORATE}:_infer_expr_type")
 LOCAL_LOOP_STATE = ("traceback", "RuntimeError", "workflow_lisp/loop_state.py:_typecheck_loop_state_seed")
 CAPTURED_COMMAND = crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind")
 CAPTURED_PROVIDER_INPUT = crash("TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind")
-LAUNCHED_THEN_REFUSED = ("ran", 1, 1, 0, "provider_result_invalid")
 LAUNCHED_WITH_OUTSIDE_TEXT = ("ran", 0, 1, 1)
 
 KNOWN: dict[str, tuple] = {
     "A2-C": BUILDS, "A2-G": BUILDS, "A2-M": BUILDS,
-    "A3-path": LAUNCHED_THEN_REFUSED, "A3-string": LAUNCHED_THEN_REFUSED,
     "A4-abs": LAUNCHED_WITH_OUTSIDE_TEXT, "A4-dotdot": LAUNCHED_WITH_OUTSIDE_TEXT,
     "A4-symlink": LAUNCHED_WITH_OUTSIDE_TEXT,
-    "B1": ("ran", 0, 1, 0),
     "B2-let": value(2), "B2-arm": value(2), "B3": value(100), "B3-print": value(1), "B4": value(10),
     "B5": value(6), "B5-ref": value(6),
     "C1": value(7, "libw"),

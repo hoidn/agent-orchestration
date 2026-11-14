@@ -1337,3 +1337,12 @@ change of the [surface-coherence design](../docs/design/workflow_lisp_surface_co
   below 1 fails the same way over a non-empty list, and an empty list gives the empty list. A
   parallel map may be written directly in a serial map or loop body. Every program that compiled
   before keeps its closed program, digest and identities, and its recorded runs resume.
+
+### Run-time corrections without a new target
+
+- **Output slots checked before a fresh launch.** A provider, phased provider or agent turn whose
+  output slot is named like an artifact of its structured result, or whose two slots, or one slot
+  and the result bundle, resolve to one file, is refused before its `started`
+  ([CLI diagnostics](cli.md)), as [IO](io.md) and [providers](providers.md) already required. No
+  target, compile outcome or digest changes; a step committed before the check replays and its
+  run resumes.

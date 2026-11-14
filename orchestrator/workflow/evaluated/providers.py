@@ -28,6 +28,7 @@ from orchestrator.providers.usage import usage_from_stdout
 from orchestrator.providers.types import ProviderParams, ProviderSessionMetadataMode
 from orchestrator.contracts.output_contract import (
     ContractViolation, OutputContractError, validate_expected_outputs,
+    validate_prompt_output_position_destinations,
 )
 
 from .commands import CommandPerformerError, validate_effect_result
@@ -223,6 +224,37 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
         prompt, policy, parts, provider_expected_outputs(fills, fill_values),
         cut if node["class"] == "provider_phased" else None,
     )
+
+
+def check_output_slots(node, resolved, *, workspace, result_path):
+    """Refuse, before a fresh launch, output slots that collide (specs/io.md, provider output contracts).
+
+    A slot named like an artifact of the structured result is `duplicate_artifact_name`; two slots, or a
+    slot and the result bundle (`result_path`, workspace-relative), on one destination are
+    `prompt_output_position_destination_collision`.
+    """
+    slots = {row["name"]: row["path"] for row in resolved.expected_outputs}
+    clashing = sorted(set(slots) & _result_artifact_names(node["contract"]))
+    if clashing:
+        raise ProviderPerformerError(
+            "duplicate_artifact_name", f"output slots named like structured result fields: {', '.join(clashing)}")
+    try:
+        validate_prompt_output_position_destinations(
+            rendered_paths=slots, expected_outputs=resolved.expected_outputs,
+            structured_output={"path": result_path, "contract_name": "__structured_result_bundle__"},
+            workspace=Path(workspace), provider_subject=None,
+        )
+    except OutputContractError as exc:
+        violation = exc.violations[0]
+        raise ProviderPerformerError(violation["type"], f"{violation['message']}: {violation['context']}") from exc
+
+
+def _result_artifact_names(contract):
+    payload = contract["payload"]
+    if contract["kind"] != "variant_output":
+        return {field["name"] for field in payload["fields"]}
+    variant_fields = (field for variant in payload["variants"].values() for field in variant["fields"])
+    return {field["name"] for field in (*payload["shared_fields"], *variant_fields)}
 
 
 def provider_delivery_name_for_template(template) -> str:
