@@ -1673,7 +1673,7 @@ def _assert_current_map_run_ref(tmp_path: Path, *, locality: str) -> None:
     from tests.test_workflow_lisp_closed_run_ref_placement import _placement_source
 
     source, _ = _placement_source(tmp_path, "map", locality)
-    assert '(:target-dsl "2.35")' in source.read_text()
+    assert '(:target-dsl "2.40")' in source.read_text()
     built = build_closed_program_bundle(FrontendBuildRequest(
         source_path=source, source_roots=(tmp_path,), workspace_root=tmp_path))
     [(identity, node)] = site_nodes(built.program).items()
@@ -1721,9 +1721,9 @@ def test_non_run_ref_procedure_keeps_public_pure_function_diagnostic(tmp_path: P
     from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
     source = tmp_path / "command_purity.orc"
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defrecord Note (text String))
-      (defproc wrapper () -> Note :effects ((uses-command shell)) :lowering inline
+      (defproc wrapper () -> Note
         (command-result shell :argv ("true") :returns Note))
       (defun pure-helper () -> Note (wrapper))
       (defworkflow run () -> Note (pure-helper)))''')
