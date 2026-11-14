@@ -342,21 +342,51 @@ def _raised_by_the_orchestrator(error: BaseException) -> bool:
     return frame.f_globals.get("__name__", "").startswith("orchestrator.")
 
 
+_PACKAGE = Path(__file__).resolve().parents[1]
+# Functions that only raise: a defect's site names their caller.
+RAISING_HELPERS = frozenset({
+    "contracts/closed_program/check.py:_Checker.fail",
+    "workflow_lisp/closed/preparation_check.py:_fail",
+})
+
+
+def defect_site(error: BaseException) -> str:
+    """`path/under/orchestrator.py:qualified.name` of the innermost function of the package in `error`'s
+    traceback that is not a raising helper. No line number, and no path outside the package."""
+
+    places = [
+        f"{path.relative_to(_PACKAGE).as_posix()}:{frame.f_code.co_qualname}"
+        for frame, _line in traceback.walk_tb(error.__traceback__)
+        if _PACKAGE in (path := Path(frame.f_code.co_filename).resolve()).parents
+    ]
+    return next(place for place in reversed(places) if place not in RAISING_HELPERS)
+
+
 @contextmanager
-def compiler_defect_boundary(module_path: Path) -> Iterator[None]:
-    """Report an internal exception raised after typecheck as one `compiler_defect` diagnostic.
+def compiler_defect_boundary(
+    module_path: Path,
+    phase: str = "lowering",
+    passes: tuple[type[Exception], ...] = (),
+) -> Iterator[None]:
+    """Report an internal exception raised during or after typecheck as one `compiler_defect` diagnostic.
 
     Core calculus section 13.3: an elaboration, normalization, defunctionalization or
-    lowering failure on a typechecked program is a compiler defect. The diagnostic is at
-    the innermost node tagged by `records_defect_provenance`, else at the start of the
-    module, and keeps the exception as its `cause`. Diagnostics, `MemoryError` and an assertion
-    failure raised outside the orchestrator package (a test's stand-in for a stage) pass
-    unchanged; a `BaseException` that is not an `Exception` is never caught.
+    lowering failure on a typechecked program is a compiler defect, and so is an internal
+    failure of the typechecker itself. `phase` is the diagnostic's phase: `typecheck` around
+    the typechecker (`closed/frontend.py`), `lowering` around the closed build
+    (`closed/build.py`); only after typecheck does the message say that the program passed
+    it. The diagnostic is at the innermost node tagged by `records_defect_provenance`, else
+    at the start of the module, keeps the exception as its `cause`, and its message ends with
+    the exception's `defect_site` (the boundary's own frame is always in the traceback, so
+    there is one). Diagnostics,
+    `MemoryError`, the classes in `passes` and an assertion failure raised outside the
+    orchestrator package (a test's stand-in for a stage) pass unchanged; a `BaseException`
+    that is not an `Exception` is never caught.
     """
 
     try:
         yield
-    except (LispFrontendCompileError, MemoryError):
+    except (LispFrontendCompileError, MemoryError, *passes):
         raise
     except Exception as error:
         if isinstance(error, AssertionError) and not _raised_by_the_orchestrator(error):
@@ -365,17 +395,18 @@ def compiler_defect_boundary(module_path: Path) -> Iterator[None]:
         stage, span, form_path = getattr(
             error,
             _DEFECT_PROVENANCE,
-            ("lowering", SourceSpan(start=module_start, end=module_start), ("workflow-lisp",)),
+            (phase, SourceSpan(start=module_start, end=module_start), ("workflow-lisp",)),
         )
+        passed = "" if phase == "typecheck" else "the program passed typecheck, and "
         diagnostic = LispFrontendDiagnostic(
             code="compiler_defect",
             message=(
-                f"the program passed typecheck, and {stage} failed on this form: this is a defect of "
-                f"the compiler, not of the program ({type(error).__name__}: {error})"
+                f"{passed}{stage} failed on this form: this is a defect of "
+                f"the compiler, not of the program ({type(error).__name__}: {error}) in {defect_site(error)}"
             ),
             span=span,
             form_path=form_path,
-            phase="lowering",
+            phase=phase,
             cause=error,
         )
         raise LispFrontendCompileError((diagnostic,)) from error

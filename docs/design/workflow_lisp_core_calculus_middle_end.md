@@ -716,14 +716,36 @@ All language-boundary rejection happens at or before typecheck:
   defects unless the workflow violates a contract the typechecker does not
   own (path safety against the live filesystem, for example).
 
-In the current checkout an internal exception raised after typecheck by
-elaboration, normalization or closed-program construction is reported as one
-`compiler_defect` diagnostic (exit 2). It says that the program passed
-typecheck, names the stage, and points at the authored form being handled; the
-diagnostic keeps the exception as its `cause` (no CLI flag prints the
-traceback). An `AssertionError` raised outside the orchestrator package is not
-converted (`compiler_defect_boundary` in `orchestrator/workflow_lisp/diagnostics.py`,
-applied in `orchestrator/workflow_lisp/closed/build.py`). Two internal checks
+In the current checkout an internal exception raised during typecheck, or
+after typecheck by elaboration, normalization or closed-program construction,
+is reported as one `compiler_defect` diagnostic (exit 2). The boundary
+(`compiler_defect_boundary` in `orchestrator/workflow_lisp/diagnostics.py`)
+sits at three call sites, and its phase is the one it was applied with: phase
+`typecheck` around the typechecker's call of `compile_stage3_entrypoint` in
+`orchestrator/workflow_lisp/closed/frontend.py` and around the typecheck of
+each imported workflow bundle in
+`orchestrator/workflow_lisp/build.py:_load_imported_workflow_bundle_manifest`;
+phase `lowering` around the closed build in
+`orchestrator/workflow_lisp/closed/build.py`. The message names the stage that
+failed: the innermost stage that tagged a form (`records_defect_provenance`;
+elaboration, normalization, closed-program construction, or lowering, which
+typecheck can reach through result-guidance examples), and the boundary's phase
+when no stage tagged one. Only the `lowering` boundary says that the program
+passed typecheck. The diagnostic points at the tagged form, else at the start
+of the module being compiled; the message ends with the innermost function of
+the orchestrator package that raised (`defect_site`, the key `crash_signature`
+uses in the defect backlog), and the diagnostic keeps the exception as its
+`cause` (no CLI flag prints the traceback). Diagnostics, `MemoryError` and an `AssertionError`
+raised outside the orchestrator package are not converted; nor, around
+typecheck, are the errors of reading a source (`SOURCE_READ_ERRORS` in
+`orchestrator/workflow_lisp/reader.py`): `OSError`, `UnicodeError`, and
+`SourceChangedDuringReadError`, the reader's refusal of a source that changed
+between two reads of one compile. `compile` reports an `OSError` or
+`UnicodeError` as an I/O error (exit 2) and `run` reports a `UnicodeError` as a
+validation error (exit 2); `run` with an import it is not permitted to read
+(`PermissionError`) still ends in a traceback (exit 1), a defect outside this
+boundary, while a missing bundle file gives `File not found` (exit 1, no
+traceback) and a missing imported module `module_not_found` (exit 2). Two internal checks
 have codes of their own: `compiler_defect_hoisted_binding_rename` and
 `compiler_defect_constructor_type_dropped`; `compiler_defect_loop_control_value`
 and the replay-index code `pure_result_replay_unavailable` were retired with
@@ -847,7 +869,7 @@ not a default flip or retirement of old WCC shapes.
 
 Typed elaboration, normalization, scope/effect/proof summaries and source lineage
 must agree with the checked artifact consumed by the runtime. Internal failures
-after typecheck use the compiler-defect boundary described above; public admission
+during and after typecheck use the compiler-defect boundary described above; public admission
 refusals retain their specific diagnostics. Test current composition through the
 public checked compile/run/resume and totality owners named by
 [evaluated execution](workflow_lisp_evaluated_execution.md). Historical dual-flat

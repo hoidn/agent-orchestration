@@ -11,6 +11,7 @@ from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.procedures import GeneratedLocalProcedure
 from tests.test_workflow_lisp_procedures import _write_module
+from tests import test_workflow_lisp_defect_backlog as backlog
 
 
 W3_TARGET = "2.36"
@@ -662,3 +663,50 @@ def test_extern_explicit_inferred_capture_equivalence_and_root_precedence(tmp_pa
         programs.append(build_closed_program(typed))
     assert programs[0].digest == programs[1].digest
     assert strip_provenance(programs[0].tree) == strip_provenance(programs[1].tree)
+
+
+# A local whose body is a loop with a loop state, built and run through the public command line (`m::run`,
+# target 2.40, the stand-in command of the defect backlog). The loop counts to `v` in three state fields, so a
+# carrier that loses a field, or a loop that exhausts instead of finishing, gives another value.
+COUNT = ("(loop/recur ((s (loop-state (i Int 0) (t Int 0)))) :max 5 :on-exhausted 0 "
+         "(if (= s.i v) (done s.t) (continue (loop-state :like s :i (+ s.i 1) :t (+ s.t 10)))))")
+COUNT_FN = ("(loop/recur :max 5 :state (loop-state (i Int 0) (t Int 0)) :on-exhausted 0 "
+            "(fn (s) (if (= s.i v) (done s.t) (continue (loop-state :like s :i (+ s.i 1) :t (+ s.t 10))))))")
+# Passed by reference the local carries a command: a pure loop procedure passed by reference to a pure procedure
+# is refused for another cause (backlog row E9).
+COUNT_EFFECT = COUNT.replace("(done s.t)", f"(done (+ s.t {backlog.E('e', 0, 'Int')}))")
+COUNT_SCALAR = "(loop/recur ((s 0)) :max 5 :on-exhausted 0 (if (= s v) (done (* s 10)) (continue (+ s 1))))"
+MAP_TWO = f"(list/length (list/map-effect ((x (list 1 2))) :max 2 {backlog.E('m', 1, 'Int')}))"
+
+
+def _local(body, call="(h n)"):
+    return f"((n Int)) -> Int (let-proc ((h ((v Int)) -> Int {body})) {call})"
+
+
+def _run_local(tmp_path, run, *definitions):
+    path = backlog._install(tmp_path, {"m.orc": backlog.module(run, *definitions)})
+    observed, detail = backlog._run(tmp_path, path, "m::run", ("n=3",))
+    return observed, detail
+
+
+@pytest.mark.parametrize(
+    ("run", "definitions", "wanted"),
+    [
+        (_local(COUNT), (), (30,)),
+        (_local(COUNT_EFFECT, "(apply1 (proc-ref h) n)"), (backlog.AP,), (30, "e")),
+        (_local(COUNT_FN), (), (30,)),
+        (_local(MAP_TWO), (), (2, "m", "m")),
+        ("((n Int)) -> Int (let-proc ((h ((v Int)) -> Int " + COUNT + ") (k ((v Int)) -> Int " + COUNT_FN + "))"
+         " (+ (h n) (k 1)))", (), (40,)),
+    ],
+    ids=["by-name", "by-reference", "fn-form", "serial-map", "two-locals"],
+)
+def test_local_whose_body_is_a_loop_with_state(tmp_path, run, definitions, wanted):
+    observed, detail = _run_local(tmp_path, run, *definitions)
+    assert observed == backlog.value(*wanted), detail
+
+
+def test_local_whose_loop_state_is_a_scalar_runs(tmp_path):
+    """Control: a local loop without a `loop-state` built before the fix."""
+    observed, detail = _run_local(tmp_path, _local(COUNT_SCALAR))
+    assert observed == backlog.value(30), detail
