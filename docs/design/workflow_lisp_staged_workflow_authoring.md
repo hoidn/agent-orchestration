@@ -473,8 +473,8 @@ the planner, 1 for the coder and 1 to 2 for the reviewer.
 
 | Dimension | Edit today | Edit after |
 | --- | --- | --- |
-| Model per role | One token: the literal default of that role's model input | The same |
-| Effort per role | One token, once the seed has an effort input per role (two more signature lines; possible today) | The same |
+| Model per role | One token at each of the role's call sites: the `:model` string literal | The same |
+| Effort per role | One token at each of the role's call sites: the `:effort` string literal | The same |
 | Timeout per role | One literal at each site | One token: the literal in the role's line, or an input's default |
 | Dropping an option of a role (the template's default model; no effort) | Delete the option at each site | Not an edit of the role's line: `ask` takes all four, so the author adds a two-line wrapper without that parameter and points the role at it |
 | A second role from one (milestone reviewer and acceptance reviewer) | New inputs, and each site that moves rewritten | One new line; one token at each site that moves |
@@ -488,13 +488,17 @@ the planner, 1 for the coder and 1 to 2 for the reviewer.
 | How a document reaches a call | `:path`, or named in the prompt | The same (§8.1) |
 | Prompt wording | One string in a `defprompt` | The same; the identities of its calls do not move, in place or through a role |
 
-What the table says. Inputs with literal defaults are the form to prefer for
-model and effort: a harness sets them without touching source, a mutated
-program is self-contained, and the edit is one token; a literal in a role's
-line is for a person changing a role in the middle of a run of fresh calls.
-Model and effort were already one-token edits. The first space the owner
-selected (one model, an effort per role) is three such tokens and needs
-nothing from this design; its points differ in tokens per call, so they are
+What the table says. For a program that a search mutates and resumes, model
+and effort are literals at the role's call sites: the mutated program is
+self-contained, and a resumed run keeps the recorded work of the steps the
+edit does not reach. Inputs with literal defaults suit a harness that only
+starts fresh runs, since it sets them without touching source; a resumed run
+with a changed input reuses nothing.
+Model and effort were already one-token edits, written as literals at the
+role's call sites and not as inputs (a resumed run with changed inputs reuses
+no recorded work; see the [mutant generator plan](../plans/2026-11-13-phase-6-mutant-generator-plan.md#the-first-space-is-programs-not-bindings)).
+The first space the owner selected (one model, an effort per role) is one
+such token at each of a role's calls and needs nothing from this design; its points differ in tokens per call, so they are
 compared by priced tokens. What this design changes for a search is the
 timeout, the second role and the shorter fresh call. The row that motivated
 binding a role once, fresh or continued, does not change until §8.2 is taken

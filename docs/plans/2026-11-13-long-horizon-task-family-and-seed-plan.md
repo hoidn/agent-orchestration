@@ -820,8 +820,10 @@ are marked, for a later graded fitness.
 
 **Step 8: merge and freeze the seed.** `milestones.orc` (49 lines on `spike/long-horizon-seed`)
 is written once, after the surface-coherence changes of Lane D stage 5 merge (46 lines
-expected). Required: it compiles at the current target under 50 lines; an effort input per role
-(owner, 2026-11-13); its five stand-in scenarios become a test; a registry row; a hash in the
+expected). Required: it compiles at the current target under 50 lines; each role's effort is a
+string literal at that role's call sites and is no entry input (owner, 2026-11-13, effort per
+role; a point of the search is a program, see the
+[mutant generator plan](2026-11-13-phase-6-mutant-generator-plan.md#the-first-space-is-programs-not-bindings)); its five stand-in scenarios become a test; a registry row; a hash in the
 family record. **The deterministic check on the setup step earns its place, in its cheapest
 form:** the setup step returns the paths of the files later steps read, typed so that a missing
 file fails that step, as the spec and plan paths already are. Prompt wording of the setup step
