@@ -139,23 +139,24 @@ def map_command_operands(expr: CommandResultExpr, transform):
                    adapter_inputs=tuple((name, values["inputs", name]) for name, _ in expr.adapter_inputs))
 
 
+# Expressions without a child expression: literals, names and field reads.
+_LEAF_EXPRS = (
+    NameExpr,
+    LiteralExpr,
+    EnumMemberExpr,
+    UnionVariantTagExpr,
+    FieldAccessExpr,
+    PhaseTargetExpr,
+    GeneratedRelpathSeedExpr,
+    WorkflowRefLiteralExpr,
+    ProcRefLiteralExpr,
+)
+
+
 def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     """Return the direct child expressions for one authored expression node."""
 
-    if isinstance(
-        expr,
-        (
-            NameExpr,
-            LiteralExpr,
-            EnumMemberExpr,
-            UnionVariantTagExpr,
-            FieldAccessExpr,
-            PhaseTargetExpr,
-            GeneratedRelpathSeedExpr,
-            WorkflowRefLiteralExpr,
-            ProcRefLiteralExpr,
-        ),
-    ):
+    if isinstance(expr, _LEAF_EXPRS):
         return ()
     if isinstance(expr, RecordExpr):
         return tuple(field_expr for _, field_expr in expr.fields)
@@ -166,8 +167,9 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     if isinstance(expr, ListMapExpr):
         return (expr.source_expr, expr.body_expr)
     if isinstance(expr, ListMapEffectExpr):
+        maximum = (expr.max_expr,) if expr.max_expr is not None else ()
         workspace = (expr.workspace_expr,) if expr.workspace_expr is not None else ()
-        return (expr.source_expr, *workspace, expr.body_expr)
+        return (expr.source_expr, *maximum, *workspace, expr.body_expr)
     if isinstance(expr, CompilerListNonemptyHeadExpr):
         return (expr.source_expr,)
     if isinstance(expr, PathJoinUnderExpr):
@@ -307,6 +309,71 @@ def walk_expr(expr: ExprNode) -> Iterator[ExprNode]:
         yield from walk_expr(child)
 
 
+# The effect forms, operator applications and constructors: simple when each operand is.
+_SIMPLE_APPLICATIONS = (
+    AgentExpr, ProviderResultExpr, CommandResultExpr, CallExpr,
+    PureOpExpr, RecordExpr, UnionVariantExpr, ListExpr, PathJoinUnderExpr,
+)
+
+
+def is_simple_value(expr: ExprNode) -> bool:
+    """Whether `expr` is simple (frontend specification 16.3): a literal, a name, a field read, or a
+    provider, command, agent or workflow call, an operator application other than `and`, `or` and
+    `not`, or a record, variant, list or `path/join-under` whose operands are all simple.
+
+    A simple value evaluates its effects one after another with no branch, so each is named by its
+    ordinal alone. A place that surface coherence E1 opened takes an effect only in a simple value.
+    A run reference keeps its own placement contract and is not simple. No procedure or function
+    call is simple, whatever its callee holds: whether a call holds an
+    effect is not known while callee summaries are provisional, and a pure procedure's call is a
+    call in one pass and its inlined body in another. The test reads the form only, so it gives one
+    answer in every pass and place.
+    """
+
+    if isinstance(expr, PureOpExpr) and expr.operator in ("and", "or", "not"):
+        return False
+    if isinstance(expr, _SIMPLE_APPLICATIONS):
+        return all(is_simple_value(child) for child in iter_child_exprs(expr))
+    return isinstance(expr, _LEAF_EXPRS)
+
+
+def first_effect_place(expr: ExprNode) -> tuple[ExprNode, str] | None:
+    """The first place in `expr`, innermost first, that holds an effect only since surface coherence
+    E1, with the code the place gave before, or None. A refusal of a value around that place keeps
+    that code."""
+
+    for child in iter_child_exprs(expr):
+        if (place := first_effect_place(child)) is not None:
+            return place
+    if any(getattr(expr, flag, False) for flag in ("effectful_fields", "effectful_items", "effectful_child")):
+        return expr, "effect_not_permitted"
+    if getattr(expr, "effectful_source", False):
+        return expr, ("list_map_body_effect_forbidden" if isinstance(expr, ListMapExpr) else "list_map_effect_body_unsupported")
+    code = getattr(expr, "effect_place_code", None)
+    return None if code is None else (expr, code)
+
+
+def first_effect_place_code(expr: ExprNode) -> str | None:
+    """The code of `first_effect_place(expr)`, or None."""
+
+    place = first_effect_place(expr)
+    return None if place is None else place[1]
+
+
+# Set by typecheck on a constructor, list, `list/map` or path form when an operand holds an effect.
+_VALUE_EFFECT_FLAGS = ("effectful_fields", "effectful_items", "effectful_source", "effectful_child")
+
+
+def holds_effect_in_a_value(expr: ExprNode) -> bool:
+    """Whether a typed constructor, list, `list/map` source or path child in `expr` holds an effect.
+
+    These are the places surface coherence E1 opened; no program that built before
+    has one, so a lowering keyed on this changes no earlier program.
+    """
+
+    return any(getattr(node, flag, False) for node in walk_expr(expr) for flag in _VALUE_EFFECT_FLAGS)
+
+
 def map_expr(
     expr: object,
     on_name: Callable[[NameExpr], ExprNode],
@@ -401,6 +468,11 @@ def map_expr(
             map_expr(workspace, on_name, bound=bound | {expr.binder_name}, on_free_callee=on_free_callee)
             if workspace is not None else None
         )
+        maximum = expr.max_expr if isinstance(expr, ListMapEffectExpr) else None
+        rewritten_max = (
+            map_expr(maximum, on_name, bound=bound, on_free_callee=on_free_callee)
+            if maximum is not None else None
+        )
         rewritten_body = map_expr(
             expr.body_expr,
             on_name,
@@ -411,13 +483,15 @@ def map_expr(
             rewritten_source is expr.source_expr
             and rewritten_body is expr.body_expr
             and rewritten_workspace is workspace
+            and rewritten_max is maximum
         ):
             return expr
         return replace(
             expr,
             source_expr=rewritten_source,
             body_expr=rewritten_body,
-            **({"workspace_expr": rewritten_workspace} if isinstance(expr, ListMapEffectExpr) else {}),
+            **({"workspace_expr": rewritten_workspace, "max_expr": rewritten_max}
+               if isinstance(expr, ListMapEffectExpr) else {}),
         )
     if isinstance(expr, MatchExpr):
         rewritten_subject = map_expr(expr.subject, on_name, bound=bound, on_free_callee=on_free_callee)

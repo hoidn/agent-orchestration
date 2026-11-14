@@ -266,7 +266,7 @@ def test_probe_pure_failed_terminal_needs_no_failed_effect_row(tmp_path):
     target = tmp_path / "T"
     target.mkdir()
     source = target / "failed.orc"
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule failed) (export run) (defworkflow run ((divisor Float)) -> Float (/ 1.0 divisor)))''')
     result = _run_cli(target, str(source), "--input", "divisor=0")
     assert result.returncode == 1, result.stderr

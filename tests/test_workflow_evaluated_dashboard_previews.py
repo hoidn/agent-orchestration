@@ -160,14 +160,13 @@ def _assert_old_files(steps, old):
 
 def _escaped_loop_run(workspace):
     source, commands = _command_fixture(workspace, 20)
-    source.write_text("""(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text("""(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule invalidate_public) (export run)
       (defworkflow run () -> Int
-        (loop/recur :max 2 :state (loop-state (round Int 0)) :on-exhausted 99
-          (fn (state)
-            (let* ((emit/part (command-result prefix :argv ("python" "prefix.py") :returns Int)))
-              (if (= state.round 0)
-                (continue (record-update state :round 1)) (done emit/part)))))))""")
+        (loop/recur ((state (loop-state (round Int 0)))) :max 2 :on-exhausted 99
+          (let* ((emit/part (command-result prefix :argv ("python" "prefix.py") :returns Int)))
+            (if (= state.round 0)
+              (continue (record-update state :round 1)) (done emit/part))))))""")
     result = _cli(workspace, "run", str(source), "--command-boundaries-file", str(commands))
     assert result.returncode == 0, result.stderr
     return _run_root(workspace)

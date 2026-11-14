@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.36")
+  (:target-dsl "2.40")
   ;; Task 14 specimen derived from the retained Phase 6a consumer source.
   ;; The hooks below close over workflow inputs instead of forwarding a context record.
   (defmodule reviewed_change)

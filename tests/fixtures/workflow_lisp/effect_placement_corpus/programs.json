@@ -1,0 +1,3437 @@
+{
+"headers": {
+"grid": "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.40\")\n  (defmodule main) (export run)\n  (defrecord Pair (a Int) (b Int))\n  (defrecord Tri (a Int) (b Int) (c Int))\n  (defrecord Wrap (v Bool))\n  (defrecord Flag (v Bool) (k Int))\n  (defrecord Nest (xs List[Int]) (p Pair))\n  (defunion Box (RECT (w Int) (h Int) (k Int)) (NONE (z Int)))\n  (defunion Shape (CIRCLE (r Int)) (SQUARE (s Int)))\n  (defpath Report :kind relpath :under \"artifacts/work\" :must-exist false)\n  (defproc add ((x Int) (y Int)) -> Int (+ x y))\n",
+"review": "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.40\")\n  (defmodule main) (export run)\n  (defrecord Pair (a Int) (b Int))\n  (defrecord Tri (a Int) (b Int) (c Int))\n  (defrecord Wrap (v Bool))\n  (defrecord LP (xs List[Int]) (p Pair))\n  (defunion Shape (CIRCLE (r Int)) (SQUARE (s Int)))\n  (defunion Box (RECT (w Int) (h Int) (k Int)) (NONE (z Int)))\n  (defpath Report :kind relpath :under \"artifacts/work\" :must-exist false)\n  (defproc add ((x Int) (y Int)) -> Int (+ x y))\n  (defproc len ((ps List[Pair])) -> Int (list/length ps))\n  (defunion Wr (W (p Pair)) (Z (z Int)))\n  (defunion LU (LS (ps List[Pair])) (LN (z Int)))\n  (defrecord Flag (v Bool) (k Int))\n  (defrecord SL (xs List[String]))\n  (defrecord Nest (xs List[Int]) (p Pair))\n  (defproc helper ((fixed Int) (x Int)) -> Int (+ fixed x))\n  (defproc helperp ((fixed Pair) (x Int)) -> Int (+ fixed.a x))\n  (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int (runner x))\n  (defproc sumpair ((p Pair)) -> Int (+ p.a p.b))\n  (defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))\n  (defworkflow child ((t Int)) -> Int t)\n  (defproc one ((s String)) -> Int 1)\n  (defworkflow wone ((s String)) -> Int 1)\n  (defworkflow childp ((p Pair)) -> Int (+ p.a p.b))\n  (defworkflow childl ((xs List[Int])) -> Int (list/length xs))\n"
+},
+"programs": {
+"grid/argv-item|and": {
+"body": "(command-result e :argv (\"python\" \"{probe}\" (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0)) :returns Int)",
+"header": "grid",
+"log": [
+"1",
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/argv-item|bare": {
+"body": "(command-result e :argv (\"python\" \"{probe}\" (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) :returns Int)",
+"header": "grid",
+"log": [
+"1",
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/argv-item|if": {
+"body": "(command-result e :argv (\"python\" \"{probe}\" (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))) :returns Int)",
+"header": "grid",
+"log": [
+"1",
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/argv-item|let": {
+"body": "(command-result e :argv (\"python\" \"{probe}\" (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y)) :returns Int)",
+"header": "grid",
+"log": [
+"1",
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/argv-item|loop": {
+"body": "(command-result e :argv (\"python\" \"{probe}\" (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))))) :returns Int)",
+"header": "grid",
+"log": [
+"1",
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/argv-item|match": {
+"body": "(command-result e :argv (\"python\" \"{probe}\" (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)))) :returns Int)",
+"header": "grid",
+"log": [
+"1",
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/argv-item|nested-map": {
+"body": "(command-result e :argv (\"python\" \"{probe}\" (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))) :returns Int)",
+"header": "grid",
+"log": [
+"1",
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/argv-item|two-effects": {
+"body": "(command-result e :argv (\"python\" \"{probe}\" (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))) :returns Int)",
+"header": "grid",
+"log": [
+"1",
+"2",
+"3"
+],
+"returns": "Int",
+"value": 3
+},
+"grid/cond-condition|and": {
+"body": "(cond ((> (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0) 0) 7) (else 8))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/cond-condition|bare": {
+"body": "(cond ((> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 7) (else 8))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/cond-condition|if": {
+"body": "(cond ((> (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) 0) 7) (else 8))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/cond-condition|let": {
+"body": "(cond ((> (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y) 0) 7) (else 8))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/cond-condition|loop": {
+"body": "(cond ((> (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))) 0) 7) (else 8))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/cond-condition|match": {
+"body": "(cond ((> (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))) 0) 7) (else 8))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/cond-condition|nested-map": {
+"body": "(cond ((> (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) 0) 7) (else 8))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/cond-condition|two-effects": {
+"body": "(cond ((> (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) 0) 7) (else 8))",
+"header": "grid",
+"log": [
+"1",
+"2"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/continue|bare": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/continue|if": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/continue|let": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y)))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/continue|loop": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))))))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/continue|match": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)))))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/continue|two-effects": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))))))",
+"header": "grid",
+"log": [
+"1",
+"2"
+],
+"returns": "Int",
+"value": 3
+},
+"grid/done|and": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/done|bare": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/done|if": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/done|let": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/done|loop": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/done|match": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/done|nested-map": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/done|two-effects": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)))))",
+"header": "grid",
+"log": [
+"1",
+"2"
+],
+"returns": "Int",
+"value": 3
+},
+"grid/if-condition|and": {
+"body": "(if (> (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0) 0) 7 8)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/if-condition|bare": {
+"body": "(if (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 7 8)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/if-condition|if": {
+"body": "(if (> (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) 0) 7 8)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/if-condition|let": {
+"body": "(if (> (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y) 0) 7 8)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/if-condition|loop": {
+"body": "(if (> (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))) 0) 7 8)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/if-condition|match": {
+"body": "(if (> (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))) 0) 7 8)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/if-condition|nested-map": {
+"body": "(if (> (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) 0) 7 8)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/if-condition|two-effects": {
+"body": "(if (> (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) 0) 7 8)",
+"header": "grid",
+"log": [
+"1",
+"2"
+],
+"returns": "Int",
+"value": 7
+},
+"grid/loop-max|and": {
+"body": "(loop/recur :max (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0) :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ s 1)))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-max|bare": {
+"body": "(loop/recur :max (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ s 1)))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-max|if": {
+"body": "(loop/recur :max (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ s 1)))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-max|let": {
+"body": "(loop/recur :max (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y) :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ s 1)))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-max|loop": {
+"body": "(loop/recur :max (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))) :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ s 1)))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-max|match": {
+"body": "(loop/recur :max (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))) :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ s 1)))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-max|nested-map": {
+"body": "(loop/recur :max (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ s 1)))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-max|two-effects": {
+"body": "(loop/recur :max (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ s 1)))))",
+"header": "grid",
+"log": [
+"1",
+"2"
+],
+"returns": "Int",
+"value": 3
+},
+"grid/loop-state|and": {
+"body": "(loop/recur :max 1 :state (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0) :on-exhausted s (fn (s) (done s)))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-state|bare": {
+"body": "(loop/recur :max 1 :state (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :on-exhausted s (fn (s) (done s)))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-state|if": {
+"body": "(loop/recur :max 1 :state (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) :on-exhausted s (fn (s) (done s)))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-state|let": {
+"body": "(loop/recur :max 1 :state (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y) :on-exhausted s (fn (s) (done s)))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-state|loop": {
+"body": "(loop/recur :max 1 :state (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))) :on-exhausted s (fn (s) (done s)))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-state|match": {
+"body": "(loop/recur :max 1 :state (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))) :on-exhausted s (fn (s) (done s)))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-state|nested-map": {
+"body": "(loop/recur :max 1 :state (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) :on-exhausted s (fn (s) (done s)))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/loop-state|two-effects": {
+"body": "(loop/recur :max 1 :state (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) :on-exhausted s (fn (s) (done s)))",
+"header": "grid",
+"log": [
+"1",
+"2"
+],
+"returns": "Int",
+"value": 3
+},
+"grid/operator-operand|and": {
+"body": "(+ (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/operator-operand|bare": {
+"body": "(+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/operator-operand|if": {
+"body": "(+ (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/operator-operand|let": {
+"body": "(+ (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/operator-operand|loop": {
+"body": "(+ (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/operator-operand|match": {
+"body": "(+ (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/operator-operand|nested-map": {
+"body": "(+ (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/operator-operand|two-effects": {
+"body": "(+ (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) 100)",
+"header": "grid",
+"log": [
+"1",
+"2"
+],
+"returns": "Int",
+"value": 103
+},
+"grid/procedure-argument|and": {
+"body": "(add (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/procedure-argument|bare": {
+"body": "(add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/procedure-argument|if": {
+"body": "(add (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/procedure-argument|let": {
+"body": "(add (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/procedure-argument|loop": {
+"body": "(add (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/procedure-argument|match": {
+"body": "(add (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/procedure-argument|nested-map": {
+"body": "(add (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) 100)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 101
+},
+"grid/procedure-argument|two-effects": {
+"body": "(add (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) 100)",
+"header": "grid",
+"log": [
+"1",
+"2"
+],
+"returns": "Int",
+"value": 103
+},
+"grid/record-update-field|and": {
+"body": "(record-update (record Pair :a 0 :b 9) :a (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Pair",
+"value": {
+"a": 1,
+"b": 9
+}
+},
+"grid/record-update-field|bare": {
+"body": "(record-update (record Pair :a 0 :b 9) :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Pair",
+"value": {
+"a": 1,
+"b": 9
+}
+},
+"grid/record-update-field|if": {
+"body": "(record-update (record Pair :a 0 :b 9) :a (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Pair",
+"value": {
+"a": 1,
+"b": 9
+}
+},
+"grid/record-update-field|let": {
+"body": "(record-update (record Pair :a 0 :b 9) :a (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Pair",
+"value": {
+"a": 1,
+"b": 9
+}
+},
+"grid/record-update-field|loop": {
+"body": "(record-update (record Pair :a 0 :b 9) :a (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Pair",
+"value": {
+"a": 1,
+"b": 9
+}
+},
+"grid/record-update-field|match": {
+"body": "(record-update (record Pair :a 0 :b 9) :a (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Pair",
+"value": {
+"a": 1,
+"b": 9
+}
+},
+"grid/record-update-field|nested-map": {
+"body": "(record-update (record Pair :a 0 :b 9) :a (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))))",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Pair",
+"value": {
+"a": 1,
+"b": 9
+}
+},
+"grid/record-update-field|two-effects": {
+"body": "(record-update (record Pair :a 0 :b 9) :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)))",
+"header": "grid",
+"log": [
+"1",
+"2"
+],
+"returns": "Pair",
+"value": {
+"a": 3,
+"b": 9
+}
+},
+"grid/workflow-argument|and": {
+"body": "(call child :t (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0))",
+"decls": "(defworkflow child ((t Int)) -> Int t)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/workflow-argument|bare": {
+"body": "(call child :t (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))",
+"decls": "(defworkflow child ((t Int)) -> Int t)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/workflow-argument|if": {
+"body": "(call child :t (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)))",
+"decls": "(defworkflow child ((t Int)) -> Int t)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/workflow-argument|let": {
+"body": "(call child :t (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y))",
+"decls": "(defworkflow child ((t Int)) -> Int t)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/workflow-argument|loop": {
+"body": "(call child :t (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))))",
+"decls": "(defworkflow child ((t Int)) -> Int t)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/workflow-argument|match": {
+"body": "(call child :t (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int))))",
+"decls": "(defworkflow child ((t Int)) -> Int t)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/workflow-argument|nested-map": {
+"body": "(call child :t (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))))",
+"decls": "(defworkflow child ((t Int)) -> Int t)",
+"header": "grid",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"grid/workflow-argument|two-effects": {
+"body": "(call child :t (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)))",
+"decls": "(defworkflow child ((t Int)) -> Int t)",
+"header": "grid",
+"log": [
+"1",
+"2"
+],
+"returns": "Int",
+"value": 3
+},
+"j4b/field-beside|if": {
+"body": "(record Tri :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :c (if (> n 0) n 0))",
+"header": "review",
+"returns": "Tri"
+},
+"j4b/field-beside|match": {
+"body": "(record Tri :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :c (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))",
+"header": "review",
+"returns": "Tri"
+},
+"j4b/field-beside|n": {
+"admitted": true,
+"body": "(record Tri :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :c n)",
+"header": "review",
+"returns": "Tri"
+},
+"j4b/field-beside|proc": {
+"body": "(record Tri :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :c (add n 0))",
+"header": "review",
+"returns": "Tri"
+},
+"j4b/field-ifc|if": {
+"body": "(record Pair :a (if (= (if (> n 0) n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/field-ifc|match": {
+"body": "(record Pair :a (if (= (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/field-ifc|n": {
+"body": "(record Pair :a (if (= n 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/field-ifc|proc": {
+"body": "(record Pair :a (if (= (add n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/field-op|if": {
+"body": "(record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/field-op|match": {
+"body": "(record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/field-op|n": {
+"admitted": true,
+"body": "(record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/field-op|proc": {
+"body": "(record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/field-proc|if": {
+"body": "(record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/field-proc|match": {
+"body": "(record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/field-proc|n": {
+"body": "(record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/field-proc|proc": {
+"body": "(record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/ifcond-op|if": {
+"body": "(if (> (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)) 0) 7 8)",
+"header": "review",
+"returns": "Int"
+},
+"j4b/ifcond-op|match": {
+"body": "(if (> (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) 0) 7 8)",
+"header": "review",
+"returns": "Int"
+},
+"j4b/ifcond-op|n": {
+"body": "(if (> (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n) 0) 7 8)",
+"header": "review",
+"returns": "Int"
+},
+"j4b/ifcond-op|proc": {
+"body": "(if (> (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)) 0) 7 8)",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-cmp-if|if": {
+"body": "(let* ((w (if (> (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)) 0) 7 8))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-cmp-if|match": {
+"body": "(let* ((w (if (> (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) 0) 7 8))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-cmp-if|n": {
+"body": "(let* ((w (if (> (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n) 0) 7 8))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-cmp-if|proc": {
+"body": "(let* ((w (if (> (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)) 0) 7 8))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-field-beside|if": {
+"body": "(let* ((r (record Tri :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :c (if (> n 0) n 0)))) r)",
+"header": "review",
+"returns": "Tri"
+},
+"j4b/let-field-beside|match": {
+"body": "(let* ((r (record Tri :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :c (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))))) r)",
+"header": "review",
+"returns": "Tri"
+},
+"j4b/let-field-beside|n": {
+"admitted": true,
+"body": "(let* ((r (record Tri :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :c n))) r)",
+"header": "review",
+"returns": "Tri"
+},
+"j4b/let-field-beside|proc": {
+"body": "(let* ((r (record Tri :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :c (add n 0)))) r)",
+"header": "review",
+"returns": "Tri"
+},
+"j4b/let-field-ifc|if": {
+"body": "(let* ((r (record Pair :a (if (= (if (> n 0) n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/let-field-ifc|match": {
+"body": "(let* ((r (record Pair :a (if (= (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/let-field-ifc|n": {
+"body": "(let* ((r (record Pair :a (if (= n 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/let-field-ifc|proc": {
+"body": "(let* ((r (record Pair :a (if (= (add n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/let-field-op|if": {
+"body": "(let* ((r (record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/let-field-op|match": {
+"body": "(let* ((r (record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/let-field-op|n": {
+"admitted": true,
+"body": "(let* ((r (record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/let-field-op|proc": {
+"body": "(let* ((r (record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"header": "review",
+"returns": "Pair"
+},
+"j4b/let-ifc|if": {
+"body": "(let* ((w (if (= (if (> n 0) n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-ifc|match": {
+"body": "(let* ((w (if (= (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-ifc|n": {
+"body": "(let* ((w (if (= n 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-ifc|proc": {
+"body": "(let* ((w (if (= (add n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-list-op|if": {
+"body": "(let* ((l (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) l)",
+"header": "review",
+"returns": "List[Int]"
+},
+"j4b/let-list-op|match": {
+"body": "(let* ((l (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) l)",
+"header": "review",
+"returns": "List[Int]"
+},
+"j4b/let-list-op|n": {
+"admitted": true,
+"body": "(let* ((l (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) l)",
+"header": "review",
+"returns": "List[Int]"
+},
+"j4b/let-list-op|proc": {
+"body": "(let* ((l (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) l)",
+"header": "review",
+"returns": "List[Int]"
+},
+"j4b/let-op|if": {
+"body": "(let* ((w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-op|match": {
+"body": "(let* ((w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-op|n": {
+"body": "(let* ((w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-op|proc": {
+"body": "(let* ((w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-proc|if": {
+"body": "(let* ((w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-proc|match": {
+"body": "(let* ((w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-proc|n": {
+"body": "(let* ((w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/let-proc|proc": {
+"body": "(let* ((w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)))) (+ w (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/list-ifc|if": {
+"body": "(list (if (= (if (> n 0) n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j4b/list-ifc|match": {
+"body": "(list (if (= (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j4b/list-ifc|n": {
+"body": "(list (if (= n 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j4b/list-ifc|proc": {
+"body": "(list (if (= (add n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j4b/operand-ifc|if": {
+"body": "(* 2 (if (= (if (> n 0) n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/operand-ifc|match": {
+"body": "(* 2 (if (= (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/operand-ifc|n": {
+"body": "(* 2 (if (= n 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/operand-ifc|proc": {
+"body": "(* 2 (if (= (add n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/operand-op|if": {
+"body": "(* 2 (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/operand-op|match": {
+"body": "(* 2 (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/operand-op|n": {
+"body": "(* 2 (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/operand-op|proc": {
+"body": "(* 2 (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/operand-proc|if": {
+"body": "(* 2 (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/operand-proc|match": {
+"body": "(* 2 (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/operand-proc|n": {
+"body": "(* 2 (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/operand-proc|proc": {
+"body": "(* 2 (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/procarg-ifc|if": {
+"body": "(add (if (= (if (> n 0) n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0)",
+"header": "review",
+"returns": "Int"
+},
+"j4b/procarg-ifc|match": {
+"body": "(add (if (= (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0)",
+"header": "review",
+"returns": "Int"
+},
+"j4b/procarg-ifc|n": {
+"body": "(add (if (= n 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0)",
+"header": "review",
+"returns": "Int"
+},
+"j4b/procarg-ifc|proc": {
+"body": "(add (if (= (add n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0)",
+"header": "review",
+"returns": "Int"
+},
+"j4b/state-op|if": {
+"body": "(loop/recur :max 1 :state (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)) :on-exhausted s (fn (s) (done s)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/state-op|match": {
+"body": "(loop/recur :max 1 :state (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :on-exhausted s (fn (s) (done s)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/state-op|n": {
+"body": "(loop/recur :max 1 :state (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n) :on-exhausted s (fn (s) (done s)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/state-op|proc": {
+"body": "(loop/recur :max 1 :state (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)) :on-exhausted s (fn (s) (done s)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/wfarg-op|if": {
+"body": "(call child :t (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (if (> n 0) n 0)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/wfarg-op|match": {
+"body": "(call child :t (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/wfarg-op|n": {
+"body": "(call child :t (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) n))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/wfarg-op|proc": {
+"body": "(call child :t (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (add n 0)))",
+"header": "review",
+"returns": "Int"
+},
+"j4b/whole-ifc|if": {
+"body": "(if (= (if (> n 0) n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)",
+"header": "review",
+"returns": "Int"
+},
+"j4b/whole-ifc|match": {
+"body": "(if (= (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)",
+"header": "review",
+"returns": "Int"
+},
+"j4b/whole-ifc|n": {
+"body": "(if (= n 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)",
+"header": "review",
+"returns": "Int"
+},
+"j4b/whole-ifc|proc": {
+"body": "(if (= (add n 0) 1) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)",
+"header": "review",
+"returns": "Int"
+},
+"j5c/continue-record|op|let-match": {
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))))))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/continue-record|op|lit": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))))))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/continue-record|op|match": {
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))))))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/continue-record|proc|let-match": {
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))))))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/continue-record|proc|lit": {
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))))))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/continue-record|proc|match": {
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))))))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/let-list|op|let-match": {
+"body": "(let* ((l (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) l)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-list|op|lit": {
+"admitted": true,
+"body": "(let* ((l (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) l)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-list|op|match": {
+"body": "(let* ((l (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) l)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-list|proc|let-match": {
+"body": "(let* ((l (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) l)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-list|proc|lit": {
+"body": "(let* ((l (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) l)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-list|proc|match": {
+"body": "(let* ((l (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) l)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-map-source|op|let-match": {
+"body": "(let* ((src (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (list/map ((x src)) (+ x 1)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-map-source|op|lit": {
+"admitted": true,
+"body": "(let* ((src (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (list/map ((x src)) (+ x 1)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-map-source|op|match": {
+"body": "(let* ((src (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (list/map ((x src)) (+ x 1)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-map-source|proc|let-match": {
+"body": "(let* ((src (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (list/map ((x src)) (+ x 1)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-map-source|proc|lit": {
+"body": "(let* ((src (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (list/map ((x src)) (+ x 1)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-map-source|proc|match": {
+"body": "(let* ((src (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (list/map ((x src)) (+ x 1)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-parallel-map|op|let-match": {
+"body": "(let* ((m (list/map-effect ((x (list (string/concat (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")))) q) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) m)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/let-parallel-map|op|lit": {
+"admitted": true,
+"body": "(let* ((m (list/map-effect ((x (list (string/concat \"q\" (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) m)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/let-parallel-map|op|match": {
+"body": "(let* ((m (list/map-effect ((x (list (string/concat (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) m)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/let-parallel-map|proc|let-match": {
+"body": "(let* ((m (list/map-effect ((x (list (cat (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")))) q) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) m)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/let-parallel-map|proc|lit": {
+"body": "(let* ((m (list/map-effect ((x (list (cat \"q\" (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) m)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/let-parallel-map|proc|match": {
+"body": "(let* ((m (list/map-effect ((x (list (cat (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) m)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/let-path-child|op|let-match": {
+"body": "(let* ((p (path/join-under Report (string/concat (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")))) q) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) p)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/let-path-child|op|lit": {
+"admitted": true,
+"body": "(let* ((p (path/join-under Report (string/concat \"q\" (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) p)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/let-path-child|op|match": {
+"body": "(let* ((p (path/join-under Report (string/concat (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) p)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/let-path-child|proc|let-match": {
+"body": "(let* ((p (path/join-under Report (cat (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")))) q) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) p)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/let-path-child|proc|lit": {
+"body": "(let* ((p (path/join-under Report (cat \"q\" (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) p)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/let-path-child|proc|match": {
+"body": "(let* ((p (path/join-under Report (cat (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) p)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/let-record|op|let-match": {
+"body": "(let* ((r (record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/let-record|op|lit": {
+"admitted": true,
+"body": "(let* ((r (record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/let-record|op|match": {
+"body": "(let* ((r (record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/let-record|proc|let-match": {
+"body": "(let* ((r (record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/let-record|proc|lit": {
+"body": "(let* ((r (record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/let-record|proc|match": {
+"body": "(let* ((r (record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/let-serial-source|op|let-match": {
+"body": "(let* ((src (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q))))) (list/map-effect ((x src)) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-serial-source|op|lit": {
+"admitted": true,
+"body": "(let* ((src (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1)))) (list/map-effect ((x src)) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-serial-source|op|match": {
+"body": "(let* ((src (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))))) (list/map-effect ((x src)) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-serial-source|proc|let-match": {
+"body": "(let* ((src (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q))))) (list/map-effect ((x src)) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-serial-source|proc|lit": {
+"body": "(let* ((src (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1)))) (list/map-effect ((x src)) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-serial-source|proc|match": {
+"body": "(let* ((src (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))))) (list/map-effect ((x src)) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/let-variant|op|let-match": {
+"body": "(let* ((r (variant Box RECT :w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"j5c/let-variant|op|lit": {
+"admitted": true,
+"body": "(let* ((r (variant Box RECT :w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"j5c/let-variant|op|match": {
+"body": "(let* ((r (variant Box RECT :w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"j5c/let-variant|proc|let-match": {
+"body": "(let* ((r (variant Box RECT :w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"j5c/let-variant|proc|lit": {
+"body": "(let* ((r (variant Box RECT :w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"j5c/let-variant|proc|match": {
+"body": "(let* ((r (variant Box RECT :w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0))) r)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"j5c/list|op|let-match": {
+"body": "(list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/list|op|lit": {
+"admitted": true,
+"body": "(list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/list|op|match": {
+"body": "(list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/list|proc|let-match": {
+"body": "(list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/list|proc|lit": {
+"body": "(list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/list|proc|match": {
+"body": "(list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/map-source|op|let-match": {
+"body": "(list/map ((x (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (+ x 1))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/map-source|op|lit": {
+"admitted": true,
+"body": "(list/map ((x (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (+ x 1))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/map-source|op|match": {
+"body": "(list/map ((x (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (+ x 1))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/map-source|proc|let-match": {
+"body": "(list/map ((x (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (+ x 1))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/map-source|proc|lit": {
+"body": "(list/map ((x (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (+ x 1))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/map-source|proc|match": {
+"body": "(list/map ((x (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int)))) (+ x 1))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/parallel-source|op|let-match": {
+"body": "(list/map-effect ((x (list (string/concat (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")))) q) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/parallel-source|op|lit": {
+"admitted": true,
+"body": "(list/map-effect ((x (list (string/concat \"q\" (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/parallel-source|op|match": {
+"body": "(list/map-effect ((x (list (string/concat (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/parallel-source|proc|let-match": {
+"body": "(list/map-effect ((x (list (cat (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")))) q) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/parallel-source|proc|lit": {
+"body": "(list/map-effect ((x (list (cat \"q\" (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/parallel-source|proc|match": {
+"body": "(list/map-effect ((x (list (cat (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String))))) :max 1 :parallel 1 :workspace \"ws/w\" (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[String]"
+},
+"j5c/path-child|op|let-match": {
+"body": "(path/join-under Report (string/concat (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")))) q) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/path-child|op|lit": {
+"admitted": true,
+"body": "(path/join-under Report (string/concat \"q\" (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/path-child|op|match": {
+"body": "(path/join-under Report (string/concat (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/path-child|proc|let-match": {
+"body": "(path/join-under Report (cat (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")))) q) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/path-child|proc|lit": {
+"body": "(path/join-under Report (cat \"q\" (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/path-child|proc|match": {
+"body": "(path/join-under Report (cat (match (variant Shape CIRCLE :r n) ((CIRCLE c) \"q\") ((SQUARE s) \"z\")) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String)))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Report"
+},
+"j5c/record|op|let-match": {
+"body": "(record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/record|op|lit": {
+"admitted": true,
+"body": "(record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/record|op|match": {
+"body": "(record Pair :a (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/record|proc|let-match": {
+"body": "(record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/record|proc|lit": {
+"body": "(record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/record|proc|match": {
+"body": "(record Pair :a (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Pair"
+},
+"j5c/serial-source|op|let-match": {
+"body": "(list/map-effect ((x (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q))))) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/serial-source|op|lit": {
+"admitted": true,
+"body": "(list/map-effect ((x (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1)))) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/serial-source|op|match": {
+"body": "(list/map-effect ((x (list (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))))) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/serial-source|proc|let-match": {
+"body": "(list/map-effect ((x (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q))))) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/serial-source|proc|lit": {
+"body": "(list/map-effect ((x (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1)))) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/serial-source|proc|match": {
+"body": "(list/map-effect ((x (list (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))))) :max 1 (command-result e :argv (\"python\" \"{probe}\" x) :returns Int))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "List[Int]"
+},
+"j5c/subject-variant|op|let-match": {
+"body": "(match (variant Box RECT :w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0) ((RECT r) (+ r.w r.h)) ((NONE z) 0))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Int"
+},
+"j5c/subject-variant|op|lit": {
+"admitted": true,
+"body": "(match (variant Box RECT :w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0) ((RECT r) (+ r.w r.h)) ((NONE z) 0))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Int"
+},
+"j5c/subject-variant|op|match": {
+"body": "(match (variant Box RECT :w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0) ((RECT r) (+ r.w r.h)) ((NONE z) 0))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Int"
+},
+"j5c/subject-variant|proc|let-match": {
+"body": "(match (variant Box RECT :w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0) ((RECT r) (+ r.w r.h)) ((NONE z) 0))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Int"
+},
+"j5c/subject-variant|proc|lit": {
+"body": "(match (variant Box RECT :w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0) ((RECT r) (+ r.w r.h)) ((NONE z) 0))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Int"
+},
+"j5c/subject-variant|proc|match": {
+"body": "(match (variant Box RECT :w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0) ((RECT r) (+ r.w r.h)) ((NONE z) 0))",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Int"
+},
+"j5c/variant|op|let-match": {
+"body": "(variant Box RECT :w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"j5c/variant|op|lit": {
+"admitted": true,
+"body": "(variant Box RECT :w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"j5c/variant|op|match": {
+"body": "(variant Box RECT :w (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"j5c/variant|proc|let-match": {
+"body": "(variant Box RECT :w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (let* ((q (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0)))) q)) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"j5c/variant|proc|lit": {
+"body": "(variant Box RECT :w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 1) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"j5c/variant|proc|match": {
+"body": "(variant Box RECT :w (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))) :h (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :k 0)",
+"decls": "(defproc cat ((a String) (b String)) -> String (string/concat a b))",
+"header": "review",
+"returns": "Box"
+},
+"m1/c-i01-if-effect-branch": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i02-if-effect-condition": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 1 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i03-if-let-effect": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i04-if-workflow-call": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (call child :t 1) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i05-if-pure-proc-effect-arg": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i06-if-effectful-proc": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (eff n) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i07-if-pure-proc": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (add n 0) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i08-if-and-condition": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i10-if-loop-branch": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (loop/recur :max 1 :state 0 :on-exhausted t (fn (t) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i13-if-both-branches": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i14-three-levels": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i15-if-map-branch": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i20-if-record-branch": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (sumpair (record Pair :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b 0)) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i21-if-effectful-proc-effect-arg": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (effarg (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1",
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i22-if-match-effect": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) 0)) 0) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/c-i23-if-effect-else-only": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 5) 0 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i01-if-effect-branch": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i02-if-effect-condition": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 1 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i03-if-let-effect": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (let* ((y (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) y) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i04-if-workflow-call": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (call child :t 1) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i05-if-pure-proc-effect-arg": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (add (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i06-if-effectful-proc": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (eff n) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i07-if-pure-proc": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (add n 0) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i08-if-and-condition": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (and (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 1 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i10-if-loop-branch": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (loop/recur :max 1 :state 0 :on-exhausted t (fn (t) (done (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)))) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i13-if-both-branches": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int)) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i14-three-levels": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i15-if-map-branch": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (list/length (list/map-effect ((x (list 1))) :max 1 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i20-if-record-branch": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (sumpair (record Pair :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b 0)) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i21-if-effectful-proc-effect-arg": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (effarg (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1",
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i22-if-match-effect": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (match (variant Shape CIRCLE :r n) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) 0)) 0) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/d-i23-if-effect-else-only": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 5) 0 (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) 0))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/x09-else-if": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 5) 0 (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0))))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/x11-cond-if": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (cond ((> n 5) 0) (else (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)))))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/x12-if-match-if": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (match (variant Shape CIRCLE :r n) ((CIRCLE c) (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) ((SQUARE q) 0)) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/x17-single-if": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/x18-if-in-condition": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (if (> n 0) (> (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) false) 1 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/x19-operator-over-if-branch": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (+ 1 (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0)) 0)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 2
+},
+"m1/x24-match-if-if": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (match (variant Shape CIRCLE :r n) ((CIRCLE c) (if (> n 0) (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0)) ((SQUARE q) 0))))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/x25-let-bound-advice": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (let* ((next (if (> n 0) (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) 0))) (continue next)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/x26-let-bound-effectful-proc": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (let* ((next (if (> n 0) (if (> n 0) (eff n) 0) 0))) (continue next)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1/x27-untaken-outer": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 5) (if (> n 0) (add n 0) 0) 3)))))",
+"decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 3
+},
+"m1b/w1-if-if-pure-child": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (call child :t 1) 0) 0)))))",
+"decls": "\n  (defworkflow wcmd ((t Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int))\n  (defworkflow wtwo ((t Int)) -> Int (+ (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"5\") :returns Int)))\n",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 1
+},
+"m1b/w2-if-if-command-child": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (call wcmd :t 1) 0) 0)))))",
+"decls": "\n  (defworkflow wcmd ((t Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int))\n  (defworkflow wtwo ((t Int)) -> Int (+ (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"5\") :returns Int)))\n",
+"header": "review",
+"log": [
+"4"
+],
+"returns": "Int",
+"value": 4
+},
+"m1b/w3-else-if-command-child": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 5) 0 (if (> n 0) (call wcmd :t 1) 0))))))",
+"decls": "\n  (defworkflow wcmd ((t Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int))\n  (defworkflow wtwo ((t Int)) -> Int (+ (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"5\") :returns Int)))\n",
+"header": "review",
+"log": [
+"4"
+],
+"returns": "Int",
+"value": 4
+},
+"m1b/w4-cond-if-command-child": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (cond ((> n 5) 0) (else (if (> n 0) (call wcmd :t 1) 0)))))))",
+"decls": "\n  (defworkflow wcmd ((t Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int))\n  (defworkflow wtwo ((t Int)) -> Int (+ (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"5\") :returns Int)))\n",
+"header": "review",
+"log": [
+"4"
+],
+"returns": "Int",
+"value": 4
+},
+"m1b/w5-if-if-two-effect-child": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (call wtwo :t 1) 0) 0)))))",
+"decls": "\n  (defworkflow wcmd ((t Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int))\n  (defworkflow wtwo ((t Int)) -> Int (+ (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"5\") :returns Int)))\n",
+"header": "review",
+"log": [
+"4",
+"5"
+],
+"returns": "Int",
+"value": 9
+},
+"m1b/w6-if-if-child-both-branches": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 5) (call wcmd :t 1) (call wtwo :t 1)) 0)))))",
+"decls": "\n  (defworkflow wcmd ((t Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int))\n  (defworkflow wtwo ((t Int)) -> Int (+ (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"5\") :returns Int)))\n",
+"header": "review",
+"log": [
+"4",
+"5"
+],
+"returns": "Int",
+"value": 9
+},
+"m1b/w7-if-if-untaken-child": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 5) (call wcmd :t 1) 3) 0)))))",
+"decls": "\n  (defworkflow wcmd ((t Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int))\n  (defworkflow wtwo ((t Int)) -> Int (+ (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"5\") :returns Int)))\n",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 3
+},
+"m1b/w8-two-rounds": {
+"body": "(loop/recur :max 3 :state 0 :on-exhausted s (fn (s) (if (> s 7) (done s) (continue (if (> n 0) (if (> s 0) (call wtwo :t 1) (call wcmd :t 1)) 0)))))",
+"decls": "\n  (defworkflow wcmd ((t Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int))\n  (defworkflow wtwo ((t Int)) -> Int (+ (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int) (command-result e :argv (\"python\" \"{probe}\" \"5\") :returns Int)))\n",
+"header": "review",
+"log": [
+"4",
+"4",
+"5"
+],
+"returns": "Int",
+"value": 9
+},
+"m1c/v1-if-if-pure-loop": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (loop/recur :max 2 :state 0 :on-exhausted t (fn (t) (if (> t 0) (done (+ t 4)) (continue (+ t 1))))) 0) 0)))))",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 5
+},
+"m1c/v2-if-if-pure-map-effect": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (list/length (list/map-effect ((x (list \"a\" \"b\"))) :max 2 (one x))) 0) 0)))))",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 2
+},
+"m1c/v3-else-if-pure-loop": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 5) 0 (if (> n 0) (loop/recur :max 2 :state 0 :on-exhausted t (fn (t) (if (> t 0) (done (+ t 4)) (continue (+ t 1))))) 0))))))",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 5
+},
+"m1c/v4-cond-three-clauses-pure-child": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (cond ((> n 5) 0) ((> n 0) (call child :t 1)) (else 2))))))",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 1
+},
+"m1c/v5-if-if-pure-child-in-operator": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (+ 1 (call child :t 1)) 0) 0)))))",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 2
+},
+"m1c/v6-single-if-pure-loop": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (loop/recur :max 2 :state 0 :on-exhausted t (fn (t) (if (> t 0) (done (+ t 4)) (continue (+ t 1))))) 0)))))",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 5
+},
+"m1c/v7-if-if-pure-child-condition": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> (call child :t 1) 0) 3 0) 0)))))",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 3
+},
+"m1c/v8-binder-form-pure-child": {
+"body": "(loop/recur ((s 0)) :max 1 :on-exhausted s (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (call child :t 1) 0) 0))))",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 1
+},
+"m1d/f1-spec-example-nested-if-fetch-proc": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (fetch) 0) 0)))))",
+"decls": "\n  (defproc fetch () -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1d/f2-spec-example-operator-if-fetch-proc": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ (if (> n 0) (fetch) 0) 9)))))",
+"decls": "\n  (defproc fetch () -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 10
+},
+"m1d/f3-smallest-fn": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (continue (if (> n 0) (if (> n 0) (fetch) 0) 0))))",
+"decls": "\n  (defproc fetch () -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1d/f4-smallest-binder": {
+"body": "(loop/recur ((s 0)) :max 1 :on-exhausted s (continue (if (> n 0) (if (> n 0) (fetch) 0) 0)))",
+"decls": "\n  (defproc fetch () -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"m1d/f5-record-update-fetch-proc": {
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 9) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record-update s :a (if (> n 0) (fetch) 0))))))",
+"decls": "\n  (defproc fetch () -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Pair",
+"value": {
+"a": 1,
+"b": 9
+}
+},
+"m1d/f6-record-update-bare-fetch-proc": {
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 9) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record-update s :a (fetch))))))",
+"decls": "\n  (defproc fetch () -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Pair",
+"value": {
+"a": 1,
+"b": 9
+}
+},
+"m4probe/pure-proc-body-continue": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x)))))))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Int",
+"value": 2
+},
+"m4probe/pure-proc-body-in-list": {
+"body": "(list (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x))) 5)",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "List[Int]",
+"value": [
+2,
+5
+]
+},
+"m4probe/pure-proc-body-in-record": {
+"body": "(record Pair :a (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x))) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"log": [
+"w",
+"3"
+],
+"returns": "Pair",
+"value": {
+"a": 2,
+"b": 3
+}
+},
+"m4probe/pure-proc-body-subject": {
+"body": "(match (variant Shape CIRCLE :r (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x)))) ((CIRCLE c) c.r) ((SQUARE q) 0))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Int",
+"value": 2
+},
+"m4probe/workflow-body-in-list": {
+"body": "(list (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (call wone :s x))) 5)",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "List[Int]",
+"value": [
+2,
+5
+]
+},
+"n1b/o1-if-branch": {
+"admitted": true,
+"body": "(if (> n 0) (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))) 0)",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n1b/o2-match-arm": {
+"admitted": true,
+"body": "(match (variant Shape CIRCLE :r n) ((CIRCLE c) (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) ((SQUARE q) 0))",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n1b/o3-cond-branch": {
+"admitted": true,
+"body": "(cond ((> n 5) 0) (else (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n1b/o4-loop-let-statement": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (let* ((m (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) (done (list/length m)))))",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n1b/o5-loop-done-whole": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state (list \"a\") :on-exhausted s (fn (s) (done (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "List[String]",
+"value": [
+"bw",
+"bq"
+]
+},
+"n1b/o6-let-proc-body": {
+"body": "(let-proc ((f ((y Int)) -> Int (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))) (f n))",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n1b/o7-loop-done-pure-src": {
+"body": "(loop/recur :max 1 :state (list \"a\") :on-exhausted s (fn (s) (done (list/map-effect ((x (list \"w\" \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))",
+"header": "review",
+"log": [
+"bw",
+"bq"
+],
+"returns": "List[String]",
+"value": [
+"bw",
+"bq"
+]
+},
+"n1b/o8-loop-on-exhausted": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))) (fn (s) (if (= n 7) (done s) (continue s))))",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n1b/o9-loop-if-done-branch": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (> n 0) (done (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) (continue s))))",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n1probe/k1-cont-len-par-pureproc": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x)))))))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Int",
+"value": 2
+},
+"n1probe/k10-let-len-par-pureproc": {
+"admitted": true,
+"body": "(let* ((g (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x))))) g)",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Int",
+"value": 2
+},
+"n1probe/k11-state-len-par-pureproc": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x))) :on-exhausted s (fn (s) (done s)))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Int",
+"value": 2
+},
+"n1probe/k12-subject-len-par-pureproc": {
+"body": "(match (variant Shape CIRCLE :r (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x)))) ((CIRCLE c) c.r) ((SQUARE q) 0))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Int",
+"value": 2
+},
+"n1probe/k13-cont-record-len-par-pureproc": {
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record Pair :a (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x))) :b 0)))))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Pair",
+"value": {
+"a": 2,
+"b": 0
+}
+},
+"n1probe/k14-cont-plus-len-par-pureproc": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ 1 (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x))))))))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Int",
+"value": 3
+},
+"n1probe/k15-cont-len-par-src-if": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (if (> n 0) (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\") (list \"q\")))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x)))))))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Int",
+"value": 2
+},
+"n1probe/k2-cont-len-par-command": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))))",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n1probe/k3-cont-whole-par-pureproc": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state (list 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x))))))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "List[Int]",
+"value": [
+1,
+1
+]
+},
+"n1probe/k4-cont-whole-par-command": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state (list \"a\") :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "List[String]",
+"value": [
+"bw",
+"bq"
+]
+},
+"n1probe/k5-cont-len-ser-pureproc": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 (one x)))))))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Int",
+"value": 2
+},
+"n1probe/k6-cont-len-ser-command": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))))",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n1probe/k7-cont-len-par-pure-src-pureproc": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (list \"w\" \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x)))))))",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 2
+},
+"n1probe/k8-cont-len-par-workflow": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (call wone :s x)))))))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Int",
+"value": 2
+},
+"n1probe/k9-done-len-par-pureproc": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x))))))",
+"header": "review",
+"log": [
+"w"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro/q1-macro-map-in-continue": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (par-len item (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))))))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro loop-par (f k src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))))))\n  (defmacro loop-binder (f k src) (loop/recur ((s 0)) :max 1 :on-exhausted (+ s (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x)))) (if (= k 7) (done s) (continue (+ s 1)))))\n  (defmacro wrap-continue (v) (continue v))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro/q2-macro-map-in-done": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (par-len item (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\")))))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro loop-par (f k src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))))))\n  (defmacro loop-binder (f k src) (loop/recur ((s 0)) :max 1 :on-exhausted (+ s (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x)))) (if (= k 7) (done s) (continue (+ s 1)))))\n  (defmacro wrap-continue (v) (continue v))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro/q3-macro-whole-loop": {
+"body": "(loop-par item n (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro loop-par (f k src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))))))\n  (defmacro loop-binder (f k src) (loop/recur ((s 0)) :max 1 :on-exhausted (+ s (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x)))) (if (= k 7) (done s) (continue (+ s 1)))))\n  (defmacro wrap-continue (v) (continue v))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro/q4-macro-binder-loop-exhausted": {
+"body": "(loop-binder item n (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro loop-par (f k src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))))))\n  (defmacro loop-binder (f k src) (loop/recur ((s 0)) :max 1 :on-exhausted (+ s (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x)))) (if (= k 7) (done s) (continue (+ s 1)))))\n  (defmacro wrap-continue (v) (continue v))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 3
+},
+"n3macro/q5-macro-map-let-statement": {
+"body": "(loop/recur ((s 0)) :max 1 :on-exhausted s (let* ((m (par-len item (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\")))) (done (+ m s))))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro loop-par (f k src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))))))\n  (defmacro loop-binder (f k src) (loop/recur ((s 0)) :max 1 :on-exhausted (+ s (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x)))) (if (= k 7) (done s) (continue (+ s 1)))))\n  (defmacro wrap-continue (v) (continue v))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro/q6-macro-untaken": {
+"body": "(loop-par item n (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro loop-par (f k src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))))))\n  (defmacro loop-binder (f k src) (loop/recur ((s 0)) :max 1 :on-exhausted (+ s (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x)))) (if (= k 7) (done s) (continue (+ s 1)))))\n  (defmacro wrap-continue (v) (continue v))\n",
+"header": "review",
+"log": [],
+"n": 7,
+"returns": "Int",
+"value": 0
+},
+"n3macro2/r1-top-macro-par-pure-src": {
+"body": "(par-len item (list \"w\" \"q\"))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro par-len-const (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace \"ws/w\" (f x))))\n  (defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" nm) (f nm))))\n  (defmacro ser-len (f src) (list/length (list/map-effect ((x src)) :max 2 (f x))))\n  (defmacro ident (v) v)\n",
+"header": "review",
+"log": [
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro2/r10-continue-source-in-macro-arg": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (ident (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\")))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (item x)))))))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro par-len-const (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace \"ws/w\" (f x))))\n  (defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" nm) (f nm))))\n  (defmacro ser-len (f src) (list/length (list/map-effect ((x src)) :max 2 (f x))))\n  (defmacro ident (v) v)\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro2/r11-top-macro-ser-eff-src": {
+"admitted": true,
+"body": "(ser-len item (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro par-len-const (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace \"ws/w\" (f x))))\n  (defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" nm) (f nm))))\n  (defmacro ser-len (f src) (list/length (list/map-effect ((x src)) :max 2 (f x))))\n  (defmacro ident (v) v)\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro2/r2-top-macro-par-eff-src": {
+"body": "(par-len item (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro par-len-const (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace \"ws/w\" (f x))))\n  (defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" nm) (f nm))))\n  (defmacro ser-len (f src) (list/length (list/map-effect ((x src)) :max 2 (f x))))\n  (defmacro ident (v) v)\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro2/r3-done-macro-par-pure-src": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (par-len item (list \"w\" \"q\")))))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro par-len-const (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace \"ws/w\" (f x))))\n  (defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" nm) (f nm))))\n  (defmacro ser-len (f src) (list/length (list/map-effect ((x src)) :max 2 (f x))))\n  (defmacro ident (v) v)\n",
+"header": "review",
+"log": [
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro2/r4-continue-macro-ser-eff-src": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (ser-len item (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))))))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro par-len-const (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace \"ws/w\" (f x))))\n  (defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" nm) (f nm))))\n  (defmacro ser-len (f src) (list/length (list/map-effect ((x src)) :max 2 (f x))))\n  (defmacro ident (v) v)\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro2/r5-top-macro-ser-pure-src": {
+"body": "(ser-len item (list \"w\" \"q\"))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro par-len-const (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace \"ws/w\" (f x))))\n  (defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" nm) (f nm))))\n  (defmacro ser-len (f src) (list/length (list/map-effect ((x src)) :max 2 (f x))))\n  (defmacro ident (v) v)\n",
+"header": "review",
+"log": [
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro2/r6-top-macro-par-named-binder-pure": {
+"body": "(par-named y item (list \"w\" \"q\"))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro par-len-const (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace \"ws/w\" (f x))))\n  (defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" nm) (f nm))))\n  (defmacro ser-len (f src) (list/length (list/map-effect ((x src)) :max 2 (f x))))\n  (defmacro ident (v) v)\n",
+"header": "review",
+"log": [
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro2/r7-continue-macro-par-named-binder-eff": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (par-named y item (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))))))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro par-len-const (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace \"ws/w\" (f x))))\n  (defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" nm) (f nm))))\n  (defmacro ser-len (f src) (list/length (list/map-effect ((x src)) :max 2 (f x))))\n  (defmacro ident (v) v)\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3macro2/r8-top-macro-par-const-ws-pure": {
+"body": "(par-len-const item (list \"w\"))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro par-len-const (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace \"ws/w\" (f x))))\n  (defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" nm) (f nm))))\n  (defmacro ser-len (f src) (list/length (list/map-effect ((x src)) :max 2 (f x))))\n  (defmacro ident (v) v)\n",
+"header": "review",
+"log": [
+"bw"
+],
+"returns": "Int",
+"value": 1
+},
+"n3macro2/r9-continue-map-in-ident-macro-arg": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (ident (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (item x))))))))",
+"decls": "\n  (defproc item ((x String)) -> String (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))\n  (defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (f x))))\n  (defmacro par-len-const (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace \"ws/w\" (f x))))\n  (defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" nm) (f nm))))\n  (defmacro ser-len (f src) (list/length (list/map-effect ((x src)) :max 2 (f x))))\n  (defmacro ident (v) v)\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p01-fn-two-rounds-continue-whole": {
+"admitted": true,
+"body": "(loop/recur :max 3 :state (list \"a\") :on-exhausted s (fn (s) (if (> (list/length s) 1) (done s) (continue (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "List[String]",
+"value": [
+"bw",
+"bq"
+]
+},
+"n3mine/p02-binder-continue-len": {
+"admitted": true,
+"body": "(loop/recur ((s 0)) :max 2 :on-exhausted (+ s 100) (if (> s 0) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p03-binder-on-exhausted": {
+"body": "(loop/recur ((s 0)) :max 1 :on-exhausted (+ s (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) (if (= n 7) (done s) (continue (+ s 1))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 3
+},
+"n3mine/p04-binder-on-exhausted-untaken": {
+"body": "(loop/recur ((s 0)) :max 2 :on-exhausted (+ s (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) (if (> s 0) (done s) (continue (+ s 1))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 1
+},
+"n3mine/p05-continue-effects-around": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"1",
+"w",
+"bw",
+"bq",
+"3"
+],
+"returns": "Int",
+"value": 6
+},
+"n3mine/p06-let-statements-two-rounds": {
+"admitted": true,
+"body": "(loop/recur :max 3 :state 0 :on-exhausted s (fn (s) (let* ((m (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))) (k (command-result e :argv (\"python\" \"{probe}\" \"7\") :returns Int))) (if (> s 0) (done (+ s k)) (continue (list/length m))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq",
+"7",
+"w",
+"bw",
+"bq",
+"7"
+],
+"returns": "Int",
+"value": 9
+},
+"n3mine/p07-serial-in-done-par-body": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (list/length (list/map-effect ((y (list \"A\" \"B\"))) :max 2 (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" (string/concat \"s\" y)) :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"sA",
+"bsA",
+"bq",
+"sB",
+"bsB",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p08-serial-in-continue-par-body": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((y (list \"A\" \"B\"))) :max 2 (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" (string/concat \"s\" y)) :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"sA",
+"bsA",
+"bq",
+"sB",
+"bsB",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p09-serial-whole-continue-computed-max": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state (list 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/map-effect ((y (list (command-result e :argv (\"python\" \"{probe}\" \"A\") :returns String) \"B\"))) :max (+ (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int) 0) (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" (string/concat \"s\" y)) :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"A",
+"2",
+"sA",
+"bsA",
+"bq",
+"sB",
+"bsB",
+"bq"
+],
+"returns": "List[Int]",
+"value": [
+2,
+2
+]
+},
+"n3mine/p10-continue-record-serial-max-beside-par": {
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record Pair :a (list/length (list/map-effect ((y (list \"A\"))) :max (+ (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) 0) (command-result e :argv (\"python\" \"{probe}\" \"4\") :returns Int))) :b (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"1",
+"4",
+"w",
+"bw",
+"bq"
+],
+"returns": "Pair",
+"value": {
+"a": 1,
+"b": 2
+}
+},
+"n3mine/p11-let-proc-outside-called-in-continue": {
+"body": "(let-proc ((f ((y Int)) -> Int (+ y (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (f s))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p12-let-proc-inside-body": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (let-proc ((f ((y Int)) -> Int (+ y (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))) (done (f 5)))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 7
+},
+"n3mine/p13-let-proc-body-is-loop": {
+"body": "(let-proc ((f ((y Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= y 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))) (f n))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p14-macro-map-in-continue": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (par-len (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p15-macro-whole-loop": {
+"body": "(loop-par (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p16-cond-continue": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (cond ((> n 5) (done 0)) (else (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p17-untaken-continue": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [],
+"n": 7,
+"returns": "Int",
+"value": 0
+},
+"n3mine/p18-continue-record-map-then-effect": {
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record Pair :a (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq",
+"3"
+],
+"returns": "Pair",
+"value": {
+"a": 2,
+"b": 3
+}
+},
+"n3mine/p19-continue-record-effect-then-map": {
+"body": "(loop/recur :max 1 :state (record Pair :a 0 :b 0) :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (record Pair :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int) :a (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"3",
+"w",
+"bw",
+"bq"
+],
+"returns": "Pair",
+"value": {
+"a": 2,
+"b": 3
+}
+},
+"n3mine/p20-done-match-subject": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (match (variant Shape CIRCLE :r (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) ((CIRCLE c) c.r) ((SQUARE q) 0)))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p21-source-if-untaken": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (list (if (> n 0) (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) (command-result e :argv (\"python\" \"{probe}\" \"v\") :returns String)) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p22-inner-loop-in-continue": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (loop/recur :max 1 :state 0 :on-exhausted t (fn (t) (done (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p23-continue-and-exhausted": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted (+ s (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"v\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))) (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq",
+"v",
+"bv",
+"bq"
+],
+"returns": "Int",
+"value": 4
+},
+"n3mine/p24-defproc-loop": {
+"admitted": true,
+"body": "(lp n)",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"w",
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p25-pure-source-let-bound": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (let* ((next (list/length (list/map-effect ((x (list \"w\" \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))) (continue next)))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"bw",
+"bq"
+],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p26-pure-source-pure-body-let-bound": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (let* ((next (list/length (list/map-effect ((x (list \"w\" \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (one x))))) (continue next)))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [],
+"returns": "Int",
+"value": 2
+},
+"n3mine/p27-binder-let-serial-max-then-par": {
+"admitted": true,
+"body": "(loop/recur ((s 0)) :max 2 :on-exhausted s (let* ((a (list/length (list/map-effect ((y (list \"A\" \"B\"))) :max (+ (command-result e :argv (\"python\" \"{probe}\" \"2\") :returns Int) s) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"s\" y)) :returns String))))) (if (> s 0) (done (+ s a)) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"2",
+"sA",
+"sB",
+"w",
+"bw",
+"bq",
+"2",
+"sA",
+"sB"
+],
+"returns": "Int",
+"value": 4
+},
+"n3mine/p28-par-in-par-body-done": {
+"admitted": true,
+"body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (list/length (list/map-effect ((y (list (command-result e :argv (\"python\" \"{probe}\" \"A\") :returns String)))) :max 1 :parallel 1 :workspace \"ws/u\" (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" (string/concat \"s\" y)) :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))",
+"decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
+"header": "review",
+"log": [
+"A",
+"sA",
+"bsA",
+"bq"
+],
+"returns": "Int",
+"value": 1
+},
+"pre/s1-whole-subject-cond-field": {
+"body": "(match (variant Shape CIRCLE :r (cond ((> n 5) 6) (else 1))) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) 0))",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"pre/s2-record-field-subject-cond-field": {
+"body": "(record Pair :a (match (variant Shape CIRCLE :r (cond ((> n 5) 6) (else 1))) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) 0)) :b (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"log": [
+"1",
+"3"
+],
+"returns": "Pair",
+"value": {
+"a": 1,
+"b": 3
+}
+},
+"pre/s3-list-element-subject-cond-field": {
+"body": "(list (match (variant Shape CIRCLE :r (cond ((> n 5) 6) (else 1))) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) 0)) (command-result e :argv (\"python\" \"{probe}\" \"3\") :returns Int))",
+"header": "review",
+"log": [
+"1",
+"3"
+],
+"returns": "List[Int]",
+"value": [
+1,
+3
+]
+},
+"pre/s4-if-condition-subject-cond-field": {
+"body": "(if (> (match (variant Shape CIRCLE :r (cond ((> n 5) 6) (else 1))) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) 0)) 0) 7 8)",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 7
+},
+"pre/s5-whole-subject-if-field": {
+"body": "(match (variant Shape CIRCLE :r (if (> n 5) 6 1)) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) 0))",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+},
+"pre/s6-on-exhausted-subject-cond-field": {
+"body": "(loop/recur :max 1 :state 0 :on-exhausted (match (variant Shape CIRCLE :r (cond ((> n 5) 6) (else 1))) ((CIRCLE c) (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int)) ((SQUARE q) 0)) (fn (s) (if (= n 7) (done s) (continue s))))",
+"header": "review",
+"log": [
+"1"
+],
+"returns": "Int",
+"value": 1
+}
+}
+}

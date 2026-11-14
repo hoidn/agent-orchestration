@@ -31,7 +31,7 @@ Authority:
 - `docs/design/workflow_lisp_frontend_specification.md` remains the umbrella
   Workflow Lisp frontend contract; this document refines its compilation
   pipeline, not its language surface or authority rule.
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
+- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md` (historical record)
   records completed migration history; it is not a current tranche selector.
 - Normative DSL/runtime behavior remains in `specs/`.
 - Shared typed checking and checked-program validation preserve semantic
@@ -44,15 +44,15 @@ Authority:
 Related docs:
 
 - `docs/design/workflow_lisp_frontend_specification.md`
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-- `docs/design/workflow_lisp_runtime_migration_foundation.md`
-- `docs/design/workflow_lisp_unified_frontend_design.md`
-- `docs/design/workflow_lisp_stdlib_lowering.md`
-- `docs/design/workflow_lisp_semantic_workflow_ir.md`
-- `docs/design/workflow_lisp_executable_ir.md`
-- `docs/design/workflow_lisp_state_layout.md`
+- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md` (historical record)
+- [Step IO](../../specs/io.md#evaluated-command-and-provider-io-target-235) and [frontend specification §17.1](workflow_lisp_frontend_specification.md#171-private-frontend-lowered-value-lane) (`docs/design/workflow_lisp_runtime_migration_foundation.md` is the historical record)
+- `docs/design/workflow_lisp_unified_frontend_design.md` (historical record)
+- `docs/design/workflow_lisp_stdlib_lowering.md` (historical record)
+- `docs/design/workflow_lisp_semantic_workflow_ir.md` (historical record)
+- `docs/design/workflow_lisp_executable_ir.md` (historical record)
+- `docs/design/workflow_lisp_state_layout.md` (historical record)
 - `docs/design/workflow_lisp_proc_refs_partial_application.md`
-- `docs/design/workflow_lisp_compile_time_parametric_specialization.md`
+- `docs/design/workflow_lisp_compile_time_parametric_specialization.md` (historical record)
 - `docs/design/workflow_lisp_runtime_closures_boundary.md`
 - `docs/design/workflow_language_design_principles.md`
 - `docs/design/workflow_lisp_executor_retirement.md`
@@ -161,6 +161,48 @@ representation carrier or old header selects a flat executor.
   schema-1/schema-2 flat identities are retained typed/history metadata only.
 - Unsupported executable effects refuse at the owning checked admission boundary;
   no claim of universal totality follows from the old flattening design.
+
+### Pipeline, provenance and private contexts
+
+```text
+source text -> S-expressions -> resolved, macro-expanded frontend AST -> typed frontend AST
+  -> WCC elaboration, specialization, scope/effect/proof analysis
+  -> checked closed program -> evaluated runtime and effect memo
+  -> derived report and dashboard views
+```
+
+The typed frontend also supplies read-only catalogs and exact source provenance
+to the language server and REPL. Flat Core AST projection, Executable IR, debug
+YAML and positional replay cannot be emitted or executed.
+
+Node provenance (span and form path) is
+[evaluated execution §4.1, P6](workflow_lisp_evaluated_execution.md#41-properties). A
+generated result contract carries, for each authored union field, a stable
+source-map subject (`source_map_subject`, or `source_map_subjects_by_variant`
+when a field name is shared by variants) that the node's provenance resolves to
+that field, and a contract violation carries those subject references. A result
+that is not a record or union carries one subject of kind `output_bundle_field`. Subjects
+are held in the node's provenance beside its span and form path, so they enter no identity
+or program digest, and they are names, not spans; nothing at run time reads or compiles
+source to resolve one. An error raised while evaluating a node reports that node's span.
+
+A record that structurally contains a `RunCtx` (`run-id` of type `RunId`,
+`state-root` under `state`, `artifact-root` under `artifacts`) is a private
+executable context. A hidden `RunCtx` parameter is supplied from the caller's
+`RunCtx` parameter, or from the `run` field of its `PhaseCtx` parameter. At the entry, or when the
+caller has none, the build synthesizes one: its `run-id` is read from the run at
+run time, and its `state-root` and `artifact-root` are the literals `state/run`
+and `artifacts/run`. A hidden `PhaseCtx` for a phase gets that run context, the
+phase name and the roots `state/<phase>` and `artifacts/<phase>`
+(`orchestrator/workflow_lisp/closed/context.py`).
+
+When a workflow's boundary is projected for import (a compiled typed import, or
+a call matched against a callee's hidden contexts), a public formal whose name
+collides with a generated hidden context input (such as `phase-ctx` or
+`phase-ctx__run__run-id`) refuses, and so do two hidden phase contexts for
+different phases under one formal. Diagnostics:
+`workflow_boundary_projection_collision`,
+`promoted_entry_hidden_phase_ctx_ambiguous`.
 
 ## 10. The Workflow Core Calculus
 
@@ -674,14 +716,36 @@ All language-boundary rejection happens at or before typecheck:
   defects unless the workflow violates a contract the typechecker does not
   own (path safety against the live filesystem, for example).
 
-In the current checkout an internal exception raised after typecheck by
-elaboration, normalization or closed-program construction is reported as one
-`compiler_defect` diagnostic (exit 2). It says that the program passed
-typecheck, names the stage, and points at the authored form being handled; the
-diagnostic keeps the exception as its `cause` (no CLI flag prints the
-traceback). An `AssertionError` raised outside the orchestrator package is not
-converted (`compiler_defect_boundary` in `orchestrator/workflow_lisp/diagnostics.py`,
-applied in `orchestrator/workflow_lisp/closed/build.py`). Two internal checks
+In the current checkout an internal exception raised during typecheck, or
+after typecheck by elaboration, normalization or closed-program construction,
+is reported as one `compiler_defect` diagnostic (exit 2). The boundary
+(`compiler_defect_boundary` in `orchestrator/workflow_lisp/diagnostics.py`)
+sits at three call sites, and its phase is the one it was applied with: phase
+`typecheck` around the typechecker's call of `compile_stage3_entrypoint` in
+`orchestrator/workflow_lisp/closed/frontend.py` and around the typecheck of
+each imported workflow bundle in
+`orchestrator/workflow_lisp/build.py:_load_imported_workflow_bundle_manifest`;
+phase `lowering` around the closed build in
+`orchestrator/workflow_lisp/closed/build.py`. The message names the stage that
+failed: the innermost stage that tagged a form (`records_defect_provenance`;
+elaboration, normalization, closed-program construction, or lowering, which
+typecheck can reach through result-guidance examples), and the boundary's phase
+when no stage tagged one. Only the `lowering` boundary says that the program
+passed typecheck. The diagnostic points at the tagged form, else at the start
+of the module being compiled; the message ends with the innermost function of
+the orchestrator package that raised (`defect_site`, the key `crash_signature`
+uses in the defect backlog), and the diagnostic keeps the exception as its
+`cause` (no CLI flag prints the traceback). Diagnostics, `MemoryError` and an `AssertionError`
+raised outside the orchestrator package are not converted; nor, around
+typecheck, are the errors of reading a source (`SOURCE_READ_ERRORS` in
+`orchestrator/workflow_lisp/reader.py`): `OSError`, `UnicodeError`, and
+`SourceChangedDuringReadError`, the reader's refusal of a source that changed
+between two reads of one compile. `compile` reports an `OSError` or
+`UnicodeError` as an I/O error (exit 2) and `run` reports a `UnicodeError` as a
+validation error (exit 2); `run` with an import it is not permitted to read
+(`PermissionError`) still ends in a traceback (exit 1), a defect outside this
+boundary, while a missing bundle file gives `File not found` (exit 1, no
+traceback) and a missing imported module `module_not_found` (exit 2). Two internal checks
 have codes of their own: `compiler_defect_hoisted_binding_rename` and
 `compiler_defect_constructor_type_dropped`; `compiler_defect_loop_control_value`
 and the replay-index code `pure_result_replay_unavailable` were retired with
@@ -805,7 +869,7 @@ not a default flip or retirement of old WCC shapes.
 
 Typed elaboration, normalization, scope/effect/proof summaries and source lineage
 must agree with the checked artifact consumed by the runtime. Internal failures
-after typecheck use the compiler-defect boundary described above; public admission
+during and after typecheck use the compiler-defect boundary described above; public admission
 refusals retain their specific diagnostics. Test current composition through the
 public checked compile/run/resume and totality owners named by
 [evaluated execution](workflow_lisp_evaluated_execution.md). Historical dual-flat

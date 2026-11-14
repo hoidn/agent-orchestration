@@ -435,7 +435,7 @@ def test_frontend_artifact_readback_feeds_command_evidence(tmp_path: Path) -> No
     source.parent.mkdir(parents=True)
     from orchestrator.workflow_lisp import syntax
 
-    source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+    source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule example/entry) (export run)
       (defworkflow run ((value Int)) -> Int
         (command-result fetch :argv ("python" "probe.py" value) :returns Int)))''')

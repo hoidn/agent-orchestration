@@ -25,7 +25,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from tests.agent_session_shims import closed_path
 
 
-SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> Result
@@ -287,7 +287,7 @@ def test_provider_result_uses_shared_checked_projection(tmp_path, declaration, r
 
 @pytest.mark.parametrize("output_exists", [False, True])
 def test_defprompt_output_position_is_validated_before_commit(tmp_path, output_exists):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defrecord Result (ok Bool))
       (defpath Report :kind relpath :under "artifacts" :must-exist false)
@@ -411,11 +411,10 @@ def test_public_nested_provider_smoke_keeps_source_kind_and_document_evidence(tm
     body = f'''(let* ((first (ask message "AUTHORED SUFFIX"))
         (second (provider-result providers.review :prompt prompts.workspace :inputs (message)
           {dependency_clause} :returns Bool))) {doc_call if document_kind == "doc" else "second"})'''
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule main) (export run)
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule main) (export run)
       (defpath Note :kind relpath :under "artifacts" :must-exist true)
       (defprompt document (:fills (note :doc Note) (message :text)) -> Bool "Message={{message}}")
       (defproc ask ((name String) (name__2 String)) -> Bool
-        :effects ((uses-provider providers.review)) :lowering private-workflow
         (provider-result providers.review :prompt prompts.base :inputs (name name name__2)
           :model "nested-model" :effort "low" :returns Bool))
       (defworkflow run ((message String) (note Note)) -> Bool {body}))'''

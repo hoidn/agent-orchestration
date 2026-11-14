@@ -372,6 +372,14 @@ class WccSelect:
     condition: "WccValue"
     then_arm: WccSelectArm
     else_arm: WccSelectArm
+    # Branch proof triples, as on ``WccIf``: closed lowering turns a narrowed
+    # variant-only field read into a ``case`` (closed/variant_proof.py).
+    then_proof_context: tuple[object, ...] = field(
+        default=(), compare=False, repr=False
+    )
+    else_proof_context: tuple[object, ...] = field(
+        default=(), compare=False, repr=False
+    )
 
 
 WccValue = WccAtom | WccInject | WccPureOp | WccSelect | WccList | WccBlock | WccResultPath | WccListMap
@@ -857,6 +865,8 @@ class WccParallelMap:
     binding_label: str | None = field(default=None, compare=False, repr=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True})
     binding_identity: object | None = field(default=None, compare=False, repr=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
+    one_call_body: bool = field(default=False, compare=False, repr=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True})
 
 

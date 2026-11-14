@@ -29,7 +29,7 @@ from tests.workflow_evaluated_recovery_helpers import ROOT, resume
 
 
 ITEMS = ("alpha", "beta")
-SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule run) (export run)
   (defrecord Seen (item String) (tag String) (data String))
   (defworkflow run ((base String)) -> List[Seen]
@@ -257,7 +257,7 @@ def _relocated(tmp_path, _phase):
     assert case.dispatches("beta") == [str(original), str(case.ws)]
 
 
-BRANCH_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+BRANCH_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule run) (export run)
   (defrecord Seen (item String) (tag String) (data String))
   (defworkflow worker ((repo String)) -> Seen

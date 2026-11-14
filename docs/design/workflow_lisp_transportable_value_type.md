@@ -1,5 +1,9 @@
 # Workflow Lisp Transportable `Value` Type
 
+Status: **Historical — archived in place.** Superseded: its rules now live in the language reference and `specs/`. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [transportable `Value`](workflow_lisp_frontend_specification.md#711-transportable-value-target-219) in the frontend specification; [IO, deterministic artifact contracts](../../specs/io.md) for runtime validation. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#transportable_value_type).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
 Pre-2.35 introduction gates below are historical; data readers remain separate.
 

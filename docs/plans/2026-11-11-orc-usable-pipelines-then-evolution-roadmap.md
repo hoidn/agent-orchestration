@@ -90,7 +90,7 @@ From the reviewers' memory of the literature; verify before citing.
 | Bare `(continue <effect>)` crashes the compiler; a loop without `:on-exhausted` compiles and fails at run time | Phase 1 |
 | A run prints nothing while in flight or on success; a failure prints no run id; resume refusals name no recourse | Phase 1 |
 | A command that failed because of a bug in its own script cannot be resumed once the script is fixed (`effect_input_diverged`; no override) | Phase 3; 3a done: plain `resume` retries after a clean failure, `resume --accept-changes` covers the rest |
-| Any semantic source edit refuses resume (`resume_program_changed`) | Phase 3 |
+| Any semantic source edit refuses resume (`resume_program_changed`) | Phase 3; 3b done: the refusal prints a plan, and `resume --accept-changes=plan-<token>` continues under the edit; a run that uses a run reference cannot be resumed after a package change (parked) |
 | Inserting one effect renames every later generated binder on the Python surface, shifting effect identities | Phase 2 |
 | Provider token usage is not recorded; every Phase 1 search row logged consumption as unavailable | Phase 2 |
 | About 34k lines of retired architecture remain, dead as executors but imported as types by 28 production modules | Lane D |
@@ -103,8 +103,9 @@ From the reviewers' memory of the literature; verify before citing.
 Phase 0 ─ Phase 1 ─┬─ Consumer thread (continuous, selects Phase 3 and 4 items)
                    ├─ Phase 2 ─ Phase 3 ─ Phase 4
                    └─ Lane D (background, time-boxed)
-Phase 5 (seed set) runs beside the phases; each of its paid tranches and
-Phase 6 open only by owner budget decision.
+Phase 5 (seed set) and Phase 5b (long-horizon task family and staged seed)
+run beside the phases; each of their paid tranches and Phase 6 open only by
+owner budget decision.
 ```
 
 Phase 3 and each Phase 4 item enter only with a named friction item from the
@@ -260,10 +261,14 @@ full designs.
   [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md), exit case (a)
   included. 3b (resume under an edited program) has an accepted
   [design](../design/workflow_lisp_edit_and_continue.md) and
-  [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md); its first
-  task proved the design's nine open claims by test before any feature code,
-  and the build is in execution. Accepting an edit needs a plan token that
-  the refusal prints, so the plan the author saw is the plan that is applied.
+  [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), and is
+  implemented (T1 to T8, 2026-11-13), exit cases (b) and (c) included:
+  `resume` under an edit prints a read-only plan with a token, and
+  `resume --accept-changes=plan-<token>` continues the same run under the
+  edit, so the plan the author saw is the plan that is applied. The lane then
+  stopped (decision 13). Not done: the H-G3 measurement. Parked: what the
+  program and run-reference `config` digests cover, and the message-text match
+  in `effect_inputs._is_destination_overlap`.
 
 ### Phase 4: Python additions pulled by the consumer
 
@@ -324,6 +329,204 @@ every removed test is listed with the code it covered".
      designs marked historical.
    Order: the design for the effect rule and the iteration and callable
    conventions first; code only after it is accepted.
+   **Compiler and runtime defects found by probes on the way (open list,
+   2026-11-13; each reproduced by the agent that found it, none scheduled
+   unless marked).** They are separate from the design's changes and each
+   needs its own small fix with tests:
+   - two prompt outputs filled with the same path commit with nothing
+     refusing the alias, and an output name equal to a result field is caught
+     only after the provider has run; the check that would refuse both before
+     launch is called only by its tests;
+   - a `defworkflow` with a workflow-reference parameter fails with
+     `compiler_defect`, although the specification's own example has that
+     shape;
+   - choosing a procedure reference with `if` fails with `compiler_defect`
+     where a refusal is intended (closed 2026-11-13 by the callables change:
+     `proc_ref_literal_required`);
+   - inside a macro template: `list/map`, a call to a `let-proc` local, and a
+     nested loop used as an operand each fail or crash;
+   - a free name in a macro template binds to the caller's local, so hygiene
+     is weaker than the retired macro contract claimed;
+   - `(and (= a.variant V) …)` is refused by module compilation while the
+     expression typechecker grants the proof;
+   - a loop's `continue` value holding an effectful `if` inside an operand
+     fails with `compiler_defect` (closed 2026-11-14 by the effects change: refused `effect_not_permitted`);
+   - the guard that forbids a confined run-reference site in a map body does
+     not see one reached through a procedure-reference parameter or a
+     `let-proc` local, in serial and parallel maps (a hole in a safety guard:
+     first in line for a fix);
+   - a parallel map written directly in a `loop/recur` body fails with
+     `compiler_defect` (through a procedure call it works) (closed 2026-11-13
+     by the map-bodies change);
+   - a `let-proc` local whose body is a loop crashes with an internal error;
+   - dead code: the prompt snapshot and attempt-identity builders and the
+     fragment-identity projection have no caller in the package.
+   - added 2026-11-13 (second batch): an empty `(list)` in a `match` arm,
+     and a `list/map` with a `match` body used directly as an `if` condition
+     inside a loop body, each fail with `compiler_defect` (the staged-authoring
+     plan fixes both as its first task); a nested loop used directly as an
+     operand fails with an internal `KeyError`, with or without a macro; an
+     `Int` literal beyond 64 bits fails with `compiler_defect`; the `and`/`or`
+     item above has its cause (the proof facts are lost when the condition is
+     hoisted into a binding, so the refinement in the typechecker and the
+     tests that assert it cannot be reached from a compile); a template-bound
+     name in the first position of a list is never renamed by macro expansion
+     (not closed: the loop-binder change withdrew its fix; see the sixth
+     batch).
+   - added 2026-11-13 (third batch): an inner binding that is not a procedure
+     reference does not hide an outer procedure reference of the same name
+     (`(let* ((g (proc-ref p))) (let* ((g 5)) (g 1)))` compiles and calls
+     `p`); the fix refuses source that compiles today, so it goes with the
+     one-target cut, beside refusing a `let-proc` local named like a function
+     or a form; a `defproc` parameter of procedure-reference type forwarded
+     through `let*` fails with `name_unknown`; reading a variant field on a
+     `match` subject instead of the arm's binder passes the typechecker and
+     fails with `compiler_defect` (confirmed by a second agent; the
+     variant-field fix branch does not change it).
+   - added 2026-11-13 (fourth batch, each confirmed by an independent probe
+     on `main`): a prompt declared with a missing `input_file` does not fail,
+     and the provider runs with no authored prompt (closed 2026-11-13,
+     `f004a59c`: a missing, unreadable or directory prompt file fails before
+     launch with `input_file_read_failed` or `asset_file_read_failed`); `defpath` silently
+     ignores unknown keywords; return guidance on a workflow, procedure or
+     function is checked and then discarded (an accepted form with no
+     effect); a `Bool` result accepts the strings "true" and "false";
+     `TimestampNs` is documented as a type and does not exist; a prompt
+     extern's path is checked only when the call runs, not at compile.
+     Not a defect, a spec correction: result guidance on a provider or
+     command effect is part of program identity (the specs said it was not).
+   - added 2026-11-13 (fifth batch, from the second review of the callables
+     change): macro hygiene never renames a template's `let-proc` binder, so
+     caller code passed to the macro can call the template's local (with the
+     alias form on `main` already; by name once the callables change merges);
+     renaming it moves the digest of macro programs that compile today, so it
+     goes with the one-target cut; a `let-proc` local that forwards a captured
+     outer procedure reference fails with `compiler_defect`.
+   - added 2026-11-13 (sixth batch, from the third review of the loop-binder
+     change): macro hygiene in head position. A template-bound name at the
+     head of a list is never renamed, so a caller's binding of the same name
+     answers a call the template meant for its own local (a silent wrong
+     value; reached through a direct procedure reference, an alias, or
+     `bind-proc`). Two attempts to fix it inside the hygiene pass each let a
+     new wrong case through, because what a head names is the resolver's
+     knowledge; it needs one resolver-aware change, not a patch. Also: a
+     workflow defined by a macro gets its parameters renamed, so it cannot be
+     called or used as an entry through its public inputs.
+   - added 2026-11-13 (seventh batch, from the third review of the map-body
+     change): effect summaries are unsound for imported workflows. The effect
+     fixpoint keeps an imported workflow's summary for its first round only,
+     and a missing summary is read as "no effects", so any check that asks a
+     summary whether a call reaches an effect can be answered wrongly (found
+     through the run-reference rule for map bodies, which no longer relies on
+     summaries; other effect checks on `main` may be affected and have not
+     been audited: second in line after the missing prompt file). Also: a
+     one-call map body that is a `let-proc` capture, and a map inside a
+     `continue` argument of a specialized procedure, each fail with
+     `compiler_defect`; a variant-only field read fails with `compiler_defect`
+     when the tested name is rebound in one operand while a sibling operand
+     tests it (needs four lines in the renaming pass).
+   - added 2026-11-13 (eighth batch, from the conditionals documentation and
+     its review; each confirmed by probe): a discriminant proof reaches a
+     parallel `list/map-effect` body and a pure `list/map` body but not a
+     serial `list/map-effect` body (the same read is refused there); inside a
+     generic procedure a discriminant test on a value of a type parameter is
+     refused with a misleading code (`variant_tag_union_mismatch`), although
+     `match` works; `cond`, `if` and `match` can be bound as names; the
+     `and`/`or` proof item above has its cause confirmed a second time (the
+     facts are lost when the condition is hoisted into a generated binding).
+   - added 2026-11-13 (ninth batch, from the reviews of the fixture
+     migration, the missing-prompt-file fix and the effects change; each
+     reproduced by the reviewer on `main`): `path/join-under` looks up its
+     path type in the caller's scope, so a procedure called from a module that
+     does not import that type is refused `path_join_under_type_invalid` (a
+     module-qualified type name works); a prompt `input_file` given as an
+     absolute path, with `..`, or as a symlink that leaves the workspace is
+     read and the provider launches, while `asset_file` refuses all three;
+     `(continue (if c (if c E 0) 0))` and a procedure call holding a
+     conditional effect used as a `match` subject each fail with
+     `compiler_defect`; two refusal messages mislead (a parallel map in an
+     `if` condition; `bind-proc` with an effect).
+   - added 2026-11-13 (tenth batch): `done` as a `let*` binding value inside
+     a loop fails with a `TypeError` in the elaborator (found by the
+     prototype of the mutant generator on three seed programs: by the scope
+     cut's own rule a defect a mutant hits returns to the fix list); after
+     `invalidate`, the refusal of `resume` suggests a bare
+     `--accept-changes`, which is itself refused `resume_preflight_failed`
+     (found by the re-review of the missing-prompt-file fix; not re-run on
+     `main` by the coordinator).
+   - added 2026-11-13 (eleventh batch; the most serious item on this list,
+     the seed-dependent part closed 2026-11-14, `ecd57051`; a sibling stays open, see the end of this item): the compiler
+     chooses a call's target from a set whose order depends on Python's hash
+     seed and, through a path inside a hash, on the source directory. The
+     same source can build on one run and end in `compiler_defect` on the
+     next, and some builds silently call the wrong procedure and compute a
+     wrong value, with a different program digest. Two triggers: a macro
+     expanded more than once in one owner into calls with different targets
+     (every target; for example a template with a `let-proc` local used twice
+     gives 707 or 505 where 705 is meant), and, at targets 2.39 and 2.40, a
+     procedure specialized more than once in one call chain (a bound, nested
+     procedure reference). Found by the test-source migration and by a
+     review, traced by a debugger to a site-keyed map in the elaborator
+     ([report in the fix's plan row](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)).
+     It must be fixed before the one-target cut. A program whose build
+     depended on the seed gets one digest after the fix; programs with no
+     such collision keep theirs (shown over every tracked `.orc` file and
+     test fixture: no digest moved). Open sibling, deterministic and on every
+     target: a macro template whose `bind-proc` binds a computed value or a
+     workflow reference gives every expansion the first expansion's value,
+     because a bound value is identified by its source position (known rows
+     `B7-*` of the defect record; next in line, on its own branch).
+   The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
+   (accepted 2026-11-13 after an independent review and one revision) orders
+   this list by harm. By the owner's direction of 2026-11-13 it is cut to
+   eight tasks (48 hours, about 85 with reviews): what can
+   spend provider money or commit a wrong output, and the crashes a short
+   staged seed or its mutants would plausibly hit. The rest stay listed and
+   pinned as known, and return only when the mutant generator or a real
+   workflow hits one.
+6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
+   a compact long-horizon seed under the 50-line limit; owner decisions 14 and
+   15). Six things the language made awkward, each reproduced by probe before
+   any design: a role (provider, model, effort, timeout) cannot be bound once
+   for fresh calls; a timeout must be a literal; an empty list as loop state
+   needs a type carrier; a document fill on a file that later steps edit
+   blocks `resume`; a list longer than a map's cap fails the run after the
+   work is done; a list cannot be reduced.
+   - **The principled fix for roles (owner direction):** ordinary partial
+     application with what the language already has. A typed prompt becomes a
+     first-class value (`Prompt[T]`), so one generic procedure can wrap
+     `provider-result`, and a role is that procedure with its provider, model,
+     effort and timeout bound once by `bind-proc`. No new `role` form. Probes
+     on 2026-11-13 showed that `bind-proc`, generic procedures and a provider
+     call inside a procedure all work today, that a macro wrapping the call is
+     refused on purpose (`macro_hidden_effect`), and that the one missing
+     piece is that a prompt is not a value.
+   - **Why it matters for the search:** changing one role's model or effort,
+     or switching a role between a fresh call and a continued conversation,
+     becomes a one-token edit in one place.
+   - Design and plan drafted 2026-11-13 as proposed
+     ([design](../design/workflow_lisp_staged_workflow_authoring.md),
+     [plan](2026-11-13-staged-workflow-authoring-revisions-plan.md); about 118
+     hours in 15 tasks). The probes corrected the findings: a prompt as a
+     value is not the only missing piece (a provider cannot be an argument, a
+     reference to a generic procedure does not instantiate, and an agent
+     cannot be a `bind-proc` argument), and model and effort per role are
+     already one-token edits today through inputs with literal defaults, so
+     the first search space needs none of this; what prompt values buy is
+     structural edits in one place (conversation scope, adding or splitting a
+     role).
+   - Reviewed and accepted 2026-11-13 (0 blockers, 8 majors, all applied). A
+     compiler prototype on the spike branch proved the role idiom: the three
+     seeds compile as written and no existing program's identity moves. Scope
+     after the review: about 79 hours in 11 tasks. Deferred, with the designed
+     rule kept: the snapshot fill for living documents, and an agent as a
+     bound argument (so fresh against continued stays an edit at each call
+     site until the conversation dimension is searched).
+   - Order: code starts after the stage 5 branches E1, I1 and C1 are merged. First-class prompts come first, since the timeout and
+     document-fill questions meet them (when a fill is read: at the creation
+     of the prompt value or at the call). The changes follow the surface
+     coherence changes of stage 5 and land before the long-horizon seed is
+     frozen, so the seed is written once in the revised language.
 
 - **Exit test:** the named packages are gone and nothing imports them; one
   admitted target for new source; any retained older target is listed with its
@@ -361,6 +564,75 @@ this section only summarizes it.
 - **Output:** the seed programs, the frozen task list and per-run results, in
   a place a later search can load.
 
+### Phase 5b: Long-horizon task family and staged seed
+
+Added 2026-11-13 by owner decisions 14 and 16; decision 18 fixes its
+credential. Its
+[plan](2026-11-13-long-horizon-task-family-and-seed-plan.md) owns the effort
+ladder's task list, limits, thresholds and readout; this section owns the
+staging.
+
+- **Aim:** a task family of long tasks on which a direct `claude-haiku-5-5`
+  session succeeds 10 to 30 percent of the time (software, machine learning,
+  scientific programming and reasoning), and one compact `.orc` seed that
+  stages such a task with feedback at several timescales, as the starting
+  point of the Phase 6 search.
+- **Tasks:** individual tasks taken from public benchmarks. First candidate
+  set: 16 named Terminal-Bench 4 tasks (single image, no GPU), with
+  Terminal-Bench-Science as a second source and single MLE-bench
+  competitions as a third (decision 17; steps 10 to 12). Scoring is each task's own
+  verifier, so the family is oracle-scored: its qualification is the oracle
+  check (the reference solution passes, an untouched environment fails), not
+  a judge.
+- **Seed:** `milestones.orc` (49 lines; branch `spike/long-horizon-seed`):
+  set up the project (directories, `AGENTS.md`, a document catalogue, an
+  append-only log, topic notes), write spec targets, then rounds of plan,
+  build each milestone (work, check, review), check and acceptance. Two
+  neighbours are kept as comparison points (`staged`, one flat loop; `roles`,
+  the same with Agent Sessions).
+- **Search dimensions:** in the
+  [seed-set plan](2026-11-11-seed-set-calibration-plan.md), "Search dimensions
+  around one seed". First space: one model (Haiku), effort per role. Prompt
+  wording, the setup step's included, is a later dimension.
+
+| Step | What | Gate | State (2026-11-13) |
+| --- | --- | --- | --- |
+| 1 | Survey of public benchmarks; choose the candidate tasks | None (no spend) | Done; findings to be carried into the plan |
+| 2 | Build, run and grade the tasks on this machine without Docker (rootless Podman, the published harness unchanged); the oracle check | None (no spend) | Done for 13 tasks (11 of the 16, 2 science tasks): 12 pass both halves with task logic unchanged, one needs a wider user-id range or a one-line verifier change; one verifier is timing-sensitive under load. Five of the 16 are untried, and none has been run five times ([report](../reports/2026-11-13-long-horizon-benchmark-survey-and-feasibility.md)) |
+| 3 | Seed design, with scripted runs and kill-and-resume | None (no spend) | Done on the spike branch; not on `main` |
+| 4 | The [plan](2026-11-13-long-horizon-task-family-and-seed-plan.md) with its ledger: task list, network policy, what is withheld from the agent, metering, stop rules, readout | Independent review | Accepted 2026-11-13 after review and two revisions. A third revision (decision 18: a subscription token, usage limits, a live probe and a measured pilot; the Task 2 probes) has been reviewed and revised and awaits the coordinator's acceptance: about 133 hours of work, 119 still to do; the attempts' 35 to 45 quiet machine hours are spread over as many weekly allowance windows as the pilot implies, and the owner gives a meter reading before each |
+| 5 | Guarded launcher: only the approved model and efforts, a reservation before every attempt, the dollar ceiling, reference solutions and verifier tests never in the agent's container | Independent review; a zero-spend rehearsal with stand-ins | Not started |
+| 6 | Effort ladder: direct Haiku at effort low, medium and high, five attempts per task, at most 240 attempts, ceiling USD 200 | Steps 2, 4 and 5; approved (decision 16) | Not started |
+| 7 | Freeze the task set from the ladder: tasks in the band, and the answer on whether success falls as effort rises | Reported to the owner | After step 6 |
+| 8 | Merge the seed to `main` and freeze it | Surface-coherence changes merged (the seed is written once, in the language as revised); the staged-authoring revisions are not required for the first search space | Waits on Lane D stage 5 |
+| 9 | Seed against a direct session at matched priced-token cost on the frozen tasks | **A new owner approval** (not covered by decision 16) | Not requested |
+| 10 | MLE-bench competitions as tasks of this harness ([feasibility report](../reports/2026-11-13-mle-bench-subset-feasibility.md)): each candidate wrapped so that the private answers and the credential stay outside the agent's container (the upstream harness puts its API key and the answers inside; under decision 18 the credential is the subscription token, held by the host-side passthrough), reusing the launcher, relay, allowlist, passthrough and allowance guard of step 5; the grader check (the answers file earns a gold medal, an untouched environment scores zero); a CPU-only competition first, then one on the GPU. The score is continuous, so every attempt also records the leaderboard percentile as a graded outcome | Step 5 done; its own plan and ledger, with the success definition (any medal, as proposed) and a total ceiling fixed before spend; independent review. Owner actions: a Kaggle API token and acceptance of each competition's rules; the NVIDIA Container Toolkit for rootless Podman | Staged 2026-11-13 (decision 17); not started. About 16 hours for the first CPU-only competition, 6 to 10 more for the first on the GPU, 1 to 2 for each further one |
+| 11 | Screen the 13 ranked candidates: a direct Haiku session, 3 attempts each at one effort (39 attempts), the benchmark's 24-hour limit, about four attempts at once and one of them on the GPU | Step 10; decision 17 (Haiku up to USD 200 a day, a priced-token figure under decision 18; the report estimates USD 40 to 310 in all and 3 to 4 days if sessions stop by themselves, before any wait at the subscription's usage limits). Its plan states how the screen pauses at a usage limit and how an attempt cut off by one is counted (`AGENTS.md`, "Credential"), as the ladder's plan does | Not started |
+| 12 | Place the competitions: one enters the family only at 10 to 30 percent success. Three attempts only exclude the clear ceilings and floors, so a competition that survives the screen gets the ladder's attempts (step 6's size per task) before it is frozen with step 7's set | Reported to the owner; a top-up beyond the plan's ceiling is a new request | After step 11. The report expects 2 to 5 of the 13 to fall in the band |
+
+- **Exit test:** a frozen task list with each task's measured direct success
+  rate by effort; a seed on `main` that completes those tasks' stages under
+  stand-ins and resumes after a kill; and either a measured Pareto comparison
+  of the seed against a direct session or a recorded decision not to buy it.
+- **Limits:** five attempts per cell resolve only large differences (a task
+  at 20 percent shows 0 of 5 about a third of the time), so step 7 places
+  tasks in bands and makes no fine ranking. No claim about any workflow comes
+  from step 6.
+- **Making fitness cheaper to measure (added 2026-11-13, owner direction).**
+  A search over workflows is limited by fitness: one evaluation costs dollars
+  and pass or fail at a 20 percent rate needs about 290 attempts per
+  candidate to tell 20 from 30 percent. These five items raise the chance
+  that a later search finds anything; each is attached to a step above and
+  none adds spend unless marked.
+
+| Lever | What is done | Where | Spend |
+| --- | --- | --- | --- |
+| Graded fitness | Record, for every attempt, the verifier's count of sub-tests passed and total, where the verifier exposes one; prefer tasks with many sub-tests when the set is frozen. Reported beside pass or fail; it places no task and changes no frozen rule of the ladder | Steps 6 and 7 | None |
+| Deterministic stage signals | On the first paid seed runs, record at each stage boundary the visible check's pass fraction and the agents' typed verdicts, beside the final verifier result; report how well each predicts the end. Early stopping is designed only on a signal that does | Step 9 (its smoke first) | None beyond step 9 |
+| Tasks chosen by how the direct session fails | Read the ladder's failed transcripts and label each failure as process (lost track, stopped early, did not verify, broke earlier work) or capability; the frozen set states the mix, and the staged comparison is read per label | Step 7 | None (the transcripts are paid for by step 6) |
+| A cheaper task family for the inner loop | A second, shorter family with the same failure labels, at about a tenth of the cost per attempt, for selection; finalists are validated on the long tasks | A new step after 7 | **New calibration spend; needs an owner approval; not requested** |
+| Exhaust the small space before searching | The first space (one model, an effort per role, three levels) has 27 points: it is evaluated as a grid, or a declared fraction of one, on the frozen tasks, not searched | Phase 6, first run | Part of the Phase 6 request |
+
 ### Phase 6: Program evolution
 
 The owner chose the form below on 2026-11-11 (decision 7). The alternative,
@@ -389,6 +661,32 @@ was not taken. No spend is authorized.
 - The campaign code from the closed search roadmap is kept outside the default
   test suite (`ORCHESTRATE_CAMPAIGN_TESTS=1` runs its tests) until this
   phase decides what it reuses.
+- **Search readiness (added 2026-11-13, owner direction; no spend).** What
+  this system could add to a search is not the rejection of invalid
+  candidates (in October the typed admission rejected nothing). It is:
+  evaluation that can be paused at a stage boundary and resumed, so weak
+  candidates stop early and promising ones continue without paying twice;
+  an identity that recognises the same program respelled; spend bounds the
+  runtime enforces on a generated program; a uniform typed tree to mutate;
+  and typed per-stage records for a proposer. Three pieces of work make
+  those real before any paid search, each with its own plan when it starts:
+
+| Readiness item | What is built or measured | Gate | Depends on |
+| --- | --- | --- | --- |
+| R1 Checkpoint controller and workspace snapshots ([design](../design/orc_search_checkpoint_controller.md), reviewed twice and accepted as a design on 2026-11-13; **not built**: Part 1, a `--stop-after` flag and a stop-and-copy procedure, about 27 hours, waits for two answers: where a staged seed's workspace lives when it drives a container task (Phase 5b step 9's design) and whether stage signals predict the final result (the first paid seed runs). Measured while designing: a fork saves a fixed number of calls, 42 percent of a two-milestone run and 17 percent of an eight-milestone one, and on the long-horizon tasks a host copy does not capture the agent's work, which lives in the task container) | A snapshot of the workspace after every committed step (a commit for a repository task, an image layer for a container task), recorded beside the memo; a controller that runs candidates to a named stage boundary, stops the weak ones and resumes the rest; a fork of a run at a step with its workspace. This is the design item H-E2 needs and nobody has assessed: design first | Stand-in runs: a stopped candidate resumes with no step dispatched twice; a fork at step k reproduces the parent's workspace at k byte for byte; cost of a child equals its changed suffix | Phase 3b (done); the stage-signal result of Phase 5b for where to stop |
+| R2 Canonical digest, then a replay of October | Local and generated names leave the program digest, so two spellings of one program share it; then the digests of the October search's recorded candidates are recomputed and the share that collapse is reported | Zero spend. The replay decides whether de-duplication is worth wiring into admission | The one-target cut (a digest change moves identity) |
+| R3 Mutants never crash the compiler ([plan](2026-11-13-phase-6-mutant-generator-plan.md), accepted 2026-11-13, 22 hours) | A generator of mechanical mutants of the seeds over the declared dimensions (a few hundred); every mutant compiles or is refused with a code, none ends in `compiler_defect`, and the count of distinct digests is reported. The open defect list of Lane D stage 5 is the backlog it draws on, ordered by what the mutants actually hit | Zero spend; runs in the default suite at a small sample | Stage 5 merges; the mutation operators are the same ones a search uses |
+
+  Order: R3 and the October replay first (days, no design); R1 after its
+  design is reviewed. A zero-spend check of H-E2's reach belongs here too:
+  apply each declared mutation to a stand-in run of the seed and read the
+  plan `resume` prints, which gives the share of steps each dimension keeps.
+- **Estimate these items answer (coordinator's judgment, 2026-11-13, not a
+  measurement):** about a quarter to a third that a search on this system
+  produces a workflow that beats its seed with these mechanisms material to
+  it; the items here and the fitness items of Phase 5b are what could raise
+  that. The cap is whether a staged structure pays for its extra calls on
+  long tasks, which Phase 5b step 9 tests.
 
 ## Effort
 
@@ -406,6 +704,26 @@ Phase 3 is larger than the table says: the accepted plan for 3b alone estimates
 | Phase 4 | 3–5 |
 | Lane D | 7–11 |
 | Total | 21–32 |
+
+**Whole-roadmap weights (coordinator's estimate, 2026-11-13; the owner asked that progress
+figures cover every part).** The table above covers Phases 0 to 4 and Lane D as first scoped.
+Lane D has since gained stages 5 and 6, the documentation consolidation and a defect backlog, and
+four parts had no weight. Midpoints in engineer-weeks, from each plan's hours where one exists and
+from judgment where none does; a progress figure is done weeks over this total and says so.
+
+| Part | Weeks | Basis |
+| --- | --- | --- |
+| Phase 0 | 0.75 | Table above |
+| Phase 1 | 2.5 | Table above |
+| Phase 2 | 4 | Table above |
+| Phase 3 | 6 | Table above |
+| Phase 4 | 4 | Table above |
+| Lane D | 17 | 9 as first scoped; stage 5 about 3; stage 6 about 2 (79 hours); documentation consolidation about 3 (112 hours); defect backlog and the changes assigned to the cut about 2 (judgment, unsized) |
+| Consumer thread | 3 | Judgment: one pipeline written, run to a used result, and its friction log |
+| Phase 5, seed set | 4 | Judgment: tasks, programs and runner (built), calibration, seed evaluation |
+| Phase 5b, long-horizon | 6 | 133 hours for the ladder and the freeze (93 before the plan's third revision: the subscription route, its probe and pilot, the allowance guard), plus the staged comparison (judgment); about 1 for the MLE-bench steps 10 to 12 (about 45 hours and the screen) |
+| Phase 6, program evolution | 8 | Judgment: the three readiness items, a search harness and its runs; the least certain row |
+| **Total** | **about 55** | |
 
 ## Dispositions
 
@@ -444,7 +762,11 @@ the owner can amend any of them.
 | 11 | Agent Sessions after the comparison | Kept, 2026-11-12. The owner values sessions for versatility in workflow patterns, not efficiency. The comparison's cost finding (1.4 to 1.7 times the plain handoff on a four-turn pattern; a committed turn cannot be invalidated) is the known price, not a reason to retire |
 | 12 | Who approves provider spend | Delegated to the coordinator, 2026-11-12, "within reason": planned-size tranches with a cap recorded in the plan ledger before the first call, Haiku by default and nothing above the Sonnet/Terra ceiling. The coordinator still asks for a tranche above about USD 100, cumulative spend above about USD 300, a new experiment line, or a top-up after a null result ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
 | 13 | How far to take edited-program resume (Phase 3b) | 2026-11-12: the owner asked why resume and effect tracking take so much effort, and chose to finish the two remaining tasks (accepting a plan; guides and closeout) and then stop. No scope is added to that lane after them: the open design question about resuming a run that uses a run reference after a package change stays parked, and capacity moves to the seed-set calibration and the language cleanup |
-| 14 | A long-horizon seed and task family | 2026-11-13, owner direction, added to the seed work: tasks with a long horizon on which `claude-haiku-5-5` succeeds 10 to 30 percent of the time, in software, machine learning and scientific programming or reasoning, extracted individually from public benchmarks; and one compact `.orc` seed (few lines) that stages the work (a clean project repository with its documentation structure and agent guides, then spec-driven targets, then design and planning, then implementation) with feedback at several timescales and semantic levels. Nothing like it exists in the repository yet. A benchmark survey and a seed design are in progress; the plan follows them |
+| 14 | A long-horizon seed and task family | 2026-11-13, owner direction, added to the seed work: tasks with a long horizon on which `claude-haiku-5-5` succeeds 10 to 30 percent of the time, in software, machine learning and scientific programming or reasoning, extracted individually from public benchmarks; and one compact `.orc` seed (few lines) that stages the work (a clean project repository with its documentation structure and agent guides, then spec-driven targets, then design and planning, then implementation) with feedback at several timescales and semantic levels. Nothing like it exists in the repository yet. Staged as [Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed). Added the same day: mutations of the seed vary model (Haiku or Sonnet) and effort level per agent role; the first space searched keeps one model (Haiku) and varies only effort per role, after an effort ladder confirms that success does not fall as effort rises |
+| 15 | How a role is bound once | 2026-11-13: the owner asked for "a nice schemey partial application simple fix" and then for the design and roadmap staging of "the principled fix that this points to". Decided direction: a typed prompt is a first-class value and a role is a generic procedure wrapping `provider-result`, partially applied with `bind-proc`; no new `role` form. The design must still report any guarantee this would break (effect identity per call site, the provider declaration digest, metering, the closures boundary) before code is written |
+| 16 | Budget for the long-horizon effort ladder | Approved 2026-11-13 ("ok" to the stated request): 16 named benchmark tasks, a direct `claude-haiku-5-5` session at effort low, medium and high, five attempts each; at most 240 attempts, ceiling USD 200 (requested as about USD 170 at reported prices). Conditions before the first attempt: the oracle check passes here, the network policy is fixed, a guarded launcher is reviewed, the plan and its ledger exist. It places tasks relative to the 10 to 30 percent band and tests whether success falls as effort rises; the workflow comparison is a separate request ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
+| 17 | A second long-horizon family from MLE-bench | 2026-11-13: the owner asked "can we consider some mlebench tasks" and, told that the benchmark's standard limit is 24 hours per attempt, answered "parallel up to 24 hours ok , haiku spend up to $200 per day ok". The coordinator's reading: attempts on this family may run in parallel under the benchmark's 24-hour limit, and `claude-haiku-5-5` spend on this family may reach USD 200 per calendar day. Added the same day: "mlebench includsion depends on the included tasks fallin in the 10 to 30 percent range we specified", so a competition enters the family only when a calibration places `claude-haiku-5-5` at 10 to 30 percent success on it (the band of decision 14), under a success definition the plan fixes before spend. It is not yet a tranche. No call is made before the feasibility study is in, a plan with its ledger exists (attempt caps, a total ceiling, stop rules), an oracle-style check passes on this machine, the launcher is guarded and reviewed, and the calibration rules of [`AGENTS.md`](../../AGENTS.md) hold; the `AGENTS.md` rule for the line is written with that plan. The Kaggle account and the acceptance of each competition's rules are the owner's action. The [feasibility report](../reports/2026-11-13-mle-bench-subset-feasibility.md) (no spend) ranks 13 candidate competitions (13.4 GB) and expects 2 to 5 of them to fall in the band; it recommends a small screen after the Terminal-Bench launcher exists, each competition wrapped as a Harbor task because the upstream harness puts the answers and the API key inside the agent's container. Told that the coordinator recommends the screen after the Terminal-Bench launcher is built, the owner answered "ok. stage in the roadmap": staged as steps 10 to 12 of [Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed). Open: the owner gave a daily figure and no total, so the plan proposes a total; the daily figure is read as covering this family only, not the other Haiku experiment lines |
+| 18 | Which credential experiments use | 2026-11-13: told that the coordinator recommended an API key in a capped workspace for the effort ladder and the MLE-bench screen, the owner answered "no. subscription only. No api key for this or anythning else". Every provider call authenticates through the owner's Claude subscription; no API key is created or used ([`AGENTS.md`](../../AGENTS.md), experiment rules). Consequences taken into the [long-horizon plan](2026-11-13-long-horizon-task-family-and-seed-plan.md): the host-side passthrough holds a subscription token, not a key; there is no vendor-side spend limit, so the approved dollar ceilings are priced-token caps that the passthrough and the launcher enforce; runs share the subscription's usage limits with the owner's own sessions and must pause at a limit. Not yet shown: that the vendor accepts a subscription token through the passthrough (one live probe, usage only) |
 
 ## Process rules
 
@@ -498,10 +820,14 @@ is manual. Phase plans are linked here as they start:
   Sessions comparison ran under the budget of decision 10 (16 calls, USD 0.33): outcome
   Retire, by cost (the session variant cost 1.74 and 1.38 times the plain baseline). The
   owner keeps Agent Sessions (decision 11): its value is the workflow patterns it allows, which
-  the comparison did not measure. The live best-of-N smoke is not approved.
+  the comparison did not measure. The live best-of-N smoke ran once on 2026-11-13 under the coordinator's
+  delegated approval (5 `claude-haiku-5-5` calls, USD 0.022): the parallel map, the kill mid-map, the resume and
+  the metering behaved as specified (nine of ten checks); the frozen verdict is fail on the isolation check,
+  because the criterion's list of the CLI's built-in agents was incomplete (the plan's ledger has the detail).
 - Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
-  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; its first task proves the design's open claims before any feature code.
+  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; tasks T1 to T8 are done (2026-11-13): `resume` under an edited program prints a read-only plan with a token, and `resume --accept-changes=plan-<token>` continues the run under the edit; the lane has stopped (decision 13), with the H-G3 measurement not done and two items parked.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
+- Phase 5b, in preparation: staged in this roadmap ([Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed)); survey, machine feasibility and seed design are done on spike branches (`spike/long-horizon-tasks`, `spike/long-horizon-seed`); its [plan](2026-11-13-long-horizon-task-family-and-seed-plan.md) is in its third revision, reviewed and revised, awaiting acceptance. The effort ladder is the only owner-approved spend (decision 16). A live probe of the subscription route (decision 18) runs only on a coordinator approval row in the plan's ledger, under the budget delegation; that row is not written yet.
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
 - Lane D, dashboard, done: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).
   `report` and the dashboard read evaluated runs only and refuse retired runs
@@ -516,9 +842,17 @@ is manual. Phase plans are linked here as they start:
   accepted. Target 2.40 survives; after the cut a run recorded at an older target is read-only
   (`report`, dashboard and monitor read it; continuing it needs the tagged release).
 - Lane D, surface coherence (stage 5): [design](../design/workflow_lisp_surface_coherence.md)
-  accepted. A wrong-value defect the review found in constructor fields is fixed first; the
-  changes that only admit refused source follow; the loop binder rewrite rides the stage 4
+  accepted. The constructor-field defect is fixed and the callables change (C1) is merged
+  (2026-11-13), as are the loop binder form with its migration tool (I2a) and map bodies
+  (I1: any expression as a map body and a computed serial `:max`, in programs with no run
+  reference; `624ff688`, full suite 15,349 passed, the six failures being the baseline four and
+  two that passed alone); effects in fields (E1) is in its third review; the loop binder rewrite rides the stage 4
   sweep and the `fn` form goes at the stage 4 cut.
+- Lane D, authoring revisions for staged workflows (stage 6):
+  [design](../design/workflow_lisp_staged_workflow_authoring.md) and
+  [plan](2026-11-13-staged-workflow-authoring-revisions-plan.md), reviewed and accepted
+  2026-11-13; code starts after the stage 5 changes merge. Direction fixed by owner decision 15: roles by partial application over
+  first-class prompts.
 - Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
   after every record; memo reduction now continues from the last fold, a start the evaluator has
   just reached is published without a replay, and two compile passes skip work that cannot matter.

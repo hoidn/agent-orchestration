@@ -1,5 +1,9 @@
 # Workflow Lisp Private Runtime State And Consumer Value Flow
 
+Status: **Historical — archived in place.** Superseded: its recovery boundary is stated by State and CLI, its implemented C1/C6 slice by the frontend specification's provider inputs; Track R describes the retired checkpoint runtime and C2 to C6 were dropped by the roadmap. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [State, State Integrity and Recovery](../../specs/state.md#state-integrity-and-recovery); [CLI, Executable support boundary](../../specs/cli.md#executable-support-boundary); [frontend specification §22.4](workflow_lisp_frontend_specification.md#224-call-local-provider-policy) for typed provider inputs and [§17.1](workflow_lisp_frontend_specification.md#171-private-frontend-lowered-value-lane) for values between steps. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#private_runtime_state_and_consumer_value_flow).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 > **2026-11-11 disposition:** items C2–C6 are dropped or archived by the
 > [current roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions). This note does not change the
 > implemented C1 carriage or C6 implicit-default slice.

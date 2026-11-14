@@ -77,7 +77,7 @@ def _rename_in_run(source: str, old: str, new: str) -> str:
 @pytest.mark.parametrize(
     ("seed", "binder"),
     [
-        ("implement_review_revise.orc", "state"),  # fn parameter inside loop/recur
+        ("implement_review_revise.orc", "state"),  # loop/recur binder
         ("best_of_n.orc", "label"),  # list/map-effect binding
         ("implement_review_revise.orc", "review"),  # let* name used as match subject
         ("best_of_n.orc", "task"),  # workflow parameter passed as a prompt fill value
@@ -88,6 +88,22 @@ def test_skeleton_is_invariant_under_binder_rename_in_real_seed(seed, binder):
     renamed = _rename_in_run(source, binder, "renamed_binder")
     assert renamed != source
     assert skeleton_hash(renamed, definitions=["run"]) == skeleton_hash(source, definitions=["run"])
+
+
+# The `fn` form of `loop/recur`, which no seed holds any more: an inline source, kept until the cut that
+# removes the form (Lane D stage 4 Task 4b).
+FN_LOOP_SOURCE = """
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defworkflow run ((limit Int)) -> Int
+    (loop/recur :max 3 :state 0
+      (fn (state) (if (>= state limit) (done state) (continue (+ state 1)))))))
+"""
+
+
+def test_skeleton_is_invariant_under_fn_loop_parameter_rename():
+    renamed = _rename_in_run(FN_LOOP_SOURCE, "state", "renamed_binder")
+    assert renamed != FN_LOOP_SOURCE
+    assert skeleton_hash(renamed, definitions=["run"]) == skeleton_hash(FN_LOOP_SOURCE, definitions=["run"])
 
 
 LET_PROC_SOURCE = """

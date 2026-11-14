@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule imported_private_helper_local_union/helper)
   (export HelperInput PublicDecision run-helper)
 
@@ -24,8 +24,6 @@
     ((approved Bool)
      (detail String))
     -> LocalDecision
-    :effects ()
-    :lowering private-workflow
     (if approved
       (variant LocalDecision ALLOW_LOCAL
         :message detail)
@@ -35,8 +33,6 @@
   (defproc route-decision
     ((input HelperInput))
     -> LocalDecision
-    :effects ()
-    :lowering private-workflow
     (finalize-decision input.approved input.detail))
 
   (defworkflow run-helper

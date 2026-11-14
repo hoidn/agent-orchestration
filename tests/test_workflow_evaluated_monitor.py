@@ -195,7 +195,7 @@ def _assert_latest_retry_error(first, second, body):
 
 def _branch_run(workspace):
     source = workspace / "branch.orc"
-    source.write_text("""(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text("""(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule branch) (export run) (defworkflow run () -> Bool
         (let* ((choose (command-result choose :argv ("python" "choose.py") :returns Bool)))
           (if choose (command-result stale :argv ("python" "stale.py") :returns Bool) false))))""")
@@ -311,7 +311,7 @@ def test_monitor_unsettled_coordinator_uses_lock_without_reconciliation(tmp_path
 
 def test_monitor_validates_pure_failure_terminal_without_sources(tmp_path, monkeypatch):
     source = tmp_path / "failure.orc"
-    source.write_text("""(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text("""(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule failure) (export run) (defworkflow run ((divisor Float)) -> Float (/ 1.0 divisor)))""")
     result = cli_inprocess(tmp_path, "run", str(source), "--input", "divisor=0")
     assert result.returncode == 1, result.stderr

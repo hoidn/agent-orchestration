@@ -50,6 +50,7 @@ final run.
 - `tests/test_workflow_evaluated_resume_retry.py::test_pending_provider_required_dependency_c6_refuses_before_executor_then_retries[missing]` (failed once in a sampled run on `main` at load average about 20; passed three times alone)
 - `tests/test_workflow_run_ref_confined_child.py::test_host_work_is_charged_to_the_wall_budget` (failed once in a full run on 2026-11-12 that took 20 minutes at load average 40 to 55; passed alone)
 - `tests/test_workflow_run_ref_confined_child.py::test_a_tiny_wall_budget_settles_failed_budget_exhausted` and `tests/test_workflow_run_ref_confined_integration_fixes.py::test_holder_stop_time_is_charged_before_child_completion` (failed once in a full run on 2026-11-12 that took 18 minutes at load average 35 to 55; both passed alone)
+- `tests/test_provider_observation_execution.py::test_observation_preserves_timeout_result` (both parameters) and `test_observed_nonstream_timeout_is_not_blocked_by_unread_large_stdin[False]` (failed in a full run on 2026-11-13 at load 60 to 90; alone, one of four failed once on `main` and all passed on the next run).
 - `tests/test_provider_observation_execution.py::test_observed_nonstream_timeout_is_not_blocked_by_unread_large_stdin[True]` (failed once in a full run on 2026-11-12 that took 19 minutes at load average 50 to 65; passed alone)
 - Nine kill-and-deadline tests in `tests/test_provider_interactive_terminal_recovery.py` failed once when run alone at load average about 60; they passed in every full run.
 
@@ -74,3 +75,6 @@ minutes): they were mostly fast.
 The final run had stub `claude` and `codex` executables first on `PATH` that
 log and refuse every call (`experiments/thread_m/no_provider/`). The log
 stayed empty: no test in the suite starts a real provider CLI.
+- `tests/test_p2_smoke_kit.py` (whole module: 31 errors at once in a full run on 2026-11-13, from its one module-scoped rehearsal fixture; the traceback was not kept; the module passed five times when rerun at `-n 4` and `-n 16`. If it recurs, capture the fixture's error before rerunning).
+- `tests/test_run_ref_provider_holder.py::test_initial_durable_ack_blocked_observer_active_and_zero_worker_start[expiry]` (failed once in a full run on 2026-11-13 under load; passed alone).
+- `tests/test_provider_isolation_environment_cli.py` depends on where `--basetemp` sits, not on load: it passes 30 of 30 when every ancestor of the basetemp has mode 700 and fails 10 of 30 when one is group-writable (775), on `main` and on a branch alike (reproduced by a reviewer on 2026-11-13; path length is not the cause). Run it with a basetemp under a `mkdir -m 700` directory.

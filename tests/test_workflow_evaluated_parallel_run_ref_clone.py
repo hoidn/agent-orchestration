@@ -22,7 +22,7 @@ from tests.workflow_evaluated_recovery_helpers import digest, resume
 
 ITEMS = ("a", "b")
 EXPECTED = {"a": True, "b": False}  # the committed candidate answers `(= item "a")`
-DECOY = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+DECOY = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule candidate) (export run)
   (defworkflow run ((item String)) -> Bool (= item "b")))
 '''
@@ -34,7 +34,7 @@ MAP = ('(list/map-effect ((repo (list "a" "b"))) :max 2 :parallel 2 :workspace r
 def _batch(root: Path) -> Batch:
     from tests.test_workflow_evaluated_run_ref import _public_fixture
     root.mkdir(parents=True)
-    parent, source, refs = _public_fixture(root, parent_target="2.37", inputs="(item String)",
+    parent, source, refs = _public_fixture(root, parent_target="2.40", inputs="(item String)",
         call_inputs=":item repo", child_body='(= item "a")', definitions=lambda call: INVOKE.replace("CALL", call),
         body=lambda _call: f"(let* ((items {MAP})) (= (list/length items) 2))")
     batch = Batch(root, source=None, items=ITEMS, ws=parent,
@@ -108,7 +108,7 @@ def test_parallel_run_ref_children_compile_in_their_own_clones_after_kill_and_re
     assert child_launches(batch) == len(ITEMS)  # one child per item: no committed child launches again
 
 
-COMMON = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
+COMMON = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule common)
   (export WorkPath) (defpath WorkPath :kind relpath :under "artifacts" :must-exist true))'''
 IMPORT = "(import common :only (WorkPath))"
 INVOKE_PATH = ('(defworkflow invoke ((repo String) (payload WorkPath)) -> WorkPath '
@@ -121,7 +121,7 @@ def test_parallel_run_ref_children_copy_path_inputs_from_the_outer_workspace(tmp
     """Each child's copy of a `WorkPath` input holds the outer workspace's bytes, not its item's."""
     from tests.test_workflow_evaluated_cli import _run_cli
     from tests.test_workflow_evaluated_run_ref import _add_common_source, _public_fixture
-    parent, source, refs = _public_fixture(tmp_path, parent_target="2.37", imports=IMPORT, child_imports=IMPORT,
+    parent, source, refs = _public_fixture(tmp_path, parent_target="2.40", imports=IMPORT, child_imports=IMPORT,
         parameters="(payload WorkPath)", inputs="(payload WorkPath)", call_inputs=":payload payload",
         child_body="payload", returns="WorkPath", definitions=lambda call: INVOKE_PATH.replace("CALL", call),
         body=lambda _call: f"(let* ((items {MAP_PATH})) (= (list/length items) 2))")

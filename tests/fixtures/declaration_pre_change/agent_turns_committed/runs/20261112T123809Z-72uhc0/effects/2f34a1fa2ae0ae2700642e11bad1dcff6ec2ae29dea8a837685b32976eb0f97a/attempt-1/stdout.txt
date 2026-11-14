@@ -1,4 +1,0 @@
-{"type": "thread.started", "thread_id": "cba3a402-881a-4ebe-8931-fa3795d8e42f"}
-{"type": "turn.started"}
-{"type": "item.completed", "item": {"type": "agent_message", "text": "done"}}
-{"type": "turn.completed"}

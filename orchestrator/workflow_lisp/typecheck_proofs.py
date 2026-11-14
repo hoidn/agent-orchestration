@@ -167,6 +167,19 @@ def _singleton_variant(possible: PossibleVariants | None) -> str | None:
     return next(iter(possible.variants))
 
 
+def _variant_proof_hint(union: UnionTypeRef, field_name: str, binding_identity, *, path_segment: bool) -> str:
+    """Which variants carry `field_name`, and the proving forms, for an unproved read."""
+    owners = [row.name for row in union.definition.variants
+              if field_name in union.variant_field_types.get(row.name, {})]
+    hint = f": variant {' or '.join(f'`{name}`' for name in owners)} has it"
+    subject = "" if path_segment else getattr(binding_identity, "name", "")
+    if not subject or subject.startswith("%"):  # a field path, or a macro-generated binding
+        return hint + "; bind the value to a name, then test or match that name"
+    return (hint + f"; prove it in the same body with `(if (= {subject}.variant {owners[0]}) ...)` or "
+            f"`(match {subject} (({owners[0]} v) ... v.{field_name} ...) ...)` (a proof does not reach "
+            f"into a `fn`, map or `let-proc` body)")
+
+
 def resolve_field_access(
     base_type: TypeRef,
     *,
@@ -178,6 +191,7 @@ def resolve_field_access(
     type_env: FrontendTypeEnvironment,
     proof_scope: ProofScope,
     shared_union_field_capabilities: tuple[SharedUnionFieldCapability, ...] = (),
+    path_segment: bool = False,
 ) -> TypeRef:
     capability_type = _shared_union_field_type(
         base_type=base_type,
@@ -217,7 +231,8 @@ def resolve_field_access(
         if variant_name is None:
             if _union_has_any_field(base_type, field_name):
                 raise_error(
-                    f"field `{field_name}` requires variant proof for `{base_type.name}`",
+                    f"field `{field_name}` requires variant proof for `{base_type.name}`"
+                    + _variant_proof_hint(base_type, field_name, binding_identity, path_segment=path_segment),
                     code="variant_ref_unproved",
                     span=span,
                     form_path=form_path,
@@ -275,7 +290,7 @@ def typecheck_field_access_expr(
     binding_identity = context.binding_env.get(base_name) if base_name else None
     shared_field_types = []
     retained = expr.shared_field_types or (None,) * len(expr.fields)
-    for field_name, prior_target in zip(expr.fields, retained, strict=True):
+    for index, (field_name, prior_target) in enumerate(zip(expr.fields, retained, strict=True)):
         capabilities = context.shared_union_field_capabilities
         target = _shared_union_field_type(
             base_type=current_type, field_name=field_name,
@@ -296,6 +311,7 @@ def typecheck_field_access_expr(
             type_env=context.type_env,
             proof_scope=context.proof_scope,
             shared_union_field_capabilities=capabilities,
+            path_segment=index > 0,
         )
     typed_expr = replace(
         expr, base=typed_base.expr,
@@ -343,6 +359,17 @@ def _allocate_binding_identity(
     return BindingIdentity(path=form_path, kind=kind, name=name, ordinal=ordinal)
 
 
+def _typed_subject_records_more(typed_subject_expr) -> bool:
+    """Whether the typed subject records what its authored form lacks: a field read through a shared
+    field type, or an effect in a constructor, list, `list/map` source or path child."""
+
+    from .expression_traversal import holds_effect_in_a_value, walk_expr
+
+    return holds_effect_in_a_value(typed_subject_expr) or any(
+        isinstance(node, FieldAccessExpr) and node.shared_field_types for node in walk_expr(typed_subject_expr)
+    )
+
+
 def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     """Return the subject the typed `match` node carries.
 
@@ -356,17 +383,16 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
       compiled identity, and the authored application, which has none, is
       rejected with `compiled_prompt_fragment_identity_missing`;
     - an external command with omitted argv: typecheck resolves its static
-      command, and the authored empty argv cannot cross into the closed program.
+      command, and the authored empty argv cannot cross into the closed program;
+    - a subject whose constructor, list, `list/map` source or path child holds an
+      effect: only the typechecked form records it, and no earlier program has one.
     """
     from .expression_traversal import walk_expr
     from .expressions import CommandResultExpr, ProviderResultExpr
     from .procedure_typecheck import calls_generic_procedure_through_type_dependent_hook
     from .prompts import PromptApplicationExpr
 
-    if any(
-        isinstance(node, FieldAccessExpr) and node.shared_field_types
-        for node in walk_expr(typed_subject_expr)
-    ):
+    if _typed_subject_records_more(typed_subject_expr):
         return typed_subject_expr
 
     if any(

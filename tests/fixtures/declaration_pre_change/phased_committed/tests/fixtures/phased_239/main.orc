@@ -1,4 +1,4 @@
-(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defpath Report :kind relpath :under "outputs" :must-exist false)
   (defrecord Review (approved Bool))

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defunion ReviewResult
     (APPROVE
       (approved Bool))
@@ -10,8 +10,6 @@
     ((model String)
      (effort String))
     -> ReviewResult
-    :effects ((uses-provider providers.execute))
-    :lowering inline
     (provider-result providers.execute
       :prompt prompts.execute
       :inputs ()
@@ -28,13 +26,11 @@
                :prompt prompts.execute
                :inputs ()
                :returns ReviewResult)))
-      (loop/recur
+      (loop/recur ((state initial))
         :max 1
-        :state initial
-        (fn (state)
-          (match state
-            ((APPROVE approved)
-             (done state))
-            ((REVISE revise)
-             (let* ((next (invoke-provider model effort)))
-               (continue next)))))))))
+        (match state
+          ((APPROVE approved)
+           (done state))
+          ((REVISE revise)
+           (let* ((next (invoke-provider model effort)))
+             (continue next))))))))

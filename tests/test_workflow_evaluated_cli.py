@@ -45,7 +45,7 @@ def _run_argv(files: dict[str, Path]) -> list[str]:
 PROGRAM = '''\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule evaluated/inputs)
   (export run)
   (defrecord Result (accepted Bool) (score Float))
@@ -206,7 +206,7 @@ def test_public_pure_evaluation_failure_persists_failed_terminal(
     source = tmp_path / "evaluated" / "failure.orc"
     source.parent.mkdir(parents=True)
     source.write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule evaluated/failure) (export run) '
         '(defworkflow run ((divisor Float)) -> Float (/ 1.0 divisor)))\n',
         encoding="utf-8",
@@ -254,7 +254,7 @@ def test_public_run_dispatches_command_once_and_commits_typed_result(tmp_path: P
     source = tmp_path / "evaluated" / "command_once.orc"
     source.parent.mkdir(parents=True)
     source.write_text(
-        """(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule evaluated/command_once) (export run)
           (defrecord Result (ok Bool))
           (defworkflow run () -> Result
@@ -294,9 +294,9 @@ def test_public_run_skips_c4_for_an_unreached_command_branch(tmp_path: Path) -> 
     source = tmp_path / "evaluated" / "unreached_command.orc"
     source.parent.mkdir(parents=True)
     source.write_text(
-        """(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule evaluated/unreached_command) (export run)
-          (defproc dormant () -> Int :effects ((uses-command sleep)) :lowering inline
+          (defproc dormant () -> Int
             (command-result sleep :argv ("python" "dormant.py") :returns Int))
           (defworkflow run () -> Int
             (let* ((chosen (command-result choose :argv ("python" "choose.py") :returns Int)))
@@ -346,7 +346,7 @@ def test_public_run_preserves_an_earlier_commit_on_later_local_c4_refusal(tmp_pa
     source = tmp_path / "evaluated" / "local_c4.orc"
     source.parent.mkdir(parents=True)
     source.write_text(
-        """(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule evaluated/local_c4) (export run)
           (defworkflow run () -> Int
             (let* ((chosen (command-result choose :argv ("python" "choose.py") :returns Int))
@@ -400,18 +400,16 @@ def test_command_template_loop_index_reaches_each_attempt_argv(tmp_path: Path) -
     source = tmp_path / "evaluated" / "command_loop_index.orc"
     source.parent.mkdir(parents=True)
     source.write_text(
-        """(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule evaluated/command_loop_index) (export run)
           (defworkflow run () -> Int
-            (loop/recur :max 3
-              :state (loop-state (i Int 0))
+            (loop/recur ((state (loop-state (i Int 0)))) :max 3
               :on-exhausted 99
-              (fn (state)
-                (let* ((observed (command-result emit
-                    :argv ("python" "probe.py" "${loop.index}") :returns Int)))
-                  (if (< state.i 1)
-                    (continue (loop-state :like state :i (+ state.i 1)))
-                    (done observed)))))))
+              (let* ((observed (command-result emit
+                  :argv ("python" "probe.py" "${loop.index}") :returns Int)))
+                (if (< state.i 1)
+                  (continue (loop-state :like state :i (+ state.i 1)))
+                  (done observed))))))
 """,
         encoding="utf-8",
     )

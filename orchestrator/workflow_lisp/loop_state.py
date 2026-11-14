@@ -131,30 +131,30 @@ def retain_loop_carrier_families(
         head = datum.items[0]
         head_name = head.resolved_name if isinstance(head, SyntaxIdentifier) else None
         if head_name == "let-proc" and len(datum.items) == 3:
-            binding = datum.items[1]
-            if isinstance(binding, SyntaxList) and len(binding.items) == 7:
-                name = binding.items[0]
-                if isinstance(name, SyntaxIdentifier):
-                    owner_key = declaration_key(top_owner_did)
-                    local_key = (owner_key, name.resolved_name)
-                    local_ordinal = local_ordinals.get(local_key, 0)
-                    local_ordinals[local_key] = local_ordinal + 1
-                    local_did: list[object] = [
-                        module_name,
-                        "procedure",
-                        {
-                            "owner": top_owner_did,
-                            "name": name.resolved_name,
-                            "ordinal": local_ordinal,
-                        },
-                    ]
-                    visit(
-                        binding.items[6],
-                        owner_did=local_did,
-                        top_owner_did=top_owner_did,
-                        ordinal=[0],
-                        form_path=form_path,
-                    )
+            local_bodies: list[tuple[list[object], object]] = []
+            for name, body in _let_proc_local_bodies(datum.items[1]):
+                owner_key = declaration_key(top_owner_did)
+                local_key = (owner_key, name)
+                local_ordinal = local_ordinals.get(local_key, 0)
+                local_ordinals[local_key] = local_ordinal + 1
+                local_did: list[object] = [
+                    module_name,
+                    "procedure",
+                    {
+                        "owner": top_owner_did,
+                        "name": name,
+                        "ordinal": local_ordinal,
+                    },
+                ]
+                local_bodies.append((local_did, body))
+            for local_did, body in local_bodies:
+                visit(
+                    body,
+                    owner_did=local_did,
+                    top_owner_did=top_owner_did,
+                    ordinal=[0],
+                    form_path=form_path,
+                )
             # A local procedure body has its own declaration and ordinal
             # namespace; only its continuation belongs to this owner.
             visit(
@@ -203,6 +203,22 @@ def retain_loop_carrier_families(
                 ordinal=[0],
                 form_path=definition.body.form_path,
             )
+
+
+def _let_proc_local_bodies(container: object) -> tuple[tuple[str, object], ...]:
+    """The name and body of each binding of a `let-proc`, in the single-binding spelling and the
+    binding-list spelling, read as `closed/frontend.py` reads them."""
+
+    if not isinstance(container, SyntaxList) or not container.items:
+        return ()
+    bindings = container.items if isinstance(container.items[0], SyntaxList) else (container,)
+    return tuple(
+        (binding.items[0].resolved_name, binding.items[-1])
+        for binding in bindings
+        if isinstance(binding, SyntaxList)
+        and len(binding.items) > 1
+        and isinstance(binding.items[0], SyntaxIdentifier)
+    )
 
 
 def _macro_expansion_ids(expansion_stack: tuple[object, ...]) -> tuple[str, ...]:

@@ -396,7 +396,7 @@ def test_a_retry_after_a_failed_provider_records_the_new_rule(tmp_path: Path, en
 
 # ---- collisions --------------------------------------------------------------------------------------------------
 
-TWIN = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+TWIN = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule prov) (export run)
   (defrecord Review (ok Bool))
   (defproc first ((s1 Int)) -> Review

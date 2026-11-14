@@ -177,6 +177,8 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
     state.function_names = frozenset({"outer"})
     state.extern_names = frozenset({"baseline.extern"})
     state.local_proc_names = frozenset({"local"})
+    state.local_proc_body = "local"
+    state.workflow_names = frozenset({"m::outer-workflow"})
     state.loop_body_depth = 4
     state.let_proc_depth = 2
     state.guidance_example = True
@@ -200,6 +202,8 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         "function_names": frozenset({"outer-call"}),
         "extern_names": frozenset({"outer.extern"}),
         "local_proc_names": frozenset(),
+        "local_proc_body": None,
+        "workflow_names": frozenset(),
         "loop_body_depth": 4,
         "let_proc_depth": 0,
         "guidance_example": False,
@@ -213,6 +217,8 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         "function_names": frozenset({"inner-call"}),
         "extern_names": frozenset({"inner.extern"}),
         "local_proc_names": frozenset(),
+        "local_proc_body": None,
+        "workflow_names": frozenset(),
         "loop_body_depth": 4,
         "let_proc_depth": 0,
         "guidance_example": True,
@@ -300,6 +306,8 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         "function_names": frozenset(),
         "extern_names": frozenset(),
         "local_proc_names": frozenset(),
+        "local_proc_body": None,
+        "workflow_names": frozenset(),
         "loop_body_depth": 0,
         "let_proc_depth": 0,
         "guidance_example": False,

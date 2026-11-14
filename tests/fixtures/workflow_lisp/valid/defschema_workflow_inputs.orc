@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule defschema_workflow_inputs)
   (export summarize)
   (defpath WorkReport
@@ -21,14 +21,12 @@
   (defworkflow build-summary
     ((input WorkflowInputs))
     -> WorkflowSummary
-    (loop/recur
+    (loop/recur ((state input))
       :max 1
-      :state input
-      (fn (state)
-        (done
-          (record WorkflowSummary
-            :status state.status
-            :execution_report state.execution_report)))))
+      (done
+        (record WorkflowSummary
+          :status state.status
+          :execution_report state.execution_report))))
   (defworkflow summarize
     ((input WorkflowInputs))
     -> WorkflowSummary

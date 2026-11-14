@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule wcc_m3_nested_non_tail_match)
   (export summarize)
   (defpath WorkReport

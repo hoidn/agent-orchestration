@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defpath StateNote
     :kind relpath
     :under "state"
@@ -15,8 +15,6 @@
     :where ((CtxT is-record)
             (CtxT has-field note Path.state-root))
     -> WorkflowOutput
-    :effects ((uses-command run_checks))
-    :lowering inline
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py")
       :returns WorkflowOutput))

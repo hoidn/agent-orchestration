@@ -717,6 +717,41 @@ own delivery status and captured evidence.
     evaluated route's `resume_program_changed` refusal without writes. No new runtime policy,
     representation or target is introduced. The [correction report](../docs/reports/2026-10-07-workflow-lisp-pure-capture-correction.md)
     records the bounded evidence and original failed gates.
+  - A procedure call is identified by its span, form path and expansion
+    stack together, and a call cloned into the caller when a pure procedure
+    is inlined keeps its own span. Before, calls that shared a span and form
+    path shared one target. Four kinds of program are corrected:
+    - two expansions of one macro template in one owner that call different
+      targets (every target);
+    - two calls in the body of an inlined pure procedure to different
+      `let-proc` locals, written directly or by a macro (every target);
+    - a procedure specialized more than once in one chain of bound procedure
+      references (targets 2.39 and 2.40);
+    - two expansions of a macro whose template calls a procedure specialized
+      by a `WorkflowRef` (targets 2.39 and 2.40).
+
+    In the first three the shared target was chosen in an order that varied
+    with `PYTHONHASHSEED` and the absolute source path: one source built on one
+    run and stopped with `compiler_defect` on the next, built a program that
+    called the wrong procedure and computed a wrong value, or built the right
+    value under several digests. In the fourth every expansion called the last
+    expansion's workflow. Each such program now builds one program, the one
+    its source means, with one digest, and some that stopped with
+    `compiler_defect` now build. A program without such a collision keeps its
+    closed program, digest and effect identities. A run recorded by a build
+    whose digest changes meets a changed program at `resume`, because the
+    compiler changed, not the source. Without acceptance the recorded result
+    stands and `resume` refuses with `resume_program_changed` and the
+    edited-program plan; accepting the plan (`--accept-changes=TOKEN`)
+    re-runs what the plan cancels and the code between effects, so the
+    result, also of a completed run, can change. During elaboration a call
+    site that records two targets stops the build with `compiler_defect`
+    naming the site; no lookup reads such a site. Not corrected: a value bound
+    by `bind-proc` that is not a literal, a name or a field access (a
+    `(workflow-ref w)`, or a computed value such as `(+ k 0)`) is identified
+    by its source position, so two expansions of one template that bind
+    different values share one specialization, and the first expansion's
+    value is used.
   - The refusal of an integer overflow keeps its code, `pure_expr_overflow`,
     its stage and its exit code at every target. Its message, which a failed
     run records in `state.json`, now names the operator and prints its
@@ -774,8 +809,8 @@ own delivery status and captured evidence.
   - Target 2.34 exists. Apart from the surface listed below, it accepts and
     lowers exactly what 2.33 accepts; only the version recorded in each build
     artifact, and the digests and build key computed over it, differ.
-  - Decimal literals and numeric operators (rules N1 to N5 and N8 of the
-    [numeric surface](../docs/design/workflow_lisp_numeric_surface.md)):
+  - Decimal literals and numeric operators (the reference is the
+    [pure-expression surface](../docs/design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface)):
     - A decimal literal is an expression wherever an expression is admitted.
       In a module at 2.34, a token with an exponent (`2e-3`, `1.0E6`,
       `-1.25e+2`) reads as a float; below 2.34 it still reads as a symbol. A
@@ -797,7 +832,7 @@ own delivery status and captured evidence.
       each refusal is the one of 2.33.
   - Repetition reduction remains a separate unapproved proposal; no repetition
     syntax is implemented at target 2.34. State schema remains `2.1`.
-  - Finite values at boundaries (numeric surface rule N6): at 2.34 a
+  - Finite values at boundaries: at 2.34 a
     non-finite `Float` in a workflow input, a command or provider result field
     or an expected output file is refused with `float_not_finite`, which names
     the field (`specs/io.md`, deterministic artifact contracts). Compilation
@@ -858,7 +893,13 @@ own delivery status and captured evidence.
     neither `evaluated_execution.v1` nor schema `3.0`: a build that predates
     it answers `memo_inconsistent` (from `resume`, `invalidate` and `report`)
     once a host command has failed under a build that writes it, and
-    journals without the field reduce as before.
+    journals without the field reduce as before. An accepted edit appends a
+    `rebased` record and adds a program artifact to the run root
+    ([State](state.md#memo-records)). Neither changes
+    `evaluated_execution.v1` or schema `3.0`: a build that predates the
+    record answers `memo_inconsistent` (from `resume`, `invalidate` and
+    `report`) for such a run and writes nothing, and journals without the
+    record reduce as before.
   - Admission at 2.35 is unchanged by execution: an effect class or form
     outside the first release still refuses at build with
     `closed_program_gap`, a scope exclusion rather than a defect list. A
@@ -870,8 +911,9 @@ own delivery status and captured evidence.
   - Path-mode run references at a 2.35 entry are admitted in a loop body, in
     a budget or seed expression, as a `match` subject and as the one-effect
     body of a serial `list/map-effect`, directly or through admitted calls
-    including imported helpers at target 2.35 or newer; exhaustion guards and
-    other pure contexts stay pure, trials, bundle mode and effectful children stay
+    including imported helpers at target 2.35 or newer; a run reference stays
+    refused in `:on-exhausted`, a map source, a record or variant field, a
+    list element, a path child and the pure places, trials, bundle mode and effectful children stay
     excluded; retired old child entries refuse before child publication.
     Older executable entries (2.24–2.34) are retired ([DSL](dsl.md)).
     Evidence: `tests/test_workflow_evaluated_run_ref.py`,
@@ -1122,7 +1164,7 @@ is qualified ([bounded record](../docs/reports/2026-10-07-evaluated-execution-ph
 Bounded parallel execution is implemented and reviewed ([Task 4 record](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-4--bounded-workers-and-coordinator));
 its public command-line qualification with stand-in providers and commands is
 recorded in the [execution record's addendum](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification),
-which lists what remains open; no real provider has run it. Existing
+which lists what remains open; one run with a real provider is recorded in the [Phase 2 plan's ledger](../docs/plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#ledger). Existing
 2.35/2.36 contracts remain unchanged.
 
 Target **2.38** is registered for run-ref confined workflow children
@@ -1219,7 +1261,7 @@ retired. Run-ref still enforces its independent feature restrictions.
 | 2.12 | `repeat_until.on_exhausted.outputs` | Lets bounded post-test loops route deterministic non-convergence through authored scalar loop-frame outputs while preserving hard failures for body, output, and predicate errors. |
 | 2.13 | `managed_jobs` provider-step modifier | Added runtime-owned managed job interception, guard/shim execution, watcher classification, audit/recovery state, and managed outcome routing for provider-launched training jobs. Removed on 2026-11-12 with `orchestrator/managed_jobs/` (local git tag `archive/old-ir-stack-2026-11-12`). |
 | 2.14 | `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, and `requires_variant` | Adds deterministic typed materialization, durable snapshot-diff evidence, tagged-union output validation, atomic variant bundle selection, and author-time variant availability proof. |
-| 2.15 | Direct JSON root results (`output_bundle` fields with `json_pointer: ""`), public `optional\|list\|map` output and structured-result schemas, strict effect-boundary `guidance` / `guidance_context` / `guidance_by_variant`, and top-level workflow `result_guidance` | Promoted after the combined native-transportable-return and typed-result-guidance gate. Ordinary loader entrypoints, Workflow Lisp shared validation, CLI run/resume/report, dashboard projection, and imported-bundle loading accept the same version. v2.14 rejects the new guidance containers and retains its existing record/union contracts. Guidance is non-runtime metadata and does not change artifact names, value validity, source identities, checkpoint identities, or resume behavior. |
+| 2.15 | Direct JSON root results (`output_bundle` fields with `json_pointer: ""`), public `optional\|list\|map` output and structured-result schemas, strict effect-boundary `guidance` / `guidance_context` / `guidance_by_variant`, and top-level workflow `result_guidance` | Promoted after the combined native-transportable-return and typed-result-guidance gate. Ordinary loader entrypoints, Workflow Lisp shared validation, CLI run/resume/report, dashboard projection, and imported-bundle loading accept the same version. v2.14 rejects the new guidance containers and retains its existing record/union contracts. Guidance changes no artifact name and no value validity. Guidance written on a provider or command result is part of that effect's declaration and so of the program's identity: editing it edits the program, and `resume` of a run started before the edit refuses with `resume_program_changed`. Guidance on a workflow, procedure or function return is checked when the module compiles and is not kept in the checked program. |
 | 2.16 | `.orc` `with-live-providers`, reserved `ProviderSteeringDirective`, structural `session_support.turn_boundary_resume`, default provider observation, and `provider_supervision.v1` | Adds exactly-two-member bounded provider overlap inside one atomic workflow node, one validated observation edge, pure settlement, and at most one exact-session resume. Its original interrupted-visit quarantine is superseded by ML-0 at-least-once recovery. General authored concurrency and parallel blocks remain unsupported. State schema remains `2.1`. Executor removed 2026-11-11 (tag `archive/dead-executors-2026-11-11`); the form still parses and the closed build refuses it. |
 | 2.17 | `.orc` `with-live-provider-peers`, structural `interactive_session_support`, exact-attempt peer ingress, and `provider_peer_group.v1` | Adds static two-through-eight-member bounded provider overlap with durable record-before-offer receiver ledgers, cooperative acknowledgement/finish, typed direct-root member bundles, pure atomic settlement, natural-shutdown proof, and failed cleanup. Its original interrupted-visit quarantine is superseded by ML-0 at-least-once recovery. It adds no forcing edge and leaves target-2.16 supervision artifacts unchanged. State schema remains `2.1`. Executor and `peer-*` commands removed 2026-11-11 (tag `archive/dead-executors-2026-11-11`); the form still parses and the closed build refuses it. |
 | 2.18 | Workflow Lisp bounded list traversal, mapping, list loop state, and rooted path joining | Adds `(list ...)`, five total list operators, pure `list/map`, bounded `list/map-effect`, structurally eligible `List[T]` loop state, and pure containment-checked `path/join-under`. New pure expressions use payload schema 2 and effectful mapping erases to existing loop/call/checkpoint machinery; state schema remains `2.1`. |
@@ -1287,3 +1329,67 @@ Implementation and deterministic public acceptance are distinct from paid
 provider or live-notification qualification. The [delivery plan](../docs/plans/2026-10-22-durable-host-input-plan.md)
 owns execution evidence and remaining verification; it does not redefine these
 contracts or authorize provider spend.
+
+### Source admitted without a new target (surface coherence)
+
+Under versioning rule 2 as ruled on 2026-11-12, a change that admits source refused before and moves
+no closed program, digest or effect identity of source that compiles adds no target. One entry per
+change of the [surface-coherence design](../docs/design/workflow_lisp_surface_coherence.md):
+
+- **C1, a local called by name.** A `let-proc` local that declares its signature is called by
+  name with positional arguments and builds the program of its alias call
+  `(let* ((g (proc-ref f))) (g a))`; a local named like a `defun` or a built-in form does not
+  shadow it. A keyword in a positional call, a local calling a sibling or itself, a local without
+  a signature called by name, `(w n)` on a workflow, `(call p …)` on a procedure and a workflow
+  that reaches itself are each one diagnostic. One exception to "only source refused before": a
+  procedure that binds, with `let*`, a procedure reference chosen by a conditional, or one it
+  cannot resolve, is refused at its definition with `proc_ref_literal_required`, also when it is
+  never called; such a procedure compiled before only when nothing called it. No closed program,
+  digest or effect identity of a program that still compiles changes.
+- **I2a, the binder form of `loop/recur`.** `(loop/recur ((state init)) :max n [:on-exhausted e]
+  body)` is accepted beside the `fn` form and builds the same closed program, digest and effect
+  identities. Inside a macro template the loop state, a `let-proc` parameter and each item of a
+  `cond` clause are bindings or expressions of the template, in both forms. One exception to
+  "a program that built before keeps its program": a macro template that binds one of these three
+  itself (a loop state in the `fn` form, a `let-proc` parameter, a name in a `cond` clause) under
+  a name the caller's code also binds or uses built before with the two confused, and now builds
+  with the template's own binding. Such a program can change its value and its digest, and a run
+  recorded before the change resumes only through the edited-program route. It is kept as a
+  correction of a silent wrong value, not deferred to the release that removes the older targets;
+  the closed-program corpus test over the repository's workflows and examples kept every digest.
+- **A variant-only field after a discriminant test.** `(if (= x.variant V) x.f …)` and the `cond`
+  form, which the typechecker accepted and the closed build then failed on, build and run, also
+  when the read is inside an effect's payload. The shapes that stay refused are stated in the
+  [frontend specification](../docs/design/workflow_lisp_frontend_specification.md), section 7.5.
+  A program that built before keeps its closed program, digest and identities.
+- **I1, map bodies and a computed serial `:max`.** In a program that contains a run reference
+  anywhere, every `list/map-effect` iteration is exactly one call with pure arguments, as before
+  (`list_map_effect_body_unsupported`); a program that contains no run reference admits any
+  expression as a map body. A later change may admit more bodies beside a run reference by
+  analysing each iteration. A serial map's `:max` is any `Int` expression,
+  evaluated once after the source and before the first item; a parallel map's `:max` and `:parallel`
+  stay positive integer literals. A list longer than `:max` fails `list_map_effect_cap_exceeded` as
+  before (a serial map after its first `:max` items, a parallel map before any); a computed `:max`
+  below 1 fails the same way over a non-empty list, and an empty list gives the empty list. A
+  parallel map may be written directly in a serial map or loop body. Every program that compiled
+  before keeps its closed program, digest and identities, and its recorded runs resume.
+
+### Run-time corrections without a new target
+
+- **Output slots checked before a fresh launch.** A provider, phased provider or agent turn about
+  to be started whose output slot is named like an artifact that every result has, whose two
+  slots, or one slot and the result bundle, resolve to one file, or whose slot path leaves the
+  workspace is refused before its `started` ([CLI diagnostics](cli.md)), as [IO](io.md) and
+  [providers](providers.md) already required. No target, compile outcome or digest changes; a step
+  committed before the check replays and its run resumes. A run left open at such a step before
+  the check, by kind:
+  - a plain provider's pending start: `resume` refuses it in preflight (exit 2, the journal
+    unchanged); a failed attempt: `resume` refuses its retry (exit 1). Either run finishes after a
+    source change accepted with `resume RUN_ID --accept-changes=TOKEN`;
+  - a phased step's pending or failed attempt: `resume` first cleans up the old attempt as before
+    (its provider and terminal session stopped, its receipt abandoned), closes a pending one
+    `failed` with the refusal's code, and refuses the new attempt (exit 1); the run then finishes
+    after a source change accepted the same way;
+  - an agent turn whose work already completed in the provider's store: `resume` commits that work
+    with no new call; a pending turn with nothing to recover: refused in preflight (exit 2, the
+    journal unchanged); a first turn that failed: its restart is refused (exit 1, no call).

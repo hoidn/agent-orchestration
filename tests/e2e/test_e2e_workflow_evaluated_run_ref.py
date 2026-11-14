@@ -132,7 +132,7 @@ def _assert_public_readonly_reuse(parent, refs, authority, identity, control):
     assert (_tree_bytes(parent), _tree_bytes(refs)) == before
 
 
-@pytest.mark.parametrize("child_target", ["2.35", "2.36"])
+@pytest.mark.parametrize("child_target", ["2.40"])
 def test_public_compile_run_resume_preserves_e1_pinned_evidence(tmp_path, child_target):
     first_root = tmp_path / "first"
     first_root.mkdir()
@@ -208,7 +208,7 @@ def _assert_settled_visit_request(authority, memo, commit, refs, parent, request
     '(provider-result providers.worker :prompt prompts.worker :inputs () :returns Bool)',
 ], ids=["tool", "provider"])
 def test_public_e1_child_refuses_unconfigured_environment(tmp_path, child_body):
-    parent, source, refs = _public_fixture(tmp_path, child_target="2.35", child_body=child_body)
+    parent, source, refs = _public_fixture(tmp_path, child_target="2.40", child_body=child_body)
     _compile_public(parent, source)
     result = _cli(parent, "run", str(source), "--run-ref-root", str(refs))
     assert result.returncode == 1, result.stderr

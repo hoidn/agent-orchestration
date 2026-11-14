@@ -10,7 +10,7 @@ from tests.agent_session_shims import install_agent_shims, shim_requests
 from tests.test_workflow_evaluated_agent_turns import PLAN, SOURCE, fixture, memo_of, turns
 from tests.test_workflow_evaluated_invalidate import _cli, _tree_bytes
 
-FILE_DEP = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+FILE_DEP = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Draft (text String))
   (defpath Notes :kind relpath :under "notes" :must-exist true)
@@ -31,7 +31,7 @@ Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps("notes
 # A committed first turn `t0` makes `t` a resume-mode turn, so a transport failure before any append is adapter-provable
 # as `not_dispatched` (design row 4: head unchanged) and closes `failed`; a fresh first turn can never be proven undispatched
 # and stays pending instead. The command `written` between them is a non-agent cut point with no committed turn after it.
-SEEDED_FILE_DEP = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+SEEDED_FILE_DEP = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Draft (text String))
   (defpath Notes :kind relpath :under "notes" :must-exist true)

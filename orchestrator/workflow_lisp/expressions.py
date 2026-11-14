@@ -216,6 +216,12 @@ class RecordExpr:
     resolved_type: "TypeRef | None" = field(
         default=None, repr=False, hash=False, metadata={"json_omit_if_none": True}
     )
+    # Set by the typechecker when a field holds an effect; every field is then simple
+    # (frontend specification 16.3) and the fields lower as ordered operands.
+    effectful_fields: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -240,6 +246,11 @@ class ListExpr:
     expansion_stack: ExpansionStack = ()
     item_type_refs: tuple["TypeRef", ...] = field(
         default=(), repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    # Set by the typechecker when an item has an effect: the items then lower as operands.
+    effectful_items: bool = field(
+        default=False, repr=False, compare=False, hash=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
 
@@ -268,6 +279,11 @@ class ListMapExpr:
         repr=False,
         compare=False,
         hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    # Set by the typechecker when the source has an effect: it then lowers as an operand.
+    effectful_source: bool = field(
+        default=False, repr=False, compare=False, hash=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
 
@@ -301,6 +317,16 @@ class ListMapEffectExpr:
     )
     parallel_count: int | None = field(default=None, metadata={"json_omit_if_none": True})
     workspace_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+    # Set by typecheck on a parallel map whose source holds an effect (surface coherence E1).
+    effectful_source: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    # A serial map's computed `:max`; None for a literal, so existing identities stay.
+    max_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+    # Typing's verdict on a parallel body: exactly one call with pure arguments (false until typed).
+    one_call_body: bool = field(default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
 
 
 @dataclass(frozen=True)
@@ -324,6 +350,11 @@ class PathJoinUnderExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    # Set by the typechecker when the child has an effect: it then lowers as an operand.
+    effectful_child: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -406,6 +437,12 @@ class UnionVariantExpr:
     expansion_stack: ExpansionStack = ()
     resolved_type: "TypeRef | None" = field(
         default=None, repr=False, hash=False, metadata={"json_omit_if_none": True}
+    )
+    # Set by the typechecker when a field holds an effect; every field is then simple
+    # (frontend specification 16.3) and the fields lower as ordered operands.
+    effectful_fields: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
 
 
@@ -1070,6 +1107,12 @@ class LoopRecurExpr:
             "semantic_identity_omit": True,
         },
     )
+    # Set by typecheck when `:on-exhausted`, or the source of the serial map this loop is,
+    # holds an effect: the code that place gave before surface coherence E1 admitted it.
+    effect_place_code: str | None = field(
+        default=None, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 ExprNode = (
@@ -1178,8 +1221,13 @@ def elaborate_expression(
     prompt_catalog: PromptCatalog | None = None,
     session_state: ElaborationSessionState | None = None,
     extern_names: frozenset[str] = frozenset(),
+    workflow_names: frozenset[str] = frozenset(),
 ) -> ExprNode:
-    """Elaborate one syntax node into a supported Workflow Lisp expression."""
+    """Elaborate one syntax node into a supported Workflow Lisp expression.
+
+    `workflow_names` holds canonical workflow names; it only lets `(w n)` on a
+    workflow say how a workflow is called.
+    """
 
     session_state = session_state or CompilerSession().elaboration
     previous_state = ElaborationSessionState(
@@ -1189,6 +1237,8 @@ def elaborate_expression(
         function_names=session_state.function_names,
         extern_names=session_state.extern_names,
         local_proc_names=session_state.local_proc_names,
+        local_proc_body=session_state.local_proc_body,
+        workflow_names=session_state.workflow_names,
         loop_body_depth=session_state.loop_body_depth,
         let_proc_depth=session_state.let_proc_depth,
         guidance_example=session_state.guidance_example,
@@ -1201,6 +1251,8 @@ def elaborate_expression(
     session_state.procedure_name_resolver = procedure_name_resolver
     session_state.workflow_name_resolver = workflow_name_resolver
     session_state.local_proc_names = frozenset()
+    session_state.local_proc_body = None
+    session_state.workflow_names = workflow_names
     session_state.let_proc_depth = 0
     session_state.guidance_example = guidance_example
     session_state.target_dsl_version = target_dsl_version
@@ -1220,6 +1272,8 @@ def elaborate_expression(
         session_state.function_names = previous_state.function_names
         session_state.extern_names = previous_state.extern_names
         session_state.local_proc_names = previous_state.local_proc_names
+        session_state.local_proc_body = previous_state.local_proc_body
+        session_state.workflow_names = previous_state.workflow_names
         session_state.loop_body_depth = previous_state.loop_body_depth
         session_state.let_proc_depth = previous_state.let_proc_depth
         session_state.guidance_example = previous_state.guidance_example
@@ -1278,6 +1332,14 @@ def _elaborate(
             bound_names=bound_names,
             procedure_names=procedure_names,
             session_state=session_state,
+        )
+    if isinstance(datum, SyntaxKeyword):
+        _raise_error(
+            f"keyword `{datum.value}` is not a value; keywords name a `call` binding or a form's option",
+            code="keyword_argument_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
         )
     raise TypeError(f"unsupported expression datum: {type(datum)!r}")
 
@@ -1422,6 +1484,7 @@ def _elaborate_list(
                 session_state=session_state,
             )
     if head.resolved_name in session_state.function_names:
+        _refuse_keyword_arguments(datum, "a function", form_path)
         return _elaborate_function_call(
             datum,
             form_path=form_path,
@@ -1430,6 +1493,7 @@ def _elaborate_list(
             session_state=session_state,
         )
     if head.resolved_name in procedure_names:
+        _refuse_keyword_arguments(datum, "a procedure", form_path)
         return _elaborate_procedure_call(
             datum,
             form_path=form_path,
@@ -1437,15 +1501,16 @@ def _elaborate_list(
             procedure_names=procedure_names,
             session_state=session_state,
         )
-    if head.resolved_name in session_state.local_proc_names:
-        _raise_error(
-            f"`{head.display_name}` is a local `let-proc` binding and must be referenced with `proc-ref`",
-            code="let_proc_bare_name_invalid",
-            span=head.span,
+    if _calls_local_proc(head, available_names, session_state):
+        return _elaborate_local_proc_call(
+            datum,
             form_path=form_path,
-            expansion_stack=head.expansion_stack,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+            session_state=session_state,
         )
     if head.resolved_name in available_names:
+        _refuse_keyword_arguments(datum, None, form_path)
         return _elaborate_procedure_call(
             datum,
             form_path=form_path,
@@ -1469,8 +1534,122 @@ def _elaborate_list(
             form_path=form_path,
             expansion_stack=head.expansion_stack,
         )
+    _refuse_unknown_callee(head, form_path, session_state)
+
+
+# The reserved alias a local called by name is bound to (see `_elaborate_local_proc_call`).
+LOCAL_CALL_ALIAS_PREFIX = "%let-proc-call."
+
+
+def _refuse_keyword_arguments(datum: SyntaxList, kind: str | None, form_path: tuple[str, ...]) -> None:
+    """A function, procedure or procedure reference takes positional arguments.
+
+    `kind` names a callable known here; None is a bound name, which may also
+    be a workflow reference.
+    """
+
+    keyword = next((item for item in datum.items[1:] if isinstance(item, SyntaxKeyword)), None)
+    if keyword is None:
+        return
+    name = syntax_head(datum).display_name
+    message = (
+        f"`{name}` is {kind}; call it as `({name} …)` with positional arguments, without `{keyword.value}`"
+        if kind is not None
+        else f"keyword `{keyword.value}` in a positional call: call a procedure reference as "
+        f"`({name} …)` with positional arguments, and a workflow reference as `(call {name} :x …)`"
+    )
     _raise_error(
-        f"unknown same-file procedure callee `{head.display_name}`",
+        message,
+        code="keyword_argument_invalid",
+        span=keyword.span,
+        form_path=form_path,
+        expansion_stack=keyword.expansion_stack,
+    )
+
+
+def _elaborate_local_proc_call(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> LetStarExpr:
+    """`(f a …)` on a `let-proc` local is its alias call `(let* ((g (proc-ref f))) (g a …))`.
+
+    It builds the same program as that alias, which compiles today. A local's
+    own body sees neither itself nor its siblings (surface coherence, rule 3).
+    """
+
+    head = syntax_head(datum)
+    caller = session_state.local_proc_body
+    if caller == head.resolved_name:
+        _raise_error(
+            f"`let-proc` local procedure `{head.display_name}` cannot call itself: recursion is refused",
+            code="let_proc_recursive_unsupported",
+            span=head.span,
+            form_path=form_path,
+            expansion_stack=head.expansion_stack,
+        )
+    if caller is not None:
+        _raise_error(
+            f"a `let-proc` local cannot call local `{head.display_name}`: the locals of one "
+            f"`let-proc` do not see each other; define `{head.display_name}` with `defproc`",
+            code="let_proc_sibling_call_unsupported",
+            span=head.span,
+            form_path=form_path,
+            expansion_stack=head.expansion_stack,
+        )
+    _refuse_keyword_arguments(datum, "a local procedure", form_path)
+    # A reserved alias name: the arguments must not see a bare reference.
+    alias = f"{LOCAL_CALL_ALIAS_PREFIX}{head.resolved_name}"
+    provenance = {"span": datum.span, "form_path": form_path, "expansion_stack": datum.expansion_stack}
+    call = ProcedureCallExpr(
+        callee_name=alias,
+        args=tuple(
+            _elaborate(
+                item,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+                session_state=session_state,
+            )
+            for item in datum.items[1:]
+        ),
+        authored_callee_span=_direct_authored_callee_span(datum, head),
+        **provenance,
+    )
+    reference = ProcRefLiteralExpr(
+        target_name=head.resolved_name,
+        authored_name=head.resolved_name,
+        **provenance,
+    )
+    return LetStarExpr(bindings=((alias, reference),), body=call, binding_labels=(None,), **provenance)
+
+
+def _calls_local_proc(head: SyntaxIdentifier, available_names: frozenset[str], session_state) -> bool:
+    # An inner binding that reuses a local's name is the one called; a local's
+    # name never collides with an outer binding (the let-proc collision check).
+    return head.resolved_name in session_state.local_proc_names and head.resolved_name not in available_names
+
+
+def _names_workflow(head: SyntaxIdentifier, form_path: tuple[str, ...], session_state) -> bool:
+    # Consult the resolver only when this elaboration knows its workflows.
+    resolve = session_state.workflow_name_resolver
+    if resolve is None or not session_state.workflow_names or "." in head.resolved_name:
+        return False
+    return resolve(head.resolved_name, head.span, form_path) in session_state.workflow_names
+
+
+def _refuse_unknown_callee(head: SyntaxIdentifier, form_path: tuple[str, ...], session_state) -> None:
+    """`(w n)` on a workflow names `call`; any other unknown head is unknown."""
+    message = (
+        f"`{head.display_name}` is a workflow; call it as `(call {head.display_name} :x …)`"
+        if _names_workflow(head, form_path, session_state)
+        else f"unknown same-file procedure callee `{head.display_name}`"
+    )
+    _raise_error(
+        message,
         code="procedure_call_unknown",
         span=head.span,
         form_path=form_path,
@@ -2563,6 +2742,31 @@ def _elaborate_list_map(
     )
 
 
+def _serial_max_clause(datum: SyntaxList, *, form_path: tuple[str, ...]) -> bool:
+    """Check a serial map's `:max` clause; return whether `:max` is an expression, not a literal."""
+    items = datum.items
+    shape = len(items) == 5 and isinstance(items[2], SyntaxKeyword) and items[2].value == ":max"
+    if shape and not isinstance(items[3], (SyntaxInt, SyntaxKeyword)):
+        return True
+    max_value = (
+        items[3].value if len(items) > 3 and isinstance(items[3], SyntaxInt) and type(items[3].value) is int
+        else None
+    )
+    if shape and max_value is not None and max_value > 0:
+        return False
+    limit_detail = "minimum=1" if max_value is None else f"value={max_value}, minimum=1"
+    _raise_error(
+        (
+            "`list/map-effect` requires `:max` followed by a positive integer "
+            f"literal or an `Int` expression; {limit_detail}"
+        ),
+        code="list_map_effect_max_invalid",
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
 def _elaborate_list_map_effect(
     datum: SyntaxList,
     *,
@@ -2583,30 +2787,7 @@ def _elaborate_list_map_effect(
             datum, target=session_state.target_dsl_version or "",
             form_path=form_path, raise_error=_raise_error,
         )
-    if parallel_options is None and (
-        len(datum.items) != 5
-        or not isinstance(datum.items[2], SyntaxKeyword)
-        or datum.items[2].value != ":max"
-        or not isinstance(datum.items[3], SyntaxInt)
-        or isinstance(datum.items[3].value, bool)
-        or datum.items[3].value <= 0
-    ):
-        max_value = datum.items[3].value if len(datum.items) > 3 and isinstance(datum.items[3], SyntaxInt) else None
-        limit_detail = (
-            f"value={max_value}, minimum=1"
-            if max_value is not None and not isinstance(max_value, bool)
-            else "minimum=1"
-        )
-        _raise_error(
-            (
-                "`list/map-effect` requires `:max` followed by a positive integer "
-                f"literal; {limit_detail}"
-            ),
-            code="list_map_effect_max_invalid",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
+    computed_max = parallel_options is None and _serial_max_clause(datum, form_path=form_path)
     raw_binders = datum.items[1]
     if (
         not isinstance(raw_binders, SyntaxList)
@@ -2642,6 +2823,11 @@ def _elaborate_list_map_effect(
         procedure_names=procedure_names,
         session_state=session_state,
     )
+    max_expr = (
+        _elaborate(datum.items[3], form_path=form_path, bound_names=bound_names,
+                   procedure_names=procedure_names, session_state=session_state)
+        if computed_max else None
+    )
     body_expr = _elaborate(
         parallel_options[3] if parallel_options is not None else datum.items[4],
         form_path=form_path,
@@ -2652,7 +2838,11 @@ def _elaborate_list_map_effect(
     return ListMapEffectExpr(
         binder_name=binder.resolved_name,
         source_expr=source_expr,
-        max_iterations=parallel_options[0] if parallel_options is not None else datum.items[3].value,
+        max_iterations=(
+            parallel_options[0] if parallel_options is not None
+            else 0 if computed_max else datum.items[3].value
+        ),
+        max_expr=max_expr,
         body_expr=body_expr,
         source_item_type_ref=None,
         result_item_type_ref=None,
@@ -3332,6 +3522,27 @@ def _elaborate_loop_recur(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> LoopRecurExpr:
+    """Elaborate either spelling of `loop/recur`: the binder form or the `fn` form."""
+
+    binder_form = len(datum.items) > 1 and isinstance(datum.items[1], SyntaxList)
+    elaborate = _elaborate_loop_recur_binder if binder_form else _elaborate_loop_recur_fn
+    return elaborate(
+        datum,
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+        session_state=session_state,
+    )
+
+
+def _elaborate_loop_recur_fn(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> LoopRecurExpr:
     if len(datum.items) < 6:
         _raise_error(
             "`loop/recur` requires :max, :state, and one loop-body `fn`",
@@ -3404,46 +3615,183 @@ def _elaborate_loop_recur(
         procedure_names=procedure_names,
         session_state=session_state,
     )
-    loop_bound_names = frozenset(set(bound_names) | {body_fn.binding_name})
-    on_exhausted_node = sections.get(":on-exhausted")
+    return _loop_recur_expr(
+        datum,
+        max_node=max_node,
+        state_node=state_node,
+        on_exhausted_node=sections.get(":on-exhausted"),
+        body=body_fn,
+        operand_evaluation_order=tuple(
+            keyword
+            for keyword in sections
+            if keyword in {":max", ":state"}
+        ),
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+        session_state=session_state,
+    )
+
+
+def _loop_recur_expr(
+    datum: SyntaxList,
+    *,
+    max_node: object,
+    state_node: object,
+    on_exhausted_node: object | None,
+    body: LoopBodyFnExpr,
+    operand_evaluation_order: tuple[str, ...],
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> LoopRecurExpr:
+    """Build the one loop node both spellings elaborate to, the body already elaborated.
+
+    `:max`, the initial state and `:on-exhausted` are elaborated in that order after the
+    body for either spelling, so the two forms of one loop give the same node; only the
+    operand order the parser read differs, and it reaches the program only when both
+    operands hold an effect.
+    """
+
+    def elaborate(node: object, names: frozenset[str]) -> ExprNode:
+        return _elaborate(
+            node,
+            form_path=form_path,
+            bound_names=names,
+            procedure_names=procedure_names,
+            session_state=session_state,
+        )
+
+    loop_bound_names = frozenset(set(bound_names) | {body.binding_name})
     return LoopRecurExpr(
-        max_iterations_expr=_elaborate(
-            max_node,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-            session_state=session_state,
-        ),
-        initial_state_expr=_elaborate(
-            state_node,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-            session_state=session_state,
-        ),
-        binding_name=body_fn.binding_name,
-        body_expr=body_fn.body_expr,
+        max_iterations_expr=elaborate(max_node, bound_names),
+        initial_state_expr=elaborate(state_node, bound_names),
+        binding_name=body.binding_name,
+        body_expr=body.body_expr,
         on_exhausted_result_expr=(
-            _elaborate(
-                on_exhausted_node,
-                form_path=form_path,
-                bound_names=loop_bound_names,
-                procedure_names=procedure_names,
-                session_state=session_state,
-            )
+            elaborate(on_exhausted_node, loop_bound_names)
             if on_exhausted_node is not None
             else None
         ),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
-        binding_label=body_fn.binding_label,
-        operand_evaluation_order=tuple(
-            keyword
-            for keyword in sections
-            if keyword in {":max", ":state"}
+        binding_label=body.binding_label,
+        operand_evaluation_order=operand_evaluation_order,
+    )
+
+
+_LOOP_BINDER_SHAPE = "`loop/recur` binder must be `((name initial-state))`"
+
+
+def _elaborate_loop_recur_binder(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> LoopRecurExpr:
+    """Elaborate `(loop/recur ((state init)) :max n [:on-exhausted e] body)`.
+
+    The binder form of the map forms. It builds the node of the `fn` form
+    `(loop/recur :state init :max n [:on-exhausted e] (fn (state) body))`: the
+    initial state runs before `:max`, whatever the order of the options.
+    """
+
+    def fail(node: object, message: str, code: str = "loop_recur_contract_invalid") -> None:
+        _raise_error(
+            message,
+            code=code,
+            span=getattr(node, "span"),
+            form_path=form_path,
+            expansion_stack=getattr(node, "expansion_stack", ()),
+        )
+
+    binder_node, state_node = _loop_recur_binder_parts(datum.items[1], fail)
+    if len(datum.items) < 3:
+        fail(datum, "`loop/recur` requires :max and a body after the binder")
+    sections = _loop_recur_binder_options(datum.items[2:-1], datum, fail)
+    body_node = datum.items[-1]
+    body_head = syntax_identifier(body_node.items[0]) if isinstance(body_node, SyntaxList) and body_node.items else None
+    if body_head is not None and body_head.resolved_name == "fn":
+        fail(
+            body_node,
+            "with the binder `((name initial-state))` the body is the expression itself: write "
+            "`(loop/recur ((state init)) :max n body)` without `fn`, or the `fn` form "
+            "`(loop/recur :max n :state init (fn (state) body))` without the binder",
+            code="loop_recur_fn_invalid",
+        )
+    session_state.loop_body_depth += 1
+    try:
+        body_expr = _elaborate(
+            body_node,
+            form_path=form_path,
+            bound_names=frozenset(set(bound_names) | {binder_node.resolved_name}),
+            procedure_names=procedure_names,
+            session_state=session_state,
+        )
+    finally:
+        session_state.loop_body_depth -= 1
+    body = LoopBodyFnExpr(
+        binding_name=binder_node.resolved_name,
+        body_expr=body_expr,
+        span=body_node.span,
+        form_path=form_path,
+        expansion_stack=body_node.expansion_stack,
+        binding_label=(
+            binder_node.display_name
+            if binder_node.introduced_by_expansion_id is None
+            else None
         ),
     )
+    return _loop_recur_expr(
+        datum,
+        max_node=sections[":max"],
+        state_node=state_node,
+        on_exhausted_node=sections.get(":on-exhausted"),
+        body=body,
+        operand_evaluation_order=(":state", ":max"),
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+        session_state=session_state,
+    )
+
+
+def _loop_recur_binder_parts(binders: SyntaxList, fail) -> tuple[SyntaxIdentifier, object]:
+    if binders.items and all(isinstance(item, SyntaxList) for item in binders.items) and len(binders.items) > 1:
+        fail(
+            binders,
+            "`loop/recur` takes one binder `((name initial-state))`; carry several values "
+            "in one `loop-state` record",
+        )
+    pair = binders.items[0] if len(binders.items) == 1 else None
+    if not isinstance(pair, SyntaxList) or len(pair.items) != 2 or syntax_identifier(pair.items[0]) is None:
+        fail(binders, _LOOP_BINDER_SHAPE)
+    return syntax_identifier(pair.items[0]), pair.items[1]
+
+
+def _loop_recur_binder_options(options: tuple[object, ...], datum: SyntaxList, fail) -> dict[str, object]:
+    sections: dict[str, object] = {}
+    if len(options) % 2:
+        fail(datum, "`loop/recur` options after the binder must be keyword/value pairs before one body")
+    for key, value in zip(options[::2], options[1::2]):
+        if isinstance(key, SyntaxKeyword) and key.value == ":state":
+            fail(
+                key,
+                "the binder `((name initial-state))` already gives the initial state: drop `:state`, "
+                "or write the `fn` form `(loop/recur :max n :state init (fn (state) body))`",
+            )
+        if not isinstance(key, SyntaxKeyword) or key.value not in {":max", ":on-exhausted"}:
+            fail(key, "`loop/recur` takes the options `:max` and `:on-exhausted` after the binder")
+        if key.value in sections:
+            fail(key, f"`loop/recur` duplicated keyword `{key.value}`")
+        sections[key.value] = value
+    if ":max" not in sections:
+        fail(datum, "`loop/recur` requires :max: `(loop/recur ((state init)) :max n body)`")
+    return sections
 
 
 def _elaborate_loop_body_fn(
@@ -4365,6 +4713,7 @@ def _elaborate_let_proc(
     session_state.local_proc_names = session_state.local_proc_names | frozenset({name_identifier.resolved_name})
     session_state.let_proc_depth += 1
     try:
+        session_state.local_proc_body = name_identifier.resolved_name
         local_body = _elaborate(
             binding_node.items[6],
             form_path=form_path,
@@ -4372,6 +4721,7 @@ def _elaborate_let_proc(
             procedure_names=procedure_names,
             session_state=session_state,
         )
+        session_state.local_proc_body = None
         body = _elaborate(
             datum.items[2],
             form_path=form_path,
@@ -4382,6 +4732,7 @@ def _elaborate_let_proc(
     finally:
         session_state.local_proc_names = previous_local_proc_names
         session_state.let_proc_depth = previous_let_proc_depth
+        session_state.local_proc_body = None
 
     return LetProcExpr(
         binding=LetProcBinding(
@@ -4453,9 +4804,11 @@ def _elaborate_local_hooks(datum, *, form_path, bound_names, procedure_names, se
                 explicit_captures = tuple(capture_names)
                 index += 2
             if index != len(node.items)-1: fail(node, "invalid local binding clauses")
+            session_state.local_proc_body = name
             local_body = _elaborate(node.items[index], form_path=form_path,
                 bound_names=bound_names | frozenset(param.name for param in params),
                 procedure_names=procedure_names, session_state=session_state)
+            session_state.local_proc_body = None
             from .expression_traversal import free_expr_names
             used = free_expr_names(
                 local_body, bound=frozenset(param.name for param in params),
@@ -4469,6 +4822,7 @@ def _elaborate_local_hooks(datum, *, form_path, bound_names, procedure_names, se
             procedure_names=procedure_names, session_state=session_state)
     finally:
         session_state.local_proc_names, session_state.let_proc_depth = previous_names, previous_depth
+        session_state.local_proc_body = None
     return LetProcExpr(binding=bindings[0], additional_bindings=tuple(bindings[1:]), body=body,
         span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
 

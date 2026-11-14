@@ -17,7 +17,7 @@ from tests.agent_session_shims import closed_path
 REPO = Path(__file__).parents[1]
 
 PIPELINE = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (total Int) (first Int))
   (defworkflow run ((n Int)) -> Result
@@ -220,7 +220,7 @@ def test_suspended_run_prints_the_input_command_and_no_result(tmp_path: Path) ->
 
 
 WARNED = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule warn) (export run)
   (defunion Outcome (A) (B))
   (defworkflow run () -> Outcome
@@ -255,10 +255,10 @@ def test_failed_step_prints_no_contract_pointer(tmp_path: Path) -> None:
 
 
 LOOP_WITHOUT_EXHAUSTED = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule counter) (export run)
   (defworkflow run () -> Int
-    (loop/recur :max 3 :state 0 (fn (n) (if (>= n 2) (done n) (continue (+ n 1)))))))
+    (loop/recur ((n 0)) :max 3 (if (>= n 2) (done n) (continue (+ n 1))))))
 '''
 
 
@@ -315,7 +315,7 @@ def test_an_sdk_run_prints_nothing_to_stdout(tmp_path: Path) -> None:
     assert printed(result.stderr, "run") == []
 
 
-PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> Result
@@ -389,7 +389,7 @@ def test_ctrl_c_during_a_step_prints_the_resume_command(tmp_path: Path, flags: t
 
 
 ECHO = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule echo) (export run)
   (defworkflow run ((text String)) -> String text))
 '''

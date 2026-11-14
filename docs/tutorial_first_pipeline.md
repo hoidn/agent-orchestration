@@ -83,25 +83,24 @@ files such as the text being grown are not part of it.
 
 <!-- file: grow.orc -->
 ```lisp
-(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule grow)
   (export run)
   (defrecord Outcome (reached Bool) (pads Int))
   (defworkflow run ((file String) (target Int)) -> Outcome
-    (loop/recur :max 5 :state 0
+    (loop/recur ((pads 0)) :max 5
       :on-exhausted (record Outcome :reached false :pads pads)
-      (fn (pads)
-        (let* ((words (command-result count
-                        :argv ("python" "as_command.py" "sh" "count_words.sh" file) :returns Int)))
-          (if (>= words target)
-            (done (record Outcome :reached true :pads pads))
-            (let* ((padded (command-result pad :argv ("python" "pad.py" file pads) :returns Int)))
-              (continue padded))))))))
+      (let* ((words (command-result count
+                      :argv ("python" "as_command.py" "sh" "count_words.sh" file) :returns Int)))
+        (if (>= words target)
+          (done (record Outcome :reached true :pads pads))
+          (let* ((padded (command-result pad :argv ("python" "pad.py" file pads) :returns Int)))
+            (continue padded)))))))
 ```
 
 `run` takes two typed inputs and returns an `Outcome` record. `loop/recur`
-runs its function at most `:max` times. The function receives the loop's
-state, here `pads`, the number of pads so far, which starts at `:state`. Each round runs the `count` command, then
+runs its body at most `:max` times. The binder `((pads 0))` names the loop's
+state, here `pads`, the number of pads so far, and its start value 0. Each round runs the `count` command, then
 either stops with `done` or runs `pad` and starts the next round with
 `continue`. If five rounds pass without `done`, the loop's value is
 `:on-exhausted`, which can use the last state. `:returns` gives the type the
@@ -251,9 +250,6 @@ with its details; the lines after it say what to do:
 $ orchestrator resume <run id>
 [effect_input_diverged] workflow:grow::run / loop:pads[1] / else / padded: effect input diverged (input parts changed: ['implementation_files']; dependency identities changed: False; previous sha256:944b4a0ab4faac62789e027c4eda240c5c64d41b90edd275c859800efffb7c90, current sha256:8daa183fb6611eba7aab5312f3e4dcc68e79c0ad87bc2aac245636e52fee662c)
 step workflow:grow::run / loop:pads[1] / else / padded was committed with other inputs; changed: implementation_files; files: pad.py
-to run this step and every later one again (workspace files are not rolled back):
-    orchestrator invalidate 20261112T060138Z-bq9zwh 'workflow:grow::run / loop:pads[1] / else / padded'
-    orchestrator resume 20261112T060138Z-bq9zwh
 if accepted, this run cancels from the changed step, as invalidate does:
   kept      1 committed step:
     workflow:grow::run / loop:pads[1] / words
@@ -268,12 +264,17 @@ if accepted, this run cancels from the changed step, as invalidate does:
   unfinished steps retried: none
   runs first: workflow:grow::run / loop:pads[1] / else / padded
   files that cancelled steps wrote in the workspace are not rolled back
-plan token: plan-2cadffd4-610b7111-1cc50b4d-6373171f
+to accept this plan:
+    orchestrator resume 20261112T060138Z-bq9zwh --accept-changes=plan-2cadffd4-610b7111-1cc50b4d-6373171f
+to run this step and every later one again (workspace files are not rolled back):
+    orchestrator invalidate 20261112T060138Z-bq9zwh 'workflow:grow::run / loop:pads[1] / else / padded'
+    orchestrator resume 20261112T060138Z-bq9zwh
 ```
 
 The lines from `if accepted` on are the plan: which committed steps are
-kept and which run again. No command takes the plan token yet; the two
-commands above do what the plan says.
+kept and which run again. The `--accept-changes=plan-…` command applies that
+plan in one step, and is refused if anything it names changed since it was
+printed; the two commands after it do the same in two steps, as below.
 
 **Invalidate** tells the run to forget a committed step, so `resume` runs it
 and every later step again:
@@ -301,8 +302,12 @@ runs added.
   fixed script. A step that was killed, or that changed its own script
   before it failed, is not retried with changed files until you add
   `--accept-changes` to the `resume` command, which the refusal prints.
-- `invalidate` runs the step and every later one again, and does not roll
-  back files in the workspace: what the earlier attempts wrote stays.
+- Accepting a plan with a cut, like `invalidate`, runs the changed step and
+  every later one again, and does not roll back files in the workspace: what
+  the earlier attempts wrote stays. After an edit of `grow.orc` itself,
+  `resume` prints a plan for the edited workflow and the command that
+  accepts it; a plan with no cut runs nothing again
+  ([Edit the workflow and continue](runtime_execution_lifecycle.md#edit-the-workflow-and-continue)).
 
 ## A step that calls a model
 
@@ -312,7 +317,7 @@ names a provider, a prompt and the result type; the runtime tells the model
 where and in what shape to write the result.
 
 ```lisp
-(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule summary)
   (export run)
   (defrecord Summary (title String) (sentences Int))
