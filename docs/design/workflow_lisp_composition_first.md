@@ -400,7 +400,7 @@ where it points, and whether it is a rule or a defect.
 ### 11.2 Defects met by callers of `improve`
 
 These belong to the owners of the flat lowering route and of
-[pure-result replay](workflow_lisp_pure_result_replay.md); the
+[pure-result replay](workflow_lisp_pure_result_replay.md) (a historical record); the
 [decision brief](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md) weighs their repair.
 
 | What the author sees | Cause | Write instead | Pinned by |

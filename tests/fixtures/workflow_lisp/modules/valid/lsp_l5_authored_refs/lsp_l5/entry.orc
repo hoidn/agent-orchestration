@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule lsp_l5/entry)
   (import lsp_l5/definitions :as defs
     :only (WorkReport SharedResult shared))
@@ -15,8 +15,6 @@
   (defproc local-review
     ((report WorkReport))
     -> SharedResult
-    :effects ()
-    :lowering inline
     (record SharedResult :report report))
 
   (defworkflow local-review

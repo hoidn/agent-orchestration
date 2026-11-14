@@ -16,7 +16,6 @@ NOT_DIAGNOSTICS = {
     "materialize_view": "removed runtime step family (18.1, 20)",
     "materialized_value_view": "removed generated-path role (18.1)",
     "on_exhausted": "loop step field (13.1)",
-    "pure_projection": "stale: no such step in the code; still named in section 12 (T4d)",
     "requires_variant": "runtime guard field (8.5, 11)",
     "target_param": "call-policy binding field (22.4)",
 }

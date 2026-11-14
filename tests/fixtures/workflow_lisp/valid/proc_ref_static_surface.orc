@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defpath WorkReport
     :kind relpath
     :under "artifacts/work"
@@ -12,15 +12,12 @@
   (defproc helper
     ((input WorkflowInput))
     -> WorkflowOutput
-    :effects ()
-    :lowering inline
     (record WorkflowOutput
       :report input.report))
   (defproc forward-helper
     ((runner ProcRef[WorkflowInput -> WorkflowOutput])
      (input WorkflowInput))
     -> WorkflowOutput
-    :effects ((uses-command run_checks))
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py" input.report)
       :returns WorkflowOutput))

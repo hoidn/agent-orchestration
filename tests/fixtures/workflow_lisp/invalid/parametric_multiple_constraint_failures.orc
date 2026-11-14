@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defrecord ActualCtx
     (other String))
   (defrecord ActualChoice
@@ -15,8 +15,6 @@
             (CtxT has-field b Int)
             (ChoiceT has-union-variant DONE))
     -> WorkflowOutput
-    :effects ((uses-command run_checks))
-    :lowering inline
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py")
       :returns WorkflowOutput))

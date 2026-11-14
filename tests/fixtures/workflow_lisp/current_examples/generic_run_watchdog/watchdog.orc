@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule generic_run_watchdog/watchdog)
   (export watchdog)
 
@@ -97,8 +97,6 @@
      (recommended_recovery RecommendedRecovery)
      (evidence_bundle_path ProducedArtifactPath))
     -> WatchdogOutput
-    :effects ((uses-command publish_run_watchdog_result))
-    :lowering inline
     (match outcome
       ((NO_ACTION no-action)
        (command-result publish_run_watchdog_result

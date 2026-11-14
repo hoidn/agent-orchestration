@@ -76,3 +76,5 @@ The final run had stub `claude` and `codex` executables first on `PATH` that
 log and refuse every call (`experiments/thread_m/no_provider/`). The log
 stayed empty: no test in the suite starts a real provider CLI.
 - `tests/test_p2_smoke_kit.py` (whole module: 31 errors at once in a full run on 2026-11-13, from its one module-scoped rehearsal fixture; the traceback was not kept; the module passed five times when rerun at `-n 4` and `-n 16`. If it recurs, capture the fixture's error before rerunning).
+- `tests/test_run_ref_provider_holder.py::test_initial_durable_ack_blocked_observer_active_and_zero_worker_start[expiry]` (failed once in a full run on 2026-11-13 under load; passed alone).
+- `tests/test_provider_isolation_environment_cli.py` depends on where `--basetemp` sits, not on load: it passes 30 of 30 when every ancestor of the basetemp has mode 700 and fails 10 of 30 when one is group-writable (775), on `main` and on a branch alike (reproduced by a reviewer on 2026-11-13; path length is not the cause). Run it with a basetemp under a `mkdir -m 700` directory.

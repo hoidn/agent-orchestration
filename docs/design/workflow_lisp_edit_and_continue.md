@@ -10,7 +10,7 @@ whose identity and inputs the edit did not change.
 (tasks T1 to T8, 2026-11-13); the lane then stopped (roadmap owner
 decision 13). Accepted by the coordinator on 2026-11-12 after two review
 rounds; it applies rulings 2 to 8 of the
-[feasibility spike](workflow_lisp_edit_and_continue_spike.md#coordinator-rulings-2026-11-11)
+[feasibility spike](workflow_lisp_edit_and_continue_spike.md#coordinator-rulings-2026-11-11) (a historical record)
 and the rulings recorded under [Decisions](#decisions). Implemented, each
 pinned by tests on `main`: the `declaration` rule (§2), the reuse rule and
 the read-only plan with its token (§3, §6), the `rebased` record and the

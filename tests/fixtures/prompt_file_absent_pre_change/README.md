@@ -1,0 +1,1 @@
+Captured with package e112aa0f (main before the prompt-file read check): step `one` committed while its `input_file` prompt `one.md` was absent, step `two` failed (`SHIM_FAIL_CALL=2`); must never be regenerated.

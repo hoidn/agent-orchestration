@@ -84,10 +84,10 @@ those the seeds meet.
 | --- | --- | --- |
 | D1 | A `list/map` whose body is a `match`, used in an `if` condition inside a loop body | `compiler_defect` (`KeyError`); binding it with `let*` first compiles |
 | D2 | `(list)` in a `match` arm | `compiler_defect` ("typed list is missing its resolved child types") |
-| D3 | A generic procedure called in a `list/map-effect` body | `procedure_call_unknown`, naming an internal specialization; also on the I1 branch. A role call in a map body is such a call |
-| D4 | A procedure reference chosen by `if` | `compiler_defect` (`KeyError`); on `feat/coherence-c1` it is `proc_ref_literal_required` |
+| D3 | A generic procedure called in a `list/map-effect` body | `procedure_call_unknown`, naming an internal specialization; also after I1 merged. A role call in a map body is such a call |
+| D4 | A procedure reference chosen by `if` | `proc_ref_literal_required` at the `let*` binding since C1 merged (2026-11-13); a `compiler_defect` (`KeyError`) before it |
 | D5 | A `bind-proc` written inside a procedure over one of its parameters, passed to a `ProcRef` parameter | `procedure_lowering_unresolved` |
-| D6 | `(list :of String)` | An uncaught `TypeError` traceback (a keyword in a positional form; C1 gives that one diagnostic) |
+| D6 | `(list :of String)` | `keyword_argument_invalid` since C1 merged (a keyword in a positional form); an uncaught `TypeError` traceback before it |
 | D7 | A provider extern used as a value in reached code: bound by `let*`, put in a record, passed to a procedure, chosen by `if`, returned | `compiler_defect` after typecheck. A definition that only names the type `Provider` and is not reached compiles |
 
 Also measured: a workflow input takes a literal default (`(coder String
@@ -309,7 +309,7 @@ What stays refused is `(defmacro as-coder (p) (provider-result … :prompt p))`.
 | A `role` form | A form whose only content is partial application |
 | A record of call options spliced into calls | Possible today for model and effort (`:model r.model`); it shortens nothing at the call |
 | A macro whose template writes the call | `macro_hidden_effect`, kept |
-| General generic references (passed, re-bound, instantiated at a `ProcRef` type) | The bound-reference path has three open defects (D4, D5 and the one surface coherence names); the role idiom needs only a reference called where it is bound |
+| General generic references (passed, re-bound, instantiated at a `ProcRef` type) | The bound-reference path has open defects (D5 and those surface coherence lists under its rule 3; D4 became a refusal with C1); the role idiom needs only a reference called where it is bound |
 
 The prototype shows the chosen design needs three capabilities that were
 known (a prompt as an argument; `Prompt[T]` and `Provider` parameters; a
@@ -394,8 +394,8 @@ claimed by a milestone" needs all three and stays with the reviewer).
 
 An author has three ways to meet the cap, each an explicit choice: take the
 first `n` (`list/take`); refuse a long list before the map (`list/length`,
-today); or, with I1, make the list's own length the budget
-(`:max (list/length xs)`). An option on the map for a long list was weighed
+today); or make the list's own length the budget
+(`:max (list/length xs)`, a serial map only, since I1 merged). An option on the map for a long list was weighed
 and dropped: a keyword with two modes where two pure operators serve, on a
 form whose recorded behaviour must not move.
 
@@ -480,7 +480,7 @@ the planner, 1 for the coder and 1 to 2 for the reviewer.
 | A second role from one (milestone reviewer and acceptance reviewer) | New inputs, and each site that moves rewritten | One new line; one token at each site that moves |
 | A role's literal edited in the middle of a run | `resume` prints a plan; `resume --accept-changes=TOKEN` cancels from the first committed step whose input changed | The same, the cut being that role's first committed step. In both, no plan can be accepted when a committed agent turn lies at or after the cut (`invalidate_coordinator_committed`): start a new run. An edited input default is never resumable |
 | Conversation scope: fresh or continued | The `agent` line added or removed, and each site rewritten | The same, by §8.2's deferral: the role's line becomes an `agent` line and each `(coding (work …))` becomes `(provider-result coder :timeout-sec … :prompt (work …))` |
-| Conversation scope: per milestone or per run | Move the `agent` line between the map body and the outer `let*`; per run needs I1 | The same |
+| Conversation scope: per milestone or per run | Move the `agent` line between the map body and the outer `let*`; per run needs I1 (merged 2026-11-13) | The same |
 | Stages present | Delete a binding of two lines, or a `match` | The same; a fresh call is one line; with I1 the milestone level is one block |
 | Loop bounds | One `:max` literal | The same |
 | Milestone granularity | The map's `:max` and the number in the prompt must agree; a longer plan fails the run | Two tokens that must agree, `(list/take plan.milestones 8)` and `:max 8`; the number in the prompt is advice, and a longer plan is cut |
@@ -505,8 +505,8 @@ up.
 | Sentence | Effect of this design |
 | --- | --- |
 | 1. Effects | Unchanged. A prompt application is pure and its operands are literals, names and fields |
-| 2. Iteration | Unchanged; the cap exception is kept word for word. `(list :of T)` is a source like any other |
-| 3. Callables | Amended: after "a procedure reference is a compile-time name" add "and so are a prompt value and a provider". Its exception list gains: a reference bound over a generic procedure is called where it is bound. The macro exception is unchanged |
+| 2. Iteration | Unchanged. The cap exception stands as surface coherence states it since I1: a serial map runs its first `:max` items and then fails with `list_map_effect_cap_exceeded`, a computed `:max` below 1 fails with that code before any item of a non-empty list, and an empty list gives the empty list. The run-reference exception now covers the program: the seeds hold no run reference, so their map bodies are any expression; in a program that holds one, every map iteration is one call with pure arguments (`list_map_effect_body_unsupported`), and a seed's milestone body does not compile there. `(list :of T)` is a source like any other |
+| 3. Callables | Amended: after "a procedure reference is a compile-time name" add "and so are a prompt value and a provider". Its exception list, to which C1 added "a local does not shadow a function or a form" and "a bound reference is a literal or a forwarded one", gains: a reference bound over a generic procedure is called where it is bound. A role's binding is a literal `bind-proc` over a `proc-ref`, which the second admits (one chosen by `if` is `proc_ref_literal_required`, §4.4). The first reaches roles too: on `main` a `let*`-bound reference named like a `defun` or a built-in form is not what `(name …)` calls (measured: the function, the form), so a role takes a name of its own. The macro exception is unchanged |
 
 | Left alone | Why |
 | --- | --- |
@@ -566,8 +566,8 @@ phased call); `list_empty_type_context_required` (fewer positions);
 fire for a `Provider` parameter and for `Prompt[T]`.
 
 **Seed sizes** (lines; code lines at most 129 characters). "Per-role inputs"
-is today's language with a model and an effort per role as inputs with
-defaults, compiled on `main`. "After" is compiled as written on the spike.
+is the language before I1 and I2a merged, with a model and an effort per role
+as inputs with defaults, compiled on `main` as it was then. "After" is compiled as written on the spike.
 
 | Seed | As written | Per-role inputs | I1, I2a | L | P | O (gate) | Longer lines | After |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -597,10 +597,10 @@ Scenarios each change adds, through the public command line with stand-ins:
 | --- | --- | --- |
 | T | `wl/typecheck_effects.py`; `contracts/closed_program/check.py`; `workflow/evaluated/providers.py` | — |
 | O | `workflow/pure_expr.py`; `wl/typecheck_pure_ops.py`; `wl/wcc/elaborate.py`; `wl/result_guidance.py`; `orchestrator/py/trace.py`; three rows of the specification's operator table | — |
-| L | `wl/expressions.py` (`_elaborate_list_constructor`); `wl/typecheck_structural_values.py`; `wl/typecheck_dispatch.py`; `wl/wcc/elaborate.py` | C1, E1, I1, I2a merged |
+| L | `wl/expressions.py` (`_elaborate_list_constructor`); `wl/typecheck_structural_values.py`; `wl/typecheck_dispatch.py`; `wl/wcc/elaborate.py` | E1 merged (C1, I1 and I2a are, since 2026-11-13) |
 | P1 | `wl/type_env.py`, `wl/expressions.py`, `wl/expression_traversal.py`, `wl/typecheck_dispatch.py`, `wl/typecheck_proofs.py`: the type, the application as an argument, the head rule, the refusals | E1 merged (the same elaboration functions) |
 | P2 | `wl/procedure_typecheck.py`, `wl/procedure_specialization.py`, `wl/procedures.py`, `wl/closed/names.py`, `wl/typecheck_effects.py`: `Prompt[T]` and `Provider` parameters; the specialization and its name | P1, T, Task 0b (D3) |
-| P3 | `wl/typecheck_dispatch.py`, `wl/procedure_typecheck.py`: a called reference over a generic procedure | P2; C1 merged (D4) |
+| P3 | `wl/typecheck_dispatch.py`, `wl/procedure_typecheck.py`: a called reference over a generic procedure | P2 (C1, which settles D4, is merged) |
 | P5, P6 | `wl/stdlib_modules/…/std/ask.orc`; the documents of §14 | P3; the stage 4 cut decides the library's target |
 
 ## 14. Where The Rules Live
@@ -629,5 +629,5 @@ sentences state the rules without "today" or "after".
 | 2 | May an `Agent` be a `bind-proc` argument (§8.2)? | **Deferred** by the coordinator's ruling; the rule and its guards are kept | Taken up later: about one day and an Agent Sessions amendment. Until then fresh or continued is an edit of each call site |
 | 3 | The snapshot fill (§8.1) | **Deferred**; the rule is incomplete for a pending agent turn | Until then `:path` only for living documents, and `:doc` can still strand an agent run |
 | 4 | `list/take` beside `list/length` and a computed `:max` | Accept all three operators | No: a seed must refuse a long plan and replan, at the price of one planning call's tokens |
-| 5 | Fix the defects the seeds meet (D1, D2, D3) as the first task? | Yes; D4 arrives with C1; D5 is diagnosed there and becomes a fix or a named limit | Deferred: a `let*` line per use for D1 and D2; no role call in a map body for D3 |
+| 5 | Fix the defects the seeds meet (D1, D2, D3) as the first task? | Yes; D4 arrived with C1 (merged 2026-11-13); D5 is diagnosed there and becomes a fix or a named limit | Deferred: a `let*` line per use for D1 and D2; no role call in a map body for D3 |
 | 6 | Should `report` shorten the bracketed digest in step names? | Not here; the name now says which prompt and provider | — |

@@ -356,7 +356,8 @@ every removed test is listed with the code it covered".
      `let-proc` local, in serial and parallel maps (a hole in a safety guard:
      first in line for a fix);
    - a parallel map written directly in a `loop/recur` body fails with
-     `compiler_defect` (through a procedure call it works);
+     `compiler_defect` (through a procedure call it works) (closed 2026-11-13
+     by the map-bodies change);
    - a `let-proc` local whose body is a loop crashes with an internal error;
    - dead code: the prompt snapshot and attempt-identity builders and the
      fragment-identity projection have no caller in the package.
@@ -370,7 +371,8 @@ every removed test is listed with the code it covered".
      hoisted into a binding, so the refinement in the typechecker and the
      tests that assert it cannot be reached from a compile); a template-bound
      name in the first position of a list is never renamed by macro expansion
-     (being closed with the loop-binder change).
+     (not closed: the loop-binder change withdrew its fix; see the sixth
+     batch).
    - added 2026-11-13 (third batch): an inner binding that is not a procedure
      reference does not hide an outer procedure reference of the same name
      (`(let* ((g (proc-ref p))) (let* ((g 5)) (g 1)))` compiles and calls
@@ -383,8 +385,9 @@ every removed test is listed with the code it covered".
      variant-field fix branch does not change it).
    - added 2026-11-13 (fourth batch, each confirmed by an independent probe
      on `main`): a prompt declared with a missing `input_file` does not fail,
-     and the provider runs with no authored prompt (first in line with the
-     guard hole above: a paid call with no instruction); `defpath` silently
+     and the provider runs with no authored prompt (closed 2026-11-13,
+     `f004a59c`: a missing, unreadable or directory prompt file fails before
+     launch with `input_file_read_failed` or `asset_file_read_failed`); `defpath` silently
      ignores unknown keywords; return guidance on a workflow, procedure or
      function is checked and then discarded (an accepted form with no
      effect); a `Bool` result accepts the strings "true" and "false";
@@ -422,6 +425,43 @@ every removed test is listed with the code it covered".
      `compiler_defect`; a variant-only field read fails with `compiler_defect`
      when the tested name is rebound in one operand while a sibling operand
      tests it (needs four lines in the renaming pass).
+   - added 2026-11-13 (eighth batch, from the conditionals documentation and
+     its review; each confirmed by probe): a discriminant proof reaches a
+     parallel `list/map-effect` body and a pure `list/map` body but not a
+     serial `list/map-effect` body (the same read is refused there); inside a
+     generic procedure a discriminant test on a value of a type parameter is
+     refused with a misleading code (`variant_tag_union_mismatch`), although
+     `match` works; `cond`, `if` and `match` can be bound as names; the
+     `and`/`or` proof item above has its cause confirmed a second time (the
+     facts are lost when the condition is hoisted into a generated binding).
+   - added 2026-11-13 (ninth batch, from the reviews of the fixture
+     migration, the missing-prompt-file fix and the effects change; each
+     reproduced by the reviewer on `main`): `path/join-under` looks up its
+     path type in the caller's scope, so a procedure called from a module that
+     does not import that type is refused `path_join_under_type_invalid` (a
+     module-qualified type name works); a prompt `input_file` given as an
+     absolute path, with `..`, or as a symlink that leaves the workspace is
+     read and the provider launches, while `asset_file` refuses all three;
+     `(continue (if c (if c E 0) 0))` and a procedure call holding a
+     conditional effect used as a `match` subject each fail with
+     `compiler_defect`; two refusal messages mislead (a parallel map in an
+     `if` condition; `bind-proc` with an effect).
+   - added 2026-11-13 (tenth batch): `done` as a `let*` binding value inside
+     a loop fails with a `TypeError` in the elaborator (found by the
+     prototype of the mutant generator on three seed programs: by the scope
+     cut's own rule a defect a mutant hits returns to the fix list); after
+     `invalidate`, the refusal of `resume` suggests a bare
+     `--accept-changes`, which is itself refused `resume_preflight_failed`
+     (found by the re-review of the missing-prompt-file fix; not re-run on
+     `main` by the coordinator).
+   The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
+   (accepted 2026-11-13 after an independent review and one revision) orders
+   this list by harm. By the owner's direction of 2026-11-13 it is cut to
+   eight tasks (48 hours, about 85 with reviews): what can
+   spend provider money or commit a wrong output, and the crashes a short
+   staged seed or its mutants would plausibly hit. The rest stay listed and
+   pinned as known, and return only when the mutant generator or a real
+   workflow hits one.
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
@@ -514,7 +554,8 @@ until it is, this section is the staging.
   point of the Phase 6 search.
 - **Tasks:** individual tasks taken from public benchmarks. First candidate
   set: 16 named Terminal-Bench 4 tasks (single image, no GPU), with
-  Terminal-Bench-Science as a second source. Scoring is each task's own
+  Terminal-Bench-Science as a second source and single MLE-bench
+  competitions as a third (decision 17; steps 10 to 12). Scoring is each task's own
   verifier, so the family is oracle-scored: its qualification is the oracle
   check (the reference solution passes, an untouched environment fails), not
   a judge.
@@ -540,6 +581,9 @@ until it is, this section is the staging.
 | 7 | Freeze the task set from the ladder: tasks in the band, and the answer on whether success falls as effort rises | Reported to the owner | After step 6 |
 | 8 | Merge the seed to `main` and freeze it | Surface-coherence changes merged (the seed is written once, in the language as revised); the staged-authoring revisions are not required for the first search space | Waits on Lane D stage 5 |
 | 9 | Seed against a direct session at matched priced-token cost on the frozen tasks | **A new owner approval** (not covered by decision 16) | Not requested |
+| 10 | MLE-bench competitions as tasks of this harness ([feasibility report](../reports/2026-11-13-mle-bench-subset-feasibility.md)): each candidate wrapped so that the private answers and the API key stay outside the agent's container (the upstream harness puts both inside), reusing the launcher, relay and allowlist of step 5; the grader check (the answers file earns a gold medal, an untouched environment scores zero); a CPU-only competition first, then one on the GPU. The score is continuous, so every attempt also records the leaderboard percentile as a graded outcome | Step 5 done; its own plan and ledger, with the success definition (any medal, as proposed) and a total ceiling fixed before spend; independent review. Owner actions: a Kaggle API token and acceptance of each competition's rules; the NVIDIA Container Toolkit for rootless Podman | Staged 2026-11-13 (decision 17); not started. About 16 hours for the first CPU-only competition, 6 to 10 more for the first on the GPU, 1 to 2 for each further one |
+| 11 | Screen the 13 ranked candidates: a direct Haiku session, 3 attempts each at one effort (39 attempts), the benchmark's 24-hour limit, about four attempts at once and one of them on the GPU | Step 10; decision 17 (Haiku up to USD 200 a day; the report estimates USD 40 to 310 in all and 3 to 4 days if sessions stop by themselves) | Not started |
+| 12 | Place the competitions: one enters the family only at 10 to 30 percent success. Three attempts only exclude the clear ceilings and floors, so a competition that survives the screen gets the ladder's attempts (step 6's size per task) before it is frozen with step 7's set | Reported to the owner; a top-up beyond the plan's ceiling is a new request | After step 11. The report expects 2 to 5 of the 13 to fall in the band |
 
 - **Exit test:** a frozen task list with each task's measured direct success
   rate by effort; a seed on `main` that completes those tasks' stages under
@@ -606,7 +650,7 @@ was not taken. No spend is authorized.
 | --- | --- | --- | --- |
 | R1 Checkpoint controller and workspace snapshots | A snapshot of the workspace after every committed step (a commit for a repository task, an image layer for a container task), recorded beside the memo; a controller that runs candidates to a named stage boundary, stops the weak ones and resumes the rest; a fork of a run at a step with its workspace. This is the design item H-E2 needs and nobody has assessed: design first | Stand-in runs: a stopped candidate resumes with no step dispatched twice; a fork at step k reproduces the parent's workspace at k byte for byte; cost of a child equals its changed suffix | Phase 3b (done); the stage-signal result of Phase 5b for where to stop |
 | R2 Canonical digest, then a replay of October | Local and generated names leave the program digest, so two spellings of one program share it; then the digests of the October search's recorded candidates are recomputed and the share that collapse is reported | Zero spend. The replay decides whether de-duplication is worth wiring into admission | The one-target cut (a digest change moves identity) |
-| R3 Mutants never crash the compiler | A generator of mechanical mutants of the seeds over the declared dimensions (a few hundred); every mutant compiles or is refused with a code, none ends in `compiler_defect`, and the count of distinct digests is reported. The open defect list of Lane D stage 5 is the backlog it draws on, ordered by what the mutants actually hit | Zero spend; runs in the default suite at a small sample | Stage 5 merges; the mutation operators are the same ones a search uses |
+| R3 Mutants never crash the compiler ([plan](2026-11-13-phase-6-mutant-generator-plan.md), accepted 2026-11-13, 22 hours) | A generator of mechanical mutants of the seeds over the declared dimensions (a few hundred); every mutant compiles or is refused with a code, none ends in `compiler_defect`, and the count of distinct digests is reported. The open defect list of Lane D stage 5 is the backlog it draws on, ordered by what the mutants actually hit | Zero spend; runs in the default suite at a small sample | Stage 5 merges; the mutation operators are the same ones a search uses |
 
   Order: R3 and the October replay first (days, no design); R1 after its
   design is reviewed. A zero-spend check of H-E2's reach belongs here too:
@@ -652,9 +696,9 @@ from judgment where none does; a progress figure is done weeks over this total a
 | Lane D | 17 | 9 as first scoped; stage 5 about 3; stage 6 about 2 (79 hours); documentation consolidation about 3 (112 hours); defect backlog and the changes assigned to the cut about 2 (judgment, unsized) |
 | Consumer thread | 3 | Judgment: one pipeline written, run to a used result, and its friction log |
 | Phase 5, seed set | 4 | Judgment: tasks, programs and runner (built), calibration, seed evaluation |
-| Phase 5b, long-horizon | 4 | 93 hours for the ladder and the freeze, plus the staged comparison (judgment) |
+| Phase 5b, long-horizon | 5 | 93 hours for the ladder and the freeze, plus the staged comparison (judgment); about 1 for the MLE-bench steps 10 to 12 (about 45 hours and the screen) |
 | Phase 6, program evolution | 8 | Judgment: the three readiness items, a search harness and its runs; the least certain row |
-| **Total** | **about 53** | |
+| **Total** | **about 54** | |
 
 ## Dispositions
 
@@ -696,6 +740,8 @@ the owner can amend any of them.
 | 14 | A long-horizon seed and task family | 2026-11-13, owner direction, added to the seed work: tasks with a long horizon on which `claude-haiku-5-5` succeeds 10 to 30 percent of the time, in software, machine learning and scientific programming or reasoning, extracted individually from public benchmarks; and one compact `.orc` seed (few lines) that stages the work (a clean project repository with its documentation structure and agent guides, then spec-driven targets, then design and planning, then implementation) with feedback at several timescales and semantic levels. Nothing like it exists in the repository yet. Staged as [Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed). Added the same day: mutations of the seed vary model (Haiku or Sonnet) and effort level per agent role; the first space searched keeps one model (Haiku) and varies only effort per role, after an effort ladder confirms that success does not fall as effort rises |
 | 15 | How a role is bound once | 2026-11-13: the owner asked for "a nice schemey partial application simple fix" and then for the design and roadmap staging of "the principled fix that this points to". Decided direction: a typed prompt is a first-class value and a role is a generic procedure wrapping `provider-result`, partially applied with `bind-proc`; no new `role` form. The design must still report any guarantee this would break (effect identity per call site, the provider declaration digest, metering, the closures boundary) before code is written |
 | 16 | Budget for the long-horizon effort ladder | Approved 2026-11-13 ("ok" to the stated request): 16 named benchmark tasks, a direct `claude-haiku-5-5` session at effort low, medium and high, five attempts each; at most 240 attempts, ceiling USD 200 (requested as about USD 170 at reported prices). Conditions before the first attempt: the oracle check passes here, the network policy is fixed, a guarded launcher is reviewed, the plan and its ledger exist. It places tasks relative to the 10 to 30 percent band and tests whether success falls as effort rises; the workflow comparison is a separate request ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
+| 17 | A second long-horizon family from MLE-bench | 2026-11-13: the owner asked "can we consider some mlebench tasks" and, told that the benchmark's standard limit is 24 hours per attempt, answered "parallel up to 24 hours ok , haiku spend up to $200 per day ok". The coordinator's reading: attempts on this family may run in parallel under the benchmark's 24-hour limit, and `claude-haiku-5-5` spend on this family may reach USD 200 per calendar day. Added the same day: "mlebench includsion depends on the included tasks fallin in the 10 to 30 percent range we specified", so a competition enters the family only when a calibration places `claude-haiku-5-5` at 10 to 30 percent success on it (the band of decision 14), under a success definition the plan fixes before spend. It is not yet a tranche. No call is made before the feasibility study is in, a plan with its ledger exists (attempt caps, a total ceiling, stop rules), an oracle-style check passes on this machine, the launcher is guarded and reviewed, and the calibration rules of [`AGENTS.md`](../../AGENTS.md) hold; the `AGENTS.md` rule for the line is written with that plan. The Kaggle account and the acceptance of each competition's rules are the owner's action. The [feasibility report](../reports/2026-11-13-mle-bench-subset-feasibility.md) (no spend) ranks 13 candidate competitions (13.4 GB) and expects 2 to 5 of them to fall in the band; it recommends a small screen after the Terminal-Bench launcher exists, each competition wrapped as a Harbor task because the upstream harness puts the answers and the API key inside the agent's container. Told that the coordinator recommends the screen after the Terminal-Bench launcher is built, the owner answered "ok. stage in the roadmap": staged as steps 10 to 12 of [Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed). Open: the owner gave a daily figure and no total, so the plan proposes a total; the daily figure is read as covering this family only, not the other Haiku experiment lines |
+| 18 | Which credential experiments use | 2026-11-13: told that the coordinator recommended an API key in a capped workspace for the effort ladder and the MLE-bench screen, the owner answered "no. subscription only. No api key for this or anythning else". Every provider call authenticates through the owner's Claude subscription; no API key is created or used ([`AGENTS.md`](../../AGENTS.md), experiment rules). Consequences taken into the [long-horizon plan](2026-11-13-long-horizon-task-family-and-seed-plan.md): the host-side passthrough holds a subscription token, not a key; there is no vendor-side spend limit, so the approved dollar ceilings are priced-token caps that the passthrough and the launcher enforce; runs share the subscription's usage limits with the owner's own sessions and must pause at a limit. Not yet shown: that the vendor accepts a subscription token through the passthrough (one live probe, usage only) |
 
 ## Process rules
 
@@ -772,8 +818,10 @@ is manual. Phase plans are linked here as they start:
   (`report`, dashboard and monitor read it; continuing it needs the tagged release).
 - Lane D, surface coherence (stage 5): [design](../design/workflow_lisp_surface_coherence.md)
   accepted. The constructor-field defect is fixed and the callables change (C1) is merged
-  (2026-11-13), as is the loop binder form with its migration tool (I2a); effects in fields
-  (E1) and map bodies (I1) are in review; the loop binder rewrite rides the stage 4
+  (2026-11-13), as are the loop binder form with its migration tool (I2a) and map bodies
+  (I1: any expression as a map body and a computed serial `:max`, in programs with no run
+  reference; `624ff688`, full suite 15,349 passed, the six failures being the baseline four and
+  two that passed alone); effects in fields (E1) is in its third review; the loop binder rewrite rides the stage 4
   sweep and the `fn` form goes at the stage 4 cut.
 - Lane D, authoring revisions for staged workflows (stage 6):
   [design](../design/workflow_lisp_staged_workflow_authoring.md) and

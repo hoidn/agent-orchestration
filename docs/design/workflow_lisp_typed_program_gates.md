@@ -20,14 +20,14 @@ Admission boundary: this remains an unselected target with its C3 gate intact. H
 - **Related docs:**
   - [Program-search boundary invariants](workflow_lisp_program_search_boundaries.md)
     (binding; §Boundary Compliance is the governing section of this design)
-  - [Workflow Lisp trial runs](workflow_lisp_trial_runs.md) (the generational
+  - [Workflow Lisp trial runs](workflow_lisp_trial_runs.md) (now a historical record; the generational
     experiment platform; C1 below is the concrete form of its
     "diagnostics as machine API" substrate dependency, and C2 below is the
     supervision surface its `run-ref` children share)
   - [Provider at-least-once loosening amendment](../plans/2026-07-26-provider-at-least-once-loosening-amendment.md)
     (landed through ML; supplies the at-least-once attempt and single-writer
     run contract assumed by C2 and any future C3 work)
-  - [Pure-result replay](workflow_lisp_pure_result_replay.md)
+  - [Pure-result replay](workflow_lisp_pure_result_replay.md), now a historical record
     (accepted M2 persistence boundary; C1's result/evidence contract below is
     deliberately durable while derived projections remain replayable)
   - [Workflow language design principles](workflow_language_design_principles.md)
@@ -36,13 +36,13 @@ Admission boundary: this remains an unselected target with its C3 gate intact. H
   - [Core calculus middle end](workflow_lisp_core_calculus_middle_end.md)
     (owns the flattening route and the authority-inversion deferral C3
     depends on; this document does not re-price that risk)
-  - [Lexical execution checkpoints](workflow_lisp_lexical_execution_checkpoints.md)
+  - [Lexical execution checkpoints](workflow_lisp_lexical_execution_checkpoints.md), now a historical record
     (draft target; consumed by C3 only)
   - [Command adapter contract](workflow_command_adapter_contract.md)
     (existing authority under which C2 proceeds)
   - [Frontend specification](workflow_lisp_frontend_specification.md)
     (diagnostics registries, version gating conventions)
-  - [MLEvolve system architecture](mlevolve_workflow_lisp_system_architecture.md)
+  - [MLEvolve system architecture](mlevolve_workflow_lisp_system_architecture.md), now a historical record
     (a consumer family — of C1 and of the trial-runs platform, deliberately
     not of C3)
   - Seeds: `workflows/library/generic_run_watchdog/`,

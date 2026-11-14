@@ -46,7 +46,6 @@ Read the one for a feature when you use it.
 | [verified_iteration_drain.md](verified_iteration_drain.md) | The verified-iteration drain workflow | Implemented |
 | [workflow_lisp_program_search_boundaries.md](workflow_lisp_program_search_boundaries.md) | Boundary invariants for program search and evolution | Adopted position statement |
 | [workflow_lisp_runtime_closures_boundary.md](workflow_lisp_runtime_closures_boundary.md) | The runtime-closure boundary | Deferred acceptance guardrail |
-| [workflow_lisp_strict_boolean_control_flow.md](workflow_lisp_strict_boolean_control_flow.md) | Strict `Bool` conditions, `cond`, discriminant proof | Implemented |
 | [workflow_lisp_pure_call_composition.md](workflow_lisp_pure_call_composition.md) | Effect-free procedure calls in expressions | Implemented |
 | [workflow_lisp_pure_list_traversal.md](workflow_lisp_pure_list_traversal.md) | List construction, mapping, `path/join-under` | Implemented |
 | [workflow_lisp_proc_refs_partial_application.md](workflow_lisp_proc_refs_partial_application.md) | `ProcRef` and `bind-proc` | Current contract |
@@ -81,7 +80,7 @@ Read the one for a feature when you use it.
 | [workflow_lisp_typed_program_gates.md](workflow_lisp_typed_program_gates.md) | Typed compiler verdicts and child-run adapters | C2 dropped, C1 and C3 parked |
 | [Provider-phase isolation](../superpowers/specs/2026-07-23-provider-phase-information-isolation-design.md) | Information isolation between provider phases | Partial, pre-integration; remaining integration dropped or archived ([roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions)) |
 | [workflow_lisp_edit_and_continue.md](workflow_lisp_edit_and_continue.md) | Resume under an edited program | Implemented (Phase 3b, 2026-11-13); evaluated execution (C10) and `specs/cli.md` own resume; the H-G3 measurement is not done |
-| [workflow_lisp_surface_coherence.md](workflow_lisp_surface_coherence.md) | One rule each for effect placement, iteration forms and callables | Accepted; the callables change is implemented, the others are in review; the specification describes what compiles today |
+| [workflow_lisp_surface_coherence.md](workflow_lisp_surface_coherence.md) | One rule each for effect placement, iteration forms and callables | Accepted; the callables, map-body and loop-binder changes are implemented, effects in fields is in review; the specification describes what compiles today |
 | [workflow_lisp_staged_workflow_authoring.md](workflow_lisp_staged_workflow_authoring.md) | A timeout as a name, a typed list literal, list operators, prompts as values and roles by partial application | Accepted 2026-11-13, not implemented; the specification describes what compiles today |
 
 ## Historical
@@ -97,6 +96,7 @@ These records preserve decisions and evidence and select no work. Follow the own
 | [workflow_lisp_prompt_calculus.md](workflow_lisp_prompt_calculus.md) | Prompt core, output positions, attempt diagnostics (Q1–Q3) | [Frontend specification §8.7.1](workflow_lisp_frontend_specification.md#871-defprompt-target-220) and [§22.6](workflow_lisp_frontend_specification.md#226-workflow-lisp-prompt-fragments-target-220) |
 | [workflow_lisp_prompt_identity_diagnostics.md](workflow_lisp_prompt_identity_diagnostics.md) | Prompt-attempt identity and comparison | [Frontend specification §8.7.3](workflow_lisp_frontend_specification.md#873-implemented-prompt-attempt-identity-target-222); [evaluated execution §7.2](workflow_lisp_evaluated_execution.md#72-the-resolved-input) |
 | [workflow_lisp_proof_graph.md](workflow_lisp_proof_graph.md) | Variant proof and value authority | [Frontend specification §11](workflow_lisp_frontend_specification.md#11-pattern-matching) and [§12](workflow_lisp_frontend_specification.md#12-conditionals) |
+| [workflow_lisp_strict_boolean_control_flow.md](workflow_lisp_strict_boolean_control_flow.md) | Strict `Bool` conditions, `cond`, discriminant proof | [Frontend specification §12](workflow_lisp_frontend_specification.md#12-conditionals), [§12.1](workflow_lisp_frontend_specification.md#121-cond) and [§12.2](workflow_lisp_frontend_specification.md#122-discriminant-tests) |
 | [workflow_lisp_type_catalog.md](workflow_lisp_type_catalog.md) | Type catalog | [Frontend specification §7](workflow_lisp_frontend_specification.md#7-types) and [§8.10](workflow_lisp_frontend_specification.md#810-return-types-and-result-guidance) |
 | [workflow_lisp_reference_catalog.md](workflow_lisp_reference_catalog.md) | Reference kinds | [Frontend specification §11](workflow_lisp_frontend_specification.md#11-pattern-matching) and [§7.3](workflow_lisp_frontend_specification.md#73-path-types) |
 | [workflow_lisp_source_map.md](workflow_lisp_source_map.md) | Source-map provenance | [Core calculus, provenance](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts) |
