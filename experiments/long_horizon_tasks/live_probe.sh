@@ -204,84 +204,124 @@ def stream(out, effort):
     return jsonl(f"{found}agent/claude-code.txt") if found else []
 
 
+def assistant_id(event):
+    message = event.get("message")
+    if event.get("type") == "assistant" and isinstance(message, dict) and message.get("model") != "<synthetic>":
+        return message.get("id")
+    return None
+
+
 def session_ids(out, effort):
+    """One id per message: the session file repeats a message's row once per content block."""
     found, ids = trial(out, effort), []
     for path in sorted(glob.glob(f"{found}agent/sessions/projects/*/*.jsonl")) if found else []:
-        for event in jsonl(path):
-            message = event.get("message")
-            if event.get("type") == "assistant" and isinstance(message, dict) and message.get("id") \
-                    and message.get("model") != "<synthetic>" and message["id"] not in ids:
-                ids.append(message["id"])
+        ids += [mid for mid in map(assistant_id, jsonl(path)) if mid and mid not in ids]
     return ids
 
 
 def connections(out, effort):
     """Hosts the egress proxy connected to; a refused connection ends in `bypass` and never shows `<->`."""
-    return [e.get("host") for path in sorted(glob.glob(f"{out}/{effort}/egress-*.log")) for e in jsonl(path)
-            if " <-> " in str(e.get("msg", ""))]
+    events = [e for path in sorted(glob.glob(f"{out}/{effort}/egress-*.log")) for e in jsonl(path)]
+    return [e.get("host") for e in events if " <-> " in str(e.get("msg", ""))]
 
 
 def lines(path):
     return [line.strip() for line in open(path)] if os.path.exists(path) else []
 
 
+def runtime_checks(out, effort):
+    return [line for line in lines(f"{out}/{effort}/runtime-scan.txt") if line.startswith("exit")]
+
+
 def slot_rows(pt, effort):
     return [r for r in jsonl(f"{pt}/requests.jsonl") if r.get("slot") == f"probe-{effort}"]
 
 
-def stops(out, pt, effort):
-    rows, events = slot_rows(pt, effort), stream(out, effort)
-    found = [f"passthrough refused: {r['refused']}" for r in rows if r.get("refused")]
-    found += [f"vendor status {r.get('status')}" for r in rows if not r.get("refused") and r.get("status") != 200]
-    found += [f"response model {r['response_model']}" for r in rows if r.get("response_model") not in (None, MODEL)]
-    found += [f"passthrough {e['event']}: {e.get('reason')}" for e in jsonl(f"{pt}/tranche.jsonl")
-              if e.get("event") in ("stop", "close_starts")]
-    found += ["isUsingOverage is not false" for e in events if e.get("type") == "rate_limit_event"
-              and (e.get("rate_limit_info") or {}).get("isUsingOverage") is not False]
-    found += ["the CLI's budget stop" for e in events if e.get("terminal_reason") == "budget_exhausted"]
-    found += [f"allowed connection to {h}" for h in connections(out, effort) if h != RELAY]
-    found += [f"runtime check {line}" for line in lines(f"{out}/{effort}/runtime-scan.txt")
-              if line.startswith("exit") and line != "exit 0"]
+def row_stops(rows):
+    found = []
+    for row in rows:
+        if row.get("refused"):
+            found.append(f"passthrough refused: {row['refused']}")
+        elif row.get("status") != 200:
+            found.append(f"vendor status {row.get('status')}")
+        if row.get("response_model") not in (None, MODEL):
+            found.append(f"response model {row['response_model']}")
     return found
 
 
+def stream_stops(events):
+    found = []
+    for event in events:
+        info = event.get("rate_limit_info") or {}
+        if event.get("type") == "rate_limit_event" and info.get("isUsingOverage") is not False:
+            found.append("isUsingOverage is not false")
+        if event.get("terminal_reason") == "budget_exhausted":
+            found.append("the CLI's budget stop")
+    return found
+
+
+def stops(out, pt, effort):
+    found = row_stops(slot_rows(pt, effort)) + stream_stops(stream(out, effort))
+    found += [f"passthrough {e['event']}: {e.get('reason')}" for e in jsonl(f"{pt}/tranche.jsonl")
+              if e.get("event") in ("stop", "close_starts")]
+    found += [f"allowed connection to {h}" for h in connections(out, effort) if h != RELAY]
+    found += [f"runtime check {line}" for line in runtime_checks(out, effort) if line != "exit 0"]
+    return found
+
+
+def first(events, key, value):
+    return next((e for e in events if e.get(key) == value), None)
+
+
+def prompt_tokens(rows):
+    """What the first request's prompt held: input, cache read and cache write tokens."""
+    usage = (rows[0].get("usage") or {}) if rows else None
+    return None if usage is None else sum(usage.get(k) or 0 for k in PROMPT)
+
+
+REQUEST_KEYS = ("time", "status", "refused", "error", "effort", "response_model", "message_id", "headers", "usage",
+                "usd", "credential")
+RESULT_KEYS = ("terminal_reason", "api_error", "api_error_status", "total_cost_usd", "usage", "modelUsage")
+PROMPT = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+
+
 def record(out, pt, effort):
+    """Item 2 for one session."""
     rows, events = slot_rows(pt, effort), stream(out, effort)
-    result = next((e for e in reversed(events) if e.get("type") == "result"), {})
-    first = (rows[0].get("usage") or {}) if rows else {}
-    keys = ("time", "status", "refused", "error", "effort", "response_model", "message_id", "headers", "usage", "usd",
-            "credential")
-    return {"effort": effort, "slot": f"probe-{effort}", "requests": [{k: r.get(k) for k in keys} for r in rows],
-            "init": next((e for e in events if e.get("subtype") == "init"), None),
+    result = first(list(reversed(events)), "type", "result") or {}
+    return {"effort": effort, "slot": f"probe-{effort}", "requests": [{k: r.get(k) for k in REQUEST_KEYS} for r in rows],
+            "init": first(events, "subtype", "init"),
             "rate_limit_events": [e for e in events if e.get("type") == "rate_limit_event"],
-            "result": {k: result.get(k) for k in ("terminal_reason", "api_error", "api_error_status", "total_cost_usd",
-                                                  "usage", "modelUsage")},
+            "result": {k: result.get(k) for k in RESULT_KEYS},
             "egress_logs": sorted(glob.glob(f"{out}/{effort}/egress-*.log")),
-            "first_request_prompt_tokens": sum(first.get(k) or 0 for k in (
-                "input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")) if first else None,
-            "priced_usd": sum(r.get("usd") or 0 for r in rows), "session_message_ids": session_ids(out, effort),
-            "runtime_check": lines(f"{out}/{effort}/runtime-scan.txt")}
+            "first_request_prompt_tokens": prompt_tokens(rows), "priced_usd": sum(r.get("usd") or 0 for r in rows),
+            "session_message_ids": session_ids(out, effort), "runtime_check": lines(f"{out}/{effort}/runtime-scan.txt")}
+
+
+def request_failures(rows, ids, effort, credential):
+    """Every request of the session file is in the passthrough's log, answered 200 by the model at the effort."""
+    by_id, want = {r.get("message_id"): r for r in rows}, (200, MODEL, effort, credential)
+    bad = []
+    for mid in ids or [None]:
+        row = by_id.get(mid) or {}
+        if (row.get("status"), row.get("response_model"), row.get("effort"), row.get("credential")) != want:
+            bad.append(f"request {mid} is not in the passthrough's log as answered 200 by {MODEL} at {effort}")
+    return bad
 
 
 def failures(out, pt, rec, credential):
-    effort, result, bad = rec["effort"], rec["result"], []
-    if result.get("terminal_reason") != "completed":
-        bad.append("the session did not end completed")
-    by_id = {r.get("message_id"): r for r in slot_rows(pt, effort)}
-    for mid in rec["session_message_ids"] or [None]:
-        row = by_id.get(mid) or {}
-        if (row.get("status"), row.get("response_model"), row.get("effort"), row.get("credential")) != (
-                200, MODEL, effort, credential):
-            bad.append(f"request {mid} is not in the passthrough's log as answered 200 by {MODEL} at {effort}")
+    """Item 4 for one session."""
+    effort, result = rec["effort"], rec["result"]
+    bad = [] if result.get("terminal_reason") == "completed" else ["the session did not end completed"]
+    bad += request_failures(slot_rows(pt, effort), rec["session_message_ids"], effort, credential)
     cli = result.get("total_cost_usd")
     if cli is None or abs(rec["priced_usd"] - cli) > 0.01 * cli:
         bad.append(f"priced USD {rec['priced_usd']} against the CLI's {cli}: not within 1%")
     if not rec["egress_logs"]:
         bad.append("no egress log")
     bad += [f"allowed connection to {h}" for h in connections(out, effort) if h != RELAY]
-    checks = [line for line in rec["runtime_check"] if line.startswith("exit")]
-    if checks != ["exit 0", "exit 0"]:  # the containers' configuration and environments, then the agent's file system
-        bad.append(f"runtime check {checks}")
+    if runtime_checks(out, effort) != ["exit 0", "exit 0"]:  # configuration and environments, then the file system
+        bad.append(f"runtime check {runtime_checks(out, effort)}")
     return [f"{effort}: {b}" for b in bad]
 
 
