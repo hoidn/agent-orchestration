@@ -655,7 +655,7 @@ def test_watcher_disabled_helper_save_recompiles_clean_importer(
     helper_text = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule helper)
   (export Shared)
   (defrecord Shared

@@ -29,14 +29,14 @@ from tests.workflow_lisp_closed_program_helpers import BOUNDARIES, install
 FORM = '(list/map-effect ((repo repos)) :max 4 :parallel 2 :workspace repo (call child :value repo))'
 
 
-def parse(source=FORM, *, target="2.37", names=frozenset({"repos"}), procedures=frozenset()):
+def parse(source=FORM, *, target="2.40", names=frozenset({"repos"}), procedures=frozenset()):
     tree = read_sexpr_text(source, source_path="parallel.orc")
     datum = tree.items[0]
     node = syntax.SyntaxNode(datum, datum.span, "parallel.orc", ("workflow-lisp", "parallel"))
     return elaborate_expression(node, target_dsl_version=target, bound_names=names, procedure_names=procedures)
 
 
-def typed(source=FORM, *, target="2.37", values=None, expr=None):
+def typed(source=FORM, *, target="2.40", values=None, expr=None):
     expr = expr or parse(source, target=target, names=frozenset(values or {"repos"}))
     string = PrimitiveTypeRef("String")
     env = FrontendTypeEnvironment({"String": string, "Int": PrimitiveTypeRef("Int")}, target_dsl_version=target)
@@ -103,7 +103,7 @@ def test_workspace_is_in_item_scope_but_source_is_not():
     assert stamped.workspace_expr.args[0].capture_origin is None
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36"])
+@pytest.mark.parametrize("target", ["2.40"])
 def test_serial_map_preserves_rewrite_and_absent_field_identities(target, tmp_path):
     source = FORM.replace(" :parallel 2 :workspace repo", "")
     expr = parse(source, target=target)
@@ -226,9 +226,10 @@ def test_workspace_normalization_keeps_item_bindings_inside_map():
     assert free_expr_names(normalized) == {"repos"}
 
 
-def inline_program(*, target="2.37", body="(child repo)", workspace="repo", impure_workspace=False):
-    clauses = f":parallel 2 :workspace {workspace}" if target == "2.37" else ""
-    cwd_effects = "((uses-command fetch))" if impure_workspace else "()"
+def inline_program(*, target="2.40", body="(child repo)", workspace="repo", impure_workspace=False):
+    serial = target == "2.36"  # below the parallel-map target; its procedures declare exact effects
+    clauses = "" if serial else f":parallel 2 :workspace {workspace}"
+    effects = ":effects () :lowering inline " if serial else ""
     cwd_body = (
         '(let* ((output (command-result fetch :argv ("python" "probe.py") :returns Box))) value)'
         if impure_workspace else "value"
@@ -236,8 +237,8 @@ def inline_program(*, target="2.37", body="(child repo)", workspace="repo", impu
     return f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
       (defmodule inline) (export run)
       (defrecord Box (n Int))
-      (defproc child ((value String)) -> String :effects () :lowering inline value)
-      (defproc cwd ((value String)) -> String :effects {cwd_effects} :lowering inline {cwd_body})
+      (defproc child ((value String)) -> String {effects}value)
+      (defproc cwd ((value String)) -> String {effects}{cwd_body})
       (defworkflow worker ((value String)) -> String value)
       (defworkflow run () -> List[String]
         (list/map-effect ((repo (list "a" "b"))) :max 2 {clauses} {body})))'''
@@ -250,11 +251,11 @@ def compile_inline(tmp_path, **options):
     )
 
 
-@pytest.mark.parametrize("target", ["2.36", "2.37"])
+@pytest.mark.parametrize("target", ["2.36", "2.40"])
 def test_real_pipeline_accepts_inline_pure_body(target, tmp_path):
     program = compile_inline(tmp_path, target=target)
     expr = program.entry.typed_body.expr
-    assert isinstance(expr, ListMapEffectExpr) == (target == "2.37")
+    assert isinstance(expr, ListMapEffectExpr) == (target == "2.40")
     assert program.entry.typed_body.type_ref.name == "List[String]"
 
 

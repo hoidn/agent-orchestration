@@ -965,17 +965,14 @@ ELSEWHERE = {"confined": "(call one :seed 1 :revision revision)", "path": "(call
 
 
 @pytest.mark.parametrize("spelling", sorted(ELSEWHERE))
-def test_general_map_body_is_refused_in_a_program_holding_a_run_reference_elsewhere(tmp_path, monkeypatch, spelling):
-    monkeypatch.setattr(sys.modules[__name__], "CONFINED", CONFINED.replace('"2.38"', '"2.40"'))
+def test_general_map_body_is_refused_in_a_program_holding_a_run_reference_elsewhere(tmp_path, spelling):
     with pytest.raises(LispFrontendCompileError) as refused:
         _built(_map_program(tmp_path, f"(let* ((xs {GENERAL_MAP}) (y {ELSEWHERE[spelling]})) y)"))
 
     assert [row.code for row in refused.value.diagnostics] == ["list_map_effect_body_unsupported"]
 
 
-def test_general_map_body_builds_in_a_program_holding_no_run_reference(tmp_path, monkeypatch):
-    monkeypatch.setattr(sys.modules[__name__], "CONFINED", CONFINED.replace('"2.38"', '"2.40"'))
-
+def test_general_map_body_builds_in_a_program_holding_no_run_reference(tmp_path):
     assert _built(_map_program(tmp_path, f"(let* ((xs {GENERAL_MAP})) (list/length xs))")).sites == ()
 
 
