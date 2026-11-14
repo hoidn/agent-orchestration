@@ -126,7 +126,7 @@ def test_direct_import_rejects_pre_235_module_header(
     entry = _write(
         tmp_path,
         "entry",
-        "2.35",
+        "2.40",
         imports="(import legacy :as legacy)",
     )
 
@@ -150,13 +150,13 @@ def test_transitive_import_rejects_pre_235_leaf_header(
     _write(
         tmp_path,
         "middle",
-        "2.35",
+        "2.40",
         imports="(import legacy :as legacy)",
     )
     entry = _write(
         tmp_path,
         "entry",
-        "2.35",
+        "2.40",
         imports="(import middle :as middle)",
     )
 
@@ -190,14 +190,14 @@ def test_typed_import_rejects_pre_235_typed_program_capsule(
     producer_path = _write(
         tmp_path,
         "producer",
-        "2.35",
+        "2.40",
         workflow="(defworkflow run ((n Int)) -> Int (+ n 1))",
     )
     old_capsule = _retarget_capsule(_typed(producer_path, tmp_path), "2.34")
     entry = _write(
         tmp_path,
         "entry",
-        "2.35",
+        "2.40",
         workflow=_call_workflow("dep"),
     )
 
@@ -213,13 +213,13 @@ def test_typed_import_rejects_old_module_type_environment_in_235_capsule(
     _write(
         tmp_path,
         "embedded/dep",
-        "2.35",
+        "2.40",
         workflow='(defworkflow run () -> String "embedded")',
     )
     capsule_path = _write(
         tmp_path,
         "capsule",
-        "2.35",
+        "2.40",
         imports="(import embedded/dep :as embedded)",
     )
     capsule = _typed(capsule_path, tmp_path)
@@ -232,13 +232,13 @@ def test_typed_import_rejects_old_module_type_environment_in_235_capsule(
             "embedded/dep": old_environment,
         },
     )
-    assert capsule.target == "2.35"
+    assert capsule.target == "2.40"
     assert capsule.module_type_envs["embedded/dep"].target_dsl_version == "2.34"
 
     entry = _write(
         tmp_path,
         "entry",
-        "2.35",
+        "2.40",
     )
     with pytest.raises(LispFrontendCompileError) as caught:
         _typed_with_imports(entry, tmp_path, {"capsule": capsule})
@@ -252,21 +252,21 @@ def test_typed_import_rejects_pre_235_transitive_imported_program(
     leaf_path = _write(
         tmp_path,
         "leaf",
-        "2.35",
+        "2.40",
         workflow="(defworkflow run ((n Int)) -> Int (+ n 1))",
     )
     old_leaf = _retarget_capsule(_typed(leaf_path, tmp_path), "2.34")
     middle_path = _write(
         tmp_path,
         "middle",
-        "2.35",
+        "2.40",
         workflow="(defworkflow run ((n Int)) -> Int n)",
     )
     middle = replace(_typed(middle_path, tmp_path), imported_programs={"leaf": old_leaf})
     entry = _write(
         tmp_path,
         "entry",
-        "2.35",
+        "2.40",
         workflow=_call_workflow("middle"),
     )
 
@@ -281,7 +281,7 @@ def test_closed_builder_rejects_pre_235_target_anywhere_in_typed_capsule_graph(
     tmp_path: Path,
     invalid_field: str,
 ) -> None:
-    path = _write(tmp_path, "entry", "2.35")
+    path = _write(tmp_path, "entry", "2.40")
     typed = _typed(path, tmp_path)
     if invalid_field == "target":
         typed = replace(typed, target="2.34")
@@ -296,11 +296,11 @@ def test_closed_builder_rejects_pre_235_target_anywhere_in_typed_capsule_graph(
         leaf_path = _write(
             tmp_path,
             "leaf",
-            "2.35",
+            "2.40",
             workflow="(defworkflow run ((n Int)) -> Int (+ n 1))",
         )
         old_leaf = _retarget_capsule(_typed(leaf_path, tmp_path), "2.34")
-        middle_path = _write(tmp_path, "middle", "2.35")
+        middle_path = _write(tmp_path, "middle", "2.40")
         middle = replace(_typed(middle_path, tmp_path), imported_programs={"leaf": old_leaf})
         typed = replace(typed, imported_programs={"middle": middle})
 
@@ -347,7 +347,7 @@ def test_repl_load_uses_the_source_floor(
 def test_repl_old_target_reload_invalidates_previous_source_snapshot(
     tmp_path: Path,
 ) -> None:
-    entry = _write(tmp_path, "entry", "2.35")
+    entry = _write(tmp_path, "entry", "2.40")
     session = repl_cli.ReplSession(workspace=tmp_path, state_dir=None)
     assert repl_cli._dispatch(session, f":load {entry}") is True
     assert session.module is not None
@@ -368,7 +368,7 @@ def test_repl_old_target_reload_invalidates_previous_source_snapshot(
         "",
         '(something (:target-dsl "2.34"))',
         '(workflow-lisp (:language "0.1") (:target-dsl "2.34") '
-        '(:target-dsl "2.35"))',
+        '(:target-dsl "2.40"))',
     ),
     ids=("empty", "wrong-root", "duplicate-target-header"),
 )

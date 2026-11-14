@@ -74,13 +74,13 @@ def _diagnostic_code(
 
 
 def test_prompt_calculus_registry_owns_current_definition() -> None:
-    spec = form_registry.get_form_spec("defprompt", target_dsl_version="2.35")
+    spec = form_registry.get_form_spec("defprompt", target_dsl_version="2.40")
     assert spec is not None
     assert spec.kind is form_registry.FormKind.TOP_LEVEL_DEFINITION
     assert spec.owner_module == "prompts"
     assert spec.admitted_top_level
-    assert "defprompt" in form_registry.reserved_macro_names(target_dsl_version="2.35")
-    assert "defprompt" in form_registry.admitted_top_level_heads(target_dsl_version="2.35")
+    assert "defprompt" in form_registry.reserved_macro_names(target_dsl_version="2.40")
+    assert "defprompt" in form_registry.admitted_top_level_heads(target_dsl_version="2.40")
 
 
 def _source_owned_text(source: str, span) -> str:
@@ -96,7 +96,7 @@ def _related_source_note(span) -> str:
 
 def test_prompt_output_position_parses_closed_role_and_retains_out_span() -> None:
     source = _module_source(
-        "2.35",
+        "2.40",
         '(defprompt p (:fills (report :path :out)) "{report}")',
     )
     module = syntax.build_syntax_module(
@@ -127,7 +127,7 @@ def test_prompt_output_position_rejects_duplicate_misplaced_or_open_tail(
     owned_text: str,
 ) -> None:
     source = _module_source(
-        "2.35",
+        "2.40",
         f'(defprompt p (:fills {slot}) "{{report}}")',
     )
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -147,13 +147,13 @@ def test_prompt_output_position_rejects_duplicate_misplaced_or_open_tail(
 def test_prompt_output_position_syntax_and_kind_precede_q1_slot_checks() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _parse_prompts(
-            "2.35",
+            "2.40",
             '(defprompt p (:fills (report :text :out :out)) "{report}")',
         )
     assert _diagnostic_code(excinfo) == "prompt_output_position_syntax_invalid"
 
     source = _module_source(
-        "2.35",
+        "2.40",
         '(defprompt p (:fills (report :text :out)) "{report}")',
     )
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -170,7 +170,7 @@ def test_prompt_output_position_syntax_and_kind_precede_q1_slot_checks() -> None
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _parse_prompts(
-            "2.35",
+            "2.40",
             """
             (defprompt p
               (:fills (report :path :out) (report :text))
@@ -189,13 +189,13 @@ def test_prompt_output_position_q1_placeholder_validation_precedes_q2_refinement
               (:fills (report :path :out ExistingReportPath))
               "No rendered output path")
             """,
-            target_dsl="2.35",
+            target_dsl="2.40",
             type_env=type_env,
         )
     assert _diagnostic_code(excinfo) == "prompt_placeholder_missing"
 
     source = _module_source(
-        "2.35",
+        "2.40",
         """
         (defprompt p
           (:fills (report :path :out ExistingReportPath))
@@ -222,7 +222,7 @@ def test_prompt_output_position_q1_placeholder_validation_precedes_q2_refinement
 
 def test_prompt_output_position_preserves_q1_no_output_refinement_owner() -> None:
     source = _module_source(
-        "2.35",
+        "2.40",
         '(defprompt review (:fills (report :path String)) "{report}")',
     )
     module = syntax.build_syntax_module(
@@ -258,7 +258,7 @@ def test_prompt_output_position_defect_removal_exposes_each_next_frontend_phase(
     type_env = _output_position_type_env()
 
     q1_refinement_source = _module_source(
-        "2.35",
+        "2.40",
         """
         (defprompt review
           (:fills (report :path :out String))
@@ -317,7 +317,7 @@ def test_prompt_output_position_defect_removal_exposes_each_next_frontend_phase(
     helper_path = source_root / "demo" / "prompts.orc"
     helper_path.parent.mkdir(parents=True)
     helper_source = _module_source(
-        "2.35",
+        "2.40",
         "(defmodule demo/prompts)",
         "(export ReportPath review)",
         """
@@ -345,7 +345,7 @@ def test_prompt_output_position_defect_removal_exposes_each_next_frontend_phase(
 
     entry_path = source_root / "demo" / "entry_missing_export.orc"
     unresolved_prompt_source = _module_source(
-        "2.35",
+        "2.40",
         "(defmodule demo/entry_missing_export)",
         "(import demo/prompts :as prompts :only (ReportPath absent))",
         """
@@ -426,7 +426,7 @@ def test_prompt_output_position_definition_wide_target_and_syntax_precedence() -
     )
     for index, later_slot in enumerate(competing_slots):
         source = _module_source(
-            "2.35",
+            "2.40",
             f"""
             (defprompt review
               (:fills
@@ -451,7 +451,7 @@ def test_prompt_output_position_definition_wide_target_and_syntax_precedence() -
             assert _source_owned_text(source, syntax_error.span) == ":out"
 
     kind_only = _module_source(
-        "2.35",
+        "2.40",
         """
         (defprompt review
           (:fills
@@ -510,7 +510,7 @@ def test_prompt_output_position_all_q1_definition_checks_precede_q2_refinement(
 ) -> None:
     first_name = "report" if code == "prompt_slot_duplicate" else "first"
     source = _module_source(
-        "2.35",
+        "2.40",
         f"""
         (defprompt review
           (:fills
@@ -539,7 +539,7 @@ def test_prompt_output_position_all_q1_definition_checks_precede_q2_refinement(
 
 def test_prompt_output_position_catalog_runs_all_q1_refinements_before_q2() -> None:
     source = _module_source(
-        "2.35",
+        "2.40",
         """
         (defprompt review
           (:fills
@@ -608,7 +608,7 @@ def _cross_slot_output_application(
             f"(:fills (report :path :out) {second_declaration}) "
             '"{report} {second}")'
         ),
-        target_dsl="2.35",
+        target_dsl="2.40",
         type_env=type_env,
     )
     expr = _elaborate_provider(
@@ -617,7 +617,7 @@ def _cross_slot_output_application(
         bound_names=frozenset(
             {"providers.review", "report", "second"}
         ),
-        target_dsl="2.35",
+        target_dsl="2.40",
     )
     span = expr.span
     existing_path = PathTypeRef(
@@ -657,7 +657,7 @@ def test_prompt_output_position_application_q1_discharge_precedes_q2_fill() -> N
           (:fills (report :path :out) (second :text))
           "{report} {second}")
         """,
-        target_dsl="2.35",
+        target_dsl="2.40",
     )
     unknown_application = "(review :report report :unknown second)"
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -667,14 +667,14 @@ def test_prompt_output_position_application_q1_discharge_precedes_q2_fill() -> N
             bound_names=frozenset(
                 {"providers.review", "report", "second"}
             ),
-            target_dsl="2.35",
+            target_dsl="2.40",
         )
     unknown = excinfo.value.diagnostics[0]
     assert unknown.code == "prompt_fill_unknown"
     assert _source_owned_text(
         _provider_wrapper_source(
             f"(provider-result providers.review :prompt {unknown_application})",
-            target_dsl="2.35",
+            target_dsl="2.40",
         ),
         unknown.span,
     ) == ":unknown"
@@ -685,14 +685,14 @@ def test_prompt_output_position_application_q1_discharge_precedes_q2_fill() -> N
             f"(provider-result providers.review :prompt {missing_application})",
             catalog=catalog,
             bound_names=frozenset({"providers.review", "report"}),
-            target_dsl="2.35",
+            target_dsl="2.40",
         )
     missing = excinfo.value.diagnostics[0]
     assert missing.code == "prompt_slot_undischarged"
     assert _source_owned_text(
         _provider_wrapper_source(
             f"(provider-result providers.review :prompt {missing_application})",
-            target_dsl="2.35",
+            target_dsl="2.40",
         ),
         missing.span,
     ) == missing_application
@@ -733,23 +733,23 @@ def test_prompt_output_position_application_runs_all_q1_types_before_q2_fill(
     assert _source_owned_text(
         _provider_wrapper_source(
             f"(provider-result providers.review :prompt {application})",
-            target_dsl="2.35",
+            target_dsl="2.40",
         ),
         diagnostic.span,
     ) == "second"
 
 
 def test_registered_form_heads_matches_current_registry_views() -> None:
-    heads = form_registry.registered_form_heads(target_dsl_version="2.35")
+    heads = form_registry.registered_form_heads(target_dsl_version="2.40")
     assert "defprompt" in heads
-    assert all(form_registry.get_form_spec(name, target_dsl_version="2.35") is not None for name in heads)
-    assert form_registry.reserved_macro_names(target_dsl_version="2.35").issubset(heads)
-    assert form_registry.admitted_top_level_heads(target_dsl_version="2.35").issubset(heads)
+    assert all(form_registry.get_form_spec(name, target_dsl_version="2.40") is not None for name in heads)
+    assert form_registry.reserved_macro_names(target_dsl_version="2.40").issubset(heads)
+    assert form_registry.admitted_top_level_heads(target_dsl_version="2.40").issubset(heads)
 
 
 def test_defprompt_parses_immutable_slots_template_and_structured_return() -> None:
     (prompt,) = _parse_prompts(
-        "2.35",
+        "2.40",
         """
         (defprompt review
           (:fills
@@ -806,7 +806,7 @@ def test_defprompt_parses_immutable_slots_template_and_structured_return() -> No
 
 def test_defprompt_omitted_return_defaults_to_exact_value() -> None:
     (prompt,) = _parse_prompts(
-        "2.35",
+        "2.40",
         '(defprompt echo (:fills (message :text)) "Message: {message}")',
     )
 
@@ -843,7 +843,7 @@ def test_defprompt_structural_errors_are_frontend_diagnostics(
     code: str,
 ) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _parse_prompts("2.35", declaration)
+        _parse_prompts("2.40", declaration)
 
     assert _diagnostic_code(excinfo) == code
     diagnostic = excinfo.value.diagnostics[0]
@@ -868,7 +868,7 @@ def test_defprompt_rejects_invalid_slot_kind_or_refinement(
 ) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _parse_prompts(
-            "2.35",
+            "2.40",
             f'(defprompt p (:fills {slot}) "Message: {{message}}")',
         )
 
@@ -878,7 +878,7 @@ def test_defprompt_rejects_invalid_slot_kind_or_refinement(
 def test_defprompt_rejects_duplicate_slot_before_template_validation() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _parse_prompts(
-            "2.35",
+            "2.40",
             """
             (defprompt p
               (:fills (message :text) (message :value String))
@@ -904,7 +904,7 @@ def test_defprompt_rejects_duplicate_slot_before_template_validation() -> None:
 def test_defprompt_rejects_malformed_placeholder_syntax(template: str) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _parse_prompts(
-            "2.35",
+            "2.40",
             f'(defprompt p (:fills (message :text)) "{template}")',
         )
 
@@ -914,7 +914,7 @@ def test_defprompt_rejects_malformed_placeholder_syntax(template: str) -> None:
 def test_defprompt_rejects_undeclared_placeholder_before_missing_slot() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _parse_prompts(
-            "2.35",
+            "2.40",
             '(defprompt p (:fills (message :text)) "{unknown}")',
         )
 
@@ -924,7 +924,7 @@ def test_defprompt_rejects_undeclared_placeholder_before_missing_slot() -> None:
 def test_defprompt_requires_each_rendered_slot_in_template() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _parse_prompts(
-            "2.35",
+            "2.40",
             '(defprompt p (:fills (message :text) (payload :value Row)) "{message}")',
         )
 
@@ -935,7 +935,7 @@ def test_defprompt_requires_each_rendered_slot_in_template() -> None:
 def test_defprompt_forbids_document_placeholder() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _parse_prompts(
-            "2.35",
+            "2.40",
             '(defprompt p (:fills (target :doc DesignDocPath)) "Read {target}")',
         )
 
@@ -944,7 +944,7 @@ def test_defprompt_forbids_document_placeholder() -> None:
 
 def test_defprompt_allows_document_only_template_without_placeholders() -> None:
     (prompt,) = _parse_prompts(
-        "2.35",
+        "2.40",
         '(defprompt p (:fills (target :doc DesignDocPath)) "Review the injected document.")',
     )
 
@@ -952,7 +952,7 @@ def test_defprompt_allows_document_only_template_without_placeholders() -> None:
     assert prompt.return_spec.type_name == "Value"
 
 
-def _empty_type_env(*, target_dsl: str = "2.35") -> FrontendTypeEnvironment:
+def _empty_type_env(*, target_dsl: str = "2.40") -> FrontendTypeEnvironment:
     parsed = syntax.build_syntax_module(
         read_sexpr_text(
             _module_source(target_dsl),
@@ -975,7 +975,7 @@ def _empty_type_env(*, target_dsl: str = "2.35") -> FrontendTypeEnvironment:
 def _output_position_type_env() -> FrontendTypeEnvironment:
     parsed = syntax.build_syntax_module(
         read_sexpr_text(
-            _module_source("2.35"),
+            _module_source("2.40"),
             source_path="inline_prompt_output_types.orc",
         )
     )
@@ -1010,7 +1010,7 @@ def _output_position_type_env() -> FrontendTypeEnvironment:
 
 def _catalog(
     *declarations: str,
-    target_dsl: str = "2.35",
+    target_dsl: str = "2.40",
     type_env: FrontendTypeEnvironment | None = None,
 ):
     parsed = syntax.build_syntax_module(
@@ -1032,7 +1032,7 @@ def _elaborate_provider(
     *,
     catalog,
     bound_names=frozenset(),
-    target_dsl: str = "2.35",
+    target_dsl: str = "2.40",
 ):
     parsed = syntax.build_syntax_module(
         read_sexpr_text(
@@ -1070,7 +1070,7 @@ def test_prompt_namespace_exports_and_imports_without_becoming_a_procedure() -> 
     helper_syntax = syntax.build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.35",
+                "2.40",
                 "(defmodule demo/helper)",
                 "(export review)",
                 '(defprompt review (:fills (message :text)) "Review {message}")',
@@ -1090,7 +1090,7 @@ def test_prompt_namespace_exports_and_imports_without_becoming_a_procedure() -> 
     entry_syntax = syntax.build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.35",
+                "2.40",
                 "(defmodule demo/entry)",
                 "(import demo/helper :as helper :only (review))",
             ),
@@ -1132,7 +1132,7 @@ def test_duplicate_prompt_declarations_use_module_ownership_while_slots_precede(
     parsed = syntax.build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.35",
+                "2.40",
                 '(defprompt review (:fills (message :text)) "Review {message}")',
                 '(defprompt review (:fills (payload :value)) "Review {payload}")',
             ),
@@ -1171,7 +1171,7 @@ def test_prompt_imports_reject_ambiguous_and_missing_exports() -> None:
         module_syntax = syntax.build_syntax_module(
             read_sexpr_text(
                 _module_source(
-                    "2.35",
+                    "2.40",
                     f"(defmodule {module_name})",
                     "(export review)",
                     '(defprompt review (:fills (message :text)) "Review {message}")',
@@ -1187,7 +1187,7 @@ def test_prompt_imports_reject_ambiguous_and_missing_exports() -> None:
     ambiguous_syntax = syntax.build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.35",
+                "2.40",
                 "(defmodule demo/entry)",
                 "(import demo/left :as left :only (review))",
                 "(import demo/right :as right :only (review))",
@@ -1215,7 +1215,7 @@ def test_prompt_imports_reject_ambiguous_and_missing_exports() -> None:
     missing_syntax = syntax.build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.35",
+                "2.40",
                 "(defmodule demo/missing)",
                 "(import demo/left :as left :only (absent))",
             ),
@@ -1246,7 +1246,7 @@ def test_stage3_catalog_resolves_exported_prompt_imports(tmp_path: Path) -> None
     helper_path.parent.mkdir(parents=True)
     helper_path.write_text(
         _module_source(
-            "2.35",
+            "2.40",
             "(defmodule demo/helper)",
             "(export review)",
             '(defprompt review (:fills (message :text)) "Review {message}")',
@@ -1256,7 +1256,7 @@ def test_stage3_catalog_resolves_exported_prompt_imports(tmp_path: Path) -> None
     entry_path = source_root / "demo" / "entry.orc"
     entry_path.write_text(
         _module_source(
-            "2.35",
+            "2.40",
             "(defmodule demo/entry)",
             "(import demo/helper :as helper :only (review))",
         ),
@@ -1290,7 +1290,7 @@ def test_real_stage3_prompt_application_retains_typed_identity(
         prompt_path.parent.mkdir(parents=True)
         prompt_path.write_text(
             _module_source(
-                "2.35",
+                "2.40",
                 "(defmodule demo/prompts)",
                 "(export review)",
                 '(defprompt review (:fills (message :text)) -> Bool "Review {message}")',
@@ -1300,7 +1300,7 @@ def test_real_stage3_prompt_application_retains_typed_identity(
         entry_path = source_root / "demo" / "entry.orc"
         entry_path.write_text(
             _module_source(
-                "2.35",
+                "2.40",
                 "(defmodule demo/entry)",
                 "(import demo/prompts :as prompts :only (review))",
                 """
@@ -1317,7 +1317,7 @@ def test_real_stage3_prompt_application_retains_typed_identity(
         entry_path = source_root / "prompt_frontend.orc"
         entry_path.write_text(
             _module_source(
-                "2.35",
+                "2.40",
                 '(defprompt review (:fills (message :text)) -> Bool "Review {message}")',
                 """
                 (defworkflow run-review
@@ -1468,7 +1468,7 @@ def test_prompt_application_closed_fill_and_redeclaration_refusals(
 def test_prompt_output_position_missing_fill_and_caller_override_keep_q1_codes() -> None:
     catalog = _catalog(
         '(defprompt review (:fills (report :path :out)) "{report}")',
-        target_dsl="2.35",
+        target_dsl="2.40",
     )
     declaration = catalog.resolve("review").slots[0].declaration
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -1476,7 +1476,7 @@ def test_prompt_output_position_missing_fill_and_caller_override_keep_q1_codes()
             "(provider-result providers.review :prompt (review))",
             catalog=catalog,
             bound_names=frozenset({"providers.review"}),
-            target_dsl="2.35",
+            target_dsl="2.40",
         )
     missing = excinfo.value.diagnostics[0]
     assert missing.code == "prompt_slot_undischarged"
@@ -1492,7 +1492,7 @@ def test_prompt_output_position_missing_fill_and_caller_override_keep_q1_codes()
             override_application,
             catalog=catalog,
             bound_names=frozenset({"providers.review", "report"}),
-            target_dsl="2.35",
+            target_dsl="2.40",
         )
     override = excinfo.value.diagnostics[0]
     assert override.code == "prompt_fill_unknown"
@@ -1500,7 +1500,7 @@ def test_prompt_output_position_missing_fill_and_caller_override_keep_q1_codes()
     assert _source_owned_text(
         _provider_wrapper_source(
             override_application,
-            target_dsl="2.35",
+            target_dsl="2.40",
         ),
         override.span,
     ) == ":out"
@@ -1520,14 +1520,14 @@ def _typecheck_output_position(
     type_env = _output_position_type_env()
     catalog = _catalog(
         declaration,
-        target_dsl="2.35",
+        target_dsl="2.40",
         type_env=type_env,
     )
     expr = _elaborate_provider(
         _OUTPUT_POSITION_APPLICATION,
         catalog=catalog,
         bound_names=frozenset({"providers.review", "report"}),
-        target_dsl="2.35",
+        target_dsl="2.40",
     )
     return typecheck_expression(
         expr,
@@ -1551,7 +1551,7 @@ def _typecheck_output_position(
 def test_prompt_output_position_fill_compatibility_follows_q1_type_checks() -> None:
     source_span = syntax.build_syntax_module(
         read_sexpr_text(
-            _module_source("2.35"),
+            _module_source("2.40"),
             source_path="output_fill_types.orc",
         )
     ).span
@@ -1593,7 +1593,7 @@ def test_prompt_output_position_fill_compatibility_follows_q1_type_checks() -> N
     assert _source_owned_text(
         _provider_wrapper_source(
             _OUTPUT_POSITION_APPLICATION,
-            target_dsl="2.35",
+            target_dsl="2.40",
         ),
         diagnostic.span,
     ) == "report"
@@ -1601,7 +1601,7 @@ def test_prompt_output_position_fill_compatibility_follows_q1_type_checks() -> N
         _related_source_note(
             _catalog(
                 '(defprompt review (:fills (report :path :out)) "{report}")',
-                target_dsl="2.35",
+                target_dsl="2.40",
             ).resolve("review").slots[0].declaration.span
         ),
     )
@@ -1718,31 +1718,25 @@ def test_prompt_name_coexists_with_lexical_procedure_and_proc_ref(
     entry_path.parent.mkdir(parents=True)
     entry_path.write_text(
         _module_source(
-            "2.35",
+            "2.40",
             "(defmodule demo/coexist)",
             '(defprompt review (:fills (message :text)) "Review {message}")',
             """
             (defproc apply-runner
               ((runner ProcRef[String -> String]) (value String))
               -> String
-              :effects ()
-              :lowering inline
               (runner value))
             """,
             """
             (defproc review
               ((value String))
               -> String
-              :effects ()
-              :lowering inline
               value)
             """,
             """
             (defproc coexist
               ((review String))
               -> String
-              :effects ()
-              :lowering inline
               (let* ((from-call (review review))
                      (from-ref
                        (apply-runner (proc-ref review) from-call)))
@@ -1864,7 +1858,7 @@ def test_prompt_fill_type_and_renderer_refusals(
 
 @pytest.mark.parametrize(
     ("target_dsl", "renderer_id"),
-    (("2.35", "canonical-json"),),
+    (("2.40", "canonical-json"),),
 )
 def test_prompt_value_fill_selects_current_union_renderer(
     target_dsl: str,
@@ -2222,7 +2216,7 @@ def _compile_q1_identity_at_target(target_dsl: str):
 def test_q1_prompt_fragment_identity_and_carrier_bytes_are_frozen_for_current_targets(
     tmp_path: Path,
 ) -> None:
-    prompt_220 = _compile_q1_identity_at_target("2.35")
+    prompt_220 = _compile_q1_identity_at_target("2.40")
     prompt_221 = _compile_q1_identity_at_target("2.36")
     projection_bytes_220 = json.dumps(
         prompt_220.canonical_identity_projection,
@@ -2255,7 +2249,7 @@ def test_q2_prompt_fragment_identity_adds_output_role_to_every_declaration_slot_
                 f"(report :path{output_modifier})) "
                 '"{message} {report}")'
             ),
-            target_dsl="2.35",
+            target_dsl="2.40",
             type_env=type_env,
         )
         expr = _elaborate_provider(
@@ -2267,7 +2261,7 @@ def test_q2_prompt_fragment_identity_adds_output_role_to_every_declaration_slot_
             bound_names=frozenset(
                 {"providers.review", "message", "report"}
             ),
-            target_dsl="2.35",
+            target_dsl="2.40",
         )
         span = expr.span
         report_type = PathTypeRef(

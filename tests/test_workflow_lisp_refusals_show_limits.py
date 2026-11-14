@@ -10,7 +10,7 @@ from tests.test_workflow_lisp_improve_stdlib import _public_run, _public_run_fil
 
 
 
-def _source(body: str, *, signature: str = "() -> Int", target: str = "2.35") -> str:
+def _source(body: str, *, signature: str = "() -> Int", target: str = "2.40") -> str:
     return "\n".join(
         (
             "(workflow-lisp",
@@ -82,7 +82,7 @@ def test_public_list_map_effect_cap_records_failed_terminal(
         (
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule grt/entry)",
             "  (export run)",
             "  (defworkflow child ((value Int)) -> Int value)",
@@ -143,14 +143,12 @@ def test_public_transport_byte_refusal_prints_observed_size_and_cap(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule grt/entry)",
                 "  (export run)",
                 "  (defrecord Item (label String))",
                 "  (defrecord Big (items List[Item]))",
                 "  (defproc produce () -> Big",
-                "    :effects ((uses-command produce))",
-                "    :lowering inline",
                 f'    (command-result produce :argv ("python" "{probe}") :returns Big))',
                 "  (defworkflow run () -> Big (produce)))",
             )
@@ -179,6 +177,6 @@ def test_public_transport_byte_refusal_prints_observed_size_and_cap(
     violation = failure["context"]["violations"][0]
     origin = violation["source_origins"][0]
     assert origin["path"] == str(entry)
-    assert (origin["line"], origin["column"]) == (11, 5)
+    assert (origin["line"], origin["column"]) == (9, 5)
     assert f"bytes={expected_bytes}" in diagnostic
     assert "maximum=16777216" in diagnostic

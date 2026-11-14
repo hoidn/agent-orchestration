@@ -52,7 +52,7 @@ POSITIONS = {
 }
 
 
-def _source(body: str, *, result: str = "Float", target: str = "2.35") -> str:
+def _source(body: str, *, result: str = "Float", target: str = "2.40") -> str:
     return (
         f'(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "{target}")\n'
         "  (defmodule grt/entry)\n  (export run)\n  (defrecord Wrap (v Float))\n"
@@ -87,7 +87,7 @@ def test_literal_runs_in_position(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, literal: str, value: float, position: str
 ) -> None:
     result, body, expected = POSITIONS[position]
-    _write_sources(tmp_path, {"grt/entry.orc": _source(body.format(lit=literal), result=result, target="2.35")})
+    _write_sources(tmp_path, {"grt/entry.orc": _source(body.format(lit=literal), result=result, target="2.40")})
     monkeypatch.chdir(tmp_path)
 
     outcome = _public_run(_public_run_files(tmp_path, {}))
@@ -119,7 +119,7 @@ def test_literal_that_is_not_a_finite_double_is_refused_before_elaboration(tmp_p
 
 
 def test_decimal_parameter_default_reaches_the_public_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    source = _source("x", target="2.35").replace("(defworkflow run ()", "(defworkflow run ((x Float :default 2.5))")
+    source = _source("x", target="2.40").replace("(defworkflow run ()", "(defworkflow run ((x Float :default 2.5))")
     _write_sources(tmp_path, {"grt/entry.orc": source})
     _compile(tmp_path)  # The explicit current default remains a native frontend contract.
     monkeypatch.chdir(tmp_path)
@@ -161,12 +161,12 @@ SYMBOLS = [
 
 @pytest.mark.parametrize("token", sorted(TOKENS))
 def test_token_reads_with_current_numeric_semantics(token: str) -> None:
-    assert _read_token(token, "2.35") == TOKENS[token]
+    assert _read_token(token, "2.40") == TOKENS[token]
 
 
 @pytest.mark.parametrize("token", SYMBOLS)
 def test_token_reads_as_a_symbol_at_every_target(token: str) -> None:
-    assert {_read_token(token, target) for target in ("2.35", "2.36")} == {(SyntaxIdentifier, token)}
+    assert {_read_token(token, target) for target in ("2.40",)} == {(SyntaxIdentifier, token)}
 
 
 @pytest.mark.parametrize("literal", ["1e5", "2.5"], ids=["exponent", "decimal-point"])
@@ -174,7 +174,7 @@ def test_a_macro_template_may_hold_a_decimal_literal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, literal: str
 ) -> None:
     source = (
-        '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.35")\n'
+        '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.40")\n'
         "  (defmodule grt/entry)\n  (export run)\n"
         f"  (defmacro emit () {literal})\n"
         "  (defworkflow run () -> Float\n    (emit)))\n"
