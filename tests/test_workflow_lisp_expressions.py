@@ -570,8 +570,8 @@ def test_elaborate_expression_rejects_let_proc_name_collisions(
             "(let-proc (local ((input WorkflowInput)) -> WorkflowOutput "
             "           :captures () "
             "           input) "
-            "  (local input))",
-            "let_proc_bare_name_invalid",
+            "  (local :input input))",
+            "keyword_argument_invalid",
             frozenset({"input"}),
         ),
         (

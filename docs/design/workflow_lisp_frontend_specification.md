@@ -1277,17 +1277,46 @@ The accepted model is:
 Detailed contract:
 [Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md).
 
-Through target 2.35, bounded V1 `let-proc` adds one local typed procedure with explicit identifier
-captures and `(proc-ref local-name)` references. It specializes a private
-generated procedure through ordinary `defproc` lowering; nested or recursive
-local procedures and escaping procedure references remain rejected. See the
-[implemented local-binding contract](workflow_lisp_let_proc_local_proc_refs.md).
-At 2.36, the [W3 contract](workflow_lisp_write_once.md#63-language-changes-to-let-proc)
-adds several local bindings, inferred lexical captures and expected signatures
-from exactly one authored direct consumer call site when incomplete; complete
-signatures retain reuse. It uses existing generated procedures and the evaluated
-route. Declared externs stay available without becoming captures. W3 is
-implemented at 2.36.
+A `let-proc` local is a compile-time procedure specialized as a private
+generated procedure through ordinary `defproc` lowering. A local that declares
+its signature (typed parameters and `-> Type`) is called by name with
+positional arguments, `(f a …)`, and builds the same program as the alias call
+`(let* ((g (proc-ref f))) (g a …))`; it can also be passed with `(proc-ref f)`.
+A local without a signature can only be passed, once, to a consumer whose
+parameter type supplies it; calling it by name is refused
+(`let_proc_signature_required`). Locals do not see each other: a local is
+called from the `let-proc` body, not from another local
+(`let_proc_sibling_call_unsupported`; a sibling's `proc-ref` is
+`proc_ref_unknown`) or itself (`let_proc_recursive_unsupported`), and
+`let-proc` does not nest. A procedure reference, a local's included, is passed
+and bound but not stored, chosen at run time or returned: a `let*` binding of a
+reference chosen by `if`, `cond` or `match`, or returned by a procedure, is
+refused (`proc_ref_literal_required`), and a local's reference leaving its
+`let-proc` is `let_proc_scope_escape`.
+
+**A `let-proc` local does not shadow a function or a form:** `(f …)` calls the
+`defun` or the built-in form named `f`, not the local; give locals distinct
+names. A local named like a `defun` compiles and its by-name call is not its
+alias call; only the breaking release that removes the older targets may refuse
+such a local at its definition. What `(f …)` reaches in the `let-proc` body:
+
+| The local's name is also | `(f …)` |
+| --- | --- |
+| a `defproc` (same module or imported), a declared extern, a workflow parameter or an outer `let*` binding | refused at the local's definition (`let_proc_syntax_invalid`, colliding name) |
+| an import alias (`(import lib/hl :as f)`) | the local; `(f.helper …)` still names the import |
+| a macro | the local's definition is expanded as a use of the macro, and refused |
+| a `defun`, same module or imported | the function |
+| a built-in form or operator (`print`, `list`, `+`, `not`, `if`, `record`, `call`, `done`, …) | the form, which gives its own value or refusal |
+| a workflow | the local |
+| an inner binding: a `let*` binding, a `match` arm, the loop state, a `list/map-effect` item, or a parameter of a local | the inner binding: called when it is a procedure reference, otherwise refused as any bound name that is not callable |
+| a `list/map` item | refused: the pure-body check speaks first (`list_map_body_effect_forbidden`) |
+
+The single-binding form with explicit
+`:captures` is the [V1 contract](workflow_lisp_let_proc_local_proc_refs.md);
+several bindings, inferred lexical captures and an expected signature from
+exactly one direct consumer call site are the
+[W3 contract](workflow_lisp_write_once.md#63-language-changes-to-let-proc)
+(target 2.36). Declared externs stay available without becoming captures.
 
 ### 7.9 Type Parameters And Structural Constraints
 
@@ -2254,6 +2283,23 @@ runtime boundary, such as `WorkflowRef`. Diagnostics: `loop_state_requires_typed
   :providers providers.implementation)
 ```
 
+A workflow, which can also be run from the command line, is called as the
+command line calls it, with named inputs: `(call w :x value)`. A workflow
+reference parameter is called the same way. A function, a procedure, a local
+procedure and a procedure parameter are called by name with positional
+arguments, `(p a …)`. The misuses are refused:
+
+- a keyword in a positional call: `keyword_argument_invalid`, naming `(p …)`;
+- `(w n)` on a same-module or `:only`-imported workflow:
+  `procedure_call_unknown`, naming `(call w :x …)`; on a workflow reference
+  parameter the same code names `(call w :x …)` too. A module-qualified name
+  (`(wf.child n)`), and any `(w n)` when the program is compiled with
+  imported workflow bundles, keeps the message "unknown same-file procedure
+  callee"; a path-qualified head (`(lib/wf/child n)`) is read as an operator
+  (`pure_expr_operator_unsupported`);
+- `(call p …)` on a procedure or function (same module or imported), a local
+  procedure or a procedure reference: `workflow_call_unknown`, naming `(p …)`.
+
 Checks:
 
 - callee exists
@@ -2262,6 +2308,12 @@ Checks:
 - argument types match
 - effects permitted
 - return type matches binding
+- no workflow reached from the entry reaches itself through other workflows
+  (`workflow_call_cycle`, which names the cycle). A cycle that passes through
+  a procedure or a workflow reference parameter is reported as that
+  procedure's cycle (`proc_lowering_cycle`, `proc_ref_specialization_cycle`).
+  A cycle among workflows the entry never calls compiles, while procedure and
+  function cycles are refused wherever they are
 
 Lowering:
 
@@ -3574,6 +3626,7 @@ WCC-generated Core AST validation are historical architecture.
 - `lowering_no_backend_for_form`
 - `resource_transition_requires_runtime_backend`
 - `proc_lowering_cycle`
+- `workflow_call_cycle`
 - `specialization_cycle`
 - `workflow_call_version_mismatch`
 - `source_map_missing`

@@ -233,6 +233,25 @@ def typecheck_expression(
     return result
 
 
+def _refuse_unresolved_proc_ref_binding(
+    name: str, expr: ExprNode, value_env: Mapping[str, TypeRef], binding_expr: ExprNode
+) -> None:
+    """A `let*` binds a procedure reference it can resolve, or forwards a name typed `ProcRef`.
+
+    The forwarding exemption is the one `typecheck_proc_ref_argument` makes.
+    """
+    if isinstance(expr, NameExpr) and isinstance(value_env.get(expr.name), ProcRefTypeRef):
+        return
+    _raise_error(
+        f"`{name}` is bound to a procedure reference chosen at run time; a procedure "
+        "reference is a compile-time name: bind `(proc-ref f)` or a forwarded reference, "
+        "not one chosen by `if`, `cond` or `match` or returned by a procedure",
+        code="proc_ref_literal_required",
+        span=binding_expr.span,
+        form_path=binding_expr.form_path,
+    )
+
+
 def _typecheck(
     expr: ExprNode,
     *,
@@ -954,6 +973,8 @@ def _typecheck(
                 )
                 if resolved_binding is not None:
                     local_proc_ref_env[name] = resolved_binding
+                else:
+                    _refuse_unresolved_proc_ref_binding(name, typed_binding.expr, rhs_env, binding_expr)
         typed_body = recurse(
             expr.body,
             value_env=local_env,
