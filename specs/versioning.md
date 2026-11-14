@@ -1293,3 +1293,40 @@ Implementation and deterministic public acceptance are distinct from paid
 provider or live-notification qualification. The [delivery plan](../docs/plans/2026-10-22-durable-host-input-plan.md)
 owns execution evidence and remaining verification; it does not redefine these
 contracts or authorize provider spend.
+
+### Source admitted without a new target (surface coherence)
+
+Under versioning rule 2 as ruled on 2026-11-12, a change that admits source refused before and moves
+no closed program, digest or effect identity of source that compiles adds no target. One entry per
+change of the [surface-coherence design](../docs/design/workflow_lisp_surface_coherence.md):
+
+- **C1, a local called by name.** A `let-proc` local that declares its signature is called by
+  name with positional arguments and builds the program of its alias call
+  `(let* ((g (proc-ref f))) (g a))`; a local named like a `defun` or a built-in form does not
+  shadow it. A keyword in a positional call, a local calling a sibling or itself, a local without
+  a signature called by name, `(w n)` on a workflow, `(call p …)` on a procedure and a workflow
+  that reaches itself are each one diagnostic. One exception to "only source refused before": a
+  procedure that binds, with `let*`, a procedure reference chosen by a conditional, or one it
+  cannot resolve, is refused at its definition with `proc_ref_literal_required`, also when it is
+  never called; such a procedure compiled before only when nothing called it. No closed program,
+  digest or effect identity of a program that still compiles changes.
+- **I2a, the binder form of `loop/recur`.** `(loop/recur ((state init)) :max n [:on-exhausted e]
+  body)` is accepted beside the `fn` form and builds the same closed program, digest and effect
+  identities. Inside a macro template the loop state, a `let-proc` parameter and each item of a
+  `cond` clause are bindings or expressions of the template, in both forms.
+- **A variant-only field after a discriminant test.** `(if (= x.variant V) x.f …)` and the `cond`
+  form, which the typechecker accepted and the closed build then failed on, build and run, also
+  when the read is inside an effect's payload. The shapes that stay refused are stated in the
+  [frontend specification](../docs/design/workflow_lisp_frontend_specification.md), section 7.5.
+  A program that built before keeps its closed program, digest and identities.
+- **I1, map bodies and a computed serial `:max`.** In a program that contains a run reference
+  anywhere, every `list/map-effect` iteration is exactly one call with pure arguments, as before
+  (`list_map_effect_body_unsupported`); a program that contains no run reference admits any
+  expression as a map body. A later change may admit more bodies beside a run reference by
+  analysing each iteration. A serial map's `:max` is any `Int` expression,
+  evaluated once after the source and before the first item; a parallel map's `:max` and `:parallel`
+  stay positive integer literals. A list longer than `:max` fails `list_map_effect_cap_exceeded` as
+  before (a serial map after its first `:max` items, a parallel map before any); a computed `:max`
+  below 1 fails the same way over a non-empty list, and an empty list gives the empty list. A
+  parallel map may be written directly in a serial map or loop body. Every program that compiled
+  before keeps its closed program, digest and identities, and its recorded runs resume.

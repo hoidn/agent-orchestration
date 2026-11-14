@@ -301,6 +301,11 @@ class ListMapEffectExpr:
     )
     parallel_count: int | None = field(default=None, metadata={"json_omit_if_none": True})
     workspace_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+    # A serial map's computed `:max`; None for a literal, so existing identities stay.
+    max_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+    # Typing's verdict on a parallel body: exactly one call with pure arguments (false until typed).
+    one_call_body: bool = field(default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
 
 
 @dataclass(frozen=True)
@@ -2699,6 +2704,31 @@ def _elaborate_list_map(
     )
 
 
+def _serial_max_clause(datum: SyntaxList, *, form_path: tuple[str, ...]) -> bool:
+    """Check a serial map's `:max` clause; return whether `:max` is an expression, not a literal."""
+    items = datum.items
+    shape = len(items) == 5 and isinstance(items[2], SyntaxKeyword) and items[2].value == ":max"
+    if shape and not isinstance(items[3], (SyntaxInt, SyntaxKeyword)):
+        return True
+    max_value = (
+        items[3].value if len(items) > 3 and isinstance(items[3], SyntaxInt) and type(items[3].value) is int
+        else None
+    )
+    if shape and max_value is not None and max_value > 0:
+        return False
+    limit_detail = "minimum=1" if max_value is None else f"value={max_value}, minimum=1"
+    _raise_error(
+        (
+            "`list/map-effect` requires `:max` followed by a positive integer "
+            f"literal or an `Int` expression; {limit_detail}"
+        ),
+        code="list_map_effect_max_invalid",
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
 def _elaborate_list_map_effect(
     datum: SyntaxList,
     *,
@@ -2719,30 +2749,7 @@ def _elaborate_list_map_effect(
             datum, target=session_state.target_dsl_version or "",
             form_path=form_path, raise_error=_raise_error,
         )
-    if parallel_options is None and (
-        len(datum.items) != 5
-        or not isinstance(datum.items[2], SyntaxKeyword)
-        or datum.items[2].value != ":max"
-        or not isinstance(datum.items[3], SyntaxInt)
-        or isinstance(datum.items[3].value, bool)
-        or datum.items[3].value <= 0
-    ):
-        max_value = datum.items[3].value if len(datum.items) > 3 and isinstance(datum.items[3], SyntaxInt) else None
-        limit_detail = (
-            f"value={max_value}, minimum=1"
-            if max_value is not None and not isinstance(max_value, bool)
-            else "minimum=1"
-        )
-        _raise_error(
-            (
-                "`list/map-effect` requires `:max` followed by a positive integer "
-                f"literal; {limit_detail}"
-            ),
-            code="list_map_effect_max_invalid",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
+    computed_max = parallel_options is None and _serial_max_clause(datum, form_path=form_path)
     raw_binders = datum.items[1]
     if (
         not isinstance(raw_binders, SyntaxList)
@@ -2778,6 +2785,11 @@ def _elaborate_list_map_effect(
         procedure_names=procedure_names,
         session_state=session_state,
     )
+    max_expr = (
+        _elaborate(datum.items[3], form_path=form_path, bound_names=bound_names,
+                   procedure_names=procedure_names, session_state=session_state)
+        if computed_max else None
+    )
     body_expr = _elaborate(
         parallel_options[3] if parallel_options is not None else datum.items[4],
         form_path=form_path,
@@ -2788,7 +2800,11 @@ def _elaborate_list_map_effect(
     return ListMapEffectExpr(
         binder_name=binder.resolved_name,
         source_expr=source_expr,
-        max_iterations=parallel_options[0] if parallel_options is not None else datum.items[3].value,
+        max_iterations=(
+            parallel_options[0] if parallel_options is not None
+            else 0 if computed_max else datum.items[3].value
+        ),
+        max_expr=max_expr,
         body_expr=body_expr,
         source_item_type_ref=None,
         result_item_type_ref=None,

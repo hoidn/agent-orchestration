@@ -866,6 +866,8 @@ class WccParallelMap:
         metadata={"json_omit_always": True, "semantic_identity_omit": True})
     binding_identity: object | None = field(default=None, compare=False, repr=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True})
+    one_call_body: bool = field(default=False, compare=False, repr=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
 
 
 @dataclass(frozen=True)

@@ -2,9 +2,14 @@
 
 - **Status:** Accepted 2026-11-12 as the basis for implementation, after an
   independent review (accept with changes; all applied). Partly implemented:
-  change C1 (callables called by name) is on `main` since 2026-11-13. For the
-  other changes of §10 the compiler behaves as the "Today" columns of §2, and
-  their "after" examples do not compile.
+  changes C1 (callables called by name), I1 (map bodies and a computed serial
+  `:max`, in programs with no run reference) and I2a (the binder form of
+  `loop/recur`) are on `main` since 2026-11-13. For E1 and I2b the compiler
+  behaves as the "Today" columns of §2, and their "after" examples do not
+  compile. Where this page and the merged behaviour differ, the
+  [frontend specification](workflow_lisp_frontend_specification.md) and
+  `specs/versioning.md` ("Source admitted without a new target") state what
+  compiles.
 - **Owns, until retired (§11):** where an effect may be written; the shape of
   the iteration forms; how each kind of callable is called.
 - **Consumes:** [evaluated execution](workflow_lisp_evaluated_execution.md)
