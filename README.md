@@ -45,7 +45,7 @@ keeps it as a markdown file under `docs/design/` and passes its typed path.
 ```lisp
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule plan_review_execute)
   (export run)
 

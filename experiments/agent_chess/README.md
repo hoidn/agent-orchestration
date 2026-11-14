@@ -1,6 +1,6 @@
 # Two-agent chess
 
-This target-2.36 workflow sends one shared text value to White, then sends
+This target-2.40 workflow sends one shared text value to White, then sends
 White's returned text to Black. Each configured round calls both agents in
 that order. The text contains the position, full move history, and public
 messages.
