@@ -125,11 +125,10 @@ def test_authored_match_and_loop_labels_reach_closed_control_nodes(tmp_path: Pat
       (defmodule cp/loop_origin)
       (export run)
       (defworkflow run () -> Int
-        (loop/recur :max 2 :state 0
-          (fn (iteration)
-            (if (< iteration 1)
-                  (continue (+ iteration 1))
-                  (done iteration))))))'''
+        (loop/recur ((iteration 0)) :max 2
+          (if (< iteration 1)
+                (continue (+ iteration 1))
+                (done iteration)))))'''
     loop_path = install(tmp_path / "loop", loop_source)
     loop_typed = compile_typed_program(
         loop_path,

@@ -155,7 +155,7 @@ def _minimal_compile_source(*, return_type: str = "Result") -> str:
     return f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule candidate)
   (export Result run)
   (defrecord Result

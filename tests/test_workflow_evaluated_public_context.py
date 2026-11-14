@@ -38,7 +38,7 @@ def _fast_compile(monkeypatch):
     monkeypatch.setitem(globals(), "compile_public", compile_public_inprocess)
 
 
-PROVIDER_PATH_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+PROVIDER_PATH_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defpath ResultBundle :kind relpath :under ".orchestrate/runs" :must-exist false)
   (defrecord Result (ok Bool))

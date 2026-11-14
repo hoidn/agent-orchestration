@@ -114,7 +114,7 @@ def _write_imported_catalog_fixture(tmp_path: Path) -> tuple[Path, Path]:
     (module_root / "shared.orc").write_text(
         """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule catalog/shared)
   (export Result shared)
   (defrecord Result
@@ -130,7 +130,7 @@ def _write_imported_catalog_fixture(tmp_path: Path) -> tuple[Path, Path]:
     (module_root / "entry.orc").write_text(
         """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule catalog/entry)
   (import catalog/shared :only (Result shared))
   (export selected sibling)

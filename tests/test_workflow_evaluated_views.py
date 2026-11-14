@@ -122,7 +122,7 @@ def test_invalidation_replaces_old_completed_view_and_preserves_commit_rows(tmp_
 
 def _path_run(root):
     source = root / "paths.orc"
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule paths) (export run)
       (defpath WorkPath :kind relpath :under "artifacts" :must-exist true)
       (defworkflow run () -> WorkPath
@@ -420,7 +420,7 @@ def test_coordinator_terminal_corruption_remains_readonly_refusal(tmp_path, monk
 
 def test_pure_failure_cannot_hide_unreachable_pending_effect(tmp_path, monkeypatch):
     source = tmp_path / "pending-pure.orc"
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule pending-pure) (export run)
       (defworkflow run ((divisor Float)) -> Float
         (if (command-result choose :argv ("python" "choose.py") :returns Bool)

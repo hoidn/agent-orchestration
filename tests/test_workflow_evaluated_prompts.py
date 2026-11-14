@@ -110,7 +110,7 @@ def test_external_prompt_order_and_source_kind_preserve_captured_dataflow(
 ) -> None:
     source = f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule prompt_assembly)
   (export run)
   (defpath Note :kind relpath :under "artifacts/work" :must-exist true)
@@ -186,7 +186,7 @@ def test_external_prompt_without_dependencies_preserves_captured_dataflow(
 ) -> None:
     source = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule prompt_assembly)
   (export run)
   (defworkflow run ((message String)) -> Bool
@@ -283,7 +283,7 @@ def test_defprompt_docs_and_output_positions_preserve_captured_dataflow(
 ) -> None:
     source = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule prompt_assembly)
   (export run)
   (defpath DesignDocPath :kind relpath :under "docs/design" :must-exist true)

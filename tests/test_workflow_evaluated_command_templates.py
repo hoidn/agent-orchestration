@@ -95,13 +95,12 @@ SURFACE_COMPOSITION_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2
 (defproc helper ((state_root String)) -> Result
  (command-result echo :argv ("python" "probe.py" state_root "${inputs.state_root}" ) :returns Result))
 (defworkflow run ((state_root String :default "WORKFLOW") (other String :default "PROCEDURE") (choice Choice) (flag Bool :default true)) -> Result
- (loop/recur :max 1 :state (loop-state (i Int 0))
+ (loop/recur ((st (loop-state (i Int 0)))) :max 1
  :on-exhausted (record Result :seen "exhausted")
- (fn (st)
-  (let* ((actual (command-result choose :argv ("python" "choose.py") :returns Choice)))(let* ((r (match actual
-    ((A a) (if flag (helper other) (helper state_root)))
-    ((B b) (helper other)))))
-   (done (record Result :seen "finished"))))))))
+ (let* ((actual (command-result choose :argv ("python" "choose.py") :returns Choice)))(let* ((r (match actual
+   ((A a) (if flag (helper other) (helper state_root)))
+   ((B b) (helper other)))))
+  (done (record Result :seen "finished")))))))
 '''
 
 

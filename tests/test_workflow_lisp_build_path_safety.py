@@ -193,7 +193,7 @@ def test_compiled_import_fd_manifest_preserves_relative_parent_components(
     (tmp_path / "sub").mkdir()
     for name in ("main", "producer"):
         (tmp_path / (name + ".orc")).write_text(
-            f'(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+            f'(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
             f'(defmodule {name}) (export run) (defworkflow run () -> Int 7))'
         )
     manifest = tmp_path / manifest_name

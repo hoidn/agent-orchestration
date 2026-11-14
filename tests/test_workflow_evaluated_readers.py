@@ -92,7 +92,7 @@ def _scalar_run(root, returns, expression):
         inputs = root / "inputs.json"
         inputs.write_text('{"payload":null}')
         arguments = ["--input-file", str(inputs)]
-    source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule scalar) (export run) (defworkflow run ({parameters}) -> {returns} {expression}))''')
     result = _run_cli(root, str(source), *arguments)
     assert result.returncode == 0, result.stderr
@@ -198,7 +198,7 @@ def test_public_report_subprocess_reconstructs_without_source_or_state(tmp_path)
 
 def test_pure_failed_terminal_reports_its_error_without_outputs(tmp_path, capsys):
     source = tmp_path / "failure.orc"
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule failure) (export run) (defworkflow run ((divisor Float)) -> Float (/ 1.0 divisor)))''')
     result = _run_cli(tmp_path, str(source), "--input", "divisor=0")
     assert result.returncode == 1, result.stderr

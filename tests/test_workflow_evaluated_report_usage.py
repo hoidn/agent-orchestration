@@ -149,7 +149,7 @@ def test_reported_cost_without_token_rows_is_a_partial_figure(tmp_path):
 
 def test_run_without_provider_steps_has_no_usage(tmp_path):
     root = _steps_workspace(tmp_path, "claude_metered", "claude_metered")
-    (root / "main.orc").write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    (root / "main.orc").write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow run ((message String)) -> String
     (command-result build :argv ("python" "command.py" message) :returns String)))''', encoding="utf-8")

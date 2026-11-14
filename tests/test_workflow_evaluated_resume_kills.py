@@ -49,7 +49,7 @@ raise SystemExit(main())
 '''
 
 _COMMAND_SOURCE = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow run () -> Int
     (let* ((first (command-result first :argv ("python" "probe.py" "first") :returns Int))
@@ -58,7 +58,7 @@ _COMMAND_SOURCE = '''\
 '''
 
 _PROVIDER_SOURCE = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Review (ok Bool))
   (defworkflow run ((message String)) -> Int

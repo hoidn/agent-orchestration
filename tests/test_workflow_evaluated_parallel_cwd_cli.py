@@ -29,7 +29,7 @@ COMMAND_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
         :inputs ((items items)) :returns Seen))))
 '''
 
-ADAPTER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+ADAPTER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule parallel/adapter-cli) (export run)
   (defpath Findings :kind relpath :under "artifacts/work" :must-exist true)
   (defrecord ReviewFindings (schema_version String) (items_path Findings))
@@ -41,7 +41,7 @@ ADAPTER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
         :returns ReviewFindings))))
 '''
 
-INLINE_ADAPTER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+INLINE_ADAPTER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule parallel/inline-adapter-cli) (export run)
   (defpath Findings :kind relpath :under "artifacts/work" :must-exist true)
   (defrecord ReviewFindings (schema_version String) (items_path Findings))
@@ -54,7 +54,7 @@ INLINE_ADAPTER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
         :returns ReviewFindings))))
 '''
 
-OUTSIDE_CWD_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+OUTSIDE_CWD_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule parallel/outside-cwd) (export run)
   (defrecord Seen (cwd String) (data String) (root String))
   (defworkflow run ((repo String)) -> List[Seen]
@@ -86,7 +86,7 @@ PARALLEL_INDEX_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
       (command-result fetch :argv ("python" SCRIPT repo "${loop.index}") :returns Int))))
 '''
 
-PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defpath Findings :kind relpath :under "artifacts/work" :must-exist true)
   (defrecord ReviewFindings (schema_version String) (items_path Findings))

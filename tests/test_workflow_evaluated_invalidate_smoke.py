@@ -17,7 +17,7 @@ from tests.agent_session_shims import closed_path
 
 
 SOURCE = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> Result

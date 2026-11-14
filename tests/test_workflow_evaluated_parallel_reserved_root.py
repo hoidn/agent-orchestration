@@ -27,7 +27,7 @@ with open("seen.log", "a", encoding="utf-8") as log:
     log.write(os.environ.get("ORCHESTRATOR_WORKSPACE_ROOT", "<none>") + "\\n")
 Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text("1")
 '''
-NESTED = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+NESTED = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule nested) (export run)
   (defworkflow run () -> List[Int]
     (let* ((serial (command-result probe :argv ("python" "probe.py") :returns Int)))
@@ -41,7 +41,7 @@ child = subprocess.run([sys.executable, "-m", "orchestrator", "run", "nested.orc
 Path("nested.log").write_text(child.stdout + child.stderr)
 Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(str(child.returncode))
 '''
-OUTER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+OUTER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule outer) (export run)
   (defworkflow run () -> List[Int]
     (list/map-effect ((place (list "item"))) :max 1 :parallel 1 :workspace place

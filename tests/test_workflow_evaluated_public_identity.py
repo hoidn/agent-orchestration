@@ -156,7 +156,7 @@ def test_public_semantic_change_refuses_without_repeating_effects(tmp_path, monk
     assert (tmp_path / "requests.jsonl").read_bytes() == requests
 
 
-MACRO_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+MACRO_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule macro/entry) (export run) (defrecord Box (n Int))
   (defworkflow-alias run ((tmp Int)) Int
     (let* ((got (command-result fetch :argv ("python" "probe.py" "fetch" tmp) :returns Box)))

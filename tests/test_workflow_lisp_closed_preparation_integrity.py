@@ -496,7 +496,7 @@ def test_relocated_control_parameter_identity_keeps_its_binding_owner(tmp_path, 
     if control == 'join':
         body = f'(let* ((state (if flag {stable} n))) {tail})'
     else:
-        body = f'(loop/recur :max 1 :state n :on-exhausted 0 (fn (state) (let* ((out {tail})) (done out))))'
+        body = f'(loop/recur ((state n)) :max 1 :on-exhausted 0 (let* ((out {tail})) (done out)))'
     declaration = '(defproc helper ((n Int) (flag Bool)) -> Int :effects ((uses-command echo)) :lowering inline ' + body + ')'
     first = _compile(tmp_path / 'first', '(helper n flag)', params='(n Int) (flag Bool)', declarations=declaration)
     _, children, builder = _prepared_entry(first)
@@ -585,7 +585,7 @@ def test_compiled_control_parameter_metadata_identity_uses_its_own_namespace(tmp
         body = f'(let* ((state (if flag {stable} n))) {tail})'
         node_type, scope_field = WccJoin, 'continuation'
     else:
-        body = f'(loop/recur :max 1 :state n :on-exhausted 0 (fn (state) (let* ((out {tail})) (done out))))'
+        body = f'(loop/recur ((state n)) :max 1 :on-exhausted 0 (let* ((out {tail})) (done out)))'
         node_type, scope_field = WccRecJoin, 'body'
     declaration = '(defproc helper ((n Int) (flag Bool)) -> Int :effects ((uses-command echo)) :lowering inline ' + body + ')'
 

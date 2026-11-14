@@ -28,7 +28,7 @@ TWO_CALLS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
                      :inputs (message built) :model "claude-haiku-5-5" :effort "high" :returns Result)))
       second)))'''
 
-PARALLEL = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+PARALLEL = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> List[Result]

@@ -46,7 +46,7 @@ NESTED = ".orchestrate/runs/custom"
 _SENTINEL = "x4-result-root-sentinel"
 _MANIFESTS =("providers.json", "prompts.json", "commands.json", "inputs.json", "requests.jsonl")
 
-TWO_PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+TWO_PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defpath ResultBundle :kind relpath :under ".orchestrate/runs" :must-exist false)
   (defrecord Result (ok Bool))
@@ -58,7 +58,7 @@ TWO_PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
                :inputs (a) :model "chosen-model" :effort "low" :returns Result)))
       (record Projection :bundle (provider-bundle-path b :as ResultBundle)))))'''
 
-ECHO_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+ECHO_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defpath ResultBundle :kind relpath :under ".orchestrate/runs" :must-exist false)
   (defrecord Result (ok Bool))
