@@ -10,21 +10,27 @@ The sample relies on `random.Random(seed).random()` only, the one method whose s
 Python documentation fixes across versions. Written and run under Python 3.13.9.
 """
 
+import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from collections import Counter
 from contextlib import nullcontext
+from dataclasses import replace
 
 import pytest
 
 from experiments.mutants import check, operators
 from experiments.mutants.operators import Mutation
 from orchestrator.workflow_lisp.closed import artifact, build
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr, StringAtom
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from tests.test_workflow_lisp_defect_backlog import KNOWN
+from tests.workflow_lisp_closed_program_helpers import crash_signature
 
 # The closed sets, written out: `operators.py` may not hold a Fable model, a model above the
 # Sonnet ceiling or an undeclared effort (AGENTS.md, experiment rules).
@@ -495,15 +501,15 @@ def mutant_of(name: str, params: str) -> str:
     return operators.apply(SEED, next(m for m in operators.OPERATORS[name](SEED) if m.params == params))
 
 
-def raising_after_first(original):
-    """`original` for the first call (the seed's own build), then a `RuntimeError` that escapes."""
+def raising_after_first(original, error=lambda *args, **kwargs: RuntimeError("injected\nsecond line")):
+    """`original` for the first call (the seed's own build), then `error(*args, **kwargs)` raised."""
     calls = []
 
     def stand_in(*args, **kwargs):
         calls.append(None)
         if len(calls) == 1:
             return original(*args, **kwargs)
-        raise RuntimeError("injected\nsecond line")
+        raise error(*args, **kwargs)
 
     return stand_in
 
@@ -572,7 +578,8 @@ def test_the_known_list_has_the_shape_this_module_reads():
 
 
 def test_the_check_starts_no_process(tmp_path, monkeypatch):
-    # It compiles and nothing else: no workflow runs, no provider or command is started.
+    # It compiles and nothing else: no workflow runs, no provider or command is started. This sees a
+    # launch through `subprocess` only; the next test is the structural guarantee.
     started = []
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: started.append(args) or pytest.fail("a process"))
     assert check.main([str(seed_dir(tmp_path / "seed", {"fixture": SEED})), "--programs", "fixture", "--cap", "1",
@@ -588,3 +595,117 @@ def test_command_exits_0_without_a_crash(tmp_path):
     assert done.returncode == 0, done.stderr
     readout = json.loads(out.read_text(encoding="utf-8"))
     assert (readout["operators"]["rounds"]["mutants"], readout["crashes"]) == (COUNTS["rounds"], [])
+
+
+# The runtime's dispatch entry points: the `run` and `resume` commands (`run_workflow`, `resume`), the
+# evaluated runtime (`execute_pure_run`, `execute_pure_resume`) and the effect dispatcher
+# (`perform_external`). `plan_resume`'s module, which Task T3 imports, loads none of them.
+DISPATCH = ("orchestrator.cli.commands.run", "orchestrator.cli.commands.resume",
+            "orchestrator.workflow.evaluated.runtime", "orchestrator.workflow.evaluated.effect_execution")
+
+
+def test_the_check_imports_no_dispatch_entry_point():
+    code = "import sys, experiments.mutants.check; print('\\n'.join(sys.modules))"
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                          env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, sys.path))})
+    loaded = set(done.stdout.split())
+    assert all(importlib.util.find_spec(name) for name in DISPATCH)
+    assert "experiments.mutants.check" in loaded and not loaded & set(DISPATCH)
+
+
+def test_the_readout_keys_are_the_documented_ones(tmp_path):
+    documented = re.findall(r"^- `(\w+)`:", check.__doc__, re.MULTILINE)
+    report = check.compile_report(seed_dir(tmp_path / "seed", {"fixture": SEED}), ["fixture"], 1, 0,
+                                  operators=("rounds",))
+    assert list(report) == documented
+
+
+def test_digests_and_long_mutants_are_counted(tmp_path, monkeypatch):
+    # Three layout-only mutants compile to the seed's digest; two copies of one bound share a digest.
+    bound = next(mutation for mutation in operators.rounds(SEED) if mutation.params == "loop0=3")
+    drawn = [("fixture", Mutation("rounds", "newline", ((0, 0, "\n"),))),
+             ("fixture", Mutation("rounds", "space", ((0, 0, " "),))),
+             ("fixture", Mutation("rounds", "long", ((0, 0, "\n" * check.LONG),))),
+             ("fixture", bound), ("fixture", replace(bound, params="again"))]
+    monkeypatch.setattr(check, "sample", lambda *args, **kwargs: drawn)
+    report = check.compile_report(seed_dir(tmp_path / "seed", {"fixture": SEED}), ["fixture"], 4, 0)
+    row = report["operators"]["rounds"]
+    figures = (row["compiles"], report["distinct_digests"], report["equal_to_seed"], row["lines_50_or_more"])
+    assert figures == (5, 2, 3, 1)
+
+
+def test_the_smallest_crashing_mutant_and_its_cause_are_recorded(tmp_path, monkeypatch):
+    # Each crash's message names the length of its mutant, so the record's cause must be the smallest's.
+    monkeypatch.setattr(artifact, "compile_typed_program_with_result", raising_after_first(
+        artifact.compile_typed_program_with_result,
+        lambda path, **kwargs: RuntimeError(f"length {len(path.read_text(encoding='utf-8'))}")))
+    report = check.compile_report(seed_dir(tmp_path / "seed", {"fixture": SEED}), ["fixture"], 100, 0,
+                                  operators=("drop_step", "prompt"))
+    lengths = Counter(f"length {len(mutant)}" for name in ("drop_step", "prompt") for _, mutant in mutants(name))
+    shortest = min(len(mutant) for name in ("drop_step", "prompt") for _, mutant in mutants(name))
+    (record,) = report["crashes"]
+    assert len(lengths) > 1 and record["mutants"] == sum(lengths.values())
+    assert (len(record["smallest"]["source"]), record["cause"], record["causes"]) == (
+        shortest, f"length {shortest}", dict(lengths))
+
+
+def diagnostic(code: str, cause: BaseException | None) -> LispFrontendDiagnostic:
+    start = SourcePosition(path="fixture.orc", line=1, column=1, offset=0)
+    return LispFrontendDiagnostic(code=code, message=f"{code}\ndetail", span=SourceSpan(start=start, end=start),
+                                  cause=cause)
+
+
+@pytest.mark.parametrize("codes", [("type_mismatch", "compiler_defect_constructor_type_dropped"),
+                                   ("compiler_defect", "name_unknown")], ids=["prefixed code", "beside another"])
+def test_a_refusal_holding_a_compiler_defect_code_is_a_crash(codes, tmp_path, monkeypatch):
+    # A `compiler_defect` diagnostic with its cause is keyed by the cause; one without, by its code.
+    with pytest.raises(TypeError) as raised:
+        artifact.canonical_json_bytes(object())  # an exception raised in the package
+    cause = raised.value if codes[0] == "compiler_defect" else None
+    diagnostics = tuple(diagnostic(code, cause if code.startswith("compiler_defect") else None) for code in codes)
+    monkeypatch.setattr(artifact, "compile_typed_program_with_result", raising_after_first(
+        artifact.compile_typed_program_with_result, lambda *args, **kwargs: LispFrontendCompileError(diagnostics)))
+    out = tmp_path / "readout.json"
+    assert check.main([str(seed_dir(tmp_path / "seed", {"fixture": SEED})), "--programs", "fixture",
+                       "--operators", "rounds", "--out", str(out)]) == 1
+    key = list(crash_signature(cause)) if cause else [codes[1]]
+    assert [record["key"] for record in json.loads(out.read_text(encoding="utf-8"))["crashes"]] == [key]
+
+
+def usage_case(name: str, tmp_path) -> list[str]:
+    """The command line of one input problem; the seed is the fixture unless the case says otherwise."""
+    seed, out = seed_dir(tmp_path / "seed", {"fixture": SEED}), tmp_path / "readout.json"
+    line = {"programs": "fixture", "out": str(out)}
+    if name == "missing directory":
+        seed = tmp_path / "nodir"
+    elif name == "literal outside the sets":
+        seed = seed_dir(tmp_path / "outside", {"fixture": OUTSIDE[0][2]})
+    elif name == "out in a git working tree":
+        (tmp_path / "repo" / ".git").mkdir(parents=True)
+        (tmp_path / "repo" / "tracked.json").write_text("{}", encoding="utf-8")
+        line["out"] = str(tmp_path / "repo" / "tracked.json")
+    line |= {"missing file": {"programs": "nosuch"}, "no program": {"programs": ""}, "a comma only": {"programs": ","},
+             "unknown operator": {"operators": "swap"}, "negative cap": {"cap": "-1"}, "empty sample": {"cap": "0"},
+             "out directory missing": {"out": str(tmp_path / "nodir" / "readout.json")}}.get(name, {})
+    return [str(seed), *(item for flag, value in line.items() for item in (f"--{flag}", value))]
+
+
+USAGE = ["missing file", "missing directory", "no program", "a comma only", "unknown operator", "negative cap",
+         "empty sample", "literal outside the sets", "out directory missing", "out in a git working tree"]
+
+
+@pytest.mark.parametrize("name", USAGE)
+def test_an_input_problem_exits_2_before_any_compile(name, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(check, "prepare_closed_program_bundle", lambda *args, **kwargs: pytest.fail("a compile"))
+    argv = usage_case(name, tmp_path)
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*.json")}
+    assert check.main(argv) == 2
+    error = capsys.readouterr().err
+    assert len(error.splitlines()) == 1 and "Traceback" not in error, error
+    assert {path: path.read_bytes() for path in tmp_path.rglob("*.json")} == before
+
+
+def test_a_seed_that_does_not_build_exits_2(tmp_path, capsys):
+    seed = seed_dir(tmp_path / "seed", {"fixture": SEED.replace(") -> Outcome", ") -> Change")})
+    assert check.main([str(seed), "--programs", "fixture", "--out", str(tmp_path / "readout.json")]) == 2
+    assert len(capsys.readouterr().err.splitlines()) == 1 and not (tmp_path / "readout.json").exists()

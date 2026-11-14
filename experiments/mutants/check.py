@@ -6,25 +6,50 @@ A seed directory holds one `NAME.orc` per program, whose entry is `NAME::run`, b
 `providers.json` and `commands.json` when the programs use them. The directory is copied once to a
 temporary work directory, which is removed afterwards; each mutant is written over its program
 there and compiled in process with `prepare_closed_program_bundle`, which writes nothing. The seed
-directory is never written. Nothing is run: no workflow, provider or command is started. Sources
-are read as UTF-8 with `\\r\\n` and `\\r` turned into `\\n` before any operator or digest sees them.
+directory is never written. Nothing is run: no workflow, provider or command is started, and the
+module imports none of the runtime's dispatch entry points. Sources are read as UTF-8 with `\\r\\n`
+and `\\r` turned into `\\n` before any operator or digest sees them.
 
 An outcome is classified by `build_outcome` of `tests/workflow_lisp_closed_program_helpers.py`, the
 classifier of the defect backlog's test module, so one crash has one key in both. A crash's key is
 `crash_signature`'s pair (the exception class and a function under `orchestrator/`) without the
 kind: a `compiler_defect` and an exception that left the build uncaught at one place share a key.
-A key is a location, not a defect, and this module reads no list of known defects: every crash is
-reported, per key, with its count, its operators and its shortest mutant.
+A refusal that holds a code that is or starts with `compiler_defect`, alone or beside other codes,
+is a crash too (the mutant "ends in `compiler_defect`", roadmap item R3): its key is the crash key
+of the first such diagnostic's cause, or that diagnostic's code when it carries no cause. A key is
+a location, not a defect, and this module reads no list of known defects: every crash is reported,
+per key, with its count, its operators and its shortest mutant.
+
+The readout, a JSON object (Task T3 reads it):
+
+- `sample`: what was drawn: `programs` (in name order), `operators` (in `OPERATORS` order), `cap`,
+  `number`, `python` (the version that drew it) and `mutants` (how many were drawn).
+- `operators`: per operator drawn, in `OPERATORS` order: `mutants`; `compiles`; `refused`, the
+  count per refusal, keyed by its codes joined by a space; `crash_keys`, the count per crash key,
+  keyed by the key's parts joined by a space; `lines_50_or_more`, the mutants of 50 lines or more
+  (counted beside the outcomes, not among them). `compiles`, the `refused` counts and the
+  `crash_keys` counts add up to `mutants`.
+- `distinct_digests`: the number of distinct program digests among the mutants that compile.
+- `equal_to_seed`: the mutants that compile to their seed's digest.
+- `crashes`: one record per crash key, in key order: `key` (the class and the place, or the one
+  code); `kinds` (`crash`, `traceback`); `mutants`; `operators`; `pairs`, each `[operator,
+  program]`; `smallest`, the shortest crashing mutant as `{name, source}`, `name` being
+  `program/operator/params` and `source` its whole text; `cause`, the first line of the smallest
+  mutant's cause; `causes`, every distinct first line under the key with its count.
 
 Command: `python -m experiments.mutants.check SEED_DIR --programs a,b [--operators x,y] [--cap 100]
 [--number 0] [--out PATH]`. It prints a table and every crash record, writes the readout (by
-default `experiments/mutants/readout.json`), and exits 1 when any mutant crashed, else 0. A seed
-that does not build, an unknown operator or a model or effort literal outside the closed sets is a
-usage error (exit 2).
+default `experiments/mutants/readout.json`), and exits 1 when any mutant crashed, else 0. Every
+problem with its input exits 2 with one line and writes no readout, before any mutant compiles: a
+missing seed directory or program file, an unreadable or undecodable one, no program, an unknown
+operator, a negative cap, an empty sample, a model or effort literal outside the closed sets, a
+seed that does not build, an `--out` whose directory is missing or not writable, and an `--out`
+that is an existing file of a git working tree other than the default readout.
 """
 
 import argparse
 import json
+import os
 import platform
 import shutil
 import sys
@@ -36,16 +61,22 @@ from pathlib import Path
 from experiments.mutants.operators import OPERATORS, apply, sample
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import prepare_closed_program_bundle
-from tests.workflow_lisp_closed_program_helpers import build_outcome
+from tests.workflow_lisp_closed_program_helpers import build_outcome, crash_signature
 
 READOUT = Path(__file__).with_name("readout.json")
 CRASH_KINDS = ("crash", "traceback")
+DEFECT = "compiler_defect"
 LONG = 50  # lines: a mutant this long is over the seeds' line limit
+PROG = "python -m experiments.mutants.check"
 
 
 def read_source(path: Path) -> str:
     """A program's text: UTF-8, line ends normalised to `\\n`."""
     return path.read_bytes().decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _first_line(text: object) -> str:
+    return next(iter(str(text).splitlines()), "")
 
 
 class _Witness:
@@ -68,6 +99,16 @@ def _request(work: Path, program: str) -> FrontendBuildRequest:
         command_boundaries_path=commands if commands.exists() else None, workspace_root=work)
 
 
+def _defect(error) -> tuple[tuple, str] | None:
+    """For a refusal: the crash it holds, when a diagnostic's code is or starts with `compiler_defect`, else None."""
+    for diagnostic in error.diagnostics:
+        if diagnostic.code.startswith(DEFECT):
+            if diagnostic.cause is None:
+                return ("crash", diagnostic.code), _first_line(diagnostic.message)
+            return ("crash", *crash_signature(diagnostic.cause)), _first_line(diagnostic.cause)
+    return None
+
+
 def _observed(work: Path, program: str) -> tuple[tuple, str]:
     """The outcome of `outcome`, and for a crash the first line of its cause's message."""
     digest, witness = [], _Witness()
@@ -79,21 +120,22 @@ def _observed(work: Path, program: str) -> tuple[tuple, str]:
     result = build_outcome(build)
     if result == ("builds",):
         return ("compiles", digest[0]), ""
-    if result[0] not in CRASH_KINDS:
-        return result, ""
+    if result[0] == "refused":
+        return _defect(witness.error) or (result, "")
     cause = witness.error.diagnostics[0].cause if result[0] == "crash" else witness.error
-    return result, next(iter(str(cause).splitlines()), "")
+    return result, _first_line(cause)
 
 
 def outcome(work: Path, program: str) -> tuple:
     """The compile of `work/PROGRAM.orc` as it stands: `("compiles", digest)`; `("refused", *codes)`;
-    `("crash", class, where)` for a `compiler_defect`; `("traceback", class, where)` for an exception
-    that left the build. Writes nothing."""
+    `("crash", class, where)` for a `compiler_defect`, or `("crash", code)` for a refusal holding a
+    `compiler_defect` code without a cause; `("traceback", class, where)` for an exception that left
+    the build. Writes nothing."""
     return _observed(work, program)[0]
 
 
 def _counts(results: list[dict], names: Sequence[str]) -> dict:
-    """Per operator, in `OPERATORS` order: mutants, compiles, each refusal's codes, each crash key, long mutants."""
+    """The readout's `operators`."""
     rows = {name: {"mutants": 0, "compiles": 0, "refused": Counter(), "crash_keys": Counter(),
                    f"lines_{LONG}_or_more": 0} for name in OPERATORS if name in names}
     for result in results:
@@ -111,22 +153,24 @@ def _counts(results: list[dict], names: Sequence[str]) -> dict:
 
 
 def _crashes(results: list[dict]) -> list[dict]:
-    """One record per crash key, by key: its kinds, mutants, operators, pairs, cause and shortest mutant."""
+    """The readout's `crashes`."""
     records: dict[tuple, dict] = {}
     for result in (result for result in results if result["outcome"][0] in CRASH_KINDS):
         key = result["outcome"][1:]
         record = records.setdefault(key, {"key": list(key), "kinds": [], "mutants": 0, "operators": [],
-                                          "pairs": [], "cause": result["cause"], "smallest": None})
+                                          "pairs": [], "smallest": None, "cause": None, "causes": Counter()})
         record["mutants"] += 1
+        record["causes"][result["cause"]] += 1
         pair = [result["operator"], result["program"]]
         for field, item in (("kinds", result["outcome"][0]), ("operators", result["operator"]), ("pairs", pair)):
             if item not in record[field]:
                 record[field].append(item)
         if record["smallest"] is None or len(result["source"]) < len(record["smallest"]["source"]):
-            record["smallest"] = {"name": result["name"], "source": result["source"]}
+            record["smallest"], record["cause"] = {"name": result["name"], "source": result["source"]}, result["cause"]
     for record in records.values():
         record["kinds"].sort()
         record["operators"].sort(key=list(OPERATORS).index)
+        record["causes"] = dict(record["causes"].most_common())
     return [records[key] for key in sorted(records)]
 
 
@@ -143,15 +187,14 @@ def _seed_digests(work: Path, programs: Sequence[str]) -> dict[str, str]:
 
 def compile_report(seed_dir: Path, programs: Sequence[str], cap: int, number: int,
                    operators: Sequence[str] = tuple(OPERATORS)) -> dict:
-    """Compile the sample `operators.sample(sources, cap, number, operators)` of the seeds in `seed_dir`.
-
-    The readout: the sample (programs, operators, cap, number, Python version, mutants); per operator
-    the counts of `_counts`; `distinct_digests` among the mutants that compile and `equal_to_seed`, those
-    whose digest is their seed's; `crashes`, one record per key (`_crashes`). Raises ValueError for what
-    `sample` refuses and for a seed that does not build.
-    """
+    """The readout (module docstring) of the sample `operators.sample(sources, cap, number, operators)` of
+    the seeds in `seed_dir`. Raises, before any compile, OSError or ValueError for a program file that is
+    missing or unreadable and ValueError for what `sample` refuses and for an empty sample; then
+    ValueError for a seed that does not build, before any mutant compiles."""
     sources = {program: read_source(Path(seed_dir) / f"{program}.orc") for program in programs}
     drawn = sample(sources, cap, number, operators)
+    if not drawn:
+        raise ValueError(f"the sample is empty: programs {sorted(sources)}, operators {list(operators)}, cap {cap}")
     results = []
     with tempfile.TemporaryDirectory(prefix="mutants-") as scratch:
         work = Path(scratch) / "seed"
@@ -196,9 +239,39 @@ def _names(text: str) -> tuple[str, ...]:
     return tuple(name for name in text.split(",") if name)
 
 
+def _out_problem(out: Path) -> str | None:
+    """Why the readout cannot be written to `out`, or None."""
+    if not out.parent.is_dir() or not os.access(out.parent, os.W_OK):
+        return f"--out: {out.parent} is not a writable directory"
+    if out.exists() and (not out.is_file() or not os.access(out, os.W_OK)):
+        return f"--out: {out} is not a writable file"
+    resolved = out.resolve()
+    # ponytail: "a file of a git working tree" stands for "a tracked file": asking git would start a
+    # process, which the check never does. It refuses some untracked files too, never a tracked one.
+    if out.exists() and resolved != READOUT.resolve() and any((d / ".git").exists() for d in resolved.parents):
+        return f"--out: {out} is a file of a git working tree; only {READOUT} may be overwritten"
+    return None
+
+
+def _input_problem(args: argparse.Namespace) -> str | None:
+    """What the command refuses before reading any source, or None."""
+    if not args.seed_dir.is_dir():
+        return f"the seed directory {args.seed_dir} does not exist"
+    if not args.programs:
+        return "no program named (--programs)"
+    missing = [program for program in args.programs if not (args.seed_dir / f"{program}.orc").is_file()]
+    if missing:
+        return f"no program file in {args.seed_dir} for {missing}"
+    return _out_problem(args.out)
+
+
+def _refuse(problem: object) -> int:
+    print(f"{PROG}: error: {' '.join(str(problem).split())}", file=sys.stderr)
+    return 2
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m experiments.mutants.check",
-                                     description="Compile a sample of mechanical mutants of the seeds.")
+    parser = argparse.ArgumentParser(prog=PROG, description="Compile a sample of mechanical mutants of the seeds.")
     parser.add_argument("seed_dir", type=Path)
     parser.add_argument("--programs", type=_names, required=True)
     parser.add_argument("--operators", type=_names, default=tuple(OPERATORS))
@@ -206,10 +279,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--number", type=int, default=0)
     parser.add_argument("--out", type=Path, default=READOUT)
     args = parser.parse_args(argv)
+    problem = _input_problem(args)
+    if problem:
+        return _refuse(problem)
     try:
         report = compile_report(args.seed_dir, args.programs, args.cap, args.number, args.operators)
-    except ValueError as error:  # what the check refuses to measure is a usage error, exit 2
-        parser.error(str(error))
+    except (OSError, ValueError) as error:  # an input the check refuses to measure: exit 2, see the docstring
+        return _refuse(error)
     args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     _print(report)
     print(f"readout: {args.out}")
