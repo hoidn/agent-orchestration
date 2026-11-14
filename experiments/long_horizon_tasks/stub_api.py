@@ -34,6 +34,7 @@ Faults and refusals: a Bash call first, then every later request of the main ses
   pt_model  404 not_found_error with `x-should-retry: false` (proposed: a model other than the bound one)
   pt_tool   400 invalid_request_error with `x-should-retry: false` (proposed: a provider-side tool)
   unauthorized  401 authentication_error (an expired or revoked credential)
+  cache_writes  a normal end whose two requests each report 20,000 one-hour cache-write tokens
   drop      the stream is cut after its first content block (no message_delta, no message_stop)
   slow      the response starts only after --delay seconds (default 120), then ends normally
   transient the first three attempts of the second turn get 429 (retry-after 2), 529, 500; then an end
@@ -59,6 +60,8 @@ SMALL = {"input_tokens": 1000, "output_tokens": 100, "cache_creation_input_token
 FULL = {"input_tokens": 990000, "output_tokens": 100, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
 DEAR = {"input_tokens": 20000, "output_tokens": 100000, "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 0}
+HOUR_WRITES = {**SMALL, "cache_creation_input_tokens": 20000,
+               "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 20000}}
 REDACT = ("x-api-key", "authorization")
 NO_RETRY = {"x-should-retry": "false"}
 FAULTS = {
@@ -160,8 +163,13 @@ def _normal(body, turn):
     return _bash(body, PROBE) if turn == 0 else ([_text("done")], "end_turn", SMALL)
 
 
+def _hour_writes(body, turn):
+    return _bash(body, PROBE, HOUR_WRITES) if turn == 0 else ([_text("done")], "end_turn", HOUR_WRITES)
+
+
 SCENARIOS = {
     "normal": _normal,
+    "cache_writes": _hour_writes,
     "context": lambda body, turn: TOO_LONG,
     "context_late": _context_late,
     "refusal": lambda body, turn: ([_text("I can't help with that.")], "refusal", SMALL),
@@ -298,8 +306,8 @@ class Stub(BaseHTTPRequestHandler):
         canned = reply(self.cfg.scenario, body)
         if isinstance(canned[0], int):
             return _error(*canned)
-        for key, value in canned[2].items():
-            self.totals[key] += value
+        for key in self.totals:
+            self.totals[key] += canned[2][key]
         return 200, _message(self.cfg.model, *canned[:3]), canned[3] if len(canned) > 3 else None
 
     def _stream(self, message, mode):

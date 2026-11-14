@@ -200,3 +200,11 @@ def test_an_expired_credential_is_refused_with_401_after_turn_0(tmp_path):
         proc.terminate()
         proc.wait(timeout=10)
     assert (first, later, json.loads(text)["error"]["type"]) == (200, 401, "authentication_error")
+
+
+def test_cache_writes_are_reported_as_one_hour_writes(scenario_stub):
+    port = scenario_stub("cache_writes")
+    _, text, _ = _post(port, _request())
+    usage = _events(text)[0]["message"]["usage"]
+    assert (usage["cache_creation_input_tokens"], usage["cache_creation"]) == (
+        20000, {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 20000})
