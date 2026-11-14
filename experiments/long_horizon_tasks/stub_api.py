@@ -7,7 +7,7 @@ top-level parameters (no message or system text), the usage served and the runni
 answers 404 and is logged too. Standard library only; no request leaves the host.
 
 Usage: python -I stub_api.py (--host H --port P | --unix PATH) --model claude-haiku-5-5 --scenario NAME
-       --log FILE [--delay SECONDS]
+       --log FILE [--delay SECONDS] [--other-status STATUS]
 Prints `listening <host> <port>` (port 0 picks a free port) or `listening <unix path>` once bound.
 
 Scenarios (the reply depends on the request, so side requests and subagents get sensible answers):
@@ -36,6 +36,9 @@ Faults and refusals: a Bash call first, then every later request of the main ses
   drop      the stream is cut after its first content block (no message_delta, no message_stop)
   slow      the response starts only after --delay seconds (default 120), then ends normally
   transient the first three attempts of the second turn get 429 (retry-after 2), 529, 500; then an end
+  usage_limit  429 rate_limit_error with `anthropic-ratelimit-unified-status: rejected`, representative claim
+            `five_hour` and a reset --delay seconds ahead (the headers the CLI reads for a subscription limit)
+Any path other than the messages path answers --other-status (default 404) and is logged.
 """
 
 import argparse
@@ -144,6 +147,13 @@ def _transient(body, turn):
     return [_text("done")], "end_turn", SMALL
 
 
+def _usage_limit(body, turn):
+    reset = str(int(time.time() + Stub.cfg.delay))
+    headers = {"anthropic-ratelimit-unified-status": "rejected", "anthropic-ratelimit-unified-reset": reset,
+               "anthropic-ratelimit-unified-representative-claim": "five_hour"}
+    return _later(body, turn, (429, "rate_limit_error", "stub: usage limit reached", headers))
+
+
 def _normal(body, turn):
     return _bash(body, PROBE) if turn == 0 else ([_text("done")], "end_turn", SMALL)
 
@@ -163,6 +173,7 @@ SCENARIOS = {
     "drop": lambda body, turn: _later(body, turn, ([_text("cut")], "end_turn", SMALL, "drop")),
     "slow": lambda body, turn: _later(body, turn, ([_text("done")], "end_turn", SMALL, "slow")),
     "transient": _transient,
+    "usage_limit": _usage_limit,
     **{name: (lambda fault: lambda body, turn: _later(body, turn, fault))(fault) for name, fault in FAULTS.items()},
 }
 
@@ -203,12 +214,20 @@ def sse_events(message):
     yield "message_stop", {}
 
 
+def _redact(name, value):
+    """Keep an authorization scheme ("Bearer"), never the credential."""
+    if name.lower() not in REDACT:
+        return value
+    scheme = value.split(" ", 1)[0] if " " in value else ""
+    return f"{scheme} <redacted>".strip()
+
+
 def _record(path, headers, body):
     params = {k: v for k, v in body.items() if k not in ("messages", "system", "tools")}
     return {"path": path, "model": body.get("model"),
             "tools": [t.get("name") or t.get("type") for t in body.get("tools") or []],
             "server_tools": [t for t in body.get("tools") or [] if "input_schema" not in t],
-            "headers": {k.lower(): ("<redacted>" if k.lower() in REDACT else v) for k, v in headers.items()},
+            "headers": {k.lower(): _redact(k, v) for k, v in headers.items()},
             "params": params, "n_messages": len(body.get("messages", [])), "turn": _turn(body),
             "subagent": SUB_MARK in _first_user_text(body)}
 
@@ -237,7 +256,7 @@ class Stub(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self._log({"path": self.path, "method": "GET", "headers": _record(self.path, self.headers, {})["headers"]})
-        self._send_json(404, {"type": "error", "error": {"type": "not_found_error", "message": "stub: no route"}})
+        self._send_json(*self._other())
 
     def do_POST(self):
         raw = self.rfile.read(int(self.headers.get("content-length", 0)))
@@ -255,10 +274,15 @@ class Stub(BaseHTTPRequestHandler):
         else:
             self._send_json(status, payload)
 
+    def _other(self):
+        status = self.cfg.other_status
+        etype = {401: "authentication_error", 403: "permission_error"}.get(status, "not_found_error")
+        return _error(status, etype, f"stub: {self.path}", {})
+
     def _answer(self, body):
         """(status, payload, headers for an error or the mode of a reply)."""
         if not self.path.startswith("/v1/messages") or self.path.startswith("/v1/messages/"):
-            return _error(404, "not_found_error", f"stub: {self.path}", {})
+            return self._other()
         if body.get("model") != self.cfg.model:
             return _error(404, "not_found_error", f"model: {body.get('model')}", {})
         canned = reply(self.cfg.scenario, body)
@@ -299,6 +323,7 @@ def main():
     parser.add_argument("--port", type=int)
     parser.add_argument("--unix")
     parser.add_argument("--delay", type=float, default=120)
+    parser.add_argument("--other-status", type=int, default=404)
     Stub.cfg = parser.parse_args()
     if Stub.cfg.unix:
         if os.path.exists(Stub.cfg.unix):

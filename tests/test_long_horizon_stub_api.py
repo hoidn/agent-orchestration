@@ -152,3 +152,27 @@ def test_a_dropped_stream_ends_without_message_stop(scenario_stub):
     except http.client.IncompleteRead as exc:
         text = exc.partial.decode()
     assert [e["type"] for e in _events(text)][-1] != "message_stop"
+
+
+def test_other_paths_answer_the_configured_status(tmp_path):
+    proc, port, log = _start(tmp_path, "normal", "--host", "127.0.0.1", "--port", "0", "--other-status", "401")
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", int(port), timeout=10)
+        conn.request("GET", "/api/oauth/profile", headers={"authorization": "Bearer fake-token-value"})
+        status = conn.getresponse().status
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+    row = json.loads(log.read_text().splitlines()[0])
+    assert (status, row["headers"]["authorization"]) == (401, "Bearer <redacted>")
+
+
+def test_a_usage_limit_names_the_rejected_window_and_its_reset(tmp_path):
+    proc, port, _ = _start(tmp_path, "usage_limit", "--host", "127.0.0.1", "--port", "0", "--delay", "60")
+    try:
+        status, _, headers = _post(int(port), _request(turn=1))
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+    assert (status, headers["anthropic-ratelimit-unified-status"],
+            headers["anthropic-ratelimit-unified-representative-claim"]) == (429, "rejected", "five_hour")
