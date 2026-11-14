@@ -271,6 +271,96 @@ def test_nothing_starts_after_a_stop(ledger):
         spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-1", env("smoke"))
 
 
+RESET = 1_794_627_837  # the fixture's resetsAt
+
+
+def resume(ledger, reset=RESET, five_hour=0.0, weekly=40.0, read_at=RESET + 60, now=RESET + 120):
+    return spend.resume_after_limit(ledger, reset, five_hour, weekly, read_at, now=now)
+
+
+def test_a_usage_limit_pause_closes_every_start(ledger):
+    spend.record(ledger, "pause", unit="/w/run-1", reset=RESET)
+    with pytest.raises(SystemExit, match="closed by a usage limit"):
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"))
+
+
+def test_a_batch_is_refused_while_starts_are_closed(ledger):
+    spend.record(ledger, "pause", unit="/w/run-1", reset=RESET)
+    with pytest.raises(SystemExit, match="closed by a usage limit"):
+        spend.check(ledger, "smoke", "candidate", H, 1, env("smoke"))
+
+
+def test_resume_after_limit_reopens_starts_and_records_the_owners_reading(ledger):
+    spend.record(ledger, "pause", unit="/w/run-1", reset=RESET)
+    row = resume(ledger, five_hour=3.0, weekly=41.0)
+    spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"))
+    assert (row["event"], row["reset"], row["reading"]) == (
+        "resume", RESET, {"five_hour_pct": 3.0, "weekly_pct": 41.0, "read_at": RESET + 60})
+
+
+def test_resume_after_limit_refuses_before_the_named_reset(ledger):
+    spend.record(ledger, "pause", unit="/w/run-1", reset=RESET)
+    with pytest.raises(SystemExit, match="nothing reopens before the reset"):
+        resume(ledger, read_at=RESET - 120, now=RESET - 60)
+
+
+def test_resume_after_limit_refuses_a_reset_earlier_than_the_vendor_named(ledger):
+    spend.record(ledger, "pause", unit="/w/run-1", reset=RESET)
+    with pytest.raises(SystemExit, match="nothing reopens before the reset"):
+        resume(ledger, reset=RESET - 3600, read_at=RESET - 60, now=RESET - 30)
+
+
+def test_resume_after_limit_needs_a_reading_taken_after_the_reset(ledger):
+    spend.record(ledger, "pause", unit="/w/run-1", reset=RESET)
+    with pytest.raises(SystemExit, match="meter reading"):
+        resume(ledger, read_at=RESET - 60)
+
+
+@pytest.mark.parametrize("five_hour, weekly", [(-1.0, 40.0), (3.0, 101.0)])
+def test_resume_after_limit_refuses_a_reading_that_is_not_a_percentage(ledger, five_hour, weekly):
+    spend.record(ledger, "pause", unit="/w/run-1", reset=RESET)
+    with pytest.raises(SystemExit, match="percent"):
+        resume(ledger, five_hour=five_hour, weekly=weekly)
+
+
+def test_resume_after_limit_without_a_pause_refuses(ledger):
+    with pytest.raises(SystemExit, match="nothing to resume"):
+        resume(ledger)
+
+
+def test_a_pause_after_a_resume_closes_starts_again(ledger):
+    spend.record(ledger, "pause", unit="/w/run-1", reset=RESET)
+    resume(ledger)
+    spend.record(ledger, "pause", unit="/w/run-2", reset=RESET + 18000)
+    with pytest.raises(SystemExit, match="closed by a usage limit"):
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-3", env("smoke"))
+
+
+def test_no_start_lands_between_a_pause_and_its_resume_under_sixty_concurrent_tries(ledger):
+    """60 concurrent tries on the redraw cap (40 Haiku calls), one of them closing starts at a usage limit and one
+    reopening them: no start row lies between the pause and the resume, and the cap is never passed."""
+    def take(k):
+        try:
+            if k == 20:
+                spend.record(ledger, "pause", unit=f"/w/{k}", reset=RESET)
+            elif k == 40:
+                resume(ledger)
+            else:
+                spend.reserve(ledger, "redraw", "candidate", H, 1, f"/w/{k}", env("redraw"))
+        except SystemExit:
+            pass
+    threads = [threading.Thread(target=take, args=(k,)) for k in range(60)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    rows = spend.rows(ledger)
+    pause = next(r["seq"] for r in rows if r.get("event") == "pause")
+    reopened = next((r["seq"] for r in rows if r.get("event") == "resume"), len(rows) + 1)
+    starts = [r["seq"] for r in spend.starts(rows)]
+    assert ([s for s in starts if pause < s < reopened], len(starts) <= 40) == ([], True)
+
+
 def test_three_contaminated_tasks_stop_the_study(runner, monkeypatch):
     monkeypatch.setenv(AUTH, "calibration")
     ready(runner)
@@ -305,6 +395,28 @@ def test_provider_errors_are_incidents_and_task_failures_are_not(tmp_path, text,
     (tmp_path / "calls" / "1").mkdir(parents=True)
     (tmp_path / "calls" / "1" / "stderr.txt").write_text(text)
     assert (units.provider_incident(tmp_path) is not None) == incident
+
+
+FIXTURES = ROOT / "experiments" / "long_horizon_tasks" / "fixtures"
+
+
+def recorded_call(records, fixture):
+    """A unit's records directory whose one call printed the recorded fixture's stream-json tail."""
+    tail = json.loads((FIXTURES / f"{fixture}.json").read_text())["stream_tail"]
+    (records / "calls" / "1").mkdir(parents=True)
+    (records / "calls" / "1" / "stdout.txt").write_text("".join(json.dumps(event) + "\n" for event in tail))
+    return records
+
+
+def test_a_usage_limit_answer_is_recognised_with_the_reset_it_names(tmp_path):
+    limit = units.usage_limit(recorded_call(tmp_path, "token-usage-limit-NonZeroAgentExitCodeError"))
+    assert (limit["call"], limit["reset"]) == ("1", RESET)
+
+
+@pytest.mark.parametrize("fixture", ["stub-rate-limit-ApiRateLimitError", "token-normal-end",
+                                     "stub-usage-limit-headers-key-mode-UnknownApiError"])
+def test_a_rate_limit_a_normal_end_or_a_key_mode_429_is_not_a_usage_limit(tmp_path, fixture):
+    assert units.usage_limit(recorded_call(tmp_path, fixture)) is None
 
 
 def test_a_refused_call_directory_is_not_a_physical_call(tmp_path):

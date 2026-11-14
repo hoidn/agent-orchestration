@@ -235,7 +235,7 @@ def enforce(study, tranche):
     audit_ledger(study)
     for reason in stop_reasons(study):
         stop(study, reason)
-    spend.refuse_stopped(spend.rows(study.ledger))
+    spend.refuse_closed(spend.rows(study.ledger))
 
 
 def bound_argv(records, model, effort):

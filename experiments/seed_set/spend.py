@@ -6,7 +6,9 @@ It holds starts and events. Every provider start goes through `reserve` before i
 
 - the tranche must be authorized in the plan's ledger (`CAPS`; the seed evaluation and its extension are not,
   and refuse whatever the environment says) and named exactly by `$SEED_SET_AUTHORIZED_TRANCHE`;
-- no `stop` event may be in the ledger (a stop rule fired: nothing more starts);
+- no `stop` event may be in the ledger (a stop rule fired: nothing more starts), and no `pause` event after the
+  last `resume` (a usage limit closed all starts: `resume_after_limit` reopens them after the vendor's named reset,
+  with the owner's meter reading; coordinator ruling R2, 2026-11-14);
 - the model must be one of the two exact Claude IDs (no fallback, no alias, never Fable);
 - the unit (a candidate run's records directory, or `<pool>#<judge>`) must not be in the ledger already: a unit
   is launched once, never retried or relaunched;
@@ -18,7 +20,8 @@ Rows are appended and fsynced under an exclusive lock, so a crash after the appe
 study processes cannot both take the last call or the last planned run. A unit reserves its maximum calls, which
 the caller passes to the shims as `COMPARE_MAX_CALLS`: that bounds the recorded provider launches, not a CLI an
 agent starts by absolute path inside the sandbox (the runner's session audit covers those). Events (`freeze`,
-`smoke`, `decision`, `stop`) are appended by `record`; the latest of each kind governs. Standard library only.
+`smoke`, `decision`, `stop`, `pause`) are appended by `record`; the latest of each kind governs. Standard library
+only.
 """
 
 import fcntl
@@ -93,17 +96,57 @@ def remaining(entries, tranche, kind, model):
     return CAPS[tranche][kind].get(model, 0) - reserved(entries, tranche, kind, model)
 
 
-def refuse_stopped(entries):
+def open_pauses(entries):
+    """The `pause` events after the last `resume`: while one is open, nothing starts."""
+    events = [row for row in entries if row["kind"] == "event" and row["event"] in ("pause", "resume")]
+    resumed = max((k for k, row in enumerate(events) if row["event"] == "resume"), default=-1)
+    return events[resumed + 1:]
+
+
+def refuse_closed(entries):
+    """Refuse a start after a stop, or while a usage limit has closed starts."""
     stop = latest(entries, "stop")
     if stop:
         raise SystemExit(f"the study is stopped ({stop['reason']}); nothing more starts")
+    if pauses := open_pauses(entries):
+        raise SystemExit(f"starts are closed by a usage limit ({pauses[0].get('unit')}, resets "
+                         f"{when(pauses[0].get('reset'))}): `resume-after-limit` after the reset, with the owner's "
+                         "meter reading")
+
+
+def when(epoch):
+    return "at an unnamed time" if epoch is None else time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
+
+
+def resume_after_limit(ledger, reset, five_hour, weekly, read_at, now=None):
+    """Reopen the starts a usage limit closed (coordinator ruling R2): `reset` (epoch seconds) is the reset the
+    vendor's answer named, and the owner's meter reading is the five-hour and weekly meters in percent, read at
+    `read_at`. Refuses with no open pause, before the latest reset named (by `reset` or by an open pause), and for
+    a reading that is not a percentage or was not taken between that reset and now. Returns the `resume` row."""
+    now = time.time() if now is None else now
+    with locked(ledger) as (stream, entries):
+        pauses = open_pauses(entries)
+        if not pauses:
+            raise SystemExit("no start is closed by a usage limit: nothing to resume")
+        named = max([reset, *(row["reset"] for row in pauses if row.get("reset") is not None)])
+        if now < named:
+            raise SystemExit(f"the usage limit resets {when(named)}, it is {when(now)}: nothing reopens before the "
+                             "reset")
+        if not all(isinstance(v, (int, float)) and 0 <= v <= 100 for v in (five_hour, weekly)):
+            raise SystemExit(f"the owner's meter reading is two percentages, not {five_hour!r} and {weekly!r}")
+        if not named <= read_at <= now:
+            raise SystemExit(f"the owner's meter reading must be taken after the reset ({when(named)}) and not later "
+                             f"than now, not {when(read_at)}")
+        return _append(stream, entries, {"kind": "event", "event": "resume", "reset": named, "pauses": [
+            row["seq"] for row in pauses], "reading": {"five_hour_pct": five_hour, "weekly_pct": weekly,
+                                                      "read_at": read_at}})
 
 
 def check(ledger, tranche, kind, model, calls, environ=None):
     """Refuse a planned batch of `calls` that would not fit the cap; writes nothing."""
     authorize(tranche, environ)
     entries = rows(ledger)
-    refuse_stopped(entries)
+    refuse_closed(entries)
     left = remaining(entries, tranche, kind, model)
     if calls > left:
         raise SystemExit(f"{tranche} {kind} {model}: {calls} calls planned but {left} of the cap remain")
@@ -136,7 +179,7 @@ def reserve(ledger, tranche, kind, model, calls, unit, environ=None, limit=None,
     if type(calls) is not int or calls < 1:
         raise SystemExit(f"a start reserves a positive whole number of calls, not {calls!r}")
     with locked(ledger) as (stream, entries):
-        refuse_stopped(entries)
+        refuse_closed(entries)
         if any(row.get("unit") == str(unit) for row in entries):
             raise SystemExit(f"{unit} was already started; a unit is never retried or relaunched")
         if limit is not None and sum((row["tranche"], row.get("task"), row.get("arm"), row.get("step")) == (
@@ -150,7 +193,7 @@ def reserve(ledger, tranche, kind, model, calls, unit, environ=None, limit=None,
 
 
 def record(ledger, event, **facts):
-    """Append an event row (freeze, smoke, decision, stop) under the lock; return it."""
+    """Append an event row (freeze, smoke, decision, stop, pause) under the lock; return it."""
     with locked(ledger) as (stream, entries):
         return _append(stream, entries, {"kind": "event", "event": event, **facts})
 

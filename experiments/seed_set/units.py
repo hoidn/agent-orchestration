@@ -5,6 +5,8 @@
 - `provider_incident`: why a failed run is a provider or apparatus incident (rate limit, overload,
   authentication, an API or connection error, a call refused by the cap), from its calls' stdout and stderr;
   None for a natural failure, which scores 0.
+- `usage_limit`: the vendor's usage-limit answer in a unit's calls. A unit cut by a usage limit is neither an
+  incident nor an observation (coordinator ruling R1, 2026-11-14): starts close, and its slot runs again once.
 - `audit_sessions`: every Claude session file anywhere in the unit's private home (each unit has its own home,
   so all of them belong to the unit). A session outside the unit tree's project store, more top-level sessions
   than physical calls, or an answer by another model fails the unit. Not seen: sessions written into the unit
@@ -67,6 +69,37 @@ def provider_incident(records):
             for line in error_lines(path.read_text(errors="replace"), name) if path.is_file() else []:
                 if PROVIDER_ERRORS.search(line):
                     return f"call {call.name}: {line.strip()[:300]}"
+
+
+def usage_limit(records):
+    """{"call", "reset", "text"} of the first call the vendor answered with a usage limit, or None. The class needs
+    the stream-json result event's `api_error: usage_limit_reached` with `api_error_status: 429` (recorded in
+    experiments/long_horizon_tasks/fixtures/token-usage-limit-NonZeroAgentExitCodeError.json); a 429 without it is a
+    rate limit, an incident. `reset` is the `resetsAt` (epoch seconds) of the call's rejected `rate_limit_event`,
+    None when the answer names none."""
+    for call in calls(records):
+        events = stream_events(call / "stdout.txt")
+        ends = [e for e in events if e.get("type") == "result" and e.get("api_error") == "usage_limit_reached"
+                and e.get("api_error_status") == 429]
+        if ends:
+            rejected = [e["rate_limit_info"] for e in events if e.get("type") == "rate_limit_event"
+                        and isinstance(e.get("rate_limit_info"), dict) and e["rate_limit_info"].get("status") == "rejected"]
+            reset = rejected[-1].get("resetsAt") if rejected else None
+            return {"call": call.name, "reset": reset if type(reset) in (int, float) else None,
+                    "text": str(ends[-1].get("result"))[:300]}
+    return None
+
+
+def stream_events(path):
+    """The JSON objects among a call's stdout lines (the metered template prints stream-json); [] without one."""
+    found = []
+    for line in path.read_text(errors="replace").splitlines() if path.is_file() else []:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        found += [event] if isinstance(event, dict) else []
+    return found
 
 
 def error_lines(text, name):
