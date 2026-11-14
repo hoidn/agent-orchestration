@@ -425,6 +425,8 @@ class Builder:
         self._workflow_wcc_cache: dict[tuple[int, str], Any] = {}
         self.prepared_by_key: dict[str, Any] = {}
         self.completed_preparations: dict[Any, Any] = {}
+        # Workflows whose preparation is in progress, outermost first.
+        self.workflows_in_preparation: list[str] = []
         self.io_calls = []
         self.provider_io = None
         self._index_owners()
@@ -961,7 +963,12 @@ class Builder:
         cached = self.completed_preparations.get(inputs)
         if cached is not None:
             return cached
-        prepared = self._prepare_command_workflow(workflow, source_program, captures)
+        self._refuse_workflow_cycle(workflow)
+        self.workflows_in_preparation.append(workflow.definition.name)
+        try:
+            prepared = self._prepare_command_workflow(workflow, source_program, captures)
+        finally:
+            self.workflows_in_preparation.pop()
         key = canonical_definition_key(
             workflow,
             typed=source_program,
@@ -983,6 +990,20 @@ class Builder:
         ))
         self.completed_preparations[inputs] = request
         return request
+
+    def _refuse_workflow_cycle(self, workflow: Any) -> None:
+        """No workflow may reach itself (surface coherence, rule 3), as procedures and functions."""
+        name = workflow.definition.name
+        if name not in self.workflows_in_preparation:
+            return
+        cycle = [*self.workflows_in_preparation[self.workflows_in_preparation.index(name):], name]
+        raise LispFrontendCompileError((LispFrontendDiagnostic(
+            code="workflow_call_cycle",
+            message=f"workflow `{name}` reaches itself: {' -> '.join(cycle)}; a workflow may not call itself",
+            span=workflow.definition.span,
+            form_path=workflow.definition.form_path,
+            phase="lowering",
+        ),))
 
     def _accept_prepared(self, request):
         from .preparation_check import assert_same_prepared_body
