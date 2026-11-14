@@ -963,7 +963,7 @@ def test_build_service_infers_single_exported_entry_workflow(tmp_path: Path) -> 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule single/entry)",
                 "  (export only)",
                 "  (defpath WorkReport",
@@ -1014,7 +1014,7 @@ def test_build_service_requires_entry_workflow_for_multi_workflow_module(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule multiple/entry)",
                 "  (export alpha beta)",
                 "  (defpath WorkReport",

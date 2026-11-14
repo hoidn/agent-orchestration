@@ -154,15 +154,13 @@ def test_parametric_specialization_preserves_the_authored_procedure_head_span(
     source = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defrecord Payload
     (value String))
   (defproc inspect
     :forall (T)
     ((value T))
     -> Payload
-    :effects ()
-    :lowering inline
     (record Payload
       :value "ok"))
   (defworkflow entry
@@ -192,14 +190,12 @@ def test_macro_expanded_calls_do_not_claim_direct_authored_callee_provenance(
     source = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defrecord Payload
     (value String))
   (defproc make-payload
     ()
     -> Payload
-    :effects ()
-    :lowering inline
     (record Payload
       :value "ok"))
   (defmacro generated-call (ignored)

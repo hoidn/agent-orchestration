@@ -578,7 +578,7 @@ def test_recursive_library_only_import_error_retains_source_diagnostic_without_w
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule child))",
                 "",
             )
