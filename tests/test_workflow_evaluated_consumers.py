@@ -49,9 +49,9 @@ def _assert_prompt_values(request, *values: str) -> None:
 
 
 @pytest.mark.parametrize("source,target", [
-    ("workflows/library/control/direct_task.orc", "2.35"),
-    ("workflows/library/verified_iteration_drain/drain.orc", "2.35"),
-    ("experiments/mlevolve_pair/search_compact.orc", "2.39"),
+    ("workflows/library/control/direct_task.orc", "2.40"),
+    ("workflows/library/verified_iteration_drain/drain.orc", "2.40"),
+    ("experiments/mlevolve_pair/search_compact.orc", "2.40"),
 ])
 def test_retained_canonical_consumers_select_evaluated_execution(source, target):
     assert entry_target_dsl_version(ROOT / source) == target
@@ -145,7 +145,7 @@ def _w3_consumer(root, monkeypatch, name, plan, inputs, marker):
     install_shims(root.parent / "bin", monkeypatch, plan)
     program = PROGRAMS[name]
     frontend = install(root, program, inputs)
-    target = "2.39" if name == "w3_improve" else "2.40"
+    target = "2.40"
     assert entry_target_dsl_version(root / program.source) == target
     route = current_route(root, frontend, marker)
     assert (root / program.source).read_bytes() == (ROOT / program.source).read_bytes()
@@ -170,7 +170,7 @@ def _w3_consumer(root, monkeypatch, name, plan, inputs, marker):
 ])
 def test_public_w3_improve_launcher_consumes_returned_proposal(tmp_path, monkeypatch, verdicts, status, launch):
     source = ROOT / "workflows/examples/improve_experiment_proposal.orc"
-    assert entry_target_dsl_version(source) == "2.39"
+    assert entry_target_dsl_version(source) == "2.40"
     registry = load_route_readiness_registry(ROOT / "docs/workflow_lisp_route_readiness_registry.json")
     entry = registry_entry_for_path(registry, source.relative_to(ROOT).as_posix())
     assert entry.route_label == "evaluated_execution"
@@ -293,7 +293,7 @@ def test_public_w3_reviewed_change_preserves_outcomes_and_round_guards(tmp_path,
 
 @pytest.mark.parametrize("plan,marker,paused,value", REVIEWED)
 def test_public_reviewed_change_keeps_independent_review_order(tmp_path, monkeypatch, plan, marker, paused, value):
-    assert entry_target_dsl_version(ROOT / PROGRAMS["reviewed_change"].source) == "2.35"
+    assert entry_target_dsl_version(ROOT / PROGRAMS["reviewed_change"].source) == "2.40"
     inputs = {"task": "Fix add in repo/calc.py so that it returns the sum.", "intent": "add returns a + b",
               "repo": "repo"}
 
