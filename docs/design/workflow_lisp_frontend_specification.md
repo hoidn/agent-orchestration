@@ -3532,10 +3532,14 @@ and error list are [preserved in the history file](../reports/documentation-hist
   together, so each expansion of a template calls the target resolved for that
   expansion; a call cloned into its caller when a pure procedure is inlined
   keeps its own span. A call site that records two targets stops the build
-  with `compiler_defect` naming the site. A value bound by `bind-proc` is
-  identified by its content, without its span, form path and expansion stack,
-  so two expansions that bind different values get their own specializations
-  and two bindings of equal content share one
+  with `compiler_defect` naming the site. A closed value bound by `bind-proc`
+  (it reads no local name and contains no procedure call or procedure
+  reference) is identified by its content, without its span, form path and
+  expansion stack, so two expansions that bind different closed values get
+  their own specializations and two bindings of equal closed content share
+  one. Known exception: any other bound value, in particular one that reads a
+  local, is identified by its position, so two expansions of a template whose
+  bound value still reads a local after substitution share one specialization
   ([versioning](../../specs/versioning.md), exceptions to target stability).
 
 ## 34. Hygiene

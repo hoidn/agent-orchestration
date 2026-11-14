@@ -84,6 +84,19 @@ def _pure(definitions: str, body: str) -> str:
 
 
 A_THEN_B = "(let* ((a (cw c1 input)) (b (cw c2 input))) (+ a.n (* 1000 b.n)))"
+FWI = ("  (defworkflow c1 ((input Box)) -> Box (record Box :n (+ input.n 100)))\n"
+       "  (defproc fwi ((k Int) (input Box)) -> Box (call c1 :input (record Box :n (+ input.n k))))\n"
+       "  (defproc ap ((hook ProcRef[Box -> Box]) (input Box)) -> Box (hook input))\n")
+
+
+def _captured(bindings_and_body: str, definitions: str = "", returns: str = "Int") -> str:
+    """`run` binds `input` to a `Box` of `n`, then the given bindings and body; `fwi` calls a workflow."""
+    return (HEAD + FWI + definitions + f"  (defworkflow run ((n Int)) -> {returns}\n"
+            f"    (let* ((input (record Box :n n)) {bindings_and_body})))\n")
+
+
+def _let_hook(b: int) -> str:
+    return f"(let* ((b {b}) (hook (bind-proc (proc-ref fwi) :k (+ b 1)))) (ap hook input))"
 BOUND_RUNW = ("  (defproc ap ((hook ProcRef[Box -> Box]) (input Box)) -> Box (hook input))\n"
               "  (defmacro ba (w v) (ap (bind-proc (proc-ref runw) :w (workflow-ref w)) v))\n")
 
@@ -128,8 +141,8 @@ PROGRAMS = {
     "inlined-two-locals": (_pure(f"  (defproc both ((n Int)) -> Int (let-proc ((f {ADDS_ONE}) "
         f"(g {ADDS_ONE.replace('(+ s 1)', '(* s 10)')})) (+ (f n) (g n))))\n",
         "(+ (both n) (* 1000 (both (+ n 1))))"), ({"n": 3}, 34 + 1000 * 45)),
-    # A value bound by `bind-proc` is identified by its content: expansions binding different values get their own
-    # specialization, and two equal bindings written at two sites share one.
+    # A closed value bound by `bind-proc` is identified by its content: expansions binding different values get
+    # their own specialization, and two equal bindings written at two sites share one.
     "bound-value-macro": (_pure("  (defproc helper ((fixed Int) (y Int)) -> Int (+ fixed y))\n"
         "  (defproc applyi ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))\n"
         "  (defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (+ k 0)) x))\n",
@@ -139,6 +152,18 @@ PROGRAMS = {
     "bound-workflow-ref-equal-written": (_workflow_ref_macro("(let* ((a (ap (bind-proc (proc-ref runw) :w (workflow-ref c1)) "
         "input)) (b (ap (bind-proc (proc-ref runw) :w (workflow-ref c1)) input))) (+ a.n (* 1000 b.n)))",
         definitions=BOUND_RUNW), ({"n": 3}, 103103)),
+    # A bound value that reads a local keeps its position: the same text read in two scopes is two values.
+    "captured-two-lets": (_captured(f"(a {_let_hook(1)}) (c {_let_hook(7)})) (+ a.n (* 1000 c.n))"), ({"n": 3}, 111105)),
+    "captured-shadowed": (_captured("(b 1) (a (let* ((hook (bind-proc (proc-ref fwi) :k (+ b 1)))) (ap hook input))) "
+        f"(c {_let_hook(7)})) (+ a.n (* 1000 c.n))"), ({"n": 3}, 111105)),
+    "captured-loop-state": (_captured("(r (loop/recur ((s 1)) :max 3 :on-exhausted 0 (if (> s 200) (done s) "
+        "(let* ((hook (bind-proc (proc-ref fwi) :k (+ s 1))) (o (ap hook input))) (continue (+ (* s 7) o.n))))))) r"),
+        ({"n": 3}, 1000)),
+    "captured-map-binder": (_captured("(xs (list/map-effect ((b (list 1 7))) :max 2 (let* ((hook (bind-proc (proc-ref fwi) "
+        ":k (+ b 1))) (o (ap hook input))) o.n)))) xs", returns="List[Int]"), ({"n": 3}, [105, 111])),
+    "captured-two-procedures": (_captured("(a (pk 1 input)) (c (pq 7 input))) (+ a.n (* 1000 c.n))",
+        "".join(f"  (defproc {name} ((b Int) (input Box)) -> Box (let* ((hook (bind-proc (proc-ref fwi) :k (+ b 1)))) "
+                "(ap hook input)))\n" for name in ("pk", "pq"))), ({"n": 3}, 111105)),
 }
 SWEEP = ("two-provider-chains", "one-chain", "one-chain-adding", "three-levels-adding", "two-chains-adding",
          "macro-local", "macro-local-captured", "macro-proc-ref", "macro-generic", "workflow-ref-macro-2.39",
@@ -147,7 +172,9 @@ SWEEP = ("two-provider-chains", "one-chain", "one-chain-adding", "three-levels-a
          "bound-workflow-ref-equal-written")
 IN_PROCESS = ("macro-local", "macro-local-captured", "workflow-ref-macro", "workflow-ref-macro-reversed",
               "workflow-ref-macro-in-map", "inlined-two-equal-locals", "inlined-macro-same-arguments",
-              "inlined-two-locals", "bound-value-macro", "bound-workflow-ref-macro", "bound-workflow-ref-equal-written")
+              "inlined-two-locals", "bound-value-macro", "bound-workflow-ref-macro", "bound-workflow-ref-equal-written",
+              "captured-two-lets", "captured-shadowed", "captured-loop-state", "captured-map-binder",
+              "captured-two-procedures")
 
 
 def _install(root: Path, name: str) -> Path:
@@ -224,6 +251,21 @@ def test_nested_specializations_keep_every_level(tmp_path):
     names = [name.split("[")[0] for name in program.tree["definitions"]]
     assert sorted(names) == ["procedure:main::foo", *["procedure:main::invoke"] * 3, "workflow:main::left"]
     assert _value(program, {"input": {"n": 4}}) == {"n": 7}
+
+
+def test_closed_bound_values_share_a_specialization_by_content(tmp_path):
+    """Two expansions binding `(+ 1 0)` and `(+ 7 0)` specialize `fwi` twice; binding `(+ 1 0)` twice, once."""
+    macro = "  (defmacro mk (k v) (ap (bind-proc (proc-ref fwi) :k (+ k 0)) v))\n"
+    counts = {}
+    for second, meant in ((7, 104 + 1000 * 110), (1, 104104)):
+        root = tmp_path / str(second)
+        root.mkdir()
+        (root / "main.orc").write_text(_captured(f"(a (mk 1 input)) (c (mk {second} input))) (+ a.n (* 1000 c.n))", macro))
+        program = _closed(build_closed_program(compile_typed_program(root / "main.orc", entry_workflow="run",
+            source_roots=(root,), workspace_root=root, **CONFIG)))
+        assert _value(program, {"n": 3}) == meant
+        counts[second] = [name.split("[")[0] for name in program.tree["definitions"]].count("procedure:main::fwi")
+    assert counts == {7: 2, 1: 1}
 
 
 @pytest.mark.parametrize("name", IN_PROCESS)

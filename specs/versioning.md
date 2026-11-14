@@ -747,20 +747,29 @@ own delivery status and captured evidence.
     result, also of a completed run, can change. During elaboration a call
     site that records two targets stops the build with `compiler_defect`
     naming the site; no lookup reads such a site.
-  - A value bound by `bind-proc` is identified by its content, the bound
-    expression without its source position, form path and expansion stack,
-    not by where it is written: two bindings of equal content share one
-    specialization and two of different content do not. Before, a bound
-    value that is not a literal, a name or a field access (a
-    `(workflow-ref w)`, or a computed value such as `(+ k 0)`) was identified
-    by its source position. Two kinds of program are corrected, on every
-    target: two expansions of one macro template that bind different values,
-    where every expansion used the first expansion's value, now each use
-    their own; and two equal bound workflow references written at two sites,
-    which stopped with `procedure_lowering_unresolved`, now build. A program
-    of neither kind keeps its closed program, digest and effect identities;
-    a run recorded by a build of a corrected program meets a changed program
-    at `resume`, as for the call-site correction above.
+  - A closed value bound by `bind-proc`, one that reads no local name and
+    contains no procedure call or procedure reference, is identified by its
+    content: the bound expression without its source position, form path and
+    expansion stack. Two closed bindings of equal content share one
+    specialization and two of different content do not. A literal, a name and
+    a field access keep their identities, and any other bound value, in
+    particular one that reads a local, is still identified by its source
+    position. Before, every bound value that is not a literal, a name or a
+    field access was identified by position. Two kinds of program are
+    corrected, on every target: two expansions of one macro template that bind
+    different closed values, where every expansion used the first expansion's
+    value, now each use their own; and two equal bound workflow references
+    written at two sites, which stopped with `procedure_lowering_unresolved`,
+    now build. Two expansions that bind closed values whose expressions differ
+    but whose results are equal or unobserved (`(* k 0)` bound with 1 and 7,
+    for example) keep their result and change their digest, because they now
+    build the program their source means; a run recorded by such a build, as
+    by a corrected one, meets a changed program at `resume` and goes through
+    the edited-program route, as for the call-site correction above. Other
+    programs keep their closed program, digest and effect identities. Not
+    corrected: two expansions of one template whose bound value still reads a
+    local after substitution share one specialization, as before, and such a
+    program can stop with `compiler_defect`.
   - The refusal of an integer overflow keeps its code, `pure_expr_overflow`,
     its stage and its exit code at every target. Its message, which a failed
     run records in `state.json`, now names the operator and prints its

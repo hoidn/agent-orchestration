@@ -56,7 +56,8 @@ No program, listed only (plan row id):
     | E22  | local names are part of the program digest: a property the cut decides            |
 
 Rows D21, D22 and E27 are the roadmap's tenth batch; the plan's Defect Table does not hold them yet. Rows
-B7-*, D23, D24 and D25 (the eleventh batch, found by the call-site fix) are in the Defect Table.
+B7-*, D23, D24 and D25 (the eleventh batch, found by the call-site fix) and D25-plain to D29 (found by the
+bound-value review) are in the Defect Table.
 """
 
 from __future__ import annotations
@@ -105,6 +106,7 @@ NO_ELABORATION = crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value")
 BINDER_OUT_OF_SCOPE = crash("KeyError", f"{ELABORATE}:_infer_expr_type")
 CAPTURED_COMMAND = crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind")
 CAPTURED_PROVIDER_INPUT = crash("TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind")
+CAPTURE_REQUESTS = "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>."
 LAUNCHED_THEN_REFUSED = ("ran", 1, 1, 0, "provider_result_invalid")
 LAUNCHED_WITH_OUTSIDE_TEXT = ("ran", 0, 1, 1)
 
@@ -134,6 +136,12 @@ KNOWN: dict[str, tuple] = {
     "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D25-plain": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D26": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
+    "D27": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._check_effect_node"),
+    "D28": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"), "D29": CAPTURED_COMMAND,
+    "B7-free-eff": crash("ValueError", CAPTURE_REQUESTS + "register_request"), "B7-free-pure": CAPTURED_COMMAND,
+    "B7-free-arg": crash("ValueError", CAPTURE_REQUESTS + "register_request"),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
@@ -209,6 +217,14 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D23-macro": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
     "D24": ("crash", "ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D25-plain": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D26": ("crash", "ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
+    "D27": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._check_effect_node"),
+    "D28": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>.visit_reference_owner"),
+    "D29": ("crash", "ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
+    "B7-free-eff": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>.register_request"),
+    "B7-free-pure": ("crash", "ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
+    "B7-free-arg": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>.register_request"),
     "E1-and": ("refused", "variant_ref_unproved"),
     "E1-or": ("refused", "variant_ref_unproved"),
     "E2": ("refused", "variant_ref_unproved"),
@@ -318,6 +334,14 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D23-macro": ("value", 705),
     "D24": None,
     "D25": None,
+    "D25-plain": None,
+    "D26": None,
+    "D27": None,
+    "D28": None,
+    "D29": None,
+    "B7-free-eff": ('value', 111105),
+    "B7-free-pure": ('value', 1105),
+    "B7-free-arg": ('value', 111105),
     "E1-and": None,
     "E1-or": None,
     "E2": None,
@@ -508,6 +532,8 @@ B7_WRITTEN = "(inc1 (bind-proc (proc-ref foo) :runner (workflow-ref W)) input)"
 B7_HELPER = "(defproc helper ((fixed Int) (y Int)) -> Int (+ fixed y))"
 B7_APPLYI = "(defproc applyi ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))"
 B7_BF = "(defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (+ k 0)) x))"
+B7_FWI = "(defproc fwi ((k Int) (input Box)) -> Box (call c1 :input (record Box :n (+ input.n k))))"
+B7_FREE_RUN = "((n Int)) -> Int (let* ((input (record Box :n n)) (a FIRST) (c SECOND)) (+ a.n (* 1000 c.n)))"
 LOOP_LOCAL_ADDING = "(let-proc ((h ((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted s (done (+ s ADDEND))))) (h x))"
 D23_LOCAL = "((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted s (done BODY))"
 D23_BOTH = ("(defproc both ((n Int)) -> Int (let-proc ((f " + D23_LOCAL.replace("BODY", "(+ s 1)") + ")\n"
@@ -572,6 +598,18 @@ ROWS: dict[str, Row] = {
                   inputs=("n=3",)),
     "B7-same-written": row(value(104104), B7_RUN.replace("(CALL c1 input)", B7_WRITTEN.replace("W", "c1"))
                            .replace("(CALL c2 input)", B7_WRITTEN.replace("W", "c1")), *B7_BOX, B7_INC1, inputs=("n=3",)),
+    # A bound value that reads a local keeps its position identity, so two expansions of a template whose bound
+    # value still reads a local after substitution share one specialization: the build stops.
+    "B7-free-eff": row(value(111105), B7_FREE_RUN.replace("FIRST", "(lk 1 input)").replace("SECOND", "(lk 7 input)"),
+                       *B7_BOX, B7_FWI, B7_AP, "(defmacro lk (k v) (let* ((b k) (hook (bind-proc (proc-ref fwi) "
+                       ":k (+ b 1)))) (ap hook v)))", inputs=("n=3",)),
+    "B7-free-pure": row(value(1105), "((n Int)) -> Int (+ (lkp 1 n) (* 100 (lkp 7 n)))", B7_HELPER, B7_APPLYI,
+                        "(defmacro lkp (k x) (let* ((b k) (hook (bind-proc (proc-ref helper) :fixed (+ b 1)))) "
+                        "(applyi hook x)))", inputs=("n=3",)),
+    "B7-free-arg": row(value(111105), B7_FREE_RUN.replace("FIRST", "(let* ((b 1)) (bk b input))")
+                       .replace("SECOND", "(let* ((b 7)) (bk b input))"), *B7_BOX, B7_FWI, B7_AP,
+                       "(defmacro bk (k v) (let* ((hook (bind-proc (proc-ref fwi) :k (+ k 1)))) (ap hook v)))",
+                       inputs=("n=3",)),
 
     # Class C: the declared effects ceiling over an imported workflow.
     "C1": Row(refused("procedure_effect_ceiling_exceeded"),
@@ -663,6 +701,20 @@ ROWS: dict[str, Row] = {
                + LOOP_LOCAL_ADDING.replace("ADDEND", "r.k") + ")", "(defrecord R (k Int))", inputs=("n=3",)),
     "D25": row(None, "((n Int)) -> Int (both n 1)", "(defproc both ((x Int) (k Int)) -> Int (let* ((kk (+ k 0))) "
                + LOOP_LOCAL_ADDING.replace("ADDEND", "kk") + "))", inputs=("n=3",)),
+    "D25-plain": row(None, "((n Int)) -> Int (pan 1 n)",
+                     "(defproc pan ((k Int) (x Int)) -> Int (let-proc ((h ((v Int)) -> Int (+ v k))) (h x)))",
+                     inputs=("n=3",)),
+    # Found by the bound-value review; each crashes on `main` too, in a single use (D28 binds in two scopes).
+    "D26": row(None, B7_FREE_RUN.replace("(c SECOND)) (+ a.n (* 1000 c.n))", ") a.n").replace(
+               "FIRST", "(ap (bind-proc (proc-ref fw) :b (record Box :n 1)) input)"), *B7_BOX, B7_AP,
+               "(defproc fw ((b Box) (input Box)) -> Box (call c1 :input (record Box :n (+ input.n b.n))))",
+               inputs=("n=3",)),
+    "D28": row(None, B7_FREE_RUN.replace("FIRST", "(let* ((b 1) (hook (bind-proc (proc-ref fwi) :k b))) (ap hook input))")
+               .replace("SECOND", "(let* ((b 7) (hook (bind-proc (proc-ref fwi) :k b))) (ap hook input))"),
+               *B7_BOX, B7_FWI, B7_AP, inputs=("n=3",)),
+    "D29": row(None, "() -> List[Int] (list/map ((b (list 1))) (let* ((hook (bind-proc (proc-ref add-leading) "
+               ":leading (+ b 1)))) (hook 5)))",
+               "(defproc add-leading ((leading Int) (value Int)) -> Int (+ leading value))"),
     "D23": row(value(34), "((n Int)) -> Int (both n)", D23_BOTH, inputs=("n=3",)),
     "D23-macro": row(value(705), "((n Int)) -> Int (both n)", D23_MACRO,
                      "(defproc both ((n Int)) -> Int (+ (with-loop n 5) (* 100 (with-loop n 7))))", inputs=("n=3",)),
@@ -790,6 +842,15 @@ SLOT_NAMES_A_FIELD = refused_before_launch("duplicate_artifact_name")
 SLOTS_SHARE_A_PATH = refused_before_launch("prompt_output_position_destination_collision")
 ASSET_LEAVES_SOURCE_TREE = refused_before_launch("asset_file_read_failed")
 PROVIDER_ROWS: dict[str, ProviderRow] = {
+    # A computed `String` bound to a provider's `:effort` through `bind-proc` (bound-value review): no refusal.
+    "D27": ProviderRow(None, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule main) (export run) (defrecord Box (n Int))
+  (defproc ap ((hook ProcRef[Box -> Box]) (input Box)) -> Box (hook input))
+  (defproc role ((effort String) (input Box)) -> Box
+    (provider-result providers.review :prompt prompts.base :inputs () :effort effort :returns Box))
+  (defworkflow run ((n Int)) -> Int
+    (let* ((input (record Box :n n)) (a (ap (bind-proc (proc-ref role) :effort (string/concat "lo" "w")) input))) a.n)))''',
+                       inputs=("--input", "n=3")),
     "A3-path": ProviderRow(SLOT_NAMES_A_FIELD, slots("(ok Bool) (report Report)", ONE_SLOT, "Report={report}",
                            ":report report"), inputs=REPORT, payload='{"ok":true,"report":"artifacts/report.txt"}'),
     "A3-string": ProviderRow(SLOT_NAMES_A_FIELD, slots("(ok Bool) (report String)", ONE_SLOT, "Report={report}",
