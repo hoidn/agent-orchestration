@@ -1213,8 +1213,8 @@ Every union has:
 
 Variant-specific fields are only accessible on a proven variant: inside a
 `match` arm (Section 11) or after a discriminant test of `if` or `cond`
-(Section 12.2); a generic procedure reads a shared field through
-`has-shared-union-field` (Section 7.9). After a discriminant test,
+(Section 12.2). A field every variant declares is read the same way; a generic
+procedure reads one through `has-shared-union-field` (Section 7.9). After a discriminant test,
 a branch that reads a variant-specific field of the tested binding
 lowers to a closed `case` on it, and the compiler refuses with
 `closed_program_gap` the two shapes the closed program cannot hold, where the
@@ -2078,7 +2078,8 @@ Rules:
   `union_match_non_exhaustive` (a missing or a repeated arm).
 - An arm's binder is in scope only in that arm, and on it only the fields of that arm's
   variant are read. Diagnostics: `variant_ref_wrong_variant`, `name_unknown`.
-- Outside an arm, a field read on a union value of a concrete union type is refused, also when
+- Outside an arm or a branch a discriminant test proves (§12.2), a field read on a union value
+  of a concrete union type is refused, also when
   every variant declares that field with one type; `variant` is always read. Inside a generic
   procedure, a parameter whose type is constrained `has-shared-union-field` (§7.9) reads that
   field outside any arm; a call is admitted only when every variant of the concrete union
@@ -2130,7 +2131,8 @@ flowchart TD
 
 `(if condition then-branch else-branch)` takes exactly three operands. The condition is any
 expression whose type is exactly `Bool`, also one that runs a command, a provider, a workflow
-call or an effectful procedure; no other value counts as true or false. Both branches have one
+call or an effectful procedure where the enclosing form allows that effect (a `defun` body
+allows none, §8.6); no other value counts as true or false. Both branches have one
 type, which is the type of the `if`. Diagnostics: `if_form_invalid`, `if_condition_not_bool`,
 `type_mismatch`.
 
@@ -2157,22 +2159,35 @@ compiler erases `cond` into nested `if`. Diagnostics: `cond_clause_invalid`,
 `cond_condition_not_bool`, `cond_else_invalid`, `cond_non_exhaustive`.
 
 Clauses are tested in order, and a condition runs only when every earlier condition was false;
-only the selected clause's result runs. All results have one type (`type_mismatch`). The clauses
-are exhaustive when a condition is the literal `true`, or when discriminant tests (§12.2) leave
-no variant for the fall-through; no other reasoning counts (a final literal `false` or a final
-test of an `Int` still needs `else`). In an exhaustive `cond` without `else`, an effect in the
-last clause's condition still runs when that clause is reached, also when earlier tests already
-decide it. A diagnostic about a condition or a clause names the location of the authored
-condition.
+only the selected clause's result runs. All results have one type (`type_mismatch`). A diagnostic
+about a condition or a clause names the location of the authored condition.
+
+The clauses are exhaustive when the compiler can show that the fall-through is never reached.
+It reads only the literals `true` and `false`, the discriminant tests of §12.2, and `and`, `or`
+and `not` over them; every other condition may be true or false. So `(not false)`,
+`(and true true)` and `(or (> x 5) true)` end an exhaustive `cond`, and so do tests that leave
+no variant, also combined with `and` or `or` (`((= u.variant A) ...)` then
+`((or (= u.variant B) (= u.variant C)) ...)` for a union of three variants). `(= 1 1)`,
+`(or b (not b))`, a name bound to `true`, a function that returns `true`, and tests on a name
+bound to a `variant` value do not count: such a `cond` needs `else`. Leaving out `else` removes no
+effect from a condition; whether one runs follows the order and short-circuit rules of §12.
 
 ### 12.2 Discriminant Tests
 
-Every union value has the read-only field `variant`. In `=` or `!=` with a union value's
-`variant` on the other side, a name that has no binding is read as a variant of that union, on
-either side; a bound name keeps its binding. Diagnostics: `variant_tag_unknown` (not a variant
-of that union), `variant_tag_union_mismatch` (the two `variant` fields belong to different
-unions), `variant_tag_context_missing` (a variant compared with the union value instead of its
-`variant`), `name_unknown` (a variant name with no union operand).
+Every union value has the read-only field `variant`. Its value compares only with a variant of
+the same union: in `=` or `!=` with a `variant` value on the other side (`x.variant`, or a name
+bound to one), a name that has no binding is read as a variant of that union, on either side; a
+bound name keeps its binding. A `variant` value is not a `String` and is not compared with one.
+Diagnostics: `variant_tag_unknown` (not a variant of that union), `variant_tag_union_mismatch`
+(the two `variant` values belong to different unions), `variant_tag_context_missing` (a variant
+compared with the union value instead of its `variant`), `name_unknown` (a variant name with no
+union operand), `pure_expr_operand_type_mismatch` (a `variant` value compared with a `String`).
+
+Inside a generic procedure, a value whose type is a type parameter, or a union applied to one
+(`Box[T]`), is not tested this way: the test is refused with `variant_tag_union_mismatch`, or with
+`record_field_unknown` when the parameter is constrained only by `has-shared-union-field`. There
+the variant is read with `match` (§7.9). A union with concrete type arguments (`Box[Int]`) is
+tested as any union.
 
 ```lisp
 (defunion Attempt (COMPLETED (score Int)) (BLOCKED (reason String)))
@@ -2181,21 +2196,26 @@ unions), `variant_tag_context_missing` (a variant compared with the union value 
       ((= attempt.variant BLOCKED) 0))
 ```
 
-A test `(= x.variant V)` on a name `x` proves, in its true branch, that `x` is `V`, and in its
+A test `(= x.variant V)` on a name `x` of a union type proves, in its true branch, that `x` is `V`, and in its
 false branch that it is not; `(!= x.variant V)` proves the reverse, and `not` swaps the two
 branches. Tests on one path combine: a path on which the tests leave one variant of `x` proves
 that variant, also in the `else` of an `if` and in a later `cond` clause or its `else`. On a proven path the fields
 of that variant are read on `x` (§7.5), also in an effect's arguments and in a pure `list/map`
 body inside the branch.
 
-Nothing else proves a variant. Each of these reads is refused with `variant_ref_unproved`:
+No other test proves a variant (`match` is §11). Each of these reads is refused with
+`variant_ref_unproved`:
 
 - a read after the conditional, outside its branches;
-- a read under a `Bool` that was bound to a name and tested later;
+- a read under a `Bool` that was bound to a name and tested later, or under a test on a name
+  bound to a `variant` value;
 - a read under a comparison of two `variant` fields;
 - a read on a name other than the tested one, also a `let*` alias of the same value;
-- a read under a test combined with `and` or `or`;
-- a read inside a `loop/recur` body, a `let-proc` body or a `list/map-effect` body in the branch;
+- a read under a test combined with `and` or `or`, although such tests count for
+  exhaustiveness (§12.1);
+- a read inside a `loop/recur` body (either form), a `let-proc` body, or the body of a
+  `list/map-effect` without `:parallel`, in the branch. The body of a `list/map-effect` with
+  `:parallel` and the body of a pure `list/map` read the field;
 - a read on a name the branch binds again.
 
 §7.5 states which proven reads the checked program cannot hold (`closed_program_gap`); §11
