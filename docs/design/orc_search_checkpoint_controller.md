@@ -227,8 +227,9 @@ with `resume`, as after a stop at the cap.
 ### 3.4 Naming a stage
 
 **A stage is named by a full site key.** The last label of a key is not a
-name. The seed `milestones.orc` (branch `spike/long-horizon-seed` at
-`c93a6954`, 50 lines, compiled on `main`; probe K2) has these eight keys:
+name. The seed `milestones.orc` (`experiments/long_horizon_seed/`; probe K2
+compiled its revision `c93a6954` on `main`, and the keys have not changed
+since) has these eight keys:
 
 ```text
 workflow:milestones::run / ready
@@ -243,9 +244,11 @@ workflow:milestones::run / loop:state[*] / else / acceptance
 
 Two keys end in `report`: the round's check and each milestone's check. They
 are two stages. The verdict sites carry authored labels (`acceptance`,
-`verdict`) and the milestone call frame is named (`each`); the effort of each
-role is a literal at its call forms. The seeds `staged.orc` and
-`designed.orc` have the same shape of keys; `roles.orc` has `agent` and
+`verdict`) and the milestone call frame is named (`each`); the model and the
+effort of each role are literals at its call forms. The seed `staged.orc` has
+the same shape of keys; `designed.orc` puts its design review and its rounds
+under named call frames (`design=workflow:designed::review-design` and
+`ACCEPTED / built=workflow:designed::build`); `roles.orc` has `agent` and
 `agent_turn` sites from its first effect.
 
 **A harness maps stages per candidate from the candidate's own closed
