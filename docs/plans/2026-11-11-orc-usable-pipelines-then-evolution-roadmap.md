@@ -356,7 +356,8 @@ every removed test is listed with the code it covered".
      `let-proc` local, in serial and parallel maps (a hole in a safety guard:
      first in line for a fix);
    - a parallel map written directly in a `loop/recur` body fails with
-     `compiler_defect` (through a procedure call it works);
+     `compiler_defect` (through a procedure call it works) (closed 2026-11-13
+     by the map-bodies change);
    - a `let-proc` local whose body is a loop crashes with an internal error;
    - dead code: the prompt snapshot and attempt-identity builders and the
      fragment-identity projection have no caller in the package.
@@ -781,8 +782,10 @@ is manual. Phase plans are linked here as they start:
   (`report`, dashboard and monitor read it; continuing it needs the tagged release).
 - Lane D, surface coherence (stage 5): [design](../design/workflow_lisp_surface_coherence.md)
   accepted. The constructor-field defect is fixed and the callables change (C1) is merged
-  (2026-11-13), as is the loop binder form with its migration tool (I2a); effects in fields
-  (E1) and map bodies (I1) are in review; the loop binder rewrite rides the stage 4
+  (2026-11-13), as are the loop binder form with its migration tool (I2a) and map bodies
+  (I1: any expression as a map body and a computed serial `:max`, in programs with no run
+  reference; `624ff688`, full suite 15,349 passed, the six failures being the baseline four and
+  two that passed alone); effects in fields (E1) is in its third review; the loop binder rewrite rides the stage 4
   sweep and the `fn` form goes at the stage 4 cut.
 - Lane D, authoring revisions for staged workflows (stage 6):
   [design](../design/workflow_lisp_staged_workflow_authoring.md) and
