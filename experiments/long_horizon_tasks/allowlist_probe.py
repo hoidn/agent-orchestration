@@ -17,6 +17,7 @@ CASES = [
     ("code host", "https://github.com/", None),
     ("vendor api", "https://api.anthropic.com/v1/messages", None),
     ("host listener", f"http://{HOST_IP}:{PORT}/allowlist-probe", None),
+    ("host, another port (ssh)", HOST_IP, 22),
     ("allowed name, denied address (TLS)", "pypi.org", "github.com"),
     ("allowed name, denied address (HTTP)", "pypi.org", "example.com"),
 ]
@@ -28,6 +29,15 @@ def _url(url):
             return f"ok {resp.status}"
     except urllib.error.HTTPError as exc:
         return f"ok {exc.code}"
+    except Exception as exc:  # the class of a refusal is the finding
+        return f"refused {type(exc).__name__}: {exc}"
+
+
+def _banner(ip, port):
+    """Read what a TCP service on the allowed host address sends first (ssh sends a banner)."""
+    try:
+        with socket.create_connection((ip, port), timeout=15) as sock:
+            return f"ok banner {sock.recv(64)!r}"
     except Exception as exc:  # the class of a refusal is the finding
         return f"refused {type(exc).__name__}: {exc}"
 
@@ -50,5 +60,10 @@ def _misrouted(name, address_of, tls):
 
 
 for case, target, other in CASES:
-    result = _url(target) if other is None else _misrouted(target, other, "TLS" in case)
+    if other is None:
+        result = _url(target)
+    elif isinstance(other, int):
+        result = _banner(target, other)
+    else:
+        result = _misrouted(target, other, "TLS" in case)
     print(f"PROBE {case}: {result}", flush=True)
