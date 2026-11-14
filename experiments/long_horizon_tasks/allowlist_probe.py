@@ -1,26 +1,18 @@
-"""Allowlist probe, run inside the agent container as a scratch task's reference solution (oracle agent).
+"""Allowlist and relay probe, run inside the agent container as a scratch task's reference solution (oracle agent).
 
-Usage: python3 allowlist_probe.py <host listener ip> <port>
-Prints one line per request: the case, then `ok <status>` or `refused <error class>: <detail>`.
-A connect alone proves nothing (the egress proxy accepts, then drops), so every case sends a request.
+Usage: python3 allowlist_probe.py <relay host:port> <host address> <comma-separated host ports>
+Prints one line per case: `ok ...` or `refused <error class>: <detail>`. A connect alone proves nothing (the
+egress proxy accepts, then drops), so every case sends a request and reads the answer; the sidecar's egress
+log tells a proxy denial (`bypass`) from a refused upstream connection.
 """
 
+import os
 import socket
 import ssl
 import sys
 import urllib.request
 
-HOST_IP, PORT = sys.argv[1], int(sys.argv[2])
-CASES = [
-    ("allowed index", "https://pypi.org/simple/pip/", None),
-    ("allowed index files", "https://files.pythonhosted.org/", None),
-    ("code host", "https://github.com/", None),
-    ("vendor api", "https://api.anthropic.com/v1/messages", None),
-    ("host listener", f"http://{HOST_IP}:{PORT}/allowlist-probe", None),
-    ("host, another port (ssh)", HOST_IP, 22),
-    ("allowed name, denied address (TLS)", "pypi.org", "github.com"),
-    ("allowed name, denied address (HTTP)", "pypi.org", "example.com"),
-]
+RELAY, HOST_IP, PORTS = sys.argv[1], sys.argv[2], [int(p) for p in sys.argv[3].split(",") if p]
 
 
 def _url(url):
@@ -33,13 +25,18 @@ def _url(url):
         return f"refused {type(exc).__name__}: {exc}"
 
 
-def _banner(ip, port):
-    """Read what a TCP service on the allowed host address sends first (ssh sends a banner)."""
+def _poke(ip, port):
+    """Send a line to a TCP port and report what comes back: data, EOF, a timeout or an error."""
     try:
-        with socket.create_connection((ip, port), timeout=15) as sock:
-            return f"ok banner {sock.recv(64)!r}"
+        with socket.create_connection((ip, port), timeout=5) as sock:
+            sock.settimeout(3)
+            sock.sendall(b"GET / HTTP/1.0\r\n\r\n")
+            data = sock.recv(64)
+            return f"ok data {data[:40]!r}" if data else "refused EOF"
+    except socket.timeout:
+        return "silent (timeout: connected, nothing read)"
     except Exception as exc:  # the class of a refusal is the finding
-        return f"refused {type(exc).__name__}: {exc}"
+        return f"refused {type(exc).__name__}"
 
 
 def _misrouted(name, address_of, tls):
@@ -59,11 +56,38 @@ def _misrouted(name, address_of, tls):
         return f"refused {type(exc).__name__}: {exc}"
 
 
-for case, target, other in CASES:
-    if other is None:
-        result = _url(target)
-    elif isinstance(other, int):
-        result = _banner(target, other)
-    else:
-        result = _misrouted(target, other, "TLS" in case)
-    print(f"PROBE {case}: {result}", flush=True)
+def _resolve(name):
+    try:
+        return socket.gethostbyname(name)
+    except OSError as exc:
+        return f"unresolved ({exc})"
+
+
+def _gateway():
+    with open("/proc/net/route") as fh:
+        for line in fh.readlines()[1:]:
+            fields = line.split()
+            if fields[1] == "00000000":
+                return socket.inet_ntoa(bytes.fromhex(fields[2])[::-1])
+    return None
+
+
+def main():
+    print(f"PROBE socket dir /run/lh present: {os.path.exists('/run/lh')}", flush=True)
+    for name in ("relay", "host.containers.internal", "api.anthropic.com"):
+        print(f"PROBE resolve {name}: {_resolve(name)}", flush=True)
+    for case, url in [("allowed index", "https://pypi.org/simple/pip/"), ("code host", "https://github.com/"),
+                      ("vendor api", "https://api.anthropic.com/v1/messages"),
+                      ("relay", f"http://{RELAY}/allowlist-probe")]:
+        print(f"PROBE {case}: {_url(url)}", flush=True)
+    for case, args in [("allowed name, denied address (TLS)", ("pypi.org", "github.com", True)),
+                       ("allowed name, denied address (HTTP)", ("pypi.org", "example.com", False))]:
+        print(f"PROBE {case}: {_misrouted(*args)}", flush=True)
+    targets = {HOST_IP, _gateway(), _resolve("host.containers.internal"), "10.0.2.2"}
+    for ip in sorted(t for t in targets if t and t[0].isdigit()):
+        results = {port: _poke(ip, port) for port in PORTS}
+        answered = {p: r for p, r in results.items() if not r.startswith("refused")}
+        print(f"PROBE host scan {ip}: {len(PORTS)} ports, answered {answered or 'none'}", flush=True)
+
+
+main()
