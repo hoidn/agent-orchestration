@@ -1104,7 +1104,7 @@ def test_compile_stage3_elaborates_same_file_procedure_call_heads(tmp_path: Path
         _expression_syntax("(build-checks report_path)"),
         bound_names=frozenset({"report_path"}),
         procedure_names=frozenset(result.procedure_catalog.signatures_by_name),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
     assert isinstance(expr, ProcedureCallExpr)
     assert expr.callee_name == "build-checks"

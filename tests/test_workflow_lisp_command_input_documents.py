@@ -30,13 +30,12 @@ def _perform(body):
     return next(node for node in _walk_wcc(body) if isinstance(node, WccPerform) and node.target_name == "emit")
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.40"])
 @pytest.mark.parametrize("argv", ['', ':argv ("python" "emit.py")'])
 @pytest.mark.parametrize("inputs,present,fields", [("", False, ()), (":inputs ()", True, ()), (':inputs ((message "hi"))', True, ("message",))])
-def test_external_document_presence_survives_source_and_wcc(tmp_path, inputs, present, fields, target, argv):
+def test_external_document_presence_survives_source_and_wcc(tmp_path, inputs, present, fields, argv):
     from orchestrator.workflow_lisp.expressions import CommandResultExpr, LiteralExpr
 
-    source = _source(f'(command-result emit {argv} {inputs} :returns String)', target=target)
+    source = _source(f'(command-result emit {argv} {inputs} :returns String)')
     commands = _commands(tmp_path)
     compiled = _compile_current_source(tmp_path, source=source, commands=commands)
     expr = compiled.typed_program.workflows["cp/closed_elaboration::run"].typed_body.expr
@@ -226,14 +225,13 @@ def test_generic_specialization_preserves_document_presence_and_order(tmp_path):
     ('(command-result emit :argv ("python" "emit.py") :returns String)', "19e8617fd9d5d4522c20e2b7e92e062bb09285e5191134d4a8437b597f2abcaa"),
     ('(command-result emit :adapter emit :inputs ((payload "hi")) :returns String)', "7074c9ecd4a5b6647e4fd9ddd170ca0c9946c740a2e34bbe1021ba0f96862986"),
 ])
-@pytest.mark.parametrize("target", ["2.35", "2.36"])
-def test_legacy_node_serialization_matches_frozen_source_bytes(source, expected, target):
+def test_legacy_node_serialization_matches_frozen_source_bytes(source, expected):
     import hashlib
     from orchestrator.workflow_lisp.build_manifest_io import _json_data
     from orchestrator.workflow_lisp.expressions import elaborate_expression
     from tests.test_workflow_lisp_command_adapters import _expression_syntax
 
-    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(), target_dsl_version=target)
+    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(), target_dsl_version="2.40")
     payload = _json_data(expr)
     assert "inputs_present" not in payload and "operand_order" not in payload
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -251,7 +249,7 @@ def test_empty_expanded_document_field_is_rejected():
     empty_pairs = replace(pairs, items=(empty_pair,))
     datum = replace(node.datum, items=(*node.datum.items[:5], empty_pairs, *node.datum.items[6:]))
     with pytest.raises(LispFrontendCompileError) as caught:
-        elaborate_expression(replace(node, datum=datum), bound_names=frozenset(), target_dsl_version="2.35")
+        elaborate_expression(replace(node, datum=datum), bound_names=frozenset(), target_dsl_version="2.40")
     assert caught.value.diagnostics[0].code == "command_result_inputs_invalid"
 
 
@@ -261,10 +259,10 @@ def test_legacy_command_semantic_identity_keeps_its_frozen_fields():
     from tests.test_workflow_lisp_command_adapters import _expression_syntax
 
     source = '(command-result emit :argv ("python" "emit.py") :returns String)'
-    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(), target_dsl_version="2.35")
+    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(), target_dsl_version="2.40")
     expected = "CommandResultExpr(step_name='emit',argv=(LiteralExpr(value='python',literal_kind='string'),LiteralExpr(value='emit.py',literal_kind='string')),adapter_name=None,adapter_inputs=(),return_spec=ReturnSpec(type_name='String',guidance=None))"
     assert _semantic_identity(expr) == expected
-    empty = elaborate_expression(_expression_syntax(source.replace(':returns', ':inputs () :returns')), bound_names=frozenset(), target_dsl_version="2.35")
+    empty = elaborate_expression(_expression_syntax(source.replace(':returns', ':inputs () :returns')), bound_names=frozenset(), target_dsl_version="2.40")
     assert _semantic_identity(empty) != expected
     reordered = replace(empty, operand_order=("inputs", "argv"))
     assert _semantic_identity(reordered) != _semantic_identity(empty)

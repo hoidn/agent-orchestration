@@ -1230,15 +1230,14 @@ def test_build_key_uses_the_compiler_retained_source_snapshot(
     assert first.program.digest == second.program.digest
 
 
-@pytest.mark.parametrize("producer_target", ["2.40"])
 def test_imported_producer_peek_and_compile_share_a_separate_trace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, producer_target: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from orchestrator.workflow_lisp.closed import artifact as artifact_module
     from orchestrator.workflow_lisp import build as build_module
     from orchestrator.workflow_lisp.reader import SourceReadTrace
 
-    files = _write_import_workspace(tmp_path, producer_target)
+    files = _write_import_workspace(tmp_path, CURRENT_TARGET_DSL_VERSION)
     producer = files["source_root"] / "producer" / "entry.orc"
     consumer_trace = SourceReadTrace()
     producer_traces: list[SourceReadTrace] = []
@@ -1276,19 +1275,15 @@ def test_imported_producer_peek_and_compile_share_a_separate_trace(
     assert not (files["workspace"] / ".orchestrate" / "build").exists()
 
 
-@pytest.mark.parametrize(
-    "producer_target",
-    [CURRENT_TARGET_DSL_VERSION],
-)
 def test_root_target_peek_and_selected_compile_share_a_fail_closed_trace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, producer_target: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from argparse import Namespace
 
     from orchestrator.cli.commands import compile as compile_module
     from orchestrator.workflow_lisp.closed import target as target_module
 
-    files = _write_workspace(tmp_path, target=producer_target)
+    files = _write_workspace(tmp_path, target=CURRENT_TARGET_DSL_VERSION)
     monkeypatch.chdir(files["workspace"])
     original_check = target_module.refuse_retired_entry_target
 

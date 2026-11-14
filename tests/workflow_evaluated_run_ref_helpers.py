@@ -316,7 +316,7 @@ def _build_path_fixture(
     *,
     body: str = "payload",
     case: str = "executes",
-    target_dsl_version: str = "2.35",
+    target_dsl_version: str = "2.40",
 ) -> _PathFixture:
     repository = root / f"repository-{case}"
     repository.mkdir()

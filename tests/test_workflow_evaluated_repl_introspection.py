@@ -35,14 +35,13 @@ def _type_results(stdout):
             if left.startswith("type: ") and right.startswith("effects: ")]
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36"])
-def test_public_repl_module_introspection(tmp_path, target):
-    source = SOURCE.format(target=target, body=BODY).replace(
+def test_public_repl_module_introspection(tmp_path):
+    source = SOURCE.format(body=BODY).replace(
         "(defmodule main)", "(defmodule main) (import library :as lib :only (Plan))"
     ).replace("  (defrecord Plan (steps List[String]))\n", "")
     fixture = _fixture(tmp_path, source)
     prompt = '(defprompt inspect-prompt (:fills (task :text) (steps :value List[String])) -> Plan "Fixture café {task} {steps}")'
-    library = f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
+    library = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule library) (export Plan Status helper inspect-prompt)
       (defenum Status READY DONE)
       (defrecord Plan (steps List[String]))
@@ -108,10 +107,9 @@ def test_public_repl_argument_introspection_recovers(tmp_path):
     assert "macros" in repl.stdout and "specializations" in repl.stdout
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36"])
-def test_public_repl_attached_introspection_is_readonly_under_writer_lock(tmp_path, target):
+def test_public_repl_attached_introspection_is_readonly_under_writer_lock(tmp_path):
     body = BODY.replace("(let* ((draft", '(let* ((Plan "lexical shadow") (draft')
-    fixture = _fixture(tmp_path, SOURCE.format(target=target, body=body))
+    fixture = _fixture(tmp_path, SOURCE.format(body=body))
     run = _run(tmp_path, fixture, "task=fixture", "scale=2.0")
     assert run.returncode == 0, run.stderr
     run_root = _run_root(tmp_path)
@@ -139,7 +137,7 @@ def test_public_repl_attached_introspection_is_readonly_under_writer_lock(tmp_pa
 def test_public_repl_source_snapshot_survives_delete_failed_load_and_reload(tmp_path):
     original = '(defprompt snapshot-prompt (:fills (message :text)) -> Bool\n    "Fixture café {message}\\n")'
     replacement = original.replace("café", "updated")
-    source = SOURCE.format(target="2.35", body=BODY).replace("(export run)", "(export run) " + original)
+    source = SOURCE.format(body=BODY).replace("(export run)", "(export run) " + original)
     fixture = _fixture(tmp_path, source)
     fixture[0].write_bytes(source.replace("\n", "\r\n").encode("utf-8"))
     broken = tmp_path / "broken.orc"

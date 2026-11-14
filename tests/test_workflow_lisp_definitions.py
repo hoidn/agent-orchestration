@@ -26,7 +26,7 @@ def test_elaborate_definition_module_supports_stage1_type_forms() -> None:
     module = elaborate_definition_module(syntax_module)
 
     assert module.language_version == "0.1"
-    assert module.target_dsl_version == "2.35"
+    assert module.target_dsl_version == "2.40"
     assert len(module.definitions) == 6
 
     enum_def = module.definitions[0]

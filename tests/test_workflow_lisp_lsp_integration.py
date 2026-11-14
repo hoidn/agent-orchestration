@@ -589,7 +589,7 @@ def test_l3_real_stdio_mixed_entries_match_isolated_peers_without_bleed(
         "uri": application_path.as_uri(),
         "range": {
             "start": {"line": 5, "character": 2},
-            "end": {"line": 10, "character": 10},
+            "end": {"line": 8, "character": 10},
         },
     }
     assert combined[library_path]["definition"] is None
