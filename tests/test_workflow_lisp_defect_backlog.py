@@ -134,6 +134,8 @@ KNOWN: dict[str, tuple] = {
     "D21": crash("TypeError", f"{ELABORATE}:_replace_halts_with_jump"),
     "D22": ("traceback", "AttributeError",
             "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
+    "D23": crash("ValueError", f"{ELABORATE}:_procedure_edges_by_site"),
+    "D23-macro": crash("ValueError", f"{ELABORATE}:_procedure_edges_by_site"),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
@@ -199,6 +201,8 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D20": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D21": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"),
     "D22": ("traceback", "AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
+    "D23": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
+    "D23-macro": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
     "E1-and": ("refused", "variant_ref_unproved"),
     "E1-or": ("refused", "variant_ref_unproved"),
     "E2": ("refused", "variant_ref_unproved"),
@@ -295,6 +299,8 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D20-bound": ("value", 1, "e1"),
     "D21": None,
     "D22": None,
+    "D23": ("value", 34),
+    "D23-macro": ("value", 705),
     "E1-and": None,
     "E1-or": None,
     "E2": None,
@@ -468,6 +474,11 @@ D19 = "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (
 D20_MK = "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))"
 D20_SUBJECT = f"(mkshape (if (> n 0) {E('e1', 1, 'Int')} {E('e2', 2, 'Int')}))"
 D20_ARMS = "((CIRCLE c) c.r) ((SQUARE s) 0)"
+D23_LOCAL = "((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted s (done BODY))"
+D23_BOTH = ("(defproc both ((n Int)) -> Int (let-proc ((f " + D23_LOCAL.replace("BODY", "(+ s 1)") + ")\n"
+            "    (g " + D23_LOCAL.replace("BODY", "(* s 10)") + ")) (+ (f n) (g n))))")
+D23_MACRO = ("(defmacro with-loop (x k) (let-proc ((h " + D23_LOCAL.replace("(s v)", "(s k)").replace("BODY", "s")
+             + ")) (h x)))")
 E2_COMMAND = '(command-result c :argv ("python" "c.py" "m" u.n) :returns Int)'
 E4_PICK = ("(defproc pick :forall (T) ((x T))\n"
            "    :where ((T has-union-variant OK (n Int)) (T has-union-variant BAD (why String)))\n"
@@ -592,6 +603,12 @@ ROWS: dict[str, Row] = {
     # wants a refusal; its code is not chosen.
     "D21": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (let* ((x (done 1))) x))"),
     "D22": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (list (done 1)))"),
+    # Eleventh batch, what the call-site fix leaves: an inlined pure procedure gives every node of its body the
+    # site of its call, so two calls in that body to different lifted locals share one site. Before the fix one
+    # target was chosen in hash-seed order (a wrong value); now the build stops with `compiler_defect`.
+    "D23": row(value(34), "((n Int)) -> Int (both n)", D23_BOTH, inputs=("n=3",)),
+    "D23-macro": row(value(705), "((n Int)) -> Int (both n)", D23_MACRO,
+                     "(defproc both ((n Int)) -> Int (+ (with-loop n 5) (* 100 (with-loop n 7))))", inputs=("n=3",)),
 
     # Class E: a refusal of good source, a misleading code, an accepted form with no effect.
     # No wanted outcome for E1 and E2: the frontend specification 12.2 lists these reads (under a test combined
