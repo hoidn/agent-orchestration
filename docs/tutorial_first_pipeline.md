@@ -83,25 +83,24 @@ files such as the text being grown are not part of it.
 
 <!-- file: grow.orc -->
 ```lisp
-(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule grow)
   (export run)
   (defrecord Outcome (reached Bool) (pads Int))
   (defworkflow run ((file String) (target Int)) -> Outcome
-    (loop/recur :max 5 :state 0
+    (loop/recur ((pads 0)) :max 5
       :on-exhausted (record Outcome :reached false :pads pads)
-      (fn (pads)
-        (let* ((words (command-result count
-                        :argv ("python" "as_command.py" "sh" "count_words.sh" file) :returns Int)))
-          (if (>= words target)
-            (done (record Outcome :reached true :pads pads))
-            (let* ((padded (command-result pad :argv ("python" "pad.py" file pads) :returns Int)))
-              (continue padded))))))))
+      (let* ((words (command-result count
+                      :argv ("python" "as_command.py" "sh" "count_words.sh" file) :returns Int)))
+        (if (>= words target)
+          (done (record Outcome :reached true :pads pads))
+          (let* ((padded (command-result pad :argv ("python" "pad.py" file pads) :returns Int)))
+            (continue padded)))))))
 ```
 
 `run` takes two typed inputs and returns an `Outcome` record. `loop/recur`
-runs its function at most `:max` times. The function receives the loop's
-state, here `pads`, the number of pads so far, which starts at `:state`. Each round runs the `count` command, then
+runs its body at most `:max` times. The binder `((pads 0))` names the loop's
+state, here `pads`, the number of pads so far, and its start value 0. Each round runs the `count` command, then
 either stops with `done` or runs `pad` and starts the next round with
 `continue`. If five rounds pass without `done`, the loop's value is
 `:on-exhausted`, which can use the last state. `:returns` gives the type the
@@ -318,7 +317,7 @@ names a provider, a prompt and the result type; the runtime tells the model
 where and in what shape to write the result.
 
 ```lisp
-(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule summary)
   (export run)
   (defrecord Summary (title String) (sentences Int))
