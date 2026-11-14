@@ -2,8 +2,8 @@
 
 - **Status:** Accepted 2026-11-12 as the basis for implementation, after an
   independent review (accept with changes; all applied). Partly implemented:
-  changes C1 (callables called by name), I1 (map bodies and a computed serial
-  `:max`, in programs with no run reference) and I2a (the binder form of
+  changes C1 (callables called by name), I1 (any expression as a map body, in programs
+  with no run reference; a computed serial `:max`, in every program) and I2a (the binder form of
   `loop/recur`) are on `main` since 2026-11-13. For E1 and I2b the compiler
   behaves as the "Today" columns of §2, and their "after" examples do not
   compile. Where this page and the merged behaviour differ, the
@@ -517,7 +517,7 @@ the ruling that decided it; the sections above state the rule as merged.
 | I1 | A parallel map may be written directly in a serial map or loop body | Finding M1 of the first map-bodies review, fixed instead of refused; it was a `compiler_defect`, so no program that compiled moves |
 | I2a | The Python frontend's emitter change moved to I2b (§3, §10) | Coordinator ruling on concern 1 of the loop-binder report: a frozen pin hashes emitted text |
 | I2a | The migration tool rewrites by a syntactic rule first and by a hash comparison only inside an exported workflow of a source that builds; it reads Python only under `tests/` and `experiments/` (§5) | Coordinator rulings 1 to 7 on the first tool report; finding R3 of the third loop-binder review |
-| I2a | Macro hygiene for the loop state (both forms), `let-proc` parameters and `cond` clause items; a template that bound such a name itself changes value and digest (§1, §5) | Kept by the coordinator at the merge (one-target plan ledger, 2026-11-13: the three kept classes). No ruling on record reads versioning rule 2 for the templates that compiled before |
+| I2a | Macro hygiene for the loop state (both forms), `let-proc` parameters and `cond` clause items; a template that bound such a name itself changes value and digest (§1, §5) | Kept by the coordinator at the merge (one-target plan ledger, 2026-11-13: the three kept classes). Ruling 2026-11-13: kept as a correction of a silent wrong value and stated as an exception in the I2a entry of [`specs/versioning.md`](../../specs/versioning.md); not moved to the cut |
 | I2a | No rename of a name at the head of a list in a template | The coordinator withdrew its own round-2 ruling after the third loop-binder review; head-position hygiene is an open defect |
 
 Changes that the reviews assigned to the release that removes the older
