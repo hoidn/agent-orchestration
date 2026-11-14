@@ -4,9 +4,10 @@
   independent review (accept with changes; all applied). Partly implemented:
   changes C1 (callables called by name), I1 (any expression as a map body, in programs
   with no run reference; a computed serial `:max`, in every program) and I2a (the binder form of
-  `loop/recur`) are on `main` since 2026-11-13. For E1 and I2b the compiler
-  behaves as the "Today" columns of §2, and their "after" examples do not
-  compile. Where this page and the merged behaviour differ, the
+  `loop/recur`) are on `main` since 2026-11-13, and E1 (a direct effect in a field,
+  payload, element, path child, `match` subject, map source or `continue` value
+  whose other parts are simple; narrower than first accepted, see §13) since
+  2026-11-14. For I2b the compiler behaves as the "Today" column of §2. Where this page and the merged behaviour differ, the
   [frontend specification](workflow_lisp_frontend_specification.md) and
   `specs/versioning.md` ("Source admitted without a new target") state what
   compiles; §13 lists where the merged changes depart from the accepted text.

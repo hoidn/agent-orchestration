@@ -350,7 +350,7 @@ every removed test is listed with the code it covered".
    - `(and (= a.variant V) …)` is refused by module compilation while the
      expression typechecker grants the proof;
    - a loop's `continue` value holding an effectful `if` inside an operand
-     fails with `compiler_defect` (being closed with the effects change);
+     fails with `compiler_defect` (closed 2026-11-14 by the effects change: refused `effect_not_permitted`);
    - the guard that forbids a confined run-reference site in a map body does
      not see one reached through a procedure-reference parameter or a
      `let-proc` local, in serial and parallel maps (a hole in a safety guard:
@@ -455,7 +455,7 @@ every removed test is listed with the code it covered".
      (found by the re-review of the missing-prompt-file fix; not re-run on
      `main` by the coordinator).
    - added 2026-11-13 (eleventh batch; the most serious item on this list,
-     kept and being fixed first, on `fix/call-site-collision`): the compiler
+     the seed-dependent part closed 2026-11-14, `ecd57051`; a sibling stays open, see the end of this item): the compiler
      chooses a call's target from a set whose order depends on Python's hash
      seed and, through a path inside a hash, on the source directory. The
      same source can build on one run and end in `compiler_defect` on the
@@ -470,7 +470,12 @@ every removed test is listed with the code it covered".
      ([report in the fix's plan row](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)).
      It must be fixed before the one-target cut. A program whose build
      depended on the seed gets one digest after the fix; programs with no
-     such collision keep theirs.
+     such collision keep theirs (shown over every tracked `.orc` file and
+     test fixture: no digest moved). Open sibling, deterministic and on every
+     target: a macro template whose `bind-proc` binds a computed value or a
+     workflow reference gives every expansion the first expansion's value,
+     because a bound value is identified by its source position (known rows
+     `B7-*` of the defect record; next in line, on its own branch).
    The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
    (accepted 2026-11-13 after an independent review and one revision) orders
    this list by harm. By the owner's direction of 2026-11-13 it is cut to
