@@ -89,7 +89,19 @@ def test_asset_reader_hashes_raw_utf8_and_legacy_read_keeps_text(
     assert calls == [path]
 
 
-def test_prompt_input_absence_empty_and_present_file_have_distinct_evidence(
+def test_prompt_input_absence_is_a_read_failure(tmp_path: Path) -> None:
+    composer = PromptComposer(workspace=tmp_path, asset_resolver=None)
+
+    absent = composer.read_prompt_source_with_sha256(
+        {"input_file": "prompt.md"},
+        step_name="provider",
+        contract_violation_result=_contract_error,
+    )
+
+    assert (absent[0:2], absent[2]["context"]["reason"]) == (("", None), "input_file_read_failed")
+
+
+def test_prompt_input_empty_and_present_file_have_distinct_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -97,16 +109,6 @@ def test_prompt_input_absence_empty_and_present_file_have_distinct_evidence(
     step = {"input_file": "prompt.md"}
     path = tmp_path / "prompt.md"
     calls = _track_reads(monkeypatch, path)
-    absent = composer.read_prompt_source_with_sha256(
-        step,
-        step_name="provider",
-        contract_violation_result=_contract_error,
-    )
-    assert (absent, calls) == (("", None, None), [])
-    legacy_absent = composer.read_prompt_source(
-        step, step_name="provider", contract_violation_result=_contract_error
-    )
-    assert (legacy_absent, calls) == (("", None), [])
 
     path.write_bytes(b"")
     empty = composer.read_prompt_source_with_sha256(

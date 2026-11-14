@@ -385,8 +385,9 @@ every removed test is listed with the code it covered".
      variant-field fix branch does not change it).
    - added 2026-11-13 (fourth batch, each confirmed by an independent probe
      on `main`): a prompt declared with a missing `input_file` does not fail,
-     and the provider runs with no authored prompt (first in line with the
-     guard hole above: a paid call with no instruction); `defpath` silently
+     and the provider runs with no authored prompt (closed 2026-11-13,
+     `f004a59c`: a missing, unreadable or directory prompt file fails before
+     launch with `input_file_read_failed` or `asset_file_read_failed`); `defpath` silently
      ignores unknown keywords; return guidance on a workflow, procedure or
      function is checked and then discarded (an accepted form with no
      effect); a `Bool` result accepts the strings "true" and "false";
@@ -445,6 +446,14 @@ every removed test is listed with the code it covered".
      conditional effect used as a `match` subject each fail with
      `compiler_defect`; two refusal messages mislead (a parallel map in an
      `if` condition; `bind-proc` with an effect).
+   - added 2026-11-13 (tenth batch): `done` as a `let*` binding value inside
+     a loop fails with a `TypeError` in the elaborator (found by the
+     prototype of the mutant generator on three seed programs: by the scope
+     cut's own rule a defect a mutant hits returns to the fix list); after
+     `invalidate`, the refusal of `resume` suggests a bare
+     `--accept-changes`, which is itself refused `resume_preflight_failed`
+     (found by the re-review of the missing-prompt-file fix; not re-run on
+     `main` by the coordinator).
    The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
    (accepted 2026-11-13 after an independent review and one revision) orders
    this list by harm. By the owner's direction of 2026-11-13 it is cut to
