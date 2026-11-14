@@ -1,0 +1,3536 @@
+{
+  "sample": {
+    "programs": [
+      "designed",
+      "milestones",
+      "roles",
+      "staged"
+    ],
+    "operators": [
+      "effort",
+      "model",
+      "rounds",
+      "drop_step",
+      "prompt",
+      "graft"
+    ],
+    "cap": 100,
+    "number": 0,
+    "python": "3.13.9",
+    "mutants": 681
+  },
+  "operators": {
+    "effort": {
+      "mutants": 48,
+      "compiles": 48,
+      "refused": {},
+      "crash_keys": {},
+      "lines_50_or_more": 24
+    },
+    "model": {
+      "mutants": 24,
+      "compiles": 24,
+      "refused": {},
+      "crash_keys": {},
+      "lines_50_or_more": 12
+    },
+    "rounds": {
+      "mutants": 18,
+      "compiles": 18,
+      "refused": {},
+      "crash_keys": {},
+      "lines_50_or_more": 12
+    },
+    "drop_step": {
+      "mutants": 44,
+      "compiles": 10,
+      "refused": {
+        "name_unknown": 30,
+        "provider_result_provider_invalid": 4
+      },
+      "crash_keys": {},
+      "lines_50_or_more": 8
+    },
+    "prompt": {
+      "mutants": 147,
+      "compiles": 97,
+      "refused": {
+        "prompt_placeholder_missing": 50
+      },
+      "crash_keys": {},
+      "lines_50_or_more": 64
+    },
+    "graft": {
+      "mutants": 400,
+      "compiles": 26,
+      "refused": {
+        "return_type_mismatch": 4,
+        "name_unknown": 152,
+        "loop_recur_continue_outside_loop": 21,
+        "loop_recur_done_outside_loop": 22,
+        "record_field_unknown": 32,
+        "match_subject_not_union": 10,
+        "type_mismatch": 46,
+        "prompt_slot_type_mismatch": 6,
+        "loop_recur_done_type_mismatch": 18,
+        "loop_recur_missing_done": 22,
+        "if_condition_not_bool": 5,
+        "loop_recur_continue_type_mismatch": 16,
+        "loop_state_field_type_mismatch": 7,
+        "list_map_binder_invalid": 8,
+        "provider_result_provider_invalid": 2,
+        "loop_recur_result_type_invalid": 1,
+        "union_variant_unknown": 1
+      },
+      "crash_keys": {
+        "TypeError workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump": 1
+      },
+      "lines_50_or_more": 172
+    }
+  },
+  "distinct_digests": 223,
+  "equal_to_seed": 0,
+  "crashes": [
+    {
+      "key": [
+        "TypeError",
+        "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+      ],
+      "kinds": [
+        "crash"
+      ],
+      "mutants": 1,
+      "operators": [
+        "graft"
+      ],
+      "pairs": [
+        [
+          "graft",
+          "milestones"
+        ]
+      ],
+      "smallest": {
+        "name": "milestones/graft/21<-33",
+        "source": "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.40\")\n  (defmodule milestones)\n  (import common :only (Change CheckReport Outcome DocPath Spec Milestone Plan Verdict))\n  (export run)\n  ;; Candidate B. Guides, spec; then rounds of: plan, build each milestone (work, check, review), check, acceptance.\n  (defprompt guides (:fills (task :text) (repo :text)) -> Change\n    \"Work in the git repository at {repo} and nowhere else. Prepare it for the task below; do not start the task. Where the repository has no AGENTS.md, set the project up: the directories the task needs (source, tests, docs; no task code yet); AGENTS.md (how to build, test and check the work, the layout, the conventions, and the documentation rules below, so that every later step follows them); docs/index.md (the catalogue: every document, one line each with a link and what it is for, grouped by kind); docs/log.md (append-only; each entry starts `## [date] step | title` and says what was done and decided); docs/notes/ (one page per lasting topic: a decision, a component, a pitfall). Documentation rules: read docs/index.md first; put lasting knowledge in a page under docs/notes/ and revise that page rather than adding a second; list every new document in docs/index.md; append one entry to docs/log.md per step. Where the repository already has guides or code, change none of it: read it, add only the missing parts of this structure, and record in docs/notes/ what a newcomer needs. Leave dev-check.json alone.\\n\\nTask: {task}\\n\\nReport `summary`: one sentence. `account`: the files you wrote.\")\n  (defprompt specify (:fills (task :text) (repo :text)) -> Spec\n    \"Work in the git repository at {repo} and nowhere else. Read AGENTS.md and follow it. Write docs/spec.md (another name under docs/ if the repository already has that file): the task below as numbered targets T1, T2, ..., each one observable behaviour with the command or inspection that shows it holds. Write no code.\\n\\nTask: {task}\\n\\nReport `doc`: the path you wrote. `targets`: the target ids.\")\n  (defprompt plan (:fills (repo :text) (spec :path DocPath) (notes :value List[String])) -> Plan\n    \"Work in the git repository at {repo} and nowhere else. Read AGENTS.md and follow it. Write docs/plan.md, replacing your own earlier plan (another name under docs/ if the repository already had that file): the design in brief, then at most eight ordered milestones M1, M2, ..., each a small working increment that names the targets of {spec} it meets. Plan only what is not yet done. Reasons the last round was refused, empty on the first:\\n{notes}\\nWrite no code.\\n\\nReport `doc`: the path you wrote. `milestones`: each with `id`, `goal` and `targets`.\")\n  (defprompt work (:fills (repo :text) (milestone :value Milestone) (notes :value List[String])) -> Change\n    \"Work in the git repository at {repo} and nowhere else. Read AGENTS.md and follow it. Carry out this milestone of the plan and nothing beyond it; run the project's check as you go:\\n{milestone}\\nReasons your last attempt was refused, empty on the first; fix each one that is right:\\n{notes}\\n\\nRecord what you did and learned as AGENTS.md says (notes, index, log). Report `summary`: one sentence. `account`: what you changed and why.\")\n  (defprompt review (:fills (repo :text) (scope :value Milestone) (spec :path DocPath) (report :value CheckReport)) -> Verdict\n    \"Review the git repository at {repo}. Read the code; change nothing. Under review:\\n{scope}\\nThe visible check just reported:\\n{report}\\nMET if the goal is reached and each of its targets, as {spec} states them, holds; give the evidence per target. NOT_MET otherwise; each reason names the target or the gap, the input or scenario that goes wrong, and the check output that shows it.\")\n\n  (defworkflow milestone ((m Milestone) (repo String) (spec DocPath) (coder String) (reviewer String)) -> Verdict\n    (loop/recur :max 2 :state (loop-state (notes List[String] (list)))\n      :on-exhausted (variant Verdict NOT_MET :reasons state.notes)\n      (fn (state)\n        (let* ((change (provider-result providers.coder :model coder :effort \"medium\" :timeout-sec 3600\n                         :prompt (work :repo repo :milestone m :notes state.notes)))\n               (report (command-result dev-check :returns CheckReport))\n               (verdict (provider-result providers.reviewer :model reviewer :effort \"medium\" :timeout-sec 1200\n                          :prompt (review :repo repo :scope m :spec spec :report report))))\n          (match verdict\n            ((MET met) (done (variant Verdict MET :evidence met.evidence)))\n            ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons))))))))\n\n  (defworkflow run ((task String) (intent String) (repo String) (planner String) (coder String) (reviewer String)) -> Outcome\n    (let* ((ready (provider-result providers.planner :model planner :effort \"medium\" :timeout-sec 1200\n                    :prompt (guides :task task :repo repo)))\n           (spec (provider-result providers.planner :model planner :effort \"medium\" :timeout-sec 1200\n                   :prompt (specify :task task :repo repo)))\n           (whole (record Milestone :id \"all\" :goal intent :targets spec.targets)))\n      (loop/recur :max 2 :state (loop-state (notes List[String] (list)))\n        :on-exhausted (variant Outcome BLOCKED :reason \"acceptance round limit reached\")\n        (fn (state)\n          (let* ((plan (provider-result providers.planner :model planner :effort \"medium\" :timeout-sec 1200\n                         :prompt (plan :repo repo :spec spec.doc :notes state.notes)))\n                 (built (done (variant Outcome DONE :summary \"accepted\")))\n                 (report (command-result dev-check :returns CheckReport)))\n            (if (not report.passed)\n              (continue (loop-state :like state :notes (list/append report.failing report.excerpt)))\n              (let* ((acceptance (provider-result providers.reviewer :model reviewer :effort \"medium\" :timeout-sec 1200\n                                   :prompt (review :repo repo :scope whole :spec spec.doc :report report))))\n                (match acceptance\n                  ((MET met) (done (variant Outcome DONE :summary \"accepted\")))\n                  ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons))))))))))))\n"
+      },
+      "cause": "unsupported WCC control rewrite node: WccLoopDone",
+      "causes": {
+        "unsupported WCC control rewrite node: WccLoopDone": 1
+      }
+    }
+  ],
+  "reuse": [
+    {
+      "program": "designed",
+      "scenario": "clean",
+      "steps": 8,
+      "provider_calls": 7,
+      "priced_usd": null,
+      "priced_reason": "no attempt reported usage (stand-in run)",
+      "operators": {
+        "effort": {
+          "measured": 12,
+          "same_program": 0,
+          "plans": 12,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "no_plan": {},
+          "sites": {
+            "planner": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "coder": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "model": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "no_plan": {},
+          "sites": {
+            "planner": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "coder": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "rounds": {
+          "measured": 3,
+          "same_program": 0,
+          "plans": 3,
+          "steps_kept": {
+            "min": 8,
+            "median": 8,
+            "max": 8
+          },
+          "calls_kept": {
+            "min": 7,
+            "median": 7,
+            "max": 7
+          },
+          "no_plan": {},
+          "sites": {
+            "loop0": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 8,
+                "median": 8,
+                "max": 8
+              },
+              "calls_kept": {
+                "min": 7,
+                "median": 7,
+                "max": 7
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "drop_step": {
+          "measured": 2,
+          "same_program": 0,
+          "plans": 2,
+          "steps_kept": {
+            "min": 0,
+            "median": 2.5,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 2.5,
+            "max": 5
+          },
+          "no_plan": {},
+          "sites": {
+            "let0.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "let2.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "prompt": {
+          "measured": 34,
+          "same_program": 0,
+          "plans": 34,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.5,
+            "max": 8
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.5,
+            "max": 7
+          },
+          "no_plan": {},
+          "sites": {
+            "guides": {
+              "measured": 6,
+              "same_program": 0,
+              "plans": 6,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "specify": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "calls_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "no_plan": {}
+            },
+            "design": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 2,
+                "median": 2,
+                "max": 2
+              },
+              "calls_kept": {
+                "min": 2,
+                "median": 2,
+                "max": 2
+              },
+              "no_plan": {}
+            },
+            "critique": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "revise": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 8,
+                "median": 8,
+                "max": 8
+              },
+              "calls_kept": {
+                "min": 7,
+                "median": 7,
+                "max": 7
+              },
+              "no_plan": {}
+            },
+            "plan": {
+              "measured": 6,
+              "same_program": 0,
+              "plans": 6,
+              "steps_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "work": {
+              "measured": 5,
+              "same_program": 0,
+              "plans": 5,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "no_plan": {}
+            },
+            "review": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 7,
+                "median": 7,
+                "max": 7
+              },
+              "calls_kept": {
+                "min": 6,
+                "median": 6,
+                "max": 6
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "graft": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 0,
+            "median": 4.0,
+            "max": 7
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 4.0,
+            "max": 6
+          },
+          "no_plan": {},
+          "sites": {
+            "1": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "5": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "8": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "10": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "no_plan": {}
+            },
+            "16": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 7,
+                "median": 7,
+                "max": 7
+              },
+              "calls_kept": {
+                "min": 6,
+                "median": 6,
+                "max": 6
+              },
+              "no_plan": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "program": "designed",
+      "scenario": "acceptance-refused-once",
+      "steps": 11,
+      "provider_calls": 9,
+      "priced_usd": null,
+      "priced_reason": "no attempt reported usage (stand-in run)",
+      "operators": {
+        "effort": {
+          "measured": 12,
+          "same_program": 0,
+          "plans": 12,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "no_plan": {},
+          "sites": {
+            "planner": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "coder": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "model": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "no_plan": {},
+          "sites": {
+            "planner": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "coder": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "rounds": {
+          "measured": 3,
+          "same_program": 0,
+          "plans": 3,
+          "steps_kept": {
+            "min": 8,
+            "median": 11,
+            "max": 11
+          },
+          "calls_kept": {
+            "min": 7,
+            "median": 9,
+            "max": 9
+          },
+          "no_plan": {},
+          "sites": {
+            "loop0": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 8,
+                "median": 11,
+                "max": 11
+              },
+              "calls_kept": {
+                "min": 7,
+                "median": 9,
+                "max": 9
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "drop_step": {
+          "measured": 2,
+          "same_program": 0,
+          "plans": 2,
+          "steps_kept": {
+            "min": 0,
+            "median": 2.5,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 2.5,
+            "max": 5
+          },
+          "no_plan": {},
+          "sites": {
+            "let0.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "let2.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "prompt": {
+          "measured": 34,
+          "same_program": 0,
+          "plans": 34,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.5,
+            "max": 11
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.5,
+            "max": 9
+          },
+          "no_plan": {},
+          "sites": {
+            "guides": {
+              "measured": 6,
+              "same_program": 0,
+              "plans": 6,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "specify": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "calls_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "no_plan": {}
+            },
+            "design": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 2,
+                "median": 2,
+                "max": 2
+              },
+              "calls_kept": {
+                "min": 2,
+                "median": 2,
+                "max": 2
+              },
+              "no_plan": {}
+            },
+            "critique": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "revise": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 11,
+                "median": 11,
+                "max": 11
+              },
+              "calls_kept": {
+                "min": 9,
+                "median": 9,
+                "max": 9
+              },
+              "no_plan": {}
+            },
+            "plan": {
+              "measured": 6,
+              "same_program": 0,
+              "plans": 6,
+              "steps_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "work": {
+              "measured": 5,
+              "same_program": 0,
+              "plans": 5,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "no_plan": {}
+            },
+            "review": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 7,
+                "median": 7,
+                "max": 7
+              },
+              "calls_kept": {
+                "min": 6,
+                "median": 6,
+                "max": 6
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "graft": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 0,
+            "median": 4.0,
+            "max": 7
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 4.0,
+            "max": 6
+          },
+          "no_plan": {},
+          "sites": {
+            "1": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "5": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "8": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "10": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "no_plan": {}
+            },
+            "16": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 7,
+                "median": 7,
+                "max": 7
+              },
+              "calls_kept": {
+                "min": 6,
+                "median": 6,
+                "max": 6
+              },
+              "no_plan": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "program": "milestones",
+      "scenario": "clean",
+      "steps": 11,
+      "provider_calls": 8,
+      "priced_usd": null,
+      "priced_reason": "no attempt reported usage (stand-in run)",
+      "operators": {
+        "effort": {
+          "measured": 12,
+          "same_program": 0,
+          "plans": 12,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "coder": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "planner": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "model": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "coder": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "planner": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "rounds": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 11,
+            "median": 11.0,
+            "max": 11
+          },
+          "calls_kept": {
+            "min": 8,
+            "median": 8.0,
+            "max": 8
+          },
+          "no_plan": {},
+          "sites": {
+            "loop0": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 11,
+                "median": 11,
+                "max": 11
+              },
+              "calls_kept": {
+                "min": 8,
+                "median": 8,
+                "max": 8
+              },
+              "no_plan": {}
+            },
+            "loop1": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 11,
+                "median": 11,
+                "max": 11
+              },
+              "calls_kept": {
+                "min": 8,
+                "median": 8,
+                "max": 8
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "drop_step": {
+          "measured": 3,
+          "same_program": 0,
+          "plans": 3,
+          "steps_kept": {
+            "min": 0,
+            "median": 3,
+            "max": 3
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3,
+            "max": 3
+          },
+          "no_plan": {},
+          "sites": {
+            "let0.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "let1.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "let2.1": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "prompt": {
+          "measured": 21,
+          "same_program": 0,
+          "plans": 21,
+          "steps_kept": {
+            "min": 0,
+            "median": 2,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 2,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "guides": {
+              "measured": 6,
+              "same_program": 0,
+              "plans": 6,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "specify": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "calls_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "no_plan": {}
+            },
+            "plan": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 2,
+                "median": 2.0,
+                "max": 2
+              },
+              "calls_kept": {
+                "min": 2,
+                "median": 2.0,
+                "max": 2
+              },
+              "no_plan": {}
+            },
+            "work": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "review": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "graft": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 10
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 7
+          },
+          "no_plan": {},
+          "sites": {
+            "13": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "16": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 2,
+                "median": 2,
+                "max": 2
+              },
+              "calls_kept": {
+                "min": 2,
+                "median": 2,
+                "max": 2
+              },
+              "no_plan": {}
+            },
+            "21": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "22": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "23": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "25": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 10,
+                "median": 10,
+                "max": 10
+              },
+              "calls_kept": {
+                "min": 7,
+                "median": 7,
+                "max": 7
+              },
+              "no_plan": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "program": "milestones",
+      "scenario": "review-rejects-once",
+      "steps": 14,
+      "provider_calls": 10,
+      "priced_usd": null,
+      "priced_reason": "no attempt reported usage (stand-in run)",
+      "operators": {
+        "effort": {
+          "measured": 12,
+          "same_program": 0,
+          "plans": 12,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "coder": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "planner": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "model": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "coder": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "planner": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "rounds": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 9,
+            "median": 14.0,
+            "max": 14
+          },
+          "calls_kept": {
+            "min": 7,
+            "median": 10.0,
+            "max": 10
+          },
+          "no_plan": {},
+          "sites": {
+            "loop0": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 9,
+                "median": 14,
+                "max": 14
+              },
+              "calls_kept": {
+                "min": 7,
+                "median": 10,
+                "max": 10
+              },
+              "no_plan": {}
+            },
+            "loop1": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 14,
+                "median": 14,
+                "max": 14
+              },
+              "calls_kept": {
+                "min": 10,
+                "median": 10,
+                "max": 10
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "drop_step": {
+          "measured": 3,
+          "same_program": 0,
+          "plans": 3,
+          "steps_kept": {
+            "min": 0,
+            "median": 3,
+            "max": 3
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3,
+            "max": 3
+          },
+          "no_plan": {},
+          "sites": {
+            "let0.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "let1.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "let2.1": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "prompt": {
+          "measured": 21,
+          "same_program": 0,
+          "plans": 21,
+          "steps_kept": {
+            "min": 0,
+            "median": 2,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 2,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "guides": {
+              "measured": 6,
+              "same_program": 0,
+              "plans": 6,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "specify": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "calls_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "no_plan": {}
+            },
+            "plan": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 2,
+                "median": 2.0,
+                "max": 2
+              },
+              "calls_kept": {
+                "min": 2,
+                "median": 2.0,
+                "max": 2
+              },
+              "no_plan": {}
+            },
+            "work": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "review": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "graft": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 13
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 9
+          },
+          "no_plan": {},
+          "sites": {
+            "13": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "16": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 2,
+                "median": 2,
+                "max": 2
+              },
+              "calls_kept": {
+                "min": 2,
+                "median": 2,
+                "max": 2
+              },
+              "no_plan": {}
+            },
+            "21": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "22": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "23": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "25": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 13,
+                "median": 13,
+                "max": 13
+              },
+              "calls_kept": {
+                "min": 9,
+                "median": 9,
+                "max": 9
+              },
+              "no_plan": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "program": "roles",
+      "scenario": "clean",
+      "steps": 17,
+      "provider_calls": 8,
+      "priced_usd": null,
+      "priced_reason": "no attempt reported usage (stand-in run)",
+      "operators": {
+        "effort": {
+          "measured": 12,
+          "same_program": 0,
+          "plans": 0,
+          "steps_kept": null,
+          "calls_kept": null,
+          "no_plan": {
+            "invalidate_coordinator_committed": 12
+          },
+          "sites": {
+            "coder": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            },
+            "reviewer": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            },
+            "planner": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            }
+          }
+        },
+        "model": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 3,
+          "steps_kept": {
+            "min": 17,
+            "median": 17,
+            "max": 17
+          },
+          "calls_kept": {
+            "min": 8,
+            "median": 8,
+            "max": 8
+          },
+          "no_plan": {
+            "invalidate_coordinator_committed": 3
+          },
+          "sites": {
+            "coder": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 17,
+                "median": 17,
+                "max": 17
+              },
+              "calls_kept": {
+                "min": 8,
+                "median": 8,
+                "max": 8
+              },
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "reviewer": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 17,
+                "median": 17,
+                "max": 17
+              },
+              "calls_kept": {
+                "min": 8,
+                "median": 8,
+                "max": 8
+              },
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "planner": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 17,
+                "median": 17,
+                "max": 17
+              },
+              "calls_kept": {
+                "min": 8,
+                "median": 8,
+                "max": 8
+              },
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            }
+          }
+        },
+        "rounds": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 17,
+            "median": 17.0,
+            "max": 17
+          },
+          "calls_kept": {
+            "min": 8,
+            "median": 8.0,
+            "max": 8
+          },
+          "no_plan": {},
+          "sites": {
+            "loop0": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 17,
+                "median": 17,
+                "max": 17
+              },
+              "calls_kept": {
+                "min": 8,
+                "median": 8,
+                "max": 8
+              },
+              "no_plan": {}
+            },
+            "loop1": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 17,
+                "median": 17,
+                "max": 17
+              },
+              "calls_kept": {
+                "min": 8,
+                "median": 8,
+                "max": 8
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "drop_step": {
+          "measured": 3,
+          "same_program": 0,
+          "plans": 0,
+          "steps_kept": null,
+          "calls_kept": null,
+          "no_plan": {
+            "invalidate_coordinator_committed": 3
+          },
+          "sites": {
+            "let1.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "let2.2": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "let3.1": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            }
+          }
+        },
+        "prompt": {
+          "measured": 21,
+          "same_program": 0,
+          "plans": 0,
+          "steps_kept": null,
+          "calls_kept": null,
+          "no_plan": {
+            "invalidate_coordinator_committed": 21
+          },
+          "sites": {
+            "guides": {
+              "measured": 6,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 6
+              }
+            },
+            "specify": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            },
+            "plan": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            },
+            "work": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            },
+            "review": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 3
+              }
+            }
+          }
+        },
+        "graft": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 0,
+          "steps_kept": null,
+          "calls_kept": null,
+          "no_plan": {
+            "invalidate_coordinator_committed": 6
+          },
+          "sites": {
+            "7": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "21": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "27": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 2
+              }
+            },
+            "28": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "30": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "program": "roles",
+      "scenario": "review-rejects-once",
+      "steps": 20,
+      "provider_calls": 10,
+      "priced_usd": null,
+      "priced_reason": "no attempt reported usage (stand-in run)",
+      "operators": {
+        "effort": {
+          "measured": 12,
+          "same_program": 0,
+          "plans": 0,
+          "steps_kept": null,
+          "calls_kept": null,
+          "no_plan": {
+            "invalidate_coordinator_committed": 12
+          },
+          "sites": {
+            "coder": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            },
+            "reviewer": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            },
+            "planner": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            }
+          }
+        },
+        "model": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 3,
+          "steps_kept": {
+            "min": 20,
+            "median": 20,
+            "max": 20
+          },
+          "calls_kept": {
+            "min": 10,
+            "median": 10,
+            "max": 10
+          },
+          "no_plan": {
+            "invalidate_coordinator_committed": 3
+          },
+          "sites": {
+            "coder": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 20,
+                "median": 20,
+                "max": 20
+              },
+              "calls_kept": {
+                "min": 10,
+                "median": 10,
+                "max": 10
+              },
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "reviewer": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 20,
+                "median": 20,
+                "max": 20
+              },
+              "calls_kept": {
+                "min": 10,
+                "median": 10,
+                "max": 10
+              },
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "planner": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 20,
+                "median": 20,
+                "max": 20
+              },
+              "calls_kept": {
+                "min": 10,
+                "median": 10,
+                "max": 10
+              },
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            }
+          }
+        },
+        "rounds": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 5,
+          "steps_kept": {
+            "min": 20,
+            "median": 20,
+            "max": 20
+          },
+          "calls_kept": {
+            "min": 10,
+            "median": 10,
+            "max": 10
+          },
+          "no_plan": {
+            "invalidate_coordinator_committed": 1
+          },
+          "sites": {
+            "loop0": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 20,
+                "median": 20.0,
+                "max": 20
+              },
+              "calls_kept": {
+                "min": 10,
+                "median": 10.0,
+                "max": 10
+              },
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "loop1": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 20,
+                "median": 20,
+                "max": 20
+              },
+              "calls_kept": {
+                "min": 10,
+                "median": 10,
+                "max": 10
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "drop_step": {
+          "measured": 3,
+          "same_program": 0,
+          "plans": 0,
+          "steps_kept": null,
+          "calls_kept": null,
+          "no_plan": {
+            "invalidate_coordinator_committed": 3
+          },
+          "sites": {
+            "let1.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "let2.2": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "let3.1": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            }
+          }
+        },
+        "prompt": {
+          "measured": 21,
+          "same_program": 0,
+          "plans": 0,
+          "steps_kept": null,
+          "calls_kept": null,
+          "no_plan": {
+            "invalidate_coordinator_committed": 21
+          },
+          "sites": {
+            "guides": {
+              "measured": 6,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 6
+              }
+            },
+            "specify": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            },
+            "plan": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            },
+            "work": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 4
+              }
+            },
+            "review": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 3
+              }
+            }
+          }
+        },
+        "graft": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 0,
+          "steps_kept": null,
+          "calls_kept": null,
+          "no_plan": {
+            "invalidate_coordinator_committed": 6
+          },
+          "sites": {
+            "7": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "21": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "27": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 2
+              }
+            },
+            "28": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            },
+            "30": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 0,
+              "steps_kept": null,
+              "calls_kept": null,
+              "no_plan": {
+                "invalidate_coordinator_committed": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "program": "staged",
+      "scenario": "clean",
+      "steps": 6,
+      "provider_calls": 5,
+      "priced_usd": null,
+      "priced_reason": "no attempt reported usage (stand-in run)",
+      "operators": {
+        "effort": {
+          "measured": 12,
+          "same_program": 0,
+          "plans": 12,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "planner": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "coder": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "model": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "planner": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "coder": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "rounds": {
+          "measured": 3,
+          "same_program": 0,
+          "plans": 3,
+          "steps_kept": {
+            "min": 6,
+            "median": 6,
+            "max": 6
+          },
+          "calls_kept": {
+            "min": 5,
+            "median": 5,
+            "max": 5
+          },
+          "no_plan": {},
+          "sites": {
+            "loop0": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 6,
+                "median": 6,
+                "max": 6
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "drop_step": {
+          "measured": 2,
+          "same_program": 0,
+          "plans": 2,
+          "steps_kept": {
+            "min": 0,
+            "median": 1.5,
+            "max": 3
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 1.5,
+            "max": 3
+          },
+          "no_plan": {},
+          "sites": {
+            "let0.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "let1.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "prompt": {
+          "measured": 21,
+          "same_program": 0,
+          "plans": 21,
+          "steps_kept": {
+            "min": 0,
+            "median": 2,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 2,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "guides": {
+              "measured": 6,
+              "same_program": 0,
+              "plans": 6,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "specify": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "calls_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "no_plan": {}
+            },
+            "plan": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 2,
+                "median": 2.0,
+                "max": 2
+              },
+              "calls_kept": {
+                "min": 2,
+                "median": 2.0,
+                "max": 2
+              },
+              "no_plan": {}
+            },
+            "work": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "review": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "graft": {
+          "measured": 8,
+          "same_program": 0,
+          "plans": 8,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 6
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "no_plan": {},
+          "sites": {
+            "1": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "7": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 6,
+                "median": 6,
+                "max": 6
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "no_plan": {}
+            },
+            "9": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "11": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "18": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 6,
+                "median": 6,
+                "max": 6
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "no_plan": {}
+            }
+          }
+        }
+      }
+    },
+    {
+      "program": "staged",
+      "scenario": "review-rejects-once",
+      "steps": 9,
+      "provider_calls": 7,
+      "priced_usd": null,
+      "priced_reason": "no attempt reported usage (stand-in run)",
+      "operators": {
+        "effort": {
+          "measured": 12,
+          "same_program": 0,
+          "plans": 12,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "planner": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "coder": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "model": {
+          "measured": 6,
+          "same_program": 0,
+          "plans": 6,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "planner": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "coder": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "reviewer": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 5,
+                "median": 5.0,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4.0,
+                "max": 4
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "rounds": {
+          "measured": 3,
+          "same_program": 0,
+          "plans": 3,
+          "steps_kept": {
+            "min": 6,
+            "median": 9,
+            "max": 9
+          },
+          "calls_kept": {
+            "min": 5,
+            "median": 7,
+            "max": 7
+          },
+          "no_plan": {},
+          "sites": {
+            "loop0": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 6,
+                "median": 9,
+                "max": 9
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 7,
+                "max": 7
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "drop_step": {
+          "measured": 2,
+          "same_program": 0,
+          "plans": 2,
+          "steps_kept": {
+            "min": 0,
+            "median": 1.5,
+            "max": 3
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 1.5,
+            "max": 3
+          },
+          "no_plan": {},
+          "sites": {
+            "let0.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "let1.0": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "prompt": {
+          "measured": 21,
+          "same_program": 0,
+          "plans": 21,
+          "steps_kept": {
+            "min": 0,
+            "median": 2,
+            "max": 5
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 2,
+            "max": 4
+          },
+          "no_plan": {},
+          "sites": {
+            "guides": {
+              "measured": 6,
+              "same_program": 0,
+              "plans": 6,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "specify": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "calls_kept": {
+                "min": 1,
+                "median": 1.0,
+                "max": 1
+              },
+              "no_plan": {}
+            },
+            "plan": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 2,
+                "median": 2.0,
+                "max": 2
+              },
+              "calls_kept": {
+                "min": 2,
+                "median": 2.0,
+                "max": 2
+              },
+              "no_plan": {}
+            },
+            "work": {
+              "measured": 4,
+              "same_program": 0,
+              "plans": 4,
+              "steps_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3.0,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "review": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "no_plan": {}
+            }
+          }
+        },
+        "graft": {
+          "measured": 8,
+          "same_program": 0,
+          "plans": 8,
+          "steps_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 9
+          },
+          "calls_kept": {
+            "min": 0,
+            "median": 3.0,
+            "max": 7
+          },
+          "no_plan": {},
+          "sites": {
+            "1": {
+              "measured": 2,
+              "same_program": 0,
+              "plans": 2,
+              "steps_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "calls_kept": {
+                "min": 0,
+                "median": 0.0,
+                "max": 0
+              },
+              "no_plan": {}
+            },
+            "7": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 9,
+                "median": 9,
+                "max": 9
+              },
+              "calls_kept": {
+                "min": 7,
+                "median": 7,
+                "max": 7
+              },
+              "no_plan": {}
+            },
+            "9": {
+              "measured": 3,
+              "same_program": 0,
+              "plans": 3,
+              "steps_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "calls_kept": {
+                "min": 3,
+                "median": 3,
+                "max": 3
+              },
+              "no_plan": {}
+            },
+            "11": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "calls_kept": {
+                "min": 4,
+                "median": 4,
+                "max": 4
+              },
+              "no_plan": {}
+            },
+            "18": {
+              "measured": 1,
+              "same_program": 0,
+              "plans": 1,
+              "steps_kept": {
+                "min": 6,
+                "median": 6,
+                "max": 6
+              },
+              "calls_kept": {
+                "min": 5,
+                "median": 5,
+                "max": 5
+              },
+              "no_plan": {}
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -611,6 +611,13 @@ def test_the_readout_keys_are_the_documented_ones(tmp_path):
     assert list(report) == documented
 
 
+def test_the_committed_readout_has_the_documented_keys():
+    # The readout of Task T5 is made with `--standin`, so it also holds `reuse`.
+    documented = re.findall(r"^- `(\w+)`:", check.__doc__, re.MULTILINE)
+    readout = json.loads(check.READOUT.read_text(encoding="utf-8"))
+    assert list(readout) == [*documented, "reuse"]
+
+
 def test_digests_and_long_mutants_are_counted(tmp_path, monkeypatch):
     # Three layout-only mutants compile to the seed's digest; two copies of one bound share a digest.
     bound = next(mutation for mutation in operators.rounds(SEED) if mutation.params == "loop0=3")
