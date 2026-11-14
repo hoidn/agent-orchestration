@@ -4574,13 +4574,12 @@ class _Checker:
                     value = policy["timeout_sec"]
                     actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                     self._require_type(actual, int_type, "effect_shape", node)
-                    if (
-                        not isinstance(value, Mapping)
-                        or value.get("k") != "lit"
-                        or type(value.get("v")) is not int
-                        or value["v"] <= 0
-                    ):
-                        self.fail("effect_shape", "provider timeout must be a positive Int literal", node)
+                    literal = (isinstance(value, Mapping) and value.get("k") == "lit"
+                               and type(value.get("v")) is int and value["v"] > 0)
+                    # A composed call takes a name or a field; a value below 1 refuses the step at its input.
+                    inline = effect_class == "provider" and isinstance(value, Mapping) and value.get("k") in {"name", "field"}
+                    if not literal and not inline:
+                        self.fail("effect_shape", "provider timeout must be a positive Int literal, or a name or a field of a composed call", node)
                 if "delivery" in policy:
                     value = policy["delivery"]
                     expected_delivery = "phased" if effect_class == "provider_phased" else "composed"

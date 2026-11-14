@@ -189,6 +189,10 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
     policy_count = len(node["policy"])
     policy_values = values[-policy_count:] if policy_count else ()
     policy = dict(zip(node["policy"], policy_values, strict=True))
+    # A timeout from a name or a field is checked here, before `started`; a literal one at compile time.
+    if policy.get("timeout_sec", 1) < 1:
+        raise ProviderPerformerError("provider_timeout_nonpositive",
+                                     f"provider timeout must be positive; value={policy['timeout_sec']}, minimum=1")
     cut = assemble_provider_prompt_with_cut(
         node, operands, source_text=reads.source_text,
         dependency_snapshot=reads.dependency_snapshot, result_path=result_path, logical_workspace=logical_workspace,

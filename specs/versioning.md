@@ -1334,7 +1334,8 @@ contracts or authorize provider spend.
 
 Under versioning rule 2 as ruled on 2026-11-12, a change that admits source refused before and moves
 no closed program, digest or effect identity of source that compiles adds no target. One entry per
-change of the [surface-coherence design](../docs/design/workflow_lisp_surface_coherence.md):
+change of the [surface-coherence design](../docs/design/workflow_lisp_surface_coherence.md) and of
+the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workflow_authoring.md):
 
 - **C1, a local called by name.** A `let-proc` local that declares its signature is called by
   name with positional arguments and builds the program of its alias call
@@ -1372,6 +1373,16 @@ change of the [surface-coherence design](../docs/design/workflow_lisp_surface_co
   before (a serial map after its first `:max` items, a parallel map before any); a computed `:max`
   below 1 fails the same way over a non-empty list, and an empty list gives the empty list. A
   parallel map may be written directly in a serial map or loop body. Every program that compiled
+  before keeps its closed program, digest and identities, and its recorded runs resume.
+- **T, a provider timeout from a name.** The `:timeout-sec` of a composed `provider-result` or
+  of an agent turn is an `Int` literal of at least 1, or a name or a field with no effect (a
+  workflow input, a `let*` name, a record field, a procedure or `bind-proc` parameter); its value
+  enters the step's `policy` part, so a value that changes between a run and its resume diverges
+  the step. A value below 1 from a name or a field refuses the step when it resolves its input,
+  with `provider_timeout_nonpositive`: exit 1 during a run, nothing launched and no `started`
+  record, as for the other refusals before `started` in the [CLI diagnostics](cli.md). A computed
+  expression stays `provider_result_timeout_literal_required`, and so does any operand but a
+  literal on a phased call, whose deadline is read before its inputs. Every program that compiled
   before keeps its closed program, digest and identities, and its recorded runs resume.
 
 ### Run-time corrections without a new target

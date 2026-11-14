@@ -41,6 +41,7 @@ from .prompts import (
 )
 from .type_env import PathTypeRef, PrimitiveTypeRef, UnionTypeRef, type_refs_compatible
 from .typecheck_context import (
+    TypedExpr,
     raise_error,
     raise_required_lint,
     raise_run_ref_placement_invalid,
@@ -632,6 +633,32 @@ def is_macro_introduced_effect(
     return False
 
 
+def _check_provider_timeout(operand: ExprNode, typed: TypedExpr, *, phased: bool) -> None:
+    """`:timeout-sec` is an `Int` literal of at least 1, or, on a composed call, a name or a field with no effect.
+
+    The phased deadline is read from the checked node before any input is resolved, so it stays a literal; a
+    value below 1 from a name or a field is refused when the step resolves its input."""
+    def refuse(message: str, code: str) -> None:
+        raise_error(message, code=code, span=operand.span, form_path=operand.form_path,
+                    expansion_stack=operand.expansion_stack)
+
+    int_type = PrimitiveTypeRef(name="Int")
+    if isinstance(operand, LiteralExpr):
+        if typed.type_ref != int_type or type(operand.value) is not int:
+            refuse("`provider-result :timeout-sec` must have type `Int`", "provider_result_timeout_type_invalid")
+        if operand.value <= 0:
+            refuse(f"`provider-result :timeout-sec` must be positive; value={operand.value}, minimum=1",
+                   "provider_result_timeout_nonpositive")
+        return
+    summary = typed.effect_summary
+    if (phased or not isinstance(operand, (NameExpr, FieldAccessExpr))
+            or summary.direct_effects or summary.transitive_effects):
+        refuse("`provider-result :timeout-sec` requires an integer literal, or a name or a field on a composed call",
+               "provider_result_timeout_literal_required")
+    if typed.type_ref != int_type:
+        refuse("`provider-result :timeout-sec` must have type `Int`", "provider_result_timeout_type_invalid")
+
+
 def typecheck_provider_result_expr(
     expr: ProviderResultExpr,
     *,
@@ -1021,41 +1048,7 @@ def typecheck_provider_result_expr(
         policy_summaries.append(typed_policy.effect_summary)
     if expr.timeout_sec is not None:
         typed_timeout = recurse(expr.timeout_sec)
-        if not isinstance(expr.timeout_sec, LiteralExpr):
-            raise_error(
-                "`provider-result :timeout-sec` requires an integer literal",
-                code="provider_result_timeout_literal_required",
-                span=expr.timeout_sec.span,
-                form_path=expr.timeout_sec.form_path,
-                expansion_stack=expr.timeout_sec.expansion_stack,
-            )
-        if typed_timeout.type_ref != PrimitiveTypeRef(name="Int"):
-            raise_error(
-                "`provider-result :timeout-sec` literal must have type `Int`",
-                code="provider_result_timeout_type_invalid",
-                span=expr.timeout_sec.span,
-                form_path=expr.timeout_sec.form_path,
-                expansion_stack=expr.timeout_sec.expansion_stack,
-            )
-        if not isinstance(expr.timeout_sec.value, int) or isinstance(expr.timeout_sec.value, bool):
-            raise_error(
-                "`provider-result :timeout-sec` literal must have type `Int`",
-                code="provider_result_timeout_type_invalid",
-                span=expr.timeout_sec.span,
-                form_path=expr.timeout_sec.form_path,
-                expansion_stack=expr.timeout_sec.expansion_stack,
-            )
-        if expr.timeout_sec.value <= 0:
-            raise_error(
-                (
-                    "`provider-result :timeout-sec` must be positive; "
-                    f"value={expr.timeout_sec.value}, minimum=1"
-                ),
-                code="provider_result_timeout_nonpositive",
-                span=expr.timeout_sec.span,
-                form_path=expr.timeout_sec.form_path,
-                expansion_stack=expr.timeout_sec.expansion_stack,
-            )
+        _check_provider_timeout(expr.timeout_sec, typed_timeout, phased=phased)
         policy_summaries.append(typed_timeout.effect_summary)
     if phased and expr.timeout_sec is None:
         raise_error(

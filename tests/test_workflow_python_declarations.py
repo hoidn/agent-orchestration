@@ -145,6 +145,19 @@ def test_prompt_kinds_and_externs_compile(tmp_path):
     assert built.typed_program.entry.signature.return_type_ref.name.endswith("Result")
 
 
+def test_provider_timeout_from_a_workflow_input_emits_a_name_and_builds(tmp_path):
+    _, generated, built = compile_source(tmp_path, '''
+    ask = Prompt(text="Answer {task}", fills={"task": Text}, returns=str)
+    agent = Provider("review")
+    @workflow
+    def run(task: str, limit: int) -> str:
+        return agent(ask(task=task), timeout_sec=limit)
+    ''', providers={"providers.review": "codex"})
+    (effect,) = [node for node in nodes(built.program.tree) if node.get("k") == "perform"]
+    assert ":timeout-sec limit" in generated.source_path.read_text()
+    assert (effect["policy"]["timeout_sec"]["k"], effect["policy"]["timeout_sec"]["n"]) == ("name", "limit")
+
+
 def test_provider_order_reuse_and_ignored_call(tmp_path):
     _, _, built = compile_source(tmp_path, '''
     prompt1 = Prompt(text="First {task}", fills={"task": Text}, returns=str)
