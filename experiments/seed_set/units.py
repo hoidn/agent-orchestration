@@ -183,11 +183,12 @@ def call_cost(call, table):
 
 
 def cap_command(script, usd):
-    """Append the runtime's own spend cap, `--max-cost-usd`, to the harness's one-line run command."""
+    """End the harness's one-line run command with the runtime's own spend cap, `--max-cost-usd` (replacing the cap
+    an earlier, refused start of the same judge wrote)."""
     text = Path(script).read_text()
     if text.count("\n") != 1 or " -m orchestrator run " not in text:
         raise SystemExit(f"{script} is not the harness's one-line run command; no cap can be passed")
-    Path(script).write_text(f"{text.rstrip()} --max-cost-usd {usd:.6g}\n")
+    Path(script).write_text(re.sub(r" --max-cost-usd \S+$", "", text.rstrip()) + f" --max-cost-usd {usd:.6g}\n")
 
 
 def disable_resume(*scripts):

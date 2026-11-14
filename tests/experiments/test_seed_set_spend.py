@@ -537,6 +537,14 @@ def test_a_call_refused_by_the_call_cap_costs_nothing(tmp_path):
     assert units.priced(records, TABLE, 0.5) == {"usd": 0.0036, "missing": [], "calls": {"1": 0.0036}}  # 6 places
 
 
+def test_the_runtime_cap_ends_the_run_command_once(tmp_path):
+    script = tmp_path / "score-h.sh"
+    script.write_text("cd /j && env A=1 python -P -m orchestrator run score.orc --state-dir /j/state\n")
+    for usd in (0.5, 0.75):  # a refused start, then the start
+        units.cap_command(script, usd)
+    assert script.read_text().split()[-4:] == ["--state-dir", "/j/state", "--max-cost-usd", "0.75"]
+
+
 def spend_terms(runner, **change):
     write_frozen_criterion(runner, spend={**SPEND_TERMS, **change})
 

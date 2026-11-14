@@ -198,9 +198,9 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
     try:
         ceiling, per_call, pin = layout.spend_terms(study, tranche, spec["model"])
         cli = rules.check_cli(record["sandbox"]["declaration"], pin)
+        units.cap_command(records / "command.sh", spec["max_calls"] * per_call)
         spend.reserve(study.ledger, tranche, "candidate", spec["model"], spec["max_calls"], records,
                       limit=limit, price=(ceiling, per_call), task=task, arm=arm, cli=cli, **extra)
-        units.cap_command(records / "command.sh", spec["max_calls"] * per_call)
     except SystemExit:
         (records / "study.json").unlink()  # refused: nothing started, nothing left on disk
         shutil.rmtree(record["tree"])
@@ -388,9 +388,9 @@ def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     judged = blinding.judged_patches(out, mapping)  # what this judge reads, bound to its ratings in the readout
     ceiling, per_call, pin = layout.spend_terms(study, tranche, model)
     cli = rules.check_cli(mapping["judges"][model]["sandbox"]["declaration"], pin)
+    units.cap_command(records / f"score-{model}.sh", batches * per_call)
     spend.reserve(study.ledger, tranche, "judge", model, batches, f"{out}#{model}", price=(ceiling, per_call),
                   task=task, pool=kind, cli=cli)
-    units.cap_command(records / f"score-{model}.sh", batches * per_call)
     start, home = time.time(), mapping["judges"][model]["sandbox"]["home"]
     units.copy_credentials(home)  # the pool keeps none; the judge's own home holds them for its launch only
     try:
