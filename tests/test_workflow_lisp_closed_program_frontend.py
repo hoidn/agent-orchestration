@@ -39,15 +39,14 @@ BOUNDARIES = {
 
 
 @pytest.mark.parametrize("procedure", [False, True])
-@pytest.mark.parametrize("target", ["2.40"])
-def test_source_free_short_command_keeps_producer_binding(tmp_path, procedure, target):
+def test_source_free_short_command_keeps_producer_binding(tmp_path, procedure):
     from orchestrator.workflow_lisp.expressions import CommandResultExpr
 
     producer = tmp_path / "producer.orc"
     command = '(command-result inspect :returns Int)'
     helper = (f'(defproc probe () -> Int {command})'
               if procedure else '')
-    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
+    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
       (defmodule producer) (export run) {helper}
       (defworkflow run () -> Int {"(probe)" if procedure else command}))''')
     (tmp_path / "original.py").write_text("print(1)\n")
