@@ -140,6 +140,13 @@ KNOWN: dict[str, tuple] = {
     "B7-free-eff": crash("ValueError", CAPTURE_REQUESTS + "register_request"), "B7-free-pure": CAPTURED_COMMAND,
     "B7-free-arg": crash("ValueError", CAPTURE_REQUESTS + "register_request"),
     "B7-same-written": refused("procedure_lowering_unresolved"), "B7-same-ref": refused("procedure_lowering_unresolved"),
+    "B7-macro-if": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"),
+    "B7-macro-let": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"),
+    "B7-macro-match": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"),
+    "B7-macro-loop": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"),
+    "B7-macro-or": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"),
+    "B7-macro-defun": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"),
+    "B7-macro-if-pure": value(303),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
@@ -182,6 +189,13 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "B7-ref": ("value", 103103),
     "B7-same-written": ("refused", "procedure_lowering_unresolved"),
     "B7-same-ref": ("refused", "procedure_lowering_unresolved"),
+    "B7-macro-if": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>.visit_reference_owner"),
+    "B7-macro-let": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>.visit_reference_owner"),
+    "B7-macro-match": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>.visit_reference_owner"),
+    "B7-macro-loop": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>.visit_reference_owner"),
+    "B7-macro-or": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>.visit_reference_owner"),
+    "B7-macro-defun": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>.visit_reference_owner"),
+    "B7-macro-if-pure": ("value", 303),
     "C1": ("value", 7, "libw"),
     "D1": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D2": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
@@ -280,6 +294,13 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "B7-same-macro": ("value", 104104),
     "B7-same-written": ("value", 104104),
     "B7-same-ref": ("value", 103103),
+    "B7-macro-if": ("value", 110103),
+    "B7-macro-let": ("value", 110104),
+    "B7-macro-match": ("value", 110104),
+    "B7-macro-loop": ("value", 110104),
+    "B7-macro-or": ("value", 110103),
+    "B7-macro-defun": ("value", 117105),
+    "B7-macro-if-pure": ("value", 1003),
     "B7-written": ("value", 204104),
     "C1": ("refused", "procedure_effect_ceiling_exceeded"),
     "C1-local": ("refused", "procedure_effect_ceiling_exceeded"),
@@ -532,6 +553,10 @@ B7_WRITTEN = "(inc1 (bind-proc (proc-ref foo) :runner (workflow-ref W)) input)"
 B7_HELPER = "(defproc helper ((fixed Int) (y Int)) -> Int (+ fixed y))"
 B7_APPLYI = "(defproc applyi ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))"
 B7_BF = "(defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (+ k 0)) x))"
+B7_FWK = "(defproc fwk ((k Int) (y Int)) -> Int (let* ((r (call c1 :input (record Box :n (+ y k))))) r.n))"
+B7_U = "(defunion U (A (n Int)) (B (n Int)))"
+B7_DBL = "(defun dbl ((x Int)) -> Int (* x 2))"
+B7_TWICE = "((n Int)) -> Int (+ (bv 1 n) (* 1000 (bv 7 n)))"
 B7_FWI = "(defproc fwi ((k Int) (input Box)) -> Box (call c1 :input (record Box :n (+ input.n k))))"
 B7_FREE_RUN = "((n Int)) -> Int (let* ((input (record Box :n n)) (a FIRST) (c SECOND)) (+ a.n (* 1000 c.n)))"
 LOOP_LOCAL_ADDING = "(let-proc ((h ((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted s (done (+ s ADDEND))))) (h x))"
@@ -579,8 +604,8 @@ ROWS: dict[str, Row] = {
     "B5-ref": row(None, "((n Int)) -> Int (with-bump 5 (apply1 (proc-ref bump) n))", AP, WITH_BUMP, inputs=("n=1",)),
     # Not fixed: specification 8.10 states that a `Bool` result accepts the strings.
     "B6": row(value(True, "strb"), "() -> Bool " + E("strb", r'\"TRUE\"', "Bool")),
-    # Eleventh batch: a value bound by `bind-proc` is identified by its content, so two expansions of one
-    # template that bind different values get two specializations and two that bind equal values share one.
+    # Eleventh batch: a value bound by `bind-proc` is identified by its position and, made of stable kinds only,
+    # its content, so two expansions of one template that bind different such values get two specializations.
     "B7-chain": row(value(204104), B7_RUN.replace("CALL", "ch"), *B7_BOX, B7_INC1, B7_CH, inputs=("n=3",)),
     "B7-ref": row(value(203103), B7_RUN.replace("CALL", "ba"), *B7_BOX, B7_AP,
                   "(defmacro ba (w v) (ap (bind-proc (proc-ref foo) :runner (workflow-ref w)) v))", inputs=("n=3",)),
@@ -602,8 +627,25 @@ ROWS: dict[str, Row] = {
     "B7-same-ref": row(value(103103), B7_RUN.replace("(CALL c1 input)", "(ap (bind-proc (proc-ref foo) :runner "
                        "(workflow-ref c1)) input)").replace("(CALL c2 input)", "(ap (bind-proc (proc-ref foo) :runner "
                        "(workflow-ref c1)) input)"), *B7_BOX, B7_AP, inputs=("n=3",)),
-    # A bound value that reads a local keeps its position identity, so two expansions of a template whose bound
-    # value still reads a local after substitution share one specialization: the build stops.
+    # A bound value of another kind than the stable ones keeps the position identity alone, so two expansions of
+    # one template share one specialization (bound-value re-review: conditional normalization hoists these kinds).
+    "B7-macro-if": row(value(110103), B7_TWICE, *B7_BOX, B7_FWK, B7_APPLYI, B7_U, B7_DBL,
+                    "(defmacro bv (k x) (applyi (bind-proc (proc-ref fwk) :k (if (> k 2) k 0)) x))", inputs=("n=3",)),
+    "B7-macro-let": row(value(110104), B7_TWICE, *B7_BOX, B7_FWK, B7_APPLYI, B7_U, B7_DBL,
+                    "(defmacro bv (k x) (applyi (bind-proc (proc-ref fwk) :k (let* ((z k)) (+ z 0))) x))", inputs=("n=3",)),
+    "B7-macro-match": row(value(110104), B7_TWICE, *B7_BOX, B7_FWK, B7_APPLYI, B7_U, B7_DBL,
+                    "(defmacro bv (k x) (applyi (bind-proc (proc-ref fwk) :k (match (variant U A :n k) ((A a) a.n) ((B b) 0))) x))", inputs=("n=3",)),
+    "B7-macro-loop": row(value(110104), B7_TWICE, *B7_BOX, B7_FWK, B7_APPLYI, B7_U, B7_DBL,
+                    "(defmacro bv (k x) (applyi (bind-proc (proc-ref fwk) :k (loop/recur ((s k)) :max 1 :on-exhausted s (done (+ s 0)))) x))", inputs=("n=3",)),
+    "B7-macro-or": row(value(110103), B7_TWICE, *B7_BOX, B7_FWK, B7_APPLYI, B7_U, B7_DBL,
+                    "(defmacro bv (k x) (applyi (bind-proc (proc-ref fwk) :k (if (or (> k 2) (> 0 1)) k 0)) x))", inputs=("n=3",)),
+    "B7-macro-defun": row(value(117105), B7_TWICE, *B7_BOX, B7_FWK, B7_APPLYI, B7_U, B7_DBL,
+                    "(defmacro bv (k x) (applyi (bind-proc (proc-ref fwk) :k (dbl k)) x))", inputs=("n=3",)),
+    "B7-macro-if-pure": row(value(1003), "((n Int)) -> Int (+ (bf 1 n) (* 100 (bf 7 n)))", B7_HELPER, B7_APPLYI,
+                            "(defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (if (> k 2) k 0)) x))",
+                            inputs=("n=3",)),
+    # A bound value that reads a local keeps the position identity alone, so two expansions of a template whose
+    # bound value still reads a local after substitution share one specialization: the build stops.
     "B7-free-eff": row(value(111105), B7_FREE_RUN.replace("FIRST", "(lk 1 input)").replace("SECOND", "(lk 7 input)"),
                        *B7_BOX, B7_FWI, B7_AP, "(defmacro lk (k v) (let* ((b k) (hook (bind-proc (proc-ref fwi) "
                        ":k (+ b 1)))) (ap hook v)))", inputs=("n=3",)),
