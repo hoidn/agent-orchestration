@@ -2010,16 +2010,25 @@ Target 2.18 implements one deliberately bounded, constraint-first collection
 surface:
 
 - `(list ...)` constructs an ordered eligible `List[T]`. `(list :of T item…)`
-  writes the item type: `T` is a type name or a type parameter in scope, each
-  item is checked against it, and `List[T]` is the list's type wherever it
-  stands; a position that also states a list type must state `List[T]`
-  (`pure_expr_operand_type_mismatch`), and `(list :of)` or a non-name after
-  `:of` is `list_item_type_invalid`. Where the position states `List[T]`,
-  `(list :of T …)` builds the program the list without `:of` builds. An
-  empty `(list)` without `:of` takes its type from its position: a record or
-  variant field, a procedure, workflow or `defun` argument, a workflow or
-  procedure result, the other arm of an `if`, a loop-state field or a
-  `continue` value; elsewhere it is `list_empty_type_context_required`;
+  writes the item type: `T` is a type name or the name of a type parameter in
+  scope (a value's name is not a type: `type_unknown`), and each item is
+  checked against it. `:of` is accepted only as the first item; `(list :of)`
+  or a non-name after it is `list_item_type_invalid`, and `:of` written again,
+  after an item, or any other keyword is `keyword_argument_invalid`. A
+  position that checks a list type, such as a field or a workflow argument,
+  must be given `List[T]` (`pure_expr_operand_type_mismatch`); a `continue`
+  value of another type is `loop_recur_continue_type_mismatch`. Open defect:
+  a `defun` argument in a workflow or procedure body checks no type. Where the
+  position states `List[T]`, `(list :of T …)` builds the program the list
+  without `:of` builds. An empty `(list)` without `:of` takes its type from a
+  position that states one: a record or variant field, a procedure, workflow
+  or `defun` argument, the declared result of a workflow, procedure or `defun`,
+  a loop-state field, an item of a list whose item type is known, a `continue`
+  value, and an `if`, `cond` or `match` arm of a form that stands in one of
+  these positions. Elsewhere, among them a `let*` binding, a loop's initial
+  state, a `done` or `:on-exhausted` value, an operator operand, a map source,
+  an arm of a conditional that does not stand in such a position and a
+  `let-proc` local's result, it is `list_empty_type_context_required`;
 - `list/map` binds one element at a time in a pure body;
 - `path/join-under` constructs a value of an explicitly selected rooted path
   family after pure lexical containment validation;

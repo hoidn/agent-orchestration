@@ -1394,7 +1394,9 @@ Under the same rule, one entry per change of the
 - **L, the typed list literal.** `(list :of T item…)` writes a list's item type, at every target,
   in every position; it was refused (`keyword_argument_invalid`). An empty `(list)` passed to a
   `defun` or written as a `continue` value takes its type from the parameter or the loop state; it
-  was refused (`list_empty_type_context_required`). Where the position states `List[T]`,
+  was refused (`list_empty_type_context_required`); a `continue` value of another type keeps
+  `loop_recur_continue_type_mismatch`. A value's name after `:of` is not a type (`type_unknown`).
+  Where the position states `List[T]`,
   `(list :of T …)` builds the closed program, digest and effect identities of the list without
   `:of`. A list element that holds an effect is admitted and refused as in a list without `:of`.
   Every program that compiled before keeps its closed program, digest and identities.
