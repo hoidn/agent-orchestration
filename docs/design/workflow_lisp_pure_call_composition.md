@@ -48,7 +48,7 @@ pure expressions, and collection contracts. Relevant component authorities:
 - [Effect graph](workflow_lisp_effect_graph.md): inferred effects and visibility.
 - [WCC](workflow_lisp_core_calculus_middle_end.md), especially normalization,
   scope/proof analysis, and identity/resume: the maintained lowering foundation.
-- [Strict Boolean control flow](workflow_lisp_strict_boolean_control_flow.md):
+- [Frontend specification §12](workflow_lisp_frontend_specification.md#12-conditionals) ([strict Boolean control flow](workflow_lisp_strict_boolean_control_flow.md), historical record):
   target-2.26 conditional normalization, order, and short circuit.
 - [Pure list traversal](workflow_lisp_pure_list_traversal.md): pure map evaluation,
   collection eligibility, and pure-payload schema boundaries.
