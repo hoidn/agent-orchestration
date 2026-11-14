@@ -28,6 +28,39 @@ misleading, absent). What this makes harder is listed [below](#what-this-makes-h
 [Task 0b](2026-11-13-staged-workflow-authoring-revisions-plan.md#task-0b-the-defects-the-seeds-meet-10-h)
 of the staged-authoring plan; the crashes that `feat/coherence-e1` closes.
 
+## Scope Cut (owner, 2026-11-13)
+
+The owner read the size below (120 hours, two and a half to three weeks) and said: "cut it down by
+removing the ones i dont care about (like effect analysis". The coordinator's reading, recorded as
+a ruling: a task stays when its defect can spend provider money or commit a wrong output, or when a
+short staged seed or a mechanical mutant of one would plausibly write the shape and crash the
+compiler. Every other task is dropped from this plan. A dropped defect keeps its row in the table
+and its reproduction in Task T0's known-defect list, so it stays visible and tested as known; it
+returns only when the mutant generator of the roadmap (Phase 6, R3) or a real workflow hits it.
+
+| Task | Hours | Decision | Reason |
+| --- | ---: | --- | --- |
+| T0 Reproductions and invariants | 5 | Keep | It is the record of every row, kept or dropped |
+| TA2 Output slots before launch | 5 | Keep | A paid call that is then refused; two outputs served by one file |
+| TP1 Typecheck in the boundary | 2 | Keep | Turns every remaining crash into a coded outcome, which a search needs |
+| TD2 Subject read in an arm | 6 | Keep | A natural thing to write; passes the typechecker, then crashes |
+| TD1 Control forms as operands | 5 | Keep | Mostly pins what E1 closes; fixes `:max (match …)` |
+| TD5 Local with a loop | 4 | Keep | A natural shape in a staged seed; ends in a traceback |
+| TF Closeout | 2 | Keep, reduced | |
+| TC1 Imported summaries | 10 | **Dropped** | Effect analysis: named by the owner. The one consumer a probe showed wrong is the declared `:effects` ceiling |
+| TA3 P12 through references | 8 | **Dropped** (borderline) | Needs a run reference reached through a procedure reference inside a map body; no tracked source has it. What goes wrong at run time was not established |
+| TD3 Binder scope | 10 | **Dropped** (borderline) | Binding the inner form with `let*` first builds; the seed's own instance is fixed by Task 0b of the staged-authoring plan |
+| TD6 Local capturing a reference | 8 | **Dropped** (borderline) | Returns if the role binding of the staged-authoring plan meets it |
+| TD4, TD7, TD8 | 13 | **Dropped** | Contrived shapes or a crash where a refusal is meant |
+| TE1 to TE4 | 23 | **Dropped** | Refusals of good source with a known rewrite, or a misleading code |
+| TE5 Dead code | 10 | **Dropped** | No behaviour; a deletion that can ride any later change to those files |
+| TP2 Grid | 8 | **Dropped** | Prevention for positions nobody is fixing now |
+
+Kept: 29 hours in seven tasks (about 50 agent-hours with reviews), against 120. The missing prompt
+file (A1) is fixed on its own branch and is not in either figure. Of open decision O1's three
+changes only the two-slot alias check (in TA2) remains. The sections below are the plan as written
+before the cut; the tasks marked dropped here are not executed.
+
 ## How To Read The Reproductions
 
 Every program is the body of one module at `(:target-dsl "2.40")`, module `m`, entry `run`, compiled
