@@ -187,8 +187,8 @@ def declared_by(request):
 
 
 def provider_workspace(tmp_path: Path) -> Path:
-    from tests.test_workflow_evaluated_spend_cap import TWO_CALLS, _capped, _run
-    root = _capped(tmp_path, source=TWO_CALLS.replace('(:target-dsl "2.35")', '(:target-dsl "2.40")'))
+    from tests.test_workflow_evaluated_spend_cap import _capped, _run
+    root = _capped(tmp_path)
     assert _run(root).returncode == 0
     return root
 

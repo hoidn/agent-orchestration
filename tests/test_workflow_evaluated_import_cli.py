@@ -18,7 +18,7 @@ from tests.agent_session_shims import closed_path
 
 
 def test_public_cli_selects_distinct_import_assets_without_redispatch(tmp_path, monkeypatch):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((message String)) -> Int
         (let* ((left_value (call left))
@@ -31,7 +31,7 @@ def test_public_cli_selects_distinct_import_assets_without_redispatch(tmp_path, 
         producer_root = tmp_path / side
         producer_root.mkdir()
         producer = producer_root / f"{side}.orc"
-        producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule {side}/{side}) (export get)
           (defworkflow get () -> Int
             (provider-result providers.review :prompt prompts.base

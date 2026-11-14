@@ -351,7 +351,7 @@ def test_repl_run_uses_session_and_command_state_directories(tmp_path):
 
 
 def test_nested_enum_binding_keeps_its_frontend_type(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defenum Color red blue)
       (defrecord Input (color Color))
@@ -373,11 +373,11 @@ def test_nested_enum_binding_keeps_its_frontend_type(tmp_path):
 @pytest.mark.parametrize("seed_block", [False, True])
 def test_completed_root_loop_captures_done_result_not_seed_halt(tmp_path, seed_block):
     seed = "(let* ((a 3)) a)" if seed_block else "0"
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run () -> Int
-        (loop/recur :max 1 :state (loop-state (i Int {seed}))
-          :on-exhausted 99 (fn (state) (done 7)))))'''
+        (loop/recur ((state (loop-state (i Int {seed})))) :max 1
+          :on-exhausted 99 (done 7))))'''
     fixture = _fixture(tmp_path, source)
     run = _run(tmp_path, fixture)
     assert run.returncode == 0, run.stderr

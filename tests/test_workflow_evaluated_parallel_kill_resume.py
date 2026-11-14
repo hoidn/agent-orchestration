@@ -148,7 +148,7 @@ def test_parallel_item_that_writes_no_result_fails_with_command_result_missing(t
         ("a", "first"): 1, ("b", "first"): 1, ("b", "second"): 1, ("c", "first"): 2, ("d", "first"): 1}
 
 
-WINDOW_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+WINDOW_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow worker ((repo String)) -> Int
     (if (= repo "b")

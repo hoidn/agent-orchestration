@@ -198,7 +198,7 @@ def test_public_run_keeps_each_item_sequential_and_records_exact_dependencies(tm
 def test_public_run_handles_typed_empty_map_input_without_dispatch(tmp_path, monkeypatch):
     calls = []
     _install_launcher(monkeypatch, lambda _event: pytest.fail("empty map dispatched"), calls)
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
         (defmodule empty_parallel) (export run)
         (defworkflow run ((repos List[String])) -> List[Int] {mapped(source="repos")}))'''
     program = build(tmp_path, source)

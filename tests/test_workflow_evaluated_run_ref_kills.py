@@ -23,7 +23,7 @@ from tests.workflow_evaluated_run_ref_helpers import (
 
 
 def _assert_child_terminal(request, child_result, expected_input, child_target):
-    assert child_target == "2.35"
+    assert child_target == "2.40"
     assert child_result["schema_version"] == "run_ref_path_child_result.v2"
     assert child_result["workflow_outputs"] == {"__result__": expected_input}
     child_root = Path(request["child_state_dir"]) / request["child_run_id"]
@@ -255,7 +255,7 @@ def _assert_completed_readonly(parent, refs, control, authority, orphan):
         _assert_no_child_resume(control, {orphan})
 
 
-@pytest.mark.parametrize("child_target", ["2.24", "2.35"], ids=["legacy", "evaluated"])
+@pytest.mark.parametrize("child_target", ["2.24", "2.40"], ids=["legacy", "evaluated"])
 @pytest.mark.parametrize("gap", ["pending", "memo"], ids=["pending-before-memo", "memo-before-finalize"])
 def test_kill_at_parent_settlement_gap_recovers(tmp_path, gap, child_target):
     if child_target == "2.24":

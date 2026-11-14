@@ -38,7 +38,7 @@ from tests.agent_session_shims import closed_path
 PROVIDER = ('(provider-result providers.review :prompt prompts.base :inputs ({operand}) '
             ':model "chosen-model" :effort "low" :returns Result)')
 
-PATHS_SOURCE = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+PATHS_SOURCE = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defpath ResultBundle :kind relpath :under ".orchestrate/runs" :must-exist false)
   (defpath ReportPath :kind relpath :under "artifacts" :must-exist true)
@@ -180,7 +180,7 @@ def test_public_path_child_envelope_keeps_nested_child_relative_paths(tmp_path, 
 
 
 @pytest.mark.parametrize("form,child_target,expected", [
-    ("imported-path", "2.35", "common::WorkPath"), ("local-parent", "2.35", "controller::LocalPath"),
+    ("imported-path", "2.40", "common::WorkPath"), ("local-parent", "2.40", "controller::LocalPath"),
     ("legacy-local", "2.24", "controller::LocalPath")])
 def test_public_path_refinement_uses_closed_nominal_names(tmp_path, form, child_target, expected):
     if form == "imported-path":
@@ -201,7 +201,7 @@ def test_public_path_refinement_uses_closed_nominal_names(tmp_path, form, child_
     assert documents["child-result"]["path_compile"]["signature"]["return"] == refinement
 
 
-@pytest.mark.parametrize("child_target", ["2.24", "2.35"], ids=["retired-target", "nominal-mismatch"])
+@pytest.mark.parametrize("child_target", ["2.24", "2.40"], ids=["retired-target", "nominal-mismatch"])
 def test_public_child_homonymous_path_type_is_refused_at_admission(tmp_path, monkeypatch, child_target):
     parent, source, refs, inputs = path_envelope_fixture(tmp_path, "homonym", {**HOMONYM, "child_target": child_target})
     child_diagnostics = []

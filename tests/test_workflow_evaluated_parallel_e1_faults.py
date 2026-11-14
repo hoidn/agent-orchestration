@@ -42,8 +42,8 @@ def _mixed_command_fixture(root):
       (= (list/length items) 3))'''
     parent, source, refs = _public_fixture(
         root,
-        parent_target="2.37",
-        child_target="2.35",
+        parent_target="2.40",
+        child_target="2.40",
         definitions=definitions,
         body=lambda _call: body,
     )

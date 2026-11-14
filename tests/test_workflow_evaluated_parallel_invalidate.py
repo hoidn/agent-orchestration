@@ -9,7 +9,7 @@ from tests.workflow_evaluated_parallel_kill_helpers import Batch, committed, ite
 from tests.workflow_evaluated_recovery_helpers import resume
 
 
-TWO_BY_TWO = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+TWO_BY_TWO = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow worker ((repo String)) -> Int
     (let* ((first (command-result step :argv ("python" "step.py" repo "first") :returns Int)))

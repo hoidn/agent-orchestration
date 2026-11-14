@@ -54,7 +54,7 @@ def test_imported_effect_uses_producer_configuration_on_name_conflicts(
     consumer_root.mkdir()
     producer_path = install(
         producer_root,
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule producer) (export get)
           (defworkflow get ((n Int)) -> Int
             (let* ((command-value
@@ -67,7 +67,7 @@ def test_imported_effect_uses_producer_configuration_on_name_conflicts(
     )
     consumer_path = install(
         consumer_root,
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule consumer) (export run)
           (defworkflow run ((n Int)) -> Int (call dep :n n)))''',
     )
@@ -153,7 +153,7 @@ def test_projected_import_result_keeps_committed_file_lineage_without_reread(
     consumer_root.mkdir()
     producer_path = install(
         producer_root,
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule producer) (export get)
           (defpath Report :kind relpath :under "reports" :must-exist false)
           (defrecord FlatResult (payload__x Report) (payload__y Report))
@@ -162,7 +162,7 @@ def test_projected_import_result_keeps_committed_file_lineage_without_reread(
     )
     consumer_path = install(
         consumer_root,
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule consumer) (export run)
           (defpath Report :kind relpath :under "reports" :must-exist false)
           (defrecord Pair (x Report) (y Report))
@@ -228,14 +228,14 @@ def test_source_admitted_imported_union_projects_only_active_variant_rows(
 
     type_forms = '''(defpath Report :kind relpath :under "artifacts/work" :must-exist false)
       (defunion Choice (Ready (path Report)) (Skipped (reason String)))'''
-    producer_source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    producer_source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule producer) (export get)
       ''' + type_forms + '''
       (defworkflow get ((allow Bool)) -> Choice
         (if allow
           (variant Choice Ready :path (path/join-under Report "report.md"))
           (variant Choice Skipped :reason "declined"))))'''
-    consumer_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+    consumer_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule consumer) (export run)
       {type_forms}
       (defworkflow run ((allow Bool)) -> Choice

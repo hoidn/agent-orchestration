@@ -171,7 +171,7 @@ def test_a_shared_script_edit_after_invalidating_later_steps_offers_invalidate_t
 
 
 BRANCHED = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow run ((n Int)) -> Int
     (let* ((a (command-result step :argv ("python" "step.py" "one" n) :returns Int))

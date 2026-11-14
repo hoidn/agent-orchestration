@@ -166,7 +166,7 @@ def test_built_and_read_back_list_value_payload_reaches_catalog_operator(
     source_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+  (:target-dsl "2.40")
   (defmodule cp/probe)
   (export run)
   (defworkflow run ((payload List[Value])) -> Int
@@ -219,7 +219,7 @@ def test_built_and_read_back_value_parameter_preserves_json_carrier(
     source_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+  (:target-dsl "2.40")
   (defmodule cp/identity)
   (export run)
   (defworkflow run ((payload Value)) -> Value payload))

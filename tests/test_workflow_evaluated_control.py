@@ -191,14 +191,12 @@ def test_join_halt_continuation_and_strict_branch_execution(tmp_path: Path) -> N
 
 
 def test_effectful_terminal_and_aggregate_positions(tmp_path: Path) -> None:
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule terminal_machine) (export run)
       (defrecord Box (n Int))
       (defproc fetch ((n Int)) -> Box
-        :effects ((uses-command fetch)) :lowering inline
         (command-result fetch :argv ("python" "probe.py" n) :returns Box))
       (defproc arm-value ((n Int)) -> Int
-        :effects ((uses-command arm-value)) :lowering inline
         (command-result arm-value :argv ("python" "probe.py" n) :returns Int))
       (defworkflow run ((boxed Bool)) -> Box
         (if boxed
@@ -232,7 +230,7 @@ def test_effectful_terminal_and_aggregate_positions(tmp_path: Path) -> None:
 
 
 def test_run_context_and_committed_result_path_are_machine_values(tmp_path: Path) -> None:
-    context_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+    context_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule context_machine) (import std/context :only (RunCtx)) (export entry)
       (defworkflow entry ((run RunCtx)) -> RunId run.run-id))'''
     context_program = _build_read_back(
@@ -243,7 +241,7 @@ def test_run_context_and_committed_result_path_are_machine_values(tmp_path: Path
     )
     assert context_result.value == "machine-run-1"
 
-    result_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+    result_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule result_path_machine) (export run)
       (defpath ResultBundle :kind relpath :under ".orchestrate/runs" :must-exist false)
       (defrecord Result (text String))

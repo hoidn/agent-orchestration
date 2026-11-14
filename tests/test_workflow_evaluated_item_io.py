@@ -80,7 +80,7 @@ def test_admitted_review_adapter_uses_logical_paths_from_actual_item_cwd(tmp_pat
             input_signature=(CertifiedAdapterInputField(name='schema_version', type_name='String', required=True, transport_key='schema_version'),
                 CertifiedAdapterInputField(name='items_path', type_name='Findings', required=True, transport_key='items_path')))
         inputs = {'items': 'artifacts/work/findings.json'}
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
         (defmodule review) (export run) {PATH_DECL} {RECORD_DECL}
         (defworkflow run {params} -> ReviewFindings
             (command-result validate_review_findings_v1 {argv} :returns ReviewFindings)))'''
@@ -109,7 +109,7 @@ r.write_text(json.dumps(inputs))
 '''
     (tmp_path / 'tool.py').write_text('raise SystemExit(55)')
     (tmp_path / 'item' / 'tool.py').write_text(script)
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
         (defmodule tool) (export run) {PATH_DECL} {RECORD_DECL}
         (defworkflow run ((items Findings)) -> ReviewFindings
             (command-result fetch :argv ("python" "tool.py")
@@ -130,7 +130,7 @@ r.write_text(json.dumps(inputs))
 
 def test_provider_uses_outer_config_paths_and_returns_outer_relative_artifact(tmp_path, monkeypatch):
     expected = adapter_inputs(tmp_path)
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
         (defmodule main) (export run) {PATH_DECL} {RECORD_DECL}
         (defworkflow run ((message String)) -> ReviewFindings
             (provider-result providers.review :prompt prompts.base :inputs (message) :returns ReviewFindings)))'''
@@ -168,7 +168,7 @@ def test_item_run_reference_keeps_outer_parent_authority_and_child_clone(tmp_pat
     from orchestrator.workflow.evaluated.machine import site_nodes
     from orchestrator.workflow_lisp.build import FrontendBuildRequest
     from tests.test_workflow_evaluated_run_ref import _public_fixture
-    parent, source, refs = _public_fixture(tmp_path, parent_target='2.37', child_target='2.35')
+    parent, source, refs = _public_fixture(tmp_path, parent_target='2.40', child_target='2.40')
     (parent / 'item').mkdir()
     built = build_closed_program_bundle(FrontendBuildRequest(source_path=source, workspace_root=parent))
     with _publish(parent, built.program, run_ref_root=str(refs)) as authority, closing(WorkspaceFiles(parent)) as files:
@@ -192,7 +192,7 @@ def test_item_run_reference_keeps_outer_parent_authority_and_child_clone(tmp_pat
         assert (identity, 1) in snapshot.settlements
 
 
-@pytest.mark.parametrize('target', ['2.35', '2.37'])
+@pytest.mark.parametrize('target', ['2.40'])
 def test_public_serial_commands_clear_ambient_root_without_item_protocol(tmp_path, monkeypatch, target):
     from orchestrator.workflow.evaluated.authority import load_run_authority
     from orchestrator.workflow.evaluated.memo import read_memo
@@ -201,7 +201,7 @@ def test_public_serial_commands_clear_ambient_root_without_item_protocol(tmp_pat
     (tmp_path / 'probe.py').write_text(SCRIPT)
     program = command_program(tmp_path)
     source = tmp_path / 'cwd.orc'
-    source.write_text(source.read_text().replace('"2.37"', json.dumps(target)))
+    source.write_text(source.read_text().replace('"2.40"', json.dumps(target)))
     manifest = tmp_path / 'commands.json'
     manifest.write_text(json.dumps({'fetch': {'stable_command': ['python', 'probe.py', 'data.txt'], 'closure': []}}))
     monkeypatch.setenv('ORCHESTRATOR_WORKSPACE_ROOT', '/ambient/poison')
@@ -220,7 +220,7 @@ def test_nested_public_orchestrator_clears_parent_coordinate_in_own_serial_launc
     item.mkdir()
     (tmp_path / 'probe.py').write_text('# outer')
     (item / 'inner.py').write_text("import os\nfrom pathlib import Path\nassert 'ORCHESTRATOR_WORKSPACE_ROOT' not in os.environ\nPath(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']).write_text('1')\n")
-    (item / 'nested.orc').write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    (item / 'nested.orc').write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
         (defmodule nested) (export run) (defworkflow run () -> Int
         (command-result inner :argv ("python" "inner.py") :returns Int)))''')
     (item / 'commands.json').write_text(json.dumps({'inner': {'stable_command': ['python', 'inner.py'], 'closure': ['inner.py']}}))
@@ -242,7 +242,7 @@ def test_package_origin_checks_actual_item_cwd_before_dispatch(tmp_path):
     shadow = tmp_path / 'item' / 'orchestrator'
     shadow.mkdir()
     (shadow / '__init__.py').write_text('# shadow\n')
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
         (defmodule review) (export run) {PATH_DECL} {RECORD_DECL}
         (defworkflow run ((items Findings)) -> ReviewFindings
             (command-result validate_review_findings_v1
@@ -274,7 +274,7 @@ def test_typed_document_paths_keep_outer_containment_before_item_dispatch(tmp_pa
         (tmp_path / 'artifacts/work/escape.json').symlink_to(outside)
         spelling = 'artifacts/work/escape.json'
     (tmp_path / 'tool.py').write_text('# outer')
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
         (defmodule tool) (export run) {PATH_DECL} {RECORD_DECL}
         (defworkflow run ((items Findings)) -> ReviewFindings
             (command-result fetch :argv ("python" "tool.py")
