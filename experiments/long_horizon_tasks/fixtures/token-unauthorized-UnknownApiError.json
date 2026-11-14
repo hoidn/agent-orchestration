@@ -1,0 +1,350 @@
+{
+ "source": "local recording tok20-unauthorized (stub_api.py scenario unauthorized, CLI 2.1.311, token mode with a fake token, default tools, via the relay)",
+ "harness_exception": "UnknownApiError",
+ "cli_exit_code": 1,
+ "agent_result": {
+  "n_input_tokens": 1000,
+  "n_cache_tokens": 0,
+  "n_output_tokens": 100,
+  "cost_usd": 0.00015000000000000001,
+  "model_usage": {
+   "claude-haiku-5-5": {
+    "n_input_tokens": 1000,
+    "n_cache_tokens": 0,
+    "n_output_tokens": 100,
+    "cost_usd": 0.00015
+   },
+   "<synthetic>": {
+    "n_input_tokens": 0,
+    "n_cache_tokens": 0,
+    "n_output_tokens": 0,
+    "cost_usd": null
+   }
+  },
+  "rollout_details": null,
+  "metadata": null
+ },
+ "verifier_result": null,
+ "init": {
+  "type": "system",
+  "subtype": "init",
+  "cwd": "/app",
+  "session_id": "908a20dc-51a5-4685-bdff-d9f24e880145",
+  "tools": [
+   "Task",
+   "Bash",
+   "CronCreate",
+   "CronDelete",
+   "CronList",
+   "Edit",
+   "EnterWorktree",
+   "ExitWorktree",
+   "ListAgents",
+   "Monitor",
+   "NotebookEdit",
+   "Read",
+   "RemoteTrigger",
+   "ReportFindings",
+   "ScheduleWakeup",
+   "SendMessage",
+   "Skill",
+   "TaskStop",
+   "ToolSearch",
+   "Workflow",
+   "Write"
+  ],
+  "mcp_servers": [],
+  "model": "claude-haiku-5-5",
+  "permissionMode": "bypassPermissions",
+  "slash_commands": [
+   "deep-research",
+   "dataviz",
+   "update-config",
+   "verify",
+   "debug",
+   "code-review",
+   "simplify",
+   "batch",
+   "fewer-permission-prompts",
+   "doctor",
+   "loop",
+   "schedule",
+   "claude-api",
+   "workflow-authoring",
+   "run",
+   "run-skill-generator",
+   "plugin-authoring",
+   "agents",
+   "auto-mode-setup",
+   "autocompact",
+   "clear",
+   "color",
+   "compact",
+   "config",
+   "output-style",
+   "context",
+   "effort",
+   "fast",
+   "focus",
+   "heapdump",
+   "init",
+   "mcp",
+   "model",
+   "__remote-workflow",
+   "workflow-launch-exec",
+   "reload-plugins",
+   "reload-skills",
+   "rename",
+   "security-review",
+   "usage",
+   "insights",
+   "recap",
+   "goal",
+   "list-agents",
+   "team-onboarding"
+  ],
+  "terminal_slash_commands": [
+   "doctor",
+   "color",
+   "focus",
+   "reload-plugins"
+  ],
+  "apiKeySource": "none",
+  "claude_code_version": "2.1.311",
+  "output_style": "default",
+  "agents": [
+   "claude",
+   "Explore",
+   "general-purpose",
+   "Plan",
+   "statusline-setup"
+  ],
+  "skills": [
+   "deep-research",
+   "dataviz",
+   "update-config",
+   "verify",
+   "debug",
+   "code-review",
+   "simplify",
+   "batch",
+   "fewer-permission-prompts",
+   "doctor",
+   "loop",
+   "schedule",
+   "claude-api",
+   "workflow-authoring",
+   "run",
+   "run-skill-generator",
+   "plugin-authoring"
+  ],
+  "plugins": [
+   {
+    "name": "cc-plugin-agents-md",
+    "path": "builtin",
+    "source": "cc-plugin-agents-md@builtin"
+   },
+   {
+    "name": "cc-plugin-plugin-authoring",
+    "path": "builtin",
+    "source": "cc-plugin-plugin-authoring@builtin"
+   }
+  ],
+  "capabilities": [
+   "interrupt_receipt_v1",
+   "interrupt_cancel_queued_v1",
+   "interrupt_send_now_v1",
+   "interrupt_requeue_taken_v1",
+   "msg_lifecycle_v1",
+   "request_marker_lists_v1",
+   "lifecycle_wakeup_source_v1",
+   "sdk_mcp_tools_list_changed",
+   "sdk_mcp_manifests",
+   "mcp_read_resource_v1",
+   "mcp_tool_ui_meta_v1",
+   "ui_surface_v1",
+   "mcp_call_result_not_for_model_v1"
+  ],
+  "analytics_disabled": true,
+  "product_feedback_disabled": true,
+  "uuid": "426ead08-21a4-450b-b901-a6f5ad458db9",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
+  "original_cwd": "/app",
+  "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
+  "fast_mode_state": "off",
+  "fast_mode_disabled_reason": "sdk_opt_in_required",
+  "per_turn_effort_active": true,
+  "view_mode": "default"
+ },
+ "n_events": 8,
+ "n_api_retry": 2,
+ "stream_tail": [
+  {
+   "type": "system",
+   "subtype": "api_retry",
+   "attempt": 1,
+   "max_retries": 10,
+   "retry_delay_ms": 617,
+   "error_status": 401,
+   "error": "authentication_failed",
+   "session_id": "908a20dc-51a5-4685-bdff-d9f24e880145",
+   "uuid": "37778701-ae01-42bb-9b75-9d0f960a03af"
+  },
+  {
+   "type": "system",
+   "subtype": "api_retry",
+   "attempt": 2,
+   "max_retries": 10,
+   "retry_delay_ms": 1178,
+   "error_status": 401,
+   "error": "authentication_failed",
+   "session_id": "908a20dc-51a5-4685-bdff-d9f24e880145",
+   "uuid": "45ce7324-599f-4fea-a02d-2ca0e8c6df73"
+  },
+  {
+   "type": "assistant",
+   "parent_tool_use_id": null,
+   "timestamp": "2026-11-14T04:19:58.458Z",
+   "error": "authentication_failed",
+   "is_api_error_message": true,
+   "api_error_status": 401,
+   "message": {
+    "model": "<synthetic>",
+    "stop_reason": "stop_sequence",
+    "stop_details": null,
+    "usage": {
+     "output_tokens_details": null,
+     "input_tokens": 0,
+     "output_tokens": 0,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0,
+     "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+     },
+     "service_tier": null,
+     "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+     },
+     "inference_geo": null,
+     "iterations": null,
+     "speed": null,
+     "fallback_credit": null
+    },
+    "content": [
+     {
+      "type": "text",
+      "text": "Failed to authenticate. API Error: 401 stub: OAuth token has expired"
+     }
+    ]
+   }
+  },
+  {
+   "duration_api_ms": 61,
+   "stop_reason": "stop_sequence",
+   "session_id": "908a20dc-51a5-4685-bdff-d9f24e880145",
+   "total_cost_usd": 0.00015000000000000001,
+   "usage": {
+    "input_tokens": 1000,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 100,
+    "output_tokens_details": {
+     "thinking_tokens": 0
+    },
+    "server_tool_use": {
+     "web_search_requests": 0,
+     "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+     "ephemeral_1h_input_tokens": 0,
+     "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "",
+    "iterations": [],
+    "speed": "standard",
+    "fallback_credit": null
+   },
+   "modelUsage": {
+    "claude-haiku-5-5": {
+     "inputTokens": 1000,
+     "outputTokens": 100,
+     "cacheReadInputTokens": 0,
+     "cacheCreationInputTokens": 0,
+     "webSearchRequests": 0,
+     "costUSD": 0.00015000000000000001,
+     "contextWindow": 1000000,
+     "maxOutputTokens": 128000,
+     "thinkingTokens": 0,
+     "cacheCreationEphemeral5mInputTokens": 0,
+     "cacheCreationEphemeral1hInputTokens": 0,
+     "canonicalModel": "claude-haiku-5-5",
+     "provider": "firstParty",
+     "costBasis": "list"
+    }
+   },
+   "permission_denials": [],
+   "terminal_reason": "api_error",
+   "fast_mode_state": "off",
+   "fast_mode_disabled_reason": "sdk_opt_in_required",
+   "subagent_stats": {
+    "spawned": 0,
+    "requested": {
+     "background": 0,
+     "foreground": 0,
+     "unset": 0
+    },
+    "started_in_background": 0,
+    "max_depth": 0,
+    "spawned_by_subagents": 0,
+    "completed": 0,
+    "failed": 0,
+    "killed": {
+     "parent": 0,
+     "user": 0,
+     "system": 0
+    },
+    "refused": {
+     "depth_limit": 0,
+     "concurrency_limit": 0,
+     "budget": 0
+    },
+    "by_type": {}
+   },
+   "safety_stops": 0,
+   "is_error": true,
+   "num_turns": 2,
+   "subtype": "success",
+   "api_error_status": 401,
+   "result": "Failed to authenticate. API Error: 401 stub: OAuth token has expired",
+   "type": "result",
+   "duration_ms": 2105,
+   "uuid": "8aaac7f5-262a-47c1-b6f5-f7bbfed7c95c",
+   "queued_turn_count": 0,
+   "result_index": 0,
+   "model_usage_since_last_result": {
+    "claude-haiku-5-5": {
+     "inputTokens": 1000,
+     "outputTokens": 100,
+     "cacheReadInputTokens": 0,
+     "cacheCreationInputTokens": 0,
+     "webSearchRequests": 0,
+     "costUSD": 0.00015000000000000001,
+     "contextWindow": 1000000,
+     "maxOutputTokens": 128000,
+     "thinkingTokens": 0,
+     "cacheCreationEphemeral5mInputTokens": 0,
+     "cacheCreationEphemeral1hInputTokens": 0,
+     "canonicalModel": "claude-haiku-5-5",
+     "provider": "firstParty",
+     "costBasis": "list"
+    }
+   }
+  }
+ ]
+}
