@@ -1287,8 +1287,8 @@ workflow parameter and a loop state (`proc_ref_runtime_transport_forbidden`;
 `loop_state_runtime_transport_forbidden` in a `loop-state` field), as a
 workflow's return type (`workflow_return_type_invalid`) and as a command's
 result type (`command_result_return_type_invalid`). A `defproc` return type
-and a `defun` parameter of this type compile where they are declared and
-cannot be used: the returned reference is refused where it is bound or passed
+and a `defun` parameter of this type compile where they are declared, with
+two limits: the returned reference is refused where it is bound or passed
 (`proc_ref_literal_required`), and a `defun` that calls its parameter is
 refused where the `defun` is called (`procedure_call_unknown`).
 
@@ -1373,8 +1373,8 @@ both use the value of the first expansion.
   `let_proc_syntax_invalid`.
 - *Names.* A local's name differs from the names bound where the `let-proc`
   stands (a `let*` binding, a procedure parameter, a workflow input), from
-  the name of a `defproc` of the module or imported, and from the declared
-  externs (`let_proc_syntax_invalid`). The name is used in `body`: called, or
+  the name of a `defproc` of the module or imported with `:only`, and from
+  the declared externs (`let_proc_syntax_invalid`). The name is used in `body`: called, or
   passed as `(proc-ref name)`; the bare name is not a reference
   (`proc_ref_literal_required`). It is unknown after the `let-proc`
   (`procedure_call_unknown`, `proc_ref_unknown`), in its own `local-body`
@@ -1421,9 +1421,9 @@ both use the value of the first expansion.
   keeps the value it has where the `let-proc` stands: a later binding of the
   same name, in `body` or in the procedure that calls the local, does not
   change it, and a captured name that holds an effect's result is read, not
-  run again, by each call. Declared provider and prompt externs are used in a
-  `local-body` without being captures and are not listed. An `Agent` value is
-  not captured (`let_proc_capture_agent_forbidden`).
+  run again, by each call. A declared provider extern is used in a
+  `local-body` without being a capture and is not listed in `:captures`. An
+  `Agent` value is not captured (`let_proc_capture_agent_forbidden`).
 - *Body and effects.* A `local-body` may run effects, and it may be a
   `loop/recur` with a `loop-state`, in either loop form. The
   effects of a local, and of a procedure passed by reference, count for the
@@ -1477,7 +1477,7 @@ of the defect record; "none" is a shape that has no row yet.
 | `E23-local`, `E23-input` | `bind-proc` written as an argument binds a name | `name_unknown` | bind the `bind-proc` with `let*`, then pass the name |
 | `E26` | `bind-proc` written as an argument binds a value that holds an effect | `procedure_call_unknown` | bind the effect's result with `let*` first |
 | none | `bind-proc` written as an argument binds a value of the wrong type | `pure_expr_operand_type_mismatch` or `compiler_defect`, not `proc_ref_binding_type_invalid` | bound with `let*`, the form gives `proc_ref_binding_type_invalid` |
-| `B7-same-written` | Two equal `bind-proc` forms over a `(workflow-ref w)`, written at two places and passed on through a second reference | `procedure_lowering_unresolved` | - |
+| `B7-same-written` | Two equal `bind-proc` forms over a `(workflow-ref w)`, written at two places and passed to one procedure | `procedure_lowering_unresolved` | - |
 | `E9`, `E9-local` | A pure procedure or local whose body is a loop, passed to a pure procedure that calls it | `procedure_call_unknown` | call it by name |
 | `D24`, `D25` | A local whose body is a loop that reads a field of a captured record, or a capture bound to a computed value inside a pure procedure | `compiler_defect` | - |
 | none | In a `defproc`, a local that captures a parameter of that procedure and computes with it | `compiler_defect`; `procedure_lowering_unresolved` when the local is passed | - |
