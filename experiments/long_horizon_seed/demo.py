@@ -2,14 +2,15 @@
 
     PYTHONPATH=$PWD python experiments/long_horizon_seed/demo.py /tmp/lhs-tmp/demo [program [scenario]]
 
-Without a program it runs the three candidates. The two programs under `variants/` run when named;
+Without a program it runs the four candidates. The two programs under `variants/` run when named;
 `roles_whole_run` needs a tree with change I1, named in `ORC_ROOT` (its orchestrator and tests are used).
 
 Each scenario is the list of answers the scripted `claude` gives, one per call in order (the fake CLI of
 `tests/agent_session_shims.py`, plus a `kill` answer that kills the orchestrator in the middle of the call).
 The stand-in task: `src/m1.txt` and `src/m2.txt` must both hold `ok`; that is its visible check
 (`dev-check.json`, run by the seed catalog's `dev_check.py`). Every scenario must end in DONE with exactly
-the scripted number of calls, so a wrong branch in a program fails here.
+the scripted number of calls, so a wrong branch in a program fails here. After a kill, `resume` must start no
+step that the killed run had committed.
 """
 
 import json
@@ -55,6 +56,9 @@ MET = {"result": {"variant": "MET", "evidence": ["read the files"]}}
 NOT_MET = {"result": {"variant": "NOT_MET", "reasons": ["T2 does not hold: src/m2.txt"]}}
 KILL = {"kill": True}
 START = [GUIDES, SPEC, plan("M1", "M2")]
+DESIGN = {"result": {"doc": "docs/design.md"}, "files": {"docs/design.md": "# Design\n"}}
+REVISED = {"result": {"doc": "docs/design.md"}, "files": {"docs/design.md": "# Design (revised)\n"}}
+BUILD = [plan("M1", "M2"), work(m1="ok", m2="ok"), MET]
 
 FLAT = {
     "clean": START + [work(m1="ok", m2="ok"), MET],
@@ -69,7 +73,13 @@ MILESTONES = {  # per milestone: work, review; then the acceptance
     "kill-and-resume": START + [work("M1 done\n", m1="ok"), MET, KILL, work(m2="ok"), MET, MET],
     "kill-in-a-second-attempt": START + [work(m1="ok"), MET, work(m2="bad"), NOT_MET, KILL, work(m2="ok"), MET, MET],
 }
-PROGRAMS = {"staged": FLAT, "milestones": MILESTONES, "roles": MILESTONES}
+DESIGNED = {  # guides, spec, design, design review; then plan, work, acceptance
+    "clean": [GUIDES, SPEC, DESIGN, MET] + BUILD,
+    "design-refused-once": [GUIDES, SPEC, DESIGN, NOT_MET, REVISED] + BUILD,
+    "acceptance-refused-once": [GUIDES, SPEC, DESIGN, MET] + BUILD[:2] + [NOT_MET, work(memory="round 2\n"), MET],
+    "kill-between-design-and-plan": [GUIDES, SPEC, DESIGN, MET, KILL] + BUILD,
+}
+PROGRAMS = {"staged": FLAT, "milestones": MILESTONES, "roles": MILESTONES, "designed": DESIGNED}
 VARIANTS = {"roles_whole_run": MILESTONES, "roles_whole_run_cursor": MILESTONES}
 
 
@@ -82,6 +92,10 @@ def orchestrator(world, *argv):
 
 def steps(proc):
     return [line.split("  attempt")[0] for line in proc.stderr.splitlines() if line.startswith(("start ", "commit "))]
+
+
+def sites(proc, event):
+    return [line.split(None, 1)[1] for line in steps(proc) if line.startswith(event)]
 
 
 def run(base, program, scenario):
@@ -105,17 +119,21 @@ def run(base, program, scenario):
                         "--command-boundaries-file", str(HERE / "commands.json"), "--input-file", str(world / "inputs.json"))
     print(f"\n== {program} / {scenario}: run exit {proc.returncode}")
     print("\n".join(steps(proc)))
+    committed = sites(proc, "commit")
     if KILL in answers:
         assert proc.returncode == -9, proc.stdout + proc.stderr
         (run_root,) = (repo / ".orchestrate" / "runs").iterdir()
         proc = orchestrator(world, "resume", run_root.name)
         print(f"-- resume exit {proc.returncode}; steps started again:")
         print("\n".join(steps(proc)))
+        again = set(committed) & set(sites(proc, "start"))
+        assert not again, f"dispatched twice: {sorted(again)}"
+        committed += sites(proc, "commit")
     assert proc.returncode == 0, proc.stdout + proc.stderr
     requests = [json.loads(line) for line in (repo / "requests.jsonl").read_text().splitlines()]
     sessions = len({request["session"] for request in requests})
     result = json.loads(proc.stdout.splitlines()[-1])
-    print(f"-- result {json.dumps(result)}; {len(requests)} provider calls in {sessions} conversations")
+    print(f"-- result {json.dumps(result)}; {len(committed)} steps committed, {len(requests)} provider calls in {sessions} conversations")
     assert result["variant"] == "DONE" and len(requests) == len(answers) - answers.count(KILL), (result, len(requests))
 
 
