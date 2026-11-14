@@ -1,0 +1,33 @@
+{
+ "source": "local recording probe-oracle-2: stub_api.py request log (see recordings.json for its scenario and harness arguments)",
+ "shapes": [
+  {
+   "method": "GET",
+   "path": "/allowlist-probe",
+   "subagent": null,
+   "headers": {
+    "accept-encoding": null,
+    "connection": null,
+    "host": null,
+    "user-agent": "Python-urllib/3.12"
+   },
+   "model": null,
+   "effort": null,
+   "max_tokens": null,
+   "stream": null,
+   "other_params": [],
+   "tools": null,
+   "server_tools": [],
+   "system": []
+  }
+ ],
+ "requests": [
+  [
+   0,
+   null,
+   null,
+   null,
+   null
+  ]
+ ]
+}

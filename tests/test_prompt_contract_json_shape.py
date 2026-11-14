@@ -39,7 +39,7 @@ def test_historical_contract_bytes_are_frozen(kind, delivery):
 
 
 def test_compiled_nested_record_keeps_actual_keys_empty_records_and_guidance(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defrecord Empty)
       (defrecord Notes (notes String :description "leaf" :format-hint "text" :example "authored"))
@@ -131,7 +131,7 @@ def test_ancestor_guidance_deduplicates_only_identical_payloads_in_order():
 
 
 def test_compiled_union_selects_shared_guidance_for_complete_alternatives(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defrecord Notes (notes String :description "nested"))
       (defunion Choice
@@ -194,7 +194,7 @@ def test_shared_guidance_missing_for_one_variant_stays_absent():
 
 
 def test_compiled_root_value_keeps_its_own_guidance_without_an_envelope(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule main) (export run)
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule main) (export run)
       (defworkflow run ((message String)) -> Value
         (provider-result providers.review :prompt prompts.base :inputs ()
           :returns (result Value :description "unrestricted authored JSON"))))'''
@@ -216,7 +216,7 @@ def test_displayed_record_contract_uses_existing_enum_finite_and_path_validator(
     from orchestrator.workflow.evaluated.commands import _validate_result_bytes
     from orchestrator.workflow.workspace_files import WorkspaceFiles
 
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule main) (export run)
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule main) (export run)
       (defenum Kind FIRST SECOND)
       (defpath Report :kind relpath :under "artifacts/review" :must-exist true)
       (defrecord Result (kind Kind) (score Float) (report Report))
@@ -246,7 +246,7 @@ def test_displayed_union_contract_uses_existing_tag_and_active_field_validator(t
     from orchestrator.workflow.evaluated.commands import _validate_result_bytes
     from orchestrator.workflow.workspace_files import WorkspaceFiles
 
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule main) (export run)
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule main) (export run)
       (defunion Choice (FIRST (n Int)) (SECOND (reason String)))
       (defworkflow run ((message String)) -> Choice
         (provider-result providers.review :prompt prompts.base :inputs () :returns Choice)))'''
@@ -264,7 +264,7 @@ def test_compiled_nullable_field_preserves_existing_missing_optional_behavior(tm
     from orchestrator.workflow.evaluated.commands import _validate_result_bytes
     from orchestrator.workflow.workspace_files import WorkspaceFiles
 
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule main) (export run)
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule main) (export run)
       (defrecord Result (note Optional[String]))
       (defworkflow run ((message String)) -> Result
         (provider-result providers.review :prompt prompts.base :inputs () :returns Result)))'''

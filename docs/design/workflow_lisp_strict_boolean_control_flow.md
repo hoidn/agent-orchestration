@@ -1,5 +1,9 @@
 # Workflow Lisp Strict Boolean Control Flow
 
+Status: **Historical — archived in place.** Superseded: its rules for `if`, `cond`, exact `Bool` conditions and discriminant proof are now stated, with their diagnostic codes, by the language reference. Current authority: [frontend specification §12](workflow_lisp_frontend_specification.md#12-conditionals) (`if`, effects in conditions, resume), [§12.1](workflow_lisp_frontend_specification.md#121-cond) (`cond`) and [§12.2](workflow_lisp_frontend_specification.md#122-discriminant-tests) (variant tags and proof); [§7.5](workflow_lisp_frontend_specification.md#75-unions) for the proven reads the checked program refuses and [§11](workflow_lisp_frontend_specification.md#11-pattern-matching) for the run-time check. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#t4d-conditionals).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Execution scope: strict Boolean control was introduced at 2.26. Current source,
 transitive imports, retained typed-program capsules, REPL and LSP admit only
 targets 2.35–2.40; see the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
@@ -17,7 +21,7 @@ backend or admitting live-provider/peer effects.
 - **Last material update:** 2026-08-20
 - **Related:**
   [`workflow_lisp_frontend_specification.md`](workflow_lisp_frontend_specification.md),
-  [`workflow_lisp_proof_graph.md`](workflow_lisp_proof_graph.md),
+  [frontend specification §11 and §12](workflow_lisp_frontend_specification.md#11-pattern-matching) ([`workflow_lisp_proof_graph.md`](workflow_lisp_proof_graph.md), historical record),
   [`workflow_language_design_principles.md`](workflow_language_design_principles.md),
   [`specs/versioning.md`](../../specs/versioning.md)
 - **Original implementation target:** Workflow Lisp target DSL 2.26; state schema 2.1
@@ -636,7 +640,7 @@ Implementation updates:
 
 - `docs/design/workflow_lisp_frontend_specification.md` condition and proof
   sections;
-- `docs/design/workflow_lisp_proof_graph.md` proof sources and flow rules;
+- [frontend specification §11 and §12](workflow_lisp_frontend_specification.md#11-pattern-matching) proof sources and flow rules (`docs/design/workflow_lisp_proof_graph.md` is the historical record);
 - `docs/lisp_workflow_drafting_guide.md` normal authoring guidance;
 - `docs/capability_status_matrix.md` status and copy-safety evidence;
 - `specs/versioning.md` and `specs/index.md` target-2.26 routing; and

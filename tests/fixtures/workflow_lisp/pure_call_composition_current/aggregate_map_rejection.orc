@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule aggregate_map_rejection)
   (export orchestrate)
   (defrecord Result
@@ -9,8 +9,6 @@
   (defproc increment
     ((value Int))
     -> Int
-    :effects ()
-    :lowering inline
     (+ value 1))
   (defworkflow orchestrate
     ((seed Int)

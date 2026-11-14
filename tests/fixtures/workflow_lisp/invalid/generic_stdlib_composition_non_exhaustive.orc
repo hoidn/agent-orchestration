@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defunion CallerOutcome
     (APPROVED
       (status String)
@@ -19,8 +19,6 @@
     :where ((T has-union-variant APPROVED (status String) (message String))
             (T has-union-variant BLOCKED (status String) (message String)))
     -> WorkflowOutput
-    :effects ()
-    :lowering inline
     (match value
       ((APPROVED approved)
        (record WorkflowOutput :status approved.status))

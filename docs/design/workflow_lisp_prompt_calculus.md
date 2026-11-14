@@ -1,5 +1,7 @@
 # Workflow Lisp Prompt Calculus
 
+Status: **Historical — archived in place.** Superseded: its language rules (`defprompt`, slot kinds, fills, placeholders, output positions) are now stated, with their diagnostic codes, in the frontend specification; its Semantic IR, Executable IR, checkpoint and prompt-snapshot carriage describes code that is gone or off the evaluated execution path, and two of its rules (pre-launch name and destination collision) do not hold in the code. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [frontend specification §8.7.1 to §8.7.3](workflow_lisp_frontend_specification.md#871-defprompt-target-220) and [§22.6](workflow_lisp_frontend_specification.md#226-workflow-lisp-prompt-fragments-target-220); [evaluated execution §7.2](workflow_lisp_evaluated_execution.md#72-the-resolved-input) for what a run records. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#t4b-prompts).
+
 Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
 Pre-2.35 introduction gates below are historical; data readers remain separate.
 

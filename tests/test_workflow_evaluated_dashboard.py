@@ -371,7 +371,7 @@ def test_view_hint_fifo_refuses_with_process_deadline(tmp_path):
 
 
 def test_dashboard_nested_loop_visits_preserve_committed_values_without_sources(tmp_path, monkeypatch):
-    parent, source, refs = _repeated_fixture(tmp_path, child_target="2.35", structure="nested", forwarding=True)
+    parent, source, refs = _repeated_fixture(tmp_path, child_target="2.40", structure="nested", forwarding=True)
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
     assert result.returncode == 0, result.stderr
     authority, snapshot = _authority(parent)
@@ -426,7 +426,7 @@ def test_run_page_links_failed_effect_with_error_code(tmp_path):
     assert _tree_bytes(tmp_path) == before
 
 
-_PARALLEL_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+_PARALLEL_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule parallel/items) (export run)
   (defworkflow run () -> List[Int]
     (list/map-effect ((repo (list "a" "b" "c"))) :max 3 :parallel 3

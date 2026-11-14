@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defrecord Payload
     (item-id String))
   (defunion Selection
@@ -13,8 +13,6 @@
   (defproc consume
     ((payload Payload))
     -> String
-    :effects ()
-    :lowering inline
     payload.item-id)
   (defproc pick-and-run
     :forall (SelectionT SelPayloadT)
@@ -23,8 +21,6 @@
     :where ((SelectionT is-union)
             (SelectionT has-shared-union-field selection SelPayloadT))
     -> WorkflowOutput
-    :effects ((uses-command run_checks))
-    :lowering inline
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py")
       :returns WorkflowOutput))

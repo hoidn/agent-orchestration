@@ -9,11 +9,9 @@ import sys
 
 import pytest
 
-from orchestrator.workflow_lisp import syntax
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TARGETS = (syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,)
+TARGETS = ("2.40",)
 BUILD_COMPONENTS = ("orchestrate", "build", "build_key")
 
 
@@ -164,7 +162,7 @@ def test_compile_allows_build_root_symlinks_that_resolve_inside_workspace(
 def test_closed_compile_rejects_artifact_file_symlink_to_outside(
     tmp_path: Path,
 ) -> None:
-    target = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+    target = "2.40"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     source, source_root = _write_workspace(workspace, target)
@@ -193,7 +191,7 @@ def test_compiled_import_fd_manifest_preserves_relative_parent_components(
     (tmp_path / "sub").mkdir()
     for name in ("main", "producer"):
         (tmp_path / (name + ".orc")).write_text(
-            f'(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+            f'(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
             f'(defmodule {name}) (export run) (defworkflow run () -> Int 7))'
         )
     manifest = tmp_path / manifest_name

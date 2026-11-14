@@ -20,7 +20,7 @@ from tests.workflow_evaluated_run_ref_helpers import _kill_own_group, _output, _
 NAMES = ("prefix", "writer", "reader", "later")
 
 PROGRAM = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule invalidate_public) (export run)
   (defworkflow run () -> Int
     (let* ((prefix (command-result prefix :argv ("python" "prefix.py") :returns Int))

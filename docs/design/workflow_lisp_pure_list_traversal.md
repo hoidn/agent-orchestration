@@ -23,8 +23,8 @@ Pre-2.35 introduction gates below are historical; data readers remain separate.
     pure-expression surface and §10.3 bounded list traversal)
   - `docs/design/workflow_language_design_principles.md` (principles 17,
     27, 28, and 29)
-  - `docs/design/workflow_lisp_state_layout.md` (loop state)
-  - `docs/design/workflow_lisp_native_transportable_returns.md`
+  - `docs/design/workflow_lisp_state_layout.md` (loop state; historical record)
+  - [Frontend specification §8.10](workflow_lisp_frontend_specification.md#810-return-types-and-result-guidance) (`docs/design/workflow_lisp_native_transportable_returns.md` is the historical record)
 
 ## Decision summary
 
@@ -158,8 +158,9 @@ expected list type fails with `list_empty_type_context_required`.
 ```
 
 The binder list must contain exactly one `(symbol expression)` pair.
-`list-expr` is pure, has an eligible `List[T]` type, and is evaluated
-exactly once. The body is checked with the binder at type `T`, must be pure,
+`list-expr` has an eligible `List[T]` type and is evaluated exactly once;
+it may hold an effect in a simple value, which runs once before the first item
+([surface coherence](workflow_lisp_surface_coherence.md) E1, §4). The body is checked with the binder at type `T`, must be pure,
 and is evaluated once for each element in input order. The output is an
 eligible `List[R]`.
 
@@ -240,8 +241,8 @@ state remain unchanged and unsupported by this tranche.
   <effectful-call-expr>)
 ```
 
-The binder/source rules match `list/map`; the source expression is pure and
-evaluated exactly once. In this first tranche the body is one existing
+The binder/source rules match `list/map`; the source expression is
+evaluated exactly once and may hold an effect in a simple value. In this first tranche the body is one existing
 effectful provider, command, workflow, or procedure call expression after
 specialization. Its arguments may be arbitrary already-supported pure
 expressions over the binder and enclosing lexical bindings. Nested
@@ -254,7 +255,8 @@ The first-tranche rule above describes target 2.18 and its legacy route.
 The accepted target-2.35 evaluated placement contract additionally admits
 direct path-mode `run-ref` and an already-admitted call containing it in the
 one-effect body; see [evaluated execution §1.2](workflow_lisp_evaluated_execution.md#12-ordinary-path-run-reference-placement-at-235).
-The source and body arguments remain pure, with the existing collection,
+The call's arguments remain pure in any map of a program that holds a run
+reference, with the existing collection,
 serial-order and bound rules. That placement is implemented for target-2.35
 entries: the Task 9 frontend cut with its public 9F/9G gates
 (`tests/test_workflow_evaluated_run_ref.py`, two-iteration K7 repetition with
@@ -365,8 +367,8 @@ runtime validation:
 | --- | --- |
 | `list_map_binder_invalid` | binder shape/name is invalid |
 | `list_map_body_effect_forbidden` | `list/map` body is not pure |
-| `list_map_effect_max_invalid` | `:max` is absent or not a positive integer literal |
-| `list_map_effect_body_unsupported` | effectful body exceeds the first-tranche call shape |
+| `list_map_effect_max_invalid` | `:max` is absent, a literal below 1, a serial `:max` that is not `Int`, or a parallel `:max` or `:parallel` that is not an integer literal |
+| `list_map_effect_body_unsupported` | in a program that holds a run reference anywhere, a body that is not exactly one call with pure arguments after specialization; a non-pure source |
 | `list_collection_contract_unsupported` | complete list type fails the shared transport predicate |
 | `list_empty_type_context_required` | `(list)` has no exact expected `List[T]` |
 | `list_nonempty_invariant_broken` | compiler-owned nonempty extraction observed an empty list |

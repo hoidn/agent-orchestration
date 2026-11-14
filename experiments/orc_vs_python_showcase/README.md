@@ -413,7 +413,7 @@ For the owning definitions and behavioral evidence, start with the
 [prompt-fragment and output-position guide](../../docs/lisp_workflow_drafting_guide.md#authoring-prompt-fragments---target-220),
 the frontend specification
 [§22.6](../../docs/design/workflow_lisp_frontend_specification.md#226-workflow-lisp-prompt-fragments-target-220)
-and [§22.7](../../docs/design/workflow_lisp_frontend_specification.md#227-implemented-prompt-output-positions-target-221),
+and [§8.7.2](../../docs/design/workflow_lisp_frontend_specification.md#872-implemented-path-out-slots-target-221),
 and the existing tests for
 [union prompt results](../../tests/test_workflow_lisp_generic_union_defprompt_results.py),
 [prompt compilation](../../tests/test_workflow_lisp_prompt_calculus.py), and

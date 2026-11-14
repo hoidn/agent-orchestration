@@ -390,6 +390,57 @@ def raise_error(
     )
 
 
+def require_simple_parts(
+    parts,
+    *,
+    place: str,
+    code: str,
+    advice: str = "bind this part with `let*` first and write its name here",
+) -> None:
+    """Refuse `place`, which holds an effect, unless each of its parts is simple (frontend specification 16.3).
+
+    `code` is the code the place gave while it took no effect; a part that holds such a place
+    itself keeps that place's code, so a program refused before is refused under the same code.
+    """
+
+    from .expression_traversal import first_effect_place_code, is_simple_value
+
+    for part in parts:
+        if not is_simple_value(part):
+            raise_error(
+                f"{place} holds an effect, so each of its parts must be simple: a literal, a name, a field "
+                "read, or a provider, command, agent or workflow call, an operator application or a "
+                f"constructor over simple parts; {advice}",
+                code=first_effect_place_code(part) or code,
+                span=part.span,
+                form_path=part.form_path,
+                expansion_stack=part.expansion_stack,
+            )
+
+
+def refuse_effect_place_in(exprs, *, where: str, advice: str) -> None:
+    """Refuse the first value of `exprs` that holds an effect in a place surface coherence E1 opened.
+
+    `where` (a procedure or function call's arguments, a `let-proc` local's body) admits nothing
+    new: the place keeps the refusal and the code it had (frontend specification 16.3).
+    """
+
+    from .expression_traversal import first_effect_place
+
+    for expr in exprs:
+        place = first_effect_place(expr)
+        if place is not None:
+            node, code = place
+            raise_error(
+                f"{where} does not take a record or variant field, a list element, a path child, a map "
+                f"source or an `:on-exhausted` value that holds an effect; {advice}",
+                code=code,
+                span=node.span,
+                form_path=node.form_path,
+                expansion_stack=node.expansion_stack,
+            )
+
+
 def raise_run_ref_placement_invalid(
     expr: ExprNode,
     *,

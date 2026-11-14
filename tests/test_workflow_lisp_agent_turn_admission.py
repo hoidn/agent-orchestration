@@ -15,11 +15,10 @@ from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bund
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import UsesProviderEffect
 
-HEADER = ('(workflow-lisp (:language "0.1") (:target-dsl "2.38") (defmodule main) (export run)\n'
+HEADER = ('(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule main) (export run)\n'
           '(defrecord Note (text String)) (defrecord Team (lead Agent) (label String))\n'
           '(defprompt ask (:fills (task :text)) -> Note "Task: {task}")\n')
 TWO_AGENTS = HEADER + '''(defproc turn ((who Agent) (task String)) -> Note
-    :effects ((uses-provider providers.claude) (uses-provider providers.codex))
     (provider-result who :prompt (ask :task task) :timeout-sec 60))
   (defworkflow run ((task String) (pick Bool)) -> Note
     (let* ((designer (agent providers.claude :model "m1" :effort "high"))
@@ -174,9 +173,9 @@ def test_agent_turn_rejects_overrides_and_unbounded_options(tmp_path: Path, tail
 D = '(defworkflow run ((task String)) -> Note (let* ((d (agent providers.claude))) '
 PICK = '(defunion Pick (a (lead Agent)) (b (label String))) '
 PAR = '(defworkflow run ((items List[String])) -> List[Note] (list/map-effect ((item items)) :max 2 :parallel 2 :workspace "." {body})))'
-MK = ('(defproc mk ((t String)) -> Note :effects ((uses-provider providers.claude)) '
+MK = ('(defproc mk ((t String)) -> Note '
       '(let* ((w (agent providers.claude))) (provider-result w :prompt (ask :task t)))) ')
-APPLY = '(defproc apply-it ((f ProcRef[String -> Note]) (t String)) -> Note :effects () (f t)) '
+APPLY = '(defproc apply-it ((f ProcRef[String -> Note]) (t String)) -> Note (f t)) '
 RR = ('(run-ref :source (:repo "file:///workspace" :commit "0123456789abcdef0123456789abcdef01234567") '
       ':program (:path "child.orc" :entry run) ')
 POLICY = ':policy (:environment :deterministic-effect-free :setup ())'
@@ -225,11 +224,11 @@ POLICY = ':policy (:environment :deterministic-effect-free :setup ())'
     (HEADER + '(defworkflow run ((items List[String])) -> List[Note] (let* ((d (agent providers.claude))) '
      '(list/map-effect ((item items)) :max 2 :parallel 2 :workspace "." (provider-result d :prompt (ask :task item))))))',
      "parallel_agent_boundary"),
-    (HEADER + '(defproc mk ((t String)) -> Note :effects ((uses-provider providers.claude)) :lowering inline '
+    (HEADER + '(defproc mk ((t String)) -> Note '
      '(let* ((w (agent providers.claude))) (provider-result w :prompt (ask :task t)))) '
      '(defworkflow run ((items List[String])) -> List[Note] (list/map-effect ((item items)) :max 2 :parallel 2 :workspace "." (mk item))))',
      "parallel_agent_boundary"),
-    (HEADER + '(defproc mk ((t String)) -> Team :effects ((uses-provider providers.claude)) :lowering inline '
+    (HEADER + '(defproc mk ((t String)) -> Team '
      '(let* ((w (agent providers.claude))) (record Team :lead w :label t))) '
      '(defworkflow run ((items List[String])) -> Note (let* ((teams (list/map-effect ((item items)) :max 2 :parallel 2'
      ' :workspace "." (mk item)))) (record Note :text "x"))))',
@@ -237,11 +236,11 @@ POLICY = ':policy (:environment :deterministic-effect-free :setup ())'
     # parallel worker reaching an allocation through a child workflow, a macro, or a ProcRef callee
     (HEADER + '(defworkflow child ((t String)) -> Note (let* ((w (agent providers.claude))) (provider-result w :prompt (ask :task t)))) '
      + PAR.format(body='(call child :t item)'), "parallel_agent_boundary"),
-    (HEADER + '(defmacro alloc () (agent providers.claude)) (defproc mk ((t String)) -> Note :effects ((uses-provider providers.claude)) '
+    (HEADER + '(defmacro alloc () (agent providers.claude)) (defproc mk ((t String)) -> Note '
      '(let* ((w (alloc))) (provider-result w :prompt (ask :task t)))) ' + PAR.format(body='(mk item)'), "parallel_agent_boundary"),
     (HEADER + MK + APPLY + PAR.format(body='(apply-it (proc-ref mk) item)'), "parallel_agent_boundary"),
     # closure capture: let-proc and bind-proc
-    (HEADER + '(defproc use ((who Agent) (t String)) -> Note :effects ((uses-provider providers.claude) (uses-provider providers.codex)) '
+    (HEADER + '(defproc use ((who Agent) (t String)) -> Note '
      '(provider-result who :prompt (ask :task t))) ' + APPLY + D + '(apply-it (bind-proc (proc-ref use) :who d) task))))',
      "let_proc_capture_agent_forbidden"),
     (HEADER + D + '(let-proc (f ((t String)) -> Note :captures (d) (provider-result d :prompt (ask :task t)))'

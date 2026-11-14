@@ -247,18 +247,18 @@ def test_public_fresh_shared_path_input_refuses_before_dispatch(tmp_path, monkey
 
 def _ordinary_union_sources(*, unprojected=False):
     declarations = '(defunion Inner (A (a String)) (B (b String)))'
-    helper = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    helper = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule helper) (export Inner Output project consume)
       (defrecord Output (status String)) DECLARATIONS
       (defproc project :forall (T) ((value T))
         :where ((T has-shared-union-field selection Inner)) -> Inner
-        :effects () :lowering inline value.selection)
+        value.selection)
       (defworkflow consume ((choice Inner)) -> Output
         (match choice
           ((A selected) (command-result probe :argv ("python" "consumer.py" selected.a) :returns Output))
           ((B selected) (command-result probe :argv ("python" "consumer.py" selected.b) :returns Output)))))'''.replace('DECLARATIONS', declarations)
     operand = '(variant Inner A :a "wrong-owner")' if unprojected else '(h.project (command-result produce :argv ("python" "producer.py") :returns Outer))'
-    entry = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    entry = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule entry) (import helper :as h) (export run)
       DECLARATIONS
       (defunion Outer (LEFT (selection Inner)) (RIGHT (selection Inner)))
@@ -292,7 +292,7 @@ def test_public_unprojected_homonymous_union_keeps_ordinary_nominal_refusal(tmp_
 def test_built_union_variant_field_retains_checked_enum_descriptor(tmp_path: Path) -> None:
     source = tmp_path / "choice.orc"
     source.write_text(f"""(workflow-lisp
-      (:language "0.1") (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+      (:language "0.1") (:target-dsl "2.40")
       (defmodule choice) (export run)
       (defunion Choice (YES) (NO))
       (defworkflow run ((choice Choice) (other Choice)) -> Bool

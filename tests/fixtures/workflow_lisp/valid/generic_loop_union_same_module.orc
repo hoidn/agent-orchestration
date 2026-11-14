@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defrecord Ctx
     (manifest Path.state-root))
   (defunion Selection
@@ -20,8 +20,6 @@
   (defproc pick
     ((ctx Ctx))
     -> Selection
-    :effects ((uses-command probe_select))
-    :lowering inline
     (command-result probe_select
       :argv ("python" "scripts/select_next_item.py" ctx.manifest)
       :returns Selection))
@@ -36,29 +34,25 @@
             (SelectionT has-union-variant PROGRESS (note String))
             (SelectionT has-union-variant BLOCKED (reason String)))
     -> LoopResult
-    :effects ()
-    :lowering inline
-    (loop/recur
+    (loop/recur ((state (loop-state
+                          (rounds Int 0)
+                          (note String "seed"))))
       :max max-iterations
-      :state (loop-state
-               (rounds Int 0)
-               (note String "seed"))
       :on-exhausted (variant LoopResult STUCK
                       :rounds state.rounds
                       :reason "exhausted")
-      (fn (state)
-        (match (selector ctx)
-          ((EMPTY e)
-           (done (variant LoopResult DRAINED
-                   :rounds state.rounds)))
-          ((PROGRESS p)
-           (continue (loop-state :like state
-                       :rounds (+ state.rounds 1)
-                       :note p.note)))
-          ((BLOCKED b)
-           (done (variant LoopResult STUCK
-                   :rounds state.rounds
-                   :reason b.reason)))))))
+      (match (selector ctx)
+        ((EMPTY e)
+         (done (variant LoopResult DRAINED
+                 :rounds state.rounds)))
+        ((PROGRESS p)
+         (continue (loop-state :like state
+                     :rounds (+ state.rounds 1)
+                     :note p.note)))
+        ((BLOCKED b)
+         (done (variant LoopResult STUCK
+                 :rounds state.rounds
+                 :reason b.reason))))))
   (defworkflow drain-status
     ((ctx Ctx))
     -> WorkflowOutput

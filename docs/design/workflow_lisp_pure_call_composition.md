@@ -48,15 +48,15 @@ pure expressions, and collection contracts. Relevant component authorities:
 - [Effect graph](workflow_lisp_effect_graph.md): inferred effects and visibility.
 - [WCC](workflow_lisp_core_calculus_middle_end.md), especially normalization,
   scope/proof analysis, and identity/resume: the maintained lowering foundation.
-- [Strict Boolean control flow](workflow_lisp_strict_boolean_control_flow.md):
+- [Frontend specification §12](workflow_lisp_frontend_specification.md#12-conditionals) ([strict Boolean control flow](workflow_lisp_strict_boolean_control_flow.md), historical record):
   target-2.26 conditional normalization, order, and short circuit.
 - [Pure list traversal](workflow_lisp_pure_list_traversal.md): pure map evaluation,
   collection eligibility, and pure-payload schema boundaries.
 - [Procedure-first reuse](workflow_lisp_procedure_first_reuse_contract.md):
   inline versus private-workflow identity obligations.
-- [Pure-result replay](workflow_lisp_pure_result_replay.md),
-  [state layout](workflow_lisp_state_layout.md), and
-  [source maps](workflow_lisp_source_map.md): generated value ownership and replay.
+- [Pure-result replay](workflow_lisp_pure_result_replay.md) (historical record),
+  [state layout](workflow_lisp_state_layout.md) (historical record), and
+  [core calculus, provenance](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts) ([source maps](workflow_lisp_source_map.md), historical record): generated value ownership and replay.
 
 The pre-2.30 audit reproduced a constant-returning inline `defproc` rejected in
 record, list, map, and `defun` positions while an equivalent `defun` passed.
@@ -361,7 +361,7 @@ automatically give up, force wrappers, or add a one-consumer escape hatch.
 Unbounded recursion would require revisiting analysis/lowering and termination
 semantics, not simply deleting cycle checks.
 
-[Provider-context values](workflow_lisp_provider_context_values.md) are a relevant
+[Provider-context values](workflow_lisp_provider_context_values.md) (historical record) are a relevant
 consumer, not proof of feasibility: transforming materialized immutable context
 can be pure; loading stored history and provider-assisted summaries are not.
 This design does not solve context transport, native capture, or record-valued

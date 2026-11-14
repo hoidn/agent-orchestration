@@ -16,12 +16,12 @@ old-run recovery and explicit retirement are governed by
   - `docs/design/workflow_lisp_frontend_specification.md`
   - `docs/design/workflow_lisp_parametric_type_system.md`
   - `docs/design/workflow_lisp_proc_refs_partial_application.md`
-  - `docs/design/workflow_lisp_native_transportable_returns.md`
+  - [Frontend specification §8.10](workflow_lisp_frontend_specification.md#810-return-types-and-result-guidance) (`docs/design/workflow_lisp_native_transportable_returns.md` is the historical record)
   - `docs/design/workflow_lisp_effect_graph.md`
-  - `docs/design/workflow_lisp_state_layout.md`
-  - `docs/design/workflow_lisp_source_map.md`
-  - `docs/design/workflow_lisp_key_migration_parity_architecture.md`
-  - `docs/design/workflow_lisp_procedure_migration_identity_compatibility.md`
+  - `docs/design/workflow_lisp_state_layout.md` (historical record)
+  - [Core calculus, provenance](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts) (`docs/design/workflow_lisp_source_map.md` is the historical record)
+  - `docs/design/workflow_lisp_key_migration_parity_architecture.md` (historical record)
+  - [CLI, resume preflight](../../specs/cli.md#resume-preflight-precedence) (`docs/design/workflow_lisp_procedure_migration_identity_compatibility.md` is the historical record)
   - `docs/plans/2026-07-13-procedure-first-stage4-design-and-planning.md`
 - **Implementation target:** independently reviewed substrate, pilot, and
   migration-wave plans selected by the procedure-first roadmap
@@ -277,7 +277,7 @@ preserve a persisted identity exactly, it must stop unless a separately
 reviewed general atomic upgrader preserves supported old-state consumers, or
 the migration qualifies for the reviewed internal identity-retirement class
 in the accepted
-[Procedure-Migration Identity Compatibility](workflow_lisp_procedure_migration_identity_compatibility.md)
+[Procedure-Migration Identity Compatibility](workflow_lisp_procedure_migration_identity_compatibility.md) (historical record)
 design. Identity retirement is never available to a public or exported callee,
 a promoted or live route, or any migration with a supported consumer of the
 old identity. It supplies evidence only and does not remap old state.

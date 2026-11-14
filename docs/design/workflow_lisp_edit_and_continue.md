@@ -5,21 +5,34 @@
 a run continues under an edited workflow and keeps the committed results
 whose identity and inputs the edit did not change.
 
-**Status.** Proposed revision of [evaluated execution](workflow_lisp_evaluated_execution.md),
-accepted by the coordinator on 2026-11-12 as the basis for an implementation plan after two
-review rounds. Not implemented: the contract changes only when the plan lands them. It applies rulings 2 to 8 of the
-[feasibility spike](workflow_lisp_edit_and_continue_spike.md#coordinator-rulings-2026-11-11)
-and the rulings recorded under [Decisions](#decisions).
+**Status.** Implemented by the
+[Phase 3b plan](../plans/2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md)
+(tasks T1 to T8, 2026-11-13); the lane then stopped (roadmap owner
+decision 13). Accepted by the coordinator on 2026-11-12 after two review
+rounds; it applies rulings 2 to 8 of the
+[feasibility spike](workflow_lisp_edit_and_continue_spike.md#coordinator-rulings-2026-11-11) (a historical record)
+and the rulings recorded under [Decisions](#decisions). Implemented, each
+pinned by tests on `main`: the `declaration` rule (§2), the reuse rule and
+the read-only plan with its token (§3, §6), the `rebased` record and the
+lineage readers (§4, §8), the refusals of §5 (a run-reference child refuses
+acceptance and names its parent), and `resume RUN_ID
+--accept-changes=plan-<token>` with its crash windows (§4, §6). The
+headline tests are `tests/test_first_hour_e2e.py` (a) to (c); the plan and
+acceptance tests are `tests/test_workflow_evaluated_edit_resume_*.py`. Not
+done: the H-G3 measurement of §10 (the planning call it needs exists,
+`rebase.plan_resume`; no measurement was run). Open and parked: what the
+program digest and a run reference's `config` digest cover (a run that uses
+a run reference cannot be resumed after a package change), and the
+message-text match in `effect_inputs._is_destination_overlap`.
 
-**What owns the behavior today.** Evaluated execution (§7.3 C7, §8.1, §8.4,
-§8.5) and the [CLI contract](../../specs/cli.md) ("Resume preflight
-precedence", "Diagnostics"). Until an implementation plan lands this page, a
-run resumes only under the program it started with, and
-`resume --accept-changes` covers only an unfinished command attempt's changed
-files. Follow those documents and the recovery lines the CLI prints.
+**What owns the behavior today.** Evaluated execution (rule C10, §7.3 C7,
+§8.1, §8.4, §8.5) and the [CLI contract](../../specs/cli.md) ("Resume
+preflight precedence", "Diagnostics"); the
+[lifecycle guide](../runtime_execution_lifecycle.md#edit-the-workflow-and-continue)
+says how to use it. Where this page and those documents differ, they win.
 
 **Copy safety.** Nothing here is a recipe: the record, file names, token and
-printed lines are proposals. Probe scripts are in the session scratch
+printed lines were proposals; the contracts above hold what was built. Probe scripts are in the session scratch
 directory
 `/tmp/claude-1000/-home-ollie-Documents-agent-orchestration/1b39a3a8-0e47-42a7-a277-a660e3320ba1/scratchpad/design-3b/`,
 which is not durable; [Probes](#probes) lists what each showed.
@@ -292,7 +305,8 @@ Not fewer: the captured-bytes callers and the planner cannot go through
 `read_memo`. Not more: passing tables through 27 callers adds nothing that
 the artifacts do not already fix. `read_memo` runs at every effect start, so
 it must not load an artifact twice: a program's table is cached in the
-process under its verified digest, of which it is a pure function. The plan
+process under (run root, verified digest), a pure function of the digest that
+each run root verifies for itself. The plan
 measures this before it builds on it: the time per effect of a run of a few
 hundred command steps after one accepted edit, against the same run with no
 edit.

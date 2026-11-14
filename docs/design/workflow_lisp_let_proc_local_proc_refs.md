@@ -69,7 +69,8 @@ A V1 `let-proc` binding:
 - declares an explicit return type;
 - declares explicit identifier captures;
 - contains one body expression;
-- may be referenced only through `(proc-ref local-name)`;
+- may be referenced only through `(proc-ref local-name)` (reversed by surface
+  coherence C1, §7.3);
 - closure-converts to a private generated `defproc`-equivalent;
 - lowers through ordinary `defproc` lowering;
 - produces no runtime procedure value.
@@ -268,6 +269,11 @@ Invalid:
 Bare local procedure names are not values.
 
 ### 7.3 Direct Call Sugar Deferred
+
+Reversed by surface coherence C1: a local that declares its signature is
+called by name with positional arguments, `(f a …)`, at every admitted target;
+see the [frontend specification §7.8](workflow_lisp_frontend_specification.md#78-procedure-references).
+The rest of this section records the V1 decision.
 
 V1 does not support direct calls to local procedures:
 

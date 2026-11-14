@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule reviewed_change)
   (export reviewed-change)
 
@@ -59,49 +59,47 @@
                      :model "claude-sonnet-5-5"
                      :effort "medium"
                      :timeout-sec 5400)))
-      (loop/recur :max 3
-        :state (loop-state
-                 (round Int 1)
-                 (account String change.account)
-                 (replies String "none"))
+      (loop/recur ((state (loop-state
+                            (round Int 1)
+                            (account String change.account)
+                            (replies String "none")))) :max 3
         :on-exhausted (variant Outcome UNRESOLVED :reason "round limit reached" :rounds state.round)
-        (fn (state)
-          (let* ((review (provider-result providers.reviewer
-                           :prompt (review-prompt
-                                     :repo repo
-                                     :intent intent
-                                     :account state.account
-                                     :replies state.replies)
-                     :model "gpt-6-sol"
-                     :effort "high"
-                     :timeout-sec 5400)))
-            (match review
-              ((APPROVE a)
-               (done (variant Outcome READY :report a.report :rounds state.round)))
-              ((REQUEST_CHANGES r)
-               (if (= state.round 3)
-                 (done (variant Outcome UNRESOLVED :reason r.summary :rounds state.round))
-                 (let* ((revision (provider-result providers.coder
-                                    :prompt (fix-prompt :task task :findings r.findings)
-                     :model "claude-sonnet-5-5"
-                     :effort "medium"
-                     :timeout-sec 5400)))
-                   (continue (loop-state :like state
-                               :round (+ state.round 1)
-                               :account revision.account
-                               :replies revision.replies)))))
-              ((WRONG_APPROACH w)
-               (if (= state.round 3)
-                 (done (variant Outcome UNRESOLVED :reason w.reason :rounds state.round))
-                 (let* ((redo (provider-result providers.coder
-                                :prompt (redo-prompt :task task :reason w.reason)
-                     :model "claude-sonnet-5-5"
-                     :effort "medium"
-                     :timeout-sec 5400)))
-                   (continue (loop-state :like state
-                               :round (+ state.round 1)
-                               :account redo.account
-                               :replies "none")))))
-              ((NEEDS_HUMAN h)
-               (done (variant Outcome ESCALATED :question h.question)))))))))
+        (let* ((review (provider-result providers.reviewer
+                         :prompt (review-prompt
+                                   :repo repo
+                                   :intent intent
+                                   :account state.account
+                                   :replies state.replies)
+                   :model "gpt-6-sol"
+                   :effort "high"
+                   :timeout-sec 5400)))
+          (match review
+            ((APPROVE a)
+             (done (variant Outcome READY :report a.report :rounds state.round)))
+            ((REQUEST_CHANGES r)
+             (if (= state.round 3)
+               (done (variant Outcome UNRESOLVED :reason r.summary :rounds state.round))
+               (let* ((revision (provider-result providers.coder
+                                  :prompt (fix-prompt :task task :findings r.findings)
+                   :model "claude-sonnet-5-5"
+                   :effort "medium"
+                   :timeout-sec 5400)))
+                 (continue (loop-state :like state
+                             :round (+ state.round 1)
+                             :account revision.account
+                             :replies revision.replies)))))
+            ((WRONG_APPROACH w)
+             (if (= state.round 3)
+               (done (variant Outcome UNRESOLVED :reason w.reason :rounds state.round))
+               (let* ((redo (provider-result providers.coder
+                              :prompt (redo-prompt :task task :reason w.reason)
+                   :model "claude-sonnet-5-5"
+                   :effort "medium"
+                   :timeout-sec 5400)))
+                 (continue (loop-state :like state
+                             :round (+ state.round 1)
+                             :account redo.account
+                             :replies "none")))))
+            ((NEEDS_HUMAN h)
+             (done (variant Outcome ESCALATED :question h.question))))))))
 )

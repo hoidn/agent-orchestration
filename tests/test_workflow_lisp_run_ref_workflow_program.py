@@ -869,6 +869,108 @@ def test_confined_site_in_a_list_map_effect_frame_is_refused(tmp_path, case):
     assert [row.code for row in refused.value.diagnostics] == ["run_ref_placement_invalid"]
 
 
+# Surface coherence I1: in a program that holds a run reference, every map body stays one call.
+# Every new body shape that reaches a confined site is therefore refused, serial or parallel.
+NEW_SHAPE_BODIES = {
+    "let": "(let* ((n (bump x))) (call one :seed n :revision revision))",
+    "let-two-calls": "(let* ((a (call one :seed x :revision revision))) (call one :seed a :revision revision))",
+    "if": "(if (= x 1) (call one :seed x :revision revision) (call two :seed x :revision revision))",
+    "nested-map": "(list/length (list/map-effect ((y (list x))) :max 1 (call one :seed y :revision revision)))",
+    "procedure-call-plus-call": "(let* ((box (fetch x))) (call one :seed box.n :revision revision))",
+}
+MAP_HEADS = {
+    "serial": "(list/map-effect ((x (list 1 2))) :max 2 ",
+    "parallel": '(list/map-effect ((repo (list "a"))) :max 1 :parallel 1 :workspace repo (let* ((x 1)) ',
+}
+
+
+@pytest.mark.parametrize("mode", sorted(MAP_HEADS))
+@pytest.mark.parametrize("shape", sorted(NEW_SHAPE_BODIES))
+def test_new_map_body_shapes_reaching_a_confined_site_are_refused(tmp_path, shape, mode):
+    close = "))" if mode == "parallel" else ")"
+    with pytest.raises(LispFrontendCompileError) as refused:
+        _map_program(tmp_path, f"(let* ((xs {MAP_HEADS[mode]}{NEW_SHAPE_BODIES[shape]}{close})) 1)")
+
+    assert [row.code for row in refused.value.diagnostics] == ["list_map_effect_body_unsupported"]
+
+
+# A run reference reached only through a procedure reference, confined (`one`) or path-mode (`onep`): every
+# program here is refused on `main` before I1 and stays refused. The same one-call body reaching a confined site
+# through a procedure reference (`(viaparam1 (proc-ref hide1r) …)`, a `let-proc` local, a parallel `(f 1)`) builds:
+# that is P12's own gap, pinned as the known rows `A2-C`, `A2-G` and `A2-M` of
+# `tests/test_workflow_lisp_defect_backlog.py`.
+PROC_REF_ROUTES = '''
+  (defproc hide1r ((n Int)) -> Int (call one :seed n :revision "r"))
+  (defproc hide2r ((n Int)) -> Int (let* ((a (call one :seed n :revision "r"))) (call one :seed a :revision "r")))
+  (defproc hidepr ((n Int)) -> Int (call onep :seed n :revision "r"))
+  (defproc hide2p ((n Int)) -> Int (let* ((a (call onep :seed n :revision "r"))) (call onep :seed a :revision "r")))
+  (defproc viaparam1 ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int
+    (list/length (list/map-effect ((x xs)) :max 2 (f x))))
+  (defproc viaparam ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int
+    (list/length (list/map-effect ((x xs)) :max 2 (let* ((a (f x))) (+ a 1)))))
+  (defproc viaif ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int
+    (list/length (list/map-effect ((x xs)) :max 2 (if (= x 1) (f x) 0))))
+  (defproc parlet ((f ProcRef[Int -> Int])) -> Int
+    (list/length (list/map-effect ((repo (list "a"))) :max 1 :parallel 1 :workspace repo (let* ((a (f 1))) (+ a 1)))))
+'''
+REFUSED_ON_MAIN = {
+    "confined_let_body": ("(viaparam (proc-ref hide1r) (list 1 2))", "list_map_effect_body_unsupported"),
+    "confined_if_body": ("(viaif (proc-ref hide1r) (list 1 2))", "list_map_effect_body_unsupported"),
+    "confined_one_call_two_runs": ("(viaparam1 (proc-ref hide2r) (list 1 2))", "list_map_effect_body_unsupported"),
+    "confined_parallel_let_body": ("(parlet (proc-ref hide1r))", "list_map_effect_body_unsupported"),
+    "path_one_call_two_runs": ("(viaparam1 (proc-ref hide2p) (list 1 2))", "list_map_effect_body_unsupported"),
+    "path_let_body": ("(viaparam (proc-ref hidepr) (list 1 2))", "list_map_effect_body_unsupported"),
+    "confined_named_call": ("(list/length (list/map-effect ((x (list 1 2))) :max 2 (hide1r x)))",
+                            "run_ref_placement_invalid"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(REFUSED_ON_MAIN))
+def test_run_reference_behind_a_procedure_reference_is_refused_as_on_main(tmp_path, monkeypatch, case):
+    body, code = REFUSED_ON_MAIN[case]
+    controller = CONFINED.replace('(:target-dsl "2.38")', '(:target-dsl "2.40")').replace("EXTRA", "EXTRA " + PROC_REF_ROUTES)
+    monkeypatch.setattr(sys.modules[__name__], "CONFINED", controller)
+    with pytest.raises(LispFrontendCompileError) as refused:
+        _built(_map_program(tmp_path, f"(let* ((xs {body})) 1)"))
+
+    assert [row.code for row in refused.value.diagnostics] == [code]
+
+
+@pytest.mark.parametrize("mode", sorted(MAP_HEADS))
+@pytest.mark.parametrize("shape", sorted(NEW_SHAPE_BODIES))
+def test_ruling_p12_alone_refuses_every_new_body_shape(tmp_path, monkeypatch, shape, mode):
+    """P12 does not rely on the one-call rule: with that rule switched off it still refuses each shape."""
+    from orchestrator.workflow_lisp import typecheck_structural_values
+
+    monkeypatch.setattr(typecheck_structural_values, "_one_call_map_body_fault", lambda expr, typed_body: None)
+    close = "))" if mode == "parallel" else ")"
+    with pytest.raises(LispFrontendCompileError) as refused:
+        _map_program(tmp_path, f"(let* ((xs {MAP_HEADS[mode]}{NEW_SHAPE_BODIES[shape]}{close})) 1)")
+
+    assert [row.code for row in refused.value.diagnostics] == ["run_ref_placement_invalid"]
+
+
+# Surface coherence I1: a program holding a run reference anywhere, in either spelling, keeps every map body
+# one call with pure arguments, also a body that reaches none; a program holding none admits any body.
+GENERAL_MAP = "(list/map-effect ((x (list 1 2))) :max 2 (let* ((n x)) (+ n 1)))"
+ELSEWHERE = {"confined": "(call one :seed 1 :revision revision)", "path": "(call onep :seed 1 :revision revision)"}
+
+
+@pytest.mark.parametrize("spelling", sorted(ELSEWHERE))
+def test_general_map_body_is_refused_in_a_program_holding_a_run_reference_elsewhere(tmp_path, monkeypatch, spelling):
+    monkeypatch.setattr(sys.modules[__name__], "CONFINED", CONFINED.replace('"2.38"', '"2.40"'))
+    with pytest.raises(LispFrontendCompileError) as refused:
+        _built(_map_program(tmp_path, f"(let* ((xs {GENERAL_MAP}) (y {ELSEWHERE[spelling]})) y)"))
+
+    assert [row.code for row in refused.value.diagnostics] == ["list_map_effect_body_unsupported"]
+
+
+def test_general_map_body_builds_in_a_program_holding_no_run_reference(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys.modules[__name__], "CONFINED", CONFINED.replace('"2.38"', '"2.40"'))
+
+    assert _built(_map_program(tmp_path, f"(let* ((xs {GENERAL_MAP})) (list/length xs))")).sites == ()
+
+
 def test_path_site_through_a_serial_list_map_effect_call_is_still_admitted(tmp_path):
     typed = _map_program(tmp_path, "(let* ((xs (list/map-effect ((x (list 1 2))) :max 2 "
                                    "(call onep :seed x :revision revision)))) 1)")

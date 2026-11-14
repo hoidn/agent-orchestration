@@ -405,9 +405,9 @@ def test_nested_equal_arm_binders_keep_complete_variant_call_coordinates(tmp_pat
 
 def test_call_coordinates_cover_if_loop_and_argument_join_owners(tmp_path):
     program = _compile(tmp_path,
-        '(loop/recur :max 1 :state 0 :on-exhausted (+ state 1) (fn (state) '
+        '(loop/recur ((state 0)) :max 1 :on-exhausted (+ state 1) '
         '(if flag (let* ((result (helper (match choice ((A same) same.i) '
-        '((B same) same.i))))) (done result)) (done (helper state)))))',
+        '((B same) same.i))))) (done result)) (done (helper state))))',
         params="(flag Bool) (choice Choice)",
         declarations='(defunion Choice (A (i Int)) (B (i Int)))' + _integer_helper())
     inventory = _observe_call_selectors(program)

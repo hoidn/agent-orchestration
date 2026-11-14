@@ -334,7 +334,7 @@ def _render_root_output_bundle_contract_block(
 
     A non-record/non-union result lowers to one `__result__` field at JSON
     pointer `""` (`orchestrator/workflow_lisp/contracts.py`,
-    `docs/design/workflow_lisp_native_transportable_returns.md`). The bundle
+    `docs/design/workflow_lisp_frontend_specification.md`, section 8.10). The bundle
     is one JSON value, not an object with named fields, so the prompt must not
     claim `format: JSON object` or name the compiler-owned `__result__` field.
     """

@@ -1,4 +1,4 @@
-"""Structural-search seed catalog: every seed is an admitted 2.39 program with one entry contract."""
+"""Structural-search seed catalog: every seed is an admitted 2.40 program with one entry contract."""
 
 import json
 import os
@@ -64,10 +64,10 @@ def entry_signature(seed):
 
 
 @pytest.mark.parametrize("seed", SEEDS)
-def test_seed_compiles_at_2_39_with_the_common_entry_contract(seed):
+def test_seed_compiles_at_2_40_with_the_common_entry_contract(seed):
     out = compile_seed(seed)
     assert out["status"] == "accepted", out
-    assert read_header(seed)[":target-dsl"] == "2.39"
+    assert read_header(seed)[":target-dsl"] == "2.40"
     assert entry_signature(seed) == "run ((task String) (intent String) (repo String)) -> Outcome"
 
 

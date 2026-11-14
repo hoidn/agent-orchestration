@@ -385,9 +385,9 @@ known failures.
   workflow parameter with `workflow_return_not_exportable` ("must lower from a
   literal integer"); both point into `std/improve.orc`.
 - No generic records and no explicit procedure type arguments (§6).
-- Record and variant fields are pure: an effectful call written there is
-  rejected with `effect_not_permitted`. The `:on-exhausted` value is pure:
-  `loop_recur_contract_invalid`.
+- Record and variant fields and the `:on-exhausted` value may hold an effect
+  in a simple value, which runs once in written order
+  ([surface coherence](workflow_lisp_surface_coherence.md) E1, §4).
 - The workflow return boundary rejects a union inside a returned variant with
   `workflow_boundary_type_invalid`.
 
@@ -400,7 +400,7 @@ where it points, and whether it is a rule or a defect.
 ### 11.2 Defects met by callers of `improve`
 
 These belong to the owners of the flat lowering route and of
-[pure-result replay](workflow_lisp_pure_result_replay.md); the
+[pure-result replay](workflow_lisp_pure_result_replay.md) (a historical record); the
 [decision brief](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md) weighs their repair.
 
 | What the author sees | Cause | Write instead | Pinned by |
@@ -431,7 +431,6 @@ Labels are those of the totality matrix, or the case letters of the
 | `replay-frame-scope` | `pure_result_replay_unavailable` ("crosses the indexed frame scope") | A pure call in a `match` arm, or pure bindings in an `if` branch over the result of a `call` made in that branch, are indexed in the wrong frame | Pass the fields to the next effect instead of binding them | Matrix label `replay-frame-scope`; the `if` branch shape has no test yet |
 | `d` | `pure_result_replay_unavailable` ("unknown result member") | See §11.2 | See §11.2 | Matrix label `d` |
 | f | At 2.33, `pure_result_replay_unavailable` ("source contract disagrees with its binding type") at `--dry-run`; at 2.32, `workflow_boundary_type_invalid` ("without required author-time variant proof") | A `match` whose arms mix a plain variant with a loop: the result reads a variant field with no proof of the selected variant | - | No test yet |
-| `on-exhausted-call-edge` | `loop_recur_contract_invalid` ("exhaustion projection must be pure") for a call to a `defproc` declared `:effects ()` | The check compares the whole effect summary, call edges included, with the empty summary | Write the variant directly | Matrix label `on-exhausted-call-edge` |
 | Path field in a loop result | From target 2.29, `workflow_boundary_type_invalid` ("may only override scalar repeat_until outputs") for a loop result union with a path field outside the exhausted variant | Shared validation admits only scalar outputs in the exhaustion override of a loop | Target 2.28 | No test yet |
 | `match` subject identity | A direct generic call without a type-dependent hook or typed prompt can still lower under different step identities from the same call bound by `let*` | At 2.33 and 2.34, `_kept_match_subject` retains the typed subject only for typed prompts and type-dependent hooks; target 2.34 does not broaden this rule to every generic subject | - | `tests/test_workflow_lisp_match_subject_calls.py::test_generic_helper_that_already_compiled_as_match_subject_keeps_its_lowered_output` |
 | Sibling field renaming | A record field that holds a `match` skips the renaming of hoisted bindings of its sibling fields (`wcc/elaborate.py`); no wrong value is known, because such a run stops earlier at the replay index | The elaborator's path for a constructor field that holds a `match` does not compose the other fields' prefixes, so a sibling field's hoisted binding wraps the arms | - | No test yet |

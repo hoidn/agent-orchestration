@@ -16,7 +16,7 @@ from tests.workflow_inprocess_cli_helpers import cli_inprocess
 
 
 PROGRAM = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule invalidate_public) (export run)
   (defworkflow run () -> Int
     (let* ((prefix (command-result prefix :argv ("python" "prefix.py") :returns Int))
@@ -380,7 +380,7 @@ def test_public_invalidate_refuses_bad_profile_authority_or_journal_without_writ
 
 
 LEGACY_PROGRAM = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule invalidate_legacy) (export run)
   (defworkflow run () -> Int
     (command-result prefix :argv ("python" "prefix.py") :returns Int)))

@@ -37,7 +37,8 @@ from .authority import _require_retained_root
 from .commands import workspace_relative_path
 from .memo import MemoError, append_record, read_memo
 from .spend_cap import check_spend_cap
-from .providers import ProviderPerformerError, launch_provider, provider_delivery_name_for_template, provider_result, resolve_provider_input
+from .providers import (ProviderPerformerError, check_output_slots, launch_provider, provider_delivery_name_for_template,
+                        provider_result, resolve_provider_input)
 
 
 class AgentTurnError(RuntimeError):
@@ -207,7 +208,9 @@ def prepare_agent_attempt(authority, node, operands, identity, snapshot, *, ordi
                                     dependencies=dependencies, context=context)
         if recovered is not None:       # else the pending attempt was closed (not dispatched, or bootstrap): allocate the next one
             return recovered
+        _check_output_slots(authority, resolved, result_path, context)
     else:
+        _check_output_slots(authority, resolved, result_path, context)
         restart_failed_turn(authority, identity, snapshot, context)
     check_spend_cap(authority, snapshot, node, policy=resolved.provider.policy, template=resolved.template)
     _head_or_refuse(resolved)
@@ -219,6 +222,13 @@ def prepare_agent_attempt(authority, node, operands, identity, snapshot, *, ordi
                            turn_dependencies(resolved, dependencies), resolved, context["workspace"], context["workspace_files"],
                            context["site_classes"], context["provider_executor"], attempt_files, context.get("launch_cwd"),
                            context.get("stream_output", False), views=context.get("views"))
+
+
+def _check_output_slots(authority, resolved: ResolvedTurn, result_path, context) -> None:
+    """Before a new dispatch only: a recovered pending turn commits the work its provider already did."""
+    workspace = context["workspace"]
+    check_output_slots(resolved.provider_node, resolved.provider, workspace=workspace,
+                       result_path=workspace_relative_path(workspace, authority.run_root / result_path))
 
 
 def _intent_receipt(attempt, resolved: ResolvedTurn, locator, before) -> Receipt:

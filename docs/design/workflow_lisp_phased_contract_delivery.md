@@ -6,7 +6,7 @@ new calls, replay and mutation under those historical profiles are unavailable
 in this package. [Executor retirement](workflow_lisp_executor_retirement.md) and
 [CLI](../../specs/cli.md) govern refusal and demonstrated exact-release recovery.
 
-Prompt fragment/output identities, one-render composition, content-free evidence, candidate validation before publication and bounded adapter cleanup remain shared contracts in [prompt calculus](workflow_lisp_prompt_calculus.md), [prompt identity](workflow_lisp_prompt_identity_diagnostics.md) and [Providers](../../specs/providers.md).
+Prompt fragment/output identities, one-render composition, content-free evidence, candidate validation before publication and bounded adapter cleanup remain shared contracts in [frontend specification §8.7.1 to §8.7.3](workflow_lisp_frontend_specification.md#871-defprompt-target-220) (historical records: [prompt calculus](workflow_lisp_prompt_calculus.md), [prompt identity](workflow_lisp_prompt_identity_diagnostics.md)) and [Providers](../../specs/providers.md).
 
 Validated provider capabilities must fail closed on absence, malformed data or
 unsupported operations. Transcript/pane bytes, receipts and diagnostic views

@@ -1,8 +1,8 @@
 # Workflow Lisp Parametric Type System
 
 Status: current implemented parametric contract (consolidates and supersedes
-`workflow_lisp_compile_time_parametric_specialization.md` and
-`workflow_lisp_structural_parametric_constraints.md`)
+`workflow_lisp_compile_time_parametric_specialization.md` (historical record) and
+`workflow_lisp_structural_parametric_constraints.md`, historical record)
 Kind: Workflow Lisp language design / implementation architecture
 Created: 2026-07-06
 
@@ -16,16 +16,16 @@ Related docs:
 - `docs/design/workflow_lisp_frontend_specification.md` (parent language contract)
 - [Frontend baseline](workflow_lisp_frontend_specification.md#27-review-revise-loop)
   (owns current `ReviewFindings` / `ReviewDecision` / `ReviewLoopResult` schemas);
-  [original integration delta](workflow_lisp_review_revise_stdlib_parametric_integration.md)
+  [original integration delta](workflow_lisp_review_revise_stdlib_parametric_integration.md) (historical record)
   is historical rationale and migration evidence
-- `docs/design/workflow_lisp_type_catalog.md` (type-to-contract mapping)
-- `docs/design/workflow_lisp_stdlib_lowering.md`
-- `docs/design/workflow_lisp_macro_surface_contract.md`
+- [Frontend specification §7](workflow_lisp_frontend_specification.md#7-types) (type-to-contract mapping; `docs/design/workflow_lisp_type_catalog.md` is the historical record)
+- `docs/design/workflow_lisp_stdlib_lowering.md` (historical record)
+- [Frontend specification §8.7 and Part VII](workflow_lisp_frontend_specification.md#part-vii-macro-system) (macros; `docs/design/workflow_lisp_macro_surface_contract.md` is the historical record)
 - `docs/design/workflow_lisp_proc_refs_partial_application.md`
 - `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
-- `docs/design/workflow_lisp_runtime_native_drain_authoring.md` (owns the
+- `docs/design/workflow_lisp_runtime_native_drain_authoring.md` (historical record; owned the
   concrete drain hook shape contracts consumed by Tranche 2)
-- `docs/design/workflow_lisp_shared_owner_lane_prerequisites.md`
+- `docs/design/workflow_lisp_shared_owner_lane_prerequisites.md` (historical record)
 
 ## Purpose
 
@@ -721,17 +721,18 @@ The original backlog-drain generic migration is historical. Generic constraints 
 
 ## Relationship To Other Docs
 
-- Supersedes `workflow_lisp_compile_time_parametric_specialization.md` and
-  `workflow_lisp_structural_parametric_constraints.md`; those documents remain
+- Supersedes `workflow_lisp_compile_time_parametric_specialization.md` (historical record) and
+  `workflow_lisp_structural_parametric_constraints.md` (historical record); those documents remain
   in-tree as historical records with supersession notices and must not be
   extended.
 - `workflow_lisp_frontend_specification.md` owns the promoted review/revise schemas (`ReviewFindings.v1` envelope,
   `ReviewDecision`, `ReviewLoopResult`) and their validation obligations;
   nothing here redefines them.
-- `workflow_lisp_type_catalog.md` owns type-to-contract mapping and
+- [Frontend specification §7](workflow_lisp_frontend_specification.md#7-types) (formerly `workflow_lisp_type_catalog.md`, historical record) owns type-to-contract mapping and
   assignment-compatibility rules consumed by Constraint Vocabulary rule 4.
-- `workflow_lisp_runtime_native_drain_authoring.md` (with
-  `workflow_lisp_shared_owner_lane_prerequisites.md`) owns the concrete
+- `workflow_lisp_runtime_native_drain_authoring.md` (historical record; with
+  `workflow_lisp_shared_owner_lane_prerequisites.md`; both historical records, the drain forms removed on
+  2026-11-12) owned the concrete
   selector/run-item/gap-drafter hook shape contracts and the drain's runtime
   behavior. This document owns only the parameterized signature and
   constraint vocabulary that Tranche 2 layers over those shapes; when

@@ -132,7 +132,7 @@ def test_input_and_asset_with_same_path_use_different_roots(tmp_path):
     workflow_root.mkdir()
     (workflow_root / "same.md").write_text("ASSET ROOT\n", encoding="utf-8")
     (tmp_path / "same.md").write_text("WORKSPACE ROOT\n", encoding="utf-8")
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((message String)) -> Bool
         (provider-result provider :prompt prompt :inputs (message) :returns Bool)))'''
@@ -153,17 +153,30 @@ def test_input_and_asset_with_same_path_use_different_roots(tmp_path):
     assert asset_reads[0][1].source_path == input_reads[0][1].source_path == "same.md"
 
 
-def test_input_source_absent_empty_and_raw_bytes_are_distinct(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+INPUT_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((message String)) -> Bool
         (provider-result provider :prompt prompt :inputs (message) :returns Bool)))'''
+
+
+def test_absent_input_source_refuses_with_its_source_code(tmp_path):
+    from orchestrator.workflow.evaluated.providers import ProviderPerformerError
+
     checked, provider_io = _direct_program(
-        tmp_path, {"prompt": {"input_file": "source.md"}}, source
+        tmp_path, {"prompt": {"input_file": "source.md"}}, INPUT_SOURCE
+    )
+
+    with pytest.raises(ProviderPerformerError) as raised:
+        _read_direct(checked, provider_io, tmp_path, {"message": "x"})
+    assert raised.value.code == "input_file_read_failed"
+
+
+def test_input_source_empty_and_raw_bytes_are_distinct(tmp_path):
+    checked, provider_io = _direct_program(
+        tmp_path, {"prompt": {"input_file": "source.md"}}, INPUT_SOURCE
     )
     path = tmp_path / "source.md"
 
-    _, absent = _read_direct(checked, provider_io, tmp_path, {"message": "x"})
     path.write_bytes(b"")
     _, empty = _read_direct(checked, provider_io, tmp_path, {"message": "x"})
     path.write_bytes(b"same\n")
@@ -171,15 +184,14 @@ def test_input_source_absent_empty_and_raw_bytes_are_distinct(tmp_path):
     path.write_bytes(b"same\r\n")
     _, crlf = _read_direct(checked, provider_io, tmp_path, {"message": "x"})
 
-    assert absent[0][1].source_text == empty[0][1].source_text == ""
-    assert absent[0][1].source_sha256 is None
+    assert empty[0][1].source_text == ""
     assert empty[0][1].source_sha256 == "sha256:" + sha256(b"").hexdigest()
     assert lf[0][1].source_text == crlf[0][1].source_text == "same\n"
     assert lf[0][1].source_sha256 != crlf[0][1].source_sha256
 
 
 def test_duplicate_doc_fills_share_one_raw_snapshot(tmp_path, monkeypatch):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defpath DocPath :kind relpath :under "docs" :must-exist true)
       (defprompt review
@@ -230,7 +242,7 @@ def test_duplicate_doc_fills_share_one_raw_snapshot(tmp_path, monkeypatch):
 def test_required_and_optional_dependency_aliases_share_one_raw_snapshot(
     tmp_path, monkeypatch
 ):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defpath DocPath :kind relpath :under "docs" :must-exist true)
       (defworkflow run
@@ -276,7 +288,7 @@ def test_required_and_optional_dependency_aliases_share_one_raw_snapshot(
 
 
 def test_raw_dependency_tail_changes_hash_but_not_captured_render(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defpath DocPath :kind relpath :under "docs" :must-exist true)
       (defworkflow run ((document DocPath) (message String)) -> Bool
@@ -321,7 +333,7 @@ def test_raw_dependency_tail_changes_hash_but_not_captured_render(tmp_path):
 
 
 def test_unreached_provider_does_not_read_prompt_source(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((should_read Bool) (message String)) -> Bool
         (if should_read
@@ -340,7 +352,7 @@ def test_unreached_provider_does_not_read_prompt_source(tmp_path):
 
 
 def test_asset_file_read_requires_a_checked_reader(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((message String)) -> Bool
         (provider-result provider :prompt prompt :inputs (message) :returns Bool)))'''
@@ -364,7 +376,7 @@ def test_asset_file_read_requires_a_checked_reader(tmp_path):
 
 
 def test_mismatched_provider_io_is_rejected_before_dispatch(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((message String)) -> Bool
         (provider-result provider :prompt prompt :inputs (message) :returns Bool)))'''

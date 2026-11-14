@@ -52,7 +52,7 @@ def _write_consumer(root, *, inline=False):
 
 def _rich_fixture(root):
     _write_consumer(root)
-    source = _write_entry(root, '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = _write_entry(root, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule r12/entry) (export run)
       (defpath Asset :kind relpath :under "assets" :must-exist false)
       (defunion Choice (YES (asset Asset)) (NO))
@@ -110,7 +110,7 @@ def test_public_typed_document_round_trips(tmp_path):
 
 
 def _source(body, *, declarations="", params="", imports=""):
-    return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule r12/entry) {imports} (export run) {declarations}
       (defworkflow run ({params}) -> Value {body}))'''
 
@@ -180,9 +180,9 @@ def test_public_colliding_inputs_keep_distinct_values_and_each_effect_once(tmp_p
     _write_consumer(tmp_path, inline=certified)
     _write_producer(tmp_path, "one", 11)
     _write_producer(tmp_path, "two", 12)
-    declarations = '''(defproc one () -> Int :effects ((uses-command one)) :lowering inline
+    declarations = '''(defproc one () -> Int
       (command-result one :argv ("python" "one.py") :returns Int))
-      (defproc two () -> Int :effects ((uses-command two)) :lowering inline
+      (defproc two () -> Int
       (command-result two :argv ("python" "two.py") :returns Int))'''
     expressions = {"a-b": "(one)" if effects else "(+ n 1)", "a_b": "(two)" if effects else "(+ n 2)"}
     document = " ".join(f"({name} {expressions[name]})" for name in fields)
@@ -227,13 +227,13 @@ def test_public_operand_order_and_dependencies(tmp_path, first, fields, flag):
         _write_producer(tmp_path, name, value)
     library = tmp_path / "src" / "r12" / "library.orc"
     library.parent.mkdir(parents=True)
-    library.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    library.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule r12/library) (export text)
-      (defproc text () -> String :effects ((uses-command text)) :lowering inline
+      (defproc text () -> String
         (command-result text :argv ("python" "text.py") :returns String)))''')
-    declarations = '''(defproc number () -> Int :effects ((uses-command number)) :lowering inline
+    declarations = '''(defproc number () -> Int
       (command-result number :argv ("python" "number.py") :returns Int))
-      (defproc more () -> Int :effects ((uses-command more)) :lowering inline
+      (defproc more () -> Int
       (command-result more :argv ("python" "more.py") :returns Int))'''
     argv = ':argv ("python" "consumer.py" (let* ((n (number))) n))'
     expressions = {"text": '(if flag (text) "unused")', "more": '(more)'}
@@ -262,7 +262,7 @@ def _assert_selected_dependencies(snapshot, producer_count):
 def test_public_pure_division_precedes_later_operand_effect(tmp_path):
     _write_consumer(tmp_path)
     _write_producer(tmp_path, "number", 7)
-    declarations = '''(defproc number () -> Int :effects ((uses-command number)) :lowering inline
+    declarations = '''(defproc number () -> Int
       (command-result number :argv ("python" "number.py") :returns Int))'''
     result = _run_body(tmp_path,
         '(command-result emit :inputs ((quotient (/ 7.0 divisor))) :argv ("python" "consumer.py" (number)) :returns Value)',
@@ -290,7 +290,7 @@ def test_public_document_only_import_and_capture_keep_dependency_and_r12(tmp_pat
           (let* ((n 100))
             (command-result emit :argv ("python" "consumer.py")
               :inputs ((payload (invoke (proc-ref saved) 1))) :returns Value)))'''
-        declarations = '(defproc invoke ((hook ProcRef[Int -> Int]) (x Int)) -> Int :effects () :lowering inline (hook x))'
+        declarations = '(defproc invoke ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))'
         imports = ""
     else:
         helper = tmp_path / "src" / "r12" / "helper.orc"

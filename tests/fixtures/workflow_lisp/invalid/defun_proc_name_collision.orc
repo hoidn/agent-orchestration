@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defpath WorkReport
     :kind relpath
     :under "artifacts/work"
@@ -17,7 +17,6 @@
   (defproc shared
     ((input ChecksResult))
     -> ImplementationSummary
-    :effects ()
     (record ImplementationSummary
       :report input.report))
   (defworkflow orchestrate

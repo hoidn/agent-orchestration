@@ -36,9 +36,9 @@ from .compiler import (
     compile_stage3_module,
 )
 from .compiler_session import CompilerSession
-from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, compiler_defect_boundary
 from .lints import LINT_PROFILE_DEFAULT
-from .reader import SourceReadRecord, SourceReadTrace, read_sexpr_file
+from .reader import SOURCE_READ_ERRORS, SourceReadRecord, SourceReadTrace, read_sexpr_file
 
 
 if TYPE_CHECKING:
@@ -779,21 +779,23 @@ def _load_imported_workflow_bundle_manifest(
             validate_shared=True,
             source_read_trace=trace,
         )
-        if source_syntax.module_name is not None:
-            linked = compile_stage3_entrypoint(
-                resolved_bundle_path, source_roots=source_roots, **compile_kwargs,
-            )
-            program = _select_and_finalize_typed_program(
-                linked.entry_result, entry_path=resolved_bundle_path,
-                entry_workflow=requested_entry,
-                export_surface=linked.graph.export_surfaces_by_name[linked.graph.entry_module_name],
-                diagnostics=linked.diagnostics,
-            )
-        else:
-            result = compile_stage3_module(resolved_bundle_path, **compile_kwargs)
-            program = _select_and_finalize_typed_program(
-                result, entry_path=resolved_bundle_path, entry_workflow=requested_entry,
-            )
+        # The same typecheck boundary as the entry module's (`closed/frontend.py`).
+        with compiler_defect_boundary(resolved_bundle_path, "typecheck", passes=SOURCE_READ_ERRORS):
+            if source_syntax.module_name is not None:
+                linked = compile_stage3_entrypoint(
+                    resolved_bundle_path, source_roots=source_roots, **compile_kwargs,
+                )
+                program = _select_and_finalize_typed_program(
+                    linked.entry_result, entry_path=resolved_bundle_path,
+                    entry_workflow=requested_entry,
+                    export_surface=linked.graph.export_surfaces_by_name[linked.graph.entry_module_name],
+                    diagnostics=linked.diagnostics,
+                )
+            else:
+                result = compile_stage3_module(resolved_bundle_path, **compile_kwargs)
+                program = _select_and_finalize_typed_program(
+                    result, entry_path=resolved_bundle_path, entry_workflow=requested_entry,
+                )
         bindings.append(ImportedWorkflowBundleBinding(
             canonical_key=canonical_key,
             manifest_entry_path=raw_path,

@@ -18,6 +18,7 @@ from .effects import (
 from .parametric_constraints import evaluate_parametric_constraints, provisional_shared_union_field_capabilities
 from .generic_unions import bind_applied_union_arguments
 from .expressions import (
+    LOCAL_CALL_ALIAS_PREFIX,
     BindProcBinding,
     BindProcExpr,
     ContinueExpr,
@@ -75,7 +76,7 @@ from .type_env import (
     type_refs_compatible,
 )
 from .syntax import target_dsl_supports_local_hook_inference
-from .typecheck_context import raise_error as _raise_error
+from .typecheck_context import raise_error as _raise_error, refuse_effect_place_in
 from .typecheck_proofs import BindingIdentity, _allocate_binding_identity
 
 
@@ -256,6 +257,7 @@ def typecheck_procedure_definitions(
                 ),
                 prompt_catalog=prompt_catalog,
                 session_state=compiler_session.elaboration,
+                workflow_names=frozenset(getattr(workflow_catalog, "signatures_by_name", ())),
             )
         else:
             body_expr = procedure_def.body
@@ -268,7 +270,7 @@ def typecheck_procedure_definitions(
         # context; procs without a private context source keep the plain
         # missing-binding failure (structural private-exec-context /
         # std/context contract,
-        # docs/design/workflow_lisp_frontend_specification.md).
+        # docs/design/workflow_lisp_core_calculus_middle_end.md).
         session_state.procedure_hidden_context_signature = (
             signature
             if eligible_private_context_source_param_names(signature)
@@ -497,6 +499,17 @@ def _provisional_parametric_match_types(
     }
 
 
+def _refuse_positional_workflow_reference_call(expr, context, raise_error) -> None:
+    """`(w n)` on a workflow reference names `call`, as on a workflow."""
+    if isinstance(context.value_env.get(expr.callee_name), WorkflowRefTypeRef):
+        raise_error(
+            f"`{expr.callee_name}` is a workflow reference; call it as `(call {expr.callee_name} :x …)`",
+            code="procedure_call_unknown",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+
+
 def typecheck_procedure_call_expr(
     expr: ProcedureCallExpr,
     *,
@@ -519,7 +532,8 @@ def typecheck_procedure_call_expr(
     if bound_proc_ref is not None:
         if len(expr.args) != len(bound_proc_ref.residual_params):
             raise_error(
-                f"procedure `{expr.callee_name}` expected {len(bound_proc_ref.residual_params)} positional arguments but got {len(expr.args)}",
+                f"procedure `{expr.callee_name.removeprefix(LOCAL_CALL_ALIAS_PREFIX)}` expected "
+                f"{len(bound_proc_ref.residual_params)} positional arguments but got {len(expr.args)}",
                 code="procedure_arity_mismatch",
                 span=expr.span,
                 form_path=expr.form_path,
@@ -596,6 +610,7 @@ def typecheck_procedure_call_expr(
         )
     signature = context.procedure_catalog.signatures_by_name.get(expr.callee_name)
     if signature is None:
+        _refuse_positional_workflow_reference_call(expr, context, raise_error)
         if expr.callee_name in context.value_env:
             raise_error(
                 f"bound name `{expr.callee_name}` is not a callable proc-ref",
@@ -1493,6 +1508,10 @@ def _typecheck_let_proc_expr_impl(
             form_path=expr.binding.local_body.form_path,
             expansion_stack=expr.binding.local_body.expansion_stack,
         )
+    # Nothing new is admitted in a local's body: a place there that holds an effect keeps its refusal.
+    refuse_effect_place_in(
+        [typed_local_body.expr], where="the body of a `let-proc` local",
+        advice="bind the effect with `let*` in the body first, or make the local a top-level `defproc`")
     session_state.generated_local_procedures[generated_name] = TypedProcedureDef(
         definition=generated_definition,
         signature=generated_signature,
@@ -1568,6 +1587,7 @@ def _validate_local_hook_sites(consumer, bindings):
         if isinstance(node, LetProcExpr):
             # This declaration/consumer has its own scoped local bindings.
             return
+        _refuse_unsigned_local_call(node, incomplete)
         if isinstance(node, ProcRefLiteralExpr):
             binding = incomplete.get(node.target_name)
             if binding is not None:
@@ -1603,6 +1623,24 @@ def _validate_local_hook_sites(consumer, bindings):
                             for call in sites[name].values()),
             )
     return sites
+
+
+def _refuse_unsigned_local_call(node, incomplete):
+    """A local called by name declares its signature (surface coherence, rule 3)."""
+    if not isinstance(node, LetStarExpr) or len(node.bindings) != 1:
+        return
+    alias, reference = node.bindings[0]
+    if not (isinstance(reference, ProcRefLiteralExpr) and reference.target_name in incomplete
+            and alias == LOCAL_CALL_ALIAS_PREFIX + reference.target_name):
+        return
+    binding = incomplete[reference.target_name]
+    _raise_error(
+        f"give `{reference.authored_name}` a signature to call it by name: typed parameters and "
+        f"`-> Type`; a local without one can only be passed with `(proc-ref {reference.authored_name})`",
+        code="let_proc_signature_required", span=node.span,
+        form_path=node.form_path, expansion_stack=node.expansion_stack,
+        notes=(f"local `{binding.local_name}` declared at {binding.span.start.path}:{binding.span.start.line}",),
+    )
 
 
 def _prepare_local_hook_call(call, bindings, *, creator, signature, recurse):
@@ -1809,7 +1847,7 @@ def _typecheck_local_hook_group(expr, **creator):
     finally:
         session.proc_ref_value_env, session.pending_local_hook_preparer = previous
     if incomplete.keys() - completed:
-        binding = incomplete[next(iter(incomplete.keys() - completed))]
+        binding = next(binding for name, binding in incomplete.items() if name not in completed)
         _raise_error("local hook signature was not completed", code="let_proc_expected_signature_missing",
             span=binding.span, form_path=binding.form_path)
     final_body = _rewrite_local_proc_references(expr.body, local_bindings=rewrites)
@@ -2413,7 +2451,7 @@ def _dataclass_semantic_identity(value):
         item for item in fields(value)
         if item.name not in {"span", "form_path", "expansion_stack"}
         and not item.metadata.get("semantic_identity_omit")
-        and not (isinstance(value, ListMapEffectExpr) and item.name in {"parallel_count", "workspace_expr"} and getattr(value, item.name) is None)
+        and not (isinstance(value, ListMapEffectExpr) and item.name in {"parallel_count", "workspace_expr", "max_expr"} and getattr(value, item.name) is None)
     )
     if isinstance(value, CommandResultExpr):
         identity_fields = tuple(

@@ -16,12 +16,12 @@ def test_bound_proc_reference_executes_merged_specialization_after_readback(
 ) -> None:
     source_path = install(
         tmp_path,
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule cp/bound) (export run)
           (defproc helper ((fixed Int) (x Int)) -> Int
-            :effects () :lowering inline (+ fixed x))
+            (+ fixed x))
           (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int
-            :effects () :lowering inline (runner x))
+            (runner x))
           (defworkflow run ((x Int)) -> Int
             (invoke (bind-proc (proc-ref helper) :fixed 3) x)))''',
     )

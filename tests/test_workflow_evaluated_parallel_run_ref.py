@@ -52,7 +52,7 @@ def _parallel_e1_fixture(root, *, nested=False):
         return leaf + f'(defworkflow inner ((repo String)) -> List[Bool] {inner})'
     body = '(list/map-effect ((repo (list "a" "b"))) :max 2 :parallel 2 :workspace repo '
     body += '(call inner :repo repo))' if nested else '(call invoke :repo repo))'
-    parent, source, refs = _public_fixture(root, parent_target='2.37', child_target='2.35',
+    parent, source, refs = _public_fixture(root, parent_target='2.40', child_target='2.40',
         definitions=definitions, body=lambda call: f'(let* ((items {body})) (= (list/length items) 2))')
     for item in 'ab':
         (parent / item).mkdir()
@@ -195,7 +195,7 @@ def test_command_sibling_commits_while_e1_waits_before_actual_launch_checks(tmp_
     body = '''(let* ((items (list/map-effect ((repo (list "a" "b" "c")))
         :max 3 :parallel 3 :workspace repo (call invoke :repo repo))))
         (= (list/length items) 3))'''
-    parent, source, refs = _public_fixture(tmp_path, parent_target='2.37', child_target='2.35',
+    parent, source, refs = _public_fixture(tmp_path, parent_target='2.40', child_target='2.40',
         definitions=definitions, body=lambda call: body)
     from tests.test_workflow_evaluated_command_template_scopes import _write_probe, _write_boundaries
     for item in 'abc':

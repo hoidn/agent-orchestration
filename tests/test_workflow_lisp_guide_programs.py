@@ -15,9 +15,6 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.build_manifest_io import _parse_command_boundaries_manifest
 
 from tests.workflow_evaluated_totality_helpers import public_run
 
@@ -246,6 +243,7 @@ EVALUATED.update({
     "if_over_scalars": Runs({"n": 4}, ("fetch 2",)),
     "effect_argument": Runs({"n": 27}, ("bump 26", "fetch 27")),
     "on_exhausted_helper_in_branch": Runs({"n": 2, "status": "exhausted"}, ("bump 0", "bump 1")),
+    "on_exhausted_pure_proc": Runs({"n": 2, "status": "exhausted"}, ("bump 0", "bump 1")),
     "on_exhausted_operator": Runs(6),
     "on_exhausted_float_operator": Runs(2.5),
     "on_exhausted_float_defun": Runs(2.5),
@@ -282,24 +280,5 @@ def test_every_fixture_program_has_a_case() -> None:
     assert programs == {program for program, _, _ in CASES.values()}
     # argv record projection is retired; current structured command inputs have
     # their public coverage in test_workflow_evaluated_input_documents.py.
-    covered = set(EVALUATED) | {"on_exhausted_pure_proc"}
+    covered = set(EVALUATED)
     assert set(CASES) - covered == {"record_command_input", "record_adapter_input"}
-
-
-def test_current_procedure_exhaustion_refusal_keeps_authored_location(tmp_path):
-    files = _install(tmp_path, "on_exhausted_pure_proc")
-    boundaries = _parse_command_boundaries_manifest(
-        json.loads(files["commands"].read_text()), manifest_path=files["commands"],
-    )
-    with pytest.raises(LispFrontendCompileError) as refused:
-        compile_stage3_entrypoint(
-            files["source"], source_roots=(files["source_root"],),
-            command_boundaries=boundaries, workspace_root=tmp_path,
-            validate_shared=False,
-        )
-    diagnostic = refused.value.diagnostics[0]
-    assert (diagnostic.code, diagnostic.span.start.line, diagnostic.span.start.column) == (
-        "loop_recur_contract_invalid", 19, 21,
-    )
-    assert _log(tmp_path) == ()
-    assert not (tmp_path / ".orchestrate" / "runs").exists()
