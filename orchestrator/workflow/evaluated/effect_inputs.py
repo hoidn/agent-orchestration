@@ -259,6 +259,9 @@ def _check_pending_turn(authority, snapshot, node, operands, identity, reader, w
     classified = classify_pending_turn(authority, node, identity, snapshot, workspace, resolved, probe_only=True)
     if classified.disposition == "unresolved":
         raise _PreflightRefusal("agent_turn_unresolved", f"{identity}: {classified.detail}")
+    if classified.disposition in ("not_dispatched", "bootstrap"):   # a new dispatch follows; recovered work is not checked
+        check_output_slots(resolved.provider_node, resolved.provider, workspace=workspace,
+            result_path=workspace_relative_path(workspace, authority.run_root / pending.data["result_path"]))
 
 
 def _resolve_effect_input(
@@ -311,7 +314,7 @@ def _resolve_external_input(authority, node, operands, identity, workspace, read
 def _resolve_turn_effect_input(authority, node, operands, identity, workspace, reader, commit, result_path, launch_cwd, snapshot):
     """A committed turn replays against its historical predecessor and its committed delivery rendering."""
     try:
-        resolved = resolve_turn_input(authority, node, operands, identity, workspace, reader, snapshot=snapshot,
+        return resolve_turn_input(authority, node, operands, identity, workspace, reader, snapshot=snapshot,
             result_path=result_path, launch_cwd=launch_cwd, committed_offset=None if commit is None else commit.offset,
             delivery_name=None if commit is None else _provider_delivery_name(node, commit, identity))
     except (AgentTurnError, MemoError):
@@ -320,10 +323,6 @@ def _resolve_turn_effect_input(authority, node, operands, identity, workspace, r
         if commit is not None:
             raise _EffectInputDiverged(identity, f"agent turn inputs could not be resolved: {exc}") from exc
         raise
-    if commit is None:  # a committed turn replays as recorded (specs/versioning.md rule 3)
-        check_output_slots(resolved.provider_node, resolved.provider, workspace=workspace,
-            result_path=workspace_relative_path(workspace, authority.run_root / result_path))
-    return resolved
 
 
 def _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader, commit, result_path, launch_cwd):
