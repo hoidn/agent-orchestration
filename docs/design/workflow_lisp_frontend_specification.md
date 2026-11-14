@@ -3370,6 +3370,10 @@ and error list are [preserved in the history file](../reports/documentation-hist
 - Every expanded node keeps its source span, form path and expansion stack: one
   frame per macro call, with the macro name, a deterministic expansion id
   (`m0001`, ...), the call site and the definition site.
+- A procedure call is identified by its span, form path and expansion stack
+  together, so each expansion of a template calls the target resolved for that
+  expansion. A call whose identity still records two targets stops the build
+  with `compiler_defect` naming the call; the compiler never chooses one.
 
 ## 34. Hygiene
 

@@ -717,6 +717,27 @@ own delivery status and captured evidence.
     evaluated route's `resume_program_changed` refusal without writes. No new runtime policy,
     representation or target is introduced. The [correction report](../docs/reports/2026-10-07-workflow-lisp-pure-capture-correction.md)
     records the bounded evidence and original failed gates.
+  - A procedure call's target no longer depends on the hash seed or on the
+    source directory. Two calls that share a span and form path (two
+    expansions of one macro template in one owner, at every target; at
+    targets 2.39 and 2.40 also a procedure specialized more than once in one
+    chain of bound procedure references) were given one target, chosen in an
+    order that varied with `PYTHONHASHSEED` and the absolute source path. Such
+    a program built on one run and stopped with `compiler_defect` on the next,
+    or built a program that skipped or repeated a procedure and computed a
+    wrong value. A call is now identified by its span, form path and expansion
+    stack, and a procedure's body records only its own calls, so each call
+    reaches the target its source means and the program has one digest. That
+    digest may differ from the one an earlier build recorded, so a run
+    recorded by such a build resumes only through the edited-program route
+    (`resume_program_changed`, then `--accept-changes=TOKEN`). A call whose
+    identity still records two targets stops the build with `compiler_defect`
+    naming the call; the compiler never chooses one. The remaining known case:
+    an inlined pure procedure gives every node of its body the span of its
+    call, so two calls in that body to different `let-proc` locals (written
+    directly or by a macro) stop with `compiler_defect`, where they built
+    before with one local called twice. A program without such a collision
+    keeps its closed program, digest and effect identities.
   - The refusal of an integer overflow keeps its code, `pure_expr_overflow`,
     its stage and its exit code at every target. Its message, which a failed
     run records in `state.json`, now names the operator and prints its
