@@ -1591,8 +1591,9 @@ def _calls_local_proc(head: SyntaxIdentifier, available_names: frozenset[str], s
 
 
 def _names_workflow(head: SyntaxIdentifier, form_path: tuple[str, ...], session_state) -> bool:
+    # Consult the resolver only when this elaboration knows its workflows.
     resolve = session_state.workflow_name_resolver
-    if resolve is None or "." in head.resolved_name:
+    if resolve is None or not session_state.workflow_names or "." in head.resolved_name:
         return False
     return resolve(head.resolved_name, head.span, form_path) in session_state.workflow_names
 
