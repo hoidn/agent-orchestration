@@ -126,6 +126,16 @@ def test_resume_with_the_prompt_file_still_missing_fails_again_without_a_launch(
     assert ("[input_file_read_failed]" in resumed.stderr, _launches(tmp_path)) == (True, 0), resumed.stderr
 
 
+def test_deleting_a_committed_prompt_file_refuses_resume_without_a_launch(tmp_path):
+    path = _fixture(tmp_path, "input_file")
+    path.write_text("Authored prompt.\n", encoding="utf-8")
+    assert _run(tmp_path).returncode == 0
+    path.unlink()
+    refused = _orchestrator(tmp_path, "resume", _report(tmp_path)["run"]["run_id"])
+    assert (refused.returncode, "[effect_input_diverged]" in refused.stderr, _launches(tmp_path)) == (2, True, 1), \
+        refused.stderr
+
+
 def test_empty_prompt_file_is_still_a_prompt(tmp_path):
     _fixture(tmp_path, "input_file").write_bytes(b"")
     assert (_run(tmp_path).returncode, _launches(tmp_path)) == (0, 1)
