@@ -585,8 +585,9 @@ Contract text to amend when this design is accepted:
 
 ## 6. Probes
 
-All probes ran at `b399076b` with stand-ins; no provider was called. The
-stop was patched in for the probe at the spend cap's call sites:
+All probes ran at `b399076b` with stand-ins; no provider was called. P1 to
+P3 were run again on `main` at `8a61b143` with the same results. The stop
+was patched in for the probe at the spend cap's call sites:
 
 ```python
 def check(authority, snapshot, node, **kw):          # replaces runtime.check_spend_cap for the probe
