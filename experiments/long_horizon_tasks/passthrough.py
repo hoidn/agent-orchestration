@@ -7,8 +7,9 @@ maps the fake bearer token to a slot. It refuses, in one form (HTTP 403 `permiss
 `POST /v1/messages?beta=true` ("path not allowed"); an unknown token ("unknown token"); a stopped tranche
 ("tranche stopped"); any model but the price rule's exact id, or a body that is not JSON ("model not
 allowed"); a request that declares a provider-side tool, one without `input_schema` ("provider-side tool
-refused"); a body above 64 MiB or without a valid length, unread ("request too large"); a slot at its request count or priced cap ("slot cap reached"); the tranche at its request count
-or priced total ("tranche total reached"). Otherwise it replaces the value of the `authorization` header with
+refused"); a body above 64 MiB or without a valid length, unread ("request too large"); a slot at its
+request count or priced cap ("slot cap reached"); the tranche at its request count or priced total
+("tranche total reached"). Otherwise it replaces the value of the `authorization` header with
 `Bearer <real token>`, sets `host` to the vendor's host (the server it connects to) and changes no other byte
 of the request. It passes the vendor's response through unchanged (a chunked body is re-chunked) and prices
 its usage by `price_rule.json` (`price_check.price`, each cache write at its own lifetime's rate), metering a

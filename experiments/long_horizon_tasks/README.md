@@ -37,3 +37,22 @@ pytest -q -n 8 tests/test_long_horizon_stub_api.py tests/test_long_horizon_cut_f
 
 The price test reproduces the three public archive totals when the archives are in the cache directory (`$LH`, by default
 `~/lh-cache`). When they are absent, it is skipped with a reason.
+
+## The passthrough, the token scanner and the live probe (plan Task 4)
+
+`live_probe.sh` is the one file of this kit that can use the owner's subscription: it refuses to start
+without `LH_PROBE_SPEND_AUTHORIZED=yes`, which is set only under the plan ledger's approval row. Its
+stand-in run (`LH_PROBE_STAND_IN=<stub scenario>`) puts `stub_api.py` behind the passthrough's rehearsal
+switch and spends nothing.
+
+| File | Role |
+| --- | --- |
+| `passthrough.py` | The one host process that holds the subscription token (D4, route B): listens on the relay's unix socket, refuses in the one 403 form, replaces the bearer token, meters by the price rule, records closed starts and stops in its state directory |
+| `token_scan.py` | Finds the token by the passthrough's fingerprint (path and offset only); `canary` plants a canary and checks the file set |
+| `live_probe.sh` | The live probe of Task 4, items 1 to 4: three sessions through the relay and the passthrough, the stop rule, the runtime check, the file-set scan and `probe.json` |
+
+Tests (no container, no network, no CLI; the upstream is `stub_api.py`):
+
+```
+pytest -q -n 4 tests/experiments/test_long_horizon_passthrough.py
+```
