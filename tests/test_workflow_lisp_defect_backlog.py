@@ -115,6 +115,8 @@ KNOWN: dict[str, tuple] = {
     "B1": ("ran", 0, 1, 0),
     "B2-let": value(2), "B2-arm": value(2), "B3": value(100), "B3-print": value(1), "B4": value(10),
     "B5": value(6), "B5-ref": value(6),
+    "B7-chain": value(104104), "B7-ref": value(103103), "B7-deep": value(105105), "B7-let": value(103103),
+    "B7-same-written": refused("procedure_lowering_unresolved"),
     "C1": value(7, "libw"),
     "D1": OPERAND, "D2": OPERAND, "D3": OPERAND, "D20": OPERAND,
     "D4-loop": NO_ELABORATION, "D4-map-value": NO_ELABORATION, "D4-map-bound": NO_ELABORATION,
@@ -131,8 +133,6 @@ KNOWN: dict[str, tuple] = {
     "D19": crash("SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
     "D21": crash("TypeError", f"{ELABORATE}:_replace_halts_with_jump"),
     "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
-    "D23": crash("ValueError", f"{ELABORATE}:_procedure_edges_by_site"),
-    "D23-macro": crash("ValueError", f"{ELABORATE}:_procedure_edges_by_site"),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
@@ -168,6 +168,11 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "B4": ("value", 10),
     "B5": ("value", 6),
     "B5-ref": ("value", 6),
+    "B7-chain": ("value", 104104),
+    "B7-deep": ("value", 105105),
+    "B7-let": ("value", 103103),
+    "B7-ref": ("value", 103103),
+    "B7-same-written": ("refused", "procedure_lowering_unresolved"),
     "C1": ("value", 7, "libw"),
     "D1": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D2": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
@@ -248,6 +253,13 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "B5": None,
     "B5-ref": None,
     "B6": ("value", True, "strb"),
+    "B7-chain": ("value", 204104),
+    "B7-deep": ("value", 205105),
+    "B7-let": ("value", 203103),
+    "B7-ref": ("value", 203103),
+    "B7-same-macro": ("value", 104104),
+    "B7-same-written": ("value", 104104),
+    "B7-written": ("value", 204104),
     "C1": ("refused", "procedure_effect_ceiling_exceeded"),
     "C1-local": ("refused", "procedure_effect_ceiling_exceeded"),
     "D1": ("value", 1005),
@@ -477,6 +489,15 @@ D19 = "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (
 D20_MK = "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))"
 D20_SUBJECT = f"(mkshape (if (> n 0) {E('e1', 1, 'Int')} {E('e2', 2, 'Int')}))"
 D20_ARMS = "((CIRCLE c) c.r) ((SQUARE s) 0)"
+B7_BOX = ("(defrecord Box (n Int))", "(defworkflow c1 ((input Box)) -> Box (record Box :n (+ input.n 100)))",
+          "(defworkflow c2 ((input Box)) -> Box (record Box :n (+ input.n 200)))",
+          "(defproc foo ((runner WorkflowRef[Box -> Box]) (input Box)) -> Box (call runner :input input))")
+B7_INC1 = "(defproc inc1 ((hook ProcRef[Box -> Box]) (input Box)) -> Box (hook (record Box :n (+ input.n 1))))"
+B7_AP = "(defproc ap ((hook ProcRef[Box -> Box]) (input Box)) -> Box (hook input))"
+B7_CH = "(defmacro ch (w v) (inc1 (bind-proc (proc-ref foo) :runner (workflow-ref w)) v))"
+B7_RUN = ("((n Int)) -> Int (let* ((input (record Box :n n)) (a (CALL c1 input)) (b (CALL c2 input))) "
+          "(+ a.n (* 1000 b.n)))")
+B7_WRITTEN = "(inc1 (bind-proc (proc-ref foo) :runner (workflow-ref W)) input)"
 D23_LOCAL = "((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted s (done BODY))"
 D23_BOTH = ("(defproc both ((n Int)) -> Int (let-proc ((f " + D23_LOCAL.replace("BODY", "(+ s 1)") + ")\n"
             "    (g " + D23_LOCAL.replace("BODY", "(* s 10)") + ")) (+ (f n) (g n))))")
@@ -521,6 +542,25 @@ ROWS: dict[str, Row] = {
     "B5-ref": row(None, "((n Int)) -> Int (with-bump 5 (apply1 (proc-ref bump) n))", AP, WITH_BUMP, inputs=("n=1",)),
     # Not fixed: specification 8.10 states that a `Bool` result accepts the strings.
     "B6": row(value(True, "strb"), "() -> Bool " + E("strb", r'\"TRUE\"', "Bool")),
+    # Eleventh batch: a `(workflow-ref w)` bound by `bind-proc` is identified by its source position alone,
+    # so two expansions of one template bound to different workflows share one specialization.
+    "B7-chain": row(value(204104), B7_RUN.replace("CALL", "ch"), *B7_BOX, B7_INC1, B7_CH, inputs=("n=3",)),
+    "B7-ref": row(value(203103), B7_RUN.replace("CALL", "ba"), *B7_BOX, B7_AP,
+                  "(defmacro ba (w v) (ap (bind-proc (proc-ref foo) :runner (workflow-ref w)) v))", inputs=("n=3",)),
+    "B7-deep": row(value(205105), B7_RUN.replace("CALL", "cd"), *B7_BOX, B7_INC1,
+                   "(defmacro cd (w v) (inc1 (bind-proc (proc-ref inc1) :hook "
+                   "(bind-proc (proc-ref foo) :runner (workflow-ref w))) v))", inputs=("n=3",)),
+    "B7-let": row(value(203103), B7_RUN.replace("CALL", "lb"), *B7_BOX, B7_AP,
+                  "(defmacro lb (w v) (let* ((g (bind-proc (proc-ref foo) :runner (workflow-ref w)))) (ap g v)))",
+                  inputs=("n=3",)),
+    "B7-written": row(value(204104), B7_RUN.replace("(CALL c1 input)", B7_WRITTEN.replace("W", "c1"))
+                      .replace("(CALL c2 input)", B7_WRITTEN.replace("W", "c2")), *B7_BOX, B7_INC1, inputs=("n=3",)),
+    # The fix of B7 that keys the identity by the expansion stack makes the next pin refuse as its written-out
+    # spelling `B7-same-written` does today: two equal bindings at two sites are an ambiguous specialization row.
+    "B7-same-macro": row(value(104104), B7_RUN.replace("c2", "c1").replace("CALL", "ch"), *B7_BOX, B7_INC1, B7_CH,
+                         inputs=("n=3",)),
+    "B7-same-written": row(value(104104), B7_RUN.replace("(CALL c1 input)", B7_WRITTEN.replace("W", "c1"))
+                           .replace("(CALL c2 input)", B7_WRITTEN.replace("W", "c1")), *B7_BOX, B7_INC1, inputs=("n=3",)),
 
     # Class C: the declared effects ceiling over an imported workflow.
     "C1": Row(refused("procedure_effect_ceiling_exceeded"),
@@ -605,9 +645,8 @@ ROWS: dict[str, Row] = {
     # wants a refusal; its code is not chosen.
     "D21": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (let* ((x (done 1))) x))"),
     "D22": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (list (done 1)))"),
-    # Eleventh batch, what the call-site fix leaves: an inlined pure procedure gives every node of its body the
-    # site of its call, so two calls in that body to different lifted locals share one site. Before the fix one
-    # target was chosen in hash-seed order (a wrong value); now the build stops with `compiler_defect`.
+    # Eleventh batch: an inlined pure procedure gave every node of its body the site of its call, so two calls in
+    # that body to different lifted locals shared one site and one target, chosen in hash-seed order.
     "D23": row(value(34), "((n Int)) -> Int (both n)", D23_BOTH, inputs=("n=3",)),
     "D23-macro": row(value(705), "((n Int)) -> Int (both n)", D23_MACRO,
                      "(defproc both ((n Int)) -> Int (+ (with-loop n 5) (* 100 (with-loop n 7))))", inputs=("n=3",)),
