@@ -196,7 +196,8 @@ execution.
 **Anyone else** reads the journal. A run stands at a stage when all three
 hold:
 
-1. the journal has no terminal;
+1. the journal has no terminal in force (a failed terminal that a later
+   `started` record reopened does not count);
 2. it has no pending start and no unsettled coordinator;
 3. the site key of its last `committed` record is one of the stage's keys.
 
