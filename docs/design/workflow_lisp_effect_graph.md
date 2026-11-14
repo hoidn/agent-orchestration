@@ -1,7 +1,7 @@
 # Workflow Lisp Effect Graph
 
 Status: current-checkout component contract
-Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`,
+Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md` (a historical record; its code was removed on 2026-11-12),
 `docs/design/workflow_command_adapter_contract.md`
 
 Versioned authoring rules are owned by

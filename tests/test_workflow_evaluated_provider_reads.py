@@ -153,17 +153,30 @@ def test_input_and_asset_with_same_path_use_different_roots(tmp_path):
     assert asset_reads[0][1].source_path == input_reads[0][1].source_path == "same.md"
 
 
-def test_input_source_absent_empty_and_raw_bytes_are_distinct(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+INPUT_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((message String)) -> Bool
         (provider-result provider :prompt prompt :inputs (message) :returns Bool)))'''
+
+
+def test_absent_input_source_refuses_with_its_source_code(tmp_path):
+    from orchestrator.workflow.evaluated.providers import ProviderPerformerError
+
     checked, provider_io = _direct_program(
-        tmp_path, {"prompt": {"input_file": "source.md"}}, source
+        tmp_path, {"prompt": {"input_file": "source.md"}}, INPUT_SOURCE
+    )
+
+    with pytest.raises(ProviderPerformerError) as raised:
+        _read_direct(checked, provider_io, tmp_path, {"message": "x"})
+    assert raised.value.code == "input_file_read_failed"
+
+
+def test_input_source_empty_and_raw_bytes_are_distinct(tmp_path):
+    checked, provider_io = _direct_program(
+        tmp_path, {"prompt": {"input_file": "source.md"}}, INPUT_SOURCE
     )
     path = tmp_path / "source.md"
 
-    _, absent = _read_direct(checked, provider_io, tmp_path, {"message": "x"})
     path.write_bytes(b"")
     _, empty = _read_direct(checked, provider_io, tmp_path, {"message": "x"})
     path.write_bytes(b"same\n")
@@ -171,8 +184,7 @@ def test_input_source_absent_empty_and_raw_bytes_are_distinct(tmp_path):
     path.write_bytes(b"same\r\n")
     _, crlf = _read_direct(checked, provider_io, tmp_path, {"message": "x"})
 
-    assert absent[0][1].source_text == empty[0][1].source_text == ""
-    assert absent[0][1].source_sha256 is None
+    assert empty[0][1].source_text == ""
     assert empty[0][1].source_sha256 == "sha256:" + sha256(b"").hexdigest()
     assert lf[0][1].source_text == crlf[0][1].source_text == "same\n"
     assert lf[0][1].source_sha256 != crlf[0][1].source_sha256

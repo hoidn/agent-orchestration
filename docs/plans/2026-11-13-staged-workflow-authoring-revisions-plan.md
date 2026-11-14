@@ -22,7 +22,8 @@ an `Agent` bound into a role and `ask-agent`; prompt values bound by `let*` or `
 `let*` alias of a provider; a role passed to a procedure.
 
 **Approach:** the timeout operand and the list operators first: both are prototyped and wait on
-nothing. The typed list literal after the four surface-coherence branches merge. Then the defects
+nothing. The typed list literal after surface coherence E1 merges (C1, I1 and I2a, which it also
+waited on, merged on 2026-11-13). Then the defects
 the seeds meet, then prompts and roles in four steps that each merge alone (the prompt as an
 argument; `Prompt[T]` and `Provider` parameters; a called reference over a generic procedure; the
 library wrapper), then the documents. Every change is prototyped on `spike/authoring-revisions`,
@@ -35,7 +36,9 @@ with `std/ask` roles for a planner, a coder and a reviewer, a timeout from an in
 starts from `(list :of String)`, a map over `(list/take plan.milestones 8)` whose body calls two
 roles, and a `list/all` gate runs to `DONE`, is killed inside a role call and resumes with one
 dispatch of that call. Today it does not compile: `std/ask` does not exist, and its wrapper is
-refused (`generic_union_not_generic`).
+refused (`generic_union_not_generic`). The program holds no run reference: a map body that calls
+two roles is not one call, and such a body compiles only in a program that contains no run
+reference (`list_map_effect_body_unsupported` otherwise; the rule of I1 as merged).
 
 ## Global Constraints
 
@@ -72,12 +75,12 @@ refused (`generic_union_not_generic`).
 
 ## What Must Merge First
 
-| Work in flight | Files it edits that this plan also edits | Rule |
+| Work, in flight unless marked merged | Files it edits that this plan also edits | Rule |
 | --- | --- | --- |
-| Surface coherence C1 (`feat/coherence-c1`) | `expressions.py`, `procedure_typecheck.py`, `typecheck_calls.py`, `compiler_session.py`, `closed/build.py` | Before L (a keyword in a positional form gets one diagnostic), before 0b (it turns D4 into `proc_ref_literal_required`) and before P3 |
+| Surface coherence C1 (merged 2026-11-13, `b6646fde`) | `expressions.py`, `procedure_typecheck.py`, `typecheck_calls.py`, `typecheck_dispatch.py`, `compiler_session.py`, `workflows.py`, `closed/build.py` | Met. L starts from the one diagnostic a keyword in a positional form now gets (`keyword_argument_invalid`); D4 is `proc_ref_literal_required`, which 0b pins; P3 builds on it |
 | Surface coherence E1 (`feat/coherence-e1`) | `typecheck_dispatch.py`, `typecheck_structural_values.py`, `expressions.py`, `wcc/elaborate.py` | Before L, 0b and P1 (the same functions) |
-| Surface coherence I1 (`feat/coherence-i1`) | `typecheck_structural_values.py`, `expressions.py` | Before L and 0b; D3's test and the exit test use a map body that is not one call |
-| Surface coherence I2a (`feat/coherence-i2a`) | `expressions.py`, `orchestrator/py/emit.py` | Before L (the binder is where `(list :of T)` reads best) |
+| Surface coherence I1 (merged 2026-11-13, `624ff688`) | `typecheck_structural_values.py`, `expressions.py`, `expression_traversal.py`, `procedure_typecheck.py`, `closed/build.py`, `closed/command_templates.py`, `closed/names.py`, `wcc/elaborate.py`, `wcc/model.py`, `workflow/evaluated/machine.py` | Met. The exit test's map body calls two roles, which is not one call: it compiles because the test program holds no run reference; a program that holds one keeps one call with pure arguments per iteration. D3's test body is one generic call, refused on `main` with or without I1 (`procedure_call_unknown`) until 0b |
+| Surface coherence I2a (merged 2026-11-13, `bdf49443`) | `expressions.py`, `macros.py`, `scripts/migrate_orc_sources.py`; not `orchestrator/py/emit.py`, whose change moved to I2b | Met: the binder form, where `(list :of T)` reads best, builds beside the `fn` form. The Python frontend still emits the `fn` form |
 | Stage 4 cut (one target; the `fn` form removed) | every tracked `.orc`; the packaged library's target | `std/ask` (P5) is written at 2.40 and merges after Task 4a of that plan; no source in this plan uses the `fn` form |
 | Corpus consolidation | The frontend specification; the files that plan lists under "Blocked files" (another session's uncommitted edits: the guide, `docs/index.md`, Agent Sessions, evaluated execution among them) | The reference coverage test is on `main`, so O adds its three operator rows in its own merge. P6 edits a blocked file only once `git status` shows it clean on `main` |
 
@@ -85,7 +88,7 @@ T and O wait on none of these. `macros.py` is not edited by this plan.
 
 ## Tasks
 
-Order: Task 0; T and O, in parallel (disjoint files); L, once C1, E1, I1 and I2a are merged; then
+Order: Task 0; T and O, in parallel (disjoint files); L, once E1 is merged (C1, I1 and I2a are); then
 0b, P1, P2, P3, P5, P6, F in sequence.
 
 | Task | Files | Hours | Waits on |
@@ -93,8 +96,8 @@ Order: Task 0; T and O, in parallel (disjoint files); L, once C1, E1, I1 and I2a
 | 0 Baselines and the kit | scratch; the kit | 4 | — |
 | T Timeout operand | `typecheck_effects.py`, `contracts/closed_program/check.py`, `workflow/evaluated/providers.py` | 4 | — |
 | O List operators | `workflow/pure_expr.py`, `typecheck_pure_ops.py`, `wcc/elaborate.py`, `result_guidance.py`, `orchestrator/py/trace.py`, three rows of the specification's §10.2 | 7 | — |
-| L Typed list literal | `expressions.py`, `typecheck_structural_values.py`, `typecheck_dispatch.py`, `functions.py` | 6 | C1, E1, I1, I2a merged |
-| 0b Defects the seeds meet | `wcc/elaborate.py`, `typecheck_structural_values.py`, `procedure_typecheck.py` | 10 | C1, E1, I1 merged |
+| L Typed list literal | `expressions.py`, `typecheck_structural_values.py`, `typecheck_dispatch.py`, `functions.py` | 6 | E1 merged (C1, I1 and I2a are) |
+| 0b Defects the seeds meet | `wcc/elaborate.py`, `typecheck_structural_values.py`, `procedure_typecheck.py` | 10 | E1 merged (C1 and I1 are) |
 | P1 A prompt as an argument | `type_env.py`, `expressions.py`, `expression_traversal.py`, `typecheck_dispatch.py`, `typecheck_proofs.py`, new `prompt_values.py` | 10 | 0b |
 | P2 `Prompt[T]` and `Provider` parameters | `procedure_typecheck.py`, `procedure_specialization.py`, `procedures.py`, `specialization_typecheck.py`, `closed/names.py`, `typecheck_effects.py`, `prompt_values.py` | 16 | P1, T |
 | P3 A called reference over a generic procedure | `typecheck_dispatch.py`, `procedure_typecheck.py`, `prompt_values.py` | 8 | P2 |
@@ -172,8 +175,8 @@ is bound.
 - [ ] `tests/test_workflow_lisp_list_traversal.py::test_typed_empty_list_in_every_position`
       (parametrized over a `let*` binding, a loop's initial state in both loop forms, `continue`,
       `done`, `:on-exhausted`, a `list/append` operand, a map source, an `=` operand). Before the
-      change each case is the one diagnostic C1 gives a keyword in a positional form; on `main`
-      without C1 it is an uncaught `TypeError`, which is why L waits on C1.
+      change each case is `keyword_argument_invalid`, the one diagnostic C1 gives a keyword in a
+      positional form; before C1 merged it was an uncaught `TypeError`, which is why L waited on C1.
       `::test_typed_list_has_the_digest_of_the_contextual_list` (a field, an argument, an `if`
       arm); `::test_typed_list_checks_its_items_and_its_context`
       (`pure_expr_operand_type_mismatch`, `type_unknown`, and `list_item_type_invalid` for
@@ -199,8 +202,8 @@ The numbers are those of the design's §2.
       specialization. Prototyped: a typed call already rewritten to a specialization requested in
       the same pass is that specialization's call (15 lines in `procedure_typecheck.py`).
 - [ ] D4, `::test_reference_chosen_by_if_refuses_with_one_diagnostic`
-      (`proc_ref_literal_required`): passes once C1 is merged; this task only pins it, for a plain
-      reference and for one over a generic procedure.
+      (`proc_ref_literal_required`): passes on `main` since C1 merged; this task only pins it, for
+      a plain reference and for one over a generic procedure.
 - [ ] D5, `::test_bound_reference_over_a_parameter_passed_on`: first find the cause (4 hours at
       most). If the fix is local, the program builds and runs; if not, the test pins one named
       refusal that is not a compiler-owned message, and the defect goes to the roadmap's open
@@ -431,6 +434,10 @@ scenario):
 - The language server, the REPL and source-site inspection on any new form.
 - E1 and C1 together with these changes: the spike merged I1 and I2a only. The whole suite was
   never run on the spike; two sampled runs were (before and after the prompt prototype).
+- The seeds against I1 as merged: the spike holds I1 from before its review rounds, without the
+  program-level run-reference rule. The seeds hold no run reference; a map body of their
+  milestone shape (a loop over two calls) was probed on `main` after the merge and builds and
+  runs in a program with no run reference. The seeds themselves were not recompiled.
 - The per-change columns of the design's size table are an attribution between two compiled end
   points, not separate compiled versions.
 - That `(list :of T)` inside a generic procedure substitutes the type parameter.
@@ -474,3 +481,4 @@ Planner's rulings, with the cost if wrong:
 | 2026-11-13 | Design and plan committed as proposed (`a0de5902`). Independent review: accept after fixes, 0 blockers, 8 majors, 11 minors. Coordinator's rulings recorded above. Scope cut to what the seed and the search need: the snapshot fill, an `Agent` bound into a role and `ask-agent` are deferred with no task; total from about 118 to about 79 hours. No provider spend |
 | 2026-11-13 | M5 settled by probe on `spike/authoring-revisions` (`bf4fed6b`): a compiler prototype of prompt values and roles, 12 files and 270 lines, builds and runs the role idiom over a wrapper in a library module and the three seeds as written. The specialization belongs to the wrapper's module; identities are the caller's with the specialization's frame; `policy` parts, prompt texts and reported usage equal the program written in place. Found on the way: the definition key needs the prompt and the extern (carried in the declared name); a generic call in a map body is refused on `main` (D3); a rebound operand needs pre-binding; an uncalled generic reference must not be rewritten. The three invariants, the compile with generated provider externs, are identical before and after the prototype. P1 to P3 re-estimated from 46 to 34 hours |
 | 2026-11-13 | Design and plan accepted by the coordinator (`713cfe94`). The review's eight majors are applied and the feasibility question (M5) is settled by a compiler prototype, not by argument. Scheduling ruling: no task of this plan starts before the surface-coherence branches E1, I1 and C1 are merged, T and O included, although they do not depend on them: six code branches are already in review on a loaded machine and three of them edit the same typecheck and elaboration modules. Open question put to the owner, not blocking: with the agent half deferred (design §8.2), fresh against continued is still an edit at each call site; it comes back into the plan (about 8 hours and an Agent Sessions amendment) when the conversation dimension is searched, which the first search space (effort per role) does not do. |
+| 2026-11-13 | Corrected after surface coherence C1 (`b6646fde`), I2a (`bdf49443`) and I1 (`624ff688`) merged to `main`; E1 is not merged and every sentence about it is unchanged. Why: the page named the three as branches in flight, listed their files from the accepted design and assumed a map body that is not one call compiles everywhere. What: the three rows of "What Must Merge First" (status; file lists from `git diff --stat` of each merge against its first parent: C1 also `typecheck_dispatch.py` and `workflows.py`, I1 eight more files, I2a `macros.py` and the migration script and not `orchestrator/py/emit.py`); the waits of L and 0b; Task L's starting diagnostic (`keyword_argument_invalid` in each of its nine positions, probed); D4's pin (probed for a plain reference and one bound over a generic procedure); the headline exit test and the I1 row now state the condition under which a two-role map body compiles (probed through `orchestrator run`: a loop over two calls as a map body runs with no run reference in the program and is `list_map_effect_body_unsupported` beside one; one call with pure arguments runs beside one, an effect in its argument refuses); one line under "Not Verified While Planning". D3 is still `procedure_call_unknown` on `main` (probed). Ruling 9 and the rows above are left as recorded. No provider spend |

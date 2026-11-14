@@ -15,7 +15,7 @@ proposals remain historical context, not the normal agent-session contract below
 
 Completed pilot/C1 and qualitative-assessment status belongs to the linked plan/report. The remaining repair remains unselected; completion does not establish comparative efficacy. See the [preserved record](../reports/documentation-history/orc_reuse_introspection_search_experiment-history.md#original-delivery-metadata).
 
-Normative behavior remains in `specs/`. The [historical trial design](workflow_lisp_trial_runs.md)
+Normative behavior remains in `specs/`. The [trial design](workflow_lisp_trial_runs.md), a historical record,
 records child-run/evaluation methodology without current trial admission; [program-search boundaries](workflow_lisp_program_search_boundaries.md)
 record the current architecture. This proposal adds no language target.
 

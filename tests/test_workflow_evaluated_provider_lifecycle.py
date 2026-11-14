@@ -309,18 +309,12 @@ def _raw_c6_fixture(root, source_case):
         (root / "artifacts").mkdir()
         target = root / "artifacts" / "note.md"
         inputs["note"] = "artifacts/note.md"
-    kind = "input_file" if source_case == "absent-empty" else "asset_file"
-    return source, inputs, target, kind
+    return source, inputs, target, "input_file" if source_case == "normalized-input" else "asset_file"
 
 
 def _write_raw_c6_variant(target, source_case, *, changed):
-    if source_case == "normalized":
+    if source_case in {"normalized", "normalized-input"}:
         target.write_bytes(b"SAME TEXT\n" if changed else b"SAME TEXT\r\n")
-    elif source_case == "absent-empty":
-        if changed:
-            target.write_bytes(b"")
-        else:
-            target.unlink(missing_ok=True)
     else:
         from orchestrator.deps.content_snapshot import MAX_INJECTION_BYTES
 
@@ -330,7 +324,7 @@ def _write_raw_c6_variant(target, source_case, *, changed):
         target.write_bytes(content)
 
 
-@pytest.mark.parametrize("source_case", ["normalized", "absent-empty", "dependency-tail"])
+@pytest.mark.parametrize("source_case", ["normalized", "normalized-input", "dependency-tail"])
 def test_provider_raw_c6_changes_diverge_even_when_rendered_prompt_is_identical(tmp_path, monkeypatch, source_case):
     source, inputs, target, kind = _raw_c6_fixture(tmp_path, source_case)
     with _run(tmp_path, monkeypatch, source, prompt_kind=kind, inputs=inputs) as (built, authority):
@@ -354,7 +348,7 @@ def test_provider_raw_c6_changes_diverge_even_when_rendered_prompt_is_identical(
         assert len(_requests(tmp_path)) == 1
 
 
-@pytest.mark.parametrize("source_case", ["normalized", "absent-empty", "dependency-tail"])
+@pytest.mark.parametrize("source_case", ["normalized", "normalized-input", "dependency-tail"])
 def test_public_provider_raw_c6_changes_refuse_readonly_with_causal_parts(
     tmp_path, monkeypatch, caplog, source_case,
 ):
@@ -375,7 +369,7 @@ def test_public_provider_raw_c6_changes_refuse_readonly_with_causal_parts(
     prompt_bytes = (attempt / "prompt.txt").read_bytes()
     raw_part = {
         "normalized": "source:asset_file:prompt.md",
-        "absent-empty": "source:input_file:prompt.md",
+        "normalized-input": "source:input_file:prompt.md",
         "dependency-tail": "dependency:artifacts/note.md",
     }[source_case]
     _write_raw_c6_variant(target, source_case, changed=True)
