@@ -21,8 +21,9 @@ module name, imports, exports, the target, a type declaration, a prompt's `:fill
 or the entry workflow's parameter list, and none but `graft` adds a line.
 """
 
+import random
 import re
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from orchestrator.workflow_lisp.reader import read_sexpr_text
@@ -306,3 +307,30 @@ def apply(text: str, mutation: Mutation) -> str:
     for start, end, replacement in reversed(edits):
         text = text[:start] + replacement + text[end:]
     return text
+
+
+def sample(sources: Mapping[str, str], cap: int, number: int,
+           operators: Sequence[str] = tuple(OPERATORS)) -> list[tuple[str, Mutation]]:
+    """At most `cap` mutations per program and operator, as `(program, mutation)`, the same for one `number`.
+
+    `sources` maps a program's name to its source. Programs are taken in name order and operators
+    in `OPERATORS` order, among those named in `operators`. All of an operator's mutations are
+    kept when there are at most `cap`; else one `random()` is drawn per mutation from
+    `random.Random(f"{number}/{program}/{operator}")` and the `cap` mutations with the smallest
+    draws are kept, in document order. Only `random()` is used, the one method whose sequence the
+    Python documentation fixes across versions. Raises ValueError for a name `OPERATORS` lacks.
+    """
+    unknown = [name for name in operators if name not in OPERATORS]
+    if unknown:
+        raise ValueError(f"sample: no operator {unknown} among {list(OPERATORS)}")
+    drawn = []
+    for program in sorted(sources):
+        for operator in (name for name in OPERATORS if name in operators):
+            mutations = list(OPERATORS[operator](sources[program]))
+            if len(mutations) > cap:
+                generator = random.Random(f"{number}/{program}/{operator}")
+                draws = [generator.random() for _ in mutations]
+                kept = sorted(sorted(range(len(mutations)), key=draws.__getitem__)[:cap])
+                mutations = [mutations[index] for index in kept]
+            drawn += [(program, mutation) for mutation in mutations]
+    return drawn

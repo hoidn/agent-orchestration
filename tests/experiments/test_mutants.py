@@ -9,6 +9,8 @@ The sample relies on `random.Random(seed).random()` only, the one method whose s
 Python documentation fixes across versions. Written and run under Python 3.13.9.
 """
 
+from collections import Counter
+
 import pytest
 
 from experiments.mutants import operators
@@ -120,10 +122,8 @@ def mutants(name: str, text: str = SEED) -> list[tuple[Mutation, str]]:
 
 def frozen(text: str) -> list:
     """The surfaces no operator may change, as forms."""
-    module = read(text).items[0].items
-    surfaces = [shape(form) for form in module if not shape(form)[0][1].startswith(("defprompt", "defworkflow"))]
-    surfaces += [shape(prompt)[1:-1] for prompt in headed(text, "defprompt")]
-    return surfaces + [shape(headed(text, "defworkflow")[-1].items[2])]
+    cuts = {"defprompt": slice(1, -1), "defworkflow": slice(2, 3)}  # all but the body; the parameter list
+    return [form[cuts.get(form[0][1], slice(None))] for form in shape(read(text).items[0])]
 
 
 @pytest.mark.parametrize("name,allowed", [("effort", EFFORTS), ("model", MODELS)])
@@ -265,3 +265,55 @@ def test_graft_skips_name_positions():
     grafts = list(operators.graft(NAMES))
     taken = [m.params for m in grafts for start, end, donor in m.edits if (start, end) in spans or donor in names]
     assert grafts and not taken
+
+
+SOURCES = {"seed": SEED, "names": NAMES}
+
+
+def every(sources: dict[str, str]) -> list[tuple[str, Mutation]]:
+    """All mutations, programs in name order, operators in `OPERATORS` order, each in document order."""
+    return [(program, mutation) for program in sorted(sources) for name in operators.OPERATORS
+            for mutation in operators.OPERATORS[name](sources[program])]
+
+
+def test_sample_is_deterministic_and_capped():
+    first = operators.sample(SOURCES, 3, 1)
+    assert operators.sample(SOURCES, 3, 1) == first
+    assert operators.sample(SOURCES, 3, 2) != first
+    assert max(Counter((program, mutation.operator) for program, mutation in first).values()) == 3
+
+
+def test_sample_keeps_document_order_and_unique_names():
+    drawn, mutations = operators.sample(SOURCES, 3, 1), every(SOURCES)
+    positions = [mutations.index(pair) for pair in drawn]
+    assert positions == sorted(set(positions))
+    assert len({(program, mutation.operator, mutation.params) for program, mutation in drawn}) == len(drawn)
+
+
+def test_sample_takes_every_mutation_at_or_under_the_cap():
+    assert operators.sample({"seed": SEED}, COUNTS["graft"], 5) == every({"seed": SEED})
+
+
+def test_sample_of_number_one_is_these_mutants():
+    # The plan's rule worked out by hand once: a change of the generator or of the rule shows here.
+    drawn = operators.sample({"seed": SEED}, 2, 1)
+    assert [f"{program}/{mutation.operator}/{mutation.params}" for program, mutation in drawn] == [
+        "seed/effort/coder=max", "seed/effort/reviewer=high",
+        "seed/model/planner=claude-sonnet-5-5", "seed/model/coder=claude-sonnet-5-5",
+        "seed/rounds/loop0=3", "seed/rounds/loop0=4",
+        "seed/drop_step/let1.0", "seed/drop_step/let1.1",
+        "seed/prompt/plan.append", "seed/prompt/work.drop2",
+        "seed/graft/1<-4", "seed/graft/7<-10",
+    ]
+
+
+def test_sample_draws_from_the_named_operators_only():
+    drawn = operators.sample(SOURCES, 2, 1, operators=("graft", "rounds"))
+    assert [(program, mutation.operator) for program, mutation in drawn] == [
+        ("names", "rounds"), ("names", "rounds"), ("names", "graft"), ("names", "graft"),
+        ("seed", "rounds"), ("seed", "rounds"), ("seed", "graft"), ("seed", "graft")]
+
+
+def test_sample_refuses_an_operator_it_does_not_have():
+    with pytest.raises(ValueError):
+        operators.sample(SOURCES, 2, 1, operators=("swap",))
