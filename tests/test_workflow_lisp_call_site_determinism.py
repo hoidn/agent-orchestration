@@ -84,6 +84,8 @@ def _pure(definitions: str, body: str) -> str:
 
 
 A_THEN_B = "(let* ((a (cw c1 input)) (b (cw c2 input))) (+ a.n (* 1000 b.n)))"
+BOUND_RUNW = ("  (defproc ap ((hook ProcRef[Box -> Box]) (input Box)) -> Box (hook input))\n"
+              "  (defmacro ba (w v) (ap (bind-proc (proc-ref runw) :w (workflow-ref w)) v))\n")
 
 # name: (source, (inputs, value) or None when the program calls a provider)
 PROGRAMS = {
@@ -126,14 +128,26 @@ PROGRAMS = {
     "inlined-two-locals": (_pure(f"  (defproc both ((n Int)) -> Int (let-proc ((f {ADDS_ONE}) "
         f"(g {ADDS_ONE.replace('(+ s 1)', '(* s 10)')})) (+ (f n) (g n))))\n",
         "(+ (both n) (* 1000 (both (+ n 1))))"), ({"n": 3}, 34 + 1000 * 45)),
+    # A value bound by `bind-proc` is identified by its content: expansions binding different values get their own
+    # specialization, and two equal bindings written at two sites share one.
+    "bound-value-macro": (_pure("  (defproc helper ((fixed Int) (y Int)) -> Int (+ fixed y))\n"
+        "  (defproc applyi ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))\n"
+        "  (defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (+ k 0)) x))\n",
+        "(+ (bf 1 n) (* 100 (bf 7 n)))"), ({"n": 3}, 1004)),
+    "bound-workflow-ref-macro": (_workflow_ref_macro("(let* ((a (ba c1 input)) (b (ba c2 input))) (+ a.n (* 1000 b.n)))",
+        definitions=BOUND_RUNW), ({"n": 3}, 203103)),
+    "bound-workflow-ref-equal-written": (_workflow_ref_macro("(let* ((a (ap (bind-proc (proc-ref runw) :w (workflow-ref c1)) "
+        "input)) (b (ap (bind-proc (proc-ref runw) :w (workflow-ref c1)) input))) (+ a.n (* 1000 b.n)))",
+        definitions=BOUND_RUNW), ({"n": 3}, 103103)),
 }
 SWEEP = ("two-provider-chains", "one-chain", "one-chain-adding", "three-levels-adding", "two-chains-adding",
          "macro-local", "macro-local-captured", "macro-proc-ref", "macro-generic", "workflow-ref-macro-2.39",
          "workflow-ref-macro-three", "workflow-ref-macro-in-procedure", "inlined-two-equal-locals",
-         "inlined-macro-same-arguments", "inlined-two-locals")
+         "inlined-macro-same-arguments", "inlined-two-locals", "bound-value-macro", "bound-workflow-ref-macro",
+         "bound-workflow-ref-equal-written")
 IN_PROCESS = ("macro-local", "macro-local-captured", "workflow-ref-macro", "workflow-ref-macro-reversed",
               "workflow-ref-macro-in-map", "inlined-two-equal-locals", "inlined-macro-same-arguments",
-              "inlined-two-locals")
+              "inlined-two-locals", "bound-value-macro", "bound-workflow-ref-macro", "bound-workflow-ref-equal-written")
 
 
 def _install(root: Path, name: str) -> Path:

@@ -3532,11 +3532,10 @@ and error list are [preserved in the history file](../reports/documentation-hist
   together, so each expansion of a template calls the target resolved for that
   expansion; a call cloned into its caller when a pure procedure is inlined
   keeps its own span. A call site that records two targets stops the build
-  with `compiler_defect` naming the site. Known exception: a value bound by
-  `bind-proc` in a template that is not a literal, a name or a field access
-  (a `(workflow-ref w)`, or a computed value such as `(+ k 0)`) is identified
-  by its position alone, so two expansions that bind different values share
-  one specialization and the first expansion's value is used
+  with `compiler_defect` naming the site. A value bound by `bind-proc` is
+  identified by its content, without its span, form path and expansion stack,
+  so two expansions that bind different values get their own specializations
+  and two bindings of equal content share one
   ([versioning](../../specs/versioning.md), exceptions to target stability).
 
 ## 34. Hygiene
