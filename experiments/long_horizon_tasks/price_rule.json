@@ -1,0 +1,9 @@
+{
+ "model": "claude-haiku-5-5",
+ "per_million_usd": {"input": 0.10, "output": 0.50, "cache_read": 0.01, "cache_write_5m": 0.125, "cache_write_1h": 0.20},
+ "long_prompt": {"above_prompt_tokens": 100000, "multiplier": 5,
+                 "prompt": "input + cache read + cache write tokens of one request"},
+ "missing_split": "cache writes whose lifetime the usage does not split are priced at the one-hour rate",
+ "source": "RECORDINGS.md, Prices: reproduces the CLI's total of the three public archives exactly; the one-hour rate from the stub recordings *-cache-writes",
+ "note": "The single source of these rates for the kit and the long-horizon launcher. orchestrator/providers/price_table.json cannot express a write rate per cache lifetime or a long-prompt rate applied per request (pricing.py prices with base rates, and caps with the highest tier for every token); per-request long-prompt pricing is new launcher code."
+}
