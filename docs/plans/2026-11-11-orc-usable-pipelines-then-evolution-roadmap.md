@@ -404,6 +404,19 @@ every removed test is listed with the code it covered".
      knowledge; it needs one resolver-aware change, not a patch. Also: a
      workflow defined by a macro gets its parameters renamed, so it cannot be
      called or used as an entry through its public inputs.
+   - added 2026-11-13 (seventh batch, from the third review of the map-body
+     change): effect summaries are unsound for imported workflows. The effect
+     fixpoint keeps an imported workflow's summary for its first round only,
+     and a missing summary is read as "no effects", so any check that asks a
+     summary whether a call reaches an effect can be answered wrongly (found
+     through the run-reference rule for map bodies, which no longer relies on
+     summaries; other effect checks on `main` may be affected and have not
+     been audited: second in line after the missing prompt file). Also: a
+     one-call map body that is a `let-proc` capture, and a map inside a
+     `continue` argument of a specialized procedure, each fail with
+     `compiler_defect`; a variant-only field read fails with `compiler_defect`
+     when the tested name is rebound in one operand while a sibling operand
+     tests it (needs four lines in the renaming pass).
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
