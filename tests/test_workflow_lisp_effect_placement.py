@@ -401,6 +401,17 @@ def test_effect_bound_by_a_name_takes_that_name(tmp_path: Path) -> None:
     assert names == [["#1"], ["src"]]
 
 
+def test_map_bound_by_let_names_its_steps_under_the_binding_whatever_its_source_holds(tmp_path: Path) -> None:
+    names = {}
+    for label, source in (("pure-source", '(list "w")'), ("source-holding-an-effect", f"(list {W})")):
+        (tmp_path / label / "ws" / "w").mkdir(parents=True)
+        body = f"(let* ((m {PARALLEL_ONCE.replace('{source}', source)})) m)"
+        names[label] = started(run(write(tmp_path / label, "List[Int]", body)).stderr)
+
+    assert names == {"pure-source": ["m / body / par-map:x[0] / #1"],
+                     "source-holding-an-effect": ["m / body / #1", "m / body / par-map:x[0] / #1"]}
+
+
 # Outside the places E1 opened, two older cases move an effect's name under a pure edit (frontend
 # specification 16.3), and `main` before E1 gives the same names. Each row: (whether the names move, the
 # program over `{x}`, `{x}` before the edit, `{x}` after it).

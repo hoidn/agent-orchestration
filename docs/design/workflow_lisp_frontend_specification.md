@@ -2573,7 +2573,10 @@ name the step `#1`), whatever simple parts stand beside the effect and in
 whatever order they are written. An edit that makes the value not simple is
 refused, not renamed. An effect that is itself bound takes the binding's
 name, as everywhere: `(let* ((src E)) (list/map ((x src)) (+ x 1)))` names the
-step `src`, `(list/map ((x E)) (+ x 1))` names it `#1`.
+step `src`, `(list/map ((x E)) (+ x 1))` names it `#1`. So does a map, a loop,
+an `if` or a `match` that is bound: `(let* ((m (list/map-effect …))) m)` names
+the map's steps `m / body / …`, its source's among them, as it did with a pure
+source.
 
 *Elsewhere two older cases move names under a pure edit.* Both are in values
 that are not simple, and both behave as they did before these places took
