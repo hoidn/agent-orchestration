@@ -1963,7 +1963,6 @@
 "value": 1
 },
 "m1/c-i20-if-record-branch": {
-"admitted": true,
 "body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (if (> n 0) (if (> n 0) (sumpair (record Pair :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b 0)) 0) 0)))))",
 "decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
 "header": "review",
@@ -2121,7 +2120,6 @@
 "value": 1
 },
 "m1/d-i20-if-record-branch": {
-"admitted": true,
 "body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (if (> n 0) (if (> n 0) (sumpair (record Pair :a (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int) :b 0)) 0) 0))))",
 "decls": "\n  (defproc eff ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" \"1\") :returns Int))\n  (defproc effarg ((k Int)) -> Int (command-result e :argv (\"python\" \"{probe}\" k) :returns Int))\n",
 "header": "review",
@@ -2582,7 +2580,6 @@
 ]
 },
 "n1b/o6-let-proc-body": {
-"admitted": true,
 "body": "(let-proc ((f ((y Int)) -> Int (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))) (f n))",
 "header": "review",
 "log": [
@@ -3141,7 +3138,6 @@
 }
 },
 "n3mine/p11-let-proc-outside-called-in-continue": {
-"admitted": true,
 "body": "(let-proc ((f ((y Int)) -> Int (+ y (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (f s))))))",
 "decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
 "header": "review",
@@ -3154,7 +3150,6 @@
 "value": 2
 },
 "n3mine/p12-let-proc-inside-body": {
-"admitted": true,
 "body": "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (let-proc ((f ((y Int)) -> Int (+ y (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String)))))) (done (f 5)))))",
 "decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
 "header": "review",
@@ -3167,7 +3162,6 @@
 "value": 7
 },
 "n3mine/p13-let-proc-body-is-loop": {
-"admitted": true,
 "body": "(let-proc ((f ((y Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= y 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))) (f n))",
 "decls": "\n  (defmacro par-len (src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))\n  (defmacro loop-par (src) (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (list/length (list/map-effect ((x src)) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n  (defproc lp ((k Int)) -> Int (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= k 7) (done s) (continue (list/length (list/map-effect ((x (list (command-result e :argv (\"python\" \"{probe}\" \"w\") :returns String) \"q\"))) :max 2 :parallel 1 :workspace (string/concat \"ws/\" x) (command-result e :argv (\"python\" \"{probe}\" (string/concat \"b\" x)) :returns String))))))))\n",
 "header": "review",

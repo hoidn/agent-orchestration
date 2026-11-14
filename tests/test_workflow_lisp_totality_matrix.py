@@ -6,7 +6,7 @@ Task 1 of docs/plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md.
 Every generated cell has exactly one classification, kept in
 `tests/workflow_lisp_totality_matrix_sources.py`:
 
-- rule: typecheck rejects it, in the typecheck stage (none remain);
+- rule: typecheck rejects it with a code from `RESTRICTION_CODES`, in the typecheck stage;
 - working: it runs and returns its value with its ordered command log;
 - known defect: it fails after typecheck, or typecheck rejects it wrongly. The test first
   asserts the failure recorded for the cell in `KNOWN_DEFECTS` (exit code, diagnostic code

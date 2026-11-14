@@ -12,7 +12,7 @@ Contract: docs/design/workflow_lisp_surface_coherence.md §8 and the frontend sp
 that built before E1 (eight of the twelve shapes that build) and probe programs of the E1 reviews
 (the loop-body, macro, nested-`if` and older-defect sets whole; of the two identity sets, the
 literal, `match` and `let*` operand forms and four of ten condition forms). `main_outcomes.json`
-holds what `main` at `1e090cc8` gave for each, for every grid cell, and for the tracked `.orc`
+holds what `main` at `6a646c74` gave for each, for every grid cell, and for the tracked `.orc`
 files that build in process with no externs. To record it again, from a directory outside the
 repository, with that `main`'s package first on `PYTHONPATH` and this repository second:
 `python -m tests.test_workflow_lisp_effect_placement_corpus`.

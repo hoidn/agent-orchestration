@@ -311,20 +311,20 @@ def walk_expr(expr: ExprNode) -> Iterator[ExprNode]:
 
 # The effect forms, operator applications and constructors: simple when each operand is.
 _SIMPLE_APPLICATIONS = (
-    AgentExpr, ProviderResultExpr, CommandResultExpr, RunRefExpr, CallExpr,
+    AgentExpr, ProviderResultExpr, CommandResultExpr, CallExpr,
     PureOpExpr, RecordExpr, UnionVariantExpr, ListExpr, PathJoinUnderExpr,
 )
 
 
 def is_simple_value(expr: ExprNode) -> bool:
     """Whether `expr` is simple (frontend specification 16.3): a literal, a name, a field read, or a
-    provider, command, agent or workflow call or a run reference, an operator application other
-    than `and`, `or` and `not`, or a record, variant, list or `path/join-under` whose operands are
-    all simple.
+    provider, command, agent or workflow call, an operator application other than `and`, `or` and
+    `not`, or a record, variant, list or `path/join-under` whose operands are all simple.
 
     A simple value evaluates its effects one after another with no branch, so each is named by its
     ordinal alone. A place that surface coherence E1 opened takes an effect only in a simple value.
-    No procedure or function call is simple, whatever its callee holds: whether a call holds an
+    A run reference keeps its own placement contract and is not simple. No procedure or function
+    call is simple, whatever its callee holds: whether a call holds an
     effect is not known while callee summaries are provisional, and a pure procedure's call is a
     call in one pass and its inlined body in another. The test reads the form only, so it gives one
     answer in every pass and place.

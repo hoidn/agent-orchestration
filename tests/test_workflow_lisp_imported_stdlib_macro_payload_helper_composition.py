@@ -34,6 +34,15 @@ INVALID_FIXTURES: dict[str, tuple[Path, Path, str]] = {
         / "entry.orc",
         "type_mismatch",
     ),
+    "effect_position_invalid": (
+        FIXTURES / "invalid" / "imported_stdlib_macro_payload_helper_effect_position_invalid",
+        FIXTURES
+        / "invalid"
+        / "imported_stdlib_macro_payload_helper_effect_position_invalid"
+        / "imported_stdlib_macro_payload_helper_effect_position_invalid"
+        / "entry.orc",
+        "effect_not_permitted",
+    ),
     "variant_unproved": (
         FIXTURES / "invalid" / "imported_stdlib_macro_payload_helper_variant_unproved",
         FIXTURES
@@ -95,20 +104,6 @@ def test_positive_imported_stdlib_macro_payload_helper_route_compiles_on_wcc_sch
     assert result.entry_result.lowering_schema_version == 2
 
 
-def test_imported_stdlib_macro_payload_helper_admits_an_effect_in_a_payload_field(tmp_path: Path) -> None:
-    # The fixture sits under invalid/ from when a payload field had to be pure; fields admit effects now.
-    root = FIXTURES / "invalid" / "imported_stdlib_macro_payload_helper_effect_position_invalid"
-    result = _compile_entry_fixture(
-        root / "imported_stdlib_macro_payload_helper_effect_position_invalid" / "entry.orc",
-        source_root=root,
-        tmp_path=tmp_path,
-        command_boundaries={"run_checks": ExternalToolBinding(
-            name="run_checks", stable_command=("python", "scripts/run_checks.py"))},
-    )
-
-    assert result.entry_result.lowering_schema_version == 2
-
-
 
 
 
@@ -121,6 +116,15 @@ def test_imported_stdlib_macro_payload_helper_admits_an_effect_in_a_payload_fiel
     [
         ("bad_field", None),
         ("signature_mismatch", None),
+        (
+            "effect_position_invalid",
+            {
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+        ),
         ("variant_unproved", None),
         (
             "hidden_command_effect",

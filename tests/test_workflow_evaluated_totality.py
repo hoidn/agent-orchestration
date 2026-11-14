@@ -32,7 +32,6 @@ CONTROL_EXPECTED = {
     "loop_continue_and_done": (2, ["next-val 0", "next-val 1", "done-val 2"]),
     "nested_loop_in_done": (True, ["seed 0", "budget 3", "check 1"]),
     "list_map_value_block": ([3, 4], []),
-    "effectful_loop_exhaustion": (0, ["done-val 0"]),
 }
 LEFT = {"variant": "LEFT", "payload": {"n": 7, "label": "á雪"}}
 RIGHT = {"variant": "RIGHT", "count": 9}
@@ -76,6 +75,7 @@ def test_public_control_alternative_does_not_evaluate_unselected_work(tmp_path, 
 
 @pytest.mark.parametrize("route", ["direct", "same_module", "imported_old_source"])
 @pytest.mark.parametrize(("case", "code"), [
+    ("effectful_loop_exhaustion", "loop_recur_contract_invalid"),
     ("effectful_list_map_body", "list_map_body_effect_forbidden"),
 ])
 def test_public_control_refuses_pure_context_before_dispatch(tmp_path, case, code, route):
@@ -136,17 +136,10 @@ def test_public_union_owner_mismatch_refuses_before_dispatch(tmp_path):
 
 
 @pytest.mark.parametrize("locality", ["direct", "same", "imported"])
-@pytest.mark.parametrize("position", ["body", "budget", "seed", "match", "map", "branch", "loop", "serial-map",
-                                      "list-element", "variant-field"])
+@pytest.mark.parametrize("position", ["body", "budget", "seed", "match", "map", "branch", "loop", "serial-map"])
 def test_public_run_ref_placement_commits_and_reuses_exact_child(tmp_path, monkeypatch, position, locality):
     files, input_file = prepare_placement(tmp_path, position, locality)
-    if locality == "direct" and position in ("list-element", "variant-field"):
-        # The direct form binds the child with `let*` inside the element or field, which is not a
-        # simple value (frontend specification 16.3); the call forms of the other localities are.
-        assert_source_refusal(files, _compile(files), "effect_not_permitted")
-        return
-    expected = (["placement", "second"] if position == "serial-map"
-                else ["placement"] if position in ("map", "list-element") else "placement")
+    expected = ["placement", "second"] if position == "serial-map" else ["placement"] if position == "map" else "placement"
     count = 2 if position == "serial-map" else 1
     exercise_placement(files, input_file, expected, count, monkeypatch)
 

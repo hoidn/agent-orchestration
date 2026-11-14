@@ -1388,7 +1388,7 @@
 "code": "effect_not_permitted"
 },
 "pre/s4-if-condition-subject-cond-field": {
-"code": "exception"
+"code": "compiler_defect"
 },
 "pre/s5-whole-subject-if-field": {
 "code": null,

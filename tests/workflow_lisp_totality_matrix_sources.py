@@ -231,9 +231,30 @@ STAGES = (
     ("/workflow/steps/pure_projection.py:", "runtime pure projection"),
 )
 
-# Typecheck rejects the cell: (form, position) -> code. None remain: record and variant
-# fields and `:on-exhausted` admit effects (workflow_lisp_surface_coherence.md, E1).
-RULES: dict[tuple[str, str], str] = {}
+# Codes that the typechecker reports for a restriction, with the place that raises each one.
+# A rule cell must also fail in the typecheck stage: some of these codes are raised later too.
+RESTRICTION_CODES = frozenset({
+    "effect_not_permitted",  # typecheck_dispatch._typecheck: a record or variant that holds an effect takes simple fields
+    "loop_recur_contract_invalid",  # typecheck_loop_recur: an `:on-exhausted` value that holds an effect is simple
+})
+
+# Typecheck rejects the cell: (form, position) -> code. Each form here has a real effect behind
+# a procedure call, and no procedure call is a simple value (frontend specification 16.3); the
+# same command written with `command-result`, without a procedure call, is admitted there.
+RULES = {
+    ("command-call", "record-field"): "effect_not_permitted",
+    ("command-call", "variant-field"): "effect_not_permitted",
+    ("command-call", "on-exhausted-value"): "loop_recur_contract_invalid",
+    ("command-call-field", "record-field"): "effect_not_permitted",
+    ("command-call-field", "variant-field"): "effect_not_permitted",
+    ("command-call-field", "on-exhausted-value"): "loop_recur_contract_invalid",
+    ("imported-wrapper-call", "record-field"): "effect_not_permitted",
+    ("imported-wrapper-call", "variant-field"): "effect_not_permitted",
+    ("imported-wrapper-call", "on-exhausted-value"): "loop_recur_contract_invalid",
+    ("generic-hook-call", "record-field"): "effect_not_permitted",
+    ("generic-hook-call", "variant-field"): "effect_not_permitted",
+    ("generic-hook-call", "on-exhausted-value"): "loop_recur_contract_invalid",
+}
 
 # The workflow return boundary rejects a union inside a returned variant, whatever the body:
 # form -> (code, stage), for the program `program(form, "return-boundary", probe)`.

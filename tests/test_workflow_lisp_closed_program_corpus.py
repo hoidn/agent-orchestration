@@ -207,15 +207,16 @@ _CONTROL_CASES = {
         "(list/map ((item (list 1 2))) (let* ((one (+ item 1)) (two (+ one 1))) two))",
         "",
     ),
+}
+
+_CONTROL_REFUSALS = {
     "effectful_loop_exhaustion": (
         "Int",
         """(loop/recur :max 0 :state (loop-state (i Int 0))
             :on-exhausted (done-val state.i) (fn (state) (done state.i)))""",
         "",
+        "loop_recur_contract_invalid",
     ),
-}
-
-_CONTROL_REFUSALS = {
     "effectful_list_map_body": (
         "List[Int]",
         "(list/map ((item (list 1 2))) (body-val item))",
@@ -497,13 +498,6 @@ def _assert_control_edge(
         assert tail["k"] == "halt"
         assert tail["value"]["k"] == "name" and tail["value"]["n"] == "two"
         assert not _control_calls(block["body"])
-    elif case == "effectful_loop_exhaustion":
-        (loop,) = _control_nodes(body, "loop")
-        assert not _control_calls(loop["body"])
-        (call,) = _control_calls(loop["exhausted"])
-        assert callee(call) == "done-val"
-        assert call["frame"].startswith("loop:state / exhausted / #1=")
-        assert argument(call)["k"] == "field" and argument(call)["base"]["n"] == "state"
     else:
         raise AssertionError(f"no assertions declared for control case {case}")
 

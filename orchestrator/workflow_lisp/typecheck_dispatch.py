@@ -268,6 +268,21 @@ def _no_effect_place_in_arguments(typed: TypedExpr) -> TypedExpr:
     return typed
 
 
+def _no_effect_place_in_function_arguments(typed: TypedExpr) -> TypedExpr:
+    """The same refusal for a `defun` call, which typecheck meets expanded: a `let*` that binds the
+    call's arguments around the function's body, marked by the expansion frame of that call."""
+
+    from .syntax import HelperExpansionFrame
+
+    expr = typed.expr
+    frame = expr.expansion_stack[-1] if expr.expansion_stack else None
+    if isinstance(frame, HelperExpansionFrame) and frame.call_span == expr.span:
+        refuse_effect_place_in(
+            [value for _, value in expr.bindings], where="an argument of a procedure or function call",
+            advice="bind that value with `let*` first and pass its name")
+    return typed
+
+
 def _typecheck(
     expr: ExprNode,
     *,
@@ -990,11 +1005,11 @@ def _typecheck(
             binding_capture_sources=expr.binding_capture_sources,
             condition_normalization_input=expr.condition_normalization_input,
         )
-        return _typed(
+        return _no_effect_place_in_function_arguments(_typed(
             expr=rewritten_expr,
             type_ref=typed_body.type_ref,
             effect=merge_effect_summaries(*binding_summaries, typed_body.effect_summary),
-        )
+        ))
     if type(expr) is LetProcExpr:
         from .procedure_typecheck import typecheck_let_proc_expr
 

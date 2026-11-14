@@ -13,13 +13,16 @@ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "current235" /
 VALID_ROOT = FIXTURES / "valid" / "imported_stdlib_loop_exhaustion_post_loop_terminal"
 VALID_ENTRY_FIXTURE = VALID_ROOT / "entry.orc"
 
-# Under invalid/ from when `:on-exhausted` had to be pure; an effect is admitted there now.
-EFFECTFUL_EXHAUSTION_ROOTS = (
-    FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_direct_command_result",
-    FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_effectful_on_exhausted_helper",
-)
+# Under invalid/ from when `:on-exhausted` had to be pure: a command written there is a simple value
+# and is admitted now (frontend specification 16.3); the helper call beside it stays refused.
+DIRECT_COMMAND_ROOT = FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_direct_command_result"
 
 INVALID_FIXTURES: dict[str, tuple[Path, Path, str]] = {
+    "effectful_on_exhausted_helper": (
+        FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_effectful_on_exhausted_helper",
+        FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_effectful_on_exhausted_helper" / "entry.orc",
+        "loop_recur_contract_invalid",
+    ),
     "unproved_variant_payload": (
         FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_unproved_variant_payload",
         FIXTURES / "invalid" / "imported_stdlib_loop_exhaustion_unproved_variant_payload" / "entry.orc",
@@ -99,15 +102,18 @@ def test_invalid_imported_stdlib_loop_exhaustion_routes_fail_with_owner_layer_di
             path,
             source_root=source_root,
             tmp_path=tmp_path,
+            command_boundaries=_command_boundaries()
+            if fixture_key == "effectful_on_exhausted_helper"
+            else None,
         )
 
     assert excinfo.value.diagnostics[0].code == expected_code
 
 
-@pytest.mark.parametrize("root", EFFECTFUL_EXHAUSTION_ROOTS, ids=lambda root: root.name)
-def test_imported_stdlib_loop_exhaustion_admits_an_effectful_exhaustion(tmp_path: Path, root: Path) -> None:
+def test_imported_stdlib_loop_exhaustion_admits_a_command_written_in_the_exhaustion(tmp_path: Path) -> None:
     result = _compile_entry_fixture(
-        root / "entry.orc", source_root=root, tmp_path=tmp_path, command_boundaries=_command_boundaries()
+        DIRECT_COMMAND_ROOT / "entry.orc", source_root=DIRECT_COMMAND_ROOT, tmp_path=tmp_path,
+        command_boundaries=_command_boundaries(),
     )
 
     assert result.entry_result.lowering_schema_version == 2

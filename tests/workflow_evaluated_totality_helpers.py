@@ -64,12 +64,19 @@ REPRO_VALUES = {
 
 
 def cell_refusal(form, position):
-    _, _, base = axes(form)
+    _, locality, base = axes(form)
     if base.startswith("repro:"):
         return None
     value = form_value(form, FORMS, "probe.py")
     if position == "match-subject" and value.type in ("Int", "Float", "Box"):
         return "match_subject_not_union"
+    # An effect behind a procedure call is not a simple value (frontend specification 16.3); the
+    # command forms written inline are the command itself, which is.
+    behind_a_call = value.calls and not (locality == "inline" and base in ("command-call", "command-call-field"))
+    if position in ("record-field", "variant-field") and behind_a_call:
+        return "effect_not_permitted"
+    if position == "on-exhausted-value" and behind_a_call:
+        return "loop_recur_contract_invalid"
     return None
 
 
@@ -211,8 +218,6 @@ def replace_placement_body(source, revision, position, locality):
     value = f'(let* ((child {perform})) child.value)' if locality == "direct" else '(invoke payload)'
     bodies = {
         "branch": f'(if true {value} "unselected")',
-        "list-element": f'(list {value})',
-        "variant-field": f'(let* ((chosen (variant Choice YES :value {value}))) (match chosen ((YES held) held.value)))',
         "loop": f'''(loop/recur :max 1 :state (loop-state (n Int 0)) :on-exhausted "exhausted"
           (fn (outer) (done (loop/recur :max 1 :state (loop-state (n Int 0))
             :on-exhausted "exhausted" (fn (inner) (done {value}))))))''',
@@ -225,7 +230,7 @@ def replace_placement_body(source, revision, position, locality):
     body = syntax_node_datum(workflow).items[-1]
     text = source.read_text()
     text = text[:body.span.start.offset] + bodies[position] + text[body.span.end.offset:]
-    if position in ("serial-map", "list-element"):
+    if position == "serial-map":
         result_type = syntax_node_datum(workflow).items[-2]
         text = text[:result_type.span.start.offset] + "List[String]" + text[result_type.span.end.offset:]
     source.write_text(text)
