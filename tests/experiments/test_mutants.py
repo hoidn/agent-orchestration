@@ -1,7 +1,8 @@
-"""Tests of the mechanical mutation operators (Phase 6 readiness R3, Task T1).
+"""Tests of the mechanical mutation operators and of the compile check (Phase 6 readiness R3, Tasks T1, T2).
 
-Plan: docs/plans/2026-11-13-phase-6-mutant-generator-plan.md. No test compiles or runs anything:
-a mutant is a string, re-read here with the package's reader. `SEED` is the only source the
+Plan: docs/plans/2026-11-13-phase-6-mutant-generator-plan.md. The operators' tests compile nothing:
+a mutant is a string, re-read here with the package's reader. The compile check's tests build
+mutants in process and run no workflow. `SEED` is the only source the
 default suite mutates until T6. It is spelled the way the frozen seed will be (ruling M8): effort
 per role is a string literal at each call site, model per role is an entry input.
 
@@ -9,17 +10,21 @@ The sample relies on `random.Random(seed).random()` only, the one method whose s
 Python documentation fixes across versions. Written and run under Python 3.13.9.
 """
 
+import json
 import os
 import subprocess
 import sys
 from collections import Counter
+from contextlib import nullcontext
 
 import pytest
 
-from experiments.mutants import operators
+from experiments.mutants import check, operators
 from experiments.mutants.operators import Mutation
+from orchestrator.workflow_lisp.closed import artifact, build
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr, StringAtom
+from tests.test_workflow_lisp_defect_backlog import KNOWN
 
 # The closed sets, written out: `operators.py` may not hold a Fable model, a model above the
 # Sonnet ceiling or an undeclared effort (AGENTS.md, experiment rules).
@@ -454,3 +459,132 @@ def test_sample_refuses_an_operator_it_does_not_have():
 def test_sample_refuses_a_negative_cap():
     with pytest.raises(ValueError):
         operators.sample(SOURCES, -1, 1)
+
+
+# ---------------------------------------------------------------------------------------------
+# The compile check (Task T2). A seed directory holds `NAME.orc` per program, entry `NAME::run`,
+# and the two manifests. Only this module reads the backlog's `KNOWN`; `check.py` reads no known list.
+
+PROVIDERS = {f"providers.{role}": "claude_unrestricted_workspace" for role in ("planner", "coder", "reviewer")}
+COMMANDS = {"dev-check": {"stable_command": ["python", "dev_check.py"], "closure": ["dev_check.py"]}}
+# P8's crash (backlog row D21): the `graft` of the binding's value by the `done` form.
+CRASH_SEED = """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule crash) (export run)
+  (defworkflow run () -> Int
+    (loop/recur :max 2 :state (loop-state (i Int 0)) :on-exhausted 0
+      (fn (state) (let* ((x (+ state.i 1))) (done state.i))))))
+"""
+# The kinds of the backlog's signatures; the mutants' crash keys are those of the first two.
+KINDS = ("crash", "traceback", "refused", "builds", "value", "digests", "ran")
+
+
+def seed_dir(root, sources: dict[str, str]):
+    root.mkdir()
+    for program, text in sources.items():
+        (root / f"{program}.orc").write_text(text, encoding="utf-8")
+    (root / "providers.json").write_text(json.dumps(PROVIDERS), encoding="utf-8")
+    (root / "commands.json").write_text(json.dumps(COMMANDS), encoding="utf-8")
+    return root
+
+
+def snapshot(root) -> dict:
+    return {path.relative_to(root): path.read_bytes() for path in sorted(root.rglob("*")) if path.is_file()}
+
+
+def mutant_of(name: str, params: str) -> str:
+    return operators.apply(SEED, next(m for m in operators.OPERATORS[name](SEED) if m.params == params))
+
+
+def raising_after_first(original):
+    """`original` for the first call (the seed's own build), then a `RuntimeError` that escapes."""
+    calls = []
+
+    def stand_in(*args, **kwargs):
+        calls.append(None)
+        if len(calls) == 1:
+            return original(*args, **kwargs)
+        raise RuntimeError("injected\nsecond line")
+
+    return stand_in
+
+
+def test_outcome_kinds(tmp_path):
+    work = seed_dir(tmp_path / "work", {"fixture": SEED})
+    seed = check.outcome(work, "fixture")
+    found = {}
+    for name, params in (("rounds", "loop0=3"), ("drop_step", "let0.0"), ("prompt", "work.drop0")):
+        (work / "fixture.orc").write_text(mutant_of(name, params), encoding="utf-8")
+        found[name] = check.outcome(work, "fixture")
+    assert seed[0] == found["rounds"][0] == "compiles" and seed[1] != found["rounds"][1]
+    assert found["drop_step"] == ("refused", "name_unknown")
+    assert found["prompt"] == ("refused", "prompt_placeholder_missing")
+
+
+def test_an_escaped_exception_is_a_crash_record_and_exit_1(tmp_path, monkeypatch):
+    seed, original = seed_dir(tmp_path / "seed", {"fixture": SEED}), artifact.build_closed_program
+    monkeypatch.setattr(artifact, "build_closed_program", raising_after_first(original))
+    report = check.compile_report(seed, ["fixture"], 3, 0, operators=("rounds",))
+    (record,) = report["crashes"]
+    assert (record["key"][0], record["mutants"], record["pairs"]) == ("RuntimeError", COUNTS["rounds"],
+                                                                      [["rounds", "fixture"]])
+    assert record["cause"] == "injected"
+    read(record["smallest"]["source"])
+    monkeypatch.setattr(artifact, "build_closed_program", raising_after_first(original))
+    assert check.main([str(seed), "--programs", "fixture", "--operators", "rounds",
+                       "--out", str(tmp_path / "readout.json")]) == 1
+
+
+@pytest.mark.parametrize("kind", ["crash", "traceback"])
+def test_a_coded_crash_and_its_traceback_have_one_key(kind, tmp_path, monkeypatch):
+    # A raw traceback that a later fix turns into `compiler_defect` keeps its key: the key has no kind.
+    monkeypatch.setattr(build, "_build_with_builder", raising_after_first(build._build_with_builder))
+    if kind == "traceback":
+        monkeypatch.setattr(build, "compiler_defect_boundary", nullcontext)
+    report = check.compile_report(seed_dir(tmp_path / "seed", {"fixture": SEED}), ["fixture"], 3, 0,
+                                  operators=("rounds",))
+    assert [(record["key"], record["kinds"], record["mutants"]) for record in report["crashes"]] == [
+        (["RuntimeError", "workflow_lisp/closed/build.py:build_closed_program"], [kind], COUNTS["rounds"])]
+
+
+def test_a_crashing_mutant_is_reported_under_the_backlog_key(tmp_path):
+    # Deleted with the backlog's row D21 when its defect is fixed.
+    report = check.compile_report(seed_dir(tmp_path / "seed", {"crash": CRASH_SEED}), ["crash"], 100, 0,
+                                  operators=("graft",))
+    assert [record["key"] for record in report["crashes"]] == [list(KNOWN["D21"][1:])]
+
+
+def test_the_fixture_sample_has_no_crash(tmp_path):
+    seed = seed_dir(tmp_path / "seed", {"fixture": SEED})
+    before = snapshot(seed)
+    report = check.compile_report(seed, ["fixture"], 3, 0)
+    assert report["crashes"] == [], json.dumps(report["crashes"], indent=2)
+    counts = report["operators"]
+    assert list(counts) == list(operators.OPERATORS) and all(row["mutants"] >= 1 for row in counts.values())
+    assert all(row["compiles"] + sum(row["refused"].values()) + sum(row["crash_keys"].values()) == row["mutants"]
+               for row in counts.values())
+    assert sum(row["mutants"] for row in counts.values()) == report["sample"]["mutants"]
+    assert snapshot(seed) == before
+
+
+def test_the_known_list_has_the_shape_this_module_reads():
+    assert {signature[0] for signature in KNOWN.values()} <= set(KINDS)
+    assert any(signature[0] in KINDS[:2] for signature in KNOWN.values())
+
+
+def test_the_check_starts_no_process(tmp_path, monkeypatch):
+    # It compiles and nothing else: no workflow runs, no provider or command is started.
+    started = []
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: started.append(args) or pytest.fail("a process"))
+    assert check.main([str(seed_dir(tmp_path / "seed", {"fixture": SEED})), "--programs", "fixture", "--cap", "1",
+                       "--out", str(tmp_path / "readout.json")]) == 0
+    assert started == []
+
+
+def test_command_exits_0_without_a_crash(tmp_path):
+    seed, out = seed_dir(tmp_path / "seed", {"fixture": SEED}), tmp_path / "readout.json"
+    done = subprocess.run([sys.executable, "-m", "experiments.mutants.check", str(seed), "--programs", "fixture",
+                           "--operators", "rounds", "--out", str(out)], capture_output=True, text=True,
+                          env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, sys.path))})
+    assert done.returncode == 0, done.stderr
+    readout = json.loads(out.read_text(encoding="utf-8"))
+    assert (readout["operators"]["rounds"]["mutants"], readout["crashes"]) == (COUNTS["rounds"], [])
