@@ -717,6 +717,41 @@ own delivery status and captured evidence.
     evaluated route's `resume_program_changed` refusal without writes. No new runtime policy,
     representation or target is introduced. The [correction report](../docs/reports/2026-10-07-workflow-lisp-pure-capture-correction.md)
     records the bounded evidence and original failed gates.
+  - A procedure call is identified by its span, form path and expansion
+    stack together, and a call cloned into the caller when a pure procedure
+    is inlined keeps its own span. Before, calls that shared a span and form
+    path shared one target. Four kinds of program are corrected:
+    - two expansions of one macro template in one owner that call different
+      targets (every target);
+    - two calls in the body of an inlined pure procedure to different
+      `let-proc` locals, written directly or by a macro (every target);
+    - a procedure specialized more than once in one chain of bound procedure
+      references (targets 2.39 and 2.40);
+    - two expansions of a macro whose template calls a procedure specialized
+      by a `WorkflowRef` (targets 2.39 and 2.40).
+
+    In the first three the shared target was chosen in an order that varied
+    with `PYTHONHASHSEED` and the absolute source path: one source built on one
+    run and stopped with `compiler_defect` on the next, built a program that
+    called the wrong procedure and computed a wrong value, or built the right
+    value under several digests. In the fourth every expansion called the last
+    expansion's workflow. Each such program now builds one program, the one
+    its source means, with one digest, and some that stopped with
+    `compiler_defect` now build. A program without such a collision keeps its
+    closed program, digest and effect identities. A run recorded by a build
+    whose digest changes meets a changed program at `resume`, because the
+    compiler changed, not the source. Without acceptance the recorded result
+    stands and `resume` refuses with `resume_program_changed` and the
+    edited-program plan; accepting the plan (`--accept-changes=TOKEN`)
+    re-runs what the plan cancels and the code between effects, so the
+    result, also of a completed run, can change. During elaboration a call
+    site that records two targets stops the build with `compiler_defect`
+    naming the site; no lookup reads such a site. Not corrected: a value bound
+    by `bind-proc` that is not a literal, a name or a field access (a
+    `(workflow-ref w)`, or a computed value such as `(+ k 0)`) is identified
+    by its source position, so two expansions of one template that bind
+    different values share one specialization, and the first expansion's
+    value is used.
   - The refusal of an integer overflow keeps its code, `pure_expr_overflow`,
     its stage and its exit code at every target. Its message, which a failed
     run records in `state.json`, now names the operator and prints its

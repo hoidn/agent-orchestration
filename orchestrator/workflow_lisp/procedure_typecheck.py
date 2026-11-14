@@ -1843,7 +1843,7 @@ def _typecheck_local_hook_group(expr, **creator):
     finally:
         session.proc_ref_value_env, session.pending_local_hook_preparer = previous
     if incomplete.keys() - completed:
-        binding = incomplete[next(iter(incomplete.keys() - completed))]
+        binding = next(binding for name, binding in incomplete.items() if name not in completed)
         _raise_error("local hook signature was not completed", code="let_proc_expected_signature_missing",
             span=binding.span, form_path=binding.form_path)
     final_body = _rewrite_local_proc_references(expr.body, local_bindings=rewrites)
