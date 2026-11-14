@@ -745,8 +745,8 @@ def test_source_free_readback_rejects_forged_command_capture_routes(tmp_path, ta
     from orchestrator.contracts.closed_program.sites import _ast_nodes
     from tests.test_workflow_lisp_closed_command_transport import _command, _commands, _compile
 
-    declaration = '(defproc helper ((flag Bool)) -> Int :effects ((uses-command echo)) '
-    declaration += ':lowering inline ' + _command('"${inputs.x}"') + ')'
+    declaration = '(defproc helper ((flag Bool)) -> Int '
+    declaration += _command('"${inputs.x}"') + ')'
     closed = build_closed_program(_compile(tmp_path, '(helper other)',
         params='(x Bool) (other Bool)', declarations=declaration))
     assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
@@ -922,8 +922,6 @@ def _projected_k6_negative_program(tmp_path):
                 (ChoiceT has-shared-union-field n Int)
                 (ChoiceT has-shared-union-field label String))
         -> Int
-        :effects ((uses-command fetch))
-        :lowering inline
         (command-result fetch
           :argv ("python" "probe.py" value.label other.n)
           :returns Int))
@@ -985,7 +983,6 @@ def test_projected_nonuniform_payload_requires_its_same_root_tag(tmp_path):
       (defmodule cp/projected_k6_tag) (export run)
       (defunion Choice (YES (n Int)) (NO (text String)))
       (defproc extract ((value Choice)) -> Int
-        :effects ((uses-command fetch)) :lowering inline
         (match value
           ((YES payload) (command-result fetch :argv ("python" "probe.py" payload.n) :returns Int))
           ((NO payload) 0)))

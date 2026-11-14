@@ -45,10 +45,10 @@ def test_command_scope_capture_retains_real_loop_state_frame(tmp_path, monkeypat
     from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 
     program, inputs, facts = _compile(tmp_path,
-        '(loop/recur :max 2 :state (loop-state (i Int 0)) :on-exhausted 0 (fn (state) '
+        '(loop/recur ((state (loop-state (i Int 0)))) :max 2 :on-exhausted 0 '
         '(let-proc (local ((n Choice)) -> Int :captures (state) '
         '(match n ((A a) (+ state.i a.i)) ((B b) state.i))) '
-        '(let* ((hook (proc-ref local)) (state "shadow") (answer (hook choice))) (done answer)))))',
+        '(let* ((hook (proc-ref local)) (state "shadow") (answer (hook choice))) (done answer))))',
         params='(choice Choice)', returns='Int')
     captured = []
     original = CommandScopeContext.bind
@@ -77,7 +77,7 @@ def test_closed_capture_changes_preserve_unrelated_type_errors(tmp_path, body, c
 
     with pytest.raises(LispFrontendCompileError) as caught:
         _compile(tmp_path, body, params='(input Int)',
-            declarations='(defproc helper ((fixed Int) (n Int)) -> Int :effects () :lowering inline (+ fixed n))')
+            declarations='(defproc helper ((fixed Int) (n Int)) -> Int (+ fixed n))')
     assert code in {item.code for item in caught.value.diagnostics}
 
 
@@ -89,7 +89,7 @@ def test_command_scope_call_types_use_same_prepared_condition_owner(tmp_path, mo
 
     program, inputs, facts = _compile(tmp_path,
         '(if (let* ((b (helper))) b) (record Result :i 1 :s "yes") (record Result :i 2 :s "no"))',
-        declarations='(defproc helper () -> Bool :effects ((uses-command echo)) :lowering inline '
+        declarations='(defproc helper () -> Bool '
         '(command-result echo :argv ("python" "probe.py") :returns Bool))')
     observed = []
     original = elaborate._elaboration_procedure_return_types
@@ -110,9 +110,9 @@ def test_loop_exhaustion_command_facts_keep_enclosing_owner(tmp_path, monkeypatc
     from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
 
     program, inputs, facts = _compile(tmp_path,
-        '(loop/recur :max 1 :state (loop-state (i Int 0)) :on-exhausted '
+        '(loop/recur ((state (loop-state (i Int 0)))) :max 1 :on-exhausted '
         '(match choice ((A a) (if flag 1 0)) '
-        '((B b) 0)) (fn (state) (done 1)))', params='(choice Choice) (flag Bool)', returns='Int')
+        '((B b) 0)) (done 1))', params='(choice Choice) (flag Bool)', returns='Int')
     observed = []
     original = CommandScopeContext.arm
     def observe(context, expr, **kwargs):
@@ -138,7 +138,7 @@ def test_proof_branch_command_facts_consume_actual_narrowed_environment(tmp_path
     body = '(let* ((choice (variant ImplementationState COMPLETED :execution_report report))) (if (= choice.variant COMPLETED) (let* ((x choice.execution_report)) '
     body += '(command-result echo :argv ("python" "probe.py" x) :returns Result)) (record Result :i 0 :s "no")))'
     program, inputs, facts = _compile(tmp_path, body,
-        params='(report WorkReport)', target='2.35', declarations='''
+        params='(report WorkReport)', declarations='''
         (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)
         (defunion ImplementationState (COMPLETED (execution_report WorkReport))
           (BLOCKED (progress_report WorkReport)))''')
@@ -184,7 +184,7 @@ def test_erased_local_proc_refs_remain_available_to_command_facts(tmp_path, monk
     program, inputs, facts = _compile(tmp_path, '(loop/recur :max 1 :state (loop-state (i Int 0)) '
         f':on-exhausted (record Result :i 0 :s "stop") (fn (state) (let* {bindings[:-1]} '
         f'(answer (match choice ((A a) {arm}) ((B b) (record Result :i 0 :s b.s))))) '
-        '(done answer))))', params='(choice Choice) (other Choice) (flag Bool)',
+        '(done answer))))', params='(choice Choice) (other Choice) (flag Bool)', target='2.35',
         declarations='(defproc helper ((flag Bool)) -> Result :effects ((uses-command echo)) :lowering inline '
         '(if flag (command-result echo :argv ("python" "probe.py") :returns Result) (record Result :i 0 :s "no")))')
     seen = []
@@ -224,7 +224,7 @@ def test_runtime_shadow_removes_erased_reference_before_command_reset(tmp_path, 
     source += '(answer (match choice ((A a) (if flag (helper flag) (record Result :i 0 :s "no"))) '
     source += '((B b) (record Result :i 0 :s "b"))))) (done answer)))))'
     program, inputs, facts = _compile(tmp_path, source, params='(choice Choice) (flag Bool)',
-        declarations='(defproc helper ((flag Bool)) -> Result :effects ((uses-command echo)) :lowering inline '
+        declarations='(defproc helper ((flag Bool)) -> Result '
         '(if flag (command-result echo :argv ("python" "probe.py") :returns Result) (record Result :i 0 :s "no")))')
     resets = []
     original = CommandScopeContext.arm
@@ -260,7 +260,7 @@ def test_nested_command_owners_preserve_lexical_input_frames(tmp_path, monkeypat
     source = f'(match choice ((A a) (if true {inner} (record Result :i 0 :s "no"))) '
     source += '((B b) (record Result :i 0 :s "b")))'
     program, inputs, facts = _compile(tmp_path, source, params='(choice Choice) (unused Int)',
-        target='2.35', declarations='(defrecord State (i Int))')
+        declarations='(defrecord State (i Int))')
     seen = []
     original = CommandScopeContext.bind
     def observe(context, expr, **kwargs):
@@ -292,15 +292,15 @@ def test_forwarded_workflow_reference_is_not_a_runtime_command_root(tmp_path):
     from orchestrator.workflow_lisp.wcc.model import WccCase
 
     program, inputs, facts = _compile(tmp_path,
-        '(loop/recur :max 1 :state (loop-state (i Int 0)) '
-        ':on-exhausted (record Result :i 0 :s "stop") (fn (state) '
+        '(loop/recur ((state (loop-state (i Int 0)))) :max 1 '
+        ':on-exhausted (record Result :i 0 :s "stop") '
         '(let* ((runner (workflow-ref leaf)) '
         '(answer (match choice ((A a) (if flag (invoke runner a.i) '
-        '(record Result :i 0 :s "no"))) ((B b) (record Result :i 0 :s b.s))))) (done answer))))',
+        '(record Result :i 0 :s "no"))) ((B b) (record Result :i 0 :s b.s))))) (done answer)))',
         params='(choice Choice) (flag Bool)', declarations='''
         (defworkflow leaf ((n Int)) -> Result (record Result :i n :s "leaf"))
         (defproc invoke ((runner WorkflowRef[Int -> Result]) (n Int)) -> Result
-          :effects ((calls-workflow runner)) :lowering inline (call runner :n n))''')
+          (call runner :n n))''')
     neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
     _assert_forwarded_workflow_reference_remains_compile_time(program.entry.typed_body)
     annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
@@ -434,7 +434,7 @@ def test_promoted_parent_reuses_runtime_child_shape_with_final_residual_operands
     declarations = '(defproc runtime ((flag Bool)) -> Int :effects () :lowering private-workflow (if flag 1 2))'
     declarations += '(defproc helper ((flag Bool)) -> Int :effects ((uses-command echo)) :lowering inline '
     declarations += '(let* ((result ' + _command('flag') + ')) (runtime flag)))'
-    program = _compile_closed(tmp_path, '(helper true)', declarations=declarations)
+    program = _compile_closed(tmp_path, '(helper true)', declarations=declarations, target="2.35")
     closed = build_closed_program(program)
     helper = next(row for row in closed.tree["definitions"].values() if row["key"][2] == "helper")
     runtime = next(row for row in closed.tree["definitions"].values() if row["key"][2] == "runtime")
@@ -448,9 +448,12 @@ def test_inline_literal_homonym_inherits_whole_root_while_native_keeps_its_runti
     from orchestrator.workflow_lisp.closed.build import build_closed_program
     from tests.test_workflow_lisp_closed_command_transport import _compile as _compile_closed, _command, _commands
 
-    declarations = '(defproc helper ((x Bool)) -> Int :effects ((uses-command echo)) '
-    declarations += ':lowering ' + mode + ' ' + _command('"${inputs.x}"') + ')'
-    closed = build_closed_program(_compile_closed(tmp_path, '(helper true)', params="(x Int)", declarations=declarations))
+    declarations = '(defproc helper ((x Bool)) -> Int '
+    if mode == "private-workflow":
+        declarations += ':effects ((uses-command echo)) :lowering private-workflow '
+    declarations += _command('"${inputs.x}"') + ')'
+    closed = build_closed_program(_compile_closed(tmp_path, '(helper true)', params="(x Int)", declarations=declarations,
+        target="2.35" if mode == "private-workflow" else "TARGET"))
     (helper,) = closed.tree["definitions"].values()
     (command,) = _commands(closed.tree)
     slot = command["argv_transport"][0]["parts"][0]
