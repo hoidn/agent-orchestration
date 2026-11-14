@@ -6,7 +6,9 @@
 # inspected once (name, network mode, mounts). No key exists: the harness starts with an empty
 # environment plus a dummy key name; the agent phase is on an allowlist (`relay` and the Python index).
 #
-# Usage: record.sh <name> <scenario> <agent: oracle|nop|claude-code> [extra harbor run args...]
+# Usage: [AUTH=token] [STUB_ARGS=...] record.sh <name> <scenario> <agent: oracle|nop|claude-code> [harbor args...]
+#        AUTH=token runs the CLI in subscription-token mode: CLAUDE_CODE_OAUTH_TOKEN set to a fake value,
+#        no API key (the harness's CLAUDE_FORCE_OAUTH route).
 #        record.sh make_task      (scratch copy: neutral instruction, probe as the reference solution,
 #                                  the two network keys)
 # Needs: $LH/hvenv (harbor 0.25.0 + podman-compose 1.6.0); $LH/logs/containers-override.conf with
@@ -58,10 +60,17 @@ python3 -I "$HERE/stub_api.py" --unix "$SOCKET_DIR/passthrough.sock" --model "$M
 stub=$!
 sleep 1
 agent_args=(--agent "$agent")
-[ "$agent" = claude-code ] && agent_args+=(-m "anthropic/$MODEL" --base-url "http://$RELAY" --api-key-name LH_DUMMY_KEY)
+auth_env=(LH_DUMMY_KEY=lh-dummy-not-a-key)
+[ "$agent" = claude-code ] && agent_args+=(-m "anthropic/$MODEL" --base-url "http://$RELAY")
+if [ "${AUTH:-key}" = token ]; then
+  auth_env=(CLAUDE_FORCE_OAUTH=1 CLAUDE_CODE_OAUTH_TOKEN=lh-fake-oauth-token-not-real)
+  agent_args+=(--skip-credential-checks)
+elif [ "$agent" = claude-code ]; then
+  agent_args+=(--api-key-name LH_DUMMY_KEY)
+fi
 env -i HOME="$HOME" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH="$CLEAN_PATH" \
   HARBOR_TELEMETRY=0 DO_NOT_TRACK=1 CONTAINERS_CONF_OVERRIDE="$LH/logs/containers-override.conf" \
-  LH_RELAY_SOCKET_DIR="$SOCKET_DIR" LH_DUMMY_KEY=lh-dummy-not-a-key \
+  LH_RELAY_SOCKET_DIR="$SOCKET_DIR" "${auth_env[@]}" \
   "$LH/hvenv/bin/python" -I "$HERE/harbor_patient.py" run --path "$TASK" "${agent_args[@]}" --env podman \
   -n 1 -o "$OUT/jobs" -q -y --extra-docker-compose "$LH/logs/limits-compose.yaml" \
   --extra-docker-compose "$HERE/relay-compose.yaml" "$@" > "$OUT/harbor.out" 2>&1 &
