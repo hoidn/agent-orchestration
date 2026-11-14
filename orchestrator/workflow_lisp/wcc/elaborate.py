@@ -2287,15 +2287,34 @@ def _command_bound_bindings(bindings, *, expr, name, type_ref, scope, metadata,
 
 def binding_type_for_elaboration(
     binding_expr, *, type_env, value_env, workflow_return_types,
-    procedure_return_types, capture_source=None,
+    procedure_return_types, capture_source=None, name: str | None = None,
 ):
-    """Resolve the reached RHS under its incoming lexical environment."""
+    """Resolve the reached RHS under its incoming lexical environment.
+
+    Raises `loop_recur_contract_invalid` for a value that only leaves the loop (frontend specification 13.1).
+    """
     if capture_source is not None:
         return capture_source[1]
-    return _infer_expr_type(
+    binding_type = _infer_expr_type(
         binding_expr, type_env=type_env, value_env=value_env,
         workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types,
     )
+    if isinstance(binding_type, LoopControlTypeRef):
+        raise _loop_exit_as_binding_value(binding_expr, name)
+    return binding_type
+
+
+def _loop_exit_as_binding_value(expr, name: str | None) -> LispFrontendCompileError:
+    """The refusal of a `done` or `continue` (or a form every branch of which is one) as a `let*` binding's value."""
+
+    form = {DoneExpr: "`done`", ContinueExpr: "`continue`"}.get(
+        type(expr), "a form every branch of which ends in `done` or `continue`")
+    binding = f"`let*` binding `{name}`" if name else "a `let*` binding"
+    return LispFrontendCompileError((LispFrontendDiagnostic(
+        code="loop_recur_contract_invalid",
+        message=(f"the value of {binding} is {form}, which leaves the loop and has no value; write the "
+                 "`done` or `continue` in tail position: as the `let*` body, or in a branch of it"),
+        span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack),))
 
 
 def _parallel_command_bindings(expr, metadata, scope, bindings, context):
@@ -2504,6 +2523,7 @@ def _elaborate_let_star(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
             capture_source=capture_sources[-1],
+            name=name,
         )
     if changed:
         expr = replace(
@@ -2583,7 +2603,7 @@ def _elaborate_let_star(
         binding_type = binding_type_for_elaboration(
             binding_expr, type_env=type_env, value_env=local_env,
             workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types,
-            capture_source=capture_source,
+            capture_source=capture_source, name=binding_name,
         )
         next_env = dict(local_env)
         next_env[binding_name] = binding_type
@@ -7017,6 +7037,7 @@ def _infer_expr_type(
                 workflow_return_types=workflow_return_types,
                 procedure_return_types=procedure_return_types,
                 capture_source=expr.binding_capture_sources[index] if index < len(expr.binding_capture_sources) else None,
+                name=binding_name,
             )
         return _infer_expr_type(
             expr.body,

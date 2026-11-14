@@ -125,7 +125,6 @@ KNOWN: dict[str, tuple] = {
     "D12-literal": NO_ELABORATION,
     "D12-name": BINDER_OUT_OF_SCOPE,
     "D13": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._value"),
-    "D21": crash("TypeError", f"{ELABORATE}:_replace_halts_with_jump"),
     "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
@@ -199,6 +198,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D19": ("crash", "SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
     "D20": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D21": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"),
+    "D21-continue": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"),
     "D22": ("traceback", "AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D23": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
     "D23-macro": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
@@ -308,6 +308,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D20": None,
     "D20-bound": ("value", 1, "e1"),
     "D21": None,
+    "D21-continue": None,
     "D22": None,
     "D23": ("value", 34),
     "D23-macro": ("value", 705),
@@ -649,9 +650,11 @@ ROWS: dict[str, Row] = {
     "D20": row(value(1, "e1"), f"((n Int)) -> Int (match {D20_SUBJECT} {D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
     "D20-bound": row(value(1, "e1"), f"((n Int)) -> Int (let* ((shape {D20_SUBJECT})) (match shape {D20_ARMS}))",
                      SHAPE, D20_MK, inputs=("n=1",)),
-    # Tenth batch: `done` where the loop body's value is not the control form itself. Specification 13.1
-    # wants a refusal; its code is not chosen.
-    "D21": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (let* ((x (done 1))) x))"),
+    # Tenth batch: `done` where the loop body's value is not the control form itself; specification 13.1
+    # refuses it.
+    "D21": row(refused("loop_recur_contract_invalid"), "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (let* ((x (done 1))) x))"),
+    # The `continue` spelling, which a mutant of the seed set reached (mutant generator Task T5).
+    "D21-continue": row(refused("loop_recur_contract_invalid"), "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted s (let* ((x (continue (+ s 1)))) (done 1)))"),
     "D22": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (list (done 1)))"),
     # Eleventh batch: an inlined pure procedure gave every node of its body the site of its call, so two calls in
     # that body to different lifted locals shared one site and one target, chosen in hash-seed order.

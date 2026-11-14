@@ -2257,6 +2257,14 @@ Loop body returns:
 - `(continue new-state)`
 - `(done result)`
 
+Each leaves the loop and has no value, so it is written in tail position: the
+loop body itself, a `let*` body, or a branch of an `if`, `cond` or `match` in
+tail position. As the value of a `let*` binding (directly, as the body of a
+nested `let*`, or as every branch of an `if`, `cond` or `match` that is the
+binding's value) it is refused with `loop_recur_contract_invalid`, naming the
+binding; a binding value that exits in some branches and gives a value in
+others is refused with `type_mismatch`.
+
 `:on-exhausted` is the loop's value when it reaches `:max` without `done`; the
 loop binder (`state` here) is in scope and holds the last state. A loop without
 it compiles with the `loop_missing_on_exhausted` warning, and reaching `:max`

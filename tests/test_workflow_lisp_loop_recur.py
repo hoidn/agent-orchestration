@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -500,3 +501,40 @@ def test_the_same_value_as_done_or_bound_first_runs(tmp_path: Path, step: str) -
     run = f"((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) {step}))"
 
     assert run_workflow(tmp_path, run, "n=1") == (1, ["e"])
+
+
+# A `done` or `continue` as the value of a `let*` binding in a loop body (frontend specification 13.1).
+LOOP_EXIT_BINDINGS = {
+    "done": "(let* ((x (done 1))) x)",
+    "continue": "(let* ((x (continue (+ s 1))) (y E)) (done y))".replace("E", E),
+    "nested-let": "(let* ((x (let* ((y 1)) (done y)))) x)",
+    "if": "(let* ((x (if (> n 0) (done 1) (continue (+ s 1))))) (done 2))",
+    "cond": "(let* ((x (cond ((> n 5) (done 1)) (else (continue (+ s 1)))))) (done 2))",
+    "match": "(let* ((x (match (variant U A :n n) ((A a) (done a.n)) ((B b) (continue (+ s 1)))))) (done 2))",
+}
+
+
+@pytest.mark.parametrize("form", ["binder", "fn"])
+@pytest.mark.parametrize("body", LOOP_EXIT_BINDINGS)
+def test_loop_exit_as_a_let_binding_value_is_refused(tmp_path: Path, body: str, form: str) -> None:
+    text = LOOP_EXIT_BINDINGS[body]
+    loop = (f"(loop/recur ((s 0)) :max 2 :on-exhausted s {text})" if form == "binder"
+            else f"(loop/recur :max 2 :state 0 :on-exhausted s (fn (s) {text}))")
+
+    done = cli_run(tmp_path, f"((n Int)) -> Int {loop}", "n=1")
+
+    assert (done.returncode, "[loop_recur_contract_invalid]" in done.stderr, command_log(tmp_path)) == (2, True, []), \
+        done.stderr
+
+
+@pytest.mark.parametrize(("body", "wanted"), [
+    ("(let* ((x 1)) (done x))", ("value", 1)),
+    ("(let* ((x (if (> n 0) (done 1) 5))) (done x))", ("refused", "type_mismatch")),
+], ids=["tail-position", "exit-in-one-branch"])
+def test_loop_exit_in_tail_position_runs_and_in_one_branch_of_a_binding_is_a_type_mismatch(
+        tmp_path: Path, body: str, wanted: tuple) -> None:
+    done = cli_run(tmp_path, f"((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted s {body})", "n=1")
+
+    observed = (("value", json.loads(done.stdout.splitlines()[-1])) if done.returncode == 0
+                else ("refused", "type_mismatch") if "[type_mismatch]" in done.stderr else ("exit", done.returncode))
+    assert observed == wanted, done.stderr
