@@ -262,7 +262,8 @@ def _exchange(sock, data, timeout=WAIT):
     with socket.socket(socket.AF_UNIX) as client:
         client.settimeout(timeout)
         client.connect(str(sock))
-        client.sendall(data)
+        with contextlib.suppress(BrokenPipeError):  # a refusal may close before the rest is sent; it is still read
+            client.sendall(data)
         with contextlib.suppress(TimeoutError, ConnectionResetError):
             while chunk := client.recv(65536):
                 reply += chunk
