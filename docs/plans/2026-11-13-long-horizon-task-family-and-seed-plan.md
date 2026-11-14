@@ -1,7 +1,9 @@
 # Long-Horizon Task Family And Staged Seed Plan (Roadmap Phase 5b)
 
-**Status: Plan; accepted by the coordinator on 2026-11-13 after an independent review; revised a
-second time against the recordings of Task 1; no spend.** This page
+**Status: Plan; third revision (2026-11-13), after owner decision 18 (subscription only) and the
+no-spend probes of Task 2; independently reviewed (accept after fixes) and revised; it awaits
+the coordinator's acceptance. The second revision was accepted on 2026-11-13. No spend.** This
+page
 turns the staging of
 [roadmap Phase 5b](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-5b-long-horizon-task-family-and-staged-seed)
 into a plan: the effort ladder that owner decision 16 approved (steps 4 to 6), and steps 7 to 9
@@ -26,6 +28,21 @@ counts by effort and the effort verdict, or the stop that prevented it.
   attempts each; at most 240 attempts, ceiling USD 200; no other model, no top-up after a null.
   First: the oracle check passes here, the network policy is fixed, the launcher has passed an
   independent review, and this plan and its ledger exist.
+- **Credential (decision 18): the owner's Claude subscription, and no API key.** Nothing is
+  billed. **Every dollar figure on this page is a priced-token figure:** metered tokens times
+  the price rule of D4. It caps and reports usage. The vendor enforces no spend limit for us;
+  what it enforces is the subscription's usage limits, which the ladder shares with the owner's
+  own sessions and with the coordinating session (D4, "Usage limits").
+- **The live probe (Task 4) is not under the ladder's approval.** It is three short sessions
+  on a scratch task, before the oracle check and without the launcher. Its authority is the
+  budget delegation (`AGENTS.md`) together with roadmap owner decision 18, which names it,
+  exercised by a coordinator approval row in this plan's ledger, written before the first
+  request. Until that row exists it is not approved. Its priced usage is counted inside the
+  USD 200, a conservative choice.
+- **Three steps use the subscription before the tranche is scheduled:** the live probe; the
+  smoke, one attempt; the pilot, three attempts (D7). The smoke and the pilot are four of the
+  240 attempts and run through the reviewed launcher.
+- **Owner preconditions** are listed in one place, [below](#owner-preconditions-and-questions).
 - **Kind of experiment.** The family is oracle-scored and qualifies by the oracle check, with
   no judge. The ladder places tasks and measures how success responds to effort, under the same
   task, tools and limits at every level. It is not a calibration whose stronger arm must win.
@@ -33,15 +50,27 @@ counts by effort and the effort verdict, or the stop that prevented it.
   that accepts two structurally different correct submissions and rejects a broken one. This
   tranche applies the approval's rule (the reference passes, an untouched environment fails);
   the ladder's passing agent runs can supply the second correct submission before step 9.
-- **Not approved:** the seed comparison (step 9), any task outside the 16, any other model. No
-  claim about any workflow comes from this tranche. "Better" below always means Pareto
+- **Not approved:** the seed comparison (step 9), any benchmark task outside the 16, any other
+  model. The probe's scratch task is no benchmark task and is covered only as the bullet above
+  says. No claim about any workflow comes from this tranche. "Better" below always means Pareto
   dominance over quality and priced-token cost.
 
 ## What this size can and cannot support
 
-- **What is measured: the three-tool configuration.** All 330 public trials ran the CLI with
-  three tools (Bash, Edit, Read), and so does the ladder (D2). It does not measure the default
-  agent with its twenty tools, subagents and skills, and says nothing about that agent.
+- **What is measured: the Claude Code CLI as a subscription user runs it, held to three
+  tools.** The session authenticates with a subscription token, keeps the CLI's default system
+  prompt, and has the tools Bash, Edit and Read because the other eighteen are disallowed (D2).
+  It does not measure the default agent with its twenty-one tools. The tools that start
+  subagents and skills are on the deny list; the init event still lists skills and agents, and
+  Task 2a records whether any listing of them reaches what the model reads.
+- **It is not the public leaderboard row's configuration.** All 330 public trials ran in the
+  CLI's simple mode with an API key: a system prompt of 26 characters where the ladder's has
+  8,830, three declared tools where the ladder's requests declare a fourth (a placeholder), and
+  five-minute caching where the ladder's is one hour. Simple mode refuses a subscription token
+  (fixture `token-simple-mode-AgentAuthenticationError`), so the public configuration cannot
+  run under decision 18. The public per-task rates are therefore only what chose the 16
+  candidates. **The ladder's own measurement is the only evidence of difficulty,** and no
+  figure of this plan is read against the public row.
 - **Can show:** which tasks are at the floor or clearly above the band for a direct session;
   a pooled change of success with effort of about 17 points or more; cost and time per attempt
   by effort; whether containers, network policy and metering hold over 240 runs.
@@ -53,70 +82,141 @@ counts by effort and the effort verdict, or the stop that prevented it.
 - **For the owner, in plain numbers** (the reviewer's model: public counts at `max` scaled by
   the vendor's effort ratios, before any task is dropped or the allowlist lowers rates). About
   10 of the 16 tasks are expected to screen in (9.7), with about a 45 percent chance of fewer
-  than ten, the smallest size step 9 can use. There is about one chance in two that the dollar
-  rule ends the tranche before attempt 240 (it does when spend runs above about USD 176). The
-  likely effort verdicts are "rises" or "not resolved"; neither confirms decision 14's
-  assumption beyond the bound the readout states.
+  than ten, the smallest size step 9 can use. The likely effort verdicts are "rises" or "not
+  resolved"; neither confirms decision 14's assumption beyond the bound the readout states.
+- **These numbers are a weaker guide than when they were computed.** They rest on the public
+  counts, and three things now separate the ladder from those counts: the configuration above,
+  the allowlist, and the task content (seven of the 16 changed their verifier tests after the
+  version the public row ran; D1). Which way each moves the rates is not known.
+- **About 220 to 235 of the 240 starts are expected, and the last round is likely
+  incomplete.** The ceiling ends the tranche once settled usage passes about USD 176 to 196,
+  depending on the cap of the task that is next, and the estimate is about USD 0.76 to 0.80 a
+  start (USD 182 to 192 for all 240; D4). Each attempt cut off by a usage limit also uses one
+  of the 240 starts (D5). Which starts are dropped is fixed before the first attempt (D7).
+  The approval's request named about USD 170; that figure was for the public row's prices.
+- **How long it takes is not known before the pilot.** The tranche runs only as fast as the
+  owner's share of the weekly allowance lets it (D4, D7).
 
 ## Decisions frozen before spend
 
 **No frozen rule may name a string, key or value that no recording shows.** The classification
 table, the stand-in responses, the smoke checks, the stops and the scan terms are written from
-the recordings of Task 1, and a test holds each to a recorded line.
+the recordings of Tasks 1 and 2, and a test holds each to a recorded line. Most of those
+recordings were made in the public row's configuration. Task 2a records the ladder's own, and
+nothing is frozen before it: where a rule below rests on a recording of another configuration,
+it says so.
 
 ### D1. Task list and task identity
 
-A task is **the same task** when every file of its directory equals the benchmark's published
+A task is **the same task** when every file of its package equals the benchmark's published
 4.1.0 digest, with `task.toml` compared after removing exactly two keys: the agent phase's
 network mode and its allowed hosts. The launcher writes those two keys (D3); their digest is
-recorded per task and per attempt. Host-side steps change no task file and are part of the
-method: an image pulled by full name or a registry alias; a wider sub-id range; the harness
-wrapper, which lengthens the harness's probes and passes `-T` where the harness passes a flag
-podman-compose rejects (fixture `pre-session-network-switch-RuntimeError`); a containers
-override file that silences the compose banner (fixture
-`pre-session-agent-install-RuntimeError`). Any other edit to a task file makes a **modified
-task**, admitted only as the vba row says. Task files, reference solutions and
-verifier tests stay outside this repository; the kit holds names and digests.
+recorded per task and per attempt. All 16 packages were fetched and match their 4.1.0 digests
+(`tasks.json`).
 
-| Task | Oracle state (report §5) | To do before spend | Per-attempt cap, USD |
+- **Images: the ones 4.1.0 pins.** Each 4.1.0 `task.toml` names a prebuilt agent image and a
+  prebuilt verifier image by digest. The ladder runs those, pulled by digest, and builds
+  nothing. The oracle evidence so far (report §5) used images built here from the Dockerfiles,
+  so it shows that the tasks can run on this machine and counts for nothing in the
+  qualification rule below.
+- **If the pinned images cannot be used as pinned** (Task 2b finds out, at no spend). If only
+  the harness or podman-compose cannot take a digest reference, the image is pulled by digest
+  with Podman and tagged locally, a host-side step; the local image id is recorded against the
+  digest at every attempt. If rootless Podman cannot pull an image by digest at all, that
+  task's image is built here from the package's Dockerfile. The record then says that the
+  image is not the pinned one, and that is **a different configuration label** (D7), named in
+  `tasks.json`, the manifest and the readout.
+- **The disk is measured before it is planned for.** `/home` has 78 GB free (96% full), and
+  the tranche stops under 20 GB. The 32 pinned images are pulled one at a time, each one's
+  size in the store recorded and the image deleted, before anything else is pulled. From the
+  sizes Task 2b states, in the ledger: the order of pulls (vba-userform-port first, then the
+  schedule's order); what is kept between rounds; and the room left above the 20 GB stop with
+  four attempts' output. If all 32 do not fit with that room, the owner decides (question 6):
+  free space, name another disk for the image store, or let the launcher keep only the images
+  of the blocks in flight and next in the queue, pulling by digest before and deleting after,
+  which ties the tranche to the registry for its whole length.
+- **Withholding is checked on every pinned agent image before any use.** The harness's
+  withholding was shown on images built here; a publisher-built image holds whatever its
+  publisher put in it. Each agent image's file system is exported from a container created
+  with no network and never started. It is listed and searched, on the host, for the names and
+  SHA-256 digests of the files under the task's `solution/` and `tests/`, and for the
+  benchmark's canary string. The canary is searched for by its published identifier, read at
+  run time from the task package; it is never copied into this repository, and the kit holds
+  only its SHA-256. A hit drops the task; the result is recorded in `tasks.json`.
+- **Host-side steps change no task file and are part of the method:** an image pulled by full
+  name or a registry alias; a wider sub-id range; the harness wrapper, which lengthens the
+  harness's probes and passes `-T` where the harness passes a flag podman-compose rejects
+  (fixture `pre-session-network-switch-RuntimeError`); a containers override file that silences
+  the compose banner (fixture `pre-session-agent-install-RuntimeError`); the relay's compose
+  file (D4). Any other edit to a task file makes a **modified task**, admitted only as the vba
+  row says. Task files, reference solutions and verifier tests stay outside this repository;
+  the kit holds names and digests.
+- **Seven tasks are not the tasks the public row ran.** The public trials ran 4.0.0. Nine of
+  the 16 are identical in both versions. The other seven changed their verifier tests, and six
+  of those also their agent environment (the column below). Instructions and reference
+  solutions did not change. For these seven the public count and the public cost describe
+  another verifier, so their cap rests on a cost measured on other content. The caps stand as
+  frozen numbers all the same: a cap bounds an attempt and predicts nothing.
+
+| Task | Oracle state on local builds (report §5) | Changed since 4.0.0 | Per-attempt cap, USD |
 | --- | --- | --- | --- |
-| vba-userform-port | Fails unchanged | Widen the sub-id range (owner question 3); else the one-line verifier change, labelled "modified verifier" | 14.19 |
-| vf2-speedup-networkx | Not tried | Oracle check | 17.37 |
-| wal-recovery-ordering | Reference 1 of 2 under load | Five of five on a quiet host; on the load-sensitive list (D5) | 3.00 |
-| session-window-debug | Pass, once | Repeat | 3.00 |
-| production-planning | Pass, once | Repeat | 3.93 |
-| vpp-loss-divergence | Not tried | Oracle check | 9.78 |
-| batched-eval-parity | Not tried | Oracle check | 6.09 |
-| pretrain-shard-corruption | Not tried | Oracle check | 3.00 |
-| gsea-proteomics | Pass, once | Repeat; needs a package index in the agent phase | 3.00 |
-| lake-temp-glm | Pass, once | Repeat | 5.22 |
-| sound-change-cascade | Pass, once | Repeat | 8.61 |
-| hof-topology-interpenetration | Not tried | Oracle check | 7.14 |
-| shadow-relay | Pass, once | Repeat | 8.55 |
-| rs-archive-clone | Pass, once | Repeat | 22.92 |
-| retro-console-soc | Pass, once | Repeat | 17.70 |
-| roy-polymorph-cn | Pass, once | Repeat | 5.58 |
+| vba-userform-port | Fails unchanged | Tests, environment | 14.19 |
+| vf2-speedup-networkx | Not tried | No | 17.37 |
+| wal-recovery-ordering | Reference 1 of 2 under load | Tests | 3.00 |
+| session-window-debug | Pass, once | Tests, environment | 3.00 |
+| production-planning | Pass, once | No | 3.93 |
+| vpp-loss-divergence | Not tried | No | 9.78 |
+| batched-eval-parity | Not tried | Tests, environment | 6.09 |
+| pretrain-shard-corruption | Not tried | Tests, environment | 3.00 |
+| gsea-proteomics | Pass, once; needs a package index in the agent phase | No | 3.00 |
+| lake-temp-glm | Pass, once | Tests, environment | 5.22 |
+| sound-change-cascade | Pass, once | Tests, environment | 8.61 |
+| hof-topology-interpenetration | Not tried | No | 7.14 |
+| shadow-relay | Pass, once | No | 8.55 |
+| rs-archive-clone | Pass, once | No | 22.92 |
+| retro-console-soc | Pass, once | No | 17.70 |
+| roy-polymorph-cn | Pass, once | No | 5.58 |
 
-- **Qualification rule.** A task runs only if, on the pinned 4.1.0 content, under the final
-  network policy, on the ladder's CPU set at its concurrency of four, with the load below the
-  gate of D2, the reference solution earns reward 1 five times of five and the untouched
-  environment reward 0 five times of five.
+- **Qualification rule.** A task runs only if, on the 4.1.0 package and its two pinned images,
+  under the final network policy, on the ladder's CPU set at its concurrency of four, with the
+  load below the gate of D2, the reference solution earns reward 1 five times of five and the
+  untouched environment reward 0 five times of five.
+- **What of the oracle evidence is redone, and when.** All of it, in two passes (Task 2b).
+  1. *First pass, on any day, load not controlled:* after the disk measurement and the
+     withholding check above, each of the 16 once on its pinned images, reference and
+     untouched, and the pinned CLI installed once on each pinned agent image (the install was
+     recorded on one locally built image only). vba-userform-port goes first: its
+     failure was seen on a local build, and the sub-id range decides whether it needs the
+     labelled verifier change (owner question 4). A failure here is found before the quiet
+     window is asked for.
+  2. *Second pass, the rule above, in the quiet window:* five and five for every task, about
+     ten hours of machine time. This is the only pass that qualifies a task.
+  The seven changed tasks get no extra oracle run: the content checked earlier already was
+  4.1.0's, and the pinned images are new for all 16 alike. What they do get is in the bullet
+  above: their public figures are not used as an expectation.
 - **A task that fails the rule and has no host-side fix is dropped.** It is not replaced and
   its 15 slots are not given to other tasks. Replacement from outside the 16 is owner
-  question 4. A task whose reference passes five of five quiet but failed under load stays, on
+  question 5. A task whose reference passes five of five quiet but failed under load stays, on
   the load-sensitive list, frozen from the oracle evidence before spend.
 
 ### D2. What an attempt is
 
 - **The agent runs inside the task's agent container,** as the published harness runs its
   Claude Code agent (report §8): one non-interactive session with the task's instruction.
-- **In the public row's configuration.** The ladder sets `CLAUDE_CODE_SIMPLE=1` and
-  `CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000`, as all 330 public trials did (their metadata, saved
-  with the archives). The init event then lists the tools `Bash, Edit, Read` (fixture
-  `public-normal-end`; reproduced here in recording `simple-medium`); without the first
-  variable it lists twenty. This also keeps effort equal within an attempt: the Agent tool,
-  which the setting removes, let a session at `low` run a subagent at `max` (recording
-  `subagent-override-low`). An init event with any other tool list is a stop.
+- **In token mode, with three tools by a deny list.** The harness starts the CLI on its
+  subscription route (`CLAUDE_FORCE_OAUTH=1`): the CLI gets a fake token, an empty API key and
+  the relay as base URL (D4). The harness passes `--disallowedTools` with the eighteen names of
+  recording `tok3-normal`, and `CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000`. Simple mode is not set.
+  The init event then lists the tools `Bash, Edit, Read` and `apiKeySource: none` (fixture
+  `token-three-tools-normal-end`). An init event with any other tool list is a stop: a deny
+  list lets through whatever it does not name.
+- **What this configuration carries that the public row's did not** (recorded): the CLI's
+  default system prompt (8,830 characters against 26); a fourth declared tool, a placeholder
+  for deferred tools; two more beta headers; one-hour caching of the system blocks;
+  `rate_limit_event` events in the stream. The model sees the first two.
+- **Effort stays equal within an attempt.** The deny list names the agent tool, which let a
+  session at `low` run a subagent at `max` (recording `subagent-override-low`). A subagent file
+  is a stop (D4).
 - **The binary: CLI 2.1.311,** the version of the public row. It still installs through the
   harness's own path, inside the container, about four minutes per attempt under load
   (recording `install-only`), and its public archives were fetched. Nothing is mounted, and the
@@ -127,10 +227,14 @@ verifier tests stay outside this repository; the kit holds names and digests.
   reaches each request as `output_config.effort` (recorded at all three). With a base URL the
   harness pins every alias, and no recorded request named another model, a refusal's retry
   included. The advisor and fallback switches exist in the binary, but no recording shows
-  their effect, so none is set; the passthrough refuses any other model, and no key enters any
-  container (D4).
-- **The CLI's own retries are inside the attempt** and are billed: one after a refusal, three
-  after an output limit, one compaction attempt before a context-limit ending (recorded).
+  their effect, so none is set. **The passthrough's model check is the only thing that binds
+  the model:** a subscription token is good for every model of the account, so the passthrough
+  refuses any other model before it forwards anything, and no credential enters any container
+  (D4).
+- **The CLI's own retries are inside the attempt** and are metered: one after a refusal, three
+  after an output limit, one compaction attempt before a context-limit ending, up to ten after
+  a provider fault (recorded). The CLI's switch that makes a session wait out a usage limit is
+  not set: a session that meets a limit ends at once (D5).
 - **Harness and limits:** Harbor 0.25.0 and podman-compose 1.6.0 from a pinned environment,
   one harness run per attempt, its retry count at zero. Equal at every effort level: the task's
   own agent limit (28,800 s for all 16) and verifier limit, multiplier 1; its CPUs and memory;
@@ -143,10 +247,13 @@ verifier tests stay outside this repository; the kit holds names and digests.
   are at or below 24 (of 32 cores); the gate is never moved. (4) If the gate stays closed for
   two hours while no attempt is in flight, the tranche pauses and the coordinator reports to
   the owner. Load is recorded at launch, at the session's end and around the verifier.
-- **Concurrency:** four attempts, two until every effort level has one clean observation; the
-  ladder's own containers count toward the gate, so it will often run two or three.
+- **Concurrency:** one for the smoke, three for the pilot, then four (D7); fewer whenever the
+  allowance guard of D4 leaves room for fewer. The ladder's own containers count toward the
+  load gate, so it will often run two or three.
 - **Withheld:** `tests/` and `solution/` never enter the agent's container, and the verifier
-  image receives only the declared artifacts (the harness's construction, checked in rehearsal).
+  image receives only the declared artifacts. Two checks: the harness's construction, in the
+  rehearsal; and what the publisher built into each pinned agent image, for all 16, before any
+  use (D1).
 
 ### D3. Network policy
 
@@ -155,8 +262,8 @@ verifier tests stay outside this repository; the kit holds names and digests.
   the answer. It works under rootless Podman with the wrapper's fix: an allowed package index
   answered, a code host and the vendor's API were refused, and image build and agent setup ran
   on the open network before the switch (recording `probe-oracle`). Verifiers keep what they
-  declare. The rates are not comparable with the public row's on this axis, and the later
-  comparison must use the same policy.
+  declare. The rates are not comparable with the public row's on any axis (the size section),
+  and the later comparison must use the same policy.
 - **The list,** the same for every task and effort: the relay of D4, by name; the Python, Node
   and Rust package indexes; the system package mirrors of the three base distributions. A task
   that needs another host gets it by name in `tasks.json`. **The host's own address is never
@@ -165,10 +272,11 @@ verifier tests stay outside this repository; the kit holds names and digests.
 - **A request that names an allowed host but is sent to another address goes to the named
   host:** the proxy dials the name itself (two misrouted requests both reached the package
   index). The earlier plan listed this as unenforceable; it is enforced.
-- **Web tools are absent** in the three-tool configuration. Recorded with them on
-  (`web2-low`): the fetch tool contacts the vendor directly, outside the base URL (the
-  allowlist refused it), and the search tool declares a provider-side tool in a request through
-  the base URL. The passthrough refuses any request that declares such a tool.
+- **Web tools are absent:** under an allowlist the harness itself disallows both, and the init
+  check of D2 would show one. Recorded with them on (`web2-low`): the fetch tool contacts the
+  vendor directly, outside the base URL (the allowlist refused it), and the search tool
+  declares a provider-side tool in a request through the base URL. The passthrough refuses any
+  request that declares such a tool.
 - **The egress log is kept** by following the sidecar's log while it lives. It names a refused
   connection by address and port, never by the name asked for, so a scan of it is a scan of
   addresses: it shows that an attempt tried to leave the list, how often and toward which
@@ -180,133 +288,357 @@ verifier tests stay outside this repository; the kit holds names and digests.
   with a canary string); content on an allowed host, since package indexes can hold anything;
   name lookups and ping, which the sidecar's rules let through (source read, not probed).
 
-### D4. Credential, metering, price and the ceiling
+### D4. Credential, usage limits, metering, price and the ceiling
 
 **The credential route.** Three facts decide it. The harness puts the agent's container in the
 sidecar's network namespace, and leaves a service from an extra compose file alone when that
-service declares its own network (source). Allowlist entries carry no port, so a listed
-address is reachable on every port (recorded). The proxy dials a listed name itself (recorded).
+service declares its own network (source; probed). Allowlist entries carry no port, so a
+listed address is reachable on every port (recorded). The proxy dials a listed name itself
+(recorded).
 
-| Route | Where the key is | What the agent can reach | Verdict |
+| Route | Where the credential is | What the agent can reach | Verdict |
 | --- | --- | --- | --- |
-| The host's address on the allowlist (the plan as accepted) | A host process | Every port of the host | Rejected: the recording shows ssh reached |
-| A. The passthrough as a container on the attempt's network, the key bind-mounted as a file | One container boundary from the agent, in every attempt | That container's one port | Workable; not chosen |
-| **B. A relay container on the attempt's network; the passthrough stays one host process** | **Only in the host process** | **The relay's one port, which forwards to one unix socket** | **Chosen** |
+| The host's address on the allowlist (the plan as first accepted) | A host process | Every port of the host | Rejected: the recording shows ssh reached |
+| A. The passthrough as a container on the attempt's network, the credential bind-mounted as a file | One container boundary from the agent, in every attempt | That container's one port | Workable; not chosen |
+| **B. A relay container on the attempt's network; the passthrough stays one host process** | **Only in the host process** | **The relay's one port, which forwards to one unix socket** | **Chosen; all four probes held** |
 
 - **Route B.** An extra compose file adds a service `relay` with its own network declaration,
   from an image pulled by digest. It listens on one TCP port and forwards every connection to
   a unix socket, bind-mounted into the relay alone; the passthrough listens only on that
   socket, on the host. The agent's base URL names the relay and the allowlist lists the name
-  `relay`. The relay holds no key, no token table and no logic, and the host opens no TCP port.
-- **Why B over A.** The key never enters a container, so it cannot appear in a container
-  command, a process list or the harness's exception text, which quotes the container command
-  with its environment (recorded; the key was absent there only by truncation). One process
-  keeps one meter and the one USD 200 total; A delivers the key and shares that state in every
-  attempt. B gives up one thing: a flaw in the passthrough's request handling would be reached
-  on the host, not inside a container.
-- **In the agent's container:** the base URL and a per-slot dummy token, both visible in
-  process lists and exception text. The token is random, valid for one open slot, and worth at
-  most that slot's cap on the bound model.
+  `relay`. The relay holds no credential, no token table and no logic, and the host opens no
+  TCP port.
+- **Probed (recording `probe-relay-oracle` and later runs):** the harness and podman-compose
+  accept the extra service and leave it outside the sidecar's namespace; the agent reaches
+  `relay` by name through the proxy; all 39 listening ports of the host were refused at three
+  addresses; the socket is mounted into the relay alone; the verifier's environment has no
+  relay. Not probed: whether a verifier could reach the relay by its address.
+- **Why B over A.** The credential never enters a container, so it cannot appear in a
+  container command, a process list or the harness's exception text, which quotes the
+  container command with its environment (recorded). One process keeps one meter and the one
+  USD 200 total. B gives up one thing: a flaw in the passthrough's request handling would be
+  reached on the host, not inside a container.
 - **What the agent can still reach:** the relay's port; the package indexes and mirrors; name
   lookups and ping; the sidecar's own namespace. Not the host, and not the vendor's API.
-- **Still to probe** (Task 2, no spend): the harness and podman-compose accept the extra
-  service and leave it outside the sidecar's namespace; the agent reaches `relay` by name
-  through the proxy; the socket mount works under rootless Podman; the verifier's environment
-  has no relay. If B fails, and neither a fixed address on the attempt's network nor route A
-  passes the same probes, the plan stops before spend.
+
+**Token mode, and the one header the passthrough changes.**
+
+- **In the agent's container:** the base URL and a per-slot fake token, both visible in process
+  lists and exception text. The fake token is the CLI's subscription token variable: a fixed
+  prefix that says it is fake, then a random part; it is valid for one open slot and worth at
+  most that slot's cap on the bound model.
+- **The CLI sends `authorization: Bearer` with the fake token. The passthrough replaces that
+  one header's value with the real token and changes nothing else** in the request: not the
+  other headers, not the two beta flags token mode adds, not the body. This is the route the
+  CLI supports: a subscription token and a base URL.
+- **Recorded for token mode against the stand-in** (`tok20-*`, `tok3-*`): the CLI honours the
+  base URL and calls no other host or path; with the harness's setting that turns off
+  nonessential traffic it makes no profile, usage, refresh or telemetry call; the result event
+  has the same cost and usage fields as in key mode.
+- **Rejected: key mode in the container, with the passthrough rewriting each request into a
+  token request.** It would keep the public row's configuration. It also works around a
+  restriction the CLI itself enforces (simple mode reads no subscription token), and whether
+  the vendor accepts a request of that shape is unknown.
+- **Not yet shown: that the vendor accepts this through the relay and the passthrough.** The
+  live probe of Task 4 shows it before the launcher is built. If the route fails, the plan
+  stops there: no other credential route is open under decision 18.
+- **The real token** is created by the owner with `claude setup-token` and reaches exactly one
+  process, by the path below.
+
+**The token's path, closed by construction.**
+
+1. **Creation, by the owner alone** (the exact steps are in owner question 1). A fresh
+   terminal window that is not inside tmux: this session and its subagents capture tmux panes,
+   and their transcripts are kept files. Not through this session's command prefix, and never
+   pasted into any agent session or chat. The token is written by `install -m 600 /dev/stdin`
+   into a directory of mode 700 that lies outside every repository and outside any synced or
+   backed-up tree, so it is never on a command line or in the shell's history. The terminal's
+   scrollback is then cleared and the window closed. The owner tells the coordinator the
+   file's path, which is no secret, and nothing else.
+2. **Reading.** Only the passthrough process opens the file, once, at its start, and holds the
+   token in memory. It refuses to start unless the file is mode 600, its directory 700, and
+   both are owned by its own user. It never reads the file again. **Replacing the token**
+   needs the owner's step 1 again, a tranche with nothing in flight, a restart of the
+   passthrough, and a ledger row with the date.
+3. **Where it never is.** Not in process arguments: the passthrough is given the file's path,
+   never the value. Not in the environment of any child: the passthrough starts no child
+   process. Not in its logs, its request log or its exception text: its error path prints an
+   exception's class and the passthrough's own message, never a header or a request object.
+   Not in recordings or fixtures. Core dumps are disabled for the passthrough at its start.
+   Its output goes to a file in a directory of mode 700 in the launcher's state, never to a
+   pane an agent reads. Its upstream client ignores proxy variables, verifies TLS, and
+   connects to the vendor's host only; with the rehearsal switch, which points it at the
+   stand-in, it refuses to open any token file.
+4. **The check: `token_scan.py`, by fingerprint.** At its start the passthrough writes a
+   fingerprint beside its log: a random salt, the token's length, and the salted hash of the
+   token. The scanner reads files and the fingerprint, never the token: it hashes every
+   candidate string of that length and prints the path and offset of a match, never the bytes
+   around it. So no agent, and not the launcher, handles the token's value to check for it.
+   - *The file set:* the whole kept output of the run (harness job directories, the
+     launcher's state with the passthrough's log and output file, the egress logs); the
+     recordings directory; the worktree and the detached checkout; the agents' transcript
+     directory of this user.
+   - *The runtime check,* on the attempt's containers before teardown: the scanner runs over
+     the inspected configuration and the process environments of every container of the
+     attempt; at the rehearsal, the probe, the smoke and the pilot it also runs over the agent
+     container's exported file system.
+   - *The steps that run it:* the passthrough's tests; the rehearsal; the end of the live
+     probe; the smoke read; every attempt's teardown (the runtime check and that attempt's
+     kept output); every round's read (the whole file set).
+   - *The canary test* proves the scanner and the construction together. A fake token of the
+     real one's length and alphabet is given to the passthrough against the stand-in. Planted
+     in a file of the set, it must be found. After a full session it must be found nowhere in
+     the file set, and the runtime check must find it in no container's environment or file
+     system.
+   - *Its limit:* it finds the whole token in plain form, not a part of it and not an encoded
+     copy. A match anywhere is a stop; the owner revokes the token and replaces it.
 
 **The passthrough** is a small host-side process, part of the kit and of the pre-spend review.
-For every request it maps the dummy token to a slot and refuses an unknown one; refuses any
+For every request it maps the fake token to a slot and refuses an unknown one; refuses any
 model other than `claude-haiku-5-5`, any request that declares a provider-side tool, and any
-path but the messages path (the only one recorded); refuses when the slot's metered spend has
-reached its cap, when all slots together have reached USD 200, or when the tranche is stopped;
-prices the response's usage with the frozen table and appends it to the slot's log. How the
-CLI ends after each kind of refusal is not recorded yet (Task 4).
+path but the messages path (the only one recorded); refuses when the slot's metered usage has
+reached its cap, when all slots together have reached USD 200, or when the tranche is stopped.
+It passes every vendor response through unchanged. It prices the response's usage by the price
+rule and appends one row per request to the slot's log: model, effort, declared tool names,
+usage by kind, the vendor's status and its rate-limit headers. It never logs the
+`authorization` header. The meter is part of its first slice (Task 4): the live probe's priced
+limits and its cost test rest on it.
 
-- **Price table:** `orchestrator/providers/price_table.json` at the frozen commit, by SHA-256.
-  The CLI's own cost equals the table on small recorded requests and on a 990,000-token prompt
-  (five times the base rates, input and output; recording `context-late-low`). On the three
-  public archives the table gives 1.05 to 1.11 times the CLI's figure: the rule for when the
-  long-prompt rate applies is not pinned. Task 2 settles it by pricing the archives' rows
-  request by request under each candidate rule; the rule that reproduces all three totals to
-  the cent is frozen, with the vendor's pricing page read beside it. Until one does, the table
-  stands as an upper figure and the readout prints both it and the CLI's.
+- **One refusal form, for every reason:** HTTP 403, error type `permission_error`, the header
+  `x-should-retry: false`, and the message `lh-passthrough: <reason>`. Recorded for the cap,
+  the total and the stop (`pt-cap`, `pt-total`, `pt-stopped`): the CLI did not retry, ended in
+  under a second, and the message reached the result text. The 404 and 400 forms tried for the
+  model and tool refusals were retried, and the 404's message was lost; that the 403 form ends
+  those two the same way is inferred and is recorded in Task 2a.
+- **A vendor 401** means the token expired or was revoked. The passthrough passes it on and
+  sets the tranche stopped. Recorded form: two retries, no refresh request, then
+  `api_error_status: 401` (fixture `token-unauthorized-UnknownApiError`).
+
+**Usage limits are an expected ending.** The subscription has a limit per five-hour window
+(recorded as `rateLimitType: five_hour`) and a weekly one. The owner's sessions, the
+coordinating session and the ladder draw on the same allowance.
+
+- **How a limit is recognised: two signals, and the class needs both.** (1) The passthrough
+  saw, for that slot, a vendor 429 whose `anthropic-ratelimit-unified-status` header is
+  `rejected`. (2) The session's result event has `api_error: usage_limit_reached` and
+  `api_error_status: 429`, after a `rate_limit_event` with `status: rejected` (fixture
+  `token-usage-limit-NonZeroAgentExitCodeError`). Requiring both keeps a model-side ending
+  from being taken for a limit.
+- **Signal 1 is the stand-in's form,** written from the header names the CLI's bundle reads.
+  The vendor's real answer is recorded the first time one occurs: a probe of a few requests
+  cannot produce one, and the allowance is not spent to provoke one. Until it is recorded,
+  **any 429 from the vendor closes all starts,** whatever its headers.
+- **Attempts in flight** each meet the vendor's answer on their next request and end at once
+  (recorded with twenty-one tools; re-recorded with three in Task 2a). Each is an
+  infrastructure failure of the kind "cut by a usage limit": never an observation, its
+  verifier reward not read, its slot run again (D5).
+- **Pause and resume.** At signal 1 the launcher closes all starts. It reopens by itself five
+  minutes after the reset time the answer names (`anthropic-ratelimit-unified-reset`; the
+  event's `resetsAt`), with one start; the others follow once that session's first request is
+  answered. An answer that names no reset time pauses the tranche for the coordinator.
+- **The allowance guard reads the owner's meter.** Its purpose is that the ladder never
+  reaches a limit: it closes starts early enough for the attempts in flight to finish. The
+  launcher cannot see the account's meters and the owner can, so the guard runs on what the
+  owner reads from them.
+  - *Fixed inputs, from the owner (question 2):* the share of the weekly allowance kept free
+    for the owner's own work, F-week, in points of 100; the same for the five-hour allowance,
+    F-five, its own number; the hours in which the ladder may start attempts.
+  - *A reading before every window.* At each weekly reset, and before each of the owner's
+    windows of hours opens, the owner gives the weekly meter's reading and the five-hour
+    meter's, with the time and each meter's reset time. The coordinator enters them
+    (`ladder.py allowance`) and writes them in the ledger. **With no reading for a window the
+    launcher starts nothing in it.** This holds for the smoke and the pilot too.
+  - *From the pilot (D7):* the priced-token dollars that move the weekly meter by one point,
+    and the same for the five-hour meter. Each is taken at its cautious end: the pilot's
+    priced usage divided by the points the meter moved plus one, since the meter is read in
+    whole points. If the five-hour window reset between the pilot's two readings there is no
+    five-hour figure, and the launcher runs two attempts at a time (a judgment) until the
+    owner has read that meter around a stretch in which only the ladder used the account.
+  - *The rule.* The window's weekly budget is (100 − F-week − the weekly reading) × the weekly
+    figure, and zero if that is negative. A start is made only if the ladder's priced usage
+    since the reading, plus the guard's reservation for every open slot and for this one, fits
+    the budget. The five-hour budget is (100 − F-five − the five-hour reading) × the five-hour
+    figure, floored at zero, against the ladder's usage since the reading.
+  - *After the five-hour meter resets,* no reading exists for the new five-hour window. Until
+    the owner gives one, the five-hour form rests on an approximation alone: the ladder's
+    usage in any five hours stays within (100 − F-five) × the figure, and the owner's own use
+    of that window is unseen.
+  - *A window is skipped,* and reported, when its weekly reading is at or above 100 − F-week −
+    5: fewer than five points would be left for the ladder (five is a judgment). When the
+    five-hour reading is at or above 100 − F-five − 5, starts wait for that meter's reset.
+  - *The guard's reservation* is one third of a slot's cap: the task's public mean cost at
+    `max` (1.00 for a task at the floor cap). That figure comes from the public row's
+    configuration, which this plan uses nowhere as an expectation; here it is only a
+    reservation. The pilot's ledger row states beside it the pilot's cost at each effort over
+    one third of that task's cap. If any ratio is above one, the reservation is raised by the
+    largest ratio for every task before round 1 goes on.
+  - *Hours.* A start is made only inside the owner's hours, and not in the last part of a
+    window: the length of the longest pilot session, rounded up to the hour. A session that is
+    running when a window closes runs on.
+  - *If ordinary responses report the account's utilisation* (the probe shows whether, and
+    under which header; none is named here because no recording shows one), the launcher also
+    closes starts whenever that figure is at or above 100 − F for its window, whoever used the
+    allowance. It
+    adds a check and replaces no reading.
+  - The owner's inputs and readings live in the launcher's state, outside the manifest. Each
+    is a ledger row. They decide when an attempt starts and nothing about what is measured.
+- **What the guard cannot see:** the owner's and the coordinator's use after a reading, for
+  which F is the only margin; how the vendor weighs token kinds against the allowance, beyond
+  the pilot's one reading; an attempt that runs past the guard's reservation, whose excess
+  comes out of the owner's share.
+- **Paid extra usage must be off, and the stop for it comes one request late.** If the
+  account allowed paid usage beyond its limits, a limit would not answer 429: the vendor would
+  go on answering 200 and bill, against decision 18. Neither usage-limit signal would fire.
+  - *The precondition:* the owner confirms that paid extra usage is off for the account. It is
+    a precondition of the live probe, of the pilot and of the freeze, written in the ledger
+    with its date each time.
+  - *The stop.* The `rate_limit_event` carries `isUsingOverage` (recorded: `false`). The
+    launcher follows each session's stream, and an event whose `isUsingOverage` is not `false`
+    stops the tranche: the passthrough then refuses every further request. Task 2a records,
+    against the stand-in, which response header the CLI's bundle reads for it, and the live
+    probe records which such headers the vendor sends. From then on the passthrough itself
+    stops the tranche at the first response that carries one, before passing it on. Until a
+    header has been recorded, the stop is the CLI's event plus the owner's confirmation.
+  - *What the stop cannot do:* precede the first paid request. The response that carries the
+    signal has already been served, and so has any response in flight in the other open
+    slots, at most four in all.
+
+**Price, caps and the ceiling.**
+
+- **Price rule (settled; `price_check.py`).** Per million tokens of `claude-haiku-5-5`: input
+  0.10, output 0.50, cache read 0.01; a cache write at the rate of its own lifetime, 0.125 for
+  five minutes and 0.20 for one hour. For a request whose prompt (input, cache read and cache
+  write together) is above 100,000 tokens, every rate is multiplied by five. This reproduces
+  the CLI's total on the three public archives exactly, request by request, and the CLI's
+  price for one-hour writes on a stand-in recording. The threshold is known to lie between
+  98,828 and 101,144 tokens. `orchestrator/providers/price_table.json` at the frozen commit, by
+  SHA-256, gives every rate but the five-minute write, which the criterion adds.
+- **Token mode writes one-hour entries** (recorded for the system blocks). The same session
+  therefore costs more in priced tokens than the public row's: the three archives repriced
+  with one-hour writes give 1.05, 1.07 and 1.11 times their totals. The meter prices each
+  write by the split the usage reports, so a five-minute write in a token session is priced
+  as one.
 - **Per-attempt cap:** `max(3.00, 3 × the task's public mean cost per trial at effort max)`
   (the table in D1), the same at every effort, enforced by the passthrough and by the CLI's own
-  budget limit. **Each guard acts one response late:** the CLI stops after the response that
-  crosses the cap, without running the tool call in it (recording `budget-medium`), and the
-  passthrough refuses the next request. With three tools there is one request in flight at a
-  time, so the overshoot is one response.
+  budget limit. In the ladder's prices that is about 2.7 to 2.9 times the public mean. **Each
+  guard acts one response late:** the CLI stops after the response that crosses the cap,
+  without running the tool call in it (recording `s3-budget-medium`; to be re-recorded in token
+  mode), and the passthrough refuses the next request. With three tools there is one request
+  in flight at a time, so the overshoot is one response.
 - **Reservation before every attempt:** the cap plus USD 1.00, which covers one response of the
   largest output (128,000 tokens, USD 0.32 at the long-prompt rate) and a freshly cached prompt
-  of about 680,000 tokens. Under one lock the launcher computes *committed* = settled cost of
-  every start + every open reservation, and launches only if *committed* + reservation ≤
-  200.00 and starts < 240.
+  of about 680,000 tokens at the one-hour long-prompt rate. Under one lock the launcher
+  computes *committed* = settled cost of every start + every open reservation, and launches
+  only if *committed* + reservation ≤ 200.00 and starts < 240. The live probe's priced usage
+  is settled into *committed* before the first attempt.
 - **Settlement** replaces a reservation with the largest of four figures, read by these rules:
   1. the passthrough's meter;
-  2. the session file's rows priced by the table, one row per message id (a message's usage is
+  2. the session file's rows priced by the rule, one row per message id (a message's usage is
      repeated once per content block);
   3. the result event's `total_cost_usd`;
-  4. the result event's `modelUsage` priced by the table.
+  4. the result event's `modelUsage` priced at the base rates (a floor: it cannot apply the
+     long-prompt rate, which is per request).
   The result's `usage` is never read (all zeros at a budget stop, while figures 3 and 4 are
   right), nor are stream events (they carry only the count at the start of a message). A
   timeout kill leaves no result event, so figures 1 and 2 settle it. Subagent rows would sit in
   a separate file; none exists in this configuration, and one is a stop. Unreadable usage
-  settles at the full reservation.
+  settles at the full reservation. An attempt cut by a usage limit settles like any other: its
+  tokens were used.
 - **What ends the tranche:** nothing in flight and the next slot's reservation does not fit; 240
-  starts; a stop rule of D7. The launcher never skips ahead to a cheaper slot.
-- **Expected spend (planner's estimate):** about USD 173 for all 240 (low 33, medium 53, high
-  87), from two public cost points (report §9); plausible range 145 to 255.
+  starts; a stop rule of D7. The launcher never skips ahead to a cheaper slot. The allowance
+  guard and a limit only make the tranche wait.
+- **Expected priced usage (planner's estimate):** about USD 182 to 192 for all 240: the earlier
+  USD 173 (low 33, medium 53, high 87, from two public cost points; report §9) times the 1.05
+  to 1.11 of one-hour writes. Plausible range about 150 to 285. Not in the estimate, because
+  nothing recorded gives them: the larger system prompt (about 2,200 tokens more per request
+  by its character count, under one percent of an archive's cost when read from cache); fewer
+  rewrites under a one-hour cache; and how the default system prompt changes what the model
+  does. The pilot gives the first measured figure.
 
-**Worst case when one guard fails** (list-price dollars):
+**Worst case when one guard fails.** No row is a bill: nothing is billed. Dollar figures are
+priced tokens; the last column says what it means for the allowance.
 
-| Guard that fails | Bound |
-| --- | --- |
-| The CLI's budget limit does not stop a session | The passthrough refuses at the cap: USD 200 plus one response per open slot |
-| The launcher's reservation | The passthrough's own total stops at USD 200 |
-| The passthrough's meter under-counts | The launcher's reservation and the CLI's limit still hold; if both fail too, four sessions run to their natural end, about USD 260 to 330 |
-| The relay or the allowlist lets the agent out | No key is in reach; the loss is the network policy, not money |
-| The price table is wrong | The bill differs from every meter by the error |
-| A process of this host user reads the key file | No bound in the kit |
+| Guard that fails | Bound in priced tokens | What it costs in allowance |
+| --- | --- | --- |
+| The CLI's budget limit does not stop a session | The passthrough refuses at the cap: USD 200 plus one response per open slot | Inside the allowance guard |
+| The launcher's reservation | The passthrough's own total stops at USD 200 | Inside the allowance guard |
+| The passthrough's meter under-counts | The reservation and the CLI's limit still hold; if both fail too, four sessions run to their natural end, about USD 290 to 370 | Bounded only by the account's own limits |
+| The allowance guard (a wrong pilot figure, a wrong or stale reading, or heavy use by the owner or the coordinator after a reading) | None of its own; the dollar ceiling still holds | **The weekly allowance runs out: the owner's sessions and the coordinating session stop until the weekly reset, up to seven days. The ladder pauses by itself and loses the attempts in flight.** The five-hour form of the same failure stops them for up to five hours |
+| The relay or the allowlist lets the agent out | No credential is in reach | The loss is the network policy |
+| The price rule is wrong | Every priced figure is off by the error | None: the vendor's meter does not use our prices |
+| The passthrough's model check | None in the kit | Another model draws on the same allowance at its own weight; the response's model is checked on every request, and one other model is a stop |
+| A process of this host user reads the token file, or the passthrough's memory | None in the kit; the scanner finds a copy only once it is written somewhere in its file set | That process can use the owner's subscription, any model, up to the account's limits, until the owner revokes the token |
+| Paid extra usage is on in the account | None in the kit | A limit becomes a bill. The owner's dated confirmation is the guard; the stop acts after the first paid request, at most four responses late |
 
-The last two rows make the workspace's own spend limit a precondition (owner question 1). **The
-passthrough cannot stop:** the response in flight when a cap is reached; spend inside a slot's
-cap that is not the session's own (a direct request with the dummy token: metered and capped,
-but absent from the session file); a wrong price table; another process of the same host user
-reading the key file.
+**The passthrough cannot stop:** the response in flight when a cap is reached; usage inside a
+slot's cap that is not the session's own (a direct request with the fake token: metered and
+capped, but absent from the session file); a wrong price rule; another process of the same
+host user reading the token file; the owner's and the coordinator's own use of the allowance.
+There is no vendor-side spend limit behind any of this: decision 18 removed the workspace
+limit the second revision named as a precondition.
 
 ### D5. Infrastructure failure against model failure
 
 **A session has started** when its stream holds an init event; every recorded session emitted
-one before its first request. The ending is read from the result event's `terminal_reason`,
-`is_error`, `api_error` and `stop_reason`, with the harness exception class as a second key.
-`subtype` decides nothing: it is `success` for refusal, output-limit and context-limit endings.
-The class alone decides nothing either: a context-limit ending and a budget stop share one.
+one before its first request. **The ending is read from five things:** the result event's
+`terminal_reason`, `api_error`, `api_error_status` and `stop_reason`; the `lh-passthrough:`
+prefix in the result text; and the passthrough's log for the slot. `subtype` decides nothing:
+it is `success` for refusal, output-limit and context-limit endings. **The harness class
+decides nothing where endings share one,** and they do: a 529, a stalled first byte, a refused
+credential and every passthrough refusal end as `UnknownApiError`; a context limit, the CLI's
+budget stop and a usage limit end as `NonZeroAgentExitCodeError` (recorded). The class is
+read only in the three rows that name it as deciding.
 
-| Ending | Recorded fields | Harness class | Fixture | Class of outcome |
-| --- | --- | --- | --- | --- |
-| Normal | `terminal_reason: completed`, `is_error: false`, `stop_reason: end_turn` | none | `public-normal-end`, `stub-simple-mode-normal-end` | Observation |
-| Dollar cap, by the CLI | `terminal_reason: budget_exhausted`, `is_error: true` (`subtype: error_max_budget_usd`) | `NonZeroAgentExitCodeError` | `stub-budget-stop-NonZeroAgentExitCodeError` | Observation, flagged |
-| Refusal | `terminal_reason: api_error`, `is_error: true`, `stop_reason: refusal`, after a `model_refusal_no_fallback` event | `AgentSafetyRefusalError` | `public-refusal-…`, `stub-refusal-…` | Observation, flagged |
-| Output limit | `terminal_reason: api_error`, `is_error: true`, `api_error: max_output_tokens` | `OutputTokenExceededError` | `stub-output-limit-…` | Observation, flagged |
-| Context limit | `terminal_reason: prompt_too_long` or `blocking_limit`, `is_error: true` | `NonZeroAgentExitCodeError` | `stub-context-limit-…`, `stub-context-limit-after-compaction-…` | Observation, flagged |
-| Time limit | no result event | `AgentTimeoutError` | `stub-timeout-AgentTimeoutError` | Observation, flagged |
-| Before a session | no stream at all | `RuntimeError` | `pre-session-agent-install-…`, `pre-session-network-switch-…` | Pre-session failure |
-| Provider fault (rate limit, overload, server error, lost connection) | **not recorded** | not recorded | none yet (Task 2) | Infrastructure failure, once recorded |
-| The passthrough refused (cap, total, stop, model, tool) | **not recorded**; read from the passthrough's own log | not recorded | none yet (Task 4) | Cap: observation, flagged. Total or stop: infrastructure failure. Model or tool: a stop |
-| The host, Podman, the passthrough or the launcher died | no result event and no harness result | none | none (launcher's own record) | Infrastructure failure |
+The rows are tried in order and the first match decides.
 
+| # | Ending | Decided by | Harness class | Fixture | Class of outcome |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Before a session | No stream at all; the class decides | `RuntimeError` | `pre-session-agent-install-…`, `pre-session-network-switch-…` | Pre-session failure |
+| 2 | The CLI read no credential | A result with `api_error_status: null`, no request for the slot in the passthrough's log; the class decides | `AgentAuthenticationError` | `token-simple-mode-AgentAuthenticationError` | A stop: the configuration is wrong |
+| 3 | Time limit | No result event; the class decides | `AgentTimeoutError` | `stub-timeout-AgentTimeoutError` | Observation, flagged |
+| 4 | The host, Podman, the passthrough or the launcher died | No result event and no harness result | none | none (launcher's own record) | Infrastructure failure |
+| 5 | Normal | `terminal_reason: completed` | none | `token-three-tools-normal-end` | Observation |
+| 6 | Dollar cap, by the CLI | `terminal_reason: budget_exhausted` | `NonZeroAgentExitCodeError` | `stub-budget-stop-…` | Observation, flagged |
+| 7 | Context limit | `terminal_reason: prompt_too_long` (with `api_error_status: 400`) or `blocking_limit` | `NonZeroAgentExitCodeError` | `stub-context-limit-…`, `stub-context-limit-after-compaction-…` | Observation, flagged |
+| 8 | Refusal | `stop_reason: refusal`, after a `model_refusal_no_fallback` event | `AgentSafetyRefusalError` | `public-refusal-…`, `stub-refusal-…` | Observation, flagged |
+| 9 | Output limit | `api_error: max_output_tokens` | `OutputTokenExceededError` | `stub-output-limit-…` | Observation, flagged |
+| 10 | Usage limit | `api_error: usage_limit_reached` with `api_error_status: 429`, and signal 1 of D4 in the passthrough's log | `NonZeroAgentExitCodeError` | `token-usage-limit-…` | Cut by a usage limit: excluded, and the slot is run again |
+| 11 | The passthrough refused: the slot's cap | `api_error_status: 403`, the result text holds `lh-passthrough: slot cap reached`, and the passthrough's log agrees | `UnknownApiError` | `passthrough-cap-…` | Observation, flagged |
+| 12 | The passthrough refused: total or stop | The same, with `tranche total reached` or `tranche stopped` | `UnknownApiError` | `passthrough-total-…`, `passthrough-stopped-…` | Infrastructure failure |
+| 13 | The passthrough refused: model, tool, path or unknown token | `api_error_status: 403`, the prefix, and that reason in the passthrough's log | to be recorded | none in this form yet | A stop |
+| 14 | The vendor refused the credential | `api_error_status: 401` | `UnknownApiError` | `token-unauthorized-…` | Infrastructure failure, and a stop |
+| 15 | Provider fault, after the CLI's ten retries | `terminal_reason: api_error` with `api_error_status` 429 (and no `usage_limit_reached`), 500 or 529; or `null` after ten `api_retry` events | `ApiRateLimitError`, `ApiInternalServerError`, `UnknownApiError` | `stub-rate-limit-…`, `stub-server-error-…`, `stub-overloaded-…`, `stub-slow-first-byte-…` | Infrastructure failure |
+| 16 | Anything else | No row above matches | any | none | The launcher pauses for a recorded ruling |
+
+- **What the fixtures were recorded in.** Only row 5's is the ladder's configuration. Rows 10
+  and 14 were recorded in token mode with twenty-one tools, row 2 in simple mode with a fake
+  token, and every other row in simple mode with a dummy key. All are recorded again in the ladder's configuration (Task 2a). A row whose new
+  recording differs is rewritten from it before the criterion is frozen, and row 13 gets its
+  fixtures then.
+- **A normal ending can hold faults the CLI recovered from:** each retry leaves an `api_retry`
+  event (fixtures `stub-transient-faults-recovered-normal-end`,
+  `stub-dropped-stream-recovered-normal-end`). They change no class; their count is recorded
+  per attempt.
 - **What each class means.** An *observation* counts against the 240 and the USD 200 and
   enters k and n with the verifier's reward, 0 if the verifier gives none; the verifier ran
   after a timeout kill (recorded). An *infrastructure failure* counts against both and is
-  excluded from k and n, listed, never scored zero. A *pre-session failure* counts against
-  neither; the slot is relaunched at most twice and is lost after the third failure.
-- **An ending that matches no row pauses the launcher** for a recorded ruling. Today that
-  includes every `api_error` ending that is neither a refusal nor an output limit: the
-  provider-fault rows are frozen only from recordings.
+  excluded from k and n, listed, never scored zero; its slot is not run again. A *pre-session
+  failure* counts against neither; the slot is relaunched at most twice and is lost after the
+  third failure.
+- **An attempt cut by a usage limit** is an infrastructure failure with one difference: its
+  slot is run again, at the head of the queue, when starts reopen. The cut start still counts
+  against the 240 and its tokens against the USD 200, so **each cut costs one slot at the
+  hashed tail of the schedule** (D7). This is the reading that cannot exceed the approval's
+  240 attempts. The cut session's reward is never read.
+- **Why the rerun is not a second chance.** The account decides a cut, by two signals the
+  model cannot produce, and the rule is fixed before any data. One bias remains: a long
+  session is more exposed to a cut than a short one, so many cuts would lean the completed
+  sessions toward short ones. The readout lists cuts per effort, and cuts above 5% of starts
+  (from 20 starts on) pause the tranche for a ruling; the allowance guard exists to keep the
+  number near zero.
 - **Model-side endings are never excluded:** they are the longest and dearest sessions and
-  come mostly from the higher efforts. **The agent is never run twice for one slot,** so a
-  retry cannot turn a model failure into a pass.
+  come mostly from the higher efforts. **A slot whose session ended in any other way is never
+  run again,** so a retry cannot turn a model failure into a pass.
 - **Verifier-only regrade** (no model call, the saved artifacts unchanged), in two cases. (1)
   No reward after a normal ending: up to two regrades below the load gate; a reward then
   stands; a verifier timeout twice is reward 0; still no reward file is an infrastructure
@@ -320,7 +652,15 @@ The class alone decides nothing either: a context-limit ending and a budget stop
 
 - **Per task and effort:** k of n with the exact (Clopper–Pearson) 95% interval and a label:
   k = 0 "floor", 1 or 2 of 5 "screened in", 3 or more "above". A cell with n under 5 is
-  labelled incomplete. Flags and exclusions are listed.
+  labelled incomplete. Flags and exclusions are listed; attempts cut by a usage limit are
+  counted per effort, and the three pilot attempts are marked.
+- **No figure is set beside the public row's.** The readout names the configuration (D2) and
+  prints no public rate as a reference.
+- **One configuration label per cell.** Every rule below reads the observations of the current
+  label alone (D7). Observations under an earlier label are printed in a table of their own,
+  with their label and the ledger row that ended it, and enter no rule. A cell with fewer than
+  five observations under the current label is printed as it is, with its count, and labelled
+  incomplete.
 - **Per task, pooled** (K of its n attempts): K = 0 is "floor" (upper bound 21.8% at 15);
   1/15 ≤ K/n ≤ 1/3 is "screened in"; above is "above the band". The pooled label admits a
   task to the family; the per-effort labels are printed beside it, because a pooled count mixes
@@ -346,46 +686,120 @@ The class alone decides nothing either: a context-limit ending and a budget stop
     detected in about half of runs, 17 points in 79%, 20 points in 88%; false alarm 5%. With
     ten tasks at the floor a 17-point fall is detected in about a fifth of runs.
 - **Cost:** per effort, mean priced cost and minutes per observation, tokens by kind, and cost
-  per success (the cost of every start at that level over its successes). An effort level is
-  named dominated only when another level beats it on the same sign-flip test at p ≤ 0.05 and
-  has a lower mean cost; otherwise "not resolved".
+  per success (the cost of every start at that level over its successes, cut starts
+  included). An effort level is named dominated only when another level beats it on the same
+  sign-flip test at p ≤ 0.05 and has a lower mean cost; otherwise "not resolved". Beside it,
+  from the owner's meter readings: the share of a weekly allowance the tranche used, in all
+  and per priced dollar. It is a report, tied to this account's plan, and enters no rule.
 - **Graded outcome, secondary (roadmap Phase 5b, "Making fitness cheaper to measure").** Where
   a task's verifier reports sub-tests, each observation also records passed and total. It is
-  printed per task and effort beside k of n, places no task and enters no test above. Task 2's
-  oracle runs establish which verifiers expose it and in what form (Task 1 did not record it); a task without it prints
-  "pass or fail only".
+  printed per task and effort beside k of n, places no task and enters no test above. Task 2b's
+  oracle runs establish which verifiers expose it and in what form (no recording shows it yet);
+  a task without it prints "pass or fail only".
 - **Adaptive order: rejected.** Running `high` first and skipping the lower levels of a task at
   0 of 5 assumes the thing under test and removes the tasks where a violation would show;
   leaving those tasks out instead keeps tasks selected for success at high.
 - **Contamination scan:** over transcripts, for specific strings frozen after a dry run on the
   oracle jobs and the recordings (the benchmark repository's path, the canary's identifier, the
-  reference solution's full path in that repository). A hit excludes the attempt and is
-  listed. The egress log adds, per attempt, the refused addresses and their count (D3); a
+  reference solution's full path in that repository). The canary's identifier is read from the
+  task packages at run time and is in the criterion only as its SHA-256 (D1). A hit excludes
+  the attempt and is listed. The egress log adds, per attempt, the refused addresses and their count (D3); a
   refused connection fetched nothing and excludes nothing. A readout that ends in a stop prints no placement.
 
 ### D7. Order and stop rules
 
-1. **Smoke:** one attempt, gsea-proteomics at `low` (cheap, short, and it needs a package
+1. **Freeze, then smoke.** The manifest hash is frozen and in the ledger before the smoke.
+   **Smoke:** one attempt, gsea-proteomics at `low` (cheap, short, and it needs a package
    index). Then stop and read, each check against a recorded form: the init event reports CLI
-   2.1.311 and exactly the tools `Bash, Edit, Read`; the passthrough saw only the bound model,
-   only the messages path and no provider-side tool; each request carries the bound effort; the
-   cap is on the session; the egress log shows no connection outside the list except refused
-   ones; the three table-priced settlement figures agree within 1%, and their ratio to the
-   CLI's own figure is recorded; the verifier returned a reward; no key is in any container,
-   kept file or command line; the slot settled. A pass makes it slot 1 of round 1. A kit change
-   after it means a new manifest hash and ledger row; the start stays counted and is excluded.
-2. **Rounds.** Five rounds, each one attempt of every task at every level (48 slots), in an
-   order fixed by a hash of a frozen seed, the round, the task and the effort. A stop for money
-   leaves the cells balanced, and effort is not confounded with time of day or load.
-3. **Stop and read after round 1:** classification counts, cost per effort against the
-   estimate, the scan, the load record. The projection goes in the ledger; no threshold moves.
-4. **Stops:** a failed smoke; a response with non-zero usage that names another model; an init
-   event with another CLI version or tool list; a subagent file; a passthrough refusal for
-   model or tool; infrastructure failures above 10% of starts (from 20 starts on) or above 20%
-   at one level; five pre-session failures in a row or 24 in all; contaminated attempts on
-   three tasks; a key's value in a kept file; under 20 GB free. **Pauses:** the load wait of D2;
-   the passthrough down; an ending that matches no row of D5.
-5. Nothing is topped up, moved between cells or re-thresholded after the first paid start.
+   2.1.311, exactly the tools `Bash, Edit, Read` and `apiKeySource: none`; the passthrough saw
+   only the bound model, only the messages path, no provider-side tool, and the same declared
+   tools on every request; each request carries the bound effort; the cap is on the session;
+   the egress log shows no connection outside the list except refused ones; settlement figures
+   1, 2 and 3 agree within 1%; the verifier returned a reward; `token_scan.py` finds nothing
+   in its file set, and the runtime check nothing in the attempt's containers (D4); no
+   `rate_limit_event` and no response header reports paid extra usage; the slot settled. A
+   pass makes it slot 1 of round 1.
+2. **Pilot: rs-archive-clone at `low`, `medium` and `high`, the three together, before
+   anything is scheduled.** What one attempt costs against the weekly allowance is unknown:
+   the public row averaged about 37 million tokens per attempt at `max`, almost all of them
+   cached re-reads, and nothing says how the vendor weighs those.
+   - *Why this task.* It is the dearest of the 16 by its public cost, so its three attempts
+     move the meter most: about USD 6 of priced usage by the planner's estimate, about 3
+     percent of the tranche. It is unchanged since 4.0.0. If it does not qualify, the pilot
+     task is the next dearest qualified task that is unchanged since 4.0.0.
+   - *The owner reads the meters.* Every usage meter the account shows, with the time, before
+     the three start and after the last ends; the coordinator writes the readings in the
+     ledger. The reading before is also the window's reading of D4, and the pilot does not
+     start on a window that D4 skips. Use of the account by anyone else in between makes the
+     meters move more, which makes the guard more cautious and never less. The reading is most
+     useful if the owner and the coordinating session stay off the account for those hours.
+   - *What it gives:* the two figures of the allowance guard (D4); priced cost and tokens by
+     kind at each effort, for this one task; the length of the longest session.
+   - *The pilot runs before the guard has its figures.* If it meets a usage limit itself, its
+     cut attempts are run again one at a time after the reset, and the cut is the first
+     reading: three such attempts did not fit one five-hour window.
+   - *What the plan then states,* in a ledger row before any further start: the dollars per
+     meter point; **how many attempts a week can hold** at a reading of zero (the points left
+     above F-week, times the weekly figure, over the expected cost of an attempt: the estimate
+     of D4 rescaled by the pilot's cost at each effort over the estimate for the same task and
+     effort); **the number of weekly windows** that implies for the remaining expected usage,
+     rounded up; the guard's reservation (D4); and the hours.
+   - *A meter that moved less than two points* gives bounds, not figures. The schedule is
+     built on the cautious bound, and the owner reads the meters again at the end of round 1.
+   - *More than six weekly windows* is reported to the owner before any further start: a
+     tranche that long is the owner's choice. Six is a judgment, not a computed threshold.
+   - **The three attempts are observations of the ladder,** and this is fixed here, before
+     they run. They are the block of rs-archive-clone in round 1. They run through the
+     reviewed launcher, at the frozen manifest, after the task has qualified. The readout
+     marks them: they ran first. The allowance inputs and readings are not part of the
+     manifest (D4).
+3. **Rounds, in blocks.** Five rounds. A round is 16 blocks, one per task; a block is that
+   task's three efforts, started one after another. The order of the blocks in a round, and of
+   the efforts in a block, is fixed by a hash of a frozen seed, the round, the task and the
+   effort. The four slots already run are skipped. A slot run again after a cut goes to the
+   head of the queue. A task's three efforts thus run next to each other, so effort is not
+   confounded with time of day, day of the week or load. The tranche runs over as many weekly
+   windows as the pilot implies, inside the owner's hours.
+4. **What is dropped when the ceiling or the 240 ends the tranche: the tail of that order,
+   fixed before the first attempt.** The launcher never skips ahead, to a cheaper slot or any
+   other. So whole blocks drop from the end of the last round reached, and at most one block
+   is left partial. Tasks then differ by at most one block, and outside the one partial block
+   every task has the same number of starts at each effort. The cells of dropped blocks have
+   fewer than five observations and are labelled incomplete (D6); the effort test reads
+   complete triples only. The drop is balanced across tasks and efforts to within that one
+   block. It is not outcome-blind in one respect, known before the data: the block at which
+   the ceiling stops is more often a dear task's, since its reservation is the larger.
+5. **Stop and read after round 1:** classification counts, cost per effort against the
+   estimate, the scan, the load record, the cuts, and the owner's meter readings against the
+   pilot's figures. The projection goes in the ledger; no threshold of the readout moves. The
+   allowance figures may be corrected by a ledger row.
+6. **A change after the pilot's first attempt makes a new configuration label.** The label is
+   the manifest hash, which covers the kit, the configuration and the task and image digests.
+   - A change is allowed only to repair a safety or correctness fault. Its ledger row is
+     written before the next start and names the fault, the change and the new hash. The
+     round-1 read is not an occasion for one.
+   - Observations under different labels are never pooled in a cell. The readout places tasks
+     and tests effort on the current label alone (D6).
+   - The 240 and the USD 200 do not restart: starts under every label count against both.
+     Nothing is run again to refill a cell. A cell left with fewer than five observations
+     under the current label is reported as it is, with its count.
+   - The smoke and the pilot are under the first label like any other start. A change before
+     the pilot's first attempt (after the smoke) also means a new hash and a ledger row; the
+     smoke's start stays counted and is under the earlier label.
+   - The allowance inputs and readings are outside the manifest and make no label.
+7. **Stops:** a failed smoke; a response with non-zero usage that names another model; an init
+   event with another CLI version, tool list or credential source; a subagent file; a
+   passthrough refusal for model, tool, path or token; a vendor 401; a sign of paid extra
+   usage (D4); a match of `token_scan.py`; three usage-limit answers in a row with no
+   observation between them; infrastructure failures other than cuts above 10% of starts (from
+   20 starts on) or above 20% at one level; five pre-session failures in a row or 24 in all;
+   contaminated attempts on three tasks; under 20 GB free. **Pauses that end by themselves:**
+   a usage limit, until its reset (D4); the allowance guard and the owner's hours, which only
+   delay starts. **Pauses for a ruling or an owner's input:** a window with no meter reading;
+   the load wait of D2; the passthrough down; a limit answer that names no reset; cuts above
+   5% of starts (from 20 starts on); an ending that matches no row of D5.
+8. Nothing is topped up, moved between cells or re-thresholded after the first attempt. A
+   slot run again after a cut is not a top-up: it is one of the 240 starts.
 
 ## Steps 7 to 9, in outline
 
@@ -422,9 +836,14 @@ priced cost over a direct run's: a seed that costs eight direct runs must pass a
 time where direct passes 20%, so the most likely outcome is a null against re-rolling. Smallest
 useful size: ten tasks, 8 direct and 4 seed runs each, which detects about 32 points (twenty
 tasks, about 21; the seed design's computation on its own assumed rates). Rough cost: about
-USD 170 to 440, after a measure-free smoke of two seed runs (about USD 15), and excluding any
-ladder for added tasks. Open design work, larger than one line: how a workflow's steps run
-inside a task container, and what the seed uses as its visible check, since the tasks ship none.
+USD 180 to 490 of priced usage, after a measure-free smoke of two seed runs (about USD 16), and
+excluding any ladder for added tasks. These are the earlier USD 170 to 440 and USD 15 times
+the 1.05 to 1.11 of one-hour cache writes; what the default system prompt adds is not known
+before the ladder's own figures. Both arms run on the subscription, in the ladder's
+configuration, so the request also states what share of how many weekly allowances it needs,
+from the ladder's measured figures. Open design work, larger than one line: how a workflow's
+steps run inside a task container, and what the seed uses as its visible check, since the
+tasks ship none.
 
 **Owner direction for step 9 (2026-11-13): "code quality is compounding and matters".** A task's
 verifier scores pass or fail at the end and does not see the quality of what was built; on a
@@ -450,214 +869,487 @@ ideal selector, which no real selector reaches, and the request says so.
 Branch `feat/lh-ladder` from `feat/long-horizon-recordings`, in its own worktree; kit under
 `experiments/long_horizon_tasks/`, tests in `tests/experiments/test_long_horizon_ladder.py`,
 each failing first for its stated reason. Every command has the blocking provider stubs first
-on `PATH`. The order stands: the relay probe sits in Task 2, before the criterion, and the
-passthrough before the launcher.
+on `PATH`. The order stands: recordings before the criterion, the passthrough and its live
+probe before the launcher, the review before the first attempt.
 
 ### Task 1: recordings (done 2026-11-13, no spend; 8 h)
 
 On `feat/long-horizon-recordings`: `stub_api.py`, 17 local recordings of CLI 2.1.311, three
-public trial archives, 15 fixtures, and the assumption table this revision applies. Left open:
-the endings were recorded with twenty tools (only the normal end with three); provider faults
-and the verifiers' sub-test forms were not recorded.
+public trial archives, 15 fixtures, and the assumption table the second revision applied.
 
-### Task 2: pin, probe and qualify the 16 (impl_code; 12 h plus about 10 h of machine time)
+### Task 2, first part: probes (done 2026-11-13, no spend)
 
-**Files:** create `tasks.json` (name, 4.1.0 digest, overlay digest, cap, extra hosts, oracle
-evidence) and `relay-compose.yaml`; modify `oracle_check.sh` (repeats, the two-key overlay, the
-CPU set, the load gate), `stub_api.py` (fault scenarios) and `summarize.py` (counts).
+On the same branch (`RECORDINGS.md`, "Task 2 probes"): the relay route's four probes, all
+held; the endings again with three tools in simple mode; provider faults; the passthrough's
+refusal forms; the price rule; the 16 packages fetched and matched to their 4.1.0 digests
+(`tasks.json`, `relay-compose.yaml`); and the token-mode set, which showed that simple mode
+refuses a subscription token.
 
-- [ ] The sub-id range is widened first, with no container running (owner question 3). The 16
-      are fetched at the 4.1.0 digests; any mismatch with the copies checked is recorded.
-- [ ] The relay route (D4), with the `oracle` agent: the extra service is accepted and stays
-      outside the sidecar's namespace; `relay` is reached by name through the proxy and
-      forwards to the socket; no host port answers; the verifier's environment has no relay.
-- [ ] Recordings in the three-tool configuration: the endings of Task 1 again, and provider
-      faults (rate limit, overload, server error, a dropped connection). A fixture that differs
-      replaces the old one.
-- [ ] The affinity reaches both containers. Oracle and do-nothing runs, five each, under the
-      final policy, four at a time; they also show which verifiers report sub-tests.
+### Task 2a: record the ladder's configuration (impl_code; 7 h; no spend)
+
+Every frozen rule now needs a recording in token mode with the deny list, through the relay,
+against `stub_api.py` with a fake token. **Files:** modify `stub_api.py` (any scenario
+missing), `record.sh`, `recordings.json`, `fixtures/`, `RECORDINGS.md`.
+
+- [ ] **The init event** at each of the three efforts: tool list, `apiKeySource`, MCP servers,
+      CLI version. **The request:** declared tools, effort, `max_tokens`, beta flags, and the
+      cache lifetime asked for on every cached block, messages as well as system.
+- [ ] **The size of what every request carries:** the system blocks and the tool definitions
+      in characters, beside simple mode's (`tok3-normal` against `key3-normal-system`). Tokens
+      cannot be counted without the vendor; the live probe's first request gives them.
+- [ ] **The endings:** the CLI's budget stop, a refusal, an output limit, a context limit at
+      the first request and after a compaction attempt (with the compaction request's form), a
+      time-limit kill, a usage limit with three tools, a refused credential.
+- [ ] **Provider faults:** a 429 with and without `retry-after` and without the usage-limit
+      headers, a 529, a 500, a cut stream, a stalled first byte, transient faults recovered.
+- [ ] **Every passthrough refusal in the 403 form:** cap, total, stop, model, tool, path,
+      unknown token.
+- [ ] **The launcher's fake token form** (prefix and random part) is accepted by the CLI.
+- [ ] **No credential read, in token mode:** an empty token variable. Row 2 of D5 gets a
+      fixture from the ladder's configuration; its present one is from simple mode.
+- [ ] **Paid extra usage:** a stand-in response with the header the CLI's bundle reads for
+      it. Recorded: which header and value turn `isUsingOverage` away from `false`, and how
+      the session goes on.
+- [ ] **The placeholder tool:** what the CLI does when the model calls it.
+- [ ] **Skills and agents:** the init event lists them although their tools are denied.
+      Recorded: whether any listing of them is in the system blocks or tool definitions the
+      model reads.
+- [ ] The fixtures named in D5 take the new recordings; the simple-mode ones keep their
+      content under a `simple-mode-` prefix, as the twenty-tool ones did.
+
+**Verify:** `pytest -q tests/test_long_horizon_stub_api.py`; D5 and D7 are then rewritten
+wherever a new recording differs, before Task 3 freezes them.
+
+### Task 2b: measure, check and qualify the 16 on the pinned images (impl_code; 9 h plus about 16 h of machine time)
+
+**Files:** modify `tasks.json` (image digests and sizes, the withholding result, overlay
+digest, cap, extra hosts, oracle evidence), `oracle_check.sh` (repeats, the two-key overlay,
+the CPU set, the load gate) and `summarize.py` (counts); create `image_check.sh` (pull, size,
+export, listing and search; D1).
+
+- [ ] The sub-id range is widened first, with no container running (owner question 4).
+- [ ] **Measure:** the 32 pinned images, one at a time: pulled by digest, the size in the
+      store recorded, the image deleted. If rootless Podman cannot pull one by digest, D1's
+      fallback is recorded for that task.
+- [ ] **Check withholding** on each of the 16 agent images, in the same pass (D1). A hit drops
+      the task.
+- [ ] **State the disk plan** in the ledger from the measured sizes (D1); if the images do
+      not fit, the owner decides before anything more is pulled (question 6).
+- [ ] **First pass (D1), any day:** each task once on its pinned images, reference and
+      untouched, vba-userform-port first; the pinned CLI installed once on each pinned agent
+      image; the affinity reaches both containers.
+- [ ] **Second pass (D1), in the quiet window:** five and five under the final policy, four at
+      a time. It also shows which verifiers report sub-tests.
 - [ ] A dry run of the contamination terms over these jobs and the recordings, then the terms
-      are frozen. The long-prompt price rule is settled as D4 says, and the archives give the
-      model's real prompt limit.
+      are frozen.
 
 **Verify:** `python -I experiments/long_horizon_tasks/summarize.py <jobs>` prints, per task,
-reference 5 of 5 and untouched 0 of 5; the ledger gets the surviving list.
+reference 5 of 5 and untouched 0 of 5; `tasks.json` holds a size and a withholding result for
+every image; the ledger gets the disk plan and the surviving list.
 
-### Task 3: criterion and manifest (impl_code; 3 h)
+### Task 3: criterion and manifest (impl_code; 4 h)
 
-**Files:** create `ladder.json` (model, efforts, CLI version, the two configuration variables,
-harness versions and host-side overrides, digests, caps, ceiling, schedule seed, allowlist, CPU
-set, load gate and wait, the D5 table with the fixture each row cites, readout rules, scan
-terms, price rule and table hash) and `manifest.json` (SHA-256 of every kit file). Tests: caps
-follow the formula and are equal across efforts; every field and value a frozen rule matches
-occurs in a fixture.
+**Files:** create `ladder.json` (model, efforts, CLI version, the token-mode switch, the deny
+list, the output-token variable, harness versions and host-side overrides, package and image
+digests, caps, ceiling, schedule seed, the smoke and pilot slots, allowlist, CPU set, load gate
+and wait, the D5 table with the fixture each row cites, the refusal form, the two usage-limit
+signals, readout rules, scan terms with the canary as a SHA-256, the block order's seed, the
+price rule with the table's hash and the five-minute write rate) and `manifest.json` (SHA-256
+of every kit file). The manifest hash is the configuration label (D7). The allowance inputs
+and readings are in neither. Tests: caps follow the formula and are equal across efforts; every field and value a
+frozen rule matches occurs in a fixture; the price rule reproduces the three archives' totals.
 
-### Task 4: the passthrough and the relay (impl_code; 10 h)
+### Task 4: the passthrough, the relay and the live probe (impl_code; 15 h, and 3 h for the probe)
 
-**Files:** create `passthrough.py`. Tests, with `stub_api.py` as the upstream:
+**Files:** create `passthrough.py`, `token_scan.py` and `live_probe.sh`. Tests, with
+`stub_api.py` as the upstream:
 
-- [ ] It listens on a unix socket only. It refuses an unknown token; a model other than the
+- [ ] **First slice: the request path.** It listens on a unix socket only. It maps a fake
+      token to a slot and replaces that one header with the real token; no other header or
+      body byte changes. It refuses, in the 403 form, an unknown token; a model other than the
       exact id (Sonnet, Fable, an alias); a request that declares a provider-side tool; a path
-      other than the messages path; a request for a slot at its cap; any request once the total
-      reaches USD 200 or while the tranche is stopped.
-- [ ] Its meter prices streamed and plain responses by the frozen rule; a response in flight at
-      the cap is metered to its end; the key appears only in the upstream request.
+      other than the messages path; a request beyond a slot's request count or priced cap, or
+      beyond the total.
+- [ ] **First slice: the meter.** It prices streamed and plain responses by the price rule,
+      each cache write by its own lifetime; a response in flight at the cap is metered to its
+      end. The priced caps above are enforced on this meter.
+- [ ] **First slice: the token's path (D4).** The file is opened once, at start, and refused
+      unless its mode and owner are right. The token is in no argument, log, request log,
+      exception text or output; core dumps are off; proxy variables are ignored; with the
+      rehearsal switch no token file is opened. Its log holds the rate-limit headers and never
+      the `authorization` header. It writes the fingerprint.
+- [ ] **First slice: the scanner and the canary.** `token_scan.py` finds a planted canary by
+      the fingerprint and prints path and offset only. After a full session through the relay
+      with the canary as the token, it finds nothing in the file set, and the runtime check
+      finds nothing in any container's environment or file system.
+- [ ] **The live probe** (below) runs on the first slice, through `live_probe.sh`.
+- [ ] A vendor usage-limit answer is passed on unchanged, recorded with its reset, and closes
+      starts; any other vendor 429 closes starts too; a vendor 401 is passed on and stops the
+      tranche; a response with a recorded paid-usage header stops the tranche before it is
+      passed on.
 - [ ] The passthrough going down pauses the tranche.
-- [ ] Recorded with the real CLI through the relay: how a session ends after each kind of
-      refusal. Each gets a fixture and its row in D5.
 
-### Task 5: the launcher (impl_code; 16 h)
+**The live probe: a few requests of subscription usage, no dollars.**
 
-**Files:** create `ladder.py`. **Interface:** `ladder.py plan | launch | status`. A paid launch
-needs `LH_SPEND_AUTHORIZED=yes`, `LH_MANIFEST_SHA256` and `LH_RUNTIME_COMMIT` (both from the
-ledger); the key file is named only to the passthrough, and the harness's environment holds no
-credential. A rehearsal needs `LH_REHEARSAL=<dir>` and refuses if a spend variable is set.
-State lives outside the checkout (`$HOME/.local/state/lh-ladder`; another root for
-rehearsals): one directory per slot, claimed by `mkdir`, with the reservation, the dummy token,
-the launcher's pid and start time, and later the settlement. It runs from a detached checkout
-of the frozen commit and reuses the package's usage reader and price table.
+*Authority.* It is not an attempt of the ladder and not under the ladder's approval. It runs
+under the budget delegation of `AGENTS.md` and roadmap owner decision 18, by a coordinator
+approval row in this plan's ledger written before the first request. The row names the
+passthrough's commit and the limits of item 1.
+
+*Who runs it.* A subagent, under that approval; its brief names the ledger row. The owner
+starts nothing by hand except placing the token.
+
+*Before it,* all of: the owner has placed the token by the safe procedure (question 1); the
+owner's dated confirmation that paid extra usage is off; the owner's confirmation that the
+subscription's terms allow unattended runs of this size; the first slice passes its tests,
+the canary test among them; a reader who did not write the first slice has read it; the
+coordinator's row.
+
+*The rule line proposed for `AGENTS.md`* (experiment rules, after the ladder's line). This
+plan does not apply it; the coordinator does, with the approval row:
+
+```text
+- The long-horizon live probe (approved by the coordinating session on <date> under the budget delegation below; roadmap owner decision 18) is limited to Task 4 of the long-horizon plan (docs/plans/2026-11-13-long-horizon-task-family-and-seed-plan.md): three sessions of a scratch task that is none of the 16, one at each of effort `low`, `medium` and `high`, with no retry; at most 18 requests to `claude-haiku-5-5` on the owner's subscription, priced USD 0.15 per session and USD 0.45 in all; spent only through `experiments/long_horizon_tasks/live_probe.sh` on the passthrough's first slice, with that commit and the approval recorded in the plan's ledger before the first request. It reports measure-free figures only (whether the vendor accepts the token through the relay, the headers and usage fields it returns, priced cost) and makes no quality claim. It is not part of the effort ladder's approval; its priced usage is counted inside the ladder's USD 200.
+```
+
+1. **Requests.** Three sessions of the recordings' scratch task (not one of the 16;
+   verification off), one after another, at `low`, `medium` and `high`. Each is the ladder's
+   configuration exactly: CLI 2.1.311 in a task container, token mode with a fake token, the
+   relay as base URL, the deny list, the allowlist of the recordings, model
+   `claude-haiku-5-5`. Limits, enforced by the passthrough's meter: 6 requests and priced USD
+   0.15 per session, 18 requests and USD 0.45 in all; the CLI's own budget at USD 0.10 per
+   session. Expected: two to four requests per session and a few cents of priced usage, which
+   is settled into the USD 200.
+2. **Recorded.** Per request: the vendor's status, every rate-limit header and `retry-after`
+   as sent, any header that reports paid extra usage, the response's model, and its usage with
+   the cache split and service tier. Per session: the init event, every `rate_limit_event`,
+   the result's `total_cost_usd`, `usage` and `modelUsage`, the egress log, and the first
+   request's prompt tokens (what the default system prompt and tools cost per request). From
+   the owner: when the token was created and the lifetime `setup-token` stated. Kept with the
+   recordings, by SHA-256, with fixtures cut as for the others. The token is never kept.
+3. **Stop rule.** The probe ends after the third session, or at once at the first of: a vendor
+   status other than 200 (no second try under this approval); a response that names another
+   model; a connection outside the allowlist that was not refused; a limit of item 1; a sign
+   of paid extra usage. A 429 met by chance is recorded as the vendor's limit answer and ends
+   the probe.
+4. **A pass** is all of: the three sessions end `completed`; every request of the three
+   session files is in the passthrough's log, went out with the real token and was answered
+   200 by `claude-haiku-5-5` at the session's effort; the passthrough's priced figure equals
+   the CLI's `total_cost_usd` within 1% in each session; the egress logs show the relay and
+   refused connections only; `token_scan.py` finds nothing in its file set and the runtime
+   check nothing in the containers.
+5. **Three ways to fail, with different consequences.**
+   - *The route fails:* the vendor refuses the token or the request (a 401 or a 403 of its
+     own). The plan stops before the rest of this task and before Task 5, and the owner is
+     told; no other credential route is open.
+   - *The metering fails:* the 1% test, or a subscription result without the cost fields. The
+     route stands. Settlement and the price rule are revised from the recorded usage, and a
+     second probe needs a new coordinator row.
+   - *The token is found by the scanner:* a stop. The owner revokes and replaces the token
+     (D4) before anything else runs.
+   A 429 met by chance is none of these: the probe is run again after the reset, under a new
+   row.
+6. **What it cannot show.** A usage-limit answer, unless it meets one: that is recorded when
+   it first occurs (D4). How long the token lasts: that rests on what `setup-token` states and
+   on each later week's first request.
+
+### Task 5: the launcher (impl_code; 23 h)
+
+**Files:** create `ladder.py`. **Interface:** `ladder.py plan | launch | status | allowance`.
+A live launch needs `LH_SPEND_AUTHORIZED=yes`, `LH_MANIFEST_SHA256` and `LH_RUNTIME_COMMIT`
+(both from the ledger); the token file is named only to the passthrough, and the harness's
+environment holds no credential. A rehearsal needs `LH_REHEARSAL=<dir>` and refuses if a spend
+variable is set. State lives outside the checkout (`$HOME/.local/state/lh-ladder`; another root
+for rehearsals): one directory per slot, claimed by `mkdir`, with the reservation, the fake
+token, the launcher's pid and start time, and later the settlement; and the allowance inputs
+and meter readings with their history. It runs from a detached checkout of the frozen commit and reuses the
+package's usage reader and price table.
 
 Tests, against a stand-in harness that replays the recorded fixtures on a closed `PATH`:
 
 - [ ] Refusals: no authorization; a manifest or runtime commit other than the ledger's; a dirty
       kit; a model or effort outside the criterion; a task whose digest differs outside the two
-      overlay keys; another harness environment or a missing host-side override; an allowlist
-      that names an address of the host; a rehearsal with a spend variable.
+      overlay keys, or whose image digest differs; another harness environment or a missing
+      host-side override; an allowlist that names an address of the host; a rehearsal with a
+      spend variable; no allowance inputs; a manifest hash that is not the ledger's current
+      label.
 - [ ] Money: sixty concurrent launches never commit more than the ceiling; a slot that does not
-      fit waits and is never skipped; start 241 is refused; settlement takes the largest of
-      four figures, never reads the result's `usage`, and counts a message id once; unreadable
-      usage settles at the full reservation.
-- [ ] Classification over every fixture, by the fields of D5: a budget stop and a context limit
-      of one harness class are told apart; an ending with no row pauses. A slot whose session
-      started is never launched again; a slot is lost after its third pre-session failure; a
+      fit waits and is never skipped; start 241 is refused, a rerun after a cut included;
+      settlement takes the largest of four figures, never reads the result's `usage`, and
+      counts a message id once; unreadable usage settles at the full reservation.
+- [ ] Classification over every fixture, by the rows of D5 in order: endings of one harness
+      class are told apart; a usage limit needs both signals, and a session with one of them
+      alone pauses; an ending with no row pauses. A slot cut by a usage limit is run again as
+      a new counted start at the head of the queue and its reward is never read; a slot whose
+      session ended in any other way is never launched again; a slot is lost after its third pre-session failure; a
       regrade never starts the agent; reconcile stops only the containers of a dead launcher
       (pid and start time both match).
+- [ ] Allowance: a limit answer closes all starts, and they reopen five minutes after its
+      reset with one start; an answer with no reset pauses; three limit answers in a row stop
+      the tranche; **no start in a window that has no meter reading**; the budgets are computed
+      from the reading and floored at zero; a window whose weekly reading is at or above the
+      skip threshold is skipped and reported; no start when the weekly or the five-hour budget
+      does not hold the guard's reservation of every open slot and of this one; no start
+      outside the owner's hours or in a window's closing margin; a sign of paid extra usage in
+      a session's stream stops the tranche; a reading or a change of the allowance inputs is
+      recorded and leaves the manifest hash alone.
 - [ ] Host: the load gate waits, and pauses after two hours with nothing in flight; low disk
       stops the tranche; the egress log is followed out before teardown; the harness command
-      carries model, effort, version, cap, the two configuration variables, the relay's base
-      URL and zero retries; no key is in any file, environment or command line; the schedule is
-      deterministic, balanced, begins with the smoke slot, and waits for the round-one read.
+      carries model, effort, version, cap, the token-mode switch, the deny list, the
+      output-token variable, the relay's base URL and zero retries; no credential is in any
+      file, environment or command line; the token scanner and the runtime check run at every
+      teardown, and a match stops the tranche. The schedule is deterministic and in blocks,
+      begins with the smoke slot and then the pilot's block, and waits for the smoke read, the
+      pilot's ledger row and the round-one read; cut at any start, it leaves at most one block
+      partial and no task more than one block behind another.
 
 **Verify:** `pytest -q tests/experiments/test_long_horizon_ladder.py`, `--collect-only` on it,
 then the sampled broad check.
 
-### Task 6: the readout (impl_code; 7 h)
+### Task 6: the readout (impl_code; 9 h)
 
 **Files:** create `readout.py`. Tests: intervals match the report's table; cell and pooled
 labels; the band effort is defined for every screened-in pattern; the effort verdict and the
 bound on the fall on constructed tables; a ceiling stop leaves partial rounds out of complete
-triples; exclusions are listed and never scored zero; the graded outcome is printed and enters
-no rule; a stop readout prints no placement; `family.json` names the criterion and the digests.
+triples; exclusions are listed and never scored zero; cuts are counted per effort and the
+pilot's attempts marked; observations under two labels are never pooled, an earlier label's
+are printed apart and enter no rule, and a short cell is printed with its count; the graded outcome is printed and enters no rule; the allowance
+figures are printed and enter no rule; a stop readout prints no placement; `family.json` names
+the criterion, the configuration and the digests.
 
-### Task 7: zero-spend rehearsal (impl_code; 6 h)
+### Task 7: zero-spend rehearsal (impl_code; 8 h)
 
-- [ ] In the suite: the whole schedule against the stand-in harness, ending inside both caps.
-- [ ] On containers, with no key on the machine: three tasks with the real pinned CLI in the
-      three-tool configuration, the relay, the passthrough, and `stub_api.py` as its upstream.
-      One session runs to a budget stop, one past a shortened time limit, one is killed and
-      reconciled, one verifier is regraded.
+- [ ] In the suite: the whole schedule against the stand-in harness, ending inside both caps,
+      with a usage limit in the middle: starts close, the cut slots are run again after the
+      reset, and the counts hold.
+- [ ] On containers, with the rehearsal switch (the passthrough opens no token file and holds
+      a canary of the real token's shape): three tasks with the real pinned CLI in the ladder's
+      configuration, the relay, the passthrough, and `stub_api.py` as its upstream. One session runs to a budget stop, one
+      past a shortened time limit, one is cut by the stand-in's usage limit and its slot run
+      again, one is killed and reconciled, one verifier is regraded.
 
-**Verify:** the D7 smoke checks on the rehearsal's records; a dummy key value in no container,
-file or command line. Results go in the ledger.
+**Verify:** the D7 smoke checks on the rehearsal's records; the canary test of D4: planted, the
+canary is found; after the sessions, `token_scan.py` finds it nowhere in the file set and the
+runtime check in no container's environment or file system. Results go in the ledger.
 
-### Task 8: independent pre-spend review (review_code; 4 h, plus 6 h of fixes and re-review)
+### Task 8: independent pre-spend review (review_code; 6 h, plus 6 h of fixes and re-review)
 
-By a reviewer who wrote none of the kit; the passthrough and the relay are in scope. Its brief
+By a reviewer who wrote none of the kit; the passthrough, the relay and the token scanner are
+in scope. Its brief
 lists the holes earlier reviews and the recordings found: a retry that turns a failure into a
 pass; a CLI that updated itself after the pin; a sweep that matched a reused pid; a launch
 between reservation and record; a runtime commit recorded but not enforced; a rule written for
 output nobody had observed; an identity check the overlay defeats; a credential an agent can
-reach; an allowlist entry that opens a whole host. Each guard is mutated.
+reach; an allowlist entry that opens a whole host. This revision adds: a model the token
+allows and the passthrough lets through; a limit taken for a model failure, or a model failure
+taken for a limit; a rerun that reads the cut session's reward; a guard that starts attempts
+into an exhausted allowance or a window with no reading; the real token in a log, an exception
+text, a core dump or a pane; a scanner that cannot find what it is given; observations of two
+labels pooled in one cell. Each guard is mutated.
 
-### Tasks 9 to 12: freeze (1 h), smoke (2 h), the run (6 h of attention), readout and step 7 (12 h)
+### Tasks 9 to 12: freeze (1 h), smoke and pilot (4 h), the run (about 12 h of attention), readout and step 7 (12 h)
 
-Before the first attempt the ledger holds: the surviving tasks with task and overlay digests;
-the manifest hash and runtime commit; the CLI and harness versions; the price rule and table
-hash; the network policy; the workspace limit and rate-limit tier as read in the console; the
-quiet window; the review verdict; the rehearsal result; spend to date 0. The run needs about 35
-to 45 hours of a quiet host at four concurrent attempts, up to about 60 when its own load holds
-it to two or three; it runs in tmux. The last task writes `results/readout.md`, `family.json`,
-a report under `docs/reports/`, the actual spend in the ledger, and the roadmap's step table;
-8 of its 12 hours are step 7's failure labels by two readers.
+Before the first attempt the ledger holds: the surviving tasks with package, image and overlay
+digests, image sizes and withholding results; the disk plan; the manifest hash, which is the
+first configuration label, and the runtime commit; the CLI and harness versions; the price
+rule and table hash; the network policy; the live probe's result; when the token was created
+and the lifetime stated; **the owner's dated confirmation that paid extra usage is off; the
+owner's confirmation that the subscription's terms allow unattended runs of this size;** the
+owner's two shares and hours; the first window's meter readings; the review verdict; the
+rehearsal result with the canary test; priced usage to date. After the pilot it holds the
+meter readings, the two guard figures, the guard's reservation, the attempts a week can hold
+and the number of weekly windows. Every later window adds its readings.
 
-**Hours in all:** about 93 of engineering and review, 85 of them still to do (79 before the
-recordings: the relay probe and fault recordings add 2, the criterion 1, the passthrough and
-relay 2, the graded outcome 1, the failure labels 8), plus machine time.
+**Machine and calendar time.** The attempts themselves still need about 35 to 45 hours of a
+quiet host at four concurrent attempts, up to about 60 when the ladder's own load holds it to
+two or three. Those hours are no longer one window: they are spread over the weekly windows
+the pilot implies, inside the owner's hours, with a wait at every usage limit and no start in
+a window without a reading. How many weeks that is cannot be said before the pilot. Before
+them: about 3 hours to measure and check the images, about 3 for the first oracle pass at any
+load, about 10 quiet hours for the second, and up to 8 hours for the pilot. Everything runs in
+tmux, except the passthrough, whose output goes to a file (D4). The last task writes
+`results/readout.md`, `family.json`, a report under `docs/reports/`, the priced usage and the
+allowance used in the ledger, and the roadmap's step table; 8 of its 12 hours are step 7's
+failure labels by two readers.
+
+**Hours in all:** about 133 of engineering and review. About 14 are done (Task 1, and the
+first part of Task 2 at the 6 hours the second revision allowed for it; the time was not
+logged). About 119 are still to do, against 79 for the same remainder before the third
+revision. The third revision added 24: the recordings in the ladder's configuration 5, the
+criterion 1, the passthrough 2, the live probe 3, the launcher's limit handling and allowance
+guard 4, the readout 1, the rehearsal 1, the review 1, the pilot 2, and a run spread over
+weeks 4. Its review added 16: three more recordings 2; the image measurement and withholding
+check 3; the token's closed path, the scanner and the probe's launcher 3; meter readings,
+blocks and labels in the launcher 3; labels in the readout 1; the canary in the rehearsal 1;
+the review 1; the readings of each window 2. Machine time is beside these.
 
 ## What This Makes Harder
 
-- The family is tied to one benchmark, harness and CLI version, one network policy and the
-  three-tool configuration; a later comparison must reuse all five or re-qualify, and step 9
-  must say which tools its staged arm's sessions get. The allowlist ends comparability with the
-  public leaderboard.
-- The passthrough and its relay are reviewed code that every later long-horizon run needs. Reservations far
-  above expected cost leave the last USD 10 to 25 unusable, and "no agent retry" means provider
-  incidents reduce n for good.
+- The family is tied to one benchmark, harness and CLI version, one network policy and one
+  configuration: token mode, the deny list, the default system prompt. A later comparison must
+  reuse all of them or re-qualify, and step 9 must say which tools its staged arm's sessions
+  get. Nothing here can be set beside the public leaderboard.
+- **The owner is in the loop for the whole tranche:** a meter reading at each weekly reset and
+  before each window, or nothing starts. That is the price of a guard that cannot see the
+  meters.
+- **The tranche's calendar time is set by the owner's share of one account's allowance, not
+  by the machine.** The allowance figures belong to this subscription plan and carry to no
+  other. A tranche of weeks is exposed to things a tranche of days was not: the pinned CLI
+  being withdrawn from the vendor's download host (a stop: another version is another
+  configuration), an image leaving its registry (kept for the tranche if the disk allows; D1),
+  a change of the vendor's limits. A repair during those weeks makes a new configuration
+  label, and the cells of the old one are not refilled (D7).
+- The passthrough and its relay are reviewed code that every later long-horizon run needs, and
+  the passthrough now holds a credential that is good for every model of the account.
+  Reservations far above expected cost leave the last USD 10 to 25 unusable. No agent retry
+  means provider incidents reduce n for good, and each usage-limit cut uses up a start.
 - Task files and recordings live outside the repository: a clean clone fetches them by digest.
 
 ## Not Verified While Planning
 
-**No longer listed here,** because a recording now shows it and D2 to D5 cite it by name: the
+**No longer listed here,** because a recording now shows it and D2 to D5 cite it: the
 allowlist under rootless Podman, setup on the open network, the egress log, the misrouted
-request, the CLI's install and version, the budget stop's form, model pinning, the verifier
-after a timeout kill, and the separability of pre-session failures.
+request, the CLI's install and version, model pinning, the verifier after a timeout kill, the
+separability of pre-session failures, the relay route, the provider-fault endings, the price
+rule, the 4.1.0 digests, and token mode's hosts, headers and result fields against a stand-in.
 
-**Before the launcher is written** (Task 2 unless stated; several were opened by the
-recordings):
+**Before the launcher is written:**
 
-1. The relay route: the four probes of D4.
-2. Endings in the three-tool configuration, and provider-fault endings, which no recording
-   shows. How a session ends when the passthrough refuses (Task 4).
-3. The long-prompt price rule, and the model's real prompt limit, from the archives.
-4. The console's spend limit is hard and prompt; the rate-limit tier; the training cutoff on
-   the vendor's page itself.
-5. The contamination terms give no false hit on the oracle jobs and the archives.
-6. The host plan: the affinity reaches both containers; the quiet window; the sub-id widening.
-7. Task content equals the 4.1.0 digests; which verifiers report sub-tests.
+1. The ladder's configuration, recorded at no spend (Task 2a): the endings, the init event's
+   tool list, the size of the system prompt and tools, the cache lifetimes, the 403 form for
+   the model and tool refusals.
+2. The live probe (Task 4): the vendor accepts the token through the relay and the
+   passthrough; `low` and `medium` are accepted for this model; the rate-limit headers on
+   ordinary responses; what a subscription session reports as usage; the prompt tokens every
+   request carries.
+3. The pinned images (Task 2b): they pull by digest under rootless Podman, their sizes, that
+   the disk holds them, that none holds a reference solution, a verifier test or the canary,
+   that the references pass on them, and that the pinned CLI installs on each.
+4. The contamination terms give no false hit on the oracle jobs and the archives.
+5. The host plan: the affinity reaches both containers; the quiet hours; the sub-id widening.
+6. Which verifiers report sub-tests; the training cutoff on the vendor's page itself.
 
 **At the rehearsal:** the verifier runs after a budget stop on Podman; a regrade on Podman; kill
-and reconcile; no key in any container, file or command line.
+and reconcile; a limit, its pause and the rerun, on the stand-in; no credential in any
+container, file or command line.
 
-**At the smoke or in round 1:** `low` and `medium` are accepted for this model at the real API
-(the stand-in accepted all three; only `high` was seen against the vendor); cost per effort
-(`low` and `high` are interpolated); provider errors at four concurrent sessions; image builds
-stay reproducible over days.
+**At the smoke, the pilot or in round 1:** what an attempt costs against the allowance, and
+whether priced tokens track it (the pilot is one reading); cost per effort (`low` and `high`
+are interpolated); provider errors and ordinary rate limits at four concurrent sessions on a
+subscription.
 
-**Not probed:** the sidecar's handling of name lookups and ping (source read); the benchmark's
-licence beyond its text (Apache-2.0, with a canary asking that data stay out of training sets).
+**Only when it happens:** the vendor's real usage-limit answer, in its five-hour and its
+weekly form, with its reset time; the vendor's real sign of paid extra usage, which the plan
+means never to see; the token's end.
+
+**Owner preconditions, not facts the plan can establish:** that paid extra usage is off, and
+that the subscription's terms allow unattended runs of this size. The plan did not read the
+terms; it uses only the CLI's own token mode and base URL. An action by the vendor against the
+account would stop all of the owner's work, which is worse than a usage limit.
+
+**Not probed, or not knowable by reading:** the sidecar's handling of name lookups and ping
+(source read); whether a verifier can reach the relay by its address; whether the 15-second
+reset of a stalled first byte is the CLI's or a hop's; the model's real prompt limit (the
+largest recorded prompt is 443,427 tokens); which meters the account shows and how finely;
+how a token is revoked; whether `setup-token` leaves a copy of the token anywhere but the
+terminal; whether the directory chosen for the token is backed up or synced; the benchmark's
+licence beyond its text (Apache-2.0, with a canary
+asking that data stay out of training sets).
 
 ## Rulings
 
 The planner's eleven rulings, adopted with the reviewer's amendments (2026-11-13), are the
-rules of D1 to D7; the coordinator's rulings of both revisions are in the ledger. All thirteen
-review minors are applied; minor 8 (the training cutoff) rests on a search result until the
-vendor's page is read in Task 2.
+rules of D1 to D7 as revised; the coordinator's rulings of all three revisions are in the
+ledger. All thirteen review minors are applied; minor 8 (the training cutoff) rests on a
+search result until the vendor's page is read.
 
-## Owner questions
+The independent review of the third revision (accept after fixes: 1 blocker, 7 majors, 14
+minors) is applied in full, with the coordinator's rulings where a choice was needed (ledger).
 
-Only what the approval does not cover.
+**What the third revision changed in the frozen decisions.** D1: the pinned images, their
+measurement and withholding check, the oracle evidence redone on them, seven tasks marked as
+changed since the public row. D2: token
+mode with a deny list in place of simple mode. D3: nothing but the wording on web tools. D4:
+the subscription token, its closed path and the one header, usage limits and an allowance
+guard that reads the owner's meter, the stop for paid extra usage, the settled price rule,
+the one refusal form, the guard table in usage. D5: rebuilt on `api_error_status`
+and the passthrough's prefix, with the usage-limit cut and its rerun. D6: cuts and pilot
+attempts marked, no public figure as reference, one configuration label per cell, the
+allowance reported. D7: the pilot, blocks and the fixed drop order, configuration labels, the
+stops and pauses for limits. **What did not depend on the public row:** the candidate list
+(the 16 are named in the approval), the caps as numbers, the placement and effort rules of
+D6, and the fixtures of Task 1, which were cut from recordings and stay true of what they
+recorded. **What did:** D2's configuration, the fixtures D5 cites, and the owner's numbers in
+the size section.
 
-1. **Answered 2026-11-13: no API key.** The owner ruled "subscription only. No api key for this
-   or anythning else" (roadmap owner decision 18; see the ledger row of that date). The question
-   as it was asked, kept for the record, and what replaces it is in the ledger:
-   One API key, in a workspace with a spend limit of USD 200, readable only by the
-   passthrough on the host; it enters no container. This is billed API usage, not the
-   subscription, and would be the project's first. Will the owner create it, and confirm in the console that the limit is hard and what
-   the workspace's rate-limit tier is?
-2. **A quiet window on this machine, about 35 to 45 hours** (up to about 60), as a condition of
-   the run: no other heavy work, the load at or below 24. Without it the ladder does not run on
-   this plan. The results that would otherwise measure the neighbours are those of
-   wal-recovery-ordering (a thread-timing verifier; its reference failed once under load) and,
-   likely but untested, vf2-speedup-networkx (a speed target) and the tasks that train or
-   compile inside their limits (lake-temp-glm, pretrain-shard-corruption, vpp-loss-divergence,
-   retro-console-soc). A smaller tranche without those six is a choice the owner could make.
-3. **Two root commands.** Widening the sub-id range (report §5), with no container running;
+## Owner preconditions and questions
+
+Only what the approval does not cover. The earlier question 1 (an API key in a capped
+workspace) was answered by decision 18; its text is in this file at `a4674efa`.
+
+**Preconditions.** Each is written in the ledger with its date. Nothing below it starts
+without it.
+
+| Precondition | Before |
+| --- | --- |
+| The token is in place, by the procedure of question 1 | The live probe |
+| The owner confirms that paid extra usage is off for the account | The live probe, the pilot and the freeze (confirmed again each time) |
+| The owner confirms that the subscription's terms allow unattended runs of this size | The live probe, and again in the freeze's ledger list |
+| The owner's two shares and hours (question 2) | The smoke |
+| The meter readings for the window | Every window, the smoke's and the pilot's included; with none, nothing starts |
+| The disk decision, if the images do not fit (question 6) | Any pull beyond the measurement |
+
+**Questions.**
+
+1. **The token, by a procedure that keeps it away from every agent.** This session and its
+   subagents read tmux panes and keep transcripts, so:
+   1. Open a fresh terminal window. Not a tmux pane, not this session's command prefix.
+   2. Choose a directory outside every repository and outside anything synced or backed up,
+      and tell the coordinator its path. **Is that directory backed up or synced?** If your
+      whole home directory is, name a place that is not.
+   3. `umask 077`, then `mkdir -m 700 <directory>`.
+   4. Run `claude setup-token` and follow it. Note the lifetime it states.
+   5. Run `install -m 600 /dev/stdin <directory>/token`, paste the token, press Enter, then
+      Ctrl-D. The token is typed into the command's input, never onto a command line.
+   6. Check: `stat -c '%a %U' <directory>/token` prints `600` and your user.
+   7. Clear the terminal's scrollback and close the window; clear the clipboard, and a
+      clipboard manager's history if you run one.
+   8. Never paste the token into a chat or an agent session. Tell the coordinator only: the
+      path, the time, the stated lifetime, and how the token is revoked.
+2. **The account's limits.** The ladder draws on the same allowance as your sessions and the
+   coordinating session.
+   - May it start attempts while you work, or only in named hours, and which?
+   - What share of the **weekly** allowance must stay free for your own work? And what share
+     of the **five-hour** allowance? They are two numbers.
+   - When does the weekly window reset, and which meters does the account show?
+   - **Will you read the meters at each weekly reset and before each window of hours opens,
+     one line each time?** The ladder uses only what is left above your share at that reading,
+     and it starts nothing in a window without one.
+   - You would also read them before and after the pilot (three attempts, up to eight hours,
+     best with nothing else on the account) and at the end of round 1.
+   **If the guard fails, your sessions and the coordinating session stop until the weekly
+   reset.** And for scale: about 220 to 235 of the 240 attempts are expected before the USD
+   200 ceiling ends the tranche, so the last round is likely incomplete.
+3. **Quiet machine time, re-estimated.** Once, about 10 hours for the oracle check. Then the
+   attempts' 35 to 45 hours (up to about 60), no longer in one window: spread over the weekly
+   windows the pilot implies, inside the hours of question 2, the load at or below 24 while
+   attempts run. Without quiet hours the ladder does not run on this plan. The results that
+   would otherwise measure the neighbours are those of wal-recovery-ordering (a thread-timing
+   verifier; its reference failed once under load) and, likely but untested,
+   vf2-speedup-networkx (a speed target) and the tasks that train or compile inside their
+   limits (lake-temp-glm, pretrain-shard-corruption, vpp-loss-divergence, retro-console-soc).
+   A smaller tranche without those six is a choice the owner could make.
+4. **Two root commands.** Widening the sub-id range (report §5), with no container running;
    without it vba-userform-port runs with the one-line verifier change, labelled. Optionally,
    delegating the CPU-set controller to this user, which turns D2's affinity into a reservation.
-4. **Tasks outside the 16.** Fewer than ten screened-in tasks is about as likely as not.
+5. **Tasks outside the 16.** Fewer than ten screened-in tasks is about as likely as not.
    Replacing a dropped task or adding tasks (the Science suite, the compose tasks) is not
-   covered and needs its own ladder, new spend. Does the owner want a rule for a later tranche?
-5. **Step 9** will be requested once, after step 7, with the size and cost above.
+   covered and needs its own ladder and its own approval. Does the owner want a rule for a
+   later tranche?
+6. **The disk, if the 32 pinned images do not fit** above the 20 GB stop (Task 2b measures
+   them first): free space, name another disk for the image store, or accept that images are
+   pulled and deleted block by block, which ties the tranche to the registry for its weeks.
+7. **Step 9** will be requested once, after step 7, with the size and cost above.
 
 ## Ledger
 
@@ -673,3 +1365,5 @@ Only what the approval does not cover.
 | 2026-11-13 | Second revision, against the recordings of Task 1 (no spend) | Coordinator rulings applied: the ladder runs the public row's three-tool configuration (`CLAUDE_CODE_SIMPLE=1`, `CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000`) on CLI 2.1.311 and measures that configuration, not the default agent; the host's address is never allow-listed (it opened every host port), and the passthrough is reached through a relay container that forwards one port to one unix socket, the key staying in one host process (route B of D4; four probes outstanding, no spend if they fail); D5 is rebuilt row by row from recorded fields and fixtures, with provider-fault and passthrough-refusal endings still to be recorded; settlement rules follow the recorded forms (one row per message id, never the result's `usage`), each cap guard acts one response late and the USD 1.00 margin covers it; the long-prompt price rule is unpinned (the table gives 1.05 to 1.11 times the CLI's figure on the archives) and is settled in Task 2; the egress log names addresses only; the `-T` flag, the containers override and the harness wrapper are host-side parts of the method; the version evidence is the init event. Hours: about 93 in all, 85 still to do. Spend to date: 0. |
 | 2026-11-13 | Second revision accepted by the coordinator (`a4674efa`), after Task 1 and the two Task 2 probes | The recordings (CLI 2.1.311 in a task container against a local stub; no credential, a dummy key, the vendor API refused before the first run; no spend) contradicted assumptions of D2 to D5, and the plan now follows them: the three-tool configuration of the public trials; classification on `terminal_reason`, `is_error` and `api_error`; settlement de-duplicated by message id; the key in no container (a relay container forwarding to a unix socket of the one host passthrough, because allow-listing the host's address opened every host port to the agent). Still open before the launcher is written, all without spend: the relay route's four probes, the endings re-recorded with three tools, provider-fault and passthrough-refusal recordings, the long-prompt price rule. One incident, no damage: the planner's branch command ran once in another worktree (`.worktrees/coh-c1`) and was reversed at once; the coordinator checked that worktree's branch, tip and status and reran its changed tests. |
 | 2026-11-13 | Owner ruling on the credential: "subscription only. No api key for this or anythning else" (roadmap decision 18) | Owner question 1 is answered: no API key is created. **D4 and the guard table are not yet revised and must be before Task 5 starts.** What the revision settles: (1) the passthrough holds a subscription token (from `claude setup-token`, an owner action) and no container holds any; the CLI in the container keeps a dummy credential; whether it runs in key mode or in token mode with a dummy token is decided by a no-spend recording against the stub (which headers and extra endpoints token mode uses); (2) one live probe, a few requests of usage and no dollars, shows that the vendor accepts the token through the relay and the passthrough, before the launcher is built on it; (3) the workspace spend limit named as a precondition no longer exists: the USD 200 ceiling and every reservation are priced-token caps enforced by the passthrough and the launcher alone, and the guard table's worst cases are restated in usage, not money; (4) the subscription's session and weekly limits are shared with the owner's own sessions and with the coordinating session: the launcher pauses at a limit and resumes at the reset, an attempt cut off by a limit is an infrastructure failure that is rerun and never an observation, and the plan states the expected stretch of the 35 to 45 hour window; (5) owner question 1 becomes: create the token, and say whether the ladder may use the account's limits while the owner works. Spend to date: 0. |
+| 2026-11-13 | Third revision, after owner decision 18 and the Task 2 probes (no spend); awaits the coordinator's acceptance | Coordinator rulings applied. (R1) The CLI in the agent's container runs in token mode with a fake token and the relay as base URL; the passthrough replaces the bearer token and nothing else. The ladder no longer runs the public row's simple mode, which refuses a subscription token: it measures the CLI as a subscription user runs it, held to Bash, Edit and Read by `--disallowedTools`, with the default system prompt. The public per-task rates only chose the candidates; the ladder's own measurement is the only evidence of difficulty. Key mode with a rewriting passthrough is rejected. (R2) One live probe before the launcher: three sessions of a scratch task, at most 18 requests and priced USD 0.45, `claude-haiku-5-5` only; specified in Task 4; **not approved by this row**: it needs the owner's token and a coordinator approval row. (R3) A usage limit is recognised by two signals; attempts cut by one are excluded and their slots run again, each rerun counting against the 240; starts pause until the reset and reopen by themselves; an allowance guard keeps the owner's declared share free, from the owner's three inputs and the pilot's figures. (R4) A pilot of three attempts (rs-archive-clone at each effort), inside the 240 and the USD 200, through the reviewed launcher, with the owner's meter readings before and after; they are observations of the ladder; the tranche is scheduled over the weekly windows it implies. (R5) Every dollar figure is a priced-token figure under the settled price rule (cache writes by lifetime, five times above 100,000 prompt tokens); one refusal form (403 `permission_error`, `lh-passthrough:` prefix); D5 rebuilt on `api_error_status` and that prefix; the guard table restated without a workspace limit. (R6) The 4.1.0 packages run on their digest-pinned images; all oracle evidence is redone on them in two passes; seven tasks are marked as changed since the public row's 4.0.0. (R7) Owner questions rewritten: the token, the account's limits, quiet machine time. (R8) Expected priced usage about USD 182 to 192 (range 150 to 285), so the ceiling is more likely than not to end the tranche before attempt 240. Hours: about 117 in all, about 103 still to do. Spend to date: 0; subscription usage to date: none. |
+| 2026-11-13 | Third revision revised after its independent review (accept after fixes: 1 blocker, 7 majors, 14 minors); no spend; awaits the coordinator's acceptance | Every finding applied, with the coordinator's rulings. (B1) The allowance guard reads the owner's meter: a reading at each weekly reset and before each window; the window's budget is (100 − F − the reading) times the pilot's figure, floored at zero; a window is skipped at a reading within five points of the owner's share; the five-hour meter likewise with its own F; with no reading nothing starts. (M1) The live probe is not under the ladder's approval: its authority is the budget delegation and decision 18, by a coordinator approval row written before the first request; a subagent runs it through `live_probe.sh`; the rule line proposed for `AGENTS.md` is in Task 4 and is not applied by this revision. **This row does not approve the probe.** (M2) The meter is in the passthrough's first slice, before the probe. (M3) The token's path is closed by construction: the owner's creation procedure away from every agent; one read at the passthrough's start; never in arguments, child environments, logs, exception text, recordings or core dumps; a scanner that works from a salted fingerprint over a named file set and the attempt's containers; a canary test. (M4) The owner's dated confirmation that paid extra usage is off is a precondition of the probe, the pilot and the freeze; the stop for it is stated as acting after the first paid request. (M5) The manifest hash is frozen before the smoke and is the configuration label; a change after the pilot's first attempt is allowed only for a safety or correctness fault, by a ledger row before the next start; labels are never pooled in a cell; the 240 and the USD 200 do not restart; short cells are reported with their count. The schedule runs in blocks (a task's three efforts together) and the drop order at the ceiling is its hashed tail, at most one block partial; about 220 to 235 starts are expected. (M6) The 32 pinned images are measured one at a time before any plan for the disk; the fallback of a local build is a different configuration label. (M7) Each pinned agent image is checked for `solution/`, `tests/` and the canary before any use; the canary is never copied into this repository. Minors m1 to m14 applied; the owner's confirmation that the subscription's terms allow unattended runs of this size is a precondition before the probe and in the freeze's list. Hours: about 133 in all, about 119 still to do. Spend to date: 0; subscription usage to date: none. |
