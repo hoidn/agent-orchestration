@@ -4,7 +4,11 @@ retest pool with both judges, summaries with hidden tests) and the readout with 
 then one implement-check-repair run on a real check-withheld package through a real orchestrator launch.
 
 Every provider is the scripted `claude` of tests/experiments/seed_set_offline_support.py behind the comparison
-harness's real shims, sandbox and model guard; no model is called. The process runs with an empty HOME, no
+harness's real shims, sandbox and model guard; no model is called. The criterion pins that stand-in as the CLI
+(path and version) and sets the rehearsal's priced ceilings (`TERMS`). The ladder probe meets one injected usage
+limit: the stand-in answers the first probe task's Haiku call as the vendor does at a limit, starts close, the
+limit is lifted, `resume-after-limit` reopens them and the probe runs the cut slot again (rulings R1 and R2). After
+the probe one start that would pass the redraw tranche's priced ceiling is tried on the rehearsal's ledger (R4). The process runs with an empty HOME, no
 provider credentials, a closed PATH behind the Thread M no-provider stubs, and a ledger under ROOT/state (the
 study's own ledger is never opened). The stand-in fixes T1 and T2 always, every second T3 task (two of the four
 probe tasks), never T4 or T5; Sonnet fixes everything; on the smoke task Haiku fixes from its second attempt.
@@ -29,18 +33,21 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from experiments.compare.repos import dump, load
 from experiments.seed_set import ladder, layout, probing, rules, spend, study
 from tests.agent_session_shims import closed_path
 from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, open_up, write_test_sandbox_config
-from tests.experiments.seed_set_offline_support import STUB
+from tests.experiments.seed_set_offline_support import STUB, stand_in_terms
 
 CHECKOUT = Path(__file__).resolve().parents[2]
 GUARD = CHECKOUT / "experiments" / "thread_m" / "no_provider"
 H, S = spend.HAIKU, spend.SONNET
 WITHHELD_TASK = "12ea8483f0-withheld"  # a real T3w package for the withheld launch
+# the rehearsal's priced ceilings and worst cases (the stand-in prices Haiku at USD 0.0036 and Sonnet at 0.067 a call)
+TERMS = {"ceiling_usd": {"smoke": 10.0, "redraw": 3.0, "calibration": 40.0}, "per_call_usd": {H: 0.25, S: 1.0}}
 
 
 def git(*args):
@@ -102,7 +109,8 @@ def setup(root):
     dump(criterion, {"judges": [H, S], "rubric": layout.RUBRIC, "primary": [], "secondary": []})
     dump(root / "study.json", {"work": str(outside / "work"), "pools": str(outside / "pools"), "outside": str(outside)})
     s = study_at(root)
-    dump(s.frozen, {"sha256": rules.required_hashes(s), "rehearsal": "stand-in providers only"})
+    dump(s.frozen, {"sha256": rules.required_hashes(s), "rehearsal": "stand-in providers only",
+                    "spend": stand_in_terms(fakebin, **TERMS)})
     return s
 
 
@@ -121,7 +129,7 @@ def pools(s, name, kind, tasks):
     for task in tasks:  # one pool on disk at a time
         study.build_pools(s, name, kind, [task])
         study.judge(s, name, kind, [task])
-        if (s.pools / task / kind).exists():
+        if layout.current_pool(s, task, kind).exists():
             study.summarize_pools(s, kind, [task])
 
 
@@ -147,11 +155,55 @@ def calibration(s, count):
     beyond = "not tried: fewer than 20 tasks"
     if count == ladder.CALIBRATION_TASKS:
         try:
-            spend.reserve(s.ledger, "calibration", "judge", H, 1, "/rehearsal/one-more-judge-call")
+            spend.reserve(s.ledger, "calibration", "judge", H, 1, "/rehearsal/one-more-judge-call",
+                          price=layout.spend_terms(s, "calibration", H)[:2])
             beyond = "reserved"
         except SystemExit as error:
             beyond = str(error)
     return {"relaunched": len(relaunch), "early_look": look["passed"], "judge_beyond_cap": beyond}
+
+
+def usage_limit(plan_file, limit):
+    """Set (or lift, with {}) the stand-in's usage limit in its plan, in place: the sandbox binds the same file."""
+    plan = load(plan_file)
+    plan["usage_limit"] = limit
+    Path(plan_file).write_text(json.dumps(plan))
+
+
+def probe_with_a_cut(s):
+    """The ladder probe meeting one usage limit on its first task: cut, starts closed, lifted, reopened, re-run."""
+    plan_file, reset = Path(os.environ["SEED_SET_STUB_PLAN"]), int(time.time())
+    first = ladder.probe_tasks(layout.task_rows(s), probing.answer(s)["probe"][0])[0]
+    usage_limit(plan_file, {"task": first, "model": H, "reset": reset})
+    try:
+        probing.probe(s)
+        closed = "starts were not closed"
+    except SystemExit as error:
+        closed = str(error)
+    usage_limit(plan_file, {})
+    resumed = spend.resume_after_limit(s.ledger, reset, 0.0, 0.0, time.time())
+    probing.probe(s)
+    runs = [load(path) for path in layout.study_runs(s) if load(path)["task"] == first]
+    return {"task": first, "closed": closed, "resume_seq": resumed["seq"],
+            "runs": [("cut" if "cut" in f else "incident" if "incident" in f else f.get("outcome")) for f in runs],
+            "incidents_in_tranche": sum("incident" in load(p) for p in layout.study_runs(s))}
+
+
+def beyond_the_ceiling(s):
+    """One start on the redraw tranche whose worst case would pass its priced ceiling: refused, nothing written."""
+    ceiling, per_call, _ = layout.spend_terms(s, "redraw", H)
+    committed = spend.committed_usd(spend.rows(s.ledger), "redraw")
+    calls = int((ceiling - committed) // per_call) + 1
+    left = spend.remaining(spend.rows(s.ledger), "redraw", "candidate", H)
+    before = s.ledger.read_bytes()
+    try:
+        spend.reserve(s.ledger, "redraw", "candidate", H, calls, "/rehearsal/beyond-the-ceiling",
+                      price=(ceiling, per_call))
+        refusal = "reserved"
+    except SystemExit as error:
+        refusal = str(error)
+    return {"calls": calls, "calls_left_in_cap": left, "committed_usd": committed, "ceiling_usd": ceiling,
+            "refusal": refusal, "ledger_unchanged": s.ledger.read_bytes() == before}
 
 
 def build_order(s):
@@ -212,15 +264,16 @@ def stages(root, s, count, withheld_only=False):
     rules.record_freeze(s)
     out = {"smoke_check": smoke(s)}
     tranche("redraw")
-    probing.probe(s)
+    out["usage_limit"] = probe_with_a_cut(s)
     out["probe"] = probing.probe_readout(s)
+    out["ceiling"] = beyond_the_ceiling(s)
     out["calibration"] = calibration(s, count)
     report = study.write_readout(s)
     gates_ = report["calibration"] or {}
     out |= {"decision": gates_.get("decision"), "anchor_failures": report["anchor_failures"],
             "judge_checks": gates_.get("judge_checks"), "gate_checks": gates_.get("gate_checks"),
             "identity_hits": {p.parent.name: len(load(p)["hits"]) for p in (s.results / "pools").glob("*/identity-scan.json")},
-            "build_order": build_order(s), "ledger": study.ledger_report(s)}
+            "build_order": build_order(s), "ledger": study.ledger_report(s), "priced_usd": spend.priced(s.ledger)}
     out["withheld_run"] = withheld_run(root, s)
     os.environ.pop(spend.AUTHORIZATION)
     dump(root / "rehearsal.json", out)

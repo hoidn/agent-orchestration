@@ -20,7 +20,9 @@ incident's task once more, reserved from the same redraw Haiku allowance; a task
 too is excluded and listed. A rung is answered when each of its four probe tasks has a usable run or is excluded;
 its passes are counted on four (`round(4 * passes / usable)`: 3 of 3 is 4, 2 of 3 is 3, 1 of 3 is 1; an assumption
 recorded for the coordinator), and a rung with fewer than three usable runs stops the probe ("probe incomplete"),
-with no task list.
+with no task list. A run cut by a usage limit (coordinator ruling R1, 2026-11-14) is neither an incident nor a task
+failure: it gets no hidden check, and its task runs once more from the same allowance (`RERUNS`), beside the one
+relaunch an incident gets; a task cut again is excluded like an exhausted one.
 
 `probe_readout` records the answer; a chosen or split answer draws the calibration tasks (`ladder.choose`) and,
 when they are 20, writes them to `results/calibration-tasks.json` once, with its hash and the per-rung counts in
@@ -41,7 +43,7 @@ from experiments.seed_set import study as runner
 from experiments.seed_set.layout import CHOSEN, load_arms, study_runs, task_dir, task_rows
 
 
-RELAUNCHES, MIN_USABLE = 1, 3  # coordinator ruling on review2 M2/M3
+RELAUNCHES, MIN_USABLE, RERUNS = 1, 3, 1  # coordinator rulings on review2 M2/M3 and R1
 
 
 def attempts(study, phase):
@@ -55,11 +57,22 @@ def attempts(study, phase):
 
 
 def usable(facts):
-    return "hidden" in facts and "incident" not in facts
+    return "hidden" in facts and "incident" not in facts and "cut" not in facts
+
+
+def ended(facts):
+    """A settled run that is no observation: an incident, or cut by a usage limit."""
+    return "incident" in facts or "cut" in facts
+
+
+def allowed(runs):
+    """Starts a probe task may have: one, one relaunch after an incident, one re-run after a usage-limit cut."""
+    return (1 + min(sum("incident" in f for f in runs), RELAUNCHES)
+            + min(sum("cut" in f and "incident" not in f for f in runs), RERUNS))
 
 
 def exhausted(runs):
-    return not any(map(usable, runs)) and sum("incident" in f for f in runs) > RELAUNCHES
+    return not any(map(usable, runs)) and all(map(ended, runs)) and len(runs) >= allowed(runs)
 
 
 def results(study, phase):
@@ -74,6 +87,7 @@ def results(study, phase):
         figures[rung] = {"runs": sum(len(tried.get(t, [])) for t in tasks), "usable": len(good),
                          "passes": sum(bool(f["hidden"]["passed"]) for f in good),
                          "incidents": sum("incident" in f for t in tasks for f in tried.get(t, [])),
+                         "cuts": sum("cut" in f for t in tasks for f in tried.get(t, [])),
                          "excluded": excluded, "in_tree_runs": len(own),
                          "self_checked": sum(bool(f["self_check"]) for f in own)}
         if len(good) + len(excluded) == len(tasks) == ladder.PROBE_TASKS:
@@ -170,12 +184,12 @@ def probe(study, rungs=None):
         def started(task):
             return sum((row["tranche"], row.get("task"), row.get("step")) == ("redraw", task, now["phase"])
                        for row in starts)
-        def due(task):  # never started, or every start an incident with a relaunch left
+        def due(task):  # never started, or every start an incident or a cut with a start left
             n, runs = started(task), tried.get(task, [])
-            return n == 0 or (n == len(runs) <= RELAUNCHES and all("incident" in f for f in runs))
+            return n == len(runs) and all(map(ended, runs)) and n < allowed(runs)
         jobs = [(task, rung) for rung in rungs for task in ladder.probe_tasks(rows, rung) if due(task)]
         spend.check(study.ledger, "redraw", "candidate", spec["model"], spec["max_calls"] * len(jobs))
-        return runner.run_jobs(study, "redraw", jobs, lambda job: probe_run(
+        return runner.run_jobs(jobs, lambda job: probe_run(
             study, spec, *job, fixes[job[0]], now["phase"], limit=started(job[0]) + 1))
 
 
@@ -202,7 +216,7 @@ def recover(study):
     fixes = ladder.fix_commits(task_rows(study))
     for path in study_runs(study):
         records, facts = path.parent, load(path)
-        if facts["tranche"] != "redraw" or "hidden" in facts or "incident" in facts:
+        if facts["tranche"] != "redraw" or "hidden" in facts or ended(facts):
             continue
         if str(records) not in reserved:  # died between its facts file and its reservation: nothing started
             path.unlink()
@@ -216,7 +230,7 @@ def recover(study):
             if "exit" not in facts and facts.get("outcome") != "completed":
                 facts.setdefault("incident", "interrupted: the runner stopped during the launch")
             dump(path, facts)
-        if "incident" not in facts:
+        if not ended(facts):
             probe_check(study, records, facts)
         print(f"{records}: recovered, {facts.get('incident') or facts.get('outcome')}")
 
@@ -233,7 +247,7 @@ def alive(pgid):
 
 def probe_run(study, spec, task, rung, fix, phase, limit=1):
     records, facts = runner.one_run(study, "redraw", "direct", spec, task, fix, limit=limit, step=phase, rung=rung)
-    return records, facts if "incident" in facts else probe_check(study, records, facts)
+    return records, facts if ended(facts) else probe_check(study, records, facts)
 
 
 def probe_check(study, records, facts):

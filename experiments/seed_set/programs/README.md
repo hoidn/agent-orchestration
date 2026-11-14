@@ -23,6 +23,12 @@ is `direct.orc` with `claude-sonnet-5-5`) together with the source, entry and
 maximum calls; the runner passes them in `inputs.json` (`--set model=...
 --set effort=...` through `prepare.run_arm`).
 
+**Providers.** `providers.json` binds both aliases to `claude_unrestricted_workspace_metered`, and
+`judge.providers.json` binds the judge route (`score_functional.orc`'s `providers.judge`) to it as well; the
+harness's shared `score.providers.json` keeps the plain template. The metered template prints stream-json, so the
+runner prices every call's usage by the frozen price table and the runtime can take `--max-cost-usd` (coordinator
+ruling R4, 2026-11-14).
+
 **Boundaries.** `dev_check.py` (the visible check, a copy of the structural
 search catalog's) and `reset_clone.py` (hard reset to the harness's
 `compare seed` commit, then `git clean -fd`) run in the clone, the working
@@ -70,6 +76,10 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   leaves a credential under a results or pool directory (coordinator ruling, round 4).
 - A runner that dies between launch and settle leaves the agents' tree on disk until `settle` (a calibration
   run) or the next `probe` (a probe run) settles it (review2 minor 9).
+- A slot cut by a usage limit runs again once from the same cap (coordinator ruling R1, 2026-11-14), so only where
+  the cap has room: the smoke's caps, the calibration's Sonnet candidates and both judges' calibration caps are
+  fully planned, so a cut there is not run again (a smoke cut fails the smoke; a cut judge pool is rebuilt, its
+  judges are refused at the cap, and the pool ends as an incident).
 
 **Check-withheld runs.** For a package with `withheld/`, the runner copies those test files into the run's records
 directory (outside the agents' tree and the sandbox) and names the copy in `SEED_SET_WITHHELD` for the launch;

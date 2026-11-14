@@ -6,8 +6,10 @@ Order: no start before a `freeze` event whose identity still matches (`frozen_id
 event whose chosen list still matches `results/calibration-tasks.json`; no calibration judge outside the early judge
 look's three first pools before a passed `early_look` event, and none after a failed one. Stops (a `stop` event, after which `spend.reserve` refuses
 everything): a forbidden-model answer in a run or a judge, three tasks with a contaminated run or judgment, more
-than 10% of a tranche's planned runs ending as incidents, and a `stop:` decision of the readout. The audit refuses
-when a unit made calls the ledger does not hold (a missing or foreign ledger) or more calls than it reserved.
+than 10% of a tranche's planned runs ending as incidents, and a `stop:` decision of the readout. A run cut by a usage
+limit is not an incident (coordinator ruling R1); its `pause` event closes starts until `resume-after-limit` (R2),
+which is no stop. The audit refuses when a unit made calls the ledger does not hold (a missing or foreign ledger) or
+more calls than it reserved.
 
 The freeze (coordinator ruling on review2 M6, 2026-11-12) binds what decides the verdicts and what the agents see:
 the runtime commit, the git tree of the study's and the harness's code (`experiments/seed_set`,
@@ -17,12 +19,14 @@ module of either package is not the runtime's file (run with the runtime as the 
 when the task list lies outside the runtime, when the code or the packages hold an untracked file (the criterion
 files and the results directory, written after the commit, excepted), and when
 `criterion.json` does not name, under "sha256", the current sha256 of the task list, every program, the rubric
-`score_functional.orc` and `judge-calibration.json` (plan Step 1f; keys are runtime-relative paths, the judge
-criterion by its file name), and when a package the study can draw, probe or smoke on has no stable entry at its
+`score_functional.orc`, the price table `orchestrator/providers/price_table.json` (coordinator ruling R4) and
+`judge-calibration.json` (plan Step 1f; keys are runtime-relative paths, the judge criterion by its file name), and
+when a package the study can draw, probe or smoke on has no stable entry at its
 current hash in `anchor_stability.json` (`anchors.py`; coordinator ruling, 2026-11-12). A second freeze after a start needs a reason, which the ledger keeps.
 """
 
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -36,6 +40,7 @@ JUDGE_EFFORT = "high"  # score_functional.orc's fixed judge effort
 
 CODE = ("experiments/seed_set", "experiments/compare")
 RUBRIC_FILE = Path("experiments/compare") / layout.RUBRIC["workflow"]
+PRICE_TABLE = Path("orchestrator/providers/price_table.json")  # the runtime's; its sha256 is frozen (ruling R4)
 
 
 def frozen_identity(study):
@@ -66,6 +71,7 @@ def frozen_identity(study):
             "runtime_commit": runtime_commit(runtime), "code_tree": tree(runtime, *CODE),
             "packages": tree(runtime, f"{packages}/"),
             "tasks_sha256": sha256_file(study.tasks_file), "anchor_stability_sha256": sha256_file(stability),
+            "price_table_sha256": sha256_file(runtime / PRICE_TABLE),
             "programs": {path.name: sha256_file(path) for path in sorted(study.programs.glob("*.orc"))}}
 
 
@@ -82,12 +88,30 @@ def loaded_elsewhere(runtime):
 
 
 def required_hashes(study):
-    """{key: sha256} that criterion.json must name: the task list, every program, the rubric, the judge
-    criterion."""
+    """{key: sha256} that criterion.json must name: the task list, every program, the rubric, the price table, the
+    judge criterion."""
     runtime = study.runtime.resolve()
-    paths = [study.tasks_file.resolve(), *sorted(study.programs.resolve().glob("*.orc")), runtime / RUBRIC_FILE]
+    paths = [study.tasks_file.resolve(), *sorted(study.programs.resolve().glob("*.orc")), runtime / RUBRIC_FILE,
+             runtime / PRICE_TABLE]
     return {str(path.relative_to(runtime)): sha256_file(path) for path in paths} | {
         study.criterion.name: sha256_file(study.criterion)}
+
+
+def check_cli(declaration, pin):
+    """{"path", "version"} of the unit's Claude CLI when it is the pinned absolute path and answers `--version` with
+    the pinned version (coordinator ruling R5; the installed CLI updates itself); else refuse the start. The version
+    runs from the study's process with an empty home: no credential, no sandbox."""
+    path = load(declaration).get("claude")
+    if path != pin["path"]:
+        raise SystemExit(f"the unit's Claude CLI {path} is not the pinned {pin['path']}: nothing starts")
+    with tempfile.TemporaryDirectory() as home:
+        done = subprocess.run([path, "--version"], env={"HOME": home, "PATH": "/usr/bin:/bin",
+                                                        "DISABLE_AUTOUPDATER": "1"},
+                              capture_output=True, text=True, timeout=120)
+    if done.returncode or done.stdout.strip() != pin["version"]:
+        raise SystemExit(f"{path} --version answered {done.stdout.strip()!r} (exit {done.returncode}), not the "
+                         f"pinned {pin['version']!r}: nothing starts")
+    return {"path": path, "version": pin["version"]}
 
 
 def record_freeze(study, reason=None):

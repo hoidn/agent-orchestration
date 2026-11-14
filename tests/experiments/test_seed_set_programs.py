@@ -186,10 +186,12 @@ def test_every_program_has_the_same_implementer_prompt():
     assert len(prompts) == 1
 
 
-def test_every_call_uses_the_bound_model_and_effort(world):
+def test_every_call_uses_the_bound_model_and_effort_on_the_metered_template(world):  # ruling R4
     run(world, "implement_review_revise", [change("ok"), REQUEST, change("ok")])
-    assert {tuple(call["argv"][1:5]) for call in calls(world)} == {
-        ("--model", "claude-haiku-5-5", "--effort", "medium")}
+    def after(argv, flag):
+        return argv[argv.index(flag) + 1]
+    assert {tuple(after(call["argv"], flag) for flag in ("--model", "--effort", "--output-format"))
+            for call in calls(world)} == {("claude-haiku-5-5", "medium", "stream-json")}
 
 
 def test_direct_makes_one_call(world):

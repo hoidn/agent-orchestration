@@ -8,17 +8,19 @@
                                                           chosen calibration tasks (written once), or the stop
   study.py record-transcripts --fault yes|no --note N [RUN ...]  after an all-too-hard probe: transcripts read
   study.py early-look                                     the early judge look on the first three chosen tasks
-  study.py candidates --tranche T --arm ARM TASK ...      prepare, launch (four at a time), collect, scan, session
+  study.py candidates --tranche T --arm ARM TASK ...      prepare, launch (two at a time), collect, scan, session
                                                           audit, visible check, metering; delete the agents' tree
   study.py settle RECORDS ...                             settle runs whose runner was interrupted (not probe
                                                           runs: rerunning `probe` recovers those)
   study.py pool --tranche T --kind first|retest TASK ...  one blind pool per task: its usable runs and both anchors
+                                                          (once more, from the same records, after a usage limit)
   study.py judge --tranche T --kind first|retest TASK ... both judges one after another; verify-pool; scan; audit
   study.py summarize --kind first|retest TASK ...         summarize.py behind the no-provider stubs; records kept in
                                                           results/pools/<task>-<kind>/ (or its incident); clones gone
   study.py smoke-check                                    the smoke's mechanical checklist, pass or fail, in the ledger
   study.py readout                                        anchors first, then V1-V4, G1-G4, incidents, baselines
   study.py ledger                                         calls reserved and made, and the events
+  study.py resume-after-limit --reset T --five-hour P --weekly P --read-at T   reopen starts a usage limit closed
 
 Run every command from the frozen runtime (`cd <runtime> && PYTHONPATH=$PWD python -m experiments.seed_set.study
 --runtime $PWD ...`): the freeze refuses study or harness modules loaded from anywhere else, and a task list
@@ -30,6 +32,18 @@ the harness's resume scripts are disabled (the study never resumes). Candidate c
 ledger is `~/.local/state/seed-set/spend-ledger.jsonl` whatever the paths given. Scan hits are adjudicated by hand
 (`prepare.py scan --verdict`); a pool that cannot be summarized (a failed judge, a wrong rating count, a task
 without a usable run) is recorded as an incident and costs only its task.
+
+A usage limit (coordinator rulings R1 and R2, 2026-11-14) is neither an incident nor an observation. The unit it
+cuts is recorded `cut`, never pooled, never scored and not counted by the incident stop; a `pause` event closes
+every start at once (calls in flight finish or are cut) until `resume-after-limit`. Each planned slot whose run was
+cut runs again once, as a new unit and from the same cap; a pool with a cut judge is rebuilt once from the same
+run records (`<kind>.2`) and judged again by both judges.
+
+Spend in priced tokens (rulings R4 and R5): candidates and judges run the metered template (`programs/providers.json`
+and the study's own `programs/judge.providers.json`). Before a start the unit's Claude CLI must be the criterion's
+pinned path and version, and `spend.reserve` refuses a start whose worst case would pass the tranche's priced
+ceiling; the unit's worst case also goes to the runtime as `--max-cost-usd`. When it ends, its metered usage priced
+by the frozen table settles it (a `settle` event).
 """
 
 import argparse
@@ -40,20 +54,23 @@ import signal
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
 
 from experiments.compare import pool as pooling, prepare, scan, summarize as summary
 from experiments.compare.repos import dump, load, sha256_file
 from experiments.orc_structural_search import metering
-from experiments.seed_set import blinding, gates, host, ladder, readout, rules, selection, spend, units
+from orchestrator.providers.pricing import load_price_table
+from experiments.seed_set import blinding, gates, host, ladder, layout, readout, rules, selection, spend, units
 from experiments.seed_set.layout import (
     PLANNED, RETESTS, Study, chosen, load_arms, load_criterion, require_tasks, study_runs,
     task_dir, task_rows, tranche_tasks,
 )
 
 BOUNDARIES = ("dev_check.py", "reset_clone.py")  # copied into the clone and excluded from its patch
+JUDGE_PROVIDERS = "judge.providers.json"  # the judges' metered template (ruling R4), beside the programs
 INPUTS = ("task", "intent", "repo", "model", "effort")
-WIDTH, FIRST_WAVE, MAX_POOLS = 4, 2, 2  # a tranche's first wave runs two at a time
+WIDTH, MAX_POOLS = 2, 2  # two runs at a time (coordinator ruling R3): a usage limit cuts at most two in flight
 CALL_SEC, JUDGE_SEC, SLACK_SEC = 1200, 3600, 600  # the programs' and score_functional.orc's :timeout-sec
 
 
@@ -83,19 +100,12 @@ def stage_withheld(package, records):
     return shutil.copytree(source, Path(records) / "withheld") if source.is_dir() else None
 
 
-def waves(jobs, started):
-    """The jobs in launch waves: a tranche's first wave (no run of it started yet) two at a time."""
-    return [(FIRST_WAVE, jobs[:FIRST_WAVE]), (WIDTH, jobs[FIRST_WAVE:])] if not started else [(WIDTH, jobs)]
-
-
-def run_jobs(study, tranche, jobs, one):
-    started = any(load(path)["tranche"] == tranche for path in study_runs(study))
-    done = []
-    for width, wave in waves(jobs, started):
-        with ThreadPoolExecutor(width) as workers:
-            done += list(workers.map(one, wave))
+def run_jobs(jobs, one):
+    with ThreadPoolExecutor(WIDTH) as workers:
+        done = list(workers.map(one, jobs))
     for records, facts in done:
-        print(f"{records}: {facts.get('incident') or facts.get('outcome')}, {facts['calls']} calls")
+        what = facts.get("incident") or ("cut by a usage limit" if "cut" in facts else facts.get("outcome"))
+        print(f"{records}: {what}, {facts['calls']} calls")
     return done
 
 
@@ -129,16 +139,24 @@ def candidates(study, tranche, arm, tasks):
     spec, entries = load_arms(study)[arm], spend.starts(spend.rows(study.ledger))
     def started(task, where):
         return sum((row["tranche"], row.get("task"), row.get("arm")) == (where, task, arm) for row in entries)
-    probed = [f for path in study_runs(study) if (f := load(path))["tranche"] == "redraw" and "incident" not in f]
+    facts = {str(path.parent): load(path) for path in study_runs(study)}
+    probed = [f for f in facts.values() if f["tranche"] == "redraw" and "incident" not in f and "cut" not in f]
 
     # a probe run of a chosen package (the same id is the same form) that is not an incident is the first of its
-    # Haiku direct runs
-    limits = {task: PLANNED[tranche][arm] - (sum(f["task"] == task and f["arm"] == arm for f in probed)
-                                             if tranche == "calibration" else 0) for task in tasks}
+    # Haiku direct runs; a planned slot cut by a usage limit runs once more
+    planned = {task: PLANNED[tranche][arm] - (sum(f["task"] == task and f["arm"] == arm for f in probed)
+                                              if tranche == "calibration" else 0) for task in tasks}
+    limits = {task: n + cut_reruns(entries, facts, tranche, task, arm, n) for task, n in planned.items()}
     jobs = [task for task in tasks for _ in range(limits[task] - started(task, tranche))]
     spend.check(study.ledger, tranche, "candidate", spec["model"], spec["max_calls"] * len(jobs))
-    return run_jobs(study, tranche, jobs, lambda task: one_run(study, tranche, arm, spec, task, fixes[task],
-                                                               limit=limits[task]))
+    return run_jobs(jobs, lambda task: one_run(study, tranche, arm, spec, task, fixes[task], limit=limits[task]))
+
+
+def cut_reruns(entries, facts, tranche, task, arm, planned):
+    """How many of the first `planned` starts of (tranche, task, arm) a usage limit cut: each such slot runs again
+    once (a re-run comes after them, so a cut re-run adds none). `facts` maps a unit to its study.json."""
+    units_ = [row["unit"] for row in entries if (row["tranche"], row.get("task"), row.get("arm")) == (tranche, task, arm)]
+    return sum("cut" in facts.get(unit, {}) for unit in units_[:planned])
 
 
 def boundaries(study, cand):
@@ -151,6 +169,7 @@ def boundaries(study, cand):
 def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
     """Prepare one run, reserve it (at most `limit` starts of its tranche, task, arm and step), launch it, settle
     it; return (records, the facts in its study.json). `extra` facts (a probe's step and rung) join them."""
+    spend.refuse_closed(spend.rows(study.ledger))  # after a usage limit or a stop, no clone is built for nothing
     rules.require_free(study, study.work)
     env, programs = launch_env(spec["model"], spec["max_calls"]), study.programs
     arm_spec = prepare.ArmSpec(programs / spec["source"], spec["entry"], programs, programs / "providers.json",
@@ -177,8 +196,11 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
              "max_calls": spec["max_calls"], **extra}
     dump(records / "study.json", facts)  # before the reservation: every reserved run has its facts file
     try:
+        ceiling, per_call, pin = layout.spend_terms(study, tranche, spec["model"])
+        cli = rules.check_cli(record["sandbox"]["declaration"], pin)
         spend.reserve(study.ledger, tranche, "candidate", spec["model"], spec["max_calls"], records,
-                      limit=limit, task=task, arm=arm, **extra)
+                      limit=limit, price=(ceiling, per_call), task=task, arm=arm, cli=cli, **extra)
+        units.cap_command(records / "command.sh", spec["max_calls"] * per_call)
     except SystemExit:
         (records / "study.json").unlink()  # refused: nothing started, nothing left on disk
         shutil.rmtree(record["tree"])
@@ -191,6 +213,7 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
 def finish(study, records, facts, fix):
     facts |= settle(study, records, task_dir(study, facts["task"]), fix, facts["max_calls"], facts["model"],
                     facts.get("exit"))
+    facts["priced"] = settle_price(study, str(records), records, facts["tranche"], facts["model"])
     dump(records / "study.json", facts)
     for reason in rules.stop_reasons(study):
         rules.stop(study, reason)
@@ -212,14 +235,13 @@ def settle(study, records, task, fix, cap, model, status):
     except SystemExit as error:
         out |= ({"outcome": "failed", "failure": {"code": "wall_clock_timeout"}} if status == "timeout"
                 else {"incident": str(error)})
-    if out.get("outcome") == "failed" and (why := units.provider_incident(records)):
-        out["incident"] = f"provider: {why}"
+    out = provider_end(study, records, str(records), out)
     reason, policy, sessions = units.audit_sessions(record["sandbox"]["home"], record["tree"], made, model)
     out["sessions"] = len(sessions)
     if policy:
         rules.stop(study, f"forbidden model in {records}: {policy}")
-    if reason:
-        out["incident"] = f"session audit: {reason}"
+    if reason:  # a failed audit is an incident, cut or not
+        out = {key: value for key, value in out.items() if key != "cut"} | {"incident": f"session audit: {reason}"}
     if out.get("outcome") == "completed" and "final" in collected["patches"]:
         out["final_patch"] = str(records / collected["patches"]["final"])
         out["visible"] = host.visible_check(task, Path(out["final_patch"]), study.runtime)
@@ -231,6 +253,25 @@ def settle(study, records, task, fix, cap, model, status):
         shutil.copytree(record["state_root"], records / "state")
     shutil.rmtree(record["tree"])
     units.forget_credentials(record["sandbox"]["home"])  # the transcripts stay for the audits (review2 minor 7)
+    return out
+
+
+def settle_price(study, unit, calls_root, tranche, model):
+    """The unit's metered usage priced by the runtime's frozen price table, recorded as its `settle` event."""
+    per_call = layout.spend_terms(study, tranche, model)[1]
+    priced = units.priced(calls_root, load_price_table(study.runtime / rules.PRICE_TABLE), per_call)
+    spend.record(study.ledger, "settle", unit=unit, **priced)
+    return priced
+
+
+def provider_end(study, calls_root, unit, out):
+    """The provider's own ending of a unit: a usage limit cuts it (not an incident, not an observation) and closes
+    every start at once with a `pause` event; any other provider error ends a failed unit as an incident."""
+    if limit := units.usage_limit(calls_root):
+        spend.record(study.ledger, "pause", unit=unit, **limit)
+        return {key: value for key, value in out.items() if key != "incident"} | {"cut": limit}
+    if out.get("outcome") == "failed" and (why := units.provider_incident(calls_root)):
+        out["incident"] = f"provider: {why}"
     return out
 
 
@@ -251,6 +292,12 @@ def live_pools(study):
     return [path for path in study.pools.glob("*/*") if (path / "clones").exists()]
 
 
+def retire(out):
+    """Delete a pool's clones (its records stay: the audit and the ledger name its judges)."""
+    (out / "clones").chmod(0o755)
+    shutil.rmtree(out / "clones")
+
+
 def probe_only(tranche):
     if tranche == "redraw":
         raise SystemExit("the redraw cap serves the ladder probe only: it builds no pool and runs no judge")
@@ -263,23 +310,37 @@ def pool_incident(study, task, kind, reason, failed_judges=()):
     print(f"POOL INCIDENT {task}/{kind}: {reason}")
 
 
+def pool_to_build(study, task, kind):
+    """Where `pool` builds (task, kind): the first pool, or once its rebuild when a usage limit cut one of its judges
+    (the cut pool's clones go first; its records stay). A pool built or rebuilt before, or ended as an incident,
+    refuses."""
+    out = layout.current_pool(study, task, kind)
+    if out.exists() and layout.cut_judges(out) and out.name == kind:
+        if (out / "clones").exists():
+            retire(out)
+        out = out.with_name(kind + layout.REBUILT)
+    if out.exists() or (study.results / "pools" / f"{task}-{kind}").exists():
+        raise SystemExit(f"{out} exists or ended as an incident; a pool is built once (and rebuilt once after a usage "
+                         "limit)")
+    return out
+
+
 def build_pools(study, tranche, kind, tasks):
     """One pool per task from its collected, scanned runs that are not incidents; both anchors join the batch."""
     probe_only(tranche)
     require_tasks(study, tranche, tasks, kind)
     load_criterion(study)
     for task in dict.fromkeys(tasks):
-        out = study.pools / task / kind
-        if out.exists() or (study.results / "pools" / f"{task}-{kind}").exists():
-            raise SystemExit(f"{out} exists or ended as an incident; a pool is built once")
+        out = pool_to_build(study, task, kind)
         rules.require_free(study, study.pools)
         if len(live_pools(study)) >= MAX_POOLS:
             raise SystemExit(f"two pools still hold clones ({live_pools(study)}); summarize one first")
         runs = [path.parent for path in study_runs(study) if (facts := load(path))["task"] == task
-                and "scan_hits" in facts and "incident" not in facts]
+                and "scan_hits" in facts and "incident" not in facts and "cut" not in facts]
         out.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            pooling.pool(task_dir(study, task), study.criterion, out, list(gates.JUDGES), runs)
+        try:  # each judge on the study's own metered providers file (the harness's binds the plain template)
+            pooling.pool(task_dir(study, task), study.criterion, out,
+                         [f"{judge}={study.programs / JUDGE_PROVIDERS}" for judge in gates.JUDGES], runs)
         except SystemExit as error:  # e.g. every run failed: the task's runs still count, its anchors are missing
             shutil.rmtree(out, ignore_errors=True)
             pool_incident(study, task, kind, f"not pooled: {error}")
@@ -290,7 +351,7 @@ def build_pools(study, tranche, kind, tasks):
         dump(out / "records" / "identity-scan.json", {"hits": hits})
         if hits:  # refused before any judge call; nothing is scrubbed
             pool_incident(study, task, kind, f"arm-identifying text in judged content: {hits[:3]}")
-            (out / "clones").chmod(0o755)
+            retire(out)
             shutil.rmtree(out)
 
 
@@ -302,15 +363,16 @@ def judge(study, tranche, kind, tasks):
     fixes = require_tasks(study, tranche, tasks, kind)
     rules.enforce(study, tranche)
     rules.require_early_look(study, tranche, kind, tasks)
-    pools = [out for task in dict.fromkeys(tasks) if (out := study.pools / task / kind).exists()]
+    pools = [out for task in dict.fromkeys(tasks) if (out := layout.current_pool(study, task, kind)).exists()]
     for out in pools:
         scan = out / "records" / "identity-scan.json"
         if not scan.exists() or load(scan).get("hits") != []:
             raise SystemExit(f"{out}: no clean identity scan ({scan}); no judge is launched")
     for task in dict.fromkeys(tasks):
-        out = study.pools / task / kind
-        if out not in pools:
-            print(f"{out}: no pool (see its incident), no judge")
+        out = layout.current_pool(study, task, kind)
+        if out not in pools or layout.cut_judges(out):
+            print(f"{out}: no pool (see its incident), or a judge cut by a usage limit (`pool` rebuilds it once); "
+                  "no judge")
             continue
         mapping = load(out / "records" / "mapping.json")
         for model in gates.JUDGES:
@@ -324,7 +386,11 @@ def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     batches, records = len(mapping["batches"]), out / "records"
     pooling.verify_pool(out)
     judged = blinding.judged_patches(out, mapping)  # what this judge reads, bound to its ratings in the readout
-    spend.reserve(study.ledger, tranche, "judge", model, batches, f"{out}#{model}", task=task, pool=kind)
+    ceiling, per_call, pin = layout.spend_terms(study, tranche, model)
+    cli = rules.check_cli(mapping["judges"][model]["sandbox"]["declaration"], pin)
+    spend.reserve(study.ledger, tranche, "judge", model, batches, f"{out}#{model}", price=(ceiling, per_call),
+                  task=task, pool=kind, cli=cli)
+    units.cap_command(records / f"score-{model}.sh", batches * per_call)
     start, home = time.time(), mapping["judges"][model]["sandbox"]["home"]
     units.copy_credentials(home)  # the pool keeps none; the judge's own home holds them for its launch only
     try:
@@ -334,6 +400,10 @@ def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     finally:
         units.forget_credentials(home)
     facts |= {"wall_clock_sec": time.time() - start, "calls": units.physical_calls(records / "judges" / model)}
+    facts["priced"] = settle_price(study, f"{out}#{model}", records / "judges" / model, tranche, model)
+    if limit := units.usage_limit(records / "judges" / model):  # the pool is rebuilt once; its task is not lost
+        spend.record(study.ledger, "pause", unit=f"{out}#{model}", **limit)
+        facts["cut"] = limit
     if facts["calls"] > batches:
         raise SystemExit(f"{out}#{model}: {facts['calls']} provider calls exceed the {batches} reserved; stop")
     try:
@@ -365,8 +435,8 @@ def failed_judges(out, criterion):
     for name, info in mapping["judges"].items():
         facts = out / "records" / f"study-{name}.json"
         try:
-            if facts.is_file() and "incident" in load(facts):
-                raise SystemExit(load(facts)["incident"])
+            if facts.is_file() and ({"incident", "cut"} & set(load(facts))):
+                raise SystemExit(load(facts).get("incident") or "cut by a usage limit")
             summary.join(*summary.scoring_run(out, name, info, sha), mapping["batches"], summary.criteria_of(mapping),
                          summary.reference_paths(out, mapping))
         except (SystemExit, OSError, KeyError, ValueError, TypeError):
@@ -379,10 +449,13 @@ def summarize_pools(study, kind, tasks):
     incident naming the judges that failed; only its task loses its numbers."""
     load_criterion(study)
     for task in dict.fromkeys(tasks):
-        out = study.pools / task / kind
+        out = layout.current_pool(study, task, kind)
         dest = study.results / "pools" / f"{task}-{kind}"
         if dest.exists():
             raise SystemExit(f"{dest} exists; a pool is summarized once")
+        if layout.cut_judges(out) and out.name == kind:
+            raise SystemExit(f"{out}: {layout.cut_judges(out)} cut by a usage limit; after resume-after-limit, `pool` "
+                             "rebuilds it once from the same records")
         failed = failed_judges(out, study.criterion)
         try:
             if failed:
@@ -397,8 +470,7 @@ def summarize_pools(study, kind, tasks):
                                                        "identity-scan.json")] + sorted((out / "records").glob("study-*.json")):
                 shutil.copyfile(path, dest / path.name)
             shutil.copytree(out / "records" / "patches", dest / "patches")
-        (out / "clones").chmod(0o755)
-        shutil.rmtree(out / "clones")
+        retire(out)
 
 
 def judged_of(directory):
@@ -424,8 +496,8 @@ def load_records(study, models, tasks):
         records += found
         pools.append(info)
     pooled = {r["run"] for r in records if r["pool"] == "first"}
-    for run, row in facts.items():
-        if run not in pooled and row["tranche"] != "smoke" and row["task"] in tasks:
+    for run, row in facts.items():  # a run cut by a usage limit is no observation (R1)
+        if run not in pooled and row["tranche"] != "smoke" and row["task"] in tasks and "cut" not in row:
             failed = "incident" not in row and (row.get("outcome") == "failed" or row.get("exit") == "timeout")
             records.append({"task": row["task"], "pool": "first", "role": "candidate", "arm": row["arm"],
                             "model": row["model"], "run": run, "patch": None, "hidden": None, "scores": {},
@@ -446,6 +518,7 @@ def write_readout(study):
     runs = {run: facts for run, facts in runs.items() if facts["task"] in tasks}  # probe runs of other tasks out
     report = readout.report(records, pools, tasks, retests, rungs, runs, spend.totals(study.ledger), programs,
                             rules.planned_runs(study, "calibration"))
+    report["priced_usd"] = spend.priced(study.ledger)
     study.results.mkdir(parents=True, exist_ok=True)
     dump(study.results / "calibration.json", report)
     (study.results / "readout.md").write_text(readout.markdown(report))
@@ -471,6 +544,7 @@ def ledger_report(study):
     for (tranche, kind, model), calls in made.items():
         totals[tranche][kind][model]["made"] = calls
     totals["events"] = [row for row in entries if row["kind"] == "event"]
+    totals["priced_usd"] = spend.priced(study.ledger)
     print(json.dumps(totals, indent=2))
     return totals
 
@@ -498,11 +572,25 @@ def parser():
         sub.add_parser(name)
     sub.add_parser("record-freeze").add_argument("--reason", help="needed once a start exists: the apparatus fix")
     sub.add_parser("probe").add_argument("--rung", action="append", help="repeatable; default: the readout's next")
+    limit = sub.add_parser("resume-after-limit", help="reopen the starts a usage limit closed (coordinator ruling R2)")
+    limit.add_argument("--reset", type=iso_time, required=True, help="the reset the vendor's answer named, ISO 8601 "
+                       "with its zone (2026-11-14T08:00:00Z)")
+    limit.add_argument("--five-hour", type=float, required=True, help="the owner's five-hour meter, percent used")
+    limit.add_argument("--weekly", type=float, required=True, help="the owner's weekly meter, percent used")
+    limit.add_argument("--read-at", type=iso_time, required=True, help="when the owner read both meters, ISO 8601")
     transcripts = sub.add_parser("record-transcripts")
     transcripts.add_argument("--fault", choices=("yes", "no"), required=True)
     transcripts.add_argument("--note", required=True)
     transcripts.add_argument("runs", nargs="*", help="records directories of runs a fault failed: incidents")
     return top
+
+
+def iso_time(text):
+    """Epoch seconds of an ISO 8601 time that names its zone."""
+    moment = datetime.fromisoformat(text)
+    if moment.tzinfo is None:
+        raise argparse.ArgumentTypeError(f"{text!r} names no zone (2026-11-14T08:00:00Z)")
+    return moment.timestamp()
 
 
 def study_of(a):
@@ -531,6 +619,8 @@ def main(argv=None):
         "early-look": lambda: print(json.dumps(rules.early_look(study), indent=2)),
         "readout": lambda: write_readout(study),
         "ledger": lambda: ledger_report(study),
+        "resume-after-limit": lambda: print(json.dumps(spend.resume_after_limit(
+            study.ledger, a.reset, a.five_hour, a.weekly, a.read_at))),
     }
     commands[a.command]()
 

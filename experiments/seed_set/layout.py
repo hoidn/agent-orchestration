@@ -13,6 +13,7 @@ the ledger holds.
 """
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -112,12 +113,48 @@ def load_criterion(study):
     return value
 
 
+def spend_terms(study, tranche, model):
+    """(the tranche's priced ceiling, the model's per-call worst case, the CLI pin {"path", "version"}) from
+    criterion.json's "spend" block (coordinator rulings R4 and R5): {"ceiling_usd": {tranche: USD},
+    "per_call_usd": {model: USD}, "cli": {"path", "version"}}. The coordinator sets them at the freeze; there is no
+    default, and a start without them refuses."""
+    terms = load(study.frozen).get("spend") or {}
+    ceiling, per_call = (terms.get("ceiling_usd") or {}).get(tranche), (terms.get("per_call_usd") or {}).get(model)
+    cli = terms.get("cli")
+    if not (_positive(ceiling) and _positive(per_call) and isinstance(cli, dict) and sorted(cli) == ["path", "version"]
+            and all(isinstance(value, str) and value for value in cli.values())):
+        raise SystemExit(f"{study.frozen} names no priced ceiling for {tranche}, per-call worst case for {model} or "
+                         "CLI pin (path and version) under \"spend\": the coordinator sets them at the freeze")
+    return ceiling, per_call, cli
+
+
+def _positive(value):
+    return type(value) in (int, float) and math.isfinite(value) and value > 0
+
+
 def study_runs(study):
     """study.json of every candidate run the study prepared, in records order."""
     return sorted(study.work.glob("records/*/run-*/study.json"))
 
 
 def judge_units(study):
-    """(task, kind, pool, judge) of every judge unit with a records directory under the pools root."""
-    return [(pool.parent.name, pool.name, pool, judge.name)
+    """(task, kind, pool, judge) of every judge unit with a records directory under the pools root (a rebuilt
+    pool's kind is its pool's)."""
+    return [(pool.parent.name, pool.name.removesuffix(REBUILT), pool, judge.name)
             for pool in sorted(study.pools.glob("*/*")) for judge in sorted((pool / "records" / "judges").glob("*"))]
+
+
+REBUILT = ".2"  # a pool with a judge cut by a usage limit is rebuilt once, from the same records, as <kind>.2
+
+
+def current_pool(study, task, kind):
+    """The pool of (task, kind) that counts: its rebuild when there is one, else the first (built or not)."""
+    first = study.pools / task / kind
+    rebuilt = first.with_name(kind + REBUILT)
+    return rebuilt if rebuilt.exists() else first
+
+
+def cut_judges(pool):
+    """The judges of a pool whose run a usage limit cut."""
+    return sorted(path.stem.removeprefix("study-") for path in (Path(pool) / "records").glob("study-*.json")
+                  if "cut" in load(path))

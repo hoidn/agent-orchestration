@@ -40,15 +40,17 @@ LIMITS = (  # stated on every readout, one line each; recorded, not changed (coo
 
 
 def measure_free(runs):
-    """Per tranche and arm: runs, outcomes, incidents, physical calls, mean wall clock, visible passes, metering."""
+    """Per tranche and arm: runs, outcomes, incidents, usage-limit cuts, physical calls, mean wall clock, visible
+    passes, metering."""
     table = {}
     for facts in runs.values():
         row = table.setdefault(f"{facts['tranche']}/{facts['arm']}", {
-            "runs": 0, "completed": 0, "failed": 0, "incidents": 0, "calls": 0, "visible_passed": 0,
+            "runs": 0, "completed": 0, "failed": 0, "incidents": 0, "cut": 0, "calls": 0, "visible_passed": 0,
             "metering_complete": 0, "wall_clock": []})
         row["runs"] += 1
         row["calls"] += facts.get("calls", 0)
         row["incidents"] += "incident" in facts
+        row["cut"] += "cut" in facts
         if facts.get("outcome") in ("completed", "failed"):
             row[facts["outcome"]] += 1
         row["visible_passed"] += bool((facts.get("visible") or {}).get("passed"))
@@ -72,9 +74,11 @@ def direct_runs(records, runs, judge, tasks):
 
 
 def unusual_runs(runs, tasks):
-    """Every gated run that did not complete cleanly: its outcome, failure code and incident reason."""
+    """Every gated run that did not complete cleanly: its outcome, failure code, incident reason and usage-limit cut
+    (no incident: coordinator ruling R1)."""
     return [{"run": run, "task": f["task"], "arm": f["arm"], "outcome": f.get("outcome"),
-             "failure": (f.get("failure") or {}).get("code"), "incident": f.get("incident")}
+             "failure": (f.get("failure") or {}).get("code"), "incident": f.get("incident"),
+             "cut": (f.get("cut") or {}).get("text")}
             for run, f in runs.items() if f["task"] in tasks and (f.get("outcome") != "completed" or "incident" in f)]
 
 
@@ -149,6 +153,17 @@ def spend_lines(totals):
         for tranche, kinds in totals.items() for kind, models in kinds.items() for model, row in models.items()]
 
 
+def priced_lines(priced):
+    """Priced tokens per tranche (metered tokens times the frozen price table; ruling R4): committed, settled, and
+    open at its worst case, with the units settled at the worst case for missing usage."""
+    if not priced:
+        return []
+    return ["", "| tranche | priced USD committed | settled | open at worst case | units with missing usage |",
+            "| --- | --- | --- | --- | --- |"] + [
+        f"| {t} | {p['committed_usd']:g} | {p['settled_usd']:g} | {p['open_usd']:g} | {len(p['missing_usage'])} |"
+        for t, p in priced.items()]
+
+
 def judge_lines(judges):
     lines = ["| judge | V1 controls | V2 reference rank | V3 retest | V4 agreement | passed |",
              "| --- | --- | --- | --- | --- | --- |"]
@@ -219,20 +234,23 @@ def markdown(r):
     lines = ["# Seed-set calibration readout", "",
              f"Tasks: {len(r['tasks'])} ({rungs(r['rungs'])}); retest: {len(r['retest_tasks'])}.",
              "", "## Runs (measure-free)", "",
-             "| tranche/arm | runs | completed | failed | incidents | calls | wall clock s | visible passed | metered |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
-    lines += [f"| {name} | {row['runs']} | {row['completed']} | {row['failed']} | {row['incidents']} | {row['calls']} | "
+             "| tranche/arm | runs | completed | failed | incidents | cut by a usage limit | calls | wall clock s | "
+             "visible passed | metered |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+    lines += [f"| {name} | {row['runs']} | {row['completed']} | {row['failed']} | {row['incidents']} | {row['cut']} | "
+              f"{row['calls']} | "
               f"{fmt(row['wall_clock_mean_sec'])} | {row['visible_passed']} | {row['metering_complete']} |"
               for name, row in r["measure_free"].items()]
     lines += ["", f"## Programs (fewer than {selection.MAX_PROGRAM_LINES} lines; common.orc exempt)", "",
               "| arm | program | lines | within the limit |", "| --- | --- | --- | --- |"]
     lines += [f"| {arm} | {p['source']} | {p['lines']} | {p['lines'] < selection.MAX_PROGRAM_LINES} |"
               for arm, p in r["programs"].items()]
-    lines += ["", "## Spend", ""] + spend_lines(r["spend"])
+    lines += ["", "## Spend", ""] + spend_lines(r["spend"]) + priced_lines(r.get("priced_usd") or {})
     lines += ["", f"## Pools missing or incidents ({len(r['missing_pools'])}): their tasks count as missing", ""]
     lines += [f"- {name}: {why}" for name, why in r["missing_pools"].items()]
     lines += ["", f"## Runs that did not complete cleanly ({len(r['unusual_runs'])})", ""]
     lines += [f"- {u['task']} {u['arm']}: {u['outcome']}, failure {u['failure']}, incident {u['incident']}"
+              + (f", cut by a usage limit ({u['cut']})" if u["cut"] else "")
               for u in r["unusual_runs"]] + ["", "## Anchors", ""]
     if r["anchor_failures"]:
         return "\n".join(lines + [f"- {f}" for f in r["anchor_failures"]]

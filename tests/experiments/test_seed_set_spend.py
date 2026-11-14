@@ -14,9 +14,12 @@ import pytest
 
 from experiments.compare.repos import sha256_file
 from experiments.seed_set import host, layout, rules, spend, study, units
-from tests.experiments.seed_set_offline_support import committed_runtime, stable_anchors, write_frozen_criterion
+from tests.experiments.seed_set_offline_support import (
+    REPORTED_USD, SPEND_TERMS, USAGE, committed_runtime, stable_anchors, write_frozen_criterion,
+)
 
 H, S = spend.HAIKU, spend.SONNET
+P = (1000.0, 0.01)  # a priced ceiling and per-call worst case no test here reaches
 ROOT = Path(__file__).resolve().parents[2]
 AUTH = spend.AUTHORIZATION
 
@@ -59,38 +62,38 @@ def test_caps_are_the_plans_budget():
 
 
 def test_a_start_is_appended_before_it_is_returned(ledger):
-    row = spend.reserve(ledger, "smoke", "candidate", H, 3, "/w/records/retry/run-1", env("smoke"), task="t")
+    row = spend.reserve(ledger, "smoke", "candidate", H, 3, "/w/records/retry/run-1", env("smoke"), task="t", price=P)
     assert spend.rows(ledger) == [row]
 
 
 def test_a_unit_is_never_started_twice(ledger):
-    spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/records/direct/run-1", env("smoke"))
+    spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/records/direct/run-1", env("smoke"), price=P)
     with pytest.raises(SystemExit, match="never retried"):
-        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/records/direct/run-1", env("smoke"))
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/records/direct/run-1", env("smoke"), price=P)
 
 
 def test_the_call_beyond_a_cap_refuses_and_writes_nothing(ledger):
     for k in range(10):
-        spend.reserve(ledger, "smoke", "candidate", H, 1, f"/w/run-{k}", env("smoke"))
+        spend.reserve(ledger, "smoke", "candidate", H, 1, f"/w/run-{k}", env("smoke"), price=P)
     before = ledger.read_bytes()
     with pytest.raises(SystemExit, match="cap reached"):
-        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-10", env("smoke"))
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-10", env("smoke"), price=P)
     assert ledger.read_bytes() == before
 
 
 def test_a_start_reserves_its_maximum_calls_against_the_cap(ledger):
-    spend.reserve(ledger, "smoke", "candidate", H, 3, "/w/a", env("smoke"))
-    spend.reserve(ledger, "smoke", "candidate", H, 3, "/w/b", env("smoke"))
-    spend.reserve(ledger, "smoke", "candidate", H, 3, "/w/c", env("smoke"))
+    spend.reserve(ledger, "smoke", "candidate", H, 3, "/w/a", env("smoke"), price=P)
+    spend.reserve(ledger, "smoke", "candidate", H, 3, "/w/b", env("smoke"), price=P)
+    spend.reserve(ledger, "smoke", "candidate", H, 3, "/w/c", env("smoke"), price=P)
     with pytest.raises(SystemExit, match="cap reached"):
-        spend.reserve(ledger, "smoke", "candidate", H, 3, "/w/d", env("smoke"))
+        spend.reserve(ledger, "smoke", "candidate", H, 3, "/w/d", env("smoke"), price=P)
 
 
 def test_tranches_and_kinds_do_not_share_allowance(ledger):
-    spend.reserve(ledger, "smoke", "judge", S, 1, "/p#s", env("smoke"))
+    spend.reserve(ledger, "smoke", "judge", S, 1, "/p#s", env("smoke"), price=P)
     with pytest.raises(SystemExit, match="cap reached"):
-        spend.reserve(ledger, "smoke", "judge", S, 1, "/q#s", env("smoke"))
-    assert spend.reserve(ledger, "calibration", "judge", S, 1, "/q#s", env("calibration"))["seq"] == 2
+        spend.reserve(ledger, "smoke", "judge", S, 1, "/q#s", env("smoke"), price=P)
+    assert spend.reserve(ledger, "calibration", "judge", S, 1, "/q#s", env("calibration"), price=P)["seq"] == 2
 
 
 def test_a_batch_that_does_not_fit_is_refused_before_any_start(ledger):
@@ -101,7 +104,7 @@ def test_a_batch_that_does_not_fit_is_refused_before_any_start(ledger):
 @pytest.mark.parametrize("model", ["claude-fable-5-1", "claude-opus-5-5", "claude-haiku", "haiku", "", None])
 def test_a_model_outside_the_two_exact_ids_refuses_and_writes_nothing(ledger, model):
     with pytest.raises(SystemExit, match="exact IDs"):
-        spend.reserve(ledger, "smoke", "candidate", model, 1, "/w/run-1", env("smoke"))
+        spend.reserve(ledger, "smoke", "candidate", model, 1, "/w/run-1", env("smoke"), price=P)
     assert not ledger.exists()
 
 
@@ -184,7 +187,7 @@ def test_planned_runs_already_started_are_not_launched_again(runner, monkeypatch
     monkeypatch.setenv(AUTH, "calibration")
     ready(runner)
     for k in range(4):
-        spend.reserve(runner.ledger, "calibration", "candidate", H, 1, f"/w/{k}", task="t1", arm="direct")
+        spend.reserve(runner.ledger, "calibration", "candidate", H, 1, f"/w/{k}", task="t1", arm="direct", price=P)
     assert study.candidates(runner, "calibration", "direct", ["t1", "t1"]) == []
 
 
@@ -205,7 +208,7 @@ def test_a_run_with_calls_but_no_ledger_row_refuses_every_start(runner, monkeypa
 
 def test_a_unit_with_more_calls_than_reserved_refuses(runner):
     records = run_dir(runner, calls=2, exit=0)
-    spend.reserve(runner.ledger, "calibration", "candidate", H, 1, records, env("calibration"))
+    spend.reserve(runner.ledger, "calibration", "candidate", H, 1, records, env("calibration"), price=P)
     with pytest.raises(SystemExit, match="2 calls made, 1 reserved"):
         rules.audit_ledger(runner)
 
@@ -216,7 +219,7 @@ def test_starts_beyond_the_planned_runs_of_a_task_and_arm_refuse_under_the_lock(
     def take(k):
         try:
             spend.reserve(ledger, "calibration", "candidate", H, 1, f"/w/{k}", env("calibration"), limit=4,
-                          task="t1", arm="direct")
+                          task="t1", arm="direct", price=P)
             won.append(k)
         except SystemExit:
             pass
@@ -268,7 +271,7 @@ def test_no_calibration_once_the_chosen_list_was_edited(runner, monkeypatch):
 def test_nothing_starts_after_a_stop(ledger):
     spend.record(ledger, "stop", reason="forbidden model in a run")
     with pytest.raises(SystemExit, match="stopped"):
-        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-1", env("smoke"))
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-1", env("smoke"), price=P)
 
 
 RESET = 1_794_627_837  # the fixture's resetsAt
@@ -281,7 +284,7 @@ def resume(ledger, reset=RESET, five_hour=0.0, weekly=40.0, read_at=RESET + 60, 
 def test_a_usage_limit_pause_closes_every_start(ledger):
     spend.record(ledger, "pause", unit="/w/run-1", reset=RESET)
     with pytest.raises(SystemExit, match="closed by a usage limit"):
-        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"))
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"), price=P)
 
 
 def test_a_batch_is_refused_while_starts_are_closed(ledger):
@@ -293,7 +296,7 @@ def test_a_batch_is_refused_while_starts_are_closed(ledger):
 def test_resume_after_limit_reopens_starts_and_records_the_owners_reading(ledger):
     spend.record(ledger, "pause", unit="/w/run-1", reset=RESET)
     row = resume(ledger, five_hour=3.0, weekly=41.0)
-    spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"))
+    spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"), price=P)
     assert (row["event"], row["reset"], row["reading"]) == (
         "resume", RESET, {"five_hour_pct": 3.0, "weekly_pct": 41.0, "read_at": RESET + 60})
 
@@ -323,6 +326,15 @@ def test_resume_after_limit_refuses_a_reading_that_is_not_a_percentage(ledger, f
         resume(ledger, five_hour=five_hour, weekly=weekly)
 
 
+def test_resume_after_limit_from_the_command_line_takes_zoned_times(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    spend.record(spend.ledger_path(), "pause", unit="/w/run-1", reset=RESET)
+    study.main(["resume-after-limit", "--reset", "2026-11-14T03:43:57Z", "--five-hour", "2", "--weekly", "35",
+                "--read-at", "2026-11-14T03:50:00+00:00"])
+    assert spend.latest(spend.rows(spend.ledger_path()), "resume")["reading"] == {
+        "five_hour_pct": 2.0, "weekly_pct": 35.0, "read_at": RESET + 363}
+
+
 def test_resume_after_limit_without_a_pause_refuses(ledger):
     with pytest.raises(SystemExit, match="nothing to resume"):
         resume(ledger)
@@ -333,12 +345,14 @@ def test_a_pause_after_a_resume_closes_starts_again(ledger):
     resume(ledger)
     spend.record(ledger, "pause", unit="/w/run-2", reset=RESET + 18000)
     with pytest.raises(SystemExit, match="closed by a usage limit"):
-        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-3", env("smoke"))
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-3", env("smoke"), price=P)
 
 
-def test_no_start_lands_between_a_pause_and_its_resume_under_sixty_concurrent_tries(ledger):
+@pytest.mark.parametrize("price, most", [((100.0, 0.1), 40), ((3.0, 0.1), 30)])  # the call cap, the ceiling
+def test_no_start_lands_between_a_pause_and_its_resume_under_sixty_concurrent_tries(ledger, price, most):
     """60 concurrent tries on the redraw cap (40 Haiku calls), one of them closing starts at a usage limit and one
-    reopening them: no start row lies between the pause and the resume, and the cap is never passed."""
+    reopening them: no start row lies between the pause and the resume, and neither the call cap nor the priced
+    ceiling is ever passed."""
     def take(k):
         try:
             if k == 20:
@@ -346,7 +360,7 @@ def test_no_start_lands_between_a_pause_and_its_resume_under_sixty_concurrent_tr
             elif k == 40:
                 resume(ledger)
             else:
-                spend.reserve(ledger, "redraw", "candidate", H, 1, f"/w/{k}", env("redraw"))
+                spend.reserve(ledger, "redraw", "candidate", H, 1, f"/w/{k}", env("redraw"), price=price)
         except SystemExit:
             pass
     threads = [threading.Thread(target=take, args=(k,)) for k in range(60)]
@@ -358,7 +372,46 @@ def test_no_start_lands_between_a_pause_and_its_resume_under_sixty_concurrent_tr
     pause = next(r["seq"] for r in rows if r.get("event") == "pause")
     reopened = next((r["seq"] for r in rows if r.get("event") == "resume"), len(rows) + 1)
     starts = [r["seq"] for r in spend.starts(rows)]
-    assert ([s for s in starts if pause < s < reopened], len(starts) <= 40) == ([], True)
+    assert ([s for s in starts if pause < s < reopened], len(starts) <= most,
+            sum(r["usd_reserved"] for r in spend.starts(rows)) <= price[0]) == ([], True, True)
+
+
+CUT = {"call": "1", "reset": RESET, "text": "You've hit your session limit"}
+
+
+def test_a_slot_cut_by_a_usage_limit_runs_again_once(runner):
+    """Planned 4: two of the first four starts were cut, so two more starts are due; the cut re-run gives none."""
+    cut = {"cut": CUT, "outcome": "failed"}
+    facts = {f"/w/{k}": (cut if k in (1, 3, 5) else {}) for k in range(1, 6)}
+    entries = [{"kind": "candidate", "tranche": "calibration", "task": "t1", "arm": "direct", "unit": unit}
+               for unit in facts]
+    assert study.cut_reruns(entries, facts, "calibration", "t1", "direct", 4) == 2
+
+
+def test_a_cut_run_is_no_observation_and_never_scores_zero(runner):
+    run_dir(runner, cut=CUT, outcome="failed", calls=1)
+    assert study.load_records(runner, {"direct": H}, ["t1"]) == ([], [])
+
+
+def test_cut_runs_do_not_count_toward_the_incident_stop(runner):
+    for k in (1, 2):  # 2 of the 10 planned runs: as incidents they would stop the study
+        run_dir(runner, k=k, cut=CUT, outcome="failed")
+    assert rules.stop_reasons(runner) == []
+
+
+def test_runs_launch_two_at_a_time():
+    lock, live, peak = threading.Lock(), [0], [0]
+
+    def one(job):
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        threading.Event().wait(0.2)
+        with lock:
+            live[0] -= 1
+        return f"/w/{job}", {"calls": 1, "outcome": "completed"}
+    study.run_jobs(list(range(6)), one)
+    assert peak[0] == 2
 
 
 def test_three_contaminated_tasks_stop_the_study(runner, monkeypatch):
@@ -367,7 +420,7 @@ def test_three_contaminated_tasks_stop_the_study(runner, monkeypatch):
     verdict = {"scan": {"verdict": {"verdict": "contaminated", "reason": "read the fix"}}}
     for k, task in enumerate(("t1", "t2", "r1"), 1):
         records = run_dir(runner, k=k, task=task, record=verdict)
-        spend.reserve(runner.ledger, "calibration", "candidate", H, 1, records, task=task, arm="direct")
+        spend.reserve(runner.ledger, "calibration", "candidate", H, 1, records, task=task, arm="direct", price=P)
     with pytest.raises(SystemExit, match="stopped"):
         study.candidates(runner, "calibration", "direct", ["t2"])
 
@@ -377,7 +430,7 @@ def test_incidents_over_a_tenth_of_the_planned_runs_stop_the_study(runner, monke
     ready(runner)  # 2 drawn tasks: 10 planned runs, so 2 incidents are over 10%
     for k in (1, 2):
         records = run_dir(runner, k=k, incident="provider: call 1: API Error: 429")
-        spend.reserve(runner.ledger, "calibration", "candidate", H, 1, records, task="t1", arm="direct")
+        spend.reserve(runner.ledger, "calibration", "candidate", H, 1, records, task="t1", arm="direct", price=P)
     with pytest.raises(SystemExit, match="stopped"):
         study.candidates(runner, "calibration", "direct", ["t2"])
 
@@ -417,6 +470,119 @@ def test_a_usage_limit_answer_is_recognised_with_the_reset_it_names(tmp_path):
                                      "stub-usage-limit-headers-key-mode-UnknownApiError"])
 def test_a_rate_limit_a_normal_end_or_a_key_mode_429_is_not_a_usage_limit(tmp_path, fixture):
     assert units.usage_limit(recorded_call(tmp_path, fixture)) is None
+
+
+TABLE = json.loads((ROOT / "orchestrator" / "providers" / "price_table.json").read_text())
+
+
+def priced_unit(records, *results):
+    """A unit's records directory with one recorded call per result event (None: a call that printed nothing)."""
+    for n, result in enumerate(results, 1):
+        call = records / "calls" / str(n)
+        call.mkdir(parents=True)
+        (call / "prompt.txt").write_text("p")
+        (call / "stdout.txt").write_text("" if result is None else json.dumps({"type": "result", **result}) + "\n")
+    return records
+
+
+def metered(model, cost=REPORTED_USD, **usage):
+    return {"total_cost_usd": cost, "modelUsage": {model: USAGE | usage}}
+
+
+def test_the_ceiling_refuses_a_start_whose_worst_case_would_pass_it_and_writes_nothing(ledger):
+    for k in range(2):
+        spend.reserve(ledger, "smoke", "candidate", H, 1, f"/w/{k}", env("smoke"), price=(1.0, 0.4))
+    before = ledger.read_bytes()
+    with pytest.raises(SystemExit, match="priced ceiling"):
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/2", env("smoke"), price=(1.0, 0.4))
+    assert ledger.read_bytes() == before
+
+
+def test_a_settled_unit_counts_at_its_metered_price_not_at_its_worst_case(ledger):
+    for k in range(2):
+        spend.reserve(ledger, "smoke", "candidate", H, 1, f"/w/{k}", env("smoke"), price=(1.0, 0.4))
+    spend.record(ledger, "settle", unit="/w/0", usd=0.05, missing=[])
+    spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/2", env("smoke"), price=(1.0, 0.4))
+    assert spend.priced(ledger)["smoke"] == {"committed_usd": 0.85, "settled_usd": 0.05, "open_usd": 0.8,
+                                             "missing_usage": []}
+
+
+def test_the_ceiling_is_per_tranche_over_candidates_and_judges_of_both_models(ledger):
+    spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/0", env("smoke"), price=(1.0, 0.5))
+    spend.reserve(ledger, "smoke", "judge", S, 1, "/p#s", env("smoke"), price=(1.0, 0.5))
+    with pytest.raises(SystemExit, match="priced ceiling"):
+        spend.reserve(ledger, "smoke", "judge", H, 1, "/p#h", env("smoke"), price=(1.0, 0.5))
+    assert spend.reserve(ledger, "calibration", "judge", H, 1, "/q#h", env("calibration"), price=(1.0, 0.5))
+
+
+def test_metered_calls_are_priced_by_the_frozen_table_to_the_cent(tmp_path):
+    records = priced_unit(tmp_path, metered(H), metered(H), metered(S))
+    # Haiku: 1000 x 0.1 + 2000 x 0.5 + 50000 x 0.01 + 10000 x 0.2 per million; Sonnet: x 2, 10, 0.1 and 4
+    assert round(units.priced(records, TABLE, 0.5)["usd"], 2) == round(2 * 0.0036 + 0.067, 2) == 0.07
+
+
+def test_a_reported_cost_above_the_tables_price_is_the_calls_figure(tmp_path):
+    assert units.priced(priced_unit(tmp_path, metered(H, cost=0.25)), TABLE, 0.5)["usd"] == 0.25
+
+
+@pytest.mark.parametrize("result", [None, {"result": "no usage"}, {"modelUsage": {"claude-unknown-1": USAGE}}])
+def test_a_call_with_missing_usage_counts_at_the_worst_case_and_is_flagged(tmp_path, result):
+    priced = units.priced(priced_unit(tmp_path, metered(H), result), TABLE, 0.5)
+    assert (round(priced["usd"], 4), priced["missing"]) == (0.5036, ["2"])
+
+
+def test_a_call_refused_by_the_call_cap_costs_nothing(tmp_path):
+    records = priced_unit(tmp_path, metered(H))
+    (records / "calls" / "2").mkdir()  # the shim refused it: no prompt reached a provider
+    assert units.priced(records, TABLE, 0.5) == {"usd": 0.0036, "missing": [], "calls": {"1": 0.0036}}  # 6 places
+
+
+def spend_terms(runner, **change):
+    write_frozen_criterion(runner, spend={**SPEND_TERMS, **change})
+
+
+@pytest.mark.parametrize("change", [{"ceiling_usd": {"smoke": 1.0}}, {"ceiling_usd": {"calibration": 0}},
+                                    {"per_call_usd": {H: 0.5}}, {"cli": None}])
+def test_a_start_without_the_criterions_priced_ceiling_worst_case_or_cli_pin_refuses(runner, change):
+    spend_terms(runner, **change)
+    with pytest.raises(SystemExit, match="criterion.json"):
+        layout.spend_terms(runner, "calibration", S)
+
+
+def test_the_criterions_spend_terms_give_the_tranches_ceiling_and_the_models_worst_case(runner):
+    spend_terms(runner)
+    assert layout.spend_terms(runner, "calibration", S)[:2] == (SPEND_TERMS["ceiling_usd"]["calibration"],
+                                                                 SPEND_TERMS["per_call_usd"][S])
+
+
+def test_the_freeze_binds_the_price_tables_hash(runner):
+    table = runner.runtime / rules.PRICE_TABLE
+    table.write_text(table.read_text().replace('"input": 0.1,', '"input": 0.09,', 1))
+    commit_runtime(runner, "a cheaper Haiku")
+    with pytest.raises(SystemExit, match="price_table.json"):
+        rules.record_freeze(runner)
+
+
+def stand_in_cli(tmp_path, version):
+    cli = tmp_path / "bin" / "claude"
+    cli.parent.mkdir(parents=True, exist_ok=True)
+    cli.write_text(f"#!/bin/sh\n[ \"$1\" = --version ] && echo '{version}'\n")
+    cli.chmod(0o755)
+    (tmp_path / "sandbox.json").write_text(json.dumps({"claude": str(cli)}))
+    return cli, tmp_path / "sandbox.json"
+
+
+def test_the_pinned_cli_passes_and_is_returned_for_the_start_row(tmp_path):
+    cli, declaration = stand_in_cli(tmp_path, "2.1.311 (Claude Code)")
+    assert rules.check_cli(declaration, {"path": str(cli), "version": "2.1.311 (Claude Code)"}) == {
+        "path": str(cli), "version": "2.1.311 (Claude Code)"}
+
+
+@pytest.mark.parametrize("pin", [{"version": "2.1.312 (Claude Code)"}, {"path": "/usr/local/bin/claude"}])
+def test_a_cli_other_than_the_pinned_path_or_version_refuses_the_start(tmp_path, pin):
+    cli, declaration = stand_in_cli(tmp_path, "2.1.311 (Claude Code)")
+    with pytest.raises(SystemExit, match="pinned"):
+        rules.check_cli(declaration, {"path": str(cli), "version": "2.1.311 (Claude Code)", **pin})
 
 
 def test_a_refused_call_directory_is_not_a_physical_call(tmp_path):
@@ -639,7 +805,7 @@ def test_the_freeze_refuses_a_criterion_that_does_not_name_the_plans_hashes(runn
 
 def test_a_second_freeze_after_a_start_needs_a_reason(runner, monkeypatch):
     ready(runner)
-    spend.reserve(runner.ledger, "smoke", "candidate", H, 1, "/w/run-1", env("smoke"), task="r2")
+    spend.reserve(runner.ledger, "smoke", "candidate", H, 1, "/w/run-1", env("smoke"), task="r2", price=P)
     with pytest.raises(SystemExit, match="needs --reason"):
         rules.record_freeze(runner)
     assert rules.record_freeze(runner, reason="dev_check.py fix")["reason"] == "dev_check.py fix"

@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -28,10 +29,13 @@ from tests.experiments.compare_harness_support import (
     OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up, skip_without_sandbox, write_test_sandbox_config,
 )
 from tests.agent_session_shims import closed_path
-from tests.experiments.seed_set_offline_support import STUB, stable_anchors, write_frozen_criterion
+from tests.experiments.seed_set_offline_support import (
+    STUB, VERSION, stable_anchors, stand_in_terms, write_frozen_criterion,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 H, S = spend.HAIKU, spend.SONNET
+P = (1000.0, 0.01)  # a priced ceiling and per-call worst case no test here reaches
 SYNCED = ("experiments/compare", "experiments/seed_set/programs", "experiments/orc_structural_search/seeds")
 BUGS = {"add": "return a - b", "mul": "return a + b", "sub": "return a + b", "mx": "return min(a, b)",
         "mn": "return max(a, b)"}
@@ -135,10 +139,10 @@ def world(tmp_path, monkeypatch):
     criterion.write_text(json.dumps({"judges": [H, S], "rubric": layout.RUBRIC, "primary": [], "secondary": []}))
     s = study.Study(runtime, outside / "work", outside / "pools", tmp_path / "results",
                     runtime / "seedset" / "tasks.jsonl", criterion, tmp_path / "state", min_free=10**9)
-    write_frozen_criterion(s, frozen="toy")  # the freeze's criterion, beside the judge criterion
+    write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(fakebin))  # beside the judge criterion
     monkeypatch.setattr(rules, "loaded_elsewhere", lambda runtime: [])  # the test imports this checkout's modules
     rules.record_freeze(s)
-    yield SimpleNamespace(study=s, fixes=fixes, plan=stub_plan)
+    yield SimpleNamespace(study=s, fixes=fixes, plan=stub_plan, fakebin=fakebin)
     open_up(outside)
     shutil.rmtree(outside)
     shutil.rmtree(runtime)
@@ -160,6 +164,11 @@ def calls_before_reservation(rows):
         if (records / "calls" / "1" / "provider.txt").stat().st_mtime < row["time"]:
             late.append(row["unit"])
     return late
+
+
+def bound_flags(argv):
+    """The model, effort and output format a recorded call passed: the metered template prints stream-json."""
+    return tuple(argv[argv.index(flag) + 1] for flag in (b"--model", b"--effort", b"--output-format"))
 
 
 def choose(s, tasks):
@@ -200,6 +209,13 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     assert {kind: {model: (row["reserved"], row.get("made")) for model, row in models.items()}
             for kind, models in totals.items()} == {"candidate": {H: (8, 8), S: (2, 2)}, "judge": {H: (4, 4), S: (4, 4)}}
     assert calls_before_reservation(spend.starts(rows)) == []
+    # rulings R4, R5: every unit settled at its metered price (12 Haiku calls at USD 0.0036, 6 Sonnet at 0.067), each
+    # start carries the pinned CLI, each command the runtime's own cap at the unit's worst case
+    assert (spend.priced(s.ledger)["calibration"], {r["cli"]["version"] for r in spend.starts(rows)},
+            {path.read_text().split()[-2] for path in [*s.work.glob("records/*/run-*/command.sh"),
+                                                           *s.pools.glob("*/*/records/score-*.sh")]}) == (
+        {"committed_usd": 0.4452, "settled_usd": 0.4452, "open_usd": 0.0, "missing_usage": []},
+        {VERSION}, {"--max-cost-usd"})
     with pytest.raises(SystemExit, match="the study is stopped"):  # the readout's stop decision
         study.candidates(s, "calibration", "direct", tasks)
     assert spend.rows(s.ledger) == rows
@@ -209,13 +225,12 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
         [("a0a0a0a0a0", H, "completed", 0, True)] * 4 + [("a0a0a0a0a0", S, "completed", 0, True)]
         + [("b1b1b1b1b1", H, "completed", 0, False)] * 4 + [("b1b1b1b1b1", S, "completed", 0, True)])
     fixed = [path.parent for path in study.study_runs(s) if json.loads(path.read_text())["task"] == "a0a0a0a0a0"]
-    seen = {(tuple((run / "calls/1/argv.nul").read_bytes().split(b"\0")[1:5]),
+    seen = {(bound_flags((run / "calls/1/argv.nul").read_bytes().split(b"\0")),
              "visible check exit 0" in (run / "calls/1/stdout.txt").read_text(),
              # the scripted CLI wrote its session under HOME=/home/compare: the unit's private home, so it ran sandboxed
              len(list(Path(json.loads((run / "record.json").read_text())["sandbox"]["home"]).glob(
                  ".claude/projects/*/*.jsonl")))) for run in fixed}
-    assert seen == {((b"--model", H.encode(), b"--effort", b"medium"), True, 1),
-                    ((b"--model", S.encode(), b"--effort", b"medium"), True, 1)}
+    assert seen == {((H.encode(), b"medium", b"stream-json"), True, 1), ((S.encode(), b"medium", b"stream-json"), True, 1)}
     assert (list((s.work / "agents").iterdir()), study.live_pools(s)) == ([], [])  # trees and clones deleted
     judged = [json.loads(p.read_text()) for p in s.pools.glob("*/*/records/study-*.json")]
     assert [(j["exit"], j["calls"], j["verify_pool"], j["scan_hits"]) for j in judged] == [(0, 1, "clean", 0)] * 8
@@ -235,8 +250,9 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     (line,) = [x for x in text.splitlines() if x.startswith("Decision:")]
     assert (line.startswith("Decision: stop"), "V4 (agreement with the hidden tests) was not assessed" in line,
             "Tasks: 2 (T3 in-tree 2)" in text) == (True, True, True)  # too few candidates per hidden class
-    assert [e["event"] for e in study.ledger_report(s)["events"]] == [
-        "freeze", "probe_readout", "smoke", "early_look", "decision", "stop"]
+    events = [e["event"] for e in study.ledger_report(s)["events"]]
+    assert ([e for e in events if e != "settle"], events.count("settle")) == (
+        ["freeze", "probe_readout", "smoke", "early_look", "decision", "stop"], 18)  # one settle per unit
     resume = next(s.work.glob("records/*/run-*/resume.sh"))
     assert subprocess.run(["bash", str(resume)], capture_output=True).returncode == 64  # no unit ever resumes
 
@@ -339,3 +355,96 @@ def test_offline_pool_with_a_patch_naming_its_model_is_refused_before_any_judge(
     assert ("arm-identifying text" in incident["reason"], "claude-haiku-5-5" in incident["reason"],
             (s.pools / task / "first").exists(), [r["kind"] for r in spend.starts(spend.rows(s.ledger))]) == (
         True, True, False, ["candidate"] * 4)
+
+
+def limit_plan(world, **limit):
+    """Set (or, with no argument, lift) the stand-in's usage limit, rewriting the plan in place: the sandbox binds
+    the same file."""
+    plan = json.loads(Path(world.plan).read_text())
+    plan["usage_limit"] = limit
+    Path(world.plan).write_text(json.dumps(plan))
+
+
+def reopen(s, reset):
+    return spend.resume_after_limit(s.ledger, reset, 2.0, 35.0, time.time() - 1)
+
+
+def facts_of(s):
+    return [json.loads(path.read_text()) for path in study.study_runs(s)]
+
+
+def test_offline_usage_limit_closes_starts_and_its_slots_run_again_from_the_same_cap(world, monkeypatch):
+    """Coordinator rulings R1 to R3: the stand-in answers Haiku on `add` with the vendor's usage-limit shape. The
+    runs it cuts (one or both of the two in flight) are cut, not incidents; the pause refuses every other start until
+    resume-after-limit; then each cut slot runs again once, as a new unit, and the Sonnet re-run that would pass its
+    cap is refused."""
+    s, task, reset = world.study, "a0a0a0a0a0", int(time.time()) - 60
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    limit_plan(world, task=task, model=H, reset=reset)
+    with pytest.raises(SystemExit, match="closed by a usage limit"):
+        study.candidates(s, "calibration", "direct", [task])
+    cut = [f for f in facts_of(s) if "cut" in f]
+    assert (len(cut) in (1, 2), [("incident" in f, f["cut"]["reset"]) for f in cut], rules.stop_reasons(s)) == (
+        True, [(False, reset)] * len(cut), [])
+    limit_plan(world)  # the window reset
+    with pytest.raises(SystemExit, match="closed by a usage limit"):  # still closed: no resume yet
+        study.candidates(s, "calibration", "direct", [task])
+    reopen(s, reset)
+    study.candidates(s, "calibration", "direct", [task])
+    haiku = [f for f in facts_of(s) if f["model"] == H]
+    starts = [r for r in spend.starts(spend.rows(s.ledger)) if r["model"] == H]
+    assert (sum(f.get("outcome") == "completed" and "cut" not in f for f in haiku), len(starts),
+            len({r["unit"] for r in starts}), study.candidates(s, "calibration", "direct", [task])) == (
+        4, 4 + len(cut), 4 + len(cut), [])  # every slot observed once; each cut slot ran again; nothing more due
+
+    for k in range(19):  # the Sonnet cap (20) holds one more call: the cut run takes it, its re-run is refused
+        spend.reserve(s.ledger, "calibration", "candidate", S, 1, f"/elsewhere/{k}", task=f"other-{k}",
+                      arm="direct_sonnet", price=P)
+    limit_plan(world, task=task, model=S, reset=reset)
+    study.candidates(s, "calibration", "direct_sonnet", [task])
+    limit_plan(world)
+    reopen(s, reset)
+    with pytest.raises(SystemExit, match="0 of the cap remain"):
+        study.candidates(s, "calibration", "direct_sonnet", [task])
+    assert spend.totals(s.ledger)["calibration"]["candidate"][S] == {"reserved": 20, "cap": 20}
+
+
+def test_offline_a_cli_other_than_the_pinned_one_refuses_the_start_and_leaves_nothing(world, monkeypatch):
+    s = world.study
+    write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(world.fakebin, cli={
+        "path": str((world.fakebin / "claude").resolve()), "version": "2.1.312 (Claude Code)"}))
+    rules.record_freeze(s)
+    monkeypatch.setenv(spend.AUTHORIZATION, "smoke")
+    with pytest.raises(SystemExit, match="not the pinned"):
+        study.candidates(s, "smoke", "direct", [SMOKE])
+    assert (spend.starts(spend.rows(s.ledger)), list((s.work / "agents").iterdir()), study.study_runs(s)) == ([], [], [])
+
+
+def test_offline_judge_cut_by_a_usage_limit_rebuilds_the_pool_once_from_the_same_records(world, monkeypatch):
+    s, task, reset = world.study, "a0a0a0a0a0", int(time.time()) - 60
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    study.candidates(s, "calibration", "direct", [task])
+    study.candidates(s, "calibration", "direct_sonnet", [task])
+    study.build_pools(s, "calibration", "first", [task])
+    limit_plan(world, judge=H, reset=reset)
+    with pytest.raises(SystemExit, match="closed by a usage limit"):  # Haiku cut: the Sonnet judge never starts
+        study.judge(s, "calibration", "first", [task])
+    with pytest.raises(SystemExit, match="cut by a usage limit"):  # never summarized into an incident
+        study.summarize_pools(s, "first", [task])
+    limit_plan(world)
+    reopen(s, reset)
+    study.build_pools(s, "calibration", "first", [task])  # the same five runs, new clone ids and orders
+    study.judge(s, "calibration", "first", [task])
+    study.summarize_pools(s, "first", [task])
+    results = json.loads((s.results / "pools" / f"{task}-first" / "results.json").read_text())
+    judges = [(r["model"], Path(r["unit"].partition("#")[0]).name) for r in spend.starts(spend.rows(s.ledger))
+              if r["kind"] == "judge"]
+    assert (len(results["clones"]), all(set(c["ratings"]) == {H, S} for c in results["clones"].values()),
+            sorted(judges), (s.pools / task / "first" / "clones").exists()) == (
+        7, True, [(H, "first"), (H, "first.2"), (S, "first.2")], False)
+    with pytest.raises(SystemExit, match="built once"):
+        study.build_pools(s, "calibration", "first", [task])

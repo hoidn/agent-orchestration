@@ -2,9 +2,10 @@
 behind the comparison harness's real shims, sandbox and model guard. No provider is called.
 
 It reads its plan from $SEED_SET_STUB_PLAN (a read-only file the sandbox declaration admits):
-`{"tasks": {id: {"marker", "patch", "visible", "fix": {model: first fixing attempt or null}}}}`. Every call records
-a Claude session row answered by the model it was invoked with (what the scan audits), then writes its result to
-the file the prompt's last `- path:` line names:
+`{"tasks": {id: {"marker", "patch", "visible", "fix": {model: first fixing attempt or null}}}, "usage_limit": {...}}`.
+`--version` prints `VERSION`. Every call records a Claude session row answered by the model it was invoked with (what
+the scan audits), prints stream-json lines as the metered template's CLI does (its result event reports `USAGE`
+and `REPORTED_USD`), then writes its result to the file the prompt's last `- path:` line names:
 
 - a judge (the prompt lists pool clones): one rating per clone in the listed order, S8 for a clone with changes
   and S0 for an unchanged one;
@@ -13,13 +14,38 @@ the file the prompt's last `- path:` line names:
   patch in its working directory when it still applies and runs the visible check there (inside the sandbox),
   logging that command as a Bash tool use in its session; reports a `Change`;
 - a reviewer (any other prompt): APPROVE when its working tree has changes, else REQUEST_CHANGES.
+
+With `"usage_limit": {"task": id, "model": m, "reset": epoch}` (an implementer call on that task by that model) or
+`{"judge": m, "reset": epoch}` (a judge call by that model), the call answers as the vendor does at a usage limit
+(the shape of experiments/long_horizon_tasks/fixtures/token-usage-limit-NonZeroAgentExitCodeError.json: a rejected
+`rate_limit_event`, a `<synthetic>` session row, a result event with `api_error: usage_limit_reached`) and exits 1.
+A test lifts the limit by rewriting the plan in place (the sandbox binds the same file).
 """
 
 import sys
 
+VERSION = "2.1.311-stand-in (Claude Code)"
+# Each call's metered usage (the result event's modelUsage) and the cost the CLI reports: below the table's price,
+# so the guard's figure is the table's (Haiku USD 0.0036 a call, Sonnet USD 0.067).
+USAGE = {"inputTokens": 1000, "outputTokens": 2000, "cacheReadInputTokens": 50000, "cacheCreationInputTokens": 10000}
+REPORTED_USD = 0.001
+# criterion.json's spend terms for tests (rulings R4, R5); a test that launches the stand-in names its own CLI pin
+SPEND_TERMS = {"ceiling_usd": {"smoke": 20.0, "redraw": 40.0, "calibration": 100.0},
+               "per_call_usd": {"claude-haiku-5-5": 0.25, "claude-sonnet-5-5": 1.0},
+               "cli": {"path": "/stand-in/bin/claude", "version": VERSION}}
+
+
+def stand_in_terms(fakebin, **change):
+    """SPEND_TERMS pinned to the stand-in `claude` in `fakebin` (the path the sandbox declaration resolves)."""
+    from pathlib import Path
+    return {**SPEND_TERMS, "cli": {"path": str(Path(fakebin, "claude").resolve()), "version": VERSION}, **change}
+
 STUB = f"""#!{sys.executable} -I
 import json, os, re, subprocess, sys
 from pathlib import Path
+if sys.argv[1:] == ["--version"]:
+    print({VERSION!r})
+    sys.exit(0)
 prompt = sys.stdin.read()
 model = sys.argv[sys.argv.index("--model") + 1]
 plan = json.loads(Path(os.environ["SEED_SET_STUB_PLAN"]).read_text())
@@ -31,6 +57,22 @@ if os.environ.get("SEED_SET_WITHHELD"):  # the sandbox clears it: an agent must 
     with session.open("a") as log:
         log.write(json.dumps({{"type": "assistant", "message": {{"model": model, "withheld_seen": True}}}}) + "\\n")
 
+def emit(event):
+    print(json.dumps(event), flush=True)
+
+def ended(**result):
+    emit({{"type": "result", "subtype": "success", "is_error": False, "result": "done",
+           "total_cost_usd": {REPORTED_USD!r}, "modelUsage": {{model: {USAGE!r}}}, **result}})
+
+def usage_limited(limit):
+    emit({{"type": "rate_limit_event", "rate_limit_info": {{"status": "rejected", "resetsAt": limit["reset"],
+           "rateLimitType": "five_hour", "isUsingOverage": False}}}})
+    with session.open("a") as log:
+        log.write(json.dumps({{"type": "assistant", "message": {{"model": "<synthetic>", "content": [
+            {{"type": "text", "text": "You've hit your session limit"}}]}}}}) + "\\n")
+    ended(is_error=True, api_error_status=429, api_error="usage_limit_reached", result="You've hit your session limit")
+    sys.exit(1)
+
 def changed(repo):
     status = subprocess.run(["git", "-C", repo, "diff", "--quiet", "HEAD"]).returncode
     if status not in (0, 1):
@@ -38,7 +80,11 @@ def changed(repo):
     return status == 1
 
 clones = list(dict.fromkeys(re.findall(r"(/[^\\s\\"'\\[\\],]+/clones/[0-9a-f]{{8}})", prompt)))
-entry = next((entry for entry in plan["tasks"].values() if entry["marker"] in prompt), None)
+key, entry = next(((key, entry) for key, entry in plan["tasks"].items() if entry["marker"] in prompt), (None, None))
+limit = plan.get("usage_limit") or {{}}
+if (clones and limit.get("judge") == model) or (key is not None and (limit.get("task"), limit.get("model")) == (
+        key, model)):
+    usage_limited(limit)
 if clones:
     result = [{{"clone": c, "quality": "S8" if changed(c) else "S0", "reason": "scripted"}} for c in clones]
 elif entry is None:
@@ -54,12 +100,13 @@ else:
     if fixes:
         subprocess.run(["git", "apply", "--binary", "-"], input=entry["patch"], text=True, check=True)
         check = subprocess.run(entry["visible"], capture_output=True, text=True)
-        print(f"visible check exit {{check.returncode}}")
+        emit({{"type": "system", "subtype": "stand-in", "text": f"visible check exit {{check.returncode}}"}})
         with session.open("a") as log:  # the transcript row the self-check detector reads
             log.write(json.dumps({{"type": "assistant", "message": {{"model": model, "content": [{{
                 "type": "tool_use", "name": "Bash", "input": {{"command": " ".join(entry["visible"])}}}}]}}}}) + "\\n")
     result = {{"summary": f"attempt {{attempt}}", "account": "applied the reference fix" if fixes else "none"}}
 Path(re.findall(r"^- path: (.+)$", prompt, re.M)[-1]).write_text(json.dumps(result))
+ended()
 """
 
 
@@ -94,6 +141,8 @@ def committed_runtime(root, rows):
     shutil.copytree(checkout / layout.PROGRAMS, root / layout.PROGRAMS, ignore=shutil.ignore_patterns("__pycache__"))
     (root / rules.RUBRIC_FILE).parent.mkdir(parents=True)
     (root / rules.RUBRIC_FILE).write_bytes((checkout / rules.RUBRIC_FILE).read_bytes())
+    (root / rules.PRICE_TABLE).parent.mkdir(parents=True)
+    (root / rules.PRICE_TABLE).write_bytes((checkout / rules.PRICE_TABLE).read_bytes())
     tasks = root / "experiments" / "seed_set" / "tasks.jsonl"
     tasks.write_text("".join(json.dumps(row) + "\n" for row in rows))
     stable_anchors(tasks)
@@ -103,11 +152,12 @@ def committed_runtime(root, rows):
 
 
 def write_frozen_criterion(study, **extra):
-    """criterion.json beside the judge criterion, naming the sha256 values the freeze requires (plan Step 1f)."""
+    """criterion.json beside the judge criterion, naming the sha256 values the freeze requires (plan Step 1f) and,
+    unless `extra` names others, the test spend terms."""
     import json
 
     from experiments.seed_set import rules
-    study.frozen.write_text(json.dumps({"sha256": rules.required_hashes(study), **extra}))
+    study.frozen.write_text(json.dumps({"sha256": rules.required_hashes(study), "spend": SPEND_TERMS, **extra}))
 
 
 def stable_anchors(tasks, unstable=()):

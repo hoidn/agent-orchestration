@@ -15,6 +15,7 @@ from experiments.seed_set import host, ladder, layout, probing, rules, spend, st
 from tests.experiments.seed_set_offline_support import committed_runtime, manifest_rows, write_frozen_criterion
 
 H, S = spend.HAIKU, spend.SONNET
+P = (1000.0, 0.01)  # a priced ceiling and per-call worst case no test here reaches
 ROOT = Path(__file__).resolve().parents[2]
 SIZES = {"T0": 8, "T1": 12, "T2": 12, "T3": 12, "T4": 12, "T5": 8}
 
@@ -48,7 +49,7 @@ def probed(s, phase, passes, self_check=False):
                 "step": phase, "rung": rung, "calls": 1, "outcome": "completed", "hidden": {"passed": k < count},
                 "self_check": None if withheld else self_check}))
             (records / "record.json").write_text("{}")
-            spend.reserve(s.ledger, "redraw", "candidate", H, 1, records, task=task, arm="direct", step=phase)
+            spend.reserve(s.ledger, "redraw", "candidate", H, 1, records, task=task, arm="direct", step=phase, price=P)
 
 
 FLAT_IN_BAND = {"T1": 4, "T2": 4, "T3": 2, "T4": 1, "T5": 0}
@@ -126,7 +127,7 @@ def test_an_extension_that_still_misses_stops_every_later_start(s):
     probed(s, "extension", {"T2w": 4, "T3w": 4, "T4w": 4})
     probing.probe_readout(s)
     with pytest.raises(SystemExit, match="the whole ladder missed"):
-        spend.reserve(s.ledger, "calibration", "candidate", H, 1, "/w/x", {spend.AUTHORIZATION: "calibration"})
+        spend.reserve(s.ledger, "calibration", "candidate", H, 1, "/w/x", {spend.AUTHORIZATION: "calibration"}, price=P)
 
 
 def test_an_extension_in_band_chooses_from_the_extension_rungs(s):
@@ -145,7 +146,7 @@ def test_the_extension_is_used_once_nothing_more_probes_after_its_answer(s):
 
 def test_a_probe_step_already_started_launches_nothing_again(s):
     for task in ladder.probe_tasks(layout.task_rows(s), "T1"):
-        spend.reserve(s.ledger, "redraw", "candidate", H, 1, f"/w/{task}", task=task, arm="direct", step="first")
+        spend.reserve(s.ledger, "redraw", "candidate", H, 1, f"/w/{task}", task=task, arm="direct", step="first", price=P)
     assert probing.probe(s, ["T1"]) == []
 
 
@@ -177,9 +178,9 @@ def test_budget_arithmetic_fits_the_caps():
 
 def test_the_41st_probe_call_refuses(s):
     for k in range(40):
-        spend.reserve(s.ledger, "redraw", "candidate", H, 1, f"/w/{k}", task=f"x{k}", arm="direct", step="first")
+        spend.reserve(s.ledger, "redraw", "candidate", H, 1, f"/w/{k}", task=f"x{k}", arm="direct", step="first", price=P)
     with pytest.raises(SystemExit, match="cap reached"):
-        spend.reserve(s.ledger, "redraw", "candidate", H, 1, "/w/40", task="x40", arm="direct", step="extension")
+        spend.reserve(s.ledger, "redraw", "candidate", H, 1, "/w/40", task="x40", arm="direct", step="extension", price=P)
 
 
 def test_a_probed_task_that_is_drawn_keeps_its_probe_run_as_a_first_haiku_run(s, monkeypatch):
@@ -187,7 +188,7 @@ def test_a_probed_task_that_is_drawn_keeps_its_probe_run_as_a_first_haiku_run(s,
     probing.probe_readout(s)
     monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
     for k in range(3):  # T3-00 was probed: three more Haiku runs complete its four
-        spend.reserve(s.ledger, "calibration", "candidate", H, 1, f"/w/c{k}", task="T3-00", arm="direct")
+        spend.reserve(s.ledger, "calibration", "candidate", H, 1, f"/w/c{k}", task="T3-00", arm="direct", price=P)
     assert study.candidates(s, "calibration", "direct", ["T3-00"]) == []
 
 
@@ -230,11 +231,6 @@ def test_a_passed_early_look_opens_the_other_judges(s):
     rules.require_early_look(s, "calibration", "retest", tasks[3:4])  # no refusal
 
 
-def test_the_first_wave_runs_two_at_a_time():
-    assert (study.waves([1, 2, 3, 4, 5], False), study.waves([1, 2, 3], True)) == (
-        [(2, [1, 2]), (4, [3, 4, 5])], [(4, [1, 2, 3])])
-
-
 def test_a_withheld_package_names_its_staged_tests_for_the_check_only(tmp_path):
     (tmp_path / "pkg" / "withheld" / "tests").mkdir(parents=True)
     (tmp_path / "pkg" / "withheld" / "tests" / "test_v.py").write_text("def test_v(): pass\n")
@@ -256,7 +252,7 @@ def test_a_draw_short_of_twenty_is_a_stop_with_no_list(s):
     assert ((s.results / layout.CHOSEN).exists(), row["drawn"], "too short" in stop["reason"], "owner" in out["stop"]) == (
         False, {"T4": 6, "T5": 8}, True, True)
     with pytest.raises(SystemExit, match="the study is stopped"):
-        spend.reserve(s.ledger, "calibration", "candidate", H, 1, "/w/x", {spend.AUTHORIZATION: "calibration"})
+        spend.reserve(s.ledger, "calibration", "candidate", H, 1, "/w/x", {spend.AUTHORIZATION: "calibration"}, price=P)
 
 
 def test_the_probe_readout_states_the_drawn_sets_count_per_rung(s):
@@ -311,7 +307,7 @@ def probe_unit(s, task, rung, attempt=1, phase="first", **facts):
         "tranche": "redraw", "task": task, "arm": "direct", "model": H, "effort": "medium", "max_calls": 1,
         "step": phase, "rung": rung, **facts}))
     (records / "record.json").write_text("{}")
-    spend.reserve(s.ledger, "redraw", "candidate", H, 1, records, limit=2, task=task, arm="direct", step=phase)
+    spend.reserve(s.ledger, "redraw", "candidate", H, 1, records, limit=2, task=task, arm="direct", step=phase, price=P)
     return records
 
 
@@ -364,6 +360,29 @@ def test_a_relaunched_incident_launches_no_third_time_and_its_task_is_excluded(s
     figures = probing.results(s, "first")
     assert (figures[0]["T3"], figures[1]["T3"]["excluded"]) == (3, ["T3-00"])  # 2 of 3 usable pass: 3 on four
     assert probing.probe_readout(s)["counted_on_four"]["first/T3"].startswith("2 of 3 usable runs counted as 3")
+
+
+CUT = {"call": "1", "reset": 1_794_627_837, "text": "You've hit your session limit"}
+
+
+def test_a_probe_run_cut_by_a_usage_limit_is_no_failure_and_runs_again_once(s, monkeypatch):  # ruling R1
+    def units(task, k):
+        probe_unit(s, task, "T3", calls=1, outcome="failed", cut=CUT) if k == 0 \
+            else probe_unit(s, task, "T3", calls=1, outcome="completed", hidden={"passed": k < 2}, self_check=False)
+    flat_with(s, "T3", units)
+    assert launches(s, monkeypatch) == [("T3-00", "T3")]
+
+
+def test_a_probe_task_cut_twice_launches_no_third_time_and_is_excluded(s):
+    def units(task, k):
+        if k == 0:
+            for attempt in (1, 2):
+                probe_unit(s, task, "T3", attempt, calls=1, outcome="failed", cut=CUT)
+        else:
+            probe_unit(s, task, "T3", calls=1, outcome="completed", hidden={"passed": k < 3}, self_check=False)
+    flat_with(s, "T3", units)
+    figures = probing.results(s, "first")
+    assert (figures[0]["T3"], figures[1]["T3"]["excluded"], figures[1]["T3"]["cuts"]) == (3, ["T3-00"], 2)
 
 
 def test_a_rung_with_two_usable_runs_of_four_stops_the_probe_with_no_list(s):

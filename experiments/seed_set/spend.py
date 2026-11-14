@@ -14,7 +14,11 @@ It holds starts and events. Every provider start goes through `reserve` before i
   is launched once, never retried or relaunched;
 - the calls reserved so far for (tranche, kind, model) plus this unit's maximum must stay within the cap, and with
   `limit`, the starts so far for (tranche, task, arm, step) must stay under it (the plan's runs per task and
-  arm; a probe step runs a task once).
+  arm; a probe step runs a task once);
+- the tranche's committed priced total plus this unit's worst case (its calls times the model's per-call worst
+  case) must stay within the tranche's priced ceiling (coordinator ruling R4, 2026-11-14; both figures are the
+  criterion's, `layout.spend_terms`). Committed is each settled unit's metered price (its `settle` event, metered
+  tokens times the frozen price table, `units.priced`) and each other start's worst case.
 
 Rows are appended and fsynced under an exclusive lock, so a crash after the append cannot lose a start and two
 study processes cannot both take the last call or the last planned run. A unit reserves its maximum calls, which
@@ -171,9 +175,11 @@ def _append(stream, entries, row):
     return row
 
 
-def reserve(ledger, tranche, kind, model, calls, unit, environ=None, limit=None, **facts):
+def reserve(ledger, tranche, kind, model, calls, unit, environ=None, limit=None, *, price, **facts):
     """Append one start of `unit` with its maximum `calls`, fsynced, before the caller launches; return the row.
-    With `limit`, refuse a start beyond `limit` starts of the same (tranche, task, arm, step)."""
+    With `limit`, refuse a start beyond `limit` starts of the same (tranche, task, arm, step). `price` is (the
+    tranche's priced ceiling, the model's per-call worst case), both in USD."""
+    ceiling, per_call = price
     authorize(tranche, environ)
     check_model(model)
     if type(calls) is not int or calls < 1:
@@ -188,12 +194,42 @@ def reserve(ledger, tranche, kind, model, calls, unit, environ=None, limit=None,
         left = remaining(entries, tranche, kind, model)
         if calls > left:
             raise SystemExit(f"{tranche} {kind} {model}: cap reached ({left} calls left, {calls} needed for {unit})")
+        worst, committed = round(calls * per_call, 6), committed_usd(entries, tranche)
+        if round(committed + worst, 6) > ceiling:
+            raise SystemExit(f"{tranche}: the priced ceiling of USD {ceiling:g} would be passed (USD {committed:g} "
+                             f"committed, USD {worst:g} worst case for {unit})")
         return _append(stream, entries, {"tranche": tranche, "kind": kind, "model": model, "calls": calls,
-                                         "unit": str(unit), **facts})
+                                         "usd_reserved": worst, "unit": str(unit), **facts})
+
+
+def settled(entries):
+    """{unit: its latest `settle` event}: the unit's metered price once it ended."""
+    return {row["unit"]: row for row in entries if row["kind"] == "event" and row["event"] == "settle"}
+
+
+def committed_usd(entries, tranche):
+    """The tranche's priced total: each settled start at its metered price, every other start at its worst case."""
+    done = settled(entries)
+    return round(sum(done[row["unit"]]["usd"] if row["unit"] in done else row["usd_reserved"]
+                     for row in starts(entries) if row["tranche"] == tranche), 6)
+
+
+def priced(ledger):
+    """{tranche: committed, settled and open USD, and the units settled with calls whose usage was missing}."""
+    entries = rows(ledger)
+    done, out = settled(entries), {}
+    for tranche in CAPS:
+        mine = [row for row in starts(entries) if row["tranche"] == tranche]
+        settled_usd = round(sum(done[row["unit"]]["usd"] for row in mine if row["unit"] in done), 6)
+        open_usd = round(sum(row["usd_reserved"] for row in mine if row["unit"] not in done), 6)
+        out[tranche] = {"committed_usd": round(settled_usd + open_usd, 6), "settled_usd": settled_usd,
+                        "open_usd": open_usd, "missing_usage": [row["unit"] for row in mine
+                                                                if done.get(row["unit"], {}).get("missing")]}
+    return out
 
 
 def record(ledger, event, **facts):
-    """Append an event row (freeze, smoke, decision, stop, pause) under the lock; return it."""
+    """Append an event row (freeze, smoke, decision, stop, pause, settle) under the lock; return it."""
     with locked(ledger) as (stream, entries):
         return _append(stream, entries, {"kind": "event", "event": event, **facts})
 

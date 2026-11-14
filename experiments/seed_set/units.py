@@ -15,6 +15,8 @@
   requests with the copied credential.
 - `disable_resume`: the harness's resume scripts carry no reservation and no call cap; the study never resumes,
   so they are replaced by a script that refuses.
+- `priced`: a unit's metered usage priced by the frozen price table, for the spend guard's settlement
+  (coordinator ruling R4); `cap_command` passes the unit's worst case to the runtime as `--max-cost-usd`.
 """
 
 import json
@@ -24,6 +26,9 @@ import shutil
 from pathlib import Path
 
 from experiments.compare import scan
+from orchestrator.providers.pricing import priced as table_price
+from orchestrator.providers.types import ProviderSessionMetadataMode
+from orchestrator.providers.usage import usage_from_stdout
 
 PROVIDER_ERRORS = re.compile(
     r"\b(?:429|529|401|403)\b|rate.?limit|usage limit|overloaded|unauthori[sz]ed|authenticat|invalid (?:api|x-api)"
@@ -147,6 +152,42 @@ def audit_sessions(home, tree, made, model):
     if len(top) > made:
         return f"{len(top)} sessions for {made} recorded calls", None, sessions
     return None, None, sessions
+
+
+def priced(records, table, per_call):
+    """{"usd", "calls": {call: usd}, "missing": [calls]} of a unit's physical calls (rounded to 1e-6 USD). A call is
+    priced from the stream-json result event the metered template prints: the larger of its `modelUsage` at the
+    table's ordinary rates and the CLI's reported `total_cost_usd` (the CLI applies a long-context rate per request,
+    which the summed usage cannot). A call whose usage is missing, incomplete or unpriced counts at `per_call`, the
+    worst case, and is listed in `missing`. A call the shim refused (no prompt) reached no provider and costs
+    nothing."""
+    found, missing = {}, []
+    for call in calls(records):
+        if not (call / "prompt.txt").is_file():
+            continue
+        cost = call_cost(call, table)
+        if cost is None:
+            missing.append(call.name)
+        found[call.name] = round(per_call if cost is None else cost, 6)
+    return {"usd": round(sum(found.values()), 6), "missing": missing, "calls": found}
+
+
+def call_cost(call, table):
+    stdout = call / "stdout.txt"
+    usage = usage_from_stdout(ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value,
+                              stdout.read_bytes() if stdout.is_file() else b"", model=None)
+    if usage.get("status") != "reported" or usage.get("complete") is not True:
+        return None
+    value, reported = table_price(usage["rows"], table), usage.get("reported_cost_usd")
+    return None if value is None else max(value, reported or 0)
+
+
+def cap_command(script, usd):
+    """Append the runtime's own spend cap, `--max-cost-usd`, to the harness's one-line run command."""
+    text = Path(script).read_text()
+    if text.count("\n") != 1 or " -m orchestrator run " not in text:
+        raise SystemExit(f"{script} is not the harness's one-line run command; no cap can be passed")
+    Path(script).write_text(f"{text.rstrip()} --max-cost-usd {usd:.6g}\n")
 
 
 def disable_resume(*scripts):
