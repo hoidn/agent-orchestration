@@ -89,29 +89,25 @@ def _ill_typed_implement(name: str, model: str, plan: str | None) -> str:
 
 
 def _check_and_repair(name: str, rounds: int, model: str) -> str:
-    return f"""({name} (loop/recur :max {rounds}
-        :state (loop-state (round Int 1))
+    return f"""({name} (loop/recur ((state (loop-state (round Int 1)))) :max {rounds}
         :on-exhausted (record Step :note "repair rounds exhausted")
-        (fn (state)
-          (let* ((report (command-result check :argv ("python" "check.py") :returns CheckReport)))
-            (if report.passed
-              (done (record Step :note "check passed"))
-              (let* ((diagnosis {_call('(diagnose-prompt :failing report.failing)', model)})
-                     (repair {_call('(repair-prompt :task task :findings diagnosis.findings)', CODER_MODEL)}))
-                (continue (loop-state :like state :round (+ state.round 1)))))))))"""
+        (let* ((report (command-result check :argv ("python" "check.py") :returns CheckReport)))
+          (if report.passed
+            (done (record Step :note "check passed"))
+            (let* ((diagnosis {_call('(diagnose-prompt :failing report.failing)', model)})
+                   (repair {_call('(repair-prompt :task task :findings diagnosis.findings)', CODER_MODEL)}))
+              (continue (loop-state :like state :round (+ state.round 1))))))))"""
 
 
 def _review_and_revise(name: str, rounds: int, model: str) -> str:
-    return f"""({name} (loop/recur :max {rounds}
-        :state (loop-state (round Int 1))
+    return f"""({name} (loop/recur ((state (loop-state (round Int 1)))) :max {rounds}
         :on-exhausted (record Step :note "review rounds exhausted")
-        (fn (state)
-          (let* ((review {_call('(review-prompt :task task)', model)}))
-            (match review
-              ((APPROVE a) (done (record Step :note "approved")))
-              ((REQUEST_CHANGES r)
-               (let* ((revision {_call('(revise-prompt :task task :findings r.findings)', CODER_MODEL)}))
-                 (continue (loop-state :like state :round (+ state.round 1))))))))))"""
+        (let* ((review {_call('(review-prompt :task task)', model)}))
+          (match review
+            ((APPROVE a) (done (record Step :note "approved")))
+            ((REQUEST_CHANGES r)
+             (let* ((revision {_call('(revise-prompt :task task :findings r.findings)', CODER_MODEL)}))
+               (continue (loop-state :like state :round (+ state.round 1)))))))))"""
 
 
 _RENDER = {"plan": _plan, "implement": _implement, "ill_typed_implement": _ill_typed_implement}

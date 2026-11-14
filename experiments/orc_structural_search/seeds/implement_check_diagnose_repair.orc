@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.39")
+  (:target-dsl "2.40")
   (defmodule implement_check_diagnose_repair)
   (import common :only (Change CheckReport Outcome))
   (export run)

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule verified_iteration_drain/drain)
   (export drain)
 
@@ -242,101 +242,99 @@
      (reviewer_effort String :default "high"))
     -> DrainOutput
     (let* ((loop-result
-             (loop/recur
+             (loop/recur ((state (record DrainLoopState
+                                   :iteration 0
+                                   :drain_status DrainStatus.CONTINUE
+                                   :drain_summary_path
+                                     (__generated-relpath-seed__
+                                       DrainSummaryPath
+                                       "artifacts/work/drain-summary.json"
+                                       "verified_iteration_drain_summary_seed"))))
                :max 40
-               :state (record DrainLoopState
-                        :iteration 0
-                        :drain_status DrainStatus.CONTINUE
-                        :drain_summary_path
-                          (__generated-relpath-seed__
-                            DrainSummaryPath
-                            "artifacts/work/drain-summary.json"
-                            "verified_iteration_drain_summary_seed"))
                :on-exhausted (variant DrainLoopOutput EXHAUSTED
                                :drain_status DrainStatus.STALLED
                                :drain_summary_path state.drain_summary_path
                                :reason "max_iterations_exhausted")
-               (fn (state)
-                 (let* ((prepared
-                          (command-result prepare_verified_iteration
-                            :argv ("python"
-                                   "workflows/library/scripts/prepare_verified_iteration.py"
-                                   "--drain-state-root" drain_state_root
-                                   "--artifact-work-root" artifact_work_root
-                                   "--target-design-path" target_design_path
-                                   "--check-commands-path" check_commands_path
-                                   "--iteration" state.iteration
-                                   "--output" "${inputs.drain_state_root}/iterations/${loop.index}/work-order.json")
-                            :returns PrepareResult))
-                        (worker-verdict
-                          (call invoke-worker
-                            :provider_choice worker_provider
-                            :model worker_model
-                            :effort worker_effort
-                            :work_order_path prepared.work_order_path
-                            :target_design_path target_design_path
-                            :ledger_path prepared.ledger_input_path))
-                        (checks
-                          (command-result run_verified_iteration_checks
-                            :argv ("python"
-                                   "workflows/library/scripts/run_verified_iteration_checks.py"
-                                   "--check-commands-path" check_commands_path
-                                   "--base-sha" prepared.base_sha
-                                   "--iteration-dir" "${inputs.drain_state_root}/iterations/${loop.index}"
-                                   "--output" "${inputs.drain_state_root}/iterations/${loop.index}/checks-result.json")
-                            :returns ChecksResult))
-                        (review-decision
-                          (call invoke-iteration-review
-                            :provider_choice reviewer_provider
-                            :model reviewer_model
-                            :effort reviewer_effort
-                            :verify_status checks.verify_status
-                            :commits_landed checks.commits_landed
-                            :work_order_path prepared.work_order_path
-                            :review_package_path checks.review_package_path
-                            :target_design_path target_design_path
-                            :ledger_path prepared.ledger_input_path))
-                        (done-review-decision
-                          (call invoke-done-review
-                            :provider_choice reviewer_provider
-                            :model reviewer_model
-                            :effort reviewer_effort
-                            :worker_verdict worker-verdict
-                            :verify_status checks.verify_status
-                            :work_order_path prepared.work_order_path
-                            :target_design_path target_design_path))
-                        (recorded
-                          (command-result record_verified_iteration
-                            :argv ("python"
-                                   "workflows/library/scripts/record_verified_iteration.py"
-                                   "--iteration" state.iteration
-                                   "--base-sha" prepared.base_sha
-                                   "--worker-verdict" worker-verdict
-                                   "--review-decision" review-decision
-                                   "--done-review-decision" done-review-decision
-                                   "--checks-result-path" "${inputs.drain_state_root}/iterations/${loop.index}/checks-result.json"
-                                   "--review-decision-path" "${inputs.drain_state_root}/iterations/${loop.index}/review-decision.txt"
-                                   "--done-review-decision-path" "${inputs.drain_state_root}/iterations/${loop.index}/done-review-decision.txt"
-                                   "--worker-verdict-path" "${inputs.drain_state_root}/iterations/${loop.index}/worker-verdict.txt"
-                                   "--worker-note-path" "${inputs.drain_state_root}/iterations/${loop.index}/worker-note.txt"
-                                   "--blocked-notes-dir" "${inputs.artifact_work_root}/blocked"
-                                   "--ledger-path" prepared.ledger_path
-                                   "--statuses-path" "${inputs.drain_state_root}/statuses.txt"
-                                   "--stall-limit" stall_limit
-                                   "--summary-path" "${inputs.artifact_work_root}/drain-summary.json"
-                                   "--drain-status-path" "${inputs.drain_state_root}/iterations/${loop.index}/drain-status.txt")
-                            :returns RecordResult))
-                        (terminal
-                          (call is-terminal
-                            :drain_status recorded.drain_status)))
-                   (if terminal
-                     (done (variant DrainLoopOutput TERMINAL
-                             :drain_status recorded.drain_status
-                             :drain_summary_path recorded.drain_summary_path))
-                     (continue (record DrainLoopState
-                                 :iteration (+ state.iteration 1)
-                                 :drain_status recorded.drain_status
-                                 :drain_summary_path recorded.drain_summary_path))))))))
+               (let* ((prepared
+                        (command-result prepare_verified_iteration
+                          :argv ("python"
+                                 "workflows/library/scripts/prepare_verified_iteration.py"
+                                 "--drain-state-root" drain_state_root
+                                 "--artifact-work-root" artifact_work_root
+                                 "--target-design-path" target_design_path
+                                 "--check-commands-path" check_commands_path
+                                 "--iteration" state.iteration
+                                 "--output" "${inputs.drain_state_root}/iterations/${loop.index}/work-order.json")
+                          :returns PrepareResult))
+                      (worker-verdict
+                        (call invoke-worker
+                          :provider_choice worker_provider
+                          :model worker_model
+                          :effort worker_effort
+                          :work_order_path prepared.work_order_path
+                          :target_design_path target_design_path
+                          :ledger_path prepared.ledger_input_path))
+                      (checks
+                        (command-result run_verified_iteration_checks
+                          :argv ("python"
+                                 "workflows/library/scripts/run_verified_iteration_checks.py"
+                                 "--check-commands-path" check_commands_path
+                                 "--base-sha" prepared.base_sha
+                                 "--iteration-dir" "${inputs.drain_state_root}/iterations/${loop.index}"
+                                 "--output" "${inputs.drain_state_root}/iterations/${loop.index}/checks-result.json")
+                          :returns ChecksResult))
+                      (review-decision
+                        (call invoke-iteration-review
+                          :provider_choice reviewer_provider
+                          :model reviewer_model
+                          :effort reviewer_effort
+                          :verify_status checks.verify_status
+                          :commits_landed checks.commits_landed
+                          :work_order_path prepared.work_order_path
+                          :review_package_path checks.review_package_path
+                          :target_design_path target_design_path
+                          :ledger_path prepared.ledger_input_path))
+                      (done-review-decision
+                        (call invoke-done-review
+                          :provider_choice reviewer_provider
+                          :model reviewer_model
+                          :effort reviewer_effort
+                          :worker_verdict worker-verdict
+                          :verify_status checks.verify_status
+                          :work_order_path prepared.work_order_path
+                          :target_design_path target_design_path))
+                      (recorded
+                        (command-result record_verified_iteration
+                          :argv ("python"
+                                 "workflows/library/scripts/record_verified_iteration.py"
+                                 "--iteration" state.iteration
+                                 "--base-sha" prepared.base_sha
+                                 "--worker-verdict" worker-verdict
+                                 "--review-decision" review-decision
+                                 "--done-review-decision" done-review-decision
+                                 "--checks-result-path" "${inputs.drain_state_root}/iterations/${loop.index}/checks-result.json"
+                                 "--review-decision-path" "${inputs.drain_state_root}/iterations/${loop.index}/review-decision.txt"
+                                 "--done-review-decision-path" "${inputs.drain_state_root}/iterations/${loop.index}/done-review-decision.txt"
+                                 "--worker-verdict-path" "${inputs.drain_state_root}/iterations/${loop.index}/worker-verdict.txt"
+                                 "--worker-note-path" "${inputs.drain_state_root}/iterations/${loop.index}/worker-note.txt"
+                                 "--blocked-notes-dir" "${inputs.artifact_work_root}/blocked"
+                                 "--ledger-path" prepared.ledger_path
+                                 "--statuses-path" "${inputs.drain_state_root}/statuses.txt"
+                                 "--stall-limit" stall_limit
+                                 "--summary-path" "${inputs.artifact_work_root}/drain-summary.json"
+                                 "--drain-status-path" "${inputs.drain_state_root}/iterations/${loop.index}/drain-status.txt")
+                          :returns RecordResult))
+                      (terminal
+                        (call is-terminal
+                          :drain_status recorded.drain_status)))
+                 (if terminal
+                   (done (variant DrainLoopOutput TERMINAL
+                           :drain_status recorded.drain_status
+                           :drain_summary_path recorded.drain_summary_path))
+                   (continue (record DrainLoopState
+                               :iteration (+ state.iteration 1)
+                               :drain_status recorded.drain_status
+                               :drain_summary_path recorded.drain_summary_path)))))))
       (match loop-result
         ((TERMINAL terminal)
          (record DrainOutput
