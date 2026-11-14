@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.39")
+  (:target-dsl "2.40")
   (defmodule implement_review_revise)
   (import common :only (Change Outcome))
   (export run)
@@ -54,43 +54,41 @@
     (let* ((change (provider-result providers.coder
                      :prompt (implement-prompt :task task :repo repo)
                      :model "claude-sonnet-5-5" :effort "medium" :timeout-sec 5400)))
-      (loop/recur :max 3
-        :state (loop-state
-                 (round Int 1)
-                 (summary String change.summary)
-                 (account String change.account)
-                 (replies String "none"))
+      (loop/recur ((state (loop-state
+                            (round Int 1)
+                            (summary String change.summary)
+                            (account String change.account)
+                            (replies String "none")))) :max 3
         :on-exhausted (variant Outcome BLOCKED :reason "round limit reached")
-        (fn (state)
-          (let* ((review (provider-result providers.reviewer
-                           :prompt (review-prompt :repo repo :intent intent
-                                     :account state.account :replies state.replies)
-                           :model "gpt-6-sol" :effort "high" :timeout-sec 5400)))
-            (match review
-              ((APPROVE a)
-               (done (variant Outcome DONE :summary state.summary)))
-              ((REQUEST_CHANGES r)
-               (if (= state.round 3)
-                 (done (variant Outcome BLOCKED :reason r.summary))
-                 (let* ((revision (provider-result providers.coder
-                                    :prompt (fix-prompt :task task :repo repo :findings r.findings)
-                                    :model "claude-sonnet-5-5" :effort "medium" :timeout-sec 5400)))
-                   (continue (loop-state :like state
-                               :round (+ state.round 1)
-                               :summary revision.summary
-                               :account revision.account
-                               :replies revision.replies)))))
-              ((WRONG_APPROACH w)
-               (if (= state.round 3)
-                 (done (variant Outcome BLOCKED :reason w.reason))
-                 (let* ((redo (provider-result providers.coder
-                                :prompt (redo-prompt :task task :repo repo :reason w.reason)
-                                :model "claude-sonnet-5-5" :effort "medium" :timeout-sec 5400)))
-                   (continue (loop-state :like state
-                               :round (+ state.round 1)
-                               :summary redo.summary
-                               :account redo.account
-                               :replies "none")))))
-              ((NEEDS_HUMAN h)
-               (done (variant Outcome BLOCKED :reason h.question)))))))))
+        (let* ((review (provider-result providers.reviewer
+                         :prompt (review-prompt :repo repo :intent intent
+                                   :account state.account :replies state.replies)
+                         :model "gpt-6-sol" :effort "high" :timeout-sec 5400)))
+          (match review
+            ((APPROVE a)
+             (done (variant Outcome DONE :summary state.summary)))
+            ((REQUEST_CHANGES r)
+             (if (= state.round 3)
+               (done (variant Outcome BLOCKED :reason r.summary))
+               (let* ((revision (provider-result providers.coder
+                                  :prompt (fix-prompt :task task :repo repo :findings r.findings)
+                                  :model "claude-sonnet-5-5" :effort "medium" :timeout-sec 5400)))
+                 (continue (loop-state :like state
+                             :round (+ state.round 1)
+                             :summary revision.summary
+                             :account revision.account
+                             :replies revision.replies)))))
+            ((WRONG_APPROACH w)
+             (if (= state.round 3)
+               (done (variant Outcome BLOCKED :reason w.reason))
+               (let* ((redo (provider-result providers.coder
+                              :prompt (redo-prompt :task task :repo repo :reason w.reason)
+                              :model "claude-sonnet-5-5" :effort "medium" :timeout-sec 5400)))
+                 (continue (loop-state :like state
+                             :round (+ state.round 1)
+                             :summary redo.summary
+                             :account redo.account
+                             :replies "none")))))
+            ((NEEDS_HUMAN h)
+             (done (variant Outcome BLOCKED :reason h.question))))))))
 )
