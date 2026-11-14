@@ -20,18 +20,23 @@ outcome today is in `KNOWN` with today's signature, read from a run:
                                               the diagnostic codes a failed run prints
 
 Rules, each enforced here:
-- a known row must still give exactly its signature. A fix makes its row fail: delete the row from
-  `KNOWN` and state the wanted outcome, where the row has none. The wanted outcome of a row that left
-  `KNOWN` is never the signature it was known by;
+- a known row must still give exactly its signature. A fix makes its row fail. The fixer then (1)
+  deletes the row's entry from `KNOWN`, and only that; (2) states the wanted outcome where the row
+  has none, never as the signature it was known by; (3) removes the row's `AMENDED` entry if it has
+  one. `KNOWN_AT_T0` and `WANTED_AT_T0` are not touched;
 - `KNOWN` only shrinks: its ids are in `KNOWN_AT_T0`, which also freezes each signature. A known row's
-  signature differs from the frozen one only through `AMENDED` (new signature and a reason naming the
-  date of the plan's ledger row): the route for a defect that stayed while its signature moved, such
-  as a renamed function or a traceback that became a coded crash. A row that moved to a different
-  wrong outcome is not amended without that ledger row;
-- no row is deleted: every id is in `ROWS_AT_T0`. Deleting one is an `AMENDED` entry too. A new defect
-  is added to `KNOWN`, `KNOWN_AT_T0` and `ROWS_AT_T0`, with a ledger row;
+  signature differs from the frozen one only through `AMENDED` (the new signature and a reason naming
+  the date of the plan's ledger row). An amendment is for the same defect under a moved key: another
+  function of a crash or traceback of the same class, a traceback that became a coded crash, another
+  code of a refusal. A row that moved to a different wrong outcome is not amended;
+- no row is deleted: every id is in `WANTED_AT_T0`. Deleting one is an `AMENDED` entry too. A new
+  defect is added to `KNOWN`, `KNOWN_AT_T0` and `WANTED_AT_T0`, with a ledger row;
+- a wanted outcome changes only by a decision recorded in the plan's ledger: it may be made stricter
+  freely (an outcome stated where there was none, a value where there was `builds`); any other change
+  needs an `AMENDED_WANTED` entry with a dated reason, for known rows, controls and pins;
 - a known row that builds, commits or gives a value where a refusal is wanted, and every row of
-  `PAIRED`, names a control row, not in `KNOWN`, that exercises the guard it gets past (`CONTROLS`).
+  `PAIRED`, names a control row, not in `KNOWN`, that exercises the guard it gets past (`CONTROLS`);
+  every key of `PAIRED` and `CONTROLS` is a row.
 
 A row whose wanted outcome is `None` is owned by another decision (the one-target cut, or a fix that
 chooses a code): only today's outcome is recorded.
@@ -212,29 +217,138 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "E27": ("ran", 2, 0, 0, "resume_preflight_failed"),
 }
 
-# Every row id, frozen: a row is never deleted silently. A new row is entered here too.
-ROWS_AT_T0: tuple[str, ...] = (
-    "A2-C", "A2-G", "A2-M", "A2-named", "A2-path", "A3-path", "A3-string", "A3-two-names", "A4-abs",
-    "A4-asset-abs", "A4-asset-dotdot", "A4-asset-symlink", "A4-dotdot", "A4-symlink", "B1", "B1-two-paths",
-    "B2-arm", "B2-let", "B2-no-reference", "B3", "B3-print", "B4", "B4-no-caller-binding", "B5", "B5-ref", "B6",
-    "C1", "C1-local", "D1", "D2", "D3", "D4-cond", "D4-if", "D4-loop", "D4-map", "D4-map-bound", "D4-map-value",
-    "D5", "D5-arm-binder", "D5-if", "D5-other-variant", "D6", "D7", "D7-bound", "D7-hoisted", "D8", "D9-fn",
-    "D9-map", "D9-name", "D9-ref", "D9-scalar-state", "D10", "D10-R1", "D11", "D11-R1", "D11-R2", "D11-R3",
-    "D11-R4", "D11-R5", "D12-declared", "D12-entry", "D12-literal", "D12-name", "D13", "D13-folded", "D15",
-    "D16", "D17-effect", "D17-pure", "D19", "D19-done", "D20", "D20-bound", "D21", "D22", "E1-and", "E1-or",
-    "E2", "E2-parallel", "E2-pure", "E4", "E5-cond", "E5-if", "E5-match", "E6", "E6-uncalled", "E7", "E8", "E9",
-    "E9-direct", "E9-effect-callee", "E9-effect-caller", "E10", "E11", "E12", "E13", "E15-missing",
-    "E18-in-place", "E18-macro", "E18-other-binder", "E19", "E20", "E23-bound", "E23-input", "E23-local", "E24",
-    "E24-imported", "E24-qualified", "E25", "E26", "E27", "E27-plain-resume",
-)
+# Every row and its wanted outcome, frozen at T0 and never edited: a row is never deleted silently and a
+# wanted outcome is never loosened silently. A new row is entered here too.
+WANTED_AT_T0: dict[str, tuple | None] = {
+    "A2-C": ("refused", "run_ref_placement_invalid"),
+    "A2-G": ("refused", "run_ref_placement_invalid"),
+    "A2-M": ("refused", "run_ref_placement_invalid"),
+    "A2-named": ("refused", "run_ref_placement_invalid"),
+    "A2-path": ("builds",),
+    "A3-path": ("ran", 1, 0, 0, "duplicate_artifact_name"),
+    "A3-string": ("ran", 1, 0, 0, "duplicate_artifact_name"),
+    "A3-two-names": ("ran", 0, 1, 0),
+    "A4-abs": None,
+    "A4-asset-abs": ("ran", 1, 0, 0, "asset_file_read_failed"),
+    "A4-asset-dotdot": ("ran", 1, 0, 0, "asset_file_read_failed"),
+    "A4-asset-symlink": ("ran", 1, 0, 0, "asset_file_read_failed"),
+    "A4-dotdot": None,
+    "A4-symlink": None,
+    "B1": ("ran", 1, 0, 0, "prompt_output_position_destination_collision"),
+    "B1-two-paths": ("ran", 0, 1, 0),
+    "B2-arm": None,
+    "B2-let": None,
+    "B2-no-reference": ("refused", "procedure_call_unknown"),
+    "B3": None,
+    "B3-print": None,
+    "B4": None,
+    "B4-no-caller-binding": ("refused", "procedure_call_unknown"),
+    "B5": None,
+    "B5-ref": None,
+    "B6": ("value", True, "strb"),
+    "C1": ("refused", "procedure_effect_ceiling_exceeded"),
+    "C1-local": ("refused", "procedure_effect_ceiling_exceeded"),
+    "D1": ("value", 1005),
+    "D2": ("refused", "effect_not_permitted"),
+    "D3": ("refused", "effect_not_permitted"),
+    "D4-cond": ("value", 0),
+    "D4-if": ("value", 0),
+    "D4-loop": ("value", 0),
+    "D4-map": ("value", 2, "m", "m"),
+    "D4-map-bound": ("value", 2, "m", "m"),
+    "D4-map-value": ("value", [1, 1], "m", "m"),
+    "D5": ("value", 3),
+    "D5-arm-binder": ("value", 3),
+    "D5-if": ("value", 3),
+    "D5-other-variant": ("refused", "variant_ref_wrong_variant"),
+    "D6": ("value", 4),
+    "D7": ("value", 2, "step", "step", "check"),
+    "D7-bound": ("value", 2, "step", "step", "check"),
+    "D7-hoisted": ("value", 2, "step", "step", "check"),
+    "D8": ("value", 1),
+    "D9-fn": ("value", 5),
+    "D9-map": ("value", 2, "m", "m"),
+    "D9-name": ("value", 5),
+    "D9-ref": ("value", 5),
+    "D9-scalar-state": ("value", 5),
+    "D10": ("value", 2),
+    "D10-R1": ("value", 2),
+    "D11": ("value", 2, "step", "step"),
+    "D11-R1": ("value", 3, "add"),
+    "D11-R2": ("value", 2, "add", "add"),
+    "D11-R3": ("value", 2, "add", "add"),
+    "D11-R4": ("value", 2, "add", "add"),
+    "D11-R5": ("value", 2, "add", "add"),
+    "D12-declared": ("builds",),
+    "D12-entry": None,
+    "D12-literal": None,
+    "D12-name": None,
+    "D13": ("refused", "pure_expr_overflow"),
+    "D13-folded": ("refused", "pure_expr_overflow"),
+    "D15": ("builds",),
+    "D16": ("refused", "proc_ref_literal_required"),
+    "D17-effect": ("value", 2, "m", "m"),
+    "D17-pure": ("value", 2),
+    "D19": None,
+    "D19-done": ("value", 1, "e"),
+    "D20": None,
+    "D20-bound": ("value", 1, "e1"),
+    "D21": None,
+    "D22": None,
+    "E1-and": None,
+    "E1-or": None,
+    "E2": None,
+    "E2-parallel": ("builds",),
+    "E2-pure": ("builds",),
+    "E4": None,
+    "E5-cond": ("value", 1),
+    "E5-if": ("value", 1),
+    "E5-match": ("value", 1),
+    "E6": ("value", 2),
+    "E6-uncalled": ("builds",),
+    "E7": ("value", 2, "g", "g"),
+    "E8": ("value", 3),
+    "E9": ("value", 1),
+    "E9-direct": ("builds",),
+    "E9-effect-callee": ("builds",),
+    "E9-effect-caller": ("builds",),
+    "E10": ("value", 6),
+    "E11": None,
+    "E12": None,
+    "E13": None,
+    "E15-missing": ("ran", 1, 0, 0, "asset_file_read_failed"),
+    "E18-in-place": ("refused", "list_map_binder_invalid"),
+    "E18-macro": ("refused", "list_map_binder_invalid"),
+    "E18-other-binder": ("value", 2),
+    "E19": ("value", 4),
+    "E20": ("value", 1),
+    "E23-bound": ("value", 2),
+    "E23-input": ("value", 2),
+    "E23-local": ("value", 2),
+    "E24": ("value", {"p": "artifacts/work/x.json"}),
+    "E24-imported": ("value", {"p": "artifacts/work/x.json"}),
+    "E24-qualified": ("value", {"p": "artifacts/work/x.json"}),
+    "E25": ("builds",),
+    "E26": None,
+    "E27": ("ran", 0, 2, 0),
+    "E27-plain-resume": ("ran", 0, 2, 0),
+}
 
-# The one way a frozen fact changes. Row id -> (signature, reason); the reason names the date of the row in
-# the plan's ledger that records the change.
-# - A known row whose signature moved while its defect stayed (a renamed function or code, a traceback that
-#   became a coded crash): its new signature, which `KNOWN` then holds.
-# - A deleted row: `None` as the signature.
+# The one way a frozen fact changes: an entry `row id: (new value, reason)` whose reason names the date of the
+# row in the plan's ledger that records the change.
+#
+# `AMENDED`, for signatures and rows:
+# - a known row whose signature moved while its defect stayed: the new signature, which `KNOWN` then holds.
+#   An amendment may change the function of a crash or a traceback (same exception class; a traceback may
+#   become a coded crash of its class) or the code of a refusal, and nothing else: a refusal that became a
+#   crash, or a crash of another class, is a different defect and is not amended;
+# - a deleted row: `None`.
 # An entry whose row is fixed (no longer in `KNOWN`) is removed.
+#
+# `AMENDED_WANTED`, for wanted outcomes: the new wanted outcome of a row, known, control or pin. Stating an
+# outcome where none was stated, or a value where only `builds` was, needs no entry; any other change does.
 AMENDED: dict[str, tuple[tuple | None, str]] = {}
+AMENDED_WANTED: dict[str, tuple[tuple | None, str]] = {}
 
 # Rows the plan names as needing a control whatever their signature.
 PAIRED = frozenset({"A2-C", "A2-G", "A2-M", "A3-path", "A3-string", "A4-abs", "A4-dotdot", "A4-symlink", "B1",
@@ -480,12 +594,13 @@ ROWS: dict[str, Row] = {
     "D22": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (list (done 1)))"),
 
     # Class E: a refusal of good source, a misleading code, an accepted form with no effect.
-    "E1-and": row(value(3), "((u U) (r Bool)) -> Int (if (and (= u.variant A) r) u.n 0)", U,
-                  inputs=(*U_IS_A_3, "r=true")),
-    "E1-or": row(value(3), "((u U) (r Bool)) -> Int (if (or (!= u.variant A) r) 0 u.n)", U,
-                 inputs=(*U_IS_A_3, "r=false")),
-    "E2": row(value([3, 3], "m", "m"), "((u U)) -> List[Int] (if (= u.variant A) "
-              f"(list/map-effect ((y (list 1 2))) :max 2 {E2_COMMAND}) (list 0))", U, inputs=U_IS_A_3),
+    # No wanted outcome for E1 and E2: the frontend specification 12.2 lists these reads (under a test combined
+    # with `and` or `or`; in the body of a serial `list/map-effect`) as refused with `variant_ref_unproved`.
+    # Whether they are defects or the rule is a design question for the dropped task TE1, not for this module.
+    "E1-and": row(None, "((u U) (r Bool)) -> Int (if (and (= u.variant A) r) u.n 0)", U),
+    "E1-or": row(None, "((u U) (r Bool)) -> Int (if (or (!= u.variant A) r) 0 u.n)", U),
+    "E2": row(None, "((u U)) -> List[Int] (if (= u.variant A) "
+              f"(list/map-effect ((y (list 1 2))) :max 2 {E2_COMMAND}) (list 0))", U),
     "E2-parallel": row(BUILDS, "((u U)) -> List[Int] (if (= u.variant A) "
                        f'(list/map-effect ((y (list "a"))) :max 2 :parallel 1 :workspace y {E2_COMMAND}) (list 0))', U),
     "E2-pure": row(BUILDS, "((u U)) -> List[Int] (if (= u.variant A) (list/map ((y (list 1 2))) (+ y u.n)) (list 0))", U),
@@ -580,7 +695,7 @@ def slots(fields: str, fills: str, template: str, arguments: str, parameters: st
 
 @dataclass(frozen=True)
 class ProviderRow:
-    wanted: tuple
+    wanted: tuple | None
     source: str = provider_fixture.SOURCE.replace('"2.35"', '"2.40"')
     prompt: tuple[str, str] | None = None  # the prompt extern's kind and path; "OUTSIDE" is the outside file
     inputs: tuple[str, ...] = ()
@@ -598,7 +713,6 @@ def refused_before_launch(code: str) -> tuple:
 
 SLOT_NAMES_A_FIELD = refused_before_launch("duplicate_artifact_name")
 SLOTS_SHARE_A_PATH = refused_before_launch("prompt_output_position_destination_collision")
-INPUT_LEAVES_WORKSPACE = refused_before_launch("input_file_read_failed")
 ASSET_LEAVES_SOURCE_TREE = refused_before_launch("asset_file_read_failed")
 PROVIDER_ROWS: dict[str, ProviderRow] = {
     "A3-path": ProviderRow(SLOT_NAMES_A_FIELD, slots("(ok Bool) (report Report)", ONE_SLOT, "Report={report}",
@@ -612,9 +726,12 @@ PROVIDER_ROWS: dict[str, ProviderRow] = {
     "B1-two-paths": ProviderRow(COMMITTED, slots("(ok Bool)", "(a :path :out Report) (b :path :out Report)",
                                 "A={a} B={b}", ":a report :b other", "(message String) (report Report) (other Report)"),
                                 inputs=(*REPORT, "--input", "other=artifacts/other.txt")),
-    "A4-abs": ProviderRow(INPUT_LEAVES_WORKSPACE, prompt=("input_file", "OUTSIDE")),
-    "A4-dotdot": ProviderRow(INPUT_LEAVES_WORKSPACE, prompt=("input_file", "../outside.md")),
-    "A4-symlink": ProviderRow(INPUT_LEAVES_WORKSPACE, prompt=("input_file", "link.md")),
+    # No wanted outcome for the `input_file` rows: whether a prompt `input_file` is confined to the workspace is
+    # the owner's open decision O6, and no specification gives a code for it. The `asset_file` controls show
+    # the guard that exists.
+    "A4-abs": ProviderRow(None, prompt=("input_file", "OUTSIDE")),
+    "A4-dotdot": ProviderRow(None, prompt=("input_file", "../outside.md")),
+    "A4-symlink": ProviderRow(None, prompt=("input_file", "link.md")),
     "A4-asset-abs": ProviderRow(ASSET_LEAVES_SOURCE_TREE, prompt=("asset_file", "OUTSIDE")),
     "A4-asset-dotdot": ProviderRow(ASSET_LEAVES_SOURCE_TREE, prompt=("asset_file", "../outside.md")),
     "A4-asset-symlink": ProviderRow(ASSET_LEAVES_SOURCE_TREE, prompt=("asset_file", "link.md")),
@@ -732,11 +849,14 @@ def observe_printed_remedy(row_id: str, root: Path) -> tuple[tuple, str]:
     return _ran(done, prompt_file_fixture._launches(root), 0), refused_resume.stderr + done.stderr
 
 
-ROUTE = ("The route for a signature that moved while its defect stayed (a renamed function or code, a traceback "
-         "that became a coded crash) and for deleting a row is an entry in AMENDED: `row id: (the new signature, or "
-         "None for a deleted row, a reason)`, where the reason names the date of the row in the plan's ledger that "
-         "records the change; KNOWN then holds the new signature. KNOWN_AT_T0 and ROWS_AT_T0 are not edited, "
-         "except to add a new row.")
+ROUTE = ("The route for a changed frozen fact is an amendment with a reason that names the date of the row in the "
+         "plan's ledger recording it. AMENDED, `row id: (new signature, reason)`: for a known row whose defect stayed "
+         "while its key moved, it may change the function of a crash or traceback of the same exception class (a "
+         "traceback may become a coded crash) or the code of a refusal, nothing else; KNOWN then holds the new "
+         "signature. AMENDED, `row id: (None, reason)`: for a deleted row. AMENDED_WANTED, `row id: (new wanted "
+         "outcome, reason)`: for a wanted outcome that is loosened or changed (stating one where none was stated, or "
+         "a value where `builds` was, needs no entry). KNOWN_AT_T0 and WANTED_AT_T0 are not edited, except to add a "
+         "new row.")
 
 
 def settle(row_id: str, observed: tuple, detail: str = "") -> None:
@@ -747,7 +867,8 @@ def settle(row_id: str, observed: tuple, detail: str = "") -> None:
         assert observed == wanted, f"{row_id}: wanted {wanted}, got {observed}\n{detail}"
         return
     assert observed != wanted, (
-        f"{row_id} now gives its wanted outcome {wanted}: the defect is fixed, delete its row from KNOWN")
+        f"{row_id} now gives its wanted outcome {wanted}: the defect is fixed, delete its row from KNOWN, and its "
+        "AMENDED entry if it has one")
     assert observed == KNOWN[row_id], (
         f"{row_id} moved from its known signature {KNOWN[row_id]} to {observed}. If the defect is fixed, delete "
         f"its row from KNOWN and state the wanted outcome. If it is a different wrong outcome, stop. {ROUTE}\n{detail}")
@@ -795,11 +916,24 @@ def test_a_known_signature_differs_from_its_frozen_one_only_by_amendment():
     assert moved == {}, ROUTE
 
 
+def _same_defect(frozen: tuple, new: tuple) -> bool:
+    """A rename keeps the kind, and a crash its class; a traceback may become a crash of its class (TP1)."""
+    if frozen[0] in ("crash", "traceback"):
+        return new[0] in (frozen[0], "crash") and new[1] == frozen[1]
+    return new[0] == frozen[0]
+
+
+def _dated(reason: str) -> bool:
+    return re.search(r"\b\d{4}-\d{2}-\d{2}\b", reason) is not None
+
+
 def test_every_amendment_is_of_a_known_or_a_deleted_row_and_gives_a_dated_reason():
-    """An amendment of a row that was fixed since is removed: only a known row has a signature to amend."""
+    """An amendment of a row that was fixed since is removed: only a known row has a signature to amend. The
+    amended signature is the same defect under a moved key, not another failure."""
     wrong = {row_id for row_id, (signature, reason) in AMENDED.items()
              if (signature is None) != (row_id not in WANTED) or (signature is not None and row_id not in KNOWN)
-             or not re.search(r"\b\d{4}-\d{2}-\d{2}\b", reason)}
+             or (signature is not None and not _same_defect(KNOWN_AT_T0[row_id], signature))
+             or not _dated(reason)}
 
     assert wrong == set(), ROUTE
 
@@ -807,7 +941,27 @@ def test_every_amendment_is_of_a_known_or_a_deleted_row_and_gives_a_dated_reason
 def test_no_row_is_deleted_or_added_outside_the_frozen_list():
     deleted = {row_id for row_id, (signature, _reason) in AMENDED.items() if signature is None}
 
-    assert set(WANTED) == set(ROWS_AT_T0) - deleted, ROUTE
+    assert set(WANTED) == set(WANTED_AT_T0) - deleted, ROUTE
+
+
+def _stricter(frozen: tuple | None, new: tuple | None) -> bool:
+    """An outcome stated where none was, or a value where only `builds` was."""
+    return new is not None and (frozen is None or (frozen == BUILDS and new[0] == "value"))
+
+
+def test_a_wanted_outcome_is_loosened_or_changed_only_by_amendment():
+    changed = {row_id: wanted for row_id, wanted in WANTED.items()
+               if row_id in WANTED_AT_T0 and wanted != WANTED_AT_T0[row_id]
+               and not _stricter(WANTED_AT_T0[row_id], wanted) and row_id not in AMENDED_WANTED}
+
+    assert changed == {}, ROUTE
+
+
+def test_every_wanted_amendment_is_the_wanted_outcome_of_a_row_and_gives_a_dated_reason():
+    wrong = {row_id for row_id, (wanted, reason) in AMENDED_WANTED.items()
+             if row_id not in WANTED or WANTED[row_id] != wanted or not _dated(reason)}
+
+    assert wrong == set(), ROUTE
 
 
 def test_a_row_that_left_the_known_list_does_not_want_its_defect():
@@ -836,3 +990,8 @@ def test_no_control_is_a_known_row():
     controls = {control for group in CONTROLS.values() for control in group}
 
     assert (controls - set(WANTED), controls & set(KNOWN)) == (set(), set())
+
+
+def test_every_key_of_the_pairing_tables_is_a_row():
+    """A renamed row cannot lose its pairing silently."""
+    assert (PAIRED | set(CONTROLS)) - set(WANTED) == set()
