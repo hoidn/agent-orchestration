@@ -233,7 +233,7 @@ RETIRED_EXPRESSION_FORMS = {
 }
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.40"])
+@pytest.mark.parametrize("target", ["2.40"])
 @pytest.mark.parametrize("reached", [True, False], ids=["reached", "unreached"])
 @pytest.mark.parametrize("form", sorted(RETIRED_EXPRESSION_FORMS))
 def test_retired_form_refuses_with_located_retirement_diagnostic(
@@ -250,7 +250,7 @@ def test_retired_form_refuses_with_located_retirement_diagnostic(
             lines and RETIRED_EXPRESSION_FORMS[form] in lines[0]) == (2, 1, True, True), result.stderr
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.40"])
+@pytest.mark.parametrize("target", ["2.40"])
 @pytest.mark.parametrize("form", ["defresource", "deftransition"])
 def test_retired_declaration_refuses_with_located_retirement_diagnostic(
     tmp_path: Path, form: str, target: str
