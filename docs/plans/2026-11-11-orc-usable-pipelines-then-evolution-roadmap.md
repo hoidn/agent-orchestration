@@ -454,6 +454,23 @@ every removed test is listed with the code it covered".
      `--accept-changes`, which is itself refused `resume_preflight_failed`
      (found by the re-review of the missing-prompt-file fix; not re-run on
      `main` by the coordinator).
+   - added 2026-11-13 (eleventh batch; the most serious item on this list,
+     kept and being fixed first, on `fix/call-site-collision`): the compiler
+     chooses a call's target from a set whose order depends on Python's hash
+     seed and, through a path inside a hash, on the source directory. The
+     same source can build on one run and end in `compiler_defect` on the
+     next, and some builds silently call the wrong procedure and compute a
+     wrong value, with a different program digest. Two triggers: a macro
+     expanded more than once in one owner into calls with different targets
+     (every target; for example a template with a `let-proc` local used twice
+     gives 707 or 505 where 705 is meant), and, at targets 2.39 and 2.40, a
+     procedure specialized more than once in one call chain (a bound, nested
+     procedure reference). Found by the test-source migration and by a
+     review, traced by a debugger to a site-keyed map in the elaborator
+     ([report in the fix's plan row](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)).
+     It must be fixed before the one-target cut. A program whose build
+     depended on the seed gets one digest after the fix; programs with no
+     such collision keep theirs.
    The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
    (accepted 2026-11-13 after an independent review and one revision) orders
    this list by harm. By the owner's direction of 2026-11-13 it is cut to
