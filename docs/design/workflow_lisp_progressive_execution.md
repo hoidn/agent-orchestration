@@ -195,9 +195,9 @@ pieces from proposed features:
 - General task-record list traversal, runtime-selected provider values, and
   unbounded recursion are not prerequisites. Provider bindings are declared;
   this design does not imply arbitrary providers can be passed as runtime data.
-- [Provider context values](workflow_lisp_provider_context_values.md) now has an
-  implemented target-2.31 ordinary Codex subset; native continuation remains
-  proposed. [Agentic source synthesis](../backlog/active/2026-06-01-workflow-lisp-agentic-decomposition-synthesis.md)
+- [Provider context values](workflow_lisp_provider_context_values.md) is a historical record: it had an
+  implemented target-2.31 ordinary Codex subset, a target that no longer executes; native continuation
+  stayed proposed. [Agentic source synthesis](../backlog/active/2026-06-01-workflow-lisp-agentic-decomposition-synthesis.md)
   remains separate work. This application does not close that backlog item.
 
 The intended addition is one concrete, callable coordinator with small
