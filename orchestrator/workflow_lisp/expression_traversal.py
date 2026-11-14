@@ -309,20 +309,25 @@ def walk_expr(expr: ExprNode) -> Iterator[ExprNode]:
         yield from walk_expr(child)
 
 
-# Calls, operator applications and constructors: simple when each operand is.
+# The effect forms, operator applications and constructors: simple when each operand is.
 _SIMPLE_APPLICATIONS = (
-    AgentExpr, ProviderResultExpr, CommandResultExpr, RunRefExpr, CallExpr, ProcedureCallExpr,
+    AgentExpr, ProviderResultExpr, CommandResultExpr, RunRefExpr, CallExpr,
     PureOpExpr, RecordExpr, UnionVariantExpr, ListExpr, PathJoinUnderExpr,
 )
 
 
 def is_simple_value(expr: ExprNode) -> bool:
     """Whether `expr` is simple (frontend specification 16.3): a literal, a name, a field read, or a
-    provider, command, agent, workflow or procedure call, an operator application other than `and`,
-    `or` and `not`, or a record, variant, list or `path/join-under` whose operands are all simple.
+    provider, command, agent or workflow call or a run reference, an operator application other
+    than `and`, `or` and `not`, or a record, variant, list or `path/join-under` whose operands are
+    all simple.
 
     A simple value evaluates its effects one after another with no branch, so each is named by its
     ordinal alone. A place that surface coherence E1 opened takes an effect only in a simple value.
+    No procedure or function call is simple, whatever its callee holds: whether a call holds an
+    effect is not known while callee summaries are provisional, and a pure procedure's call is a
+    call in one pass and its inlined body in another. The test reads the form only, so it gives one
+    answer in every pass and place.
     """
 
     if isinstance(expr, PureOpExpr) and expr.operator in ("and", "or", "not"):
@@ -332,18 +337,27 @@ def is_simple_value(expr: ExprNode) -> bool:
     return isinstance(expr, _LEAF_EXPRS)
 
 
-def first_effect_place_code(expr: ExprNode) -> str | None:
-    """The code `main` gave for the first place in `expr`, innermost first, that holds an effect only
-    since surface coherence E1, or None: a refusal of a value around that place keeps that code."""
+def first_effect_place(expr: ExprNode) -> tuple[ExprNode, str] | None:
+    """The first place in `expr`, innermost first, that holds an effect only since surface coherence
+    E1, with the code the place gave before, or None. A refusal of a value around that place keeps
+    that code."""
 
     for child in iter_child_exprs(expr):
-        if (code := first_effect_place_code(child)) is not None:
-            return code
+        if (place := first_effect_place(child)) is not None:
+            return place
     if any(getattr(expr, flag, False) for flag in ("effectful_fields", "effectful_items", "effectful_child")):
-        return "effect_not_permitted"
+        return expr, "effect_not_permitted"
     if getattr(expr, "effectful_source", False):
-        return "list_map_body_effect_forbidden" if isinstance(expr, ListMapExpr) else "list_map_effect_body_unsupported"
-    return getattr(expr, "effect_place_code", None)
+        return expr, ("list_map_body_effect_forbidden" if isinstance(expr, ListMapExpr) else "list_map_effect_body_unsupported")
+    code = getattr(expr, "effect_place_code", None)
+    return None if code is None else (expr, code)
+
+
+def first_effect_place_code(expr: ExprNode) -> str | None:
+    """The code of `first_effect_place(expr)`, or None."""
+
+    place = first_effect_place(expr)
+    return None if place is None else place[1]
 
 
 # Set by typecheck on a constructor, list, `list/map` or path form when an operand holds an effect.

@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .effects import (
-    EMPTY_EFFECT_SUMMARY,
     EffectSummary,
     effect_summary_contains_runs_ref,
     merge_effect_summaries,
@@ -20,9 +19,9 @@ from .typecheck_context import (
     _type_label,
     raise_error,
     raise_run_ref_placement_invalid,
-    require_simple_parts,
 )
 from .typecheck_proofs import ProofScope, _allocate_binding_identity
+from .typecheck_structural_values import place_effect
 
 
 def typecheck_loop_recur_expr(
@@ -138,9 +137,11 @@ def typecheck_loop_recur_expr(
                 span=expr.on_exhausted_result_expr.span,
                 form_path=expr.on_exhausted_result_expr.form_path,
             )
-        if typed_exhausted.effect_summary != EMPTY_EFFECT_SUMMARY:
-            require_simple_parts([typed_exhausted.expr], place="this `:on-exhausted` value", code="loop_recur_contract_invalid",
-                                 advice="do the work in a procedure and call it here")
+        _, effectful_exhaustion = place_effect(
+            [typed_exhausted.effect_summary], [typed_exhausted.expr], context=context,
+            place="this `:on-exhausted` value", code="loop_recur_contract_invalid",
+            advice="do the work in a workflow and `call` it here")
+        if effectful_exhaustion:
             effect_place_code = "loop_recur_contract_invalid"
         exhaustion_summaries.append(typed_exhausted.effect_summary)
         typed_exhausted_expr = typed_exhausted.expr

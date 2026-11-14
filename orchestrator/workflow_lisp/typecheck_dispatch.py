@@ -78,7 +78,7 @@ from .typecheck_context import (
     merge_successful_session_outputs,
     raise_error as _raise_error,
     raise_run_ref_placement_invalid,
-    require_simple_parts,
+    refuse_effect_place_in,
     restore_session_state,
     snapshot_session_state,
     _literal_type_name,
@@ -99,20 +99,7 @@ from .typecheck_effects import (
 from .typecheck_loop_recur import typecheck_loop_recur_expr
 from .typecheck_pure_ops import typecheck_pure_expr as _typecheck_pure_expr
 from .typecheck_run_ref import typecheck_run_ref_expr
-from .typecheck_structural_values import _is_pure_or_provisional_procedure_call, typecheck_structural_value_expr
-
-
-def _effectful_fields(fields, summaries, context, *, place: str) -> bool:
-    """Whether a constructor field holds an effect; every field must then be simple.
-
-    Pure fields and provisional procedure calls do not count, so a constructor
-    that compiled while fields had to be pure keeps its lowering.
-    """
-
-    effectful = any(not _is_pure_or_provisional_procedure_call(summary, context=context) for summary in summaries)
-    if effectful:
-        require_simple_parts([field_expr for _, field_expr in fields], place=place, code="effect_not_permitted")
-    return effectful
+from .typecheck_structural_values import place_effect, typecheck_structural_value_expr
 from .typecheck_proofs import (
     BindingIdentity,
     ProofScope,
@@ -257,6 +244,28 @@ def _refuse_unresolved_proc_ref_binding(
         span=binding_expr.span,
         form_path=binding_expr.form_path,
     )
+
+
+def _fields_hold_effect(fields, summaries, context, *, place: str) -> bool:
+    """Whether a constructor field holds an effect; every field must then be simple."""
+
+    _, effectful = place_effect(summaries, [field_expr for _, field_expr in fields], context=context,
+                                place=place, code="effect_not_permitted")
+    return effectful
+
+
+def _no_effect_place_in_arguments(typed: TypedExpr) -> TypedExpr:
+    """Refuse a procedure or function call with an argument that holds an effect in an opened place.
+
+    A call is a boundary the bound-first lowering does not cross: a pure callee is inlined, and
+    the place's effects were then named by the binding the call stood in. Nothing new is admitted
+    inside an argument, of any callee, so one authored call has one answer in every pass.
+    """
+
+    refuse_effect_place_in(
+        getattr(typed.expr, "args", ()), where="an argument of a procedure or function call",
+        advice="bind that value with `let*` first and pass its name")
+    return typed
 
 
 def _typecheck(
@@ -713,7 +722,7 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         return _typed(
-            expr=replace(expr, fields=tuple(rewritten_fields), effectful_fields=_effectful_fields(
+            expr=replace(expr, fields=tuple(rewritten_fields), effectful_fields=_fields_hold_effect(
                 rewritten_fields, field_summaries, context, place="this record")),
             type_ref=record_type,
             effect=merge_effect_summaries(*field_summaries),
@@ -802,7 +811,7 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         return _typed(
-            expr=replace(expr, fields=tuple(rewritten_fields), effectful_fields=_effectful_fields(
+            expr=replace(expr, fields=tuple(rewritten_fields), effectful_fields=_fields_hold_effect(
                 rewritten_fields, field_summaries, context, place="this variant")),
             type_ref=union_type,
             effect=merge_effect_summaries(*field_summaries),
@@ -1046,7 +1055,7 @@ def _typecheck(
     if isinstance(expr, ProcedureCallExpr):
         from .procedure_typecheck import ProcedureTypecheckContext, typecheck_procedure_call_expr
 
-        return typecheck_procedure_call_expr(
+        return _no_effect_place_in_arguments(typecheck_procedure_call_expr(
             expr,
             context=ProcedureTypecheckContext(
                 type_env=type_env,
@@ -1084,14 +1093,14 @@ def _typecheck(
             typed_factory=_typed,
             raise_error=_raise_error,
             type_label=_type_label,
-        )
+        ))
     if type(expr) is FunctionCallExpr:
-        return _typecheck_function_call_expr(
+        return _no_effect_place_in_arguments(_typecheck_function_call_expr(
             expr,
             context=context,
             recurse=recurse,
             typed_factory=_typed,
-        )
+        ))
     if isinstance(expr, WithPhaseExpr):
         if active_phase_scope is not None:
             _raise_error(

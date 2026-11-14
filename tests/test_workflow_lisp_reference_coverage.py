@@ -15,6 +15,7 @@ NOT_DIAGNOSTICS = {
     "introduced_by_expansion_id": "syntax provenance field (section 6)",
     "materialize_view": "removed runtime step family (18.1, 20)",
     "materialized_value_view": "removed generated-path role (18.1)",
+    "on_exhausted": "loop step field (13.1)",
     "requires_variant": "runtime guard field (8.5, 11)",
     "target_param": "call-policy binding field (22.4)",
 }

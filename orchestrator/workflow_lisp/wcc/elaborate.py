@@ -15,6 +15,7 @@ from ..conditionals import (
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..expression_traversal import (
+    first_effect_place_code,
     holds_effect_in_a_value,
     is_pure_projection_expr,
     map_command_operands,
@@ -1641,7 +1642,8 @@ def _continue_value_needs_binding(expr: ContinueExpr) -> LispFrontendCompileErro
     """The refusal of a `continue` value with a conditional, a loop or a map below its top."""
 
     return LispFrontendCompileError((LispFrontendDiagnostic(
-        code="effect_not_permitted",
+        # A place inside the value that took no effect before keeps the code it had.
+        code=first_effect_place_code(expr.state_expr) or "effect_not_permitted",
         message=(
             "this `continue` value has a conditional, a loop or a map below its top, which cannot be "
             "evaluated in place; bind the value with `let*` first: `(let* ((next <value>)) (continue next))`"

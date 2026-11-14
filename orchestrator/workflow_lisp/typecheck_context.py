@@ -409,11 +409,35 @@ def require_simple_parts(
         if not is_simple_value(part):
             raise_error(
                 f"{place} holds an effect, so each of its parts must be simple: a literal, a name, a field "
-                f"read, or a call, an operator application or a constructor over simple parts; {advice}",
+                "read, or a provider, command, agent or workflow call, an operator application or a "
+                f"constructor over simple parts; {advice}",
                 code=first_effect_place_code(part) or code,
                 span=part.span,
                 form_path=part.form_path,
                 expansion_stack=part.expansion_stack,
+            )
+
+
+def refuse_effect_place_in(exprs, *, where: str, advice: str) -> None:
+    """Refuse the first value of `exprs` that holds an effect in a place surface coherence E1 opened.
+
+    `where` (a procedure or function call's arguments, a `let-proc` local's body) admits nothing
+    new: the place keeps the refusal and the code it had (frontend specification 16.3).
+    """
+
+    from .expression_traversal import first_effect_place
+
+    for expr in exprs:
+        place = first_effect_place(expr)
+        if place is not None:
+            node, code = place
+            raise_error(
+                f"{where} does not take a record or variant field, a list element, a path child, a map "
+                f"source or an `:on-exhausted` value that holds an effect; {advice}",
+                code=code,
+                span=node.span,
+                form_path=node.form_path,
+                expansion_stack=node.expansion_stack,
             )
 
 
