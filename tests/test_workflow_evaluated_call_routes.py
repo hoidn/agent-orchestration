@@ -63,7 +63,7 @@ def test_context_call_values_preserve_x1_and_x2_after_readback(tmp_path: Path) -
         root = tmp_path / mode
         source_path = install(
             root,
-            f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+            f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
               (defmodule context_probe)
               (import std/context :only (RunCtx PhaseCtx))
               (import std/phase :only (with-phase))
