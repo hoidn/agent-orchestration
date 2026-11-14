@@ -23,7 +23,8 @@ match as typed: absolute, or under ~, $HOME or ${HOME} (R23).
 Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna or Sol 6.1 and an
 explicitly bound Claude run or judge Haiku (expected_claude_model). Any other answering model is a hit. Read actual
 Claude assistant message.model and Codex turn_context.model metadata, never printed model names. A Claude row
-answered by `<synthetic>` is the CLI's own message (an API error, a usage limit) and names no model.
+answered by `<synthetic>` is the CLI's own message (an API error, a usage limit): no hit where a Claude model is
+allowed, a hit where none is.
 Fable and every other forbidden/unknown model are non-clearable policy hits. Standard library only.
 """
 
@@ -77,14 +78,10 @@ def claude_actions(row):
             for c in content or [] if isinstance(c, dict) and c.get("type") == "tool_use"]
 
 
-SYNTHETIC = "<synthetic>"  # the Claude CLI's own messages (an API error, a usage limit): no model answered them
-
-
 def answering_model(row):
     """Actual answering-model metadata from a Claude assistant or a Codex turn context."""
     if row.get("type") == "assistant":
         model = (row.get("message") or {}).get("model")
-        model = None if model == SYNTHETIC else model
     elif row.get("type") == "turn_context":
         model = (row.get("payload") or {}).get("model")
     else:
@@ -154,10 +151,14 @@ def codex_sessions(tree, since, home):
             yield path
 
 
+SYNTHETIC = "<synthetic>"  # the Claude CLI's own messages (an API error, a usage limit): no model answered them
+
+
 def model_hits(paths, allowed):
+    """Every answering model other than `allowed`; a `<synthetic>` row is a hit only where no model is allowed."""
     for path in paths:
         for _, number, model in json_actions(path, answering_model):
-            if model != allowed:
+            if model != allowed and not (allowed and model == SYNTHETIC):
                 pattern = FABLE if "fable" in model.lower() else FORBIDDEN_MODEL
                 yield {"file": str(path), "line": number, "pattern": pattern, "text": f"model: {model}"}
 

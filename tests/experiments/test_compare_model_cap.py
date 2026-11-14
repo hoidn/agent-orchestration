@@ -168,6 +168,12 @@ def test_scan_uses_actual_model_metadata_and_policy_cannot_be_cleared(tmp_path, 
             scan.refuse_clearing("cleared", hits, "run")
 
 
+def test_a_synthetic_row_is_still_a_hit_where_no_claude_model_is_allowed(tmp_path):
+    path = tmp_path / "s.jsonl"
+    path.write_text(json.dumps({"type": "assistant", "message": {"model": "<synthetic>"}}) + "\n")
+    assert [hit["text"] for hit in scan.model_hits([path], None)] == ["model: <synthetic>"]
+
+
 def test_scan_ignores_printed_high_model_names_and_unrelated_codex_sessions(tmp_path):
     tree = tmp_path / "tree"
     home = tmp_path / "home"
