@@ -63,10 +63,10 @@ SAMPLE = 10
 MIN_LINE = 25
 MAX_READ = 64 << 20  # files up to this size are read whole: line matching and archive opening
 UNPACK_RATIO = 4  # unpacked over compressed size was 2.05 to 3.89 over the 32 images measured
-NOISE_N = 20  # a system-path file with fewer near-copy lines than this is noise (RECORDINGS.md, Task 2b)
+NOISE_N = 10  # a system-path file with fewer near-copy lines is noise: the 16 images show at most 6 (RECORDINGS.md)
 SYSTEM = re.compile(r"^(usr|bin|sbin|etc|lib|lib32|lib64|libx32|var/lib/dpkg|var/lib/apt)(/|$)")
 LANG_DIRS = ("/site-packages/", "/dist-packages/", "/node_modules/", "/.cargo/registry/", "/.rustup/",
-             "/go/pkg/mod/", "/gems/", "/.npm/", "/.cache/pip/")
+             "/go/pkg/mod/", "/gems/", "/.npm/", "/.cache/pip/", "/.local/share/uv/python/")
 ARCHIVE = re.compile(r"\.(tar|tgz|txz|tbz2|tar\.(gz|xz|bz2|zst)|zip|whl|gz)$")
 GIT_OBJECT = re.compile(r"(^|/)\.git/objects/[0-9a-f]{2}/[0-9a-f]{38}$")
 ARCHIVE_ERRORS = (zipfile.BadZipFile, tarfile.TarError, OSError, zlib.error, EOFError, ValueError)

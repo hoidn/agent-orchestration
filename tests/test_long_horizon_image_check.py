@@ -203,7 +203,8 @@ def test_an_edited_copy_outside_system_paths_is_a_near_copy_that_needs_a_look():
 @pytest.mark.parametrize(("path", "count", "verdict"), [
     ("usr/lib/python3/inspect.py", 1, "noise"), ("usr/lib/python3/inspect.py", image_check.NOISE_N, "needs a look"),
     ("srv/venv/lib/python3.12/site-packages/x.py", 1, "noise"), ("app/x.py", 1, "needs a look"),
-    ("lib64/x", 1, "noise"), ("library/x", 1, "needs a look")])
+    ("lib64/x", 1, "noise"), ("library/x", 1, "needs a look"),
+    ("root/.local/share/uv/python/cpython-3.11/lib/python3.11/code.py", 1, "noise"), ("opt/venv/bin/tool", 1, "needs a look")])
 def test_a_near_copy_in_a_system_path_is_noise_only_below_the_threshold(path, count, verdict):
     assert image_check.near_verdict(path, count) == verdict
 
