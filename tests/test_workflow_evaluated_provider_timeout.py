@@ -164,15 +164,53 @@ def test_nonpositive_value_from_a_step_names_both_steps_and_continues_by_invalid
 
     lines = _orchestrator(root, "run", "main.orc", "--provider-externs-file", "providers.json",
                           "--command-boundaries-file", "commands.json", "--input", "message=hi").stderr.splitlines()
-    (invalidate,) = _printed(lines, "invalidate")
+    (invalidate,) = [line for line in _printed(lines, "invalidate") if line.endswith("'workflow:main::run / limits'")]
     (resume,) = _printed(lines, "resume")
     (root / "sec.txt").write_text("5", encoding="utf-8")
     continued = [_shell(root, line).returncode for line in (invalidate, resume)]
 
     # The first item launched before the refusal and runs again after `invalidate`, with the second.
     refused_step = [line for line in lines if line.startswith("workflow:main::run / ") and "launched nothing" in line]
-    assert (len(refused_step), invalidate.endswith("'workflow:main::run / limits'"), continued, _launches(root)) \
-        == (1, True, [0, 0], 3), lines
+    assert (len(refused_step), continued, _launches(root)) == (1, [0, 0], 3), lines
+
+
+MAP_OVER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule main) (export run)
+  (defrecord Result (ok Bool))
+  (defprompt ask (:fills (q :text)) -> Result "Answer {q}.")
+  (defworkflow run ((message String) (limit Int)) -> List[Result]
+    (list/map-effect ((x (list 5 ITEM))) :max 2
+      (provider-result providers.review :model "m" :timeout-sec x :prompt (ask :q message)))))'''
+
+
+def _asserted_sources(lines: list[str]) -> list[str]:
+    """Lines that state, rather than suppose, where the timeout came from."""
+    return [line for line in lines if "comes from the result" in line and not line.startswith("if ")]
+
+
+def test_nonpositive_map_item_written_in_the_source_continues_by_the_edit(tmp_path):
+    root = _workspace(tmp_path, "x")
+    (root / "main.orc").write_text(MAP_OVER.replace("ITEM", "0"), encoding="utf-8")
+    lines = _run(root, 5).stderr.splitlines()
+    (root / "main.orc").write_text(MAP_OVER.replace("ITEM", "6"), encoding="utf-8")
+
+    planned = _orchestrator(root, "resume", json.loads(_orchestrator(root, "report", "--format", "json").stdout)
+                            ["run"]["run_id"]).stderr.splitlines()
+    accepted = _shell(root, next(line for line in planned if "--accept-changes=" in line and line.startswith("    ")))
+
+    assert (_asserted_sources(lines), any("edit it" in line for line in lines), accepted.returncode) \
+        == ([], True, 0), lines
+
+
+def test_nonpositive_map_item_from_an_input_continues_by_the_printed_run(tmp_path):
+    root = _workspace(tmp_path, "x")
+    (root / "main.orc").write_text(MAP_OVER.replace("ITEM", "limit"), encoding="utf-8")
+    lines = _run(root, 0).stderr.splitlines()
+
+    fresh = [line.replace("limit=0", "limit=5") for line in _printed(lines, "run")]
+
+    assert (_asserted_sources(lines), len(fresh), [_shell(root, line).returncode for line in fresh]) \
+        == ([], 1, [0]), lines
 
 
 def test_run_recorded_with_a_literal_timeout_resumes_unchanged(tmp_path):

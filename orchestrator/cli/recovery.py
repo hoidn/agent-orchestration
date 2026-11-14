@@ -304,24 +304,30 @@ def _spend_cap_unmetered(exc, context: _Context) -> list[str]:
     return [f"cause {cause}: {fix}", "to continue this run without a cap:", context.resume()]
 
 
-def _earliest(identities: list[str], snapshot) -> str:
-    """The first committed of `identities` in journal order (a value's dependencies include the steps sequenced
-    before it); invalidating it runs it and every later step again."""
-    commits = getattr(snapshot, "active_commits", None) or {}
-    return min(identities, key=lambda identity: (identity not in commits, getattr(commits.get(identity), "offset", 0)))
+def _candidates(identities: list[str], snapshot) -> tuple[list[str], bool]:
+    """`identities` in journal order of their commits, and whether that order is known (the memo was read)."""
+    commits = getattr(snapshot, "active_commits", None)
+    if commits is None:
+        return sorted(identities), False
+    return sorted(identities, key=lambda identity: (identity not in commits,
+                                                     getattr(commits.get(identity), "offset", 0))), True
 
 
 def _timeout_nonpositive(exc, context: _Context) -> list[str]:
-    """`resume` would reach the same value. From a step's result: correct what that step reads and invalidate it;
-    otherwise a new run with the input (or its default) corrected, or an edit of the source and its plan."""
-    step = getattr(exc, "identity", None) or "the step"
+    """`resume` would reach the same value. The value's dependencies include steps sequenced before the refused one
+    (a serial map's earlier items), not only its data sources, so a route through them is a supposition."""
+    lines = [f"{getattr(exc, 'identity', None) or 'the step'}: this step launched nothing"]
     producers = getattr(exc, "producers", None) or []
     if producers:
-        first = _earliest(producers, context.snapshot)
-        return [f"{step}: this step launched nothing; its timeout comes from the result of an earlier step",
-                f"correct what {first} reads, then invalidate it and resume ({_REPEAT_WARNING}):",
-                context.command("invalidate", context.run_id, first), context.resume()]
-    return [f"{step}: this step launched nothing",
+        names, known = _candidates(producers, context.snapshot)
+        named = names if len(names) <= 3 else names[:1]
+        who = " or ".join(named) + ("" if len(names) <= 3 else " or a later step" if known else " or another step")
+        order = "" if known else " (the journal could not be read, so their order is not known)"
+        lines += [f"if the timeout comes from the result of {who}{order}: correct what that step reads, then "
+                  f"invalidate it and resume ({_REPEAT_WARNING}):",
+                  *(context.command("invalidate", context.run_id, name) for name in named), context.resume(),
+                  "otherwise:"]
+    return [*lines,
             *context.fresh_run("when the timeout comes from an input, its :default included, start a new run "
                                "with it corrected:"),
             "when it is written at or before the step in the source and is not an input's :default, edit it: "
