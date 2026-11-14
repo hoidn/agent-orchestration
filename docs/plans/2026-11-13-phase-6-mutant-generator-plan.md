@@ -1,76 +1,124 @@
 # Phase 6 Readiness R3: Mechanical Mutants Of The Seeds: Implementation Plan
 
-**Status: Plan, proposed 2026-11-13; not reviewed, not accepted.** It plans readiness item R3 of
+**Status: Plan, proposed 2026-11-13; revised 2026-11-13 after an independent review (accept after
+fixes: no blocker, 8 majors, 12 minors) and the coordinator's rulings on it, recorded
+[below](#rulings).** It plans readiness item R3 of
 [Phase 6](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-6-program-evolution)
 ("Mutants never crash the compiler") and the zero-spend check of H-E2's reach named in the same
 section. It is a plan, not a contract and not copy-safe guidance. Behavior is owned by `specs/`, the
 [frontend specification](../design/workflow_lisp_frontend_specification.md) and
 [evaluated execution](../design/workflow_lisp_evaluated_execution.md). No task makes or authorizes
-a provider or model call; every run in it uses stand-ins on a closed `PATH`. Planned against `main`
-at `b399076b`; `main` at `8a61b143` is merged into this branch and changes no file under
-`orchestrator/`, so the probes stand.
+a provider or model call; every run in it uses stand-ins on a closed `PATH`. Probed on `main` at
+`b399076b`, re-measured by the review on `8a61b143`; revised against `main` at `a9f9e410`.
 
 **Goal:** a generator of a few hundred mechanical mutants of the seeds, deterministic from a seed
 number; a check that each mutant compiles or is refused with a diagnostic code, with every crash
-keyed as the defect backlog keys them; and, per mutation operator, the share of a completed run's
-steps that `resume` would keep under the mutant.
+reported under the defect backlog's key and never silently accepted; and, per mutation operator,
+how much of a completed run `resume` would keep under the mutant.
 
 **Approach:** operators are generators of character-range edits found by reading the source with
 the package's reader and spliced into the text, so no printer is needed and comments and layout
 survive. One script compiles every mutant in process, asks `plan_resume` for the plan under each
-compiling mutant on a stand-in run, and writes one report. What this makes harder is listed
+compiling mutant on a stand-in run, and writes one readout. What this makes harder is listed
 [below](#what-this-makes-harder).
 
 **Not in this plan:** a search driver, selection, fitness, crossover between programs; fixing any
 defect the mutants find (the
 [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md) owns fixes);
-a change to `resume` (the two findings in [open decision O5](#open-decisions-for-the-coordinator)
-are reported, not fixed); mutants made of two or more mutations (an operator accepts any source, a
-mutant included, so a search composes by applying them again).
+a change to `resume`; the `conversation` operator (deferred, Task T4); mutants made of two or
+more mutations (an operator accepts any source, a mutant included, so a search composes by
+applying them again).
+
+**R3's gate.** The roadmap's gate is that no mutant ends in `compiler_defect`. It is unmet while
+any mutant crashes: the command of Task T5 exits 1 until the crash of probe P8 is fixed, and this
+plan does not declare the gate met before that.
 
 ## Probes That Shaped The Plan
 
-All on `main` at `b399076b` unless a row says otherwise, with
-`experiments/thread_m/no_provider` first on `PATH`, `PYTHONPATH` set to the tree under test, scratch
-under `/tmp/r3p` (deleted). Seeds were exported with
-`git archive BRANCH PATH | tar -x -C DIR`. "Compile" is
+On `main` at `b399076b` unless a row says otherwise, with `experiments/thread_m/no_provider` first
+on `PATH`, `PYTHONPATH` set to the tree under test, scratch under `/tmp/r3p` (deleted). Seeds were
+exported with `git archive BRANCH PATH | tar -x -C DIR`. "Compile" is
 `python -m orchestrator compile P.orc --entry-workflow P::run --source-root . --provider-externs-file providers.json --command-boundaries-file commands.json`
-run in the seed's directory. The stand-in run is the spike branch's
-`experiments/long_horizon_seed/demo.py` with `ORC_ROOT` naming the tree (the fake `claude` of
-`tests/agent_session_shims.py` on `closed_path`, scenario `clean`), the sources copied beside the
-workspace so that an edit never touches a tracked file.
+run in the seed's directory. The stand-in run uses the answers of the spike branch's
+`experiments/long_horizon_seed/demo.py` and the fake `claude` of `tests/agent_session_shims.py` on
+`closed_path`, the sources copied beside the workspace so that an edit never touches a tracked
+file. The independent review re-ran P1, P2, P5 (two samples of 50 files), P6, P8's crash, P10 and
+every example of the operators' "before and after" list on `8a61b143`; all hold.
 
 | # | Question | Command or method | Outcome |
 | --- | --- | --- | --- |
 | P1 | Do the long-horizon seeds compile on `main`? | Compile `milestones`, `staged`, `roles` and the two programs under `variants/` from `spike/long-horizon-seed` (`aa7ae4a0`) | All five build (exit 0; 8, 6 and 12 sites for the three seeds). No construct fails. The same digests on `feat/coherence-e1` (`588faf29`) |
-| P2 | Do they run? | `python demo.py DIR milestones clean`, then `staged`, `roles` | All end in `DONE`: 11, 6 and 17 committed steps; 8, 5 and 8 provider calls |
+| P2 | Do they run? | The seed's `demo.py`, scenario `clean`, for each | All end in `DONE`: 11, 6 and 17 committed steps; 8, 5 and 8 provider calls |
 | P3 | Do the seed-set programs compile on `main`? | Compile the four programs of `experiments/seed_set/programs/` from `feat/seed-set-prep` (`5449db80`) | All four build, on `main` and on E1. `plan_implement_review.orc`, the seed the seed-set plan names, does not exist on any branch |
-| P4 | What fails on `main`? | Compile the seeds as rewritten in the staged-authoring idiom (`spike/authoring-revisions`, `experiments/authoring_revisions/seeds/`), then one module per construct | Refused, on `main` and on E1 alike: `Prompt[T]` (`generic_union_not_generic`), a provider as an argument (`provider_result_provider_invalid`), `(list :of String)` (`keyword_argument_invalid`), `list/take` and `list/all` (`pure_expr_operator_unsupported`), a timeout as a name (`provider_result_timeout_literal_required`). All wait for the staged-authoring revisions; none waits for E1. An input with a literal default (`(effort String :default "medium")`) builds today |
-| P5 | Is there a reader and a printer that round-trip a `.orc` file? | `orchestrator.workflow_lisp.reader.read_sexpr_text`; a search of `orchestrator/` for a printer; for each of the 644 tracked and seed `.orc` files, re-read the text slice `text[span.start.offset:span.end.offset]` of every node | A reader with character-offset spans; no printer (the Python frontend writes text directly). The slice of every one of 91,844 nodes re-reads to the same form in 641 files; 3 files are unreadable on purpose. Offsets index characters, also after non-ASCII text. So a mutation is a splice of the decoded text at a node's span |
-| P6 | Does the compiler check a model or an effort? | Compile a call with `:model "claude-fable-5-2" :effort "bogus"` | Builds. The compiler is no backstop: the operators' value sets must be closed and tested |
-| P7 | What is the compile entry and the crash key? | `prepare_closed_program_bundle(FrontendBuildRequest(...))` in process; for a `compiler_defect`, the diagnostic's `cause`; for an escaped exception, the exception. Then a reading of the backlog's Task T0 on `test/defect-backlog-t0` (`a8b08d98`, not merged) | In memory, no cache write; 0.04 to 0.4 s per mutant. The exception class and the innermost function under `orchestrator/` give `RuntimeError workflow_lisp/loop_state.py:_typecheck_loop_state_seed` for the backlog's D9 and `TypeError workflow_lisp/wcc/elaborate.py:_infer_expr_type` for D5. T0's module computes exactly that pair (`_signature`), classifies a build (`_build_outcome`) and stores the pair in `KNOWN` for every crash row. The command line cannot give the function, so the check compiles in process, as T0 does |
-| P8 | What do mechanical mutants do today? | A throwaway prototype of the operators below (without `conversation`): 427 mutants of the three long-horizon seeds and 350 of the four seed-set programs (seed number 1), then 750 `graft` mutants (number 7) | Every mutant builds or is refused with a code, except one crash key, hit four times, by `graft` mutants only, on three programs (`milestones`, `staged`, `retry_until_check`): `TypeError workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump`. Minimal form: `(loop/recur :max 2 :state (loop-state (i Int 0)) :on-exhausted 0 (fn (state) (let* ((x (done 1))) x)))`. It is not in the backlog's table, and E1 does not close it. `effort`, `model` and `rounds` mutants all build, each with its own digest; `graft` builds 5 percent of the time (38 of 750), `name_unknown` being the commonest refusal |
-| P9 | Does E1 change a mutant's outcome? | The same 750 `graft` mutants against an export of `feat/coherence-e1` (`588faf29`) | No outcome differs |
-| P10 | What does `resume` print under a hand-made edit of each dimension? | A completed stand-in run of `milestones` (11 steps), one edit, `orchestrator resume RUN_ID` (no token, so read-only), the source restored | Table below. `plan_resume(run_root, workspace)` in `orchestrator/workflow/evaluated/rebase.py` returns the same plan in process (`kept`, `cancelled`), in 0.6 to 0.8 s |
+| P4 | What fails on `main`? | Compile the seeds as rewritten in the staged-authoring idiom (`spike/authoring-revisions`, `experiments/authoring_revisions/seeds/`), then one module per construct | Refused, on `main` and on E1 alike: `Prompt[T]` (`generic_union_not_generic`), a provider as an argument (`provider_result_provider_invalid`), `(list :of String)` (`keyword_argument_invalid`), `list/take` and `list/all` (`pure_expr_operator_unsupported`), a timeout as a name (`provider_result_timeout_literal_required`). All wait for the staged-authoring revisions; none waits for E1. An input with a literal default builds today |
+| P5 | Is there a reader and a printer that round-trip a `.orc` file? | `orchestrator.workflow_lisp.reader.read_sexpr_text`; a search of `orchestrator/` for a printer; for each of the 644 tracked and seed `.orc` files, re-read the text slice `text[span.start.offset:span.end.offset]` of every node | A reader with character-offset spans; no printer. The slice of every one of 91,844 nodes re-reads to the same form in 641 files; 3 files are unreadable on purpose. Offsets index characters, also after non-ASCII text (a synthetic string: no tracked `.orc` file holds non-ASCII text). So a mutation is a splice of the decoded text at a node's span |
+| P6 | Does the compiler check a model or an effort? | Compile a call with `:model "claude-fable-5-2" :effort "bogus"` | Builds; only a non-string effort is refused. The compiler is no backstop: the operators' value sets must be closed and pinned by a test |
+| P7 | What is the compile entry and the crash key? | `prepare_closed_program_bundle(FrontendBuildRequest(...))` in process; a reading of the backlog's Task T0 on `test/defect-backlog-t0` (`a8b08d98`, in review) | In memory, nothing written under the work directory. T0's module computes the key (exception class and a function under `orchestrator/` from the cause's traceback) and classifies a build; its `KNOWN` stores the key for every crash row. The command line cannot give the function, so the check compiles in process, as T0 does. Measured by the review: 0.02 s for a tiny program, 0.3 s `staged`, 0.6 s `milestones` and `roles` when they build, 0.06 s when refused |
+| P8 | What do mechanical mutants do today? | A throwaway prototype of the operators (without `conversation`): 427 mutants of the three long-horizon seeds and 350 of the four seed-set programs (number 1), then 750 `graft` mutants (number 7) | Every mutant builds or is refused with a code, except one crash key, hit four times, by `graft` mutants only, on three programs (`milestones`, `staged`, `retry_until_check`): `TypeError workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump`, cause `unsupported WCC control rewrite node: WccLoopDone`. `effort`, `model` and `rounds` mutants all build, each with its own digest; `graft` builds 5 percent of the time (38 of 750). These numbers describe that sample, not the compiler: the review found a second uncaught exception by hand (below) that no mutant reached |
+| P9 | Does E1 change a mutant's outcome? | The same 750 `graft` mutants against an export of `feat/coherence-e1` (`588faf29`; the branch has moved since) | No outcome differs |
+| P10 | What does `resume` keep under a hand-made edit of each dimension? | A completed stand-in run, one edit, `orchestrator resume RUN_ID` (no token, so read-only) and `plan_resume(run_root, workspace)` in process, the source restored | Table below, as re-measured by the review. The run's files and the fake's request log were byte-identical before and after every row |
+| P11 | Does the stand-in run need a test module's driver? | `python -m orchestrator run ...` with the fake `claude` on `closed_path`, for `milestones` and `roles` (`clean`) and `milestones` (`review-rejects-once`) | No: exit 0 and `DONE` for all three (8, 8 and 10 calls; 4 to 5 s each on a quiet machine, 6 to 19 s under load), the Agent Sessions seed included; no tmux server is left |
 
-P10, share of the 11 committed steps kept:
+**The crash of P8.** Smallest program (review):
+`(loop/recur ((s 0)) :max 2 :on-exhausted 0 (let* ((x (done 1))) x))` as the body of
+`run () -> Int`. The same key for `continue` as the binding's value, for
+`(let* ((x (done 1))) (done 2))`, for `(let* ((x (if true (done 1) (done 2)))) x)` and for the
+same inside an operand. Sibling positions are refused with a code today. It is not in the
+backlog's table and E1 does not close it. The right outcome is a refusal (frontend specification
+§13.1 gives `done` and `continue` only as what the loop body returns); the code is the fix's
+choice. The roadmap lists it in the tenth batch of its defect list.
 
-| Edit | `resume` | Kept | Why the cut is there |
+**A second crash, found by hand by the review, outside every sample.**
+`(done (list/length (list (done 1))))` in a loop body, and the same with `continue`: an uncaught
+`AttributeError` in `workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr`.
+`graft` as defined cannot reach it on these seeds (no list item there is a list form).
+
+P10, `milestones`, scenario `clean`: 11 committed steps, 8 provider calls.
+
+| Edit | `resume` | Kept (steps) | Kept (provider calls) |
 | --- | --- | --- | --- |
-| Effort or model as a literal at the planner's three calls | `resume_program_changed`, a plan | 0 of 11 | The planner runs first |
-| The same at the coder's call | a plan | 3 of 11 | First coder step |
-| The same at the reviewer's two calls | a plan | 5 of 11 | First reviewer step; the cut is a journal suffix, so the second milestone's coder step is cancelled too |
-| Effort literal equal to the bound value (`"medium"`) | a plan | 5 of 11 | The declaration differs although the value does not |
-| Effort or model through `inputs.json` | `resume_inputs_changed`, no plan | none | Changed inputs are refused |
-| The literal default of an input, when the edit takes effect | `resume_program_changed`, "no plan can be accepted: `resume_inputs_changed`" | none | The same refusal, reached through the program |
-| Rounds: a loop's `:max`, either loop; the map's `:max` | a plan, no cut | 11 of 11 | The bound was not reached |
-| Timeout of the coder's call | a plan | 3 of 11 | Part of the call's policy |
-| Prompt wording: `guides`, `work`, `review` | a plan | 0, 3, 5 of 11 | First step that uses the prompt |
-| Drop the unused first binding; swap the first two | a plan | 0 of 11 | The first step is not reached next |
-| Conversation: the planner's three calls continue one session | a plan | 0 of 11 | The session opens before the first step |
-| Comment or layout only | exit 0, the run's result | all | Same digest |
-| On `roles` (17 steps): effort at an `agent` form, a prompt, or continued to fresh | `resume_program_changed`, "no plan can be accepted: `invalidate_coordinator_committed`" | none | A plan never cancels a committed agent turn |
-| On `roles`: a loop's `:max` | a plan, no cut | 17 of 17 | |
+| Planner: effort literal at its three calls; model literal the same | a plan | 0 of 11 | 0 of 8 |
+| Coder: effort literal; model literal | a plan | 3 of 11 | 3 of 8 |
+| Reviewer: effort literal at its two calls; model literal | a plan | 5 of 11 | 4 of 8 |
+| Reviewer: a literal equal to the bound value | a plan | 5 of 11 | 4 of 8 |
+| Coder and reviewer effort together | a plan | 3 of 11 | 3 of 8 |
+| Effort or model through `inputs.json` | `resume_inputs_changed`, no plan | none | none |
+| An input's default changed (the run used the default) | `resume_program_changed`, "no plan can be accepted: `resume_inputs_changed`" | none | none |
+| A loop's `:max`, either loop, up or down; the map's `:max` 8 to 4 | a plan, no cut | 11 of 11 | 8 of 8 |
+| The map's `:max` 8 to 1 (two items had run) | no plan: `list_map_effect_cap_exceeded` | none | none |
+| The coder's timeout | a plan | 3 of 11 | 3 of 8 |
+| Prompt wording: `guides`, `specify`, `plan`, `work`, `review` | a plan | 0, 1, 2, 3, 5 of 11 | 0, 1, 2, 3, 4 of 8 |
+| Drop the unused first binding; swap the first two | a plan | 0 of 11 | 0 of 8 |
+| The planner's three calls continue one session | a plan | 0 of 11 | 0 of 8 |
+| Comment only | exit 0, the run's result | all | all |
+
+Other runs:
+
+| Run | Edit | Kept |
+| --- | --- | --- |
+| `milestones`, `review-rejects-once` (14 steps) | milestone loop `:max` 2 to 1 | 9 of 14 (the second attempt and what follows are cancelled) |
+| the same | milestone loop `:max` 2 to 3 | 14 of 14 |
+| the same | reviewer effort literal | 5 of 14 |
+| `staged`, `clean` (6 steps) | planner, coder, reviewer effort literal | 0, 3, 5 of 6 |
+| `roles`, `clean` (17 steps) | effort at an `agent` form, a prompt, the coder's timeout, continued to fresh | no plan: `invalidate_coordinator_committed` |
+| `roles`, `clean` | a loop's `:max` | 17 of 17 |
+
+**What the reuse probe shows, and what it does not.** On these seeds and scenarios `resume` keeps
+the steps before the first changed call in journal order, so an edit to a role that runs first
+keeps nothing. That follows from two things together: `resume` cancels the journal suffix from the
+first step whose declaration changed, and a per-role edit changes every call of the role, the
+first of which, for the planner, is the run's first step. It is a property of the journal-suffix
+cut and of where roles run in these seeds, not of search in general; the checkpoint controller of
+readiness item R1 is where it can change. A share of 1 means the recorded run does not exercise
+the edit (the `clean` run never reaches a loop bound), not that the mutant is cheap to evaluate.
+The share depends on the seed and the scenario (a reviewer edit keeps 5 of 11 on `milestones`,
+5 of 6 on `staged`, 5 of 14 after a rejected review), and steps are not cost (5 of 11 steps is 4
+of 8 provider calls). For the first space, by arithmetic on the measured rows: of the 26 other
+points around a parent, 18 change the planner (nothing kept), 6 change the coder and not the
+planner (3 of 11), 2 change the reviewer only (5 of 11). `plan_resume` in process gave the command
+line's counts in all 21 cases with a plan and the same code for every coded refusal; an uncoded
+failure (a moved inputs file, an entry parameter that lost its default) arrives as a bare
+exception where the command line prints `resume_preflight_failed`.
 
 **Prior art.** The October search (`experiments/orc_structural_search/`) has no mechanical
 mutator: its mutators are model sessions that rewrite a file (I1) or one site (I2). What is reused
@@ -84,19 +132,22 @@ mutate a seed's source, and its model list holds models above the ceiling. Neith
 - Pathspec commits (`git commit -- <paths>`); no assistant attribution; no `--no-verify`; no
   `git stash`. One worktree; `PYTHONPATH` set to it; `experiments/thread_m/no_provider` first on
   `PATH`; `mkdir -m 700` for any basetemp.
-- No provider or model call. A run that reaches a provider step installs the fake `claude` of
-  `tests/agent_session_shims.py` and gives its subprocess `closed_path(...)`.
+- No provider or model call. The only process `check.py` launches is the seed's own stand-in
+  run, with the fake `claude` on `closed_path(...)`. No mutant is ever run: `check.py` holds no
+  call of `run` for a mutant and no call of `resume`, with or without `--accept-changes`.
 - Operators live under `experiments/`, never under `orchestrator/`: the
   [boundary invariants](../design/workflow_lisp_program_search_boundaries.md) (invariant 3) keep
   mutation out of the package. Every mutant goes through the ordinary compile (invariant 1).
-- Tests assert outcomes, diagnostic codes, digests and parsed forms, never prompt text. Test
-  sources declare `(:target-dsl "2.40")`. A new test fails first for its stated reason. Function
-  complexity at most 12.
-- **Closed value sets.** `MODELS = ("claude-haiku-5-5", "claude-sonnet-5-5")` and
-  `EFFORTS = ("low", "medium", "high", "xhigh", "max")` are module constants with no override from
-  the environment, a file or an argument. No operator writes a model or an effort outside them, so
-  no mutant names a model above the Sonnet ceiling or a Fable model (`AGENTS.md`, experiment
-  rules). The first space is `effort` with `low`, `medium`, `high`.
+- Tests assert outcomes, diagnostic codes, digests and parsed forms, never prompt or message
+  text. Test sources declare `(:target-dsl "2.40")`. A new test fails first for its stated
+  reason. Function complexity at most 12.
+- **Closed value sets, in one place.** `experiments/mutants/operators.py` is the only module that
+  holds them: `MODELS = ("claude-haiku-5-5", "claude-sonnet-5-5")` and
+  `EFFORTS = ("low", "medium", "high", "xhigh", "max")`, with no override from the environment, a
+  file or the command line. A caller may narrow them (the first space is `low`, `medium`,
+  `high`) and can never widen them. The test module repeats both tuples as literals, so adding a
+  Fable model, a model above the Sonnet ceiling or an undeclared effort fails a test
+  (`AGENTS.md`, experiment rules).
 - **Frozen surfaces.** No operator changes the module name, imports, exports, the target, a type
   declaration, a prompt's `:fills` or return type, the entry workflow's parameter list or the
   manifests; `common.orc` is never a mutant
@@ -108,57 +159,77 @@ mutate a seed's source, and its model list holds models above the ceiling. Neith
 
 ## Files
 
-Three new files; nothing in `orchestrator/` changes.
+Nothing in `orchestrator/` changes.
 
-| File | Responsible for |
-| --- | --- |
-| `experiments/mutants/operators.py` | The operators and the sample. Depends on `orchestrator.workflow_lisp.reader` and `sexpr` only. Holds no state, reads no file |
-| `experiments/mutants/check.py` | Measuring mutants: the compile outcome, the reuse share, the report, and the one command. Depends on `prepare_closed_program_bundle`, `plan_resume`, the signature and outcome functions of the backlog's `tests/test_workflow_lisp_defect_backlog.py`, the stand-ins of `tests/agent_session_shims.py` and the driver of `tests/test_workflow_evaluated_agent_consumer_smoke.py` (as the seed's `demo.py` does) |
-| `tests/experiments/test_mutants.py` | The default-suite sample and the operators' tests, on one fixture seed written in the module |
+| File | New or edited | Responsible for |
+| --- | --- | --- |
+| `experiments/mutants/operators.py` | New | The operators, the closed sets and the sample. Depends on `orchestrator.workflow_lisp.reader` and `sexpr` only. Holds no state, reads no file |
+| `experiments/mutants/check.py` | New | Measuring mutants: the compile outcome, the reuse figures, the readout, and the one command. Depends on `prepare_closed_program_bundle`, on `plan_resume` (the documented library entry: [lifecycle guide](../runtime_execution_lifecycle.md)), and on two test-support modules that are not test modules: `tests/workflow_lisp_closed_program_helpers.py` (`crash_signature`, `build_outcome`) and `tests/agent_session_shims.py` (`FAKE_CLAUDE`, `closed_path`). It imports no `tests/test_*` module and reads no known list |
+| `tests/experiments/test_mutants.py` | New | The operators' tests and the default-suite sample, on fixture sources written in the module. The only reader of the backlog's `KNOWN` |
+| `experiments/mutants/readout.json` | New, written by the command | The last readout: the sample it was drawn with, the outcomes per operator, one record per crash key, the reuse figures |
+| `tests/test_workflow_lisp_defect_backlog.py` | Edited (T2) | Two rows: P8's family and the review's second crash |
+| The defect backlog plan | Edited (T2, T5) | The two rows in its table; a ledger row for each readout |
+
+`tests` is a package and imports from the repository root, so `check.py` can import the two
+support modules as the suite does. The move of `_signature` and `_build_outcome` into
+`tests/workflow_lisp_closed_program_helpers.py` under the names `crash_signature` and
+`build_outcome` is the backlog's Task T0 fix round, not a task here.
 
 Interfaces:
 
 ```python
 # operators.py
+MODELS: tuple[str, ...]; EFFORTS: tuple[str, ...]
+
 @dataclass(frozen=True)
 class Mutation:
     operator: str                               # a key of OPERATORS
     params: str                                 # e.g. "reviewer=low", "loop1=3", "9<-18"
     edits: tuple[tuple[int, int, str], ...]     # disjoint (start, end, replacement) character ranges
 
+def effort(text: str, levels: Sequence[str] = EFFORTS) -> Iterator[Mutation]   # ValueError outside EFFORTS
+def model(text: str, models: Sequence[str] = MODELS) -> Iterator[Mutation]     # ValueError outside MODELS
+def replace_prompt(text: str, name: str, raw: str) -> Mutation                 # the primitive a proposer uses
 OPERATORS: dict[str, Callable[[str], Iterator[Mutation]]]   # every mutation of one source, in document order
-def apply(text: str, mutation: Mutation) -> str             # splice, right to left
-def sample(sources: Mapping[str, str], cap: int, number: int) -> list[tuple[str, Mutation]]
+def apply(text: str, mutation: Mutation) -> str             # splice, right to left; ValueError on overlap
+def sample(sources: Mapping[str, str], cap: int, number: int,
+           operators: Sequence[str] = tuple(OPERATORS)) -> list[tuple[str, Mutation]]   # (program, mutation)
 
 # check.py
 def outcome(work: Path, program: str) -> tuple               # ("compiles", digest) | ("refused", *codes)
                                                              # | ("crash" or "traceback", class, where)
-def compile_report(seed_dir: Path, programs: Sequence[str], cap: int, number: int) -> dict
-def reuse_report(seed_dir: Path, program: str, standin: Mapping, mutants) -> dict
+def compile_report(seed_dir: Path, programs: Sequence[str], cap: int, number: int,
+                   operators: Sequence[str] = tuple(OPERATORS)) -> dict
+def plan_outcome(run_root: Path, workspace: Path) -> tuple   # ("plan", kept, cancelled, calls_cancelled)
+                                                             # | ("no_plan", code)
+def reuse_report(seed_dir: Path, program: str, standin: Mapping, scenario: str,
+                 mutants: Sequence[tuple[str, Mutation]]) -> dict
 ```
 
 Text is `path.read_bytes().decode("utf-8")` with `\r\n` and `\r` turned into `\n`; spans index that
 text. `sample` takes, for each program in name order and each operator in `OPERATORS` order, all
-its mutations when there are at most `cap`, else `random.Random(f"{number}/{program}/{operator}")`
-`.sample(...)` of them, kept in document order. A mutant's name is `program/operator/params`; it
-reproduces the mutant without the seed number.
+its mutations when there are at most `cap`; else it draws one `random()` per mutation from
+`random.Random(f"{number}/{program}/{operator}")` and keeps the `cap` mutations with the smallest
+draws, in document order. Only `random()` is used, the one method whose sequence the Python
+documentation fixes across versions; the readout records the Python version all the same. A
+mutant's name is `program/operator/params`; it reproduces the mutant without the number.
 
 ## Operators
 
 Shared terms. A **call form** is a list headed `provider-result` or `agent`; its **role** is its
 first operand when that is a symbol `providers.R` (role `R`). The **operand of** `:k` is the item
-after the keyword `:k` among a form's own items. An operator yields no mutation whose replacement
-equals the text it replaces. Examples are from `milestones.orc`.
+after the keyword `:k` among a form's own items. Forms are numbered from zero, in order of start
+offset. An operator yields no mutation whose replacement equals the text it replaces. Examples
+are from `milestones.orc`.
 
-| Operator | Dimension | Sites and edit | Parameters | Must not produce |
-| --- | --- | --- | --- | --- |
-| `effort` | Effort per role (first space for `low`, `medium`, `high`) | The operand of `:effort` in every call form of one role, all of them in one mutation, replaced by a string literal | role; level in `EFFORTS` | A level outside `EFFORTS`; an edit of some of a role's sites; an inserted `:effort`; an edit of an input or its default |
-| `model` | Model per role | The same for `:model` | role; model in `MODELS` | A model outside `MODELS` |
-| `rounds` | Structure: revision rounds | The operand of `:max` of one `loop/recur`, when an integer literal | loop number in document order; n in 1 to 4 | 0, a value above 4, a `list/map-effect` cap, a non-literal bound |
-| `drop_step` | Structure: a step absent | One binding of one `let*` inside a `defworkflow` or `defproc`, deleted | `let*` number; binding number | Anything but one whole binding |
-| `prompt` | Prompt wording | The body of one `defprompt` (its last item, a string), edited as raw source text between the quotes, so escapes are never re-encoded. `drop k` removes sentence k, sentences being the pieces between `". "`; `append` adds one fixed sentence before the closing quote | prompt name; `drop k` or `append` | An empty body; an edit of two prompts; a change to `:fills` |
-| `graft` | Structure, beyond the declared values ([ruling 4](#rulings)) | One expression form replaced by the source text of another of the same module. An expression form is a list inside a `defworkflow` or `defproc` whose head is in the constant `EXPRESSION_HEADS` (`provider-result command-result call loop/recur let* if match list/map-effect list/map done continue variant record loop-state agent not and or = + list/append list/length`) | target number; donor number | A donor from another file; a donor that contains the target; a replacement equal to the target |
-| `conversation` | Conversation | `continue`: in one `defworkflow`, when all `provider-result` forms of one role have the same `:model` and `:effort` text, wrap the workflow's body in `(let* ((R-session (agent providers.R :model M :effort E))) ...)` on the same line and, in each of those forms, put `R-session` for `providers.R` and delete the two keyword pairs. `fresh`: for a binding `(N (agent providers.R K...))`, delete it and put `providers.R K...` for `N` in every `provider-result` of that `let*` | workflow; role or binding; direction | A new line; a session shared across workflows; a name already used in the module |
+| Operator | Sites and edit | Parameters | Must not produce |
+| --- | --- | --- | --- |
+| `effort` | The operand of `:effort` in every call form of one role, all of them in one mutation, replaced by a string literal | role; level in `levels` | A level outside `EFFORTS`; an edit of some of a role's sites; an inserted `:effort`; an edit of an input or its default |
+| `model` | The same for `:model` | role; model in `models` | A model outside `MODELS` |
+| `rounds` | The operand of `:max` of one `loop/recur`, when an integer literal | loop number; n in 1 to 4 | 0, a value above 4, a `list/map-effect` cap, a non-literal bound |
+| `drop_step` | One binding pair of one `let*` inside a `defworkflow` or `defproc`, deleted | `let*` number; binding number | Anything but one whole pair |
+| `replace_prompt` (primitive) and `prompt` (its generator) | The body of one `defprompt` (its last item, a string), as raw source text between the quotes, so escapes are never re-encoded. `replace_prompt` puts the given raw text there. The generator calls it twice over: `drop k` gives the pieces of the body split at `". "` without piece k, joined by `". "`; `append` gives the body followed by the constant `" Check the result before you report."` (no brace, quote or backslash) | prompt name; raw text, or `drop k`, or `append` | An empty body; an edit of two prompts; a change to `:fills`; raw text with an unescaped quote or a line end (`ValueError`) |
+| `graft` | One expression form replaced by the source text of another of the same module. An expression form is a list inside the body of a `defworkflow` or `defproc` whose head is in the constant `EXPRESSION_HEADS` (`provider-result command-result call loop/recur let* if match list/map-effect list/map done continue variant record loop-state agent not and or = + list/append list/length`) and which is not in a name position: not a binding pair of a `let*` or of a `loop/recur` binder list, not the parameter list of `fn`, not the pattern of a `match` arm | target number; donor number | A donor from another file; a donor that contains the target; a replacement equal to the target; a pair or a parameter list named like a head taken for an expression |
 
 Before and after:
 
@@ -171,34 +242,66 @@ Before and after:
 - `prompt`, `work.drop2` removes the sentence that holds `{milestone}`: refused
   `prompt_placeholder_missing`. `work.append` builds.
 - `graft` on `staged`, target the coder's call, donor the acceptance arm: the coder's
-  `provider-result` becomes
-  `(done (variant Outcome DONE :summary "accepted"))`: today's crash (P8).
-- `conversation`, `run/planner/continue`: the three planner calls become
-  `(provider-result planner-session :timeout-sec 1200 :prompt ...)` under one `agent` binding.
+  `provider-result` becomes `(done (variant Outcome DONE :summary "accepted"))`: today's crash.
 
-A "role absent" mutant is not an operator of its own: `drop_step` gives it when nothing reads the
-step, and `graft` gives it when a `match` on a reviewer's verdict is replaced by one of its arms.
+### Coverage Of The Declared Dimensions
+
+The dimensions are those of the [seed-set plan](2026-11-11-seed-set-calibration-plan.md), "Search
+dimensions around one seed". "As is" means a search uses the operator unchanged; "check only"
+means it exists to feed the compile check.
+
+| Declared dimension | Operator | Seeds that can express it | Not reachable on today's seeds |
+| --- | --- | --- | --- |
+| Effort per role (first space: three levels) | `effort`, as is | All seven programs (one role in `direct`, `retry_until_check` and `implement_check_repair`, two in `implement_review_revise`, three in the long-horizon seeds) | — |
+| Model per role | `model`, as is | The same | — |
+| Revision rounds | `rounds`, as is | Programs with a `loop/recur`: the three long-horizon seeds, `implement_check_repair`, `retry_until_check` | `direct` and `implement_review_revise` have no loop |
+| Planner absent | None | None | Dropping `ready` builds but removes one of three planner calls; `spec` and `plan` are read (`name_unknown`). It needs a seed where the plan is optional (`plan_implement_review.orc`, which does not exist); built when that dimension is searched |
+| Reviewer absent | None that can be relied on | One `graft` pair per site: it builds in `staged` and in `milestones::run`, and is refused `name_unknown` in `milestones::milestone` | A cap of 100 among about 1,500 pairs seldom draws that pair; built when that dimension is searched |
+| Conversation (fresh or continued) | None: T4 is deferred | — | The hand edit of P10 gives its reuse (0 of 11; no plan on `roles`) |
+| Prompt wording | `replace_prompt`, as is, with text from a proposer; `prompt` (`drop k`, `append`) is check only | All | The mechanical generator is not what a search would use: the seed-set plan says wording "is searched by proposal" |
+| A step absent; a subtree moved (not declared values) | `drop_step`, `graft`: check only | All | `graft` stands for "the program's structure also mutates"; it is the only operator that found a crash |
+
+## The First Space Is Programs, Not Bindings
+
+Coordinator's ruling (M8 of the review), recorded here because other documents still say
+otherwise. In the first search space a point is a program. Effort per role is a string literal at
+each of that role's call sites, and a mutation rewrites it; the 27 points are 27 programs with 27
+digests, named `program/effort/role=level` and joined by name. Inputs cannot vary under `resume`
+(P10: a changed input, or a changed default that takes effect, gets no plan), so a point that is
+a binding of one program shares nothing with its neighbours.
+
+Sentences that must change before the seed is frozen (the coordinator edits them; this plan
+edits none):
+
+| Document | Sentence |
+| --- | --- |
+| [Seed-set plan](2026-11-11-seed-set-calibration-plan.md), "Search dimensions around one seed" | "The dimensions a later search may vary, each a binding of that program and not a new program:" |
+| The same, ledger row of 2026-11-13 ("mutate model and effort per role") | "Consequences: a seed's entry takes a model and an effort per role (the long-horizon seed has one shared effort input today);" |
+| [Long-horizon plan](2026-11-13-long-horizon-task-family-and-seed-plan.md), step 8 | "Required: it compiles at the current target under 50 lines; an effort input per role (owner, 2026-11-13);" |
+| [Roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md), Lane D item 6 | "model and effort per role are already one-token edits today through inputs with literal defaults, so the first search space needs none of this" (true of a fresh run; under `resume` such an edit gets no plan) |
+| [Staged-authoring design](../design/workflow_lisp_staged_workflow_authoring.md), the table of edits | "Model per role \| One token: the literal default of that role's model input" and "Effort per role \| One token, once the seed has an effort input per role (two more signature lines; possible today)" |
+| The same, after the table | "Model and effort were already one-token edits. The first space the owner selected (one model, an effort per role) is three such tokens and needs nothing from this design;" |
+| The seed, `milestones.orc` and its two neighbours on `spike/long-horizon-seed` | The parameter `(effort String)` of `run` and of `milestone`, the operand `:effort effort` at every call form, the argument `:effort effort` of `(call milestone ...)`, and `"effort": "medium"` in `demo.py`'s inputs: a literal `:effort "medium"` at each call form replaces them |
 
 ## Tasks
 
-Order: T1, then T4 while the backlog's T0 merges, then T2, T3, T5; T6 and T7 when what they wait
+Order: T1; then T2, T3 and T5 once the backlog's T0 is on `main`; T6 and T7 when what they wait
 for exists.
 
 | Task | Hours | Waits for |
 | --- | ---: | --- |
-| T1 Six operators and the sample | 7 | Nothing |
-| T2 Compile check, report, command | 3 | T1; the backlog's T0 merged (in progress on `test/defect-backlog-t0`; [decision O1](#open-decisions-for-the-coordinator)) |
-| T3 Reuse share | 5 | T2 |
-| T4 The `conversation` operator | 3 | T1; [decision O6](#open-decisions-for-the-coordinator) |
-| T5 First readout and hand-off to the defect backlog | 2 | T3 (and T4 if kept) |
-| T6 The frozen seeds in the suite and in the command's defaults | 2 | The seed's merge to `main` (roadmap Phase 5b, step 8) |
-| T7 Sites of the role idiom | 3 | Staged-authoring Task P5 and [decision O4](#open-decisions-for-the-coordinator) |
+| T1 Operators and the sample | 7 | Nothing |
+| T2 Compile check, crash records, command | 4 | T1; the backlog's T0 merged with `crash_signature` and `build_outcome` in the helper |
+| T3 Reuse figures | 5 | T2 |
+| T4 The `conversation` operator | deferred (3) | A decision to search that dimension |
+| T5 First readout and hand-off | 2 | T3 |
+| T6 The frozen seeds in the suite | 2 | The seed's merge to `main` (roadmap Phase 5b, step 8) |
+| T7 Sites of the role idiom | 3 | Only if a seed in the staged-authoring spelling replaces the frozen one |
 
-Nothing waits for E1 (P1, P9; probed on its tip `588faf29`, which has moved since). After E1
-merges, T5's command is run once more, since refusal codes and the function in a crash key can
-move.
+Nothing waits for E1 (P1, P9). After E1 merges the command of T5 is run again, which is a new
+readout.
 
-### Task T1: Six operators and the sample (7 h)
+### Task T1: Operators and the sample (7 h)
 
 Files: `experiments/mutants/operators.py`, `tests/experiments/test_mutants.py`.
 
@@ -207,247 +310,349 @@ Files: `experiments/mutants/operators.py`, `tests/experiments/test_mutants.py`.
       `run ((task String) (repo String) (planner String) (coder String) (reviewer String) (effort String))`,
       one planner call, then a `loop/recur :max 2` holding a coder call, a `command-result` and a
       `match` on a reviewer call. It is the only source the default suite mutates until T6.
-- [ ] `Mutation`, `apply`, the operators `effort`, `model`, `rounds`, `drop_step`, `prompt`,
-      `graft`, and `sample`, as defined above.
+- [ ] `Mutation`, `apply`, `effort`, `model`, `rounds`, `drop_step`, `replace_prompt`, `prompt`,
+      `graft`, `OPERATORS` and `sample`, as defined above.
 - Tests, each failing first because `experiments.mutants.operators` or the operator's key in
   `OPERATORS` does not exist:
+  - `test_the_closed_sets_are_the_declared_ones`: `operators.MODELS` and `operators.EFFORTS`
+    equal the two tuples written out in the test.
+  - `test_effort_and_model_write_only_declared_literals`: for every mutation of `effort` and of
+    `model`, every replacement string in `Mutation.edits` is the quoted form of a member of the
+    tuple written out in the test. No "or the seed" clause.
+  - `test_a_value_outside_the_sets_is_refused`: `effort(SEED, levels=("turbo",))` and
+    `model(SEED, models=("claude-fable-5-2",))` raise `ValueError`;
+    `effort(SEED, levels=("low", "medium", "high"))` yields 9 mutations.
+  - `test_no_other_operator_introduces_a_model_or_effort`: for `rounds`, `drop_step`, `prompt`
+    and `graft`, the string literals in `:model` and `:effort` position of every mutant occur in
+    the seed.
   - `test_each_operator_yields_mutations_of_the_fixture`: the count per operator is the one the
     fixture fixes (3 roles times 5 levels for `effort`, and so on).
   - `test_effort_edits_every_call_of_one_role_and_nothing_else`: re-read the mutant; the operand
     of `:effort` is the string `low` at each `providers.reviewer` form and unchanged elsewhere;
     every other top-level form is equal to the seed's.
-  - `test_no_mutant_names_a_model_or_effort_outside_the_closed_sets`: over every mutation of
-    every operator, the string literals in `:model` and `:effort` position are in `MODELS`,
-    `EFFORTS` or the seed.
   - `test_frozen_surfaces_survive`: module name, exports, target, type declarations, each
     prompt's `:fills` and the entry's parameter list are equal forms in every mutant.
   - `test_only_graft_adds_a_line`.
-  - `test_prompt_edit_keeps_escapes`: the mutant re-reads, and the body's value differs from the
-    seed's only by the removed or added sentence (compared as a property, not as literal text).
+  - `test_graft_skips_name_positions`: a source with a binding named `record` and an `fn`
+    parameter named `call` yields no `graft` whose target or donor is that pair or that list.
+  - `test_prompt_edit_keeps_escapes`: every `prompt` mutant re-reads; `replace_prompt` with the
+    body's own raw text raises `ValueError` (an identity), and so does a raw text with a bare
+    quote.
+  - `test_apply_refuses_overlapping_edits`.
   - `test_sample_is_deterministic_and_capped`: equal lists for one number, different for
-    another, at most `cap` per program and operator, names unique.
+    another, at most `cap` per program and operator, names unique, document order kept.
 - Run: `pytest -q -n 8 tests/experiments/test_mutants.py` (expected: all pass; under 5 s).
-- Reviewer: that sites are found by form and keyword, never by line or offset constants; that
-  `apply` rejects overlapping edits.
+- Reviewer: that sites are found by form and keyword, never by line or offset constants.
 
-### Task T2: Compile check, report, command (3 h; after the backlog's T0)
+### Task T2: Compile check, crash records, command (4 h; after the backlog's T0)
 
-Files: `experiments/mutants/check.py`, the test module.
+Files: `experiments/mutants/check.py`, `tests/experiments/test_mutants.py`,
+`tests/test_workflow_lisp_defect_backlog.py`, the defect backlog plan.
 
 - [ ] `outcome`: copy the seed directory to a work directory once, write the mutant over its
-      program there, and classify `prepare_closed_program_bundle` (no cache write; the seed
-      directory is never written) with T0's `_build_outcome`, which returns `("crash", class,
-      where)`, `("traceback", class, where)` or `("refused", *codes)`; a build gives
-      `("compiles", digest)`, the digest kept by the closure handed to `_build_outcome`. No
-      second classifier and no second `except` is written.
-- [ ] A crash **key** is T0's signature without its kind: the exception class and `where`
-      (`path under orchestrator/:function`), printed as one string. The kind is left out, so
-      the backlog's TP1 (a traceback becomes a crash) moves no key.
-- [ ] `compile_report`: per operator the counts of `compiles`, each refusal code, each crash
-      key and mutants of 50 lines or more; `distinct_digests`, `equal_to_seed`; and `crashes`,
-      one row per key: kind, count, operators, programs, the name of one mutant.
-- [ ] `python -m experiments.mutants.check SEED_DIR --programs a,b,c [--operators x,y] [--cap 100] [--number 0] [--out report.json]`:
-      prints the table, writes the report, exits 1 when any mutant ends in a crash or a
-      traceback, else 0. A seed that does not build itself is a usage error (exit 2).
-- [ ] The known keys are read from T0's `KNOWN` (its crash and traceback rows); this plan keeps
-      no list. P8's crash enters T0's `KNOWN` and `KNOWN_AT_T0` as a new row with its minimal
-      program, with a row in the backlog's ledger, as T0's rules require; that edit is part of
-      this task.
+      program there, and classify `prepare_closed_program_bundle` (the seed directory is never
+      written) with `build_outcome` of `tests/workflow_lisp_closed_program_helpers.py`; a build
+      gives `("compiles", digest)`, the digest kept by the closure handed to `build_outcome`.
+      No second classifier and no second `except` is written.
+- [ ] **The key** is `crash_signature`'s pair as T0 defines it after its review (the exception
+      class and a function under `orchestrator/` that is not a raising helper), without the
+      kind, so the backlog's TP1 (a traceback becomes a crash) moves no key. A key is a
+      location, not a defect: three of T0's rows share one key, and the closed-program
+      checker's single raising method is the key of every checked-form violation. So a crash is
+      never accepted because its key is known.
+- [ ] `compile_report`: the sample (cap, number, programs, operators, Python version); per
+      operator the counts of `compiles`, each refusal code, each key and mutants of 50 lines or
+      more; `distinct_digests`, `equal_to_seed`; and `crashes`, one record per key:
+      `{"key": [class, where], "kinds": [...], "mutants": n, "operators": [...], "pairs": [[operator, program], ...], "cause": first line of the cause's message, "smallest": {"name": ..., "source": the shortest crashing mutant's whole text}}`.
+- [ ] `python -m experiments.mutants.check SEED_DIR --programs a,b,c [--operators x,y] [--cap 100] [--number 0] [--out readout.json]`:
+      prints the table and every crash record, writes the readout, exits 1 when any mutant ends
+      in a crash or a traceback, else 0. A seed that does not build itself is a usage error
+      (exit 2). The command reads no known list.
+- [ ] Two rows in T0's module (`ROWS`, `KNOWN`, `KNOWN_AT_T0`) and in the backlog's table, each
+      with a ledger row there, unless T0's fix round has entered them: P8's family (`done` or
+      `continue` as a `let*` binding's value in a loop body, with the nested forms above; wanted
+      outcome `None` until the fix chooses a refusal code) and the review's second crash
+      (`(done (list/length (list (done 1))))`; found by hand, not a mutant's hit).
 - Tests, failing first because `check.outcome` does not exist:
   - `test_outcome_kinds`: a `rounds` mutant gives `compiles` with a digest other than the
     seed's; `drop_step` of a binding that is read gives `("refused", "name_unknown")`; a
     `prompt` drop of a sentence holding a placeholder gives
     `("refused", "prompt_placeholder_missing")`.
+  - `test_an_escaped_exception_is_a_crash_record_and_exit_1`: with `build_closed_program` in
+    `orchestrator.workflow_lisp.closed.artifact` replaced by a function that raises
+    `RuntimeError` (probed: the exception escapes with a package frame), `compile_report` on the
+    fixture with `operators=("rounds",)` has one crash record whose class is `RuntimeError`,
+    whose `mutants` is the number of `rounds` mutants, whose `pairs` is `[["rounds", "fixture"]]`
+    and whose `smallest` source re-reads; `main([...])` called in process returns 1. This test
+    does not depend on a live defect and stays when P8 is fixed.
   - `test_a_crashing_mutant_is_reported_under_the_backlog_key`: `CRASH_SEED` is a one-program
-    directory whose loop body is `(let* ((x (+ state.i 1))) (done state.i))`; the `graft` of
-    the binding's value by the `done` form is P8's crash (probed). Its report's `crashes` holds
-    one row, whose key is the new row's in T0's `KNOWN`. When the defect is fixed T0's row
-    goes, and this test is deleted with it.
-  - `test_no_mutant_of_the_fixture_crashes_outside_the_known_list`: `compile_report` on the
-    fixture at `cap` 3, number 0; every key in `crashes` is a key of T0's `KNOWN`; the report's
-    counts add up to the number of mutants.
-  - `test_command_exits_1_on_a_crash_and_0_without`: the command on `CRASH_SEED` exits 1 and
-    prints the key; on the fixture with `--operators rounds` it exits 0. The first half goes
-    with the row.
-- Run: the module, as in T1 (expected: under 20 s; about 20 mutants at 0.1 to 0.4 s).
-- Reviewer: that the suite test cannot pass by producing no mutants; that nothing is written
-  under the seed directory.
+    directory whose loop body is `(let* ((x (+ state.i 1))) (done state.i))`; the `graft` of the
+    binding's value by the `done` form is P8's crash (probed). Its report has one record, whose
+    key is the new row's in T0's `KNOWN`. It is deleted with that row.
+  - `test_the_fixture_sample_has_no_crash`: `compile_report` on the fixture at `cap` 3, number
+    0, has no crash record, at least one mutant per operator, and counts that add up. The
+    fixture is in no readout, so a crash on it is unrecorded by definition and fails. If the
+    fixed sample does crash when this task is done, the implementer stops and reports; the
+    sample is not tuned.
+  - `test_the_known_list_has_the_shape_this_module_reads`: every value of T0's `KNOWN` starts
+    with a kind this module knows, so a change of shape cannot empty the set of known keys
+    unnoticed.
+  - `test_command_exits_0_without_a_crash`: the command on the fixture with `--operators rounds`.
+- Run: the module (expected: about 20 s: at most 18 fixture mutants and two command runs).
+- Reviewer: that no test can pass by producing no mutants; that nothing is written under the
+  seed directory; that `check.py` imports no `tests/test_*` module.
 
-### Task T3: Reuse share (5 h)
+### Task T3: Reuse figures (5 h)
 
 Files: `check.py`, the test module.
 
-- [ ] `reuse_report(seed_dir, program, standin, mutants)`. `standin` is
-      `{"answers": [...], "inputs": {...}, "files": {...}}`: the fake `claude`'s answers in call
-      order, the run's inputs (the check sets `repo` to the workspace), and the workspace's files.
-      It builds a world (`src/` a copy of the seed directory, `repo/` the workspace, `bin/claude`
-      the fake), runs the seed once to completion through the driver with `closed_path`, then for
-      each mutant that compiles: writes it to `src/`, calls `plan_resume(run_root, repo)`, and
-      restores the source at the end.
-- [ ] Per mutant: `("plan", kept, cancelled)`; `("same_program",)` when its digest is the
-      seed's (not sent to `plan_resume`); `("no_plan", code)` for a `PlanRefusal` or a resume
-      refusal. The share is `kept / (kept + cancelled)`, 1 for `same_program`, 0 for `no_plan`.
-- [ ] Per operator in the report: mutants measured, plans, the minimum, median and maximum
-      share, and each `no_plan` code with its count. `--standin FILE.json` on the command adds
-      the reuse section for the programs the file names.
+- [ ] `reuse_report(seed_dir, program, standin, scenario, mutants)`. `standin` is
+      `{"inputs": {...}, "files": {...}, "answers": {program: {scenario: [...]}}}`: the run's
+      inputs (the check sets `repo` to the workspace), the workspace's files (the token
+      `{python}` in a file's text becomes `sys.executable` when the world is built, so no
+      interpreter path is stored), and the fake `claude`'s answers in call order. It builds a
+      world in a temporary directory removed in `finally` (`src/` a copy of the seed directory,
+      `repo/` the workspace, `bin/claude` the fake), runs the seed once to completion with
+      `python -m orchestrator run` on `closed_path` (P11), then for each mutant that compiles
+      writes it to `src/`, calls `plan_outcome(run_root, repo)`, and restores the source.
+- [ ] `plan_outcome`, one rule. `plan_resume` returns: `("plan", kept, cancelled,
+      calls_cancelled)`, `calls_cancelled` being `len(plan.costs)` (the cancelled provider-class
+      commits). `plan_resume` raises a `ValueError` whose `code` attribute is a string
+      (`PlanRefusal`; the resume preflight's refusal, a private class caught by its base;
+      `EvaluatedValueError`, a `ValueError` through `PureExprEvaluationError`):
+      `("no_plan", code)`. Anything else propagates and fails the check: a `ValueError` without
+      a `code` (`WorkflowSignatureError`), `FileNotFoundError`. An uncoded failure is never a
+      share of zero. A mutant whose digest is the seed's is `("same_program",)` and is not sent
+      to `plan_resume`.
+- [ ] Per operator, program and scenario in the readout: mutants measured; plans; the minimum,
+      median and maximum of steps kept over steps committed, and of provider calls kept over
+      the run's provider calls (the fake's request log has one line per call); each `no_plan`
+      code with its count, reported as a count and not averaged in. `--standin FILE.json
+      [--scenarios a,b]` on the command adds the section.
 - Tests, failing first because `check.reuse_report` does not exist; one stand-in run of the
-  fixture is shared by the module's tests:
-  - `test_a_reviewer_effort_mutant_keeps_the_steps_before_the_first_review`: `kept` equals the
-    number of steps the run committed before its first reviewer step.
+  fixture serves the first five:
+  - `test_a_reviewer_effort_mutant_keeps_the_steps_before_the_first_review`: steps kept equals
+    the steps the run committed before its first reviewer step; provider calls kept likewise.
   - `test_a_rounds_mutant_keeps_every_step`.
   - `test_a_layout_only_edit_is_the_same_program`.
-  - `test_an_edit_under_a_committed_agent_turn_has_no_plan`: a second fixture whose coder is an
-    `agent`; an `effort` mutant gives `("no_plan", "invalidate_coordinator_committed")`.
-  - `test_the_seed_source_is_restored`.
-- Run: the module (expected: under 40 s; two stand-in runs of about 5 s).
-- Reviewer: that the run's own files are never written (`plan_resume` is read-only; the test
-  compares the journal's bytes before and after); that no test reaches a real provider.
+  - `test_no_mutant_is_ever_run`: after `reuse_report` the fake's request log holds exactly the
+    seed run's calls, and the run directory's files are byte-identical to before.
+  - `test_the_seed_source_is_restored_and_the_world_removed`.
+  - `test_a_coded_refusal_is_no_plan_with_its_code`, two cases, one per raising class that a
+    fixture reaches: a second fixture whose coder is an `agent`, under an `effort` mutant
+    (`PlanRefusal`, `invalidate_coordinator_committed`); the first fixture's run with its
+    inputs file edited (the preflight's refusal, `resume_inputs_changed`). `EvaluatedValueError`
+    is caught by the same clause and has no fixture here.
+  - `test_an_uncoded_failure_propagates`: with the run's inputs file removed, `plan_outcome`
+    raises `FileNotFoundError`.
+- Run: the module (expected: two stand-in runs of a small fixture, 5 to 10 s each on a
+  loaded machine; under `--dist=worksteal` a module-scoped run is made once in each worker that
+  draws one of its tests).
+- Reviewer: that no test reaches a real provider; that a `no_plan` is never counted as a share.
 
-### Task T4: The `conversation` operator (3 h)
+### Task T4: The `conversation` operator (deferred; 3 h when selected)
 
-Files: `operators.py`, the test module. Both directions as defined above.
-
-- Tests, failing first with `KeyError: 'conversation'`:
-  `test_continue_builds_and_adds_one_session_site` (the program's site count is the seed's
-  plus one); `test_fresh_after_continue_builds_with_the_seeds_site_count`;
-  `test_conversation_adds_no_line`. These two compile, so they are written after T2 if T4
-  runs first, and T4's first commit carries the text-level tests only.
-- Reviewer: that a role whose calls differ in model or effort text yields no mutation.
+Not built now (coordinator's ruling on O6). When the conversation dimension is searched:
+`continue` wraps a workflow's body in one `agent` binding for a role whose `provider-result`
+forms agree in `:model` and `:effort` text, and `fresh` is its inverse, both on one line. P10
+already gives the reuse of the hand-made edit.
 
 ### Task T5: First readout and hand-off (2 h)
 
-- [ ] Export the three long-horizon seeds and the four seed-set programs to a scratch
-      directory and run the command at its defaults (`--cap 100 --number 0`), with a stand-in
-      file written from the `clean` scenarios of the seed's `demo.py`. Expected from P8: about
-      540 mutants of the long-horizon seeds in about three minutes; exit 1 with one crash key.
-- [ ] Ledger: the mutants per operator, outcomes, distinct digests, each crash key with its
-      count and example, the reuse table per operator, the commit.
-- [ ] Hand to the defect backlog's owner: every key, with the backlog row it matches or
-      "new", under the rule of [the next section](#what-the-crash-report-feeds).
+- [ ] Export the seeds and write the stand-in files at run time (they are not committed here):
+
+      ```bash
+      mkdir -m 700 /tmp/r3x
+      git archive spike/long-horizon-seed experiments/long_horizon_seed | tar -x -C /tmp/r3x
+      git archive feat/seed-set-prep experiments/seed_set/programs | tar -x -C /tmp/r3x
+      python -m experiments.mutants.check /tmp/r3x/experiments/long_horizon_seed \
+          --programs milestones,staged,roles --standin /tmp/r3x/long_horizon.json \
+          --scenarios clean,review-rejects-once --out experiments/mutants/readout.json
+      python -m experiments.mutants.check /tmp/r3x/experiments/seed_set/programs \
+          --programs direct,implement_check_repair,implement_review_revise,retry_until_check \
+          --out /tmp/r3x/seed_set.json
+      ```
+
+      `/tmp/r3x/long_horizon.json` is written by a ten-line snippet from the `clean` and
+      `review-rejects-once` answers of the seed's `demo.py`, with `{python}` where `demo.py`
+      has `sys.executable`. The seed-set programs get the compile check only (no stand-in
+      scenario exists for them). Expected: about 540 mutants of the long-horizon seeds, ten to
+      fifteen minutes on a loaded machine for both invocations; exit 1 while P8's defect is open.
+- [ ] Commit `experiments/mutants/readout.json` (it holds no interpreter path and no absolute
+      path of the scratch directory: names and sources only).
+- [ ] This plan's ledger: the sample; per operator the mutants and outcomes, with "`graft`: N
+      of M build" beside "every other mutant compiles or is refused", so the gate is not read
+      as coverage; distinct digests; the reuse figures per operator, seed and scenario, in
+      steps and in provider calls.
+- [ ] The hand-off of [the next section](#what-the-crash-report-feeds).
 - No new test. The readout is provisional until T6 repeats it on the frozen seeds.
 
 ### Task T6: The frozen seeds (2 h; after the seed's merge to `main`)
 
-- [ ] The command's default seed directory and programs are the merged seed's; the stand-in
-      file sits beside the seeds, written once from `demo.py`'s `clean` scenarios.
-- [ ] `test_no_mutant_of_the_seeds_crashes_outside_the_known_list` at `cap` 2 (about 40
-      mutants), and one reuse test on `milestones` (a reviewer `effort` mutant keeps 5 of 11).
-- [ ] Repeat T5's readout; one row in `docs/index.md`; the roadmap's R3 row gets its result.
+- [ ] The command's default seed directory and programs are the merged seed's. The stand-in
+      file sits beside the seeds, with the `{python}` token and both scenarios.
+- [ ] `test_a_seed_crash_must_be_recorded`, at `cap` 2 (about 36 mutants): for every crash
+      record of the suite's sample, its key is one of the crash or traceback keys of T0's
+      `KNOWN`, **and** each of its `(operator, program)` pairs is in the `pairs` of that key in
+      the committed `experiments/mutants/readout.json`. A key that is not known fails; a known
+      key reached by an operator or on a seed the last readout did not record for it fails too.
+      The failure message carries the record with its smallest source. The remedy is a new
+      readout and the decision of the next section, never an edit of the test.
+- [ ] One reuse test on `milestones` (a reviewer `effort` mutant keeps 5 of 11 steps and 4 of 8
+      provider calls).
+- [ ] Repeat T5's readout on the frozen seeds and commit it; the roadmap's R3 row gets its
+      result (the coordinator's edit).
+- Suite cost after this task: about 36 seed mutants at 0.06 to 0.6 s and one `milestones`
+  stand-in run (4 s quiet, 19 s loaded).
 
-### Task T7: Sites of the role idiom (3 h; after staged-authoring Task P5)
+### Task T7: Sites of the role idiom (3 h; only if the revised seed replaces the frozen one)
 
-Needed only if the frozen seed binds roles with `bind-proc` (P4, decision O4). `effort` and
-`model` then also take the operand of `:effort` or `:model` of a
-`(bind-proc (proc-ref ask) :who providers.R ...)` form as a site. They still write a literal
-there and never edit an input's default (P10: a changed default gets no plan). Test: on the
-revised seed, an `effort` mutant builds and its plan keeps the steps before the role's first call.
+The spike's spelling is frozen for the first space (coordinator's ruling on O4). If a seed that
+binds roles with `bind-proc` replaces it, `effort` and `model` also take the operand of
+`:effort` or `:model` of a `(bind-proc (proc-ref ask) :who providers.R ...)` form as a site. They
+still write a literal there and never edit an input's default. Test: on the revised seed, an
+`effort` mutant builds and its plan keeps the steps before the role's first call.
 
 ## What The Crash Report Feeds
 
-The defect backlog's rule is that a dropped defect returns only when a mutant or a real workflow
-hits it. For mutants, "hits" is defined on the readout of T5 or T6: the command at its defaults
-(`--cap 100 --number 0`) on the seeds named there.
+The backlog's rule is that a dropped defect returns when a mutant or a real workflow hits it
+([Prevention](2026-11-13-compiler-and-runtime-defect-backlog-plan.md#prevention)). For mutants:
 
-| Case | Rule | Who decides |
-| --- | --- | --- |
-| A key hit by at least one mutant of `effort`, `model`, `rounds`, `drop_step`, `prompt` or `conversation` | Its defect returns to the backlog as a kept task: a search over the declared dimensions meets it | The rule; the coordinator records it in the backlog's ledger |
-| A key hit by `graft` only | It returns when mutants of at least two programs hit it, or at least three mutants of one program; below that it keeps its row in T0's `KNOWN` and stays dropped | The coordinator, by this threshold |
-| A key that matches no backlog row | A new row in the backlog's table and in T0's `KNOWN` and `KNOWN_AT_T0`, with the named mutant's minimal form as its reproduction | The coordinator adds the row; the first two rules then apply |
-| A dropped row no mutant hits | Stays dropped, below every row that is hit (the backlog's own wording) | — |
-| Returned tasks that together exceed 10 hours | The cut was the owner's, so growth beyond that is the owner's | The owner |
+- **The rule reads a readout, never a prototype.** It is applied to the readout of T5, and
+  again to every new readout. A readout is new whenever its sample changes: the cap, the
+  number, the seeds, the operators, or the tree it compiled. P8's numbers are a prototype's and
+  decide nothing by this rule; P8's key returns by the coordinator's ruling on O3, on its
+  merits (an author can write the form, and a refusal is the specified outcome).
+- **Every readout lists every key**, with its mutants, operators, pairs, cause and smallest
+  mutant, whether or not it meets a threshold. A key below the threshold appears in each
+  readout with its counts; nothing is carried as "known" without being shown.
+- **The default.** A key hit by at least one mutant of `effort`, `model`, `rounds`, `drop_step`
+  or `prompt` returns its defect: a search over the declared dimensions meets it. A key hit by
+  `graft` only returns when mutants of at least two programs hit it, or at least three mutants
+  of one program.
+- **Who decides.** The coordinator, from the readout. The coordinator may return a key below
+  the threshold, or hold one above it, with the reason. Returned work that together exceeds 10
+  hours goes to the owner, whose cut it was.
+- **Where it is recorded.** The backlog plan's ledger: one row per readout, naming the readout's
+  commit, each key with its counts and the backlog row it matches, and the decision. Whether a
+  key "matches" a row is judged by the row's cause and program, not by key equality.
+- **A key with no row** becomes a new row in the backlog's table and in T0's `KNOWN` and
+  `KNOWN_AT_T0`, with the smallest mutant's minimal form as its reproduction.
+- Classes A and C of the backlog are not ordered by this: a mutant that spends wrongly does not
+  crash.
 
-The backlog's own sentence
-([Prevention](2026-11-13-compiler-and-runtime-defect-backlog-plan.md#prevention)) is that a dropped
-task whose signature is hit returns; the `graft` threshold and the 10-hour bound narrow it
-([decision O2](#open-decisions-for-the-coordinator)). Classes A and C of the backlog are not ordered
-by this: a mutant that spends wrongly does not crash. Applied to P8: the one key is `graft`-only
-and hit on three programs, so it is a new row that returns.
+The default suite does not find crashes. At a cap of 3 on the fixture, or 2 on the seeds, among
+about 1,500 `graft` pairs with a crash rate near 4 in 750, its sample guards the harness (the
+operators still apply, outcomes are still classified, a recorded combination has not spread).
+Finding crashes is the readout's work.
 
 ## Review Focus
 
-- The operators' definitions against the declared dimensions of the
-  [seed-set plan](2026-11-11-seed-set-calibration-plan.md) ("Search dimensions around one seed"):
-  is anything declared missing, is `graft` acceptable as the structure operator.
-- Whether a literal at the call site is the right reading of "model and effort per role", given
-  that the seed-set plan calls each point "a binding of that program" (ruling 2, decision O5).
-- The crash key: that it is T0's signature and nothing else, and that the suite cannot stay
-  green on a new crash.
-- The "hits" thresholds.
-- That `check.py` holding the compile check and the reuse check is one responsibility
-  (measuring mutants) and not two modules' worth.
+For a second reading, after this revision:
+
+- That the closed-set tests fail on a widened tuple (try adding a model to `MODELS`).
+- That `test_a_seed_crash_must_be_recorded` and the readout's `pairs` together cannot let a new
+  defect behind a known key pass, as far as an operator and seed pair can tell two defects
+  apart; and that the limit is stated (two defects with one key, one operator and one seed are
+  told apart only by the record's cause and smallest source, which a person reads).
+- That `plan_outcome`'s rule matches what `plan_resume` raises today.
+- The coverage table against the seed-set plan's dimension table.
 
 ## Size
 
-25 hours in seven tasks. T1 and T4 (10 hours) can start now; T2, T3 and T5 (10 hours) follow
-the backlog's T0, which is in progress; T6 (2) waits for the seed's merge and T7 (3) for the
-staged-authoring revisions. With reviews, about 40 agent-hours. Suite cost: about 40 s of
-one worker for the new module.
+23 hours in six tasks, with T4 (3 hours) deferred and not counted: T1 (7) can start now; T2, T3
+and T5 (11) follow the backlog's T0; T6 (2) waits for the seed's merge; T7 (3) is done only if
+the revised seed replaces the frozen one. The coordinator's figure after deferring T4 was 22;
+T2 is one hour larger than first planned because it now carries the crash records, the injected
+crash test and the two rows of the backlog. With reviews, about 36 agent-hours.
+
+Suite cost, on the review's measurements: T1 under 5 s; T2 about 20 s; T3 two fixture
+stand-in runs of 5 to 10 s, each made once in every worker that draws one of its tests; T6 about
+15 s of seed mutants and one `milestones` run. About one and a half minutes of worker time
+before T6 and two after.
 
 ## What This Makes Harder
 
-- **A mutant is a new program, not a binding of the seed.** Writing the literal at the call
-  gives each effort point its own digest and source, where the seed-set plan describes the
-  first space as bindings of one program. A readout that joins by program digest sees 27
-  programs.
-- **Site rules follow today's spelling.** A seed rewritten in the role idiom has no `:effort`
-  on its calls until T7; a new call form (phased delivery, a library wrapper) needs a new site
-  rule.
-- **The backlog's test module becomes a dependency.** `check.py` imports three names from
-  `tests/test_workflow_lisp_defect_backlog.py` (`_signature`, `_build_outcome`, `KNOWN`); a
-  rename there breaks the mutant check.
-- **`graft` mostly tests the typechecker.** 5 percent of its mutants build, so the stages
-  after typecheck see few of them; raising that needs a donor chosen by scope, which is not
-  planned.
-- **The reuse check reads two more internals:** `plan_resume` and the test driver. A change
-  to either breaks the reuse check, not the package.
-- **Step counts, not cost.** The share treats a provider step and a command step alike and
-  comes from one `clean` run; a run that takes another path has another share.
+- **A point of the first space is a program.** 27 points are 27 sources and 27 digests; a
+  readout that joins by program digest sees 27 programs, and the join is by name.
+- **Site rules follow today's spelling.** A seed in the role idiom has no `:effort` on its
+  calls until T7; a new call form (phased delivery, a library wrapper) needs a new site rule.
+- **Two test-support modules become dependencies of an experiment.** A rename of
+  `crash_signature`, `build_outcome`, `FAKE_CLAUDE` or `closed_path` breaks the command, loudly,
+  at import.
+- **A committed readout that must be renewed.** A crash reached by a new operator or seed fails
+  the suite until a new readout is made and decided; that is the intent, and it is one more
+  thing to do after a change to an operator or a seed.
+- **`graft` mostly tests the typechecker.** 5 percent of its mutants build, so the stages after
+  typecheck see few of them; raising that needs a donor chosen by scope, which is not planned.
+- **Steps and calls, not dollars.** The reuse figures count steps and provider calls of one
+  recorded path per scenario; they are not priced, and a run that takes another path has other
+  figures.
+- **The fake's observation is the real one.** The stand-in run goes through the plain command
+  line, so a seed with Agent Sessions starts a tmux session for the run's length (P11: none is
+  left behind after a completed run; a killed run could leave one).
 
 ## Not Verified While Planning
 
-- No operator was written as planned: P8 used a throwaway prototype without `conversation`,
-  with `swap` (dropped here) and with a wider `prompt` operator. Its counts are indicative.
-- `conversation` was probed by one hand-made edit in each direction, not as an operator.
-  Whether `continue` followed by `fresh` gives back the seed's digest was not tried (an empty
-  `let*` remains, which builds), so T4's tests compare site counts.
-- The reuse share on the seed-set programs (no stand-in scenario was run for them) and on any
-  scenario but `clean`.
-- T7: no tree has both the role idiom and a stand-in run; that a literal in a `bind-proc`
-  form cuts at the role's first call is expected, not seen.
-- That `plan_resume` in process agrees with the command line beyond the six edits compared.
-- Whether the frozen seed will be the spike's spelling or the role idiom (decision O4).
-- The hours: read from the prototype's size (about 110 lines for six operators and the
-  outcome), not from a trial.
+- No operator was written as planned: P8 used a throwaway prototype without `conversation` and
+  without the name-position rule of `graft`, with `swap` (dropped) and a wider `prompt`. Its
+  counts are indicative, and the review did not regenerate them.
+- The key "as T0 defines it after its review": the helper list was not final when this was
+  written. The probes used the innermost package function.
+- The reuse figures on the seed-set programs (no stand-in scenario exists for them) and on
+  scenarios other than `clean` and, for three rows, `review-rejects-once`.
+- T7: no tree has both the role idiom and a stand-in run.
+- P9 and "E1 does not close it" were probed on `588faf29`; the branch has moved to `c2bb56a6`.
+- The round trip on a real file with non-ASCII text: none is tracked.
+- That a plain-command-line run of a sessions seed leaves no tmux server when it fails midway.
+- The hours: read from the prototype's size, not from a trial.
 - The sampled suite and the whole suite were not run for this change, which is one document.
 
 ## Rulings
+
+Coordinator's rulings on the review (2026-11-13):
+
+| # | Ruling |
+| --- | --- |
+| O1, M4 | `check.py` imports no test module. `_signature` and `_build_outcome` move to `tests/workflow_lisp_closed_program_helpers.py` as `crash_signature` and `build_outcome` in T0's fix round; only `tests/experiments/test_mutants.py` reads `KNOWN` |
+| O2, M2, M3 | The "hits" rule is accepted as revised: a key is a location and never makes a crash known; the rule reads T5's readout and each later one; keys below the threshold are listed in every readout; the coordinator decides from the readout and records it in the backlog plan's ledger |
+| O3 | The new crash is recorded (roadmap, tenth batch); the right outcome is a refusal (specification §13.1) |
+| O4 | The spike's spelling of the seed is frozen for the first space; T7 only if the revised seed replaces it |
+| O5 | The two reuse findings go to the owner through the coordinator, in the wording of the probe section |
+| O6 | `conversation` is not built now; T4 is deferred |
+| O7 | The coordinator adds the rows in `docs/index.md` and the roadmap on acceptance |
+| M1 | The closed sets live in `operators.py` only and are pinned literally by a test |
+| M5 | One rule for "no plan": a coded refusal is `no_plan` with its code; an uncoded exception fails the check |
+| M6 | The reuse result is worded as measured; T5 adds `review-rejects-once` and reports provider calls beside steps |
+| M7 | The coverage table |
+| M8 | In the first space a point is a program, not a binding |
 
 Planner's rulings, with the cost if wrong:
 
 | # | Ruling | Reason | Cost if wrong |
 | --- | --- | --- | --- |
-| 1 | A mutation is a character splice at a reader span, on decoded and line-normalised text | P5: no printer exists, the slices round-trip on every tracked file, comments survive. The driver design's warning is about byte offsets, which are not used | A printer is written (about a day) and the operators return forms |
-| 2 | `effort` and `model` write a literal at the role's calls and never touch inputs or defaults | P10: an input change, direct or through a default, gets no plan; the entry signature is frozen in every search condition | The operators gain an input-binding mode; its reuse share is zero until `resume` accepts changed inputs |
-| 3 | The check compiles in process and takes its crash key, its outcome classes and its known list from the backlog's T0 module | P7: the key needs the traceback, T0 already computes it, and two lists would drift | T2 waits for T0; if T0 slips, its two functions (about fifteen lines) are copied and removed again when it merges |
-| 4 | `graft` is in, although it is no declared value | The declared values alone built every time in P8 and found nothing; the crashes a search would meet come from moved subtrees. Its hits return a defect only above a threshold | It is removed from `OPERATORS`; the default suite loses its only crash-finding operator |
-| 5 | The default suite mutates a fixture, not the seeds, until T6 | The seeds are not on `main` | Seed-specific crashes show only in T5's manual readout until the merge |
-| 6 | Nothing is reused from the October search or the toy | Prior art, above | A few helper lines are duplicated |
-| 7 | No `swap` operator, no two-mutation mutants, no skeleton count in the report | Not declared, not asked; composition is free by applying operators again | Added when a search asks |
+| 1 | A mutation is a character splice at a reader span, on decoded and line-normalised text | P5: no printer exists, the slices round-trip, comments survive. The driver design's warning is about byte offsets, which are not used | A printer is written (about a day) and the operators return forms |
+| 2 | `effort` and `model` write a literal at the role's calls and never touch inputs or defaults | P10; the entry signature is frozen in every search condition; M8 | An input-binding mode is added; it gets no plan until `resume` accepts changed inputs |
+| 3 | The check compiles in process and classifies with T0's two functions | P7: the key needs the traceback, and two classifiers would drift | T2 waits for T0; if T0 slips, the two functions are copied and removed again when it merges |
+| 4 | `graft` is in, although it is no declared value | It is the only operator that found a crash, and its build rate is reported, not hidden | It is removed from `OPERATORS`; the readout loses its only crash-finding operator (the default suite's sample finds none either way) |
+| 5 | The default suite mutates a fixture, not the seeds, until T6, and a crash on the fixture always fails | The seeds are not on `main`; the fixture is in no readout | A fixture crash blocks the suite until the defect is fixed or the coordinator rules |
+| 6 | Nothing is imported from the October search or the toy | Prior art, above | A few helper lines are duplicated |
+| 7 | No `swap` operator, no two-mutation mutants, no skeleton count | Not declared, not asked; composition is free by applying operators again | Added when a search asks |
+| 8 | The stand-in run goes through the plain command line | P11: it works for all three seeds, and it removes the last import of a test module | A leaked tmux session after a failed sessions run; the fake observation is then moved into `tests/agent_session_shims.py` |
+| 9 | The readout is one committed file, `experiments/mutants/readout.json` | M2 asks for the record of pairs to be stored with the readout and not in the test; the test must read it from the tree | A fourth file; it moves to the ledger if the coordinator prefers, and the test then cannot check pairs |
 
 ## Open Decisions For The Coordinator
 
+All seven decisions of the first version are ruled (above). Two are new in this revision:
+
 | # | Decision | Planner's recommendation |
 | --- | --- | --- |
-| O1 | T2 imports `_signature`, `_build_outcome` and `KNOWN` from the backlog's test module (`test/defect-backlog-t0`, `a8b08d98`, not merged) and adds one row to it | Accept, and tell T0's author that the three names are used here (or have them renamed without the underscore before the merge). T2 starts when T0 is on `main` |
-| O2 | The "hits" rule above. It narrows the backlog's sentence ("a dropped task whose signature is hit returns") by a threshold for `graft`-only hits and a 10-hour bound on what returns without the owner | Accept; without the threshold one unlucky subtree move reopens a task the owner cut |
-| O3 | The new crash (`done` as the value of a `let*` binding inside a loop) | Add it to the roadmap's list and the backlog's table now, as returned under the rule above. Its cause was not looked for and its wanted outcome is not decided (a refusal is the likely one); it may belong with TD1, which keeps the other control forms met where a value is expected |
-| O4 | The roadmap says two things about the seed: step 8 of Phase 5b freezes it once surface coherence is merged ("the staged-authoring revisions are not required for the first search space"), and Lane D item 6 says the revisions "land before the long-horizon seed is frozen" | Freeze the spike's spelling for the first space (it builds today, P1) and do T7 only when the revised seed replaces it |
-| O5 | Two findings for the owner about what a search can reuse (P10). First, model and effort changed as inputs, or as input defaults (the revised seed's spelling), get no plan: `resume_inputs_changed`. Second, on a seed with Agent Sessions no edit under a committed agent turn gets a plan: `invalidate_coordinator_committed`. So today only a literal at a call of a seed without sessions is cheap, and only for roles that run late | Report both with the reuse table. Whether `resume` should plan under changed inputs is a design question for R1, not a task here |
-| O6 | Build `conversation` (T4) now, or when that dimension is searched | Now: three hours, and it is the dimension where P10 found no reuse at all |
-| O7 | This plan adds no row to `docs/index.md` or to the roadmap's routing list | The coordinator adds them on acceptance; T6 adds the result |
+| N1 | The size is 23 hours, not the ruled 22: T2 grew by one hour (crash records, the injected crash test, the backlog rows) | Accept 23; the alternative is to move the two backlog rows to T0's fix round and keep 22 |
+| N2 | Ruling 9: the readout is a committed file that the T6 test reads | Accept; M2's record needs a place in the tree |
 
 ## Ledger
 
 | Date | Entry |
 | --- | --- |
-| 2026-11-13 | Plan written as proposed, against `main` at `b399076b` (`8a61b143` merged afterwards: the backlog plan accepted and test fixtures moved to 2.40, nothing under `orchestrator/`). Ten probes, all zero spend, stand-in providers on a closed `PATH`, no provider or model call. The long-horizon seeds (`aa7ae4a0`) build and run on `main` as written and the seed-set programs (`5449db80`) build; only the staged-authoring spelling is refused. Reader with character spans, no printer. 1,527 prototype mutants: one crash key, new, `graft`-only, on three programs, not closed by E1 (`588faf29`). Reuse on `milestones`: 0, 3 and 5 of 11 steps for a planner, coder and reviewer edit; all for a loop bound; no plan for an input change or under a committed agent turn. No code change |
+| 2026-11-13 | Plan written as proposed, against `main` at `b399076b` (`8a61b143` merged afterwards: nothing under `orchestrator/`). Ten probes, all zero spend, stand-in providers on a closed `PATH`, no provider or model call. The long-horizon seeds (`aa7ae4a0`) build and run on `main` as written and the seed-set programs (`5449db80`) build; only the staged-authoring spelling is refused. Reader with character spans, no printer. 1,527 prototype mutants: one crash key, new, `graft`-only, on three programs; `graft` built 38 of 750. Reuse on `milestones`, `clean`: 0, 3 and 5 of 11 steps for a planner, coder and reviewer edit. No code change |
+| 2026-11-13 | Revised after the independent review (accept after fixes; no blocker, 8 majors, 12 minors; every probe it re-ran holds) and the coordinator's rulings, on `main` at `a9f9e410` merged into the branch. Changes: the closed sets pinned literally and narrowed only; a crash key is a location, with a record per key and a suite test on recorded operator and seed pairs; the "hits" rule reads readouts and lists every key; `check.py` imports no test module (one more probe, P11: the stand-in run works through the plain command line); one rule for "no plan"; the reuse result worded as measured, with the review's table, a second scenario and provider calls; the coverage table; the ruling that a point of the first space is a program, with the sentences other documents must change; `conversation` deferred. Size 23 hours. The review's second crash is listed for the backlog. No code change, no spend |
