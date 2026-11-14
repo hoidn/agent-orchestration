@@ -1,9 +1,10 @@
 # Workflow Lisp Surface Coherence: Effects, Iteration, Callables
 
 - **Status:** Accepted 2026-11-12 as the basis for implementation, after an
-  independent review (accept with changes; all applied). Not implemented: the
-  compiler behaves as the "Today" columns of §2 until the changes of §10
-  exist, and the "after" examples do not compile.
+  independent review (accept with changes; all applied). Partly implemented:
+  change C1 (callables called by name) is on `main` since 2026-11-13. For the
+  other changes of §10 the compiler behaves as the "Today" columns of §2, and
+  their "after" examples do not compile.
 - **Owns, until retired (§11):** where an effect may be written; the shape of
   the iteration forms; how each kind of callable is called.
 - **Consumes:** [evaluated execution](workflow_lisp_evaluated_execution.md)

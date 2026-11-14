@@ -858,7 +858,13 @@ own delivery status and captured evidence.
     neither `evaluated_execution.v1` nor schema `3.0`: a build that predates
     it answers `memo_inconsistent` (from `resume`, `invalidate` and `report`)
     once a host command has failed under a build that writes it, and
-    journals without the field reduce as before.
+    journals without the field reduce as before. An accepted edit appends a
+    `rebased` record and adds a program artifact to the run root
+    ([State](state.md#memo-records)). Neither changes
+    `evaluated_execution.v1` or schema `3.0`: a build that predates the
+    record answers `memo_inconsistent` (from `resume`, `invalidate` and
+    `report`) for such a run and writes nothing, and journals without the
+    record reduce as before.
   - Admission at 2.35 is unchanged by execution: an effect class or form
     outside the first release still refuses at build with
     `closed_program_gap`, a scope exclusion rather than a defect list. A
@@ -1122,7 +1128,7 @@ is qualified ([bounded record](../docs/reports/2026-10-07-evaluated-execution-ph
 Bounded parallel execution is implemented and reviewed ([Task 4 record](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-4--bounded-workers-and-coordinator));
 its public command-line qualification with stand-in providers and commands is
 recorded in the [execution record's addendum](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification),
-which lists what remains open; no real provider has run it. Existing
+which lists what remains open; one run with a real provider is recorded in the [Phase 2 plan's ledger](../docs/plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#ledger). Existing
 2.35/2.36 contracts remain unchanged.
 
 Target **2.38** is registered for run-ref confined workflow children

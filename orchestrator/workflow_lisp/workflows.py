@@ -2599,6 +2599,7 @@ def typecheck_workflow_definitions(
                 target_dsl_version=type_env.target_dsl_version,
                 prompt_catalog=prompt_catalog,
                 session_state=compiler_session.elaboration,
+                workflow_names=frozenset(workflow_catalog.signatures_by_name),
             )
         else:
             body_expr = workflow_def.body

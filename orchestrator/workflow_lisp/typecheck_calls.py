@@ -283,6 +283,36 @@ def _ordinary_call_binding_types_compatible(expected_type, actual_type):
     return type_refs_compatible(expected_type, actual_type)
 
 
+def _refuse_call_of_positional_callable(expr: CallExpr, context) -> None:
+    """`(call p …)` on a procedure, function or procedure reference names `(p …)`.
+
+    A bound name stays as written; any other callee is canonical, so a
+    `let-proc` local is found by its unqualified name.
+    """
+
+    name = expr.callee_name
+    # The workflow resolver qualifies an imported name with this module; the
+    # catalogs also hold each visible name as written.
+    visible = {name, name.rpartition("::")[2]}
+    functions = getattr(context.session_state.function_catalog, "signatures_by_name", {})
+    procedures = getattr(context.procedure_catalog, "signatures_by_name", {})
+    kind = (
+        "a procedure" if visible & procedures.keys()
+        else "a function" if visible & functions.keys()
+        else "a procedure reference" if isinstance(context.value_env.get(name), ProcRefTypeRef)
+        else "a local procedure" if name.rpartition("::")[2] in context.session_state.proc_ref_value_env
+        else None
+    )
+    if kind is not None:
+        shown = name.rpartition("::")[2]
+        raise_error(
+            f"`{shown}` is {kind}; call it as `({shown} …)` with positional arguments, not with `call`",
+            code="workflow_call_unknown",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+
+
 def typecheck_call_expr(
     expr: CallExpr,
     *,
@@ -315,6 +345,7 @@ def typecheck_call_expr(
     else:
         signature = context.workflow_catalog.signatures_by_name.get(expr.callee_name)
         if signature is None:
+            _refuse_call_of_positional_callable(expr, context)
             raise_error(
                 f"unknown workflow callee `{expr.callee_name}`",
                 code="workflow_call_unknown",

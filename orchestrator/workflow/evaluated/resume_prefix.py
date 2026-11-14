@@ -51,7 +51,7 @@ def checked_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
 def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
     snapshot, prefix = checked_resume_prefix(authority, inputs, run_id=run_id, workspace=workspace,
         provider_io=provider_io, site_classes=site_classes, confined=confined)
-    if authority.accept_changes:
+    if authority.accept_changes and not authority.plan_accepted:
         _require_changes_to_accept(snapshot, prefix, workspace)
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     return snapshot, commits, len(prefix.commits), prefix.value, not prefix.halted
