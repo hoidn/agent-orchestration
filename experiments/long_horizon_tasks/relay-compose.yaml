@@ -1,0 +1,12 @@
+# The credential route of the long-horizon plan (D4, route B): a `relay` service on the attempt's own
+# compose network forwards one TCP port to the passthrough's unix socket on the host. Declaring
+# `networks` keeps the harness from putting the relay into the egress sidecar's namespace; the socket
+# directory is bind-mounted into the relay alone. The relay holds no key and no logic.
+# Needs LH_RELAY_SOCKET_DIR in the harness's environment (podman-compose interpolates it).
+services:
+  relay:
+    image: docker.io/alpine/socat@sha256:beb4a68d9e4fe6b0f21ea774a0fde6c31f580dde6368939ed70100c5385b015e
+    command: ["TCP-LISTEN:8080,fork,reuseaddr", "UNIX-CONNECT:/run/lh/passthrough.sock"]
+    volumes:
+      - ${LH_RELAY_SOCKET_DIR}:/run/lh
+    networks: [default]
