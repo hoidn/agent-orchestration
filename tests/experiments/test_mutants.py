@@ -98,7 +98,20 @@ def test_apply_refuses_overlapping_edits(edits):
 COUNTS = {
     "effort": 12,  # 3 roles times 5 levels, less the level each role already has
     "model": 6,  # 3 roles times 2 models; the seed's models are inputs, so none is an identity
+    "rounds": 3,  # one loop with bound 2: 1, 3 and 4
+    "drop_step": 3,  # one binding in the outer `let*`, two in the inner
+    "prompt": 12,  # 3 prompts of 3 sentences: a drop of each, and the append
+    "graft": 143,  # 14 expression forms: 196 pairs, less the 53 whose donor is or contains the target
 }
+
+# Name positions: a binding named `record`, a map binder named `not`, a parameter list `(call)`.
+NAMES = """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule names)
+  (defworkflow run ((xs List[Int])) -> Int
+    (let* ((record (list/map ((not xs)) (+ not 1))))
+      (loop/recur :max 2 :state (loop-state (n Int 0)) :on-exhausted 0
+        (fn (call) (done (list/length record)))))))
+"""
 
 
 def mutants(name: str, text: str = SEED) -> list[tuple[Mutation, str]]:
@@ -164,3 +177,91 @@ def test_frozen_surfaces_survive(name):
 @pytest.mark.parametrize("name", COUNTS)
 def test_only_graft_adds_a_line(name):
     assert any(mutant.count("\n") > SEED.count("\n") for _, mutant in mutants(name)) is (name == "graft")
+
+
+def literals(text: str) -> set[str]:
+    """The string literals in `:model` and `:effort` position anywhere in the source."""
+    found = (operand(form, key) for form in lists(read(text)) for key in (":model", ":effort"))
+    return {item.value for item in found if isinstance(item, StringAtom)}
+
+
+@pytest.mark.parametrize("name", ["rounds", "drop_step", "prompt", "graft"])
+def test_no_other_operator_introduces_a_model_or_effort(name):
+    assert all(literals(mutant) <= literals(SEED) for _, mutant in mutants(name))
+
+
+def test_rounds_rewrites_the_bound_of_one_loop():
+    bounds = {m.params: shape(operand(headed(mutant, "loop/recur")[0], ":max")) for m, mutant in mutants("rounds")}
+    assert bounds == {"loop0=1": ("IntAtom", 1), "loop0=3": ("IntAtom", 3), "loop0=4": ("IntAtom", 4)}
+
+
+def test_rounds_leaves_a_map_cap_and_a_named_bound():
+    source = "(defworkflow run () -> Int (loop/recur :max limit (list/map-effect ((m xs)) :max 8 (call f :m m))))"
+    assert list(operators.rounds(source)) == []
+
+
+def test_drop_step_deletes_one_whole_pair():
+    def bindings(text):
+        return [[shape(pair)[0][1] for pair in form.items[1].items] for form in headed(text, "let*")]
+
+    assert {m.params: bindings(mutant) for m, mutant in mutants("drop_step")} == {
+        "let0.0": [[], ["change", "report"]],
+        "let1.0": [["plan"], ["report"]],
+        "let1.1": [["plan"], ["change"]],
+    }
+
+
+def bodies(text: str) -> dict[str, str]:
+    """The decoded body of each prompt, by name."""
+    return {prompt.items[1].value: prompt.items[-1].value for prompt in headed(text, "defprompt")}
+
+
+def test_prompt_edit_keeps_escapes():
+    # Decoded bodies: a mutant whose escapes were re-encoded would not read back to these.
+    seed = bodies(SEED)
+    expected = {f"{name}.append": {**seed, name: body + operators.APPENDED} for name, body in seed.items()}
+    for name, body in seed.items():
+        pieces = body.split(". ")
+        expected |= {f"{name}.drop{k}": {**seed, name: ". ".join(pieces[:k] + pieces[k + 1:])}
+                     for k in range(len(pieces))}
+    assert {m.params: bodies(mutant) for m, mutant in mutants("prompt")} == expected
+
+
+def test_replace_prompt_puts_the_raw_text_in_one_body():
+    mutation = operators.replace_prompt(SEED, "work", r"Say \"go\" in {repo}.\n{plan} {note}")
+    assert bodies(operators.apply(SEED, mutation)) == {**bodies(SEED), "work": 'Say "go" in {repo}.\n{plan} {note}'}
+
+
+def own_raw(name: str) -> str:
+    """The source text between the quotes of a prompt's body."""
+    span = next(p for p in headed(SEED, "defprompt") if p.items[1].value == name).items[-1].span
+    return SEED[span.start.offset + 1:span.end.offset - 1]
+
+
+@pytest.mark.parametrize("name,raw", [
+    ("work", own_raw("work")),  # an identity
+    ("work", 'a bare " quote'),
+    ("work", "a line\nend"),
+    ("work", "a backslash at the end\\"),
+    ("work", ""),
+    ("absent", "a prompt the module does not have"),
+])
+def test_replace_prompt_refuses_an_identity_and_text_that_is_no_string_body(name, raw):
+    with pytest.raises(ValueError):
+        operators.replace_prompt(SEED, name, raw)
+
+
+def test_graft_puts_another_expression_of_the_module_in_place_of_one():
+    # No expression of the seed occurs twice, so a donor that held its target would show as text.
+    for mutation, _ in mutants("graft"):
+        (start, end, donor), = mutation.edits
+        assert donor in SEED and SEED[start:end] not in donor
+        assert shape(read(donor).items[0])[0][1] in operators.EXPRESSION_HEADS
+
+
+def test_graft_skips_name_positions():
+    names = ["(record (list/map ((not xs)) (+ not 1)))", "(not xs)", "(call)"]
+    spans = [(NAMES.index(name), NAMES.index(name) + len(name)) for name in names]
+    grafts = list(operators.graft(NAMES))
+    taken = [m.params for m in grafts for start, end, donor in m.edits if (start, end) in spans or donor in names]
+    assert grafts and not taken
