@@ -2014,9 +2014,9 @@ the binder is refused (`list_map_binder_invalid`).
 
 **Which lists.** A list type is used in these forms when it is a type §8.10 admits as a return:
 its elements are `String`, `Int`, `Float`, `Bool`, `Value`, an enum, a path type, a record, a
-union, or an `Optional`, `List` or `Map[String, T]` of these. A list of procedure references is
-refused where it is constructed and where a map would produce it, and a list of workflow
-references where it is constructed. Diagnostics: `list_collection_contract_unsupported` (the
+union, or an `Optional`, `List` or `Map[String, T]` of these. A list of `Json` values, of
+procedure references or of workflow references is refused where it is constructed, and a list of
+procedure references also where a map would produce it. Diagnostics: `list_collection_contract_unsupported` (the
 message names the whole list type); `proc_ref_runtime_transport_forbidden` for a
 `List[ProcRef[...]]` written as a parameter type.
 

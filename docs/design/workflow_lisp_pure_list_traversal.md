@@ -1,5 +1,9 @@
 # Workflow Lisp Pure List Traversal
 
+Status: **Historical — archived in place.** Superseded: its rules for the list constructor, the empty list, the five list operators, `list/map`, `list/map-effect`, `path/join-under` and lists as loop state are now stated, with their diagnostic codes, by the language reference. Current authority: [frontend specification §10.3](workflow_lisp_frontend_specification.md#103-target-218-bounded-list-traversal); [§16.3](workflow_lisp_frontend_specification.md#163-effect-placement) for effects in list elements, map sources and path children; [§8.10](workflow_lisp_frontend_specification.md#810-return-types-and-result-guidance) for the types a list may hold; [evaluated execution §11](workflow_lisp_evaluated_execution.md#11-parallel-effects) for parallel maps. Several statements below no longer describe the compiler (record and union elements, the one-call body, the literal `:max`, where an empty list is typed, the existence check after a join). Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#t8-lists).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
 Pre-2.35 introduction gates below are historical; data readers remain separate.
 
