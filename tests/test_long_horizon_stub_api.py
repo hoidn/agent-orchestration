@@ -189,3 +189,14 @@ def test_a_system_block_keeps_its_cache_control(stub):
     block = {"type": "text", "text": "cached", "cache_control": {"type": "ephemeral", "ttl": "1h"}}
     _post(port, {**_request(), "system": [block]})
     assert _log(log)[0]["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+
+def test_an_expired_credential_is_refused_with_401_after_turn_0(tmp_path):
+    proc, port, _ = _start(tmp_path, "unauthorized", "--host", "127.0.0.1", "--port", "0")
+    try:
+        first, _, _ = _post(int(port), _request())
+        later, text, _ = _post(int(port), _request(turn=1))
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+    assert (first, later, json.loads(text)["error"]["type"]) == (200, 401, "authentication_error")

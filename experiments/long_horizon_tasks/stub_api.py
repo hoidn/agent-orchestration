@@ -33,6 +33,7 @@ Faults and refusals: a Bash call first, then every later request of the main ses
             passthrough refusal for a slot at its cap, the tranche's total reached, a stopped tranche)
   pt_model  404 not_found_error with `x-should-retry: false` (proposed: a model other than the bound one)
   pt_tool   400 invalid_request_error with `x-should-retry: false` (proposed: a provider-side tool)
+  unauthorized  401 authentication_error (an expired or revoked credential)
   drop      the stream is cut after its first content block (no message_delta, no message_stop)
   slow      the response starts only after --delay seconds (default 120), then ends normally
   transient the first three attempts of the second turn get 429 (retry-after 2), 529, 500; then an end
@@ -70,6 +71,7 @@ FAULTS = {
     "pt_stopped": (403, "permission_error", "lh-passthrough: tranche stopped", NO_RETRY),
     "pt_model": (404, "not_found_error", "lh-passthrough: model not allowed", NO_RETRY),
     "pt_tool": (400, "invalid_request_error", "lh-passthrough: provider-side tool refused", NO_RETRY),
+    "unauthorized": (401, "authentication_error", "stub: OAuth token has expired", {}),
 }
 TRANSIENT = [(429, "rate_limit_error", "stub: rate limited", {"retry-after": "2"}),
              (529, "overloaded_error", "Overloaded", {}), (500, "api_error", "Internal server error", {})]
