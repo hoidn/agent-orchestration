@@ -145,6 +145,7 @@ def test_nested_path_cli_cannot_raise_model_cap(world, outer, inner):
     ("codex", "unknown", "Forbidden model"),
     ("codex", "fable", "Fable model"),
     ("claude", SONNET, None), ("codex", TERRA, None),
+    ("claude", "<synthetic>", None),  # the CLI's own message (an API error, a usage limit): no model answered
 ])
 def test_scan_uses_actual_model_metadata_and_policy_cannot_be_cleared(tmp_path, provider, model, pattern):
     tree = tmp_path / "tree"
