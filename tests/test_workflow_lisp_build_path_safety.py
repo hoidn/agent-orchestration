@@ -9,11 +9,9 @@ import sys
 
 import pytest
 
-from orchestrator.workflow_lisp import syntax
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TARGETS = (syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,)
+TARGETS = ("2.40",)
 BUILD_COMPONENTS = ("orchestrate", "build", "build_key")
 
 
@@ -164,7 +162,7 @@ def test_compile_allows_build_root_symlinks_that_resolve_inside_workspace(
 def test_closed_compile_rejects_artifact_file_symlink_to_outside(
     tmp_path: Path,
 ) -> None:
-    target = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+    target = "2.40"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     source, source_root = _write_workspace(workspace, target)
