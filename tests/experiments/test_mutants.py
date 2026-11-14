@@ -9,6 +9,9 @@ The sample relies on `random.Random(seed).random()` only, the one method whose s
 Python documentation fixes across versions. Written and run under Python 3.13.9.
 """
 
+import os
+import subprocess
+import sys
 from collections import Counter
 
 import pytest
@@ -106,14 +109,23 @@ COUNTS = {
     "graft": 143,  # 14 expression forms: 196 pairs, less the 53 whose donor is or contains the target
 }
 
-# Name positions: a binding named `record`, a map binder named `not`, a parameter list `(call)`.
+# Every name position holds a list headed like an expression: the entry's parameter `and`, the
+# binding `record`, the map binder `not`, the loop binder `if`, the arm's pattern `(done x)`, the
+# loop-state field `or`, the parameter list `(call)`. One expression occurs twice, side by side.
 NAMES = """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule names)
-  (defworkflow run ((xs List[Int])) -> Int
-    (let* ((record (list/map ((not xs)) (+ not 1))))
-      (loop/recur :max 2 :state (loop-state (n Int 0)) :on-exhausted 0
-        (fn (call) (done (list/length record)))))))
+  (defworkflow run ((and List[Int])) -> Int
+    (let* ((record (list/map ((not and)) (+ (+ not 1) (+ not 1)))))
+      (loop/recur ((if 0)) :max 2 :on-exhausted 0
+        (match (variant Step ON)
+          ((done x) (loop/recur :max 2 :state (loop-state (or Int (list/length and))) :on-exhausted 0
+                      (fn (call) (done (list/length record))))))))))
 """
+NAME_POSITIONS = ["(and List[Int])", "(record (list/map ((not and)) (+ (+ not 1) (+ not 1))))", "(not and)", "(if 0)",
+                  "(done x)", "(or Int (list/length and))", "(call)"]
+# The fixture with its loop-state field named like a head; it compiles (checked once, outside the suite).
+FIELD = (SEED.replace('(loop-state (note String ""))', '(loop-state (not String ""))')
+         .replace("state.note", "state.not").replace(":like state :note", ":like state :not"))
 
 
 def mutants(name: str, text: str = SEED) -> list[tuple[Mutation, str]]:
@@ -142,6 +154,61 @@ def test_a_value_outside_the_sets_is_refused():
     spike = SEED.replace(':effort "medium"', ":effort effort")
     assert len(list(operators.effort(spike, levels=("low", "medium", "high")))) == 9
     assert len(list(operators.effort(SEED, levels=("low", "medium", "high")))) == 6
+
+
+@pytest.mark.parametrize("name,values", [("effort", ("low", "high")), ("model", MODELS)])
+def test_levels_and_models_are_read_once_and_hold_no_duplicate(name, values):
+    operator = getattr(operators, name)
+    assert len(list(operator(SEED, iter(values)))) == 6
+    with pytest.raises(ValueError):
+        operator(SEED, (*values, values[0]))
+
+
+@pytest.mark.parametrize("name", ["effort", "model"])
+def test_a_call_whose_first_operand_is_no_role_is_no_site(name):
+    source = '(defworkflow run () -> Change (provider-result runner :model m :effort "low" :prompt (plan)))'
+    assert list(operators.OPERATORS[name](source)) == []
+
+
+def position(text: str, literal: str) -> tuple[int, int]:
+    """The line and column, from one, of the first occurrence of `literal`."""
+    before = text[:text.index(literal)]
+    return before.count("\n") + 1, len(before) - before.rfind("\n")
+
+
+OUTSIDE = [(":model", "claude-fable-5-2", SEED.replace(":model reviewer", ':model "claude-fable-5-2"')),
+           (":effort", "turbo", SEED.replace(':effort "medium" :timeout-sec 3600', ':effort "turbo" :timeout-sec 3600'))]
+
+
+@pytest.mark.parametrize("key,value,seed", OUTSIDE, ids=["model", "effort"])
+def test_a_literal_outside_the_sets_is_found_with_its_position(key, value, seed):
+    assert operators.undeclared_literals(seed) == [(key, value, *position(seed, f'"{value}"'))]
+
+
+@pytest.mark.parametrize("key,value,seed", OUTSIDE, ids=["model", "effort"])
+@pytest.mark.parametrize("name", [*COUNTS, "replace_prompt", "sample"])
+def test_a_seed_with_a_literal_outside_the_sets_is_refused(name, key, value, seed):
+    produce = {**operators.OPERATORS, "replace_prompt": lambda text: [operators.replace_prompt(text, "work", "{repo}")],
+               "sample": lambda text: operators.sample({"fixture": SEED, "seed": text}, 2, 1)}[name]
+    with pytest.raises(ValueError):
+        list(produce(seed))
+
+
+def test_a_literal_outside_the_sets_is_found_in_a_form_that_is_no_call_form():
+    source = '(defworkflow run () -> Int (call helper :effort "turbo"))'
+    assert operators.undeclared_literals(source) == [(":effort", "turbo", *position(source, '"turbo"'))]
+
+
+def test_sample_names_the_program_that_holds_the_literal():
+    with pytest.raises(ValueError, match="offender"):
+        operators.sample({"fixture": SEED, "offender": OUTSIDE[0][2]}, 2, 1, operators=())
+
+
+def test_a_model_or_effort_that_arrives_as_a_name_is_left_alone():
+    # `fable` and `turbo` are names here: inputs, bound at launch, which only the launcher can pin.
+    named = SEED.replace(':effort "medium"', ":effort turbo").replace(":model reviewer", ":model fable")
+    assert operators.undeclared_literals(named) == []
+    assert Counter(mutation.operator for _, mutation in operators.sample({"seed": named}, 1, 1)) == dict.fromkeys(COUNTS, 1)
 
 
 @pytest.mark.parametrize("name", COUNTS)
@@ -211,6 +278,25 @@ def test_drop_step_deletes_one_whole_pair():
     }
 
 
+@pytest.mark.parametrize("source,params,mutant", ids=["space", "comment after", "last pair"], argvalues=[
+    # The white space after the pair goes with it; a comment stays.
+    ("(defworkflow run () -> Int (let* ((a 1) (b 2)) b))", "let0.0", "(defworkflow run () -> Int (let* ((b 2)) b))"),
+    ("(defworkflow run () -> Int (let* ((a 1) ; one\n  (b 2)) b))", "let0.0",
+     "(defworkflow run () -> Int (let* (; one\n  (b 2)) b))"),
+    ("(defworkflow run () -> Int (let* ((a 1) ; one\n  (b 2)) b))", "let0.1",
+     "(defworkflow run () -> Int (let* ((a 1) ; one\n  ) b))"),
+])
+def test_drop_step_takes_the_white_space_after_the_pair_and_no_comment(source, params, mutant):
+    mutation = next(m for m in operators.drop_step(source) if m.params == params)
+    assert operators.apply(source, mutation) == mutant
+
+
+def test_drop_step_leaves_a_let_outside_a_definition():
+    source = "(defmacro twice (x) (let* ((y x)) y)) (defproc run () -> Int (let* ((a 1)) a))"
+    assert [operators.apply(source, mutation) for mutation in operators.drop_step(source)] == [
+        "(defmacro twice (x) (let* ((y x)) y)) (defproc run () -> Int (let* () a))"]
+
+
 def bodies(text: str) -> dict[str, str]:
     """The decoded body of each prompt, by name."""
     return {prompt.items[1].value: prompt.items[-1].value for prompt in headed(text, "defprompt")}
@@ -232,6 +318,31 @@ def test_replace_prompt_puts_the_raw_text_in_one_body():
     assert bodies(operators.apply(SEED, mutation)) == {**bodies(SEED), "work": 'Say "go" in {repo}.\n{plan} {note}'}
 
 
+def test_prompt_of_one_sentence_is_only_appended_to():
+    source = '(defprompt one (:fills (repo :text)) -> Change "Work in {repo}")'
+    assert [mutation.params for mutation in operators.prompt(source)] == ["one.append"]
+
+
+def test_replace_prompt_names_each_proposal():
+    names = [operators.replace_prompt(SEED, "work", raw).params for raw in ("A {repo}", "B {repo}", "A {repo}")]
+    assert names[0] == names[2] != names[1] and all(name.startswith("work.") for name in names)
+
+
+def test_replace_prompt_name_is_the_same_in_another_process():
+    code = ("import sys; from experiments.mutants import operators; "
+            "print(operators.replace_prompt(sys.stdin.read(), 'work', 'A {repo}').params)")
+    # The other process imports what this one does and hashes strings with another seed.
+    other = subprocess.run([sys.executable, "-c", code], input=SEED, capture_output=True, text=True, check=True,
+                           env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, sys.path)),
+                                "PYTHONHASHSEED": "20261113"})
+    assert other.stdout.strip() == operators.replace_prompt(SEED, "work", "A {repo}").params
+
+
+def test_prompt_names_are_the_generator_s_own():
+    assert not {mutation.params for mutation, _ in mutants("prompt")} & {
+        operators.replace_prompt(SEED, name, raw).params for name in bodies(SEED) for raw in ("A {repo}", "B {repo}")}
+
+
 def own_raw(name: str) -> str:
     """The source text between the quotes of a prompt's body."""
     span = next(p for p in headed(SEED, "defprompt") if p.items[1].value == name).items[-1].span
@@ -243,6 +354,8 @@ def own_raw(name: str) -> str:
     ("work", 'a bare " quote'),
     ("work", "a line\nend"),
     ("work", "a backslash at the end\\"),
+    ("work", "an escape the reader refuses: \\q"),
+    ("work", "a carriage\rreturn"),
     ("work", ""),
     ("absent", "a prompt the module does not have"),
 ])
@@ -251,20 +364,39 @@ def test_replace_prompt_refuses_an_identity_and_text_that_is_no_string_body(name
         operators.replace_prompt(SEED, name, raw)
 
 
-def test_graft_puts_another_expression_of_the_module_in_place_of_one():
-    # No expression of the seed occurs twice, so a donor that held its target would show as text.
-    for mutation, _ in mutants("graft"):
+@pytest.mark.parametrize("source", [SEED, NAMES], ids=["seed", "names"])
+def test_graft_puts_another_expression_of_the_module_in_place_of_one(source):
+    # A donor that is its target, holds it or reads the same would hold the target's text: the
+    # one expression that occurs twice (in `NAMES`) has its two copies side by side in one form.
+    for mutation in operators.graft(source):
         (start, end, donor), = mutation.edits
-        assert donor in SEED and SEED[start:end] not in donor
+        assert donor in source and source[start:end] not in donor
         assert shape(read(donor).items[0])[0][1] in operators.EXPRESSION_HEADS
 
 
+def graft_targets(source: str) -> list[str]:
+    """The text of every form some graft replaces, in document order."""
+    spans = sorted({(start, end) for mutation in operators.graft(source) for start, end, _ in mutation.edits})
+    return [source[start:end] for start, end in spans]
+
+
 def test_graft_skips_name_positions():
-    names = ["(record (list/map ((not xs)) (+ not 1)))", "(not xs)", "(call)"]
-    spans = [(NAMES.index(name), NAMES.index(name) + len(name)) for name in names]
-    grafts = list(operators.graft(NAMES))
-    taken = [m.params for m in grafts for start, end, donor in m.edits if (start, end) in spans or donor in names]
-    assert grafts and not taken
+    targets, donors = graft_targets(NAMES), {donor for m in operators.graft(NAMES) for _, _, donor in m.edits}
+    assert not [name for name in NAME_POSITIONS if name in targets or name in donors]
+    # What a name position binds is still an expression: every form below, and no other.
+    assert [shape(read(target).items[0])[0][1] for target in targets] == [
+        "let*", "list/map", "+", "+", "+", "loop/recur", "match", "variant", "loop/recur", "loop-state",
+        "list/length", "done", "list/length"]
+
+
+def test_graft_skips_a_loop_state_field_of_a_legal_program():
+    assert '(not String "")' not in graft_targets(FIELD)
+    assert len(list(operators.graft(FIELD))) == COUNTS["graft"]
+
+
+def test_graft_takes_the_operand_of_a_loop_state_keyword_for_an_expression():
+    source = "(defworkflow run () -> Int (continue (loop-state :like state :n (list/length xs) :m (list/length ys))))"
+    assert graft_targets(source)[2:] == ["(list/length xs)", "(list/length ys)"]
 
 
 SOURCES = {"seed": SEED, "names": NAMES}
@@ -317,3 +449,8 @@ def test_sample_draws_from_the_named_operators_only():
 def test_sample_refuses_an_operator_it_does_not_have():
     with pytest.raises(ValueError):
         operators.sample(SOURCES, 2, 1, operators=("swap",))
+
+
+def test_sample_refuses_a_negative_cap():
+    with pytest.raises(ValueError):
+        operators.sample(SOURCES, -1, 1)

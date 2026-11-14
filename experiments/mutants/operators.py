@@ -4,14 +4,19 @@ Plan: docs/plans/2026-11-13-phase-6-mutant-generator-plan.md ("Operators"; Task 
 
 A mutation is a set of character-range edits, found by reading the source with the package's
 reader and spliced into the text at the nodes' spans: there is no printer, and comments and layout
-survive. `text` is always decoded source with `\\n` line ends, and spans index its characters.
+survive. `text` is decoded source and spans index its characters, not bytes. A source is spliced
+as given: no line end is changed here, so a caller that compares digests or offsets with the
+compiler's must normalise line ends (`\\r\\n` and `\\r` to `\\n`) before it calls an operator.
 Nothing here compiles, runs or reads a file, and the module holds no state. It depends on
 `orchestrator.workflow_lisp.reader.read_sexpr_text` and the node types of `sexpr` only.
 
 The closed value sets live here and nowhere else (AGENTS.md, experiment rules: nothing above the
 Sonnet ceiling, no Fable model). A caller may narrow them and can never widen them: there is no
 override from the environment, a file or a command line. `tests/experiments/test_mutants.py`
-repeats both tuples as literals.
+repeats both tuples as literals. A source that already holds a string literal outside the sets in
+`:model` or `:effort` position is refused, never mutated: every operator and `sample` raise
+ValueError for it (`undeclared_literals` is the one check). A model or effort that arrives as a
+name is an input, bound at launch: it is left alone, and only the launcher can pin it.
 
 Shared terms. A call form is a list headed `provider-result` or `agent`; its role is its first
 operand when that is a symbol `providers.R` (role `R`). The operand of `:k` is the item after the
@@ -21,9 +26,10 @@ module name, imports, exports, the target, a type declaration, a prompt's `:fill
 or the entry workflow's parameter list, and none but `graft` adds a line.
 """
 
+import hashlib
 import random
 import re
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from orchestrator.workflow_lisp.reader import read_sexpr_text
@@ -36,6 +42,7 @@ APPENDED = " Check the result before you report."
 EXPRESSION_HEADS = frozenset(
     "provider-result command-result call loop/recur let* if match list/map-effect list/map done continue variant "
     "record loop-state agent not and or = + list/append list/length".split())
+_DECLARED = {":model": MODELS, ":effort": EFFORTS}
 _CALL_HEADS = ("provider-result", "agent")
 _ROLE_PREFIX = "providers."
 _DEFINITIONS = ("defworkflow", "defproc")
@@ -49,9 +56,11 @@ class Mutation:
     """One mutation of one source: `apply(text, mutation)` is the mutant.
 
     `operator` is a key of `OPERATORS`; `params` names the mutation among that operator's
-    mutations of the source (`reviewer=low`, `loop1=3`, `9<-18`), so `program/operator/params`
-    reproduces the mutant; `edits` are disjoint `(start, end, replacement)` character ranges of
-    the source the mutation was made from.
+    mutations of the source (`reviewer=low`, `loop1=3`, `9<-18`, `work.drop2`), so
+    `program/operator/params` is one mutant and reproduces it; for a proposed prompt text it holds
+    a digest of the text (`replace_prompt`), which tells proposals apart and needs the text to
+    reproduce the mutant. `edits` are disjoint `(start, end, replacement)` character ranges of the
+    source the mutation was made from.
     """
 
     operator: str
@@ -74,9 +83,39 @@ def _lists(node: SExpr) -> Iterator[ListExpr]:
             yield from _lists(item)
 
 
+def _undeclared(root: ListExpr) -> list[tuple[str, str, int, int]]:
+    found = []
+    for form in _lists(root):
+        for key, declared in _DECLARED.items():
+            site = _operand(form, key)
+            if isinstance(site, StringAtom) and site.value not in declared:
+                found.append((key, site.value, site.span.start.line, site.span.start.column))
+    return sorted(found, key=lambda literal: literal[2:])
+
+
+def undeclared_literals(text: str) -> list[tuple[str, str, int, int]]:
+    """The string literals of a source that are outside the closed sets, as `(keyword, value, line, column)`.
+
+    A literal is the operand of `:model` or of `:effort` in any form of the source, a call form or
+    not, in document order; lines and columns count from one. A name in that position is an input
+    and is not listed. This is the one check of what a seed already holds: no operator mutates a
+    source for which it is not empty.
+    """
+    return _undeclared(read_sexpr_text(text, source_path="<mutant>"))
+
+
 def _headed(text: str, *heads: str) -> list[ListExpr]:
-    """The lists of the source headed by one of `heads`, in order of start offset."""
-    return [form for form in _lists(read_sexpr_text(text, source_path="<mutant>")) if _head(form) in heads]
+    """The lists of the source headed by one of `heads`, in order of start offset.
+
+    Every operator reads its source here, so every operator raises ValueError for a source that
+    holds a model or effort literal outside the closed sets.
+    """
+    root = read_sexpr_text(text, source_path="<mutant>")
+    outside = _undeclared(root)
+    if outside:
+        raise ValueError("the source holds a model or effort literal outside the closed sets, as "
+                         f"(keyword, value, line, column): {outside}")
+    return [form for form in _lists(root) if _head(form) in heads]
 
 
 def _operand(form: ListExpr, key: str) -> SExpr | None:
@@ -92,10 +131,13 @@ def _range(node: SExpr) -> tuple[int, int]:
     return node.span.start.offset, node.span.end.offset
 
 
-def _require_declared(operator: str, values: Sequence[str], declared: tuple[str, ...]) -> None:
+def _declared_values(operator: str, values: Iterable[str], declared: tuple[str, ...]) -> tuple[str, ...]:
+    """`values` read once, as a tuple. Raises ValueError for one outside `declared` or given twice."""
+    values = tuple(values)
     outside = [value for value in values if value not in declared]
-    if outside:
-        raise ValueError(f"{operator}: {outside} is outside the closed set {declared}")
+    if outside or len(set(values)) != len(values):
+        raise ValueError(f"{operator}: {values} holds a value outside the closed set {declared} or holds one twice")
+    return values
 
 
 def _role_literals(text: str, operator: str, key: str, values: Sequence[str]) -> Iterator[Mutation]:
@@ -113,31 +155,29 @@ def _role_literals(text: str, operator: str, key: str, values: Sequence[str]) ->
                 yield Mutation(operator, f"{role}={value}", edits)
 
 
-def effort(text: str, levels: Sequence[str] = EFFORTS) -> Iterator[Mutation]:
+def effort(text: str, levels: Iterable[str] = EFFORTS) -> Iterator[Mutation]:
     """Effort per role.
 
     Input: a module's source. Edit: the operand of `:effort` in every call form of one role, all of
     them in one mutation, replaced by a string literal. Parameters: the role, in order of its first
-    call; the level, in the order of `levels`. Raises ValueError, before the first mutation, for a
-    level outside `EFFORTS`.
+    call; the level, in the order of `levels`, which is read once. Raises ValueError, before the
+    first mutation, for a level outside `EFFORTS` or given twice.
 
     Must not produce: a level outside `EFFORTS`; an edit of some of a role's sites (a site that
     already holds the level is left as it is); an inserted `:effort`; an edit of an input or of
     its default.
     """
-    _require_declared("effort", levels, EFFORTS)
-    return _role_literals(text, "effort", ":effort", levels)
+    return _role_literals(text, "effort", ":effort", _declared_values("effort", levels, EFFORTS))
 
 
-def model(text: str, models: Sequence[str] = MODELS) -> Iterator[Mutation]:
+def model(text: str, models: Iterable[str] = MODELS) -> Iterator[Mutation]:
     """Model per role: as `effort`, for the operand of `:model`.
 
-    Raises ValueError, before the first mutation, for a model outside `MODELS`. Must not produce:
+    Raises ValueError, before the first mutation, for a model outside `MODELS` or given twice. Must not produce:
     a model outside `MODELS`; an edit of some of a role's sites; an inserted `:model`; an edit of
     an input or of its default.
     """
-    _require_declared("model", models, MODELS)
-    return _role_literals(text, "model", ":model", models)
+    return _role_literals(text, "model", ":model", _declared_values("model", models, MODELS))
 
 
 def rounds(text: str) -> Iterator[Mutation]:
@@ -193,7 +233,8 @@ def replace_prompt(text: str, name: str, raw: str) -> Mutation:
     Input: a module's source. Edit: the body of the `defprompt` called `name` (its last item, a
     string) replaced by `raw`, which is source text as it stands between the quotes, so an escape
     is never re-encoded. Parameters: the prompt's name; the raw text. The mutation's `params` is
-    the name alone, so two proposals for one prompt share a name.
+    the name and the first twelve hexadecimal digits of the SHA-256 of the raw text (UTF-8), so two
+    proposals for one prompt have two names and one proposal has one name in every process.
 
     Must not produce: an empty body; an edit of two prompts; a change to `:fills`. Raises
     ValueError for a prompt the module does not have, for a raw text equal to the body's own, and
@@ -208,7 +249,7 @@ def replace_prompt(text: str, name: str, raw: str) -> Mutation:
         raise ValueError(f"replace_prompt: the raw text for {name!r} is not the body of a string: {raw!r}")
     if raw == text[start:end]:
         raise ValueError(f"replace_prompt: the raw text for {name!r} is the body it already has")
-    return Mutation("prompt", name, ((start, end, raw),))
+    return Mutation("prompt", f"{name}.{hashlib.sha256(raw.encode('utf-8')).hexdigest()[:12]}", ((start, end, raw),))
 
 
 def prompt(text: str) -> Iterator[Mutation]:
@@ -237,16 +278,28 @@ def _tails(forms: Sequence[SExpr]) -> list[SExpr]:
     return [item for form in forms if isinstance(form, ListExpr) for item in form.items[1:]]
 
 
+def _loop_state_positions(items: Sequence[SExpr]) -> list[SExpr]:
+    """The items of a `loop-state` form that may hold an expression: of a field declaration, the initial value."""
+    kept: list[SExpr] = []
+    for before, item in zip(items, items[1:]):
+        declaration = isinstance(item, ListExpr) and not isinstance(before, KeywordAtom)
+        kept += item.items[2:] if declaration else [item]
+    return kept
+
+
 def _expression_positions(form: ListExpr) -> Sequence[SExpr]:
     """The items of `form` that may hold an expression.
 
     Name positions are passed over and what they bind is kept: a binding pair of a `let*`, of a
     `loop/recur` binder list or of a map form's, the parameter list of `fn`, the pattern of a
-    `match` arm.
+    `match` arm, a field declaration `(name Type initial)` of a `loop-state` (a list that is not
+    the operand of a keyword).
     """
     head, items = _head(form), form.items
     if head in _BINDER_HEADS and len(items) > 1 and isinstance(items[1], ListExpr):
         return [*_tails(items[1].items), *items[2:]]
+    if head == "loop-state":
+        return _loop_state_positions(items)
     if head == "fn":
         return items[2:]
     if head == "match":
@@ -309,6 +362,31 @@ def apply(text: str, mutation: Mutation) -> str:
     return text
 
 
+def _smallest_draws(mutations: list[Mutation], cap: int, seed: str) -> list[Mutation]:
+    """All of `mutations` when there are at most `cap`; else the `cap` with the smallest draws, in document order.
+
+    One `random()` is drawn per mutation from `random.Random(seed)`: the one method whose sequence
+    the Python documentation fixes across versions.
+    """
+    if len(mutations) <= cap:
+        return mutations
+    generator = random.Random(seed)
+    draws = [generator.random() for _ in mutations]
+    kept = sorted(sorted(range(len(mutations)), key=draws.__getitem__)[:cap])
+    return [mutations[index] for index in kept]
+
+
+def _require_sampleable(sources: Mapping[str, str], cap: int, operators: Sequence[str]) -> None:
+    """Raises ValueError for what `sample` refuses (its docstring), before any source is mutated."""
+    unknown = [name for name in operators if name not in OPERATORS]
+    if unknown or cap < 0:
+        raise ValueError(f"sample: cap {cap} is negative, or {unknown} holds an operator not among {list(OPERATORS)}")
+    outside = {program: found for program in sorted(sources) if (found := undeclared_literals(sources[program]))}
+    if outside:
+        raise ValueError("sample: a model or effort literal outside the closed sets, as (keyword, value, line, "
+                         f"column) per program: {outside}")
+
+
 def sample(sources: Mapping[str, str], cap: int, number: int,
            operators: Sequence[str] = tuple(OPERATORS)) -> list[tuple[str, Mutation]]:
     """At most `cap` mutations per program and operator, as `(program, mutation)`, the same for one `number`.
@@ -317,20 +395,17 @@ def sample(sources: Mapping[str, str], cap: int, number: int,
     in `OPERATORS` order, among those named in `operators`. All of an operator's mutations are
     kept when there are at most `cap`; else one `random()` is drawn per mutation from
     `random.Random(f"{number}/{program}/{operator}")` and the `cap` mutations with the smallest
-    draws are kept, in document order. Only `random()` is used, the one method whose sequence the
-    Python documentation fixes across versions. Raises ValueError for a name `OPERATORS` lacks.
+    draws are kept, in document order.
+
+    Raises ValueError, before any mutation is made, for a name `OPERATORS` lacks, for a negative
+    `cap`, and for a source that holds a model or effort literal outside the closed sets, naming
+    the program, the literal and its line and column.
     """
-    unknown = [name for name in operators if name not in OPERATORS]
-    if unknown:
-        raise ValueError(f"sample: no operator {unknown} among {list(OPERATORS)}")
+    _require_sampleable(sources, cap, operators)
     drawn = []
     for program in sorted(sources):
         for operator in (name for name in OPERATORS if name in operators):
             mutations = list(OPERATORS[operator](sources[program]))
-            if len(mutations) > cap:
-                generator = random.Random(f"{number}/{program}/{operator}")
-                draws = [generator.random() for _ in mutations]
-                kept = sorted(sorted(range(len(mutations)), key=draws.__getitem__)[:cap])
-                mutations = [mutations[index] for index in kept]
-            drawn += [(program, mutation) for mutation in mutations]
+            drawn += [(program, mutation)
+                      for mutation in _smallest_draws(mutations, cap, f"{number}/{program}/{operator}")]
     return drawn
