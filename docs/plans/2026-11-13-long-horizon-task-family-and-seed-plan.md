@@ -335,6 +335,21 @@ USD 170 to 440, after a measure-free smoke of two seed runs (about USD 15), and 
 ladder for added tasks. Open design work, larger than one line: how a workflow's steps run
 inside a task container, and what the seed uses as its visible check, since the tasks ship none.
 
+**Owner direction for step 9 (2026-11-13): "code quality is compounding and matters".** A task's
+verifier scores pass or fail at the end and does not see the quality of what was built; on a
+long task, later work builds on earlier work, so quality early can decide cost and success
+later. Step 9's design therefore reports two things beside the pass rate, and a null on pass
+rate against re-rolling is not by itself the answer:
+- a blind quality rating of the final repository (the functional rubric of the experiment
+  rules, with a judge qualified by its own predeclared check on natural controls before any
+  rating is read; that qualification is separate spend to be sized in the request);
+- a compounding measure inside the staged arm: with the milestone reviewer present and absent,
+  the priced cost and the refusals of each later milestone, and whether the final check passes.
+  Earlier studies here measured review on one change (a small gain with a stronger reviewer on
+  an easy bug, none on a harder task scored by hidden tests) and could not see compounding.
+The re-roll bar above stays as the pass-rate comparison: it is best-of-k direct sessions with an
+ideal selector, which no real selector reaches, and the request says so.
+
 ## Tasks
 
 Branch `feat/lh-ladder` from `spike/long-horizon-tasks`, in its own worktree; kit under
