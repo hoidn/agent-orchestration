@@ -603,7 +603,8 @@ def test_command_exits_0_without_a_crash(tmp_path):
 
 # The runtime's dispatch entry points: the `run` and `resume` commands (`run_workflow`, `resume`), the
 # evaluated runtime (`execute_pure_run`, `execute_pure_resume`) and the effect dispatcher
-# (`perform_external`). `plan_resume`'s module, which Task T3 imports, loads none of them.
+# (`perform_external`). `plan_resume`'s module, which Task T3 imports, loads none of them at import; a call of
+# `plan_resume` loads them and calls nothing in them (`test_no_mutant_is_ever_run`).
 DISPATCH = ("orchestrator.cli.commands.run", "orchestrator.cli.commands.resume",
             "orchestrator.workflow.evaluated.runtime", "orchestrator.workflow.evaluated.effect_execution")
 
@@ -752,6 +753,8 @@ def recorded(tmp_path_factory):
     mutants = [("fixture", mutation) for name in ("effort", "rounds") for mutation in operators.OPERATORS[name](SEED)]
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(tempfile, "tempdir", str(scratch))
+        results, seeds = check.compiled(seed, {"fixture": SEED}, [*mutants, ("fixture", LAYOUT)])
+        layout = [result for result in results if result["params"] == "layout"]
         with check.recorded_run(seed, "fixture", STANDIN, "clean") as run:
             source, workspace, inputs = run["world"] / "src" / "fixture.orc", run["workspace"], run["world"] / "inputs.json"
             seen = {"source": source.read_bytes(), "workspace": snapshot(workspace),
@@ -759,9 +762,10 @@ def recorded(tmp_path_factory):
             commits = [json.loads(line) for line in (run["run_root"] / "memo.jsonl").read_text().splitlines()]
             commits = [row for row in commits if row["record"] == "committed"]
             first_review = next(index for index, row in enumerate(commits) if "variant" in row["value"])
-            data = {"run": {key: run[key] for key in ("steps", "calls", "priced_usd")},
+            data = {"run": {key: run[key] for key in ("steps", "calls", "priced_usd", "priced_reason")},
                     "before_review": (first_review, sum(row["effect_class"] == "provider" for row in commits[:first_review])),
-                    "section": check.measure(run, mutants), "layout": check.measure(run, [("fixture", LAYOUT)])}
+                    "section": check.measure(run, [result for result in results if result not in layout], seeds["fixture"]),
+                    "layout": check.measure(run, layout, seeds["fixture"])}
             data["after"] = {"source": source.read_bytes(), "workspace": snapshot(workspace),
                              "calls": (run["world"] / "bin" / ".claude.calls").read_text(encoding="utf-8")}
             data["before"], data["requests"] = seen, shim_requests(workspace)
@@ -784,7 +788,7 @@ def test_a_reviewer_effort_mutant_keeps_the_steps_before_the_first_review(record
 def test_a_rounds_mutant_keeps_every_step(recorded):
     rounds, run = recorded["section"]["operators"]["rounds"], recorded["run"]
     assert (rounds["plans"], rounds["steps_kept"]["min"], rounds["calls_kept"]["min"]) == (3, run["steps"], run["calls"])
-    assert (run["steps"], run["calls"], run["priced_usd"]) == (4, 3, None)
+    assert (run["steps"], run["calls"], run["priced_usd"], run["priced_reason"] is None) == (4, 3, None, False)
 
 
 def test_a_layout_only_edit_is_the_same_program(recorded):
@@ -822,15 +826,57 @@ def test_an_uncoded_failure_propagates(recorded):
     assert isinstance(recorded["inputs_removed"], FileNotFoundError)
 
 
-@pytest.mark.parametrize("case", ["scenarios without standin", "standin without a key", "scenario no program has"])
+NO_RUN = {"scenarios without standin": None, "standin without a key": {"inputs": {}, "answers": {}},
+          "scenario no program has": STANDIN, "no scenario": {**STANDIN, "answers": {"other": {"clean": []}}},
+          "answers not an object": {**STANDIN, "answers": ["clean"]}}
+
+
+@pytest.mark.parametrize("case", list(NO_RUN))
 def test_a_standin_problem_exits_2_before_any_run(case, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: pytest.fail("a run"))
     standin = tmp_path / "standin.json"
-    standin.write_text(json.dumps({key: value for key, value in STANDIN.items()
-                                   if case != "standin without a key" or key != "files"}), encoding="utf-8")
-    extra = {"scenarios without standin": ["--scenarios", "clean"], "standin without a key": ["--standin", str(standin)],
-             "scenario no program has": ["--standin", str(standin), "--scenarios", "clean,nosuch"]}[case]
+    standin.write_text(json.dumps(NO_RUN[case]), encoding="utf-8")
+    extra = {"scenarios without standin": ["--scenarios", "clean"],
+             "scenario no program has": ["--standin", str(standin), "--scenarios", "clean,nosuch"]}
     argv = [str(seed_dir(tmp_path / "seed", {"fixture": SEED})), "--programs", "fixture",
-            "--out", str(tmp_path / "readout.json"), *extra]
+            "--out", str(tmp_path / "readout.json"), *extra.get(case, ["--standin", str(standin)])]
     assert check.main(argv) == 2
     assert len(capsys.readouterr().err.splitlines()) == 1 and not (tmp_path / "readout.json").exists()
+
+
+SLEEPS = {"mode": "timeout", "result": {"summary": "s"}}  # the fake sleeps 30 s before it answers
+FAILED_RUNS = {"run fails": [CHANGE, CHANGE], "answers left unused": [CHANGE, CHANGE, MET, CHANGE],
+               "run times out": [SLEEPS, CHANGE, MET]}
+
+
+@pytest.mark.parametrize("case", list(FAILED_RUNS))
+def test_a_failed_standin_run_exits_2_with_its_cause(case, tmp_path, monkeypatch, capsys):
+    # The run is made and removed; no mutant compiles, and the one line names the cause, not the run.
+    scratch, standin = tmp_path / "scratch", tmp_path / "standin.json"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+    monkeypatch.setattr(check, "STANDIN_TIMEOUT", 1 if case == "run times out" else check.STANDIN_TIMEOUT)
+    monkeypatch.setattr(check, "prepare_closed_program_bundle", lambda *args, **kwargs: pytest.fail("a compile"))
+    standin.write_text(json.dumps({**STANDIN, "answers": {"fixture": {"clean": FAILED_RUNS[case]}}}), encoding="utf-8")
+    argv = [str(seed_dir(tmp_path / "seed", {"fixture": SEED})), "--programs", "fixture", "--standin", str(standin),
+            "--out", str(tmp_path / "readout.json")]
+    assert check.main(argv) == 2
+    (line,) = capsys.readouterr().err.splitlines()
+    assert "/runs/" not in line and not (tmp_path / "readout.json").exists()
+    if case == "run fails":
+        assert "[provider_exit_nonzero]" in line
+    assert not [path for path in scratch.iterdir() if path.name.startswith("mutants-reuse-")]
+
+
+def test_an_uncoded_planner_exception_ends_the_command_with_exit_1(tmp_path):
+    # Injected in the command's own process: a `RuntimeError` from `plan_resume` is not a share and not a refusal.
+    standin, out = tmp_path / "standin.json", tmp_path / "readout.json"
+    standin.write_text(json.dumps(STANDIN), encoding="utf-8")
+    code = ("import sys\nfrom experiments.mutants import check\n"
+            "def planner(*args, **kwargs):\n    raise RuntimeError('injected')\n"
+            "check.plan_resume = planner\nsys.exit(check.main(sys.argv[1:]))\n")
+    done = subprocess.run([sys.executable, "-c", code, str(seed_dir(tmp_path / "seed", {"fixture": SEED})),
+                           "--programs", "fixture", "--operators", "rounds", "--standin", str(standin),
+                           "--out", str(out)], capture_output=True, text=True,
+                          env={**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, sys.path))})
+    assert done.returncode == 1 and "RuntimeError: injected" in done.stderr and not out.exists()
