@@ -1916,9 +1916,9 @@ def _clone_function_expr(
                 )
                 for arg in expr.args
             ),
-            span=span,
+            span=expr.span,
             form_path=form_path,
-            expansion_stack=expansion_stack,
+            expansion_stack=expansion_stack + expr.expansion_stack,
         )
     if isinstance(expr, BindProcExpr):
         return replace(

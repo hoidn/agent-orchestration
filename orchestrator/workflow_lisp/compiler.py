@@ -4134,7 +4134,8 @@ def _infer_stage3_effect_summaries(
         reference_calls = {} if inferred_contract else None
 
         def retain_reference_call(owner, node, target):
-            reference_calls.setdefault(owner, {})[(type(node), node.span, node.form_path)] = (node, target)
+            reference_calls.setdefault(owner, {})[(type(node), node.span, node.form_path, node.expansion_stack)] = (
+                node, target)
 
         def resolved_procedures(procedures, *, validate_declared):
             return _validate_procedure_effects_and_cycles(
@@ -4476,7 +4477,7 @@ def _reference_effect_source(owner, summary, *, reference_calls, workflow_effect
     from .effects import CallsWorkflowEffect
 
     calls = reference_calls.get(owner, {})
-    procedure_sites = {(node.span, node.form_path): target
+    procedure_sites = {(node.span, node.form_path, node.expansion_stack): target
         for node, target in calls.values() if isinstance(node, ProcedureCallExpr)}
     workflow_calls = [(node, target) for node, target in calls.values()
         if isinstance(node, CallExpr)]
@@ -4490,9 +4491,9 @@ def _reference_effect_source(owner, summary, *, reference_calls, workflow_effect
         if target is not None and target in workflow_effects_by_name:
             transitive.update(workflow_effects_by_name[target].transitive_effects)
             workflow_edges.update(workflow_effects_by_name[target].procedure_edges)
-    edges = frozenset(replace(edge, callee_name=procedure_sites[(edge.span, edge.form_path)]
+    edges = frozenset(replace(edge, callee_name=procedure_sites[(edge.span, edge.form_path, edge.expansion_stack)]
             or edge.callee_name)
-        for edge in summary.procedure_edges if (edge.span, edge.form_path) in procedure_sites)
+        for edge in summary.procedure_edges if (edge.span, edge.form_path, edge.expansion_stack) in procedure_sites)
     return EffectSummary(frozenset(direct), frozenset(transitive), edges | workflow_edges)
 
 
