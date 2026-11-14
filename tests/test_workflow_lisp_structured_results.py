@@ -665,19 +665,10 @@ def test_guidance_free_contract_callers_ignore_annotated_definition_examples(
             workflow_name="runtime-only",
             step_id=f"runtime-only__{type_ref.name}",
         )
-        reusable = workflow_lisp_contracts.derive_reusable_state_contract_metadata(
-            type_ref,
-            target_dsl_version="2.40",
-            workflow_name="runtime-only",
-            step_id=f"runtime-only__{type_ref.name}",
-            span=module.span,
-            form_path=("workflow-lisp", "runtime-only"),
-        )[3]
-        for payload in (direct.payload, reusable):
-            serialized = json.dumps(payload, sort_keys=True)
-            assert "guidance" not in serialized
-            assert "description" not in serialized
-            assert "example" not in serialized
+        serialized = json.dumps(direct.payload, sort_keys=True)
+        assert "guidance" not in serialized
+        assert "description" not in serialized
+        assert "example" not in serialized
 
 
 def test_prompt_guided_contract_requires_type_environment_at_api_boundary() -> None:

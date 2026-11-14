@@ -868,42 +868,6 @@ def _structured_field_source_segments(field: Mapping[str, Any]) -> tuple[str, ..
     raise TypeError("structured result field requires a name or JSON pointer")
 
 
-def derive_reusable_state_contract_metadata(
-    type_ref: RecordTypeRef | UnionTypeRef,
-    *,
-    target_dsl_version: str,
-    workflow_name: str,
-    step_id: str,
-    reusable_variants: tuple[str, ...] = (),
-    span: SourceSpan | None,
-    form_path: tuple[str, ...],
-) -> tuple[str, str, Mapping[str, tuple[ReusableArtifactRequirement, ...]], Mapping[str, Any]]:
-    """Derive reusable-state schema metadata from structured-result contracts."""
-
-    bundle_contract = derive_structured_result_contract(
-        type_ref,
-        workflow_name=workflow_name,
-        step_id=step_id,
-        span=span,
-        form_path=form_path,
-    )
-    structured_contract = {
-        key: value
-        for key, value in bundle_contract.payload.items()
-        if key != "path"
-    }
-    structured_contract_kind = "record" if isinstance(type_ref, RecordTypeRef) else "union"
-    digest = structured_contract_semantic_digest(structured_contract)
-    fingerprint = f"{target_dsl_version}:{type_ref.name}:{structured_contract_kind}:{digest}"
-    artifact_requirements = _derive_reusable_artifact_requirements(
-        type_ref,
-        reusable_variants=reusable_variants,
-        span=span,
-        form_path=form_path,
-    )
-    return structured_contract_kind, fingerprint, artifact_requirements, structured_contract
-
-
 def structured_contract_semantic_digest(structured_contract: Mapping[str, Any]) -> str:
     """Hash structured contract semantics while retaining runtime provenance."""
 
