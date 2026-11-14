@@ -531,6 +531,20 @@ until it is, this section is the staging.
   at 20 percent shows 0 of 5 about a third of the time), so step 7 places
   tasks in bands and makes no fine ranking. No claim about any workflow comes
   from step 6.
+- **Making fitness cheaper to measure (added 2026-11-13, owner direction).**
+  A search over workflows is limited by fitness: one evaluation costs dollars
+  and pass or fail at a 20 percent rate needs about 290 attempts per
+  candidate to tell 20 from 30 percent. These five items raise the chance
+  that a later search finds anything; each is attached to a step above and
+  none adds spend unless marked.
+
+| Lever | What is done | Where | Spend |
+| --- | --- | --- | --- |
+| Graded fitness | Record, for every attempt, the verifier's count of sub-tests passed and total, where the verifier exposes one; prefer tasks with many sub-tests when the set is frozen. Reported beside pass or fail; it places no task and changes no frozen rule of the ladder | Steps 6 and 7 | None |
+| Deterministic stage signals | On the first paid seed runs, record at each stage boundary the visible check's pass fraction and the agents' typed verdicts, beside the final verifier result; report how well each predicts the end. Early stopping is designed only on a signal that does | Step 9 (its smoke first) | None beyond step 9 |
+| Tasks chosen by how the direct session fails | Read the ladder's failed transcripts and label each failure as process (lost track, stopped early, did not verify, broke earlier work) or capability; the frozen set states the mix, and the staged comparison is read per label | Step 7 | None (the transcripts are paid for by step 6) |
+| A cheaper task family for the inner loop | A second, shorter family with the same failure labels, at about a tenth of the cost per attempt, for selection; finalists are validated on the long tasks | A new step after 7 | **New calibration spend; needs an owner approval; not requested** |
+| Exhaust the small space before searching | The first space (one model, an effort per role, three levels) has 27 points: it is evaluated as a grid, or a declared fraction of one, on the frozen tasks, not searched | Phase 6, first run | Part of the Phase 6 request |
 
 ### Phase 6: Program evolution
 
@@ -560,6 +574,32 @@ was not taken. No spend is authorized.
 - The campaign code from the closed search roadmap is kept outside the default
   test suite (`ORCHESTRATE_CAMPAIGN_TESTS=1` runs its tests) until this
   phase decides what it reuses.
+- **Search readiness (added 2026-11-13, owner direction; no spend).** What
+  this system could add to a search is not the rejection of invalid
+  candidates (in October the typed admission rejected nothing). It is:
+  evaluation that can be paused at a stage boundary and resumed, so weak
+  candidates stop early and promising ones continue without paying twice;
+  an identity that recognises the same program respelled; spend bounds the
+  runtime enforces on a generated program; a uniform typed tree to mutate;
+  and typed per-stage records for a proposer. Three pieces of work make
+  those real before any paid search, each with its own plan when it starts:
+
+| Readiness item | What is built or measured | Gate | Depends on |
+| --- | --- | --- | --- |
+| R1 Checkpoint controller and workspace snapshots | A snapshot of the workspace after every committed step (a commit for a repository task, an image layer for a container task), recorded beside the memo; a controller that runs candidates to a named stage boundary, stops the weak ones and resumes the rest; a fork of a run at a step with its workspace. This is the design item H-E2 needs and nobody has assessed: design first | Stand-in runs: a stopped candidate resumes with no step dispatched twice; a fork at step k reproduces the parent's workspace at k byte for byte; cost of a child equals its changed suffix | Phase 3b (done); the stage-signal result of Phase 5b for where to stop |
+| R2 Canonical digest, then a replay of October | Local and generated names leave the program digest, so two spellings of one program share it; then the digests of the October search's recorded candidates are recomputed and the share that collapse is reported | Zero spend. The replay decides whether de-duplication is worth wiring into admission | The one-target cut (a digest change moves identity) |
+| R3 Mutants never crash the compiler | A generator of mechanical mutants of the seeds over the declared dimensions (a few hundred); every mutant compiles or is refused with a code, none ends in `compiler_defect`, and the count of distinct digests is reported. The open defect list of Lane D stage 5 is the backlog it draws on, ordered by what the mutants actually hit | Zero spend; runs in the default suite at a small sample | Stage 5 merges; the mutation operators are the same ones a search uses |
+
+  Order: R3 and the October replay first (days, no design); R1 after its
+  design is reviewed. A zero-spend check of H-E2's reach belongs here too:
+  apply each declared mutation to a stand-in run of the seed and read the
+  plan `resume` prints, which gives the share of steps each dimension keeps.
+- **Estimate these items answer (coordinator's judgment, 2026-11-13, not a
+  measurement):** about a quarter to a third that a search on this system
+  produces a workflow that beats its seed with these mechanisms material to
+  it; the items here and the fitness items of Phase 5b are what could raise
+  that. The cap is whether a staged structure pays for its extra calls on
+  long tasks, which Phase 5b step 9 tests.
 
 ## Effort
 
