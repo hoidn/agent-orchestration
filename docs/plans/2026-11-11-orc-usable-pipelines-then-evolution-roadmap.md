@@ -827,7 +827,9 @@ is manual. Phase plans are linked here as they start:
 - Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
   3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; tasks T1 to T8 are done (2026-11-13): `resume` under an edited program prints a read-only plan with a token, and `resume --accept-changes=plan-<token>` continues the run under the edit; the lane has stopped (decision 13), with the H-G3 measurement not done and two items parked.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
-- Phase 5b, in preparation: staged in this roadmap ([Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed)); survey, machine feasibility and seed design are done on spike branches (`spike/long-horizon-tasks`, `spike/long-horizon-seed`); its [plan](2026-11-13-long-horizon-task-family-and-seed-plan.md) is in its third revision, reviewed and revised, awaiting acceptance. The effort ladder is the only owner-approved spend (decision 16). A live probe of the subscription route (decision 18) runs only on a coordinator approval row in the plan's ledger, under the budget delegation; that row is not written yet.
+- Phase 5b, in preparation: staged in this roadmap ([Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed)); survey, machine feasibility and seed design are done on spike branches (`spike/long-horizon-tasks`, `spike/long-horizon-seed`); its [plan](2026-11-13-long-horizon-task-family-and-seed-plan.md) is in its third revision, accepted 2026-11-13 (`96adb33d`) for the subscription-only credential; the recording kit is on `main`, and the no-spend re-recordings in token mode and the measurement of the pinned task images are in progress. The four seed programs had their first independent review on 2026-11-14 (merge after fixes; in a fix round). The effort ladder is the only owner-approved spend (decision 16). A live probe of the subscription route (decision 18) runs only on a coordinator approval row in the plan's ledger, under the budget delegation; that row is not written yet.
+- Phase 6, search readiness, in progress: the [mutant generator](2026-11-13-phase-6-mutant-generator-plan.md)'s operators, compile check and reuse report are on `main` (Tasks T1 to T3) and its first readout over the real seeds is running; the [checkpoint controller](../design/orc_search_checkpoint_controller.md) is designed and not built (see row R1); the canonical digest waits for the stage 4 cut. Measured so far, on stand-in runs of the long-horizon seeds: an edit to a role that runs first keeps none of a finished run under `resume`, an edit to the role that acts last keeps about half, a loop bound keeps all of it.
+- Lane D, defects: [backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md), cut by the owner to a short list. On `main` by 2026-11-14: the defect record (every known defect as a row of `tests/test_workflow_lisp_defect_backlog.py`), the missing prompt file, output slots checked before a launch, typecheck crashes reported as `compiler_defect`, a `let-proc` local with a loop, and the hash-seed dependence of a call's target, which was found on the way and fixed first. In progress: a field read on a `match` subject and control forms as operands, a `let-proc` local that captures a reference or a role, and the identity of a value bound with `bind-proc` in two expansions of one macro.
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
 - Lane D, dashboard, done: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).
   `report` and the dashboard read evaluated runs only and refuse retired runs
@@ -839,19 +841,26 @@ is manual. Phase plans are linked here as they start:
   The old stack's modules are gone and nothing imports them (code kept at the local tag
   `archive/old-ir-stack-2026-11-12`); a small leftovers list remains in the plan's ledger.
 - Lane D, one target, in execution: [stage 4 plan](2026-11-12-lane-d-stage-4-one-target-plan.md),
-  accepted. Target 2.40 survives; after the cut a run recorded at an older target is read-only
+  accepted. Merged by 2026-11-14: the catalog and experiment sources (3a), 288 of 313 test fixtures
+  (3b), the re-recorded run roots (3d) and the first half of the test modules' inline sources (3c
+  part A, 116 modules); the second half is in review with 59 modules still to do. The cut itself
+  (4a, 4b) waits on that and on every program that builds at an older target also building at
+  2.40. Target 2.40 survives; after the cut a run recorded at an older target is read-only
   (`report`, dashboard and monitor read it; continuing it needs the tagged release).
 - Lane D, surface coherence (stage 5): [design](../design/workflow_lisp_surface_coherence.md)
   accepted. The constructor-field defect is fixed and the callables change (C1) is merged
   (2026-11-13), as are the loop binder form with its migration tool (I2a) and map bodies
   (I1: any expression as a map body and a computed serial `:max`, in programs with no run
   reference; `624ff688`, full suite 15,349 passed, the six failures being the baseline four and
-  two that passed alone); effects in fields (E1) is in its third review; the loop binder rewrite rides the stage 4
-  sweep and the `fn` form goes at the stage 4 cut.
+  two that passed alone); effects in fields (E1) merged on 2026-11-14 (`ecd57051`) after five
+  reviews and a mechanical acceptance gate, narrower than first accepted: a direct effect beside
+  simple parts (frontend specification §16.3; the design's §13 lists the departures). Stage 5 is
+  complete except the Python emitter change (I2b), which rides the stage 4 cut; the `fn` form goes
+  at that cut.
 - Lane D, authoring revisions for staged workflows (stage 6):
   [design](../design/workflow_lisp_staged_workflow_authoring.md) and
   [plan](2026-11-13-staged-workflow-authoring-revisions-plan.md), reviewed and accepted
-  2026-11-13; code starts after the stage 5 changes merge. Direction fixed by owner decision 15: roles by partial application over
+  2026-11-13; implementation started 2026-11-14 (the timeout operand, the list operators and the typed list literal, each on its branch; nothing merged yet). Direction fixed by owner decision 15: roles by partial application over
   first-class prompts.
 - Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
   after every record; memo reduction now continues from the last fold, a start the evaluator has
