@@ -1,4 +1,4 @@
-"""Current235 programs for the form, placement and helper-locality matrix.
+"""Programs at the current target for the form, placement and helper-locality matrix.
 
 The legacy classification tables below are captured data. Current admission,
 values and ordered command logs are asserted by test_workflow_evaluated_totality.
@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from tests import workflow_lisp_totality_matrix_extensions as regressions
 from tests import workflow_lisp_totality_matrix_locality as locality
 
-HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.35")\n'
+HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.40")\n'
 
 PROBE = """import json, os, sys
 from pathlib import Path
@@ -45,35 +45,23 @@ PICK = "  (defunion Pick (HIT (n Int)) (MISS (n Int)))\n"
 MAYBE = "  (defunion Maybe :forall (T) (SOME (value T)) (NONE (n Int)))\n"
 GATE = """  (defunion Gate (OPEN (n Int)) (SHUT (n Int)))
   (defproc gate ((n Int)) -> Gate
-    :effects ((uses-command gate))
-    :lowering inline
     (command-result gate :argv ("python" "{probe}" "gate" n) :returns Gate))
 """
 FETCH = """  (defproc fetch ((n Int)) -> Box
-    :effects ((uses-command fetch))
-    :lowering inline
     (command-result fetch :argv ("python" "{probe}" "fetch" n) :returns Box))
 """
 FIND = """  (defproc find ((n Int)) -> Pick
-    :effects ((uses-command find))
-    :lowering inline
     (command-result find :argv ("python" "{probe}" "find" n) :returns Pick))
 """
 IMPORT_FIND = "  (import grt/lib :only (Pick find))\n"
 LOOKUP = """  (defproc lookup ((n Int)) -> Pick
-    :effects ((uses-command find))
-    :lowering inline
     (find n))
 """
 ATTEMPT = """  (defproc check ((b Box)) -> Maybe[Box]
-    :effects ((uses-command check))
-    :lowering inline
     (command-result check :argv ("python" "{probe}" "check" b.n) :returns Maybe[Box]))
   (defproc attempt :forall (S) ((subject S) (hook ProcRef[(S) -> Maybe[S]]))
     :where ((S is-record))
     -> Maybe[S]
-    :effects ()
-    :lowering inline
     (hook subject))
 """
 
@@ -126,7 +114,7 @@ FORMS = {
     "defun-call": Form("Pick", "(hit 7)", HIT, (PICK, "  (defun hit ((n Int)) -> Pick (variant Pick HIT :n n))\n")),
     "pure-proc-call": Form(
         "Pick", "(make-hit 7)", HIT,
-        (PICK, "  (defproc make-hit ((n Int)) -> Pick :effects () :lowering inline (variant Pick HIT :n n))\n"),
+        (PICK, "  (defproc make-hit ((n Int)) -> Pick (variant Pick HIT :n n))\n"),
     ),
     "command-call": Form("Box", "(fetch 7)", {"n": 7}, (BOX, FETCH), ("fetch 7",)),
     # The same call with a non-literal argument: in a `loop/recur` body a literal argument
@@ -170,26 +158,21 @@ POSITIONS = {
              (c (variant Carry HOLD :v {expr}))
              (k (match door ((OPEN o) c) ((SHUT s) (variant Carry DROP :n 0)))))
       (match k ((HOLD held) {read}) ((DROP d) d.n)))""", "Int", (CARRY, GATE), ("gate 1",)),
-    "loop-state-field": Position("""(loop/recur :max 2
-      :state (loop-state (v {type} {seed}) (turn Int 0))
+    "loop-state-field": Position("""(loop/recur ((state (loop-state (v {type} {seed}) (turn Int 0)))) :max 2
       :on-exhausted {seed}
-      (fn (state)
-        (if (= state.turn 0)
-          (continue (loop-state :like state :v {expr} :turn 1))
-          (done state.v))))"""),
-    "done-value": Position("""(loop/recur :max 1
-      :state (loop-state (turn Int 0))
+      (if (= state.turn 0)
+        (continue (loop-state :like state :v {expr} :turn 1))
+        (done state.v)))"""),
+    "done-value": Position("""(loop/recur ((state (loop-state (turn Int 0)))) :max 1
       :on-exhausted {seed}
-      (fn (state) (done {expr})))"""),
-    "on-exhausted-value": Position("""(loop/recur :max 1
-      :state (loop-state (turn Int 0))
+      (done {expr}))"""),
+    "on-exhausted-value": Position("""(loop/recur ((state (loop-state (turn Int 0)))) :max 1
       :on-exhausted {expr}
-      (fn (state)
-        (if (= state.turn 1)
-          (done {seed})
-          (continue (loop-state :like state :turn 1)))))"""),
+      (if (= state.turn 1)
+        (done {seed})
+        (continue (loop-state :like state :turn 1))))"""),
     "procedure-argument": Position(
-        "(pass {expr})", decls=("  (defproc pass ((v {type})) -> {type} :effects () :lowering inline v)\n",)
+        "(pass {expr})", decls=("  (defproc pass ((v {type})) -> {type} v)\n",)
     ),
     "match-arm-result": Position("""(let* ((door (gate 1)))
       (match door
