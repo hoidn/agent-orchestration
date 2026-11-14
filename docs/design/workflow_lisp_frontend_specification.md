@@ -2479,9 +2479,9 @@ An effect may be written wherever a value is expected in a workflow or
 procedure body; effects run in the order written, each once, and `if`, `cond`,
 `match`, `and` and `or` run only the branch they take. `call` and procedure
 arguments, operator operands, `record-update` operands, `if` and `cond`
-conditions, a `match` subject, a `let*` binding, a `done` or `continue` value,
-a loop `:state` and `:max` and a command's `:argv` take any expression that
-holds an effect.
+conditions, a `let*` binding, a `done` value, a loop `:state` and `:max` and a
+command's `:argv` take any expression that holds an effect; a `continue` value
+and a `match` subject do, with the exceptions below.
 
 - *A record or variant field, a list element, a `path/join-under` child, a
   `list/map` or `list/map-effect` source and an `:on-exhausted` value take an
@@ -2538,7 +2538,8 @@ holds an effect.
   procedure result. Open defect, as before these places took effects: a
   `continue` value that is an `if` with a branch that is an `if` holding a
   command or a call of a workflow or procedure that holds an effect ends in
-  `compiler_defect`; bound first, it runs.
+  `compiler_defect`; bound first, it runs. So does a `match` subject that is a
+  procedure call with an effect under a conditional in its argument.
 - *A parallel map whose binder a macro template introduces takes a pure
   source.* With an effect in its source it is refused as before
   (`effect_not_permitted`, or `list_map_effect_body_unsupported` when the
