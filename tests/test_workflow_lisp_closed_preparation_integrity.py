@@ -783,3 +783,44 @@ def test_a_source_changed_during_typecheck_is_not_a_compiler_defect(tmp_path, mo
     monkeypatch.setattr(frontend, "read_sexpr_file", read_then_edit)
     with pytest.raises(SourceChangedDuringReadError):
         build(tmp_path, _ONE_LINE)
+
+
+_TOO_LONG = "1" * 5000  # beyond CPython's limit on converting a decimal string to `int`
+
+
+def _module(name, *forms):
+    return f'(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule {name}) {" ".join(forms)})'
+
+
+def _too_long_literal_project(root, where):
+    """`m.orc` and its flags, with a too-long literal in the entry module, an imported module, or a module that a
+    workflow bundle imports."""
+    import json
+
+    run = "(defworkflow run () -> Int 1)"
+    big = f"(export big) (defproc big () -> Int {_TOO_LONG})"
+    entry = {"entry": _module("m", "(export run)", run.replace(" 1)", f" {_TOO_LONG})")),
+             "import": _module("m", "(import m/lib) (export run)", run)}.get(where, _module("m", "(export run)", run))
+    (root / "m.orc").write_text(entry, encoding="utf-8")
+    (root / "commands.json").write_text("{}", encoding="utf-8")
+    flags = ["--entry-workflow", "m::run", "--source-root", ".", "--command-boundaries-file", "commands.json"]
+    if where == "import":
+        (root / "m").mkdir()
+        (root / "m" / "lib.orc").write_text(_module("m/lib", big), encoding="utf-8")
+    if where == "bundle-import":
+        (root / "lib").mkdir()
+        (root / "lib" / "x.orc").write_text(_module("lib/x", big), encoding="utf-8")
+        (root / "lib.orc").write_text(_module("lib", "(import lib/x) (export run)", run), encoding="utf-8")
+        (root / "bundles.json").write_text(json.dumps(
+            {"lib": {"kind": "compiled", "path": "lib.orc", "entry_workflow": "lib::run"}}), encoding="utf-8")
+        flags += ["--imported-workflow-bundles-file", "bundles.json"]
+    return flags
+
+
+@pytest.mark.parametrize("where", ["entry", "import", "bundle-import"])
+@pytest.mark.parametrize("command", ["compile", "run"])
+def test_an_integer_literal_too_long_to_convert_is_a_parse_error(tmp_path, command, where):
+    from tests.workflow_inprocess_cli_helpers import cli_inprocess
+
+    done = cli_inprocess(tmp_path, command, "m.orc", *_too_long_literal_project(tmp_path, where))
+    assert (done.returncode, _printed_codes(done.stderr)) == (2, ["frontend_parse_error"])

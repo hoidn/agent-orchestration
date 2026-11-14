@@ -3716,7 +3716,7 @@ WCC-generated Core AST validation are historical architecture.
   build. It is reported at the authored form handled by the innermost tagged
   stage, else at the start of the module being compiled (the usual case during
   typecheck), and its message ends with the innermost function of the
-  compiler that raised it; the internal checks
+  orchestrator package that raised it; the internal checks
   `compiler_defect_loop_control_value`, `compiler_defect_hoisted_binding_rename`
   and `compiler_defect_constructor_type_dropped` have codes of their own
 

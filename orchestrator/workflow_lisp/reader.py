@@ -380,7 +380,7 @@ class _Reader:
                 end=end,
             )
         if _INTEGER_RE.match(token):
-            return IntAtom(value=int(token), span=SourceSpan(start=start, end=end))
+            return self._int_atom(token, start=start, end=end)
         if _FLOAT_RE.match(token):
             return FloatAtom(value=float(token), span=SourceSpan(start=start, end=end))
         if token.startswith(":"):
@@ -388,6 +388,13 @@ class _Reader:
                 self._raise_error("invalid keyword token", start=start, end=end)
             return KeywordAtom(value=token, span=SourceSpan(start=start, end=end))
         return SymbolAtom(value=token, span=SourceSpan(start=start, end=end))
+
+    def _int_atom(self, token: str, *, start: SourcePosition, end: SourcePosition) -> IntAtom:
+        try:
+            value = int(token)
+        except ValueError:  # CPython refuses to convert a decimal string of more than 4300 digits
+            self._raise_error("integer literal is too long", start=start, end=end)
+        return IntAtom(value=value, span=SourceSpan(start=start, end=end))
 
     def _skip_ignored(self) -> None:
         while not self._at_end():
