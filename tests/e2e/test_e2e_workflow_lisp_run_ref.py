@@ -18,22 +18,21 @@ def test_current_run_ref_inside_loop_recur_retains_child_value_and_effect(tmp_pa
         """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule controller)
   (export orchestrate)
   (defworkflow child () -> Bool
     true)
   (defworkflow orchestrate () -> Bool
-    (loop/recur :max 1 :state false
-      (fn (state)
-        (let* ((attempt
-                 (run-ref
-                   :source (:repo "file:///candidate"
-                            :commit "0000000000000000000000000000000000000000")
-                   :program (:bundle child)
-                   :inputs ()
-                   :policy (:setup ()))))
-          (done attempt.value))))))
+    (loop/recur ((state false)) :max 1
+      (let* ((attempt
+               (run-ref
+                 :source (:repo "file:///candidate"
+                          :commit "0000000000000000000000000000000000000000")
+                 :program (:bundle child)
+                 :inputs ()
+                 :policy (:setup ()))))
+        (done attempt.value)))))
 """,
         encoding="utf-8",
     )

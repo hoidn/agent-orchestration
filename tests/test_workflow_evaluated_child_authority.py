@@ -30,7 +30,7 @@ def _terminal_digest(root):
 
 
 def test_child_terminal_proof_binds_exact_authority_bytes(tmp_path, monkeypatch):
-    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))
+    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.40"))
     launched = []
 
     def launch_real(launch):

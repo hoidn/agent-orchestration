@@ -30,11 +30,11 @@ def test_imported_generic_specializations_and_local_proc_hooks_execute(
         producer_root.mkdir()
         producer_path = install(
             producer_root,
-            f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+            f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
               (defmodule {module}) (export {workflow})
               {type_definition}
               (defproc identity :forall (T) ((value T)) -> T
-                :effects () :lowering inline value)
+ value)
               (defworkflow {workflow} (({formal} {type_name})) -> {type_name}
                 (identity {formal})))''',
         )
@@ -51,7 +51,7 @@ def test_imported_generic_specializations_and_local_proc_hooks_execute(
     consumer_root.mkdir()
     consumer_path = install(
         consumer_root,
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule consumer) (export run)
           (defrecord Payload (count Int) (flag Bool))
           (defrecord Result (number Int) (payload Payload))
@@ -145,7 +145,7 @@ def test_captured_let_proc_calls_imported_workflow_after_readback(
     producer_root.mkdir()
     producer_path = install(
         producer_root,
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule producer) (export keep)
           (defworkflow keep ((value Int)) -> Int (+ value 1)))''',
     )
@@ -162,10 +162,10 @@ def test_captured_let_proc_calls_imported_workflow_after_readback(
     consumer_root.mkdir()
     consumer_path = install(
         consumer_root,
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule consumer) (export run)
           (defproc apply ((runner ProcRef[Int -> Int]) (value Int)) -> Int
-            :effects () :lowering inline (runner value))
+            (runner value))
           (defworkflow run ((number Int)) -> Int
             (let-proc (saved ((value Int)) -> Int :captures (number)
                 (call dep :value (+ value number)))
@@ -247,7 +247,7 @@ def test_same_module_generic_specializations_execute_with_distinct_types(
 def test_imported_context_captures_execute_after_artifact_readback(tmp_path: Path) -> None:
     from orchestrator.workflow.evaluated.machine import evaluate_closed_program
 
-    producer_source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    producer_source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule producer)
       (import std/context :only (PhaseCtx))
       (import std/phase :only (with-phase))
@@ -259,7 +259,7 @@ def test_imported_context_captures_execute_after_artifact_readback(tmp_path: Pat
           third))
       (defworkflow run-phase ((phase__ctx PhaseCtx) (payload Int)) -> Int
         (with-phase phase__ctx plan-gate-wrapper payload)))'''
-    consumer_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+    consumer_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule consumer)
       (import std/context :only (PhaseCtx))
       (export run)
@@ -330,7 +330,7 @@ def test_public_old_import_private_helper_keeps_context_override_and_default(tmp
     from tests.workflow_evaluated_context_helpers import assert_completed_resumes
 
     binding = ':phase-ctx explicit' if explicit_call else ''
-    producer = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    producer = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule producer) (import std/context :only (PhaseCtx))
       (import std/phase :only (with-phase)) (export entry)
       (defworkflow entry ((explicit PhaseCtx)) -> String (call helper {binding}))
@@ -338,7 +338,7 @@ def test_public_old_import_private_helper_keeps_context_override_and_default(tmp
         (with-phase phase-ctx plan-gate-wrapper
           (if (= n 7) (symbol/name phase-ctx.phase-name) "lost-default"))))''')
     extra = '' if explicit_call else ':phase-ctx ctx'
-    consumer = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    consumer = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule consumer) (import std/context :only (PhaseCtx)) (export entry)
       (defworkflow entry ((ctx PhaseCtx) (explicit PhaseCtx)) -> String
         (call dep :explicit explicit {extra})))''')

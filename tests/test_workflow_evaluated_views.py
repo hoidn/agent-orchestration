@@ -122,7 +122,7 @@ def test_invalidation_replaces_old_completed_view_and_preserves_commit_rows(tmp_
 
 def _path_run(root):
     source = root / "paths.orc"
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule paths) (export run)
       (defpath WorkPath :kind relpath :under "artifacts" :must-exist true)
       (defworkflow run () -> WorkPath
@@ -150,7 +150,7 @@ def test_committed_must_exist_path_is_a_value_after_referent_disappears(tmp_path
 
 @pytest.mark.parametrize("structure", ["helper", "nested"])
 def test_nested_loop_run_ref_values_replay_without_child_proof_or_source_io(tmp_path, monkeypatch, structure):
-    parent, source, refs = _repeated_fixture(tmp_path, child_target="2.35", structure=structure, forwarding=True)
+    parent, source, refs = _repeated_fixture(tmp_path, child_target="2.40", structure=structure, forwarding=True)
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
     assert result.returncode == 0, result.stderr
     authority, snapshot = _authority(parent)
@@ -295,7 +295,7 @@ def test_three_authority_siblings_are_captured_once_through_borrowed_descriptor(
 
 
 def test_terminal_requires_coordinator_settlement_without_reconciling(tmp_path, monkeypatch):
-    parent, source, refs = _repeated_fixture(tmp_path, child_target="2.35")
+    parent, source, refs = _repeated_fixture(tmp_path, child_target="2.40")
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
     assert result.returncode == 0, result.stderr
     authority, snapshot = _authority(parent)
@@ -420,7 +420,7 @@ def test_coordinator_terminal_corruption_remains_readonly_refusal(tmp_path, monk
 
 def test_pure_failure_cannot_hide_unreachable_pending_effect(tmp_path, monkeypatch):
     source = tmp_path / "pending-pure.orc"
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule pending-pure) (export run)
       (defworkflow run ((divisor Float)) -> Float
         (if (command-result choose :argv ("python" "choose.py") :returns Bool)

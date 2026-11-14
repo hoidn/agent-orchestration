@@ -14,16 +14,15 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from tests.agent_session_shims import install_agent_shims, shim_requests
 from tests.test_workflow_evaluated_invalidate import _cli
 
-SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Note (text String))
   (defworkflow run ((task String) (n Int)) -> Note
     (let* ((designer (agent providers.codex :model "chosen-model" :effort "low"))
-           (copies (loop/recur :max 3 :state (loop-state (i Int 0)) :on-exhausted 0
-                      (fn (state)
-                        (if (>= state.i n) (done state.i)
-                            (let* ((inner (agent providers.claude :model "m2")))
-                              (continue (loop-state :like state :i (+ state.i 1)))))))))
+           (copies (loop/recur ((state (loop-state (i Int 0)))) :max 3 :on-exhausted 0
+                      (if (>= state.i n) (done state.i)
+                          (let* ((inner (agent providers.claude :model "m2")))
+                            (continue (loop-state :like state :i (+ state.i 1))))))))
       (record Note :text task))))'''
 
 

@@ -142,7 +142,7 @@ def test_watcher_current_limit_resumes_existing_run(watcher, monkeypatch, interr
 def test_watcher_evaluated_completed_never_requeues_before_recipe_refusal(watcher):
     workspace = watcher.workspace
     source = workspace / "drain.orc"
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule drain) (export run)
       (defrecord Drain (drain_status String) (tranche_manifest_path String) (message String))
       (defworkflow run ((tranche_manifest_target_path String)) -> Drain

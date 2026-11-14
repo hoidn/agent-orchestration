@@ -12,7 +12,7 @@ from orchestrator.workflow.evaluated.memo import read_memo
 from tests.agent_session_shims import install_agent_shims, shim_requests
 from tests.test_workflow_evaluated_invalidate import _cli
 
-SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Draft (text String)) (defrecord Feedback (notes List[String]))
   (defprompt draft (:fills (task :text)) -> Draft "Draft: {task}")
@@ -336,7 +336,7 @@ def test_config_digest_change_refuses_policy_mismatch(tmp_path) -> None:
     assert excinfo.value.code == "agent_policy_mismatch"
 
 
-BUNDLE_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+BUNDLE_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defpath ResultBundle :kind relpath :under ".orchestrate/runs" :must-exist false)
   (defrecord Draft (text String))
@@ -357,7 +357,7 @@ def test_agent_turn_result_exposes_its_committed_bundle_path(tmp_path, monkeypat
     assert _cli(tmp_path, "resume", run_root.name).returncode == 0
 
 
-UNCONSUMED_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+UNCONSUMED_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Draft (text String))
   (defprompt draft (:fills (task :text)) -> Draft "Draft: {task}")

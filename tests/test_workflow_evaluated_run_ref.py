@@ -18,7 +18,7 @@ from tests.test_workflow_evaluated_invalidate import _tree_bytes
 from tests.test_workflow_evaluated_resume import _resume_cli
 
 
-def _public_fixture(root: Path, *, child_target="2.35", parent_target="2.35", body=None,
+def _public_fixture(root: Path, *, child_target="2.40", parent_target="2.40", body=None,
     definitions="", inputs="", call_inputs="", child_body="true", child_definitions="", returns="Bool", parameters="", imports="", child_imports=""):
     candidate = root / "candidate"
     commit = _commit_candidate(candidate, f'''(workflow-lisp
@@ -51,7 +51,7 @@ def _assert_readonly_resumes(parent, authority, refs):
         assert (_tree_bytes(parent), _tree_bytes(refs)) == before
 
 
-@pytest.mark.parametrize("child_target", ["2.35", "2.36"])
+@pytest.mark.parametrize("child_target", ["2.40"])
 def test_public_parent_child_matrix_and_k7(tmp_path, child_target):
     parent, source, refs = _public_fixture(tmp_path, child_target=child_target)
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
@@ -83,7 +83,7 @@ def test_public_parent_child_matrix_and_k7(tmp_path, child_target):
     _assert_readonly_resumes(parent, authority, refs)
 
 
-@pytest.mark.parametrize("child_target", ["2.24", "2.35"])
+@pytest.mark.parametrize("child_target", ["2.24", "2.40"])
 def test_public_legacy_parent_retains_child_target_boundary(tmp_path, child_target):
     parent, source, refs = _public_fixture(tmp_path, child_target=child_target, parent_target="2.24")
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
@@ -106,24 +106,22 @@ def _assert_retired_child_refusal(parent, source, refs, *inputs):
     assert not (Path(request["child_state_dir"]) / request["child_run_id"]).exists()
 
 
-def _repeated_fixture(root, *, child_target="2.35", structure="direct", forwarding=False):
+def _repeated_fixture(root, *, child_target="2.40", structure="direct", forwarding=False):
     definitions = ""
     if structure != "direct":
         leaf = lambda call: f'''(defproc invoke ((flag Bool)) -> Bool
-          :effects ((runs-ref run)) :lowering inline (let* ((child {call})) child.value))'''
+          (let* ((child {call})) child.value))'''
         definitions = leaf
         if structure == "nested":
             definitions = lambda call: leaf(call) + '''(defproc outer ((flag Bool)) -> Bool
-              :effects ((runs-ref run)) :lowering inline
-              (loop/recur :max 1 :state (loop-state (current Bool flag))
-                :on-exhausted false (fn (state) (done (invoke state.current)))))'''
+              (loop/recur ((state (loop-state (current Bool flag)))) :max 1
+                :on-exhausted false (done (invoke state.current))))'''
     def body(call):
         value = f'(let* ((child {call})) child.value)' if structure == "direct" else (
             '(outer state.current)' if structure == "nested" else '(invoke state.current)')
-        return f'''(loop/recur :max 2
-          :state (loop-state (current Bool {"false" if forwarding else "true"}) (round Int 0))
-          :on-exhausted false (fn (state) (let* ((value {value}))
-            (if (= state.round 0) (continue (record-update state :current true :round 1)) (done value)))))'''
+        return f'''(loop/recur ((state (loop-state (current Bool {"false" if forwarding else "true"}) (round Int 0)))) :max 2
+          :on-exhausted false (let* ((value {value}))
+            (if (= state.round 0) (continue (record-update state :current true :round 1)) (done value))))'''
     return _public_fixture(root, child_target=child_target, body=body, definitions=definitions,
         inputs="(flag Bool)", call_inputs=":flag " + ("state.current" if structure == "direct" else "flag"), child_body="flag")
 
@@ -135,7 +133,7 @@ def _assert_distinct_repeated_visits(proofs):
     assert all(proof["visit"]["visit_count"] == proof["attempt_ordinal"] == 1 for proof in proofs)
 
 
-@pytest.mark.parametrize("child_target", ["2.35", "2.36"])
+@pytest.mark.parametrize("child_target", ["2.40"])
 @pytest.mark.parametrize("structure", ["direct", "helper", "nested"])
 @pytest.mark.parametrize("forwarding", [False, True], ids=["same-inputs", "state-input"])
 def test_public_same_site_continue_done_keeps_distinct_k7(tmp_path, child_target, structure, forwarding):
@@ -173,7 +171,8 @@ def test_public_private_and_native_calls_keep_resolved_child_inputs(tmp_path, ed
             '(defproc invoke ((flag Bool)) -> Bool :effects ((runs-ref run)) :lowering private-workflow')
         return f'{header} (let* ((child {call})) child.value))'
     invoke = '(call invoke :flag true)' if edge == "native" else '(invoke true)'
-    parent, source, refs = _public_fixture(tmp_path, definitions=definitions, body=lambda call: invoke,
+    parent, source, refs = _public_fixture(tmp_path, child_target="2.35", parent_target="2.35",
+        definitions=definitions, body=lambda call: invoke,
         inputs="(flag-name Bool)", call_inputs=":flag-name flag", child_body="flag-name")
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
     assert result.returncode == 0, result.stderr
@@ -188,11 +187,11 @@ def test_public_private_and_native_calls_keep_resolved_child_inputs(tmp_path, ed
 
 @pytest.mark.parametrize("note", [None, "present"])
 def test_public_nested_values_keep_child_default_omissions(tmp_path, note):
-    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
+    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule common)
       (export Packet Choice) (defunion Choice (KEEP (text String)) (DROP))
       (defrecord Packet (flag Bool) (choices List[Choice]) (scores Map[String,Int]) (note Optional[String])))'''
     imported = '(import common :only (Packet Choice))'
-    parent, source, refs = _public_fixture(tmp_path, child_target="2.35", imports=imported,
+    parent, source, refs = _public_fixture(tmp_path, child_target="2.40", imports=imported,
         child_imports=imported, parameters="(payload Packet)",
         inputs='(payload Packet) (label String :default "omitted")', call_inputs=":payload payload",
         child_body="payload", returns="Packet", body=lambda call: f'(let* ((child {call})) child.value.flag)')
@@ -228,10 +227,10 @@ def _add_common_source(parent, source, candidate, common):
 def test_public_path_copy_is_confined_to_prepare_and_preserves_child_recipe(tmp_path, monkeypatch):
     from orchestrator.cli.commands.resume import resume_workflow
     from orchestrator.workflow.run_ref import runtime
-    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
+    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule common)
       (export WorkPath) (defpath WorkPath :kind relpath :under "artifacts" :must-exist true))'''
     imported = '(import common :only (WorkPath))'
-    parent, source, refs = _public_fixture(tmp_path, child_target="2.35", imports=imported, child_imports=imported,
+    parent, source, refs = _public_fixture(tmp_path, child_target="2.40", imports=imported, child_imports=imported,
         parameters="(payload WorkPath)", inputs="(payload WorkPath)", call_inputs=":payload payload",
         child_body="payload", returns="WorkPath", body=lambda call: f'(let* ((child {call})) true)')
     _add_common_source(parent, source, tmp_path / "candidate", common)

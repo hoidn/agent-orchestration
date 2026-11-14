@@ -36,7 +36,7 @@ def _program(
 ):
     source = root / "lifecycle.orc"
     source.write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule lifecycle) (export run) ' + declarations +
         '(defworkflow run () -> Int ' + body + '))\n',
         encoding="utf-8",

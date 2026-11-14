@@ -156,7 +156,7 @@ def test_public_semantic_change_refuses_without_repeating_effects(tmp_path, monk
     assert (tmp_path / "requests.jsonl").read_bytes() == requests
 
 
-MACRO_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+MACRO_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule macro/entry) (export run) (defrecord Box (n Int))
   (defworkflow-alias run ((tmp Int)) Int
     (let* ((got (command-result fetch :argv ("python" "probe.py" "fetch" tmp) :returns Box)))
@@ -226,7 +226,7 @@ def _hidden_macro_files(root, kind):
         return files, "generated", "neurips/macros.orc"
     if kind == "command":
         source = (fixtures / "invalid/macro_hidden_command_effect.orc").read_text()
-        source = source.replace('(:target-dsl "2.35")', '(:target-dsl "2.35") (defmodule main) (export command_checks)')
+        source = source.replace('(:target-dsl "2.40")', '(:target-dsl "2.40") (defmodule main) (export command_checks)')
         files["commands"].write_text(json.dumps({"run_checks": {"kind": "external_tool",
             "stable_command": ["python", "probe.py"], "closure": ["probe.py"]}}))
         entry = "command_checks"

@@ -22,23 +22,19 @@ from tests.workflow_lisp_closed_program_helpers import TARGET
 def test_loop_literal_result_retains_choices_without_reading_unused_state(
     tmp_path: Path, decisions: tuple[bool, ...], expected: int,
 ) -> None:
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule loop_choices) (export run)
       (defproc check ((n Int)) -> Bool
-        :effects ((uses-command check)) :lowering inline
         (command-result check :argv ("python" "probe.py" n) :returns Bool))
       (defproc work ((n Int)) -> Int
-        :effects ((uses-command work)) :lowering inline
         (command-result work :argv ("python" "probe.py" n) :returns Int))
       (defworkflow run ((budget Int) (seed Int) (unused Int)) -> Int
-        (loop/recur :max budget
-          :state (loop-state (i Int seed))
+        (loop/recur ((state (loop-state (i Int seed)))) :max budget
           :on-exhausted 7
-          (fn (state)
-            (if (check 5)
-              (let* ((observed (work 5)))
-                (continue (loop-state :like state :i observed)))
-              (done 99))))))'''
+          (if (check 5)
+            (let* ((observed (work 5)))
+              (continue (loop-state :like state :i observed)))
+            (done 99)))))'''
     boundaries = {
         name: ExternalToolBinding(
             name=name, stable_command=("python", "probe.py"), closure=()
@@ -146,16 +142,14 @@ def test_loop_continue_done_and_parser_ordered_seed_budget(tmp_path: Path) -> No
 
 
 def test_loop_exhaustion_returns_the_last_committed_state(tmp_path: Path) -> None:
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule exhaustion_machine) (export run)
       (defworkflow run () -> Int
-        (loop/recur :max 2
-          :state (loop-state (i Int 0))
+        (loop/recur ((state (loop-state (i Int 0)))) :max 2
           :on-exhausted state.i
-          (fn (state)
-            (if (= state.i 99)
-              (done state.i)
-              (continue (loop-state :like state :i (+ state.i 1))))))))'''
+          (if (= state.i 99)
+            (done state.i)
+            (continue (loop-state :like state :i (+ state.i 1)))))))'''
     program = _build_read_back(
         tmp_path, {"exhaustion_machine.orc": source}, "exhaustion_machine::run"
     )
@@ -166,22 +160,18 @@ def test_loop_exhaustion_returns_the_last_committed_state(tmp_path: Path) -> Non
 def test_loop_budget_result_dependency_does_not_leak_into_body_effect_inputs(
     tmp_path: Path,
 ) -> None:
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule loop_budget_dependencies) (export run)
       (defproc get-budget ((n Int)) -> Int
-        :effects ((uses-command get-budget)) :lowering inline
         (command-result get-budget :argv ("python" "probe.py" n) :returns Int))
       (defproc work ((n Int)) -> Int
-        :effects ((uses-command work)) :lowering inline
         (command-result work :argv ("python" "probe.py" n) :returns Int))
       (defworkflow run ((iterations Int)) -> Int
-        (loop/recur :max (get-budget iterations)
-          :state (loop-state (i Int 0))
+        (loop/recur ((state (loop-state (i Int 0)))) :max (get-budget iterations)
           :on-exhausted 7
-          (fn (state)
-              (if (< 0 state.i)
-                (continue (loop-state :like state :i (+ state.i 1)))
-                (let* ((observed (work 5))) (done (+ observed 4))))))))'''
+          (if (< 0 state.i)
+            (continue (loop-state :like state :i (+ state.i 1)))
+            (let* ((observed (work 5))) (done (+ observed 4)))))))'''
     boundaries = {
         name: ExternalToolBinding(
             name=name, stable_command=("python", "probe.py"), closure=()

@@ -22,7 +22,7 @@ from tests.workflow_lisp_closed_program_helpers import TARGET, build, install
 # only the target header is parameterized. Keep progress before execution.
 _FIXED_PHASE_TARGET_SOURCE = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "TARGET")
+  (:target-dsl "2.40")
   (defmodule phase_targets_swapped)
   (import std/phase :only (with-phase))
   (defenum BlockerClass

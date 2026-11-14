@@ -72,7 +72,7 @@ def test_reserved_recipe_preserves_complete_logical_request(reserved, monkeypatc
     import builtins
     args, root, snapshot, fd, identity = reserved
     (snapshot / "commands.json").write_text("{}")
-    (snapshot / "producer.orc").write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule producer) (export run) (defworkflow run () -> String "unused"))')
+    (snapshot / "producer.orc").write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule producer) (export run) (defworkflow run () -> String "unused"))')
     (snapshot / "imports.json").write_text(json.dumps({"unused": {"kind": "compiled", "path": "producer.orc"}}))
     (snapshot / "inputs.json").write_text('{"score":"0.1"}')
     physical_root = args.physical_build_request.source_roots[0]

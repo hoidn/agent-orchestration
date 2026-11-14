@@ -137,7 +137,7 @@ def test_original_wref_requests_keep_left_right_and_parent_reader(tmp_path):
 
 def test_original_direct_requests_share_body_with_distinct_physical_readers(tmp_path):
     _, imports = _stages(tmp_path)
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run) (defrecord Box (n Int))
       (defworkflow run ((input Box)) -> Box
         (let* ((a (call left :input input)) (b (call right :input a))) b)))'''
@@ -287,7 +287,7 @@ def test_build_result_delivers_carrier_bound_to_returned_readback(tmp_path):
     from orchestrator.workflow_lisp.build import FrontendBuildRequest
     from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 
-    source = _write(tmp_path / "source.orc", '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = _write(tmp_path / "source.orc", '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defworkflow run () -> Bool (provider-result provider :prompt prompt :inputs () :returns Bool)))''')
     providers = _write(tmp_path / "providers.json", json.dumps(CONFIG["provider_externs"]))
     prompts = _write(tmp_path / "prompts.json", json.dumps(CONFIG["prompt_externs"]))
@@ -300,10 +300,10 @@ def test_build_result_delivers_carrier_bound_to_returned_readback(tmp_path):
 
 
 def test_local_procedure_reference_preserves_reader_after_source_deletion(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run) (defrecord Box (n Int))
       (defproc invoke ((hook ProcRef[Box -> Box]) (input Box)) -> Box
-        :effects () :lowering inline (hook input))
+        (hook input))
       (defworkflow run ((input Box)) -> Box
         (let-proc (local ((value Box)) -> Box :captures ()
           (provider-result provider :prompt prompt :inputs (value.n) :returns Box))
@@ -322,7 +322,7 @@ def test_direct_typed_import_retains_selected_source_reader(tmp_path):
     root = tmp_path / "producer"
     path = _write(root / "cp/producer.orc", PRODUCER)
     producer = compile_typed_program(path, entry_workflow="run", source_roots=(root,), **CONFIG)
-    source = _write(tmp_path / "main.orc", '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = _write(tmp_path / "main.orc", '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run) (defrecord Box (n Int))
       (defworkflow run ((input Box)) -> Box (call child :input input)))''')
     typed = compile_typed_program(source, entry_workflow="run", source_roots=(tmp_path,),
@@ -436,17 +436,17 @@ def test_capture_remap_preserves_nominal_objects_and_original_facts(tmp_path):
 
 def test_transitive_workflow_uses_current_typed_import(tmp_path):
     sources = {
-        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule lib/helper) (export R ask) (defrecord R (n Int))
           (defworkflow ask ((input R)) -> R
             (provider-result provider :prompt prompt :inputs (input.n) :returns R)))''',
-        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule app/parent) (import lib/helper :as helper) (export run)
           (defworkflow run ((input helper.R)) -> helper.R
             (call helper.ask :input input)))''',
         "lib/prompt.md": "HELPER\n"}
     snapshot, imports = _stages(tmp_path, sources, "app/parent.orc", "app/parent::run")
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run) (defrecord R (n Int))
       (defworkflow run ((input R)) -> R
         (let* ((a (call left :input input)) (b (call right :input a))) b)))'''

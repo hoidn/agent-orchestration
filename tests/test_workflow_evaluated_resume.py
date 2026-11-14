@@ -152,11 +152,11 @@ def _configured_completed(tmp_path, monkeypatch, pristine=None):
     source, _ = _build(tmp_path)
     for name in ('providers', 'prompts', 'commands', 'imports'):
         (tmp_path / (name + '.json')).write_text('{}')
-    (tmp_path / 'producer.orc').write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule producer) (export run) (defworkflow run () -> String "unused"))')
+    (tmp_path / 'producer.orc').write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule producer) (export run) (defworkflow run () -> String "unused"))')
     (tmp_path / 'imports.json').write_text(json.dumps({'unused': {'kind': 'compiled', 'path': 'producer.orc'}}))
     library = tmp_path / 'lib' / 'helpers'
     library.mkdir(parents=True)
-    (library / 'math.orc').write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule lib/helpers/math) (export noop) (defproc noop () -> Int :effects () :lowering inline 1))')
+    (library / 'math.orc').write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule lib/helpers/math) (export noop) (defproc noop () -> Int 1))')
     source.write_text(source.read_text().replace('(export run)', '(import lib/helpers/math :only (noop)) (export run)'))
     file = tmp_path / 'inputs.json'
     file.write_text('{"score": 0.1, "threshold": 0.25}')
@@ -381,7 +381,7 @@ def test_program_comparison_precedes_invalid_file_inputs_and_artifact(tmp_path, 
 
 def test_c3_checks_all_emitted_interpreters_before_memo(tmp_path, monkeypatch, caplog):
     source = tmp_path / 'c3.orc'
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
         (defmodule c3) (export run) (defworkflow run () -> Int
         (if false (command-result unused :argv ("resume-tool" "probe.py") :returns Int) 3)))''')
     tools = tmp_path / 'bin'

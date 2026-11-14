@@ -81,7 +81,7 @@ def _run_root(root: Path) -> Path:
 def _start_pending_command_retry(tmp_path: Path, pending_shape: str, must_not_repeat: bool):
     source = tmp_path / "retry.orc"
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule retry) (export run)
           (defworkflow run () -> Int
             (command-result emit :argv ("python" "probe.py") :returns Int)))''',
@@ -222,7 +222,7 @@ def test_public_pending_certified_package_helper_preflights_and_retries_from_cop
 
     source = tmp_path / "package-retry.orc"
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule package-retry) (export run)
           (defpath ReviewFindingsJsonPath :kind relpath :under "artifacts/work" :must-exist true)
           (defrecord ReviewFindings (schema_version String) (items_path ReviewFindingsJsonPath))

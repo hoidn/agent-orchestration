@@ -121,16 +121,15 @@ def test_imported_inline_helper_keeps_native_input_root_outside_loops(tmp_path: 
     helper = tmp_path / "src" / "r12" / "helper.orc"
     helper.parent.mkdir(parents=True)
     helper.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule r12/helper) (export echo-label)
           (defproc echo-label ((label String)) -> Int
-            :effects ((uses-command emit)) :lowering inline
             (command-result emit :argv
               ("python" "probe.py" "imported-proc" label "${inputs.state_root}") :returns Int)))
 ''',
         encoding="utf-8",
     )
-    source = _write_entry(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = _write_entry(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule r12/entry) (import r12/helper :as helper :only (echo-label))
       (export run)
       (defworkflow run ((state_root String :default "PARENT")) -> Int
@@ -146,24 +145,22 @@ def test_imported_inline_helper_keeps_native_input_root_outside_loops(tmp_path: 
 
 
 def test_nested_direct_loops_use_the_innermost_zero_based_command_index(tmp_path: Path) -> None:
-    source = _write_entry(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = _write_entry(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule r12/entry) (export run)
       (defworkflow run () -> Int
-        (loop/recur :max 2 :state (loop-state (outer Int 0)) :on-exhausted 99
-          (fn (outer_state)
-            (let* ((inside (loop/recur :max 2 :state (loop-state (inner Int 0)) :on-exhausted 99
-                             (fn (inner_state)
-                               (let* ((value (command-result emit
-                                               :argv ("python" "probe.py"
-                                                 outer_state.outer inner_state.inner "${loop.index}")
-                                               :returns Int)))
-                                 (if (< inner_state.inner 1)
-                                   (continue (loop-state :like inner_state
-                                     :inner (+ inner_state.inner 1)))
-                                   (done value)))))))
-              (if (< outer_state.outer 1)
-                (continue (loop-state :like outer_state :outer (+ outer_state.outer 1)))
-                (done inside)))))))
+        (loop/recur ((outer_state (loop-state (outer Int 0)))) :max 2 :on-exhausted 99
+          (let* ((inside (loop/recur ((inner_state (loop-state (inner Int 0)))) :max 2 :on-exhausted 99
+                           (let* ((value (command-result emit
+                                           :argv ("python" "probe.py"
+                                             outer_state.outer inner_state.inner "${loop.index}")
+                                           :returns Int)))
+                             (if (< inner_state.inner 1)
+                               (continue (loop-state :like inner_state
+                                 :inner (+ inner_state.inner 1)))
+                               (done value))))))
+            (if (< outer_state.outer 1)
+              (continue (loop-state :like outer_state :outer (+ outer_state.outer 1)))
+              (done inside))))))
 ''')
     _write_probe(tmp_path)
 
@@ -278,7 +275,7 @@ def test_private_and_native_edges_reset_loop_index_before_dispatch(
 def test_input_slots_select_native_rows_and_keep_value_suffixes_as_paths(
     tmp_path: Path, slot: str, expected_exit: int, expected_argv: bytes | None
 ) -> None:
-    source = _write_entry(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = _write_entry(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule r12/entry) (export run)
       (defrecord Pair (x Int))
       (defworkflow run ((pair Pair) (payload Value)) -> Int
@@ -299,7 +296,7 @@ def test_input_slots_select_native_rows_and_keep_value_suffixes_as_paths(
         _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
-_FILTER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+_FILTER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule r12/entry) (export run)
   (defworkflow run ((selected Bool) (payload Value)) -> Int
     (if selected
@@ -372,7 +369,7 @@ def test_unknown_filter_is_checked_only_in_the_selected_command(
 def test_persisted_dependencies_follow_values_not_selected_branch_control(
     tmp_path: Path,
 ) -> None:
-    source = _write_entry(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = _write_entry(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule r12/entry) (export run)
       (defworkflow run () -> Int
         (let* ((decision (command-result choose

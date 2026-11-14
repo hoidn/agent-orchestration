@@ -111,7 +111,7 @@ def test_finalize_requires_exact_reread_active_commit(tmp_path, monkeypatch, cha
     assert not snapshot.settlements and snapshot.terminal is None
 
 
-@pytest.mark.parametrize("child_target", ["2.24", "2.35"])
+@pytest.mark.parametrize("child_target", ["2.24", "2.40"])
 @pytest.mark.parametrize("structure", ["direct", "helper", "nested"])
 def test_public_repetition_resume_after_real_first_settlement(tmp_path, monkeypatch, child_target, structure):
     parent, source, refs = _repeated_fixture(tmp_path, child_target=child_target, structure=structure, forwarding=True)
@@ -164,9 +164,9 @@ def _mixed_fixture(tmp_path, monkeypatch, *, later="command", smoke=False):
     definitions = '(defrecord Result (ok Bool))'
     if smoke:
         definitions = lambda call: f'''(defrecord Result (ok Bool))
-          (defproc leaf () -> Bool :effects ((runs-ref run)) :lowering inline
+          (defproc leaf () -> Bool
             (let* ((child {call})) child.value))
-          (defproc invoke () -> Bool :effects ((runs-ref run)) :lowering inline (leaf))'''
+          (defproc invoke () -> Bool (leaf))'''
         body = lambda call: f'''(let* ((before (command-result emit :argv ("python" "probe.py") :returns Int))
           (answer (invoke)) (provider {provider}) (after {command})) (and answer provider.ok))'''
     else:
@@ -300,7 +300,7 @@ def _install_fault(context, fault):
         context.setattr(adapter, "prepare_run_ref_settlement", fail_prepare)
 
 
-@pytest.mark.parametrize("child_target", ["2.24", "2.35"])
+@pytest.mark.parametrize("child_target", ["2.24", "2.40"])
 @pytest.mark.parametrize("fault", ["before-commit", "after-commit", "settled", "before-child"])
 def test_failed_append_and_settlement_preserve_durable_commit_and_ordinals(tmp_path, monkeypatch, child_target, fault):
     parent, source, refs = _public_fixture(tmp_path, child_target=child_target)
