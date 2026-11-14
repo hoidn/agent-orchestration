@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule review_loop_legacy_bridge_operands_invalid)
   (import std/phase :only (ReviewLoopResult review-revise-loop with-phase))
   (defpath WorkReport

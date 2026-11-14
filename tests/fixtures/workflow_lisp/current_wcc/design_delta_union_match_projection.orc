@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule design_delta_union_match_projection)
   (export summarize)
   (defpath WorkReport

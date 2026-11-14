@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defrecord Payload
     (item-id String))
   (defunion Selection
@@ -12,8 +12,6 @@
   (defproc consume
     ((payload Payload))
     -> String
-    :effects ()
-    :lowering inline
     (let* ((item_id payload.item-id))
       item_id))
   (defproc pick-and-project
@@ -25,8 +23,6 @@
             (SelectionT has-union-variant SELECTED (selection SelPayloadT))
             (SelectionT has-union-variant EMPTY))
     -> String
-    :effects ()
-    :lowering inline
     (match choice
       ((SELECTED s)
        (run s.selection))

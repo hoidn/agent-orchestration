@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defpath WorkReport
     :kind relpath
     :under "artifacts/work"
@@ -15,20 +15,18 @@
   (defworkflow loop-recur-on-exhausted-impure
     ((report_path WorkReport))
     -> ImplementationSummary
-    (loop/recur
+    (loop/recur ((state (loop-state
+                          (status String "pending")
+                          (report WorkReport report_path)
+                          (done Bool false))))
       :max 1
-      :state (loop-state
-               (status String "pending")
-               (report WorkReport report_path)
-               (done Bool false))
       :on-exhausted (provider-result providers.execute
                       :prompt prompts.implementation.execute
                       :inputs (report_path)
                       :returns ImplementationSummary)
-      (fn (state)
-        (if state.done
-          (done
-            (record ImplementationSummary
-              :status state.status
-              :report state.report))
-          (continue state))))))
+      (if state.done
+        (done
+          (record ImplementationSummary
+            :status state.status
+            :report state.report))
+        (continue state)))))
