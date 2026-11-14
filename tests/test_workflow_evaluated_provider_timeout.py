@@ -100,6 +100,16 @@ def test_nonpositive_timeout_refuses_before_started(tmp_path):
             attempts, _launches(root)) == (1, True, [], [], 0), refused.stderr
 
 
+def test_nonpositive_timeout_recovery_offers_a_new_run_or_an_edit_not_resume(tmp_path):
+    root = _workspace(tmp_path, "limit")
+
+    lines = _run(root, 0).stderr.splitlines()
+
+    fresh = [line for line in lines if line.startswith("    ") and " run main.orc " in line]
+    assert (len(fresh), "--input limit=0" in fresh[0], any("--accept-changes" in line for line in lines),
+            [line for line in lines if line.startswith("resume ") or "about [" in line]) == (1, True, True, []), lines
+
+
 def test_run_recorded_with_a_literal_timeout_resumes_unchanged(tmp_path):
     """A run the package recorded before the operand: step `one` committed, step `two` failed; never regenerated."""
     for name in ("main.orc", "providers.json"):

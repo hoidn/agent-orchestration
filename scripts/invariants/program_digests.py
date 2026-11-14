@@ -1,5 +1,5 @@
 """program_digests.py BASETEMP OUT.json: the run-reference program digests. For every `closed_program.json` a serial
-run of the run-reference test modules left under BASETEMP (`inv.sh` with `RUNREF=1`), the SHA-256 of the program
+run of the run-reference test modules left under BASETEMP (`inv.sh` with `RUNREF=DIR`), the SHA-256 of the program
 with `compiler_runtime_identity_digest` (a hash of every package file), its `expected_` form and
 `resolved_commit_sha` (a commit the test itself makes) removed, also inside a base64-encoded run-reference
 `config`, so two package versions can be compared. A program that holds none of them has no run reference and is

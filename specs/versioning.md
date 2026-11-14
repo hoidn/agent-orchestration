@@ -1382,7 +1382,9 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   with `provider_timeout_nonpositive`: exit 1 during a run, nothing launched and no `started`
   record, as for the other refusals before `started` in the [CLI diagnostics](cli.md). A computed
   expression stays `provider_result_timeout_literal_required`, and so does any operand but a
-  literal on a phased call, whose deadline is read before its inputs. Every program that compiled
+  literal on a phased call, whose deadline is read before its inputs. One refusal changes code: a
+  name or field of a type other than `Int` was `provider_result_timeout_literal_required` and is
+  `provider_result_timeout_type_invalid`. Every program that compiled
   before keeps its closed program, digest and identities, and its recorded runs resume.
 
 ### Run-time corrections without a new target

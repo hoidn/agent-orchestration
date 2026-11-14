@@ -189,10 +189,7 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
     policy_count = len(node["policy"])
     policy_values = values[-policy_count:] if policy_count else ()
     policy = dict(zip(node["policy"], policy_values, strict=True))
-    # A timeout from a name or a field is checked here, before `started`; a literal one at compile time.
-    if policy.get("timeout_sec", 1) < 1:
-        raise ProviderPerformerError("provider_timeout_nonpositive",
-                                     f"provider timeout must be positive; value={policy['timeout_sec']}, minimum=1")
+    _check_timeout(policy)
     cut = assemble_provider_prompt_with_cut(
         node, operands, source_text=reads.source_text,
         dependency_snapshot=reads.dependency_snapshot, result_path=result_path, logical_workspace=logical_workspace,
@@ -228,6 +225,13 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
         prompt, policy, parts, provider_expected_outputs(fills, fill_values),
         cut if node["class"] == "provider_phased" else None,
     )
+
+
+def _check_timeout(policy) -> None:
+    """A timeout from a name or a field is checked here, before `started`; a literal one at compile time."""
+    if policy.get("timeout_sec", 1) < 1:
+        raise ProviderPerformerError("provider_timeout_nonpositive",
+                                     f"provider timeout must be positive; value={policy['timeout_sec']}, minimum=1")
 
 
 def check_output_slots(node, resolved, *, workspace, result_path):

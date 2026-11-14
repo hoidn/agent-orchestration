@@ -304,6 +304,12 @@ def _spend_cap_unmetered(exc, context: _Context) -> list[str]:
     return [f"cause {cause}: {fix}", "to continue this run without a cap:", context.resume()]
 
 
+def _timeout_nonpositive(exc, context: _Context) -> list[str]:
+    """`resume` would reach the same value: a new run with the input corrected, or an edit of the source."""
+    return [*context.fresh_run("nothing was launched; when the timeout comes from an input, start a new run with it corrected:"),
+            "when it is written in the source, edit it: resume then prints the plan and its --accept-changes command"]
+
+
 _RECOVERY = {
     "resume_program_changed": _program_changed,
     "resume_inputs_changed": _inputs_changed,
@@ -319,6 +325,7 @@ _RECOVERY = {
     "invalidate_agent_session_advanced": _session_advanced,
     "spend_cap_reached": _spend_cap_reached,
     "spend_cap_unmetered": _spend_cap_unmetered,
+    "provider_timeout_nonpositive": _timeout_nonpositive,
 }
 REFUSAL_CODES: tuple[str, ...] = tuple(_RECOVERY)
 

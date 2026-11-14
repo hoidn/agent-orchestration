@@ -608,7 +608,7 @@ YAML-fenced snippets are structural notation, not authored workflow files.
 
   - Workflow Lisp `provider-result` call policy:
     - The source grammar adds exactly `:model <String expr>`, `:effort <String
-      expr>`, `:timeout-sec <positive Int literal>`, `:delivery
+      expr>`, `:timeout-sec <positive Int literal, name or field>`, `:delivery
       :composed|:phased`, and `:materialization-attempts <Int literal>` as
       optional keyword/value pairs. Each occurs at most once; missing values,
       duplicates, and unknown keywords fail with the established
@@ -618,10 +618,12 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       scalar/template subset. Procedure-reference edges alone are allowed;
       computed expressions outside that subset are rejected rather than lowered
       through a generated projection.
-    - Timeout must be a literal exact `Int` greater than zero. It lowers to the
-      existing `timeout_sec` field and retains the ordinary elapsed-time exit
-      `124` contract; dynamic, boolean, float, string, zero, and negative timeout
-      forms are invalid.
+    - Timeout must be a literal exact `Int` greater than zero or, except with
+      `:delivery :phased`, an effect-free `Int` name or field, whose value below
+      1 refuses the step before its `started` (`provider_timeout_nonpositive`).
+      It lowers to the existing `timeout_sec` field and retains the ordinary
+      elapsed-time exit `124` contract; computed, boolean, float, string, zero,
+      and negative timeout forms are invalid.
     - Present call-policy values lower to the closed compiler-owned
       `provider_call_policy` mapping in canonical `model`, `effort`, `delivery`,
       then `materialization_attempts` order. Model and effort are

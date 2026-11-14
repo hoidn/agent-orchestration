@@ -28,6 +28,11 @@ NAMES_A_PROVIDER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defworkflow run ((q String)) -> String
     (provider-result providers.coder :model "m" :prompt (ask :q q))))
 '''
+NAMES_A_PROMPT_EXTERN = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule extern) (export run)
+  (defworkflow run ((q String)) -> String
+    (provider-result providers.worker.codex :prompt prompts.review :inputs (q) :returns String)))
+'''
 
 
 @pytest.fixture
@@ -73,6 +78,15 @@ def test_compile_all_gives_a_source_that_names_a_provider_its_externs(tree, tmp_
 
     assert json.loads(out.read_text())["workflows/examples/asks.orc"]["exit"] == 0
     assert printed.split() == "3 files; 2 built, 1 of them name a provider".split()
+
+
+def test_compile_all_binds_dotted_provider_names_and_prompt_externs(tree, tmp_path):
+    (tree / "workflows" / "examples" / "extern.orc").write_text(NAMES_A_PROMPT_EXTERN, encoding="utf-8")
+    out = tmp_path / "compile.json"
+
+    _run([sys.executable, str(KIT / "compile_all.py"), str(tree), str(out), "2"], tmp_path, tmp_path)
+
+    assert json.loads(out.read_text())["workflows/examples/extern.orc"]["exit"] == 0
 
 
 def test_digests_snapshots_the_corpus_of_the_tree_on_the_path(tree, tmp_path):
