@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule entry)
   (export run)
   (defenum BlockerClass
@@ -32,23 +32,21 @@
                StateExisting
                "state/imported-stdlib-loop-exhaustion-direct-command-result.json"
                "imported_stdlib_loop_exhaustion_direct_command_result_state_seed")))
-      (loop/recur
+      (loop/recur ((state (loop-state
+                            (items-processed Int 0)
+                            (run-state StateExisting initial-run-state)
+                            (progress-report-path WorkReport progress-report-target))))
         :max 1
-        :state (loop-state
-                 (items-processed Int 0)
-                 (run-state StateExisting initial-run-state)
-                 (progress-report-path WorkReport progress-report-target))
         :on-exhausted
         (command-result run_checks
           :argv ("python" "scripts/run_checks.py" state.progress-report-path)
           :returns DrainTerminalResult)
-        (fn (state)
-          (if false
-            (done
-              (variant DrainTerminalResult EXHAUSTED
-                :report state.progress-report-path
-                :run_state state.run-state
-                :blocker_class BlockerClass.missing_resource))
-            (continue
-              (loop-state :like state
-                :items-processed (+ state.items-processed 1)))))))))
+        (if false
+          (done
+            (variant DrainTerminalResult EXHAUSTED
+              :report state.progress-report-path
+              :run_state state.run-state
+              :blocker_class BlockerClass.missing_resource))
+          (continue
+            (loop-state :like state
+              :items-processed (+ state.items-processed 1))))))))

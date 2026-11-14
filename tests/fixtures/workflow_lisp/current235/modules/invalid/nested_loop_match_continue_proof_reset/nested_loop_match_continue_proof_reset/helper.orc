@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule helper)
   (export GapPayload
           SelectionPayload
@@ -28,14 +28,10 @@
   (defproc select-selection
     ((state SelectionResult))
     -> SelectionResult
-    :effects ()
-    :lowering inline
     state)
   (defproc draft-gap
     ((gap GapPayload))
     -> GapDecision
-    :effects ()
-    :lowering inline
     (variant helper/GapDecision CONTINUE
       :remembered (variant helper/SelectionResult SELECTED
                     :selection (record helper/SelectionPayload

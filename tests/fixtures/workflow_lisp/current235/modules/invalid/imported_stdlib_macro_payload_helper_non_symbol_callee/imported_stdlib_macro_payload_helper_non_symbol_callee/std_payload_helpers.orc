@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule imported_stdlib_macro_payload_helper_non_symbol_callee/std_payload_helpers)
   (export SelectionPayload
           SelectionResult
@@ -31,16 +31,12 @@
   (defproc selection-result-selection-payload
     ((selection-result SelectionResult))
     -> SelectionPayload
-    :effects ()
-    :lowering inline
     (match selection-result
       ((SELECTED selected)
        selected.selection)))
   (defproc render-selection-summary
     ((selection SelectionPayload))
     -> RenderedSummary
-    :effects ()
-    :lowering inline
     (record imported_stdlib_macro_payload_helper_non_symbol_callee/std_payload_helpers/RenderedSummary
       :status "SELECTED"
       :summary-path (__generated-relpath-seed__

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule std_drain_exhaustion)
   (export BlockerClass
           WorkReport
@@ -29,8 +29,6 @@
     ((report_path WorkReport)
      (run_state StateExisting))
     -> DrainTerminalResult
-    :effects ((uses-command run_checks))
-    :lowering inline
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py" report_path run_state)
       :returns DrainTerminalResult))
@@ -38,8 +36,6 @@
     ((report_path WorkReport)
      (run_state StateExisting))
     -> DrainTerminalResult
-    :effects ()
-    :lowering inline
     (variant DrainTerminalResult EXHAUSTED
       :report report_path
       :run_state run_state

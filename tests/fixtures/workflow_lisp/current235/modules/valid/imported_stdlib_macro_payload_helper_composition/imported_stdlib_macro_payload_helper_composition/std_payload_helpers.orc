@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule imported_stdlib_macro_payload_helper_composition/std_payload_helpers)
   (export SummaryPath
           SelectionPayload
@@ -45,8 +45,6 @@
   (defproc selection-result-gap-payload
     ((selection-result SelectionResult))
     -> GapPayload
-    :effects ()
-    :lowering inline
     (match selection-result
       ((EMPTY empty)
        (record imported_stdlib_macro_payload_helper_composition/std_payload_helpers/GapPayload
@@ -59,8 +57,6 @@
   (defproc selection-result-selection-payload
     ((selection-result SelectionResult))
     -> SelectionPayload
-    :effects ()
-    :lowering inline
     (match selection-result
       ((EMPTY empty)
        (record imported_stdlib_macro_payload_helper_composition/std_payload_helpers/SelectionPayload
@@ -75,8 +71,6 @@
   (defproc render-selection-summary
     ((selection SelectionPayload))
     -> RenderedSummary
-    :effects ()
-    :lowering inline
     (record imported_stdlib_macro_payload_helper_composition/std_payload_helpers/RenderedSummary
       :status "SELECTED"
       :summary-path (__generated-relpath-seed__
