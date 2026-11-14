@@ -32,7 +32,7 @@ compatibility runtime, effect registry, authored `defeffect`, IR, or schema.
 
 [Evaluated execution](workflow_lisp_evaluated_execution.md) owns evaluation,
 memo identity, artifact lineage and coordinator recovery.
-[Consolidation](workflow_lisp_consolidation.md) owns the extracted contracts and
+The [code map, Runtime Boundary](../../orchestrator/workflow_lisp/README.md#runtime-boundary) ([consolidation](workflow_lisp_consolidation.md), historical record) owns the extracted contracts and
 shared-service boundary. [State](../../specs/state.md), [CLI](../../specs/cli.md),
 [IO](../../specs/io.md) and [versioning](../../specs/versioning.md) remain normative.
 Use the [capability matrix](../capability_status_matrix.md) before copying forms.

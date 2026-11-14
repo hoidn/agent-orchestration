@@ -90,7 +90,7 @@ From the reviewers' memory of the literature; verify before citing.
 | Bare `(continue <effect>)` crashes the compiler; a loop without `:on-exhausted` compiles and fails at run time | Phase 1 |
 | A run prints nothing while in flight or on success; a failure prints no run id; resume refusals name no recourse | Phase 1 |
 | A command that failed because of a bug in its own script cannot be resumed once the script is fixed (`effect_input_diverged`; no override) | Phase 3; 3a done: plain `resume` retries after a clean failure, `resume --accept-changes` covers the rest |
-| Any semantic source edit refuses resume (`resume_program_changed`) | Phase 3 |
+| Any semantic source edit refuses resume (`resume_program_changed`) | Phase 3; 3b done: the refusal prints a plan, and `resume --accept-changes=plan-<token>` continues under the edit; a run that uses a run reference cannot be resumed after a package change (parked) |
 | Inserting one effect renames every later generated binder on the Python surface, shifting effect identities | Phase 2 |
 | Provider token usage is not recorded; every Phase 1 search row logged consumption as unavailable | Phase 2 |
 | About 34k lines of retired architecture remain, dead as executors but imported as types by 28 production modules | Lane D |
@@ -261,10 +261,14 @@ full designs.
   [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md), exit case (a)
   included. 3b (resume under an edited program) has an accepted
   [design](../design/workflow_lisp_edit_and_continue.md) and
-  [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md); its first
-  task proved the design's nine open claims by test before any feature code,
-  and the build is in execution. Accepting an edit needs a plan token that
-  the refusal prints, so the plan the author saw is the plan that is applied.
+  [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), and is
+  implemented (T1 to T8, 2026-11-13), exit cases (b) and (c) included:
+  `resume` under an edit prints a read-only plan with a token, and
+  `resume --accept-changes=plan-<token>` continues the same run under the
+  edit, so the plan the author saw is the plan that is applied. The lane then
+  stopped (decision 13). Not done: the H-G3 measurement. Parked: what the
+  program and run-reference `config` digests cover, and the message-text match
+  in `effect_inputs._is_destination_overlap`.
 
 ### Phase 4: Python additions pulled by the consumer
 
@@ -337,7 +341,8 @@ every removed test is listed with the code it covered".
      `compiler_defect`, although the specification's own example has that
      shape;
    - choosing a procedure reference with `if` fails with `compiler_defect`
-     where a refusal is intended;
+     where a refusal is intended (closed 2026-11-13 by the callables change:
+     `proc_ref_literal_required`);
    - inside a macro template: `list/map`, a call to a `let-proc` local, and a
      nested loop used as an operand each fail or crash;
    - a free name in a macro template binds to the caller's local, so hygiene
@@ -351,7 +356,8 @@ every removed test is listed with the code it covered".
      `let-proc` local, in serial and parallel maps (a hole in a safety guard:
      first in line for a fix);
    - a parallel map written directly in a `loop/recur` body fails with
-     `compiler_defect` (through a procedure call it works);
+     `compiler_defect` (through a procedure call it works) (closed 2026-11-13
+     by the map-bodies change);
    - a `let-proc` local whose body is a loop crashes with an internal error;
    - dead code: the prompt snapshot and attempt-identity builders and the
      fragment-identity projection have no caller in the package.
@@ -417,6 +423,15 @@ every removed test is listed with the code it covered".
      `compiler_defect`; a variant-only field read fails with `compiler_defect`
      when the tested name is rebound in one operand while a sibling operand
      tests it (needs four lines in the renaming pass).
+   - added 2026-11-13 (eighth batch, from the conditionals documentation and
+     its review; each confirmed by probe): a discriminant proof reaches a
+     parallel `list/map-effect` body and a pure `list/map` body but not a
+     serial `list/map-effect` body (the same read is refused there); inside a
+     generic procedure a discriminant test on a value of a type parameter is
+     refused with a misleading code (`variant_tag_union_mismatch`), although
+     `match` works; `cond`, `if` and `match` can be bound as names; the
+     `and`/`or` proof item above has its cause confirmed a second time (the
+     facts are lost when the condition is hoisted into a generated binding).
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
@@ -631,6 +646,26 @@ Phase 3 is larger than the table says: the accepted plan for 3b alone estimates
 | Lane D | 7–11 |
 | Total | 21–32 |
 
+**Whole-roadmap weights (coordinator's estimate, 2026-11-13; the owner asked that progress
+figures cover every part).** The table above covers Phases 0 to 4 and Lane D as first scoped.
+Lane D has since gained stages 5 and 6, the documentation consolidation and a defect backlog, and
+four parts had no weight. Midpoints in engineer-weeks, from each plan's hours where one exists and
+from judgment where none does; a progress figure is done weeks over this total and says so.
+
+| Part | Weeks | Basis |
+| --- | --- | --- |
+| Phase 0 | 0.75 | Table above |
+| Phase 1 | 2.5 | Table above |
+| Phase 2 | 4 | Table above |
+| Phase 3 | 6 | Table above |
+| Phase 4 | 4 | Table above |
+| Lane D | 17 | 9 as first scoped; stage 5 about 3; stage 6 about 2 (79 hours); documentation consolidation about 3 (112 hours); defect backlog and the changes assigned to the cut about 2 (judgment, unsized) |
+| Consumer thread | 3 | Judgment: one pipeline written, run to a used result, and its friction log |
+| Phase 5, seed set | 4 | Judgment: tasks, programs and runner (built), calibration, seed evaluation |
+| Phase 5b, long-horizon | 4 | 93 hours for the ladder and the freeze, plus the staged comparison (judgment) |
+| Phase 6, program evolution | 8 | Judgment: the three readiness items, a search harness and its runs; the least certain row |
+| **Total** | **about 53** | |
+
 ## Dispositions
 
 | Existing record | Proposed disposition |
@@ -671,6 +706,7 @@ the owner can amend any of them.
 | 14 | A long-horizon seed and task family | 2026-11-13, owner direction, added to the seed work: tasks with a long horizon on which `claude-haiku-5-5` succeeds 10 to 30 percent of the time, in software, machine learning and scientific programming or reasoning, extracted individually from public benchmarks; and one compact `.orc` seed (few lines) that stages the work (a clean project repository with its documentation structure and agent guides, then spec-driven targets, then design and planning, then implementation) with feedback at several timescales and semantic levels. Nothing like it exists in the repository yet. Staged as [Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed). Added the same day: mutations of the seed vary model (Haiku or Sonnet) and effort level per agent role; the first space searched keeps one model (Haiku) and varies only effort per role, after an effort ladder confirms that success does not fall as effort rises |
 | 15 | How a role is bound once | 2026-11-13: the owner asked for "a nice schemey partial application simple fix" and then for the design and roadmap staging of "the principled fix that this points to". Decided direction: a typed prompt is a first-class value and a role is a generic procedure wrapping `provider-result`, partially applied with `bind-proc`; no new `role` form. The design must still report any guarantee this would break (effect identity per call site, the provider declaration digest, metering, the closures boundary) before code is written |
 | 16 | Budget for the long-horizon effort ladder | Approved 2026-11-13 ("ok" to the stated request): 16 named benchmark tasks, a direct `claude-haiku-5-5` session at effort low, medium and high, five attempts each; at most 240 attempts, ceiling USD 200 (requested as about USD 170 at reported prices). Conditions before the first attempt: the oracle check passes here, the network policy is fixed, a guarded launcher is reviewed, the plan and its ledger exist. It places tasks relative to the 10 to 30 percent band and tests whether success falls as effort rises; the workflow comparison is a separate request ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
+| 17 | A second long-horizon family from MLE-bench | 2026-11-13: the owner asked "can we consider some mlebench tasks" and, told that the benchmark's standard limit is 24 hours per attempt, answered "parallel up to 24 hours ok , haiku spend up to $200 per day ok". The coordinator's reading: attempts on this family may run in parallel under the benchmark's 24-hour limit, and `claude-haiku-5-5` spend on this family may reach USD 200 per calendar day. It is not yet a tranche. No call is made before the feasibility study is in, a plan with its ledger exists (attempt caps, a total ceiling, stop rules), an oracle-style check passes on this machine, the launcher is guarded and reviewed, and the calibration rules of [`AGENTS.md`](../../AGENTS.md) hold; the `AGENTS.md` rule for the line is written with that plan. The Kaggle account and the acceptance of each competition's rules are the owner's action. Open: the owner gave a daily figure and no total, so the plan proposes a total; the daily figure is read as covering this family only, not the other Haiku experiment lines |
 
 ## Process rules
 
@@ -729,7 +765,7 @@ is manual. Phase plans are linked here as they start:
   the metering behaved as specified (nine of ten checks); the frozen verdict is fail on the isolation check,
   because the criterion's list of the CLI's built-in agents was incomplete (the plan's ledger has the detail).
 - Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
-  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; tasks T1 to T7 are merged (2026-11-13): `resume` under an edited program prints a read-only plan with a token, and `resume --accept-changes=plan-<token>` continues the run under the edit. T8 (guides and closeout) remains; after it the lane stops (decision 13).
+  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; tasks T1 to T8 are done (2026-11-13): `resume` under an edited program prints a read-only plan with a token, and `resume --accept-changes=plan-<token>` continues the run under the edit; the lane has stopped (decision 13), with the H-G3 measurement not done and two items parked.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Phase 5b, in preparation: staged in this roadmap ([Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed)); survey, machine feasibility and seed design are done on spike branches (`spike/long-horizon-tasks`, `spike/long-horizon-seed`); its plan is being written. The effort ladder is the only approved spend (decision 16).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
@@ -746,13 +782,16 @@ is manual. Phase plans are linked here as they start:
   accepted. Target 2.40 survives; after the cut a run recorded at an older target is read-only
   (`report`, dashboard and monitor read it; continuing it needs the tagged release).
 - Lane D, surface coherence (stage 5): [design](../design/workflow_lisp_surface_coherence.md)
-  accepted. A wrong-value defect the review found in constructor fields is fixed first; the
-  changes that only admit refused source follow; the loop binder rewrite rides the stage 4
+  accepted. The constructor-field defect is fixed and the callables change (C1) is merged
+  (2026-11-13), as are the loop binder form with its migration tool (I2a) and map bodies
+  (I1: any expression as a map body and a computed serial `:max`, in programs with no run
+  reference; `624ff688`, full suite 15,349 passed, the six failures being the baseline four and
+  two that passed alone); effects in fields (E1) is in its third review; the loop binder rewrite rides the stage 4
   sweep and the `fn` form goes at the stage 4 cut.
-- Lane D, authoring revisions for staged workflows (stage 6): design and plan being drafted
-  (`docs/design/workflow_lisp_staged_workflow_authoring.md`,
-  `docs/plans/2026-11-13-staged-workflow-authoring-revisions-plan.md`; neither exists until the
-  draft is committed). Direction fixed by owner decision 15: roles by partial application over
+- Lane D, authoring revisions for staged workflows (stage 6):
+  [design](../design/workflow_lisp_staged_workflow_authoring.md) and
+  [plan](2026-11-13-staged-workflow-authoring-revisions-plan.md), reviewed and accepted
+  2026-11-13; code starts after the stage 5 changes merge. Direction fixed by owner decision 15: roles by partial application over
   first-class prompts.
 - Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
   after every record; memo reduction now continues from the last fold, a start the evaluator has

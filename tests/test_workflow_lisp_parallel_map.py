@@ -15,7 +15,7 @@ from orchestrator.workflow_lisp.compiler_session import CompilerSession
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.definitions import PathDef
 from orchestrator.workflow_lisp.expression_traversal import free_expr_names, map_expr, iter_child_exprs, stamp_capture_origin
-from orchestrator.workflow_lisp.expressions import LetStarExpr, ListMapEffectExpr, elaborate_expression
+from orchestrator.workflow_lisp.expressions import IfExpr, LetStarExpr, ListMapEffectExpr, elaborate_expression
 from orchestrator.workflow_lisp.functions import _ExpansionNameAllocator, _clone_function_expr, _normalize_expr
 from orchestrator.workflow_lisp.conditionals import _normalize_list_map
 from orchestrator.workflow_lisp.procedure_typecheck import _semantic_identity
@@ -272,11 +272,13 @@ def test_real_pipeline_refuses_inline_impure_workspace(tmp_path):
     assert error.value.diagnostics[0].code == "list_map_effect_workspace_invalid"
 
 
-@pytest.mark.parametrize("body", [
-    "(let* ((value repo)) (child value))",
-    "(if true (child repo) (child repo))",
+@pytest.mark.parametrize("body, shape", [
+    ("(let* ((value repo)) (child value))", LetStarExpr),
+    ("(if true (child repo) (child repo))", IfExpr),
 ])
-def test_real_pipeline_keeps_authored_single_call_body_rule(body, tmp_path):
-    with pytest.raises(LispFrontendCompileError) as error:
-        compile_inline(tmp_path, body=body)
-    assert error.value.diagnostics[0].code == "list_map_effect_body_unsupported"
+def test_real_pipeline_accepts_a_body_of_any_shape(body, shape, tmp_path):
+    # Surface coherence I1: only a body that holds a run reference keeps the one-call rule.
+    program = compile_inline(tmp_path, body=body)
+    expr = program.entry.typed_body.expr
+    assert (type(expr), type(expr.body_expr), program.entry.typed_body.type_ref.name) == (
+        ListMapEffectExpr, shape, "List[String]")

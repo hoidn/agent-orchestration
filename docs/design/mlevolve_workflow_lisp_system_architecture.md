@@ -1,5 +1,9 @@
 # MLEvolve Workflow Lisp System Architecture
 
+Status: **Historical — archived in place.** Superseded: the workflow was never built and was dropped on 2026-11-11; its standing rules are stated by current owners. Current authority: [frontend specification §4](workflow_lisp_frontend_specification.md#4-file-format-and-module-form) for module paths; [command adapter contract, Adapter Validation](workflow_command_adapter_contract.md#adapter-validation) and the [design principles](workflow_language_design_principles.md) for structured authority; [parametric type system](workflow_lisp_parametric_type_system.md) for type parameters; [program-search boundaries §6](workflow_lisp_program_search_boundaries.md#6-honest-security-boundary) for untrusted generated code; [runtime closures boundary](workflow_lisp_runtime_closures_boundary.md) for procedure values. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#mlevolve_workflow_lisp_system_architecture-not-retired).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 > **2026-11-11 disposition:** dropped or archived by the
 > [current roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions); this draft is historical.
 

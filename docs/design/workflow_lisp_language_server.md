@@ -19,13 +19,13 @@ Header refusal or successful source selection does not waive those failures.
   - `docs/design/workflow_lisp_frontend_specification.md` (the language
     reference; its former §76.1 "Editor And Lint Tooling Compatibility" rules
     are [Compiler Artifact Compatibility](#compiler-artifact-compatibility) below)
-  - `docs/design/workflow_lisp_frontend_mvp_specification.md` §9.1 "Linter And
+  - `docs/design/workflow_lisp_frontend_mvp_specification.md` (historical record) §9.1 "Linter And
     LSP Compatibility" (historical prerequisite; current v1 status lives here)
   - `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/lisp-frontend-cli-diagnostics-surface/`
     (predecessor: built the machine-readable diagnostics surface "suitable for
     future lint/LSP tooling" while explicitly excluding "editor/LSP
     implementation, background daemons, or persistent compile servers")
-  - `docs/design/workflow_lisp_source_map.md` (source-map component contract)
+  - [core calculus, provenance](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts) (source-map rules; `docs/design/workflow_lisp_source_map.md` is the historical record)
   - `docs/design/workflow_language_design_principles.md`
   - `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
     (governing roadmap; see Dependencies And Sequencing)
@@ -89,7 +89,7 @@ as-you-type checking, and incrementality) remain wholly deferred.
 ## L4 Shipped Amendment: Current Diagnostics And Compile Progress
 
 The implemented
-[L4 diagnostic-lifecycle and compile-progress amendment](workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md)
+[L4 diagnostic-lifecycle and compile-progress amendment](workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md) (historical record)
 replaces the target anti-flicker policy with a current-only publication view
 while preserving retained contribution ownership internally. It also defines
 one capability-gated, indeterminate, non-blocking work-done lifecycle per
