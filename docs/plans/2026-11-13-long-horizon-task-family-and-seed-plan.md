@@ -321,16 +321,21 @@ listed address is reachable on every port (recorded). The proxy dials a listed n
 - **What the agent can still reach:** the relay's port; the package indexes and mirrors; name
   lookups and ping; the sidecar's own namespace. Not the host, and not the vendor's API.
 
-**Token mode, and the one header the passthrough changes.**
+**Token mode, and the three headers the passthrough sets.**
 
 - **In the agent's container:** the base URL and a per-slot fake token, both visible in process
   lists and exception text. The fake token is the CLI's subscription token variable: a fixed
   prefix that says it is fake, then a random part; it is valid for one open slot and worth at
   most that slot's cap on the bound model.
-- **The CLI sends `authorization: Bearer` with the fake token. The passthrough replaces that
-  one header's value with the real token and changes nothing else** in the request: not the
-  other headers, not the two beta flags token mode adds, not the body. This is the route the
-  CLI supports: a subscription token and a base URL.
+- **The CLI sends `authorization: Bearer` with the fake token. The passthrough builds the
+  upstream request from the client's and sets exactly three header values:** `authorization`
+  (the real token), `host` (the vendor's host) and `accept-encoding` (`identity`, so that
+  every byte of the answer can be checked for the token). `content-length` is the length of
+  the body it read. Nothing else changes: not the other headers, not the two beta flags token
+  mode adds, not the body. A request outside the recorded shape is refused, not forwarded: the
+  request line, the header names and the values of the recorded ones, and the body's fields
+  and tools are held to an allowlist built from the request fixtures (`make_allowlist.py`).
+  This is the route the CLI supports: a subscription token and a base URL.
 - **Recorded for token mode against the stand-in** (`tok20-*`, `tok3-*`): the CLI honours the
   base URL and calls no other host or path; with the harness's setting that turns off
   nonessential traffic it makes no profile, usage, refresh or telemetry call; the result event
@@ -366,14 +371,22 @@ listed address is reachable on every port (recorded). The proxy dials a listed n
    exception's class and the passthrough's own message, never a header or a request object.
    Not in recordings or fixtures. Core dumps are disabled for the passthrough at its start.
    Its output goes to a file in a directory of mode 700 in the launcher's state, never to a
-   pane an agent reads. Its upstream client ignores proxy variables, verifies TLS, and
-   connects to the vendor's host only; with the rehearsal switch, which points it at the
-   stand-in, it refuses to open any token file.
+   pane an agent reads. Its upstream client ignores proxy variables, verifies TLS against the
+   trust store compiled into Python (not one an environment variable names), and connects to
+   the vendor's host only; the live probe starts it with an empty environment but `PATH`.
+   With the rehearsal switch, which points it at the stand-in, it refuses to open any token
+   file. Not in what goes back to the container, nor in a log row: every byte of the answer
+   and every row is checked for the token in each form the scanner knows, across writes, and a
+   match sends nothing more, drops the client and stops the tranche (with the place, never the
+   bytes); an answer it cannot check (any `content-encoding` but identity) is handled the same
+   way.
 4. **The check: `token_scan.py`, by fingerprint.** At its start the passthrough writes a
-   fingerprint beside its log: a random salt, the token's length, and the salted hash of the
-   token. The scanner reads files and the fingerprint, never the token: it hashes every
-   candidate string of that length and prints the path and offset of a match, never the bytes
-   around it. So no agent, and not the launcher, handles the token's value to check for it.
+   fingerprint beside its log: a random salt and, for each form of the token (plain; hex in
+   both cases; base64, standard and URL-safe, at the three alignments a copy inside a longer
+   encoded stream can have; UTF-16LE), its length and its salted hash. The scanner reads files
+   and the fingerprint, never the token: it hashes every candidate string of each form's
+   length and prints the path, offset and form of a match, never the bytes around it. So no
+   agent, and not the launcher, handles the token's value to check for it.
    - *The file set:* the whole kept output of the run (harness job directories, the
      launcher's state with the passthrough's log and output file, the egress logs); the
      recordings directory; the worktree and the detached checkout; the agents' transcript
@@ -390,15 +403,22 @@ listed address is reachable on every port (recorded). The proxy dials a listed n
      in a file of the set, it must be found. After a full session it must be found nowhere in
      the file set, and the runtime check must find it in no container's environment or file
      system.
-   - *Its limit:* it finds the whole token in plain form, not a part of it and not an encoded
-     copy. A match anywhere is a stop; the owner revokes the token and replaces it.
+   - *Its limit:* it finds a whole copy in one of those forms, not a part of the token and not
+     another encoding (compressed, encrypted, or escaped, such as JSON's `\/` or a URL's
+     `%XX`). A named path it cannot read whole (missing, unreadable, a symlink, or no file at
+     all) fails the scan. A match anywhere is a stop; the owner revokes the token and replaces
+     it.
 
 **The passthrough** is a small host-side process, part of the kit and of the pre-spend review.
 For every request it maps the fake token to a slot and refuses an unknown one; refuses any
 model other than `claude-haiku-5-5`, any request that declares a provider-side tool, and any
-path but the messages path (the only one recorded); refuses when the slot's metered usage has
+path but the messages path (the only one recorded), and any request line, header, body field
+or tool outside the allowlist of the recorded shape; refuses when the slot's metered usage has
 reached its cap, when all slots together have reached USD 200, or when the tranche is stopped.
-It passes every vendor response through unchanged. It prices the response's usage by the price
+It holds one request in flight per slot: a second waits until the first is metered and is then
+checked against the caps. It passes every vendor response through unchanged once it is checked
+for the token, reading it to its end even when the client has gone; a response whose usage
+cannot be read whole is priced at the request's worst case and closes starts. It prices the response's usage by the price
 rule and appends one row per request to the slot's log: model, effort, declared tool names,
 usage by kind, the vendor's status and its rate-limit headers. It never logs the
 `authorization` header. The meter is part of its first slice (Task 4): the live probe's priced
@@ -523,8 +543,10 @@ coordinating session and the ladder draw on the same allowance.
   budget limit. In the ladder's prices that is about 2.7 to 2.9 times the public mean. **Each
   guard acts one response late:** the CLI stops after the response that crosses the cap,
   without running the tool call in it (recording `s3-budget-medium`; to be re-recorded in token
-  mode), and the passthrough refuses the next request. With three tools there is one request
-  in flight at a time, so the overshoot is one response.
+  mode), and the passthrough refuses the next request. The passthrough holds one request in
+  flight per slot and checks the next against the caps with the first metered, so a slot's cap
+  is overshot by at most one response, and the total, checked under one lock, by at most one
+  response per open slot.
 - **Reservation before every attempt:** the cap plus USD 1.00, which covers one response of the
   largest output (128,000 tokens, USD 0.32 at the long-prompt rate) and a freshly cached prompt
   of about 680,000 tokens at the one-hour long-prompt rate. Under one lock the launcher
@@ -605,7 +627,7 @@ The rows are tried in order and the first match decides.
 | 10 | Usage limit | `api_error: usage_limit_reached` with `api_error_status: 429`, and signal 1 of D4 in the passthrough's log | `NonZeroAgentExitCodeError` | `token-usage-limit-…` | Cut by a usage limit: excluded, and the slot is run again |
 | 11 | The passthrough refused: the slot's cap | `api_error_status: 403`, the result text holds `lh-passthrough: slot cap reached`, and the passthrough's log agrees | `UnknownApiError` | `passthrough-cap-…` | Observation, flagged |
 | 12 | The passthrough refused: total or stop | The same, with `tranche total reached` or `tranche stopped` | `UnknownApiError` | `passthrough-total-…`, `passthrough-stopped-…` | Infrastructure failure |
-| 13 | The passthrough refused: model, tool, path or unknown token | `api_error_status: 403`, the prefix, and that reason in the passthrough's log | to be recorded | none in this form yet | A stop |
+| 13 | The passthrough refused: model, tool, path, field, header, a malformed, oversized or timed-out request (non-JSON is "request malformed"), too many connections, a busy slot, or an unknown token | `api_error_status: 403`, the prefix, and that reason in the passthrough's log | to be recorded | none in this form yet | A stop |
 | 14 | The vendor refused the credential | `api_error_status: 401` | `UnknownApiError` | `token-unauthorized-…` | Infrastructure failure, and a stop |
 | 15 | Provider fault, after the CLI's ten retries | `terminal_reason: api_error` with `api_error_status` 429 (and no `usage_limit_reached`), 500 or 529; or `null` after ten `api_retry` events | `ApiRateLimitError`, `ApiInternalServerError`, `UnknownApiError` | `stub-rate-limit-…`, `stub-server-error-…`, `stub-overloaded-…`, `stub-slow-first-byte-…` | Infrastructure failure |
 | 16 | Anything else | No row above matches | any | none | The launcher pauses for a recorded ruling |
@@ -967,8 +989,8 @@ frozen rule matches occurs in a fixture; the price rule reproduces the three arc
 `stub_api.py` as the upstream:
 
 - [ ] **First slice: the request path.** It listens on a unix socket only. It maps a fake
-      token to a slot and replaces that one header with the real token; no other header or
-      body byte changes. It refuses, in the 403 form, an unknown token; a model other than the
+      token to a slot and sets three header values (the real token, the vendor's host,
+      `accept-encoding: identity`); no other header or body byte changes. It refuses, in the 403 form, an unknown token; a model other than the
       exact id (Sonnet, Fable, an alias); a request that declares a provider-side tool; a path
       other than the messages path; a request beyond a slot's request count or priced cap, or
       beyond the total.

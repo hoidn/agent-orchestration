@@ -41,14 +41,15 @@ The price test reproduces the three public archive totals when the archives are 
 ## The passthrough, the token scanner and the live probe (plan Task 4)
 
 `live_probe.sh` is the one file of this kit that can use the owner's subscription: it refuses to start
-without `LH_PROBE_SPEND_AUTHORIZED=yes`, which is set only under the plan ledger's approval row. Its
-stand-in run (`LH_PROBE_STAND_IN=<stub scenario>`) puts `stub_api.py` behind the passthrough's rehearsal
-switch and spends nothing.
+without `LH_PROBE_SPEND_AUTHORIZED=yes`, which is set only under the plan ledger's approval row, and without
+that row naming the kit's commit. Its stand-in run (`LH_PROBE_STAND_IN=<stub scenario>`) puts `stub_api.py`
+behind the passthrough's rehearsal switch and spends nothing.
 
 | File | Role |
 | --- | --- |
-| `passthrough.py` | The one host process that holds the subscription token (D4, route B): listens on the relay's unix socket, refuses in the one 403 form, replaces the bearer token, meters by the price rule, records closed starts and stops in its state directory |
-| `token_scan.py` | Finds the token by the passthrough's fingerprint (path and offset only); `canary` plants a canary and checks the file set |
+| `passthrough.py` | The one host process that holds the subscription token (D4, route B): listens on the relay's unix socket; refuses in the one 403 form anything outside the recorded request shape; one request in flight per slot; rebuilds the request with three header values set (`authorization`, `host`, `accept-encoding: identity`); checks every byte back to the client and every log row for the token's forms; meters by the price rule; records closed starts and stops in its state directory |
+| `make_allowlist.py` | Builds `request_allowlist.json` (the passthrough's allowlist) from `fixtures/requests`; `--check` fails when the committed file differs, so rerun it when the fixtures change |
+| `token_scan.py` | Finds the token by the passthrough's fingerprint, in plain, hex, base64 and UTF-16LE forms (path, offset and form only); `canary` plants every form and checks the file set |
 | `live_probe.sh` | The live probe of Task 4, items 1 to 4: three sessions through the relay and the passthrough, the stop rule, the runtime check, the file-set scan and `probe.json` |
 
 Tests (no container, no network, no CLI; the upstream is `stub_api.py`):

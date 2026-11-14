@@ -8,8 +8,12 @@ a mode-600 file inside a mode-700 directory; no request leaves the machine and n
 
 from __future__ import annotations
 
+import base64
+import contextlib
+import gzip
 import http.client
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -17,6 +21,7 @@ import secrets
 import shutil
 import socket
 import socketserver
+import ssl
 import stat
 import subprocess
 import sys
@@ -89,7 +94,7 @@ def test_the_scanner_prints_the_path_and_offset_of_a_planted_token_and_never_its
     planted.write_text(f'{prefix}{token}"}}\n')
     result = _scan("scan", "--fingerprint", _fingerprint_file(short, token), short / "set")
     assert (result.returncode, result.stdout.splitlines()[0], token in result.stdout + result.stderr) == (
-        1, f"match {planted} {len(prefix)}", False)
+        1, f"match {planted} {len(prefix)} plain", False)
 
 
 def test_the_scanner_finds_nothing_in_a_set_without_the_token(short):
@@ -105,7 +110,7 @@ def test_the_scanner_finds_a_token_inside_a_longer_run_and_across_a_read_boundar
     offset = (1 << 20) - 50  # the token straddles the first 1 MiB read
     (short / "set" / "blob.bin").write_bytes(b"A" * offset + token.encode() + b"B" * 10)
     result = _scan("scan", "--fingerprint", _fingerprint_file(short, token), short / "set")
-    assert result.stdout.splitlines()[0] == f"match {short / 'set' / 'blob.bin'} {offset}"
+    assert result.stdout.splitlines()[0] == f"match {short / 'set' / 'blob.bin'} {offset} plain"
 
 
 def test_the_scanner_reads_a_stream_from_stdin(short):
@@ -113,7 +118,7 @@ def test_the_scanner_reads_a_stream_from_stdin(short):
     result = subprocess.run([sys.executable, "-I", str(KIT / "token_scan.py"), "scan", "--fingerprint",
                              str(_fingerprint_file(short, token)), "-"],
                             input=f"x={token}\n", capture_output=True, text=True, timeout=WAIT)
-    assert (result.returncode, result.stdout.splitlines()[0]) == (1, "match - 2")
+    assert (result.returncode, result.stdout.splitlines()[0]) == (1, "match - 2 plain")
 
 
 def test_an_unreadable_file_is_reported_and_fails_the_scan(short):
@@ -125,11 +130,44 @@ def test_an_unreadable_file_is_reported_and_fails_the_scan(short):
     assert (result.returncode, result.stdout.splitlines()[0]) == (2, f"unreadable {locked} PermissionError")
 
 
-def test_the_fingerprint_holds_the_length_and_a_salted_hash_but_not_the_token():
+def test_the_fingerprint_holds_each_forms_length_and_a_salted_hash_but_no_form():
     token = _token()
-    fp = token_scan.fingerprint(token)
-    assert (fp["length"], token in json.dumps(fp), token_scan.matches(fp, token),
-            token_scan.matches(fp, _token())) == (108, False, True, False)
+    fp, forms = token_scan.fingerprint(token), token_scan.forms(token)
+    text = json.dumps(fp).encode()
+    assert ({f["name"]: f["length"] for f in fp["forms"]}, [n for n, form in forms.items() if form in text],
+            token_scan.matches(fp, token), token_scan.matches(fp, _token())) == (
+        {name: len(form) for name, form in forms.items()}, [], True, False)
+
+
+def _encodings():
+    """(name, bytes -> encoded bytes): the token inside a longer stream, encoded as a copy could be."""
+    found = [("hex", lambda b: b.hex().encode()), ("upper-case hex", lambda b: b.hex().upper().encode()),
+             ("UTF-16LE", lambda b: b.decode().encode("utf-16-le"))]
+    for skip in range(3):
+        found += [(f"base64 after {skip} bytes", lambda b, k=skip: base64.b64encode(b"x" * k + b)),
+                  (f"url-safe base64 after {skip} bytes", lambda b, k=skip: base64.urlsafe_b64encode(b"x" * k + b))]
+    return found
+
+
+@pytest.mark.parametrize("name,encode", _encodings(), ids=[e[0] for e in _encodings()])
+def test_the_scanner_finds_the_token_inside_an_encoded_stream(short, name, encode):
+    token = _token()
+    (short / "set").mkdir()
+    (short / "set" / "encoded.txt").write_bytes(encode(f"token={token};".encode()))
+    result = _scan("scan", "--fingerprint", _fingerprint_file(short, token), short / "set")
+    assert result.returncode == 1
+
+
+@pytest.mark.parametrize("target", ["symlink", "missing", "empty directory"])
+def test_a_named_path_the_scanner_cannot_read_as_a_whole_fails_the_scan(short, target):
+    (short / "file.txt").write_text("no token here\n")
+    path = short / target.replace(" ", "-")
+    if target == "symlink":
+        path.symlink_to(short / "file.txt")
+    elif target == "empty directory":
+        path.mkdir()
+    result = _scan("scan", "--fingerprint", _fingerprint_file(short, _token()), path)
+    assert result.returncode == 2
 
 
 # --- the passthrough: helpers --------------------------------------------------------------------------
@@ -194,7 +232,7 @@ def _request(model=MODEL, stream=True, turn=0, tools=None):
 
 def _post(sock, token, body, path=MESSAGES, method="POST"):
     conn = _Unix(sock)
-    conn.request(method, path, None if body is None else json.dumps(body),
+    conn.request(method, path, body if body is None or isinstance(body, bytes) else json.dumps(body),
                  {"authorization": f"Bearer {token}", "content-type": "application/json",
                   "anthropic-beta": "oauth-2025-04-20,extended-cache-ttl-2025-04-11"})
     resp = conn.getresponse()
@@ -206,6 +244,69 @@ def _post(sock, token, body, path=MESSAGES, method="POST"):
 def _error(data):
     error = json.loads(data)["error"]
     return error["type"], error["message"]
+
+
+def _raw(headers, body=b"", line=f"POST {MESSAGES} HTTP/1.1"):
+    """A request's bytes exactly as given: `headers` are (name, value) pairs in their order."""
+    return ("\r\n".join([line, *(f"{k}: {v}" for k, v in headers)]) + "\r\n\r\n").encode("latin-1") + body
+
+
+def _headers(body, token="lh-fake-a"):
+    return [("host", "relay:8080"), ("authorization", f"Bearer {token}"), ("content-type", "application/json"),
+            ("content-length", str(len(body)))]
+
+
+def _exchange(sock, data, timeout=WAIT):
+    """Send `data`; every byte that came back until the passthrough closed (or `timeout` passed)."""
+    reply = b""
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(timeout)
+        client.connect(str(sock))
+        client.sendall(data)
+        with contextlib.suppress(TimeoutError, ConnectionResetError):
+            while chunk := client.recv(65536):
+                reply += chunk
+    return reply
+
+
+def _reason(reply):
+    """The refusal's reason in a raw reply, or its status line when it is not the 403 form."""
+    head, _, data = reply.partition(b"\r\n\r\n")
+    if not head.startswith(b"HTTP/1.1 403"):
+        return head.split(b"\r\n")[0].decode("latin-1")
+    return json.loads(data)["error"]["message"].removeprefix("lh-passthrough: ")
+
+
+def _found(data, token):
+    """The forms of `token` that appear in `data`."""
+    return [name for name, form in token_scan.forms(token).items() if form in data]
+
+
+def _written(state):
+    return b"".join(path.read_bytes() for path in sorted(state.iterdir()) if path.is_file())
+
+
+def _eventually(read):
+    deadline = time.monotonic() + WAIT
+    while not (value := read()) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return value
+
+
+def _concurrently(calls):
+    results = [None] * len(calls)
+
+    def run(i):
+        try:
+            results[i] = calls[i]()
+        except (OSError, http.client.HTTPException) as exc:  # shown in the results, not lost in a thread
+            results[i] = type(exc).__name__
+    threads = [threading.Thread(target=run, args=(i,)) for i in range(len(calls))]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(WAIT * 3)
+    return results
 
 
 @pytest.fixture
@@ -232,12 +333,12 @@ def inproc(short):
     """A passthrough served from a thread of this process, holding `token`, in front of `upstream`."""
     servers = []
 
-    def start(upstream, slots, token="real-token-made-up-for-this-test", paid_usage=()):
+    def start(upstream, slots, token="real-token-made-up-for-this-test", paid_usage=(), stop_on_non_200=False):
         name = f"pt{len(servers)}"
         state = short / f"{name}-state"
         state.mkdir(mode=0o700)
         pt = passthrough.Passthrough(state, slots, token, "live", passthrough.unix_upstream(str(upstream)),
-                                     paid_usage)
+                                     paid_usage, stop_on_non_200)
         sock = short / f"{name}.sock"
         server = passthrough.serve(str(sock), pt)
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -316,7 +417,7 @@ USAGE = {"input_tokens": 1000, "output_tokens": 100, "cache_creation_input_token
 # --- the request path ----------------------------------------------------------------------------------
 
 
-def test_the_bearer_token_is_replaced_and_no_other_byte_changes_but_the_host(short, canned, inproc):
+def test_the_request_is_rebuilt_with_three_header_values_changed_and_no_other_byte(short, canned, inproc):
     real = _token()
     token_file = _secret_file(short, real)
     upstream = canned(_http(200, [("content-type", "application/json")], json.dumps(_message(USAGE)).encode()))
@@ -325,6 +426,7 @@ def test_the_bearer_token_is_replaced_and_no_other_byte_changes_but_the_host(sho
     token_file.write_text("a-later-value-that-is-never-read\n")  # the token was read once, at the start
     body = json.dumps(_request()).encode()
     head = ("POST /v1/messages?beta=true HTTP/1.1\r\nhost: relay:8080\r\nconnection: keep-alive\r\n"
+            "accept-encoding: gzip, deflate, br\r\nuser-agent: claude-cli/2.1.311 (external, cli)\r\n"
             "anthropic-beta: oauth-2025-04-20,extended-cache-ttl-2025-04-11\r\nauthorization: Bearer lh-fake-a\r\n"
             f"content-type: application/json\r\nx-app: cli\r\ncontent-length: {len(body)}\r\n\r\n")
     with socket.socket(socket.AF_UNIX) as client:
@@ -332,20 +434,61 @@ def test_the_bearer_token_is_replaced_and_no_other_byte_changes_but_the_host(sho
         client.connect(str(sock))
         client.sendall(head.encode() + body)
         assert client.recv(12).startswith(b"HTTP/1.1 200")
-    expected = head.replace("Bearer lh-fake-a", f"Bearer {real}").replace("host: relay:8080",
-                                                                          "host: api.anthropic.com")
+    expected = head.replace("Bearer lh-fake-a", f"Bearer {real}").replace(
+        "host: relay:8080", "host: api.anthropic.com").replace("gzip, deflate, br", "identity")
     assert upstream.received == [expected.encode() + body]
 
 
+def _with(**fields):
+    return {**_request(), **fields}
+
+
+def _json_bytes(text):
+    return text.replace("MODEL", MODEL).encode()
+
+
+SCHEMA = {"type": "object"}
+CONTENT = [
+    ("an empty body", b"", "request malformed"),
+    ("a body that is not JSON", b"model=claude-haiku-5-5", "request malformed"),
+    ("a duplicate top-level key", _json_bytes(
+        '{"model": "MODEL", "model": "claude-sonnet-5-5", "max_tokens": 10, "stream": true, '
+        '"output_config": {"effort": "low"}, "messages": []}'), "request malformed"),
+    ("a duplicate key inside a message", _json_bytes(
+        '{"model": "MODEL", "max_tokens": 10, "stream": true, "output_config": {"effort": "low"}, '
+        '"messages": [{"role": "user", "role": "assistant", "content": "x"}]}'), "request malformed"),
+    ("a byte-order mark", b"\xef\xbb\xbf" + json.dumps(_request()).encode(), "request malformed"),
+    ("UTF-16", json.dumps(_request()).encode("utf-16"), "request malformed"),
+    ("NaN", json.dumps(_with(temperature=float("nan"))).encode(), "request malformed"),
+    ("an unrecorded field", _with(mcp_servers=[{"type": "url", "url": "https://x.invalid", "name": "x"}]),
+     "field not allowed"),
+    ("a container", _with(container="container_1"), "field not allowed"),
+    ("stream as a number", _with(stream=1), "field not allowed"),
+    ("max_tokens above the recorded", _with(max_tokens=128001), "field not allowed"),
+    ("max_tokens as true", _with(max_tokens=True), "field not allowed"),
+    ("no max_tokens", {k: v for k, v in _request().items() if k != "max_tokens"}, "field not allowed"),
+    ("an unrecorded effort", _with(output_config={"effort": "ultra"}), "field not allowed"),
+    ("an image by URL", _with(messages=[{"role": "user", "content": [
+        {"type": "image", "source": {"type": "url", "url": "https://x.invalid/a.png"}}]}]), "field not allowed"),
+    ("a document by file id", _with(messages=[{"role": "user", "content": [
+        {"type": "document", "source": {"type": "file", "file_id": "file_1"}}]}]), "field not allowed"),
+    ("tools as null", _with(tools=None), "tool not allowed"),
+    ("a provider-side tool", _request(tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 8}]),
+     "provider-side tool refused"),
+    ("a typed tool with a schema", _request(tools=[{"type": "custom", "name": "Bash", "input_schema": SCHEMA}]),
+     "provider-side tool refused"),
+    ("a tool without a schema", _request(tools=[{"name": "Bash"}]), "provider-side tool refused"),
+    ("an unrecorded tool name", _request(tools=[{"name": "WebFetch", "input_schema": SCHEMA}]), "tool not allowed"),
+    ("an unrecorded tool key", _request(tools=[{"name": "Bash", "input_schema": SCHEMA, "defer_loading": True}]),
+     "tool not allowed"),
+]
 REFUSALS = [
     ("an unknown token", "lh-fake-unknown", _request(), MESSAGES, "POST", "unknown token"),
     ("Sonnet", "lh-fake-a", _request(model="claude-sonnet-5-5"), MESSAGES, "POST", "model not allowed"),
     ("Fable", "lh-fake-a", _request(model="claude-fable-5-1"), MESSAGES, "POST", "model not allowed"),
     ("an alias", "lh-fake-a", _request(model="haiku"), MESSAGES, "POST", "model not allowed"),
-    ("a body that is not JSON", "lh-fake-a", None, MESSAGES, "POST", "model not allowed"),
-    ("a provider-side tool", "lh-fake-a",
-     _request(tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 8}]), MESSAGES, "POST",
-     "provider-side tool refused"),
+    ("no body", "lh-fake-a", None, MESSAGES, "POST", "request malformed"),
+    *[(case, "lh-fake-a", body, MESSAGES, "POST", reason) for case, body, reason in CONTENT],
     ("another path", "lh-fake-a", _request(), "/v1/messages/count_tokens?beta=true", "POST", "path not allowed"),
     ("the messages path without its query", "lh-fake-a", _request(), "/v1/messages", "POST", "path not allowed"),
     ("another method", "lh-fake-a", None, "/api/oauth/profile", "GET", "path not allowed"),
@@ -359,7 +502,9 @@ def test_a_refused_request_gets_the_one_403_form_and_never_reaches_the_upstream(
     sock, state = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
     status, headers, data = _post(sock, token, body, path=path, method=method)
     assert (status, dict(headers)["x-should-retry"], _error(data), _rows(state)[-1]["refused"],
-            _stub_rows(upstream_log)) == (403, "false", ("permission_error", f"lh-passthrough: {reason}"), reason, [])
+            sorted(_rows(state)[-1]), _stub_rows(upstream_log)) == (
+        403, "false", ("permission_error", f"lh-passthrough: {reason}"), reason, ["refused", "slot", "status", "time"],
+        [])
 
 
 def test_a_request_beyond_the_slots_request_count_is_refused(short, stub, inproc):
@@ -368,6 +513,18 @@ def test_a_request_beyond_the_slots_request_count_is_refused(short, stub, inproc
     first, _, _ = _post(sock, "lh-fake-a", _request())
     second, _, data = _post(sock, "lh-fake-a", _request())
     assert (first, second, _error(data)[1]) == (200, 403, "lh-passthrough: slot cap reached")
+
+
+@pytest.mark.parametrize("limit", ["cap_requests", "cap_usd"])
+def test_a_slot_at_its_cap_keeps_answering_the_cap_refusal_and_logs_each_without_a_stop(short, stub, inproc, limit):
+    upstream, _ = stub("normal")
+    cap = _slot("lh-fake-a", cap_requests=1) if limit == "cap_requests" else _slot("lh-fake-a", cap_usd=SMALL_USD / 2)
+    sock, state = inproc(upstream, _slots(short / "slots.json", {"a": cap}))
+    replies = [_post(sock, "lh-fake-a", _request()) for _ in range(4)]
+    assert ([(status, _error(data)[1] if status == 403 else None) for status, _, data in replies],
+            [(r.get("refused"), r.get("limit")) for r in _rows(state)], _events(state)) == (
+        [(200, None)] + [(403, "lh-passthrough: slot cap reached")] * 3,
+        [(None, None)] + [("slot cap reached", limit)] * 3, [])
 
 
 def test_a_request_beyond_the_slots_priced_cap_is_refused(short, stub, inproc):
@@ -457,21 +614,26 @@ def test_a_response_in_flight_at_the_cap_is_metered_to_its_end_and_the_next_requ
         200, round(served, 12), 403, "lh-passthrough: slot cap reached")
 
 
-def test_a_compressed_response_is_passed_on_compressed_and_metered(short, canned, inproc):
-    import gzip
+def test_a_compressed_response_is_not_passed_on_and_stops_the_tranche(short, canned, inproc):
     body = gzip.compress(json.dumps(_message(USAGE)).encode())
     upstream = canned(_http(200, [("content-type", "application/json"), ("content-encoding", "gzip")], body))
     sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
-    _, _, data = _post(sock, "lh-fake-a", _request(stream=False))
-    assert (data, round(_rows(state)[0]["usd"], 12)) == (body, round(SMALL_USD, 12))
+    request = json.dumps(_request(stream=False)).encode()
+    reply = _exchange(sock, _raw(_headers(request), request))
+    _eventually(lambda: _rows(state))  # the answer is metered after the client was dropped
+    assert (reply, [(e["event"], e["reason"]) for e in _events(state)]) == (
+        b"", [("stop", "response not checkable"), ("close_starts", "usage incomplete")])
 
 
-def test_usage_the_meter_cannot_read_closes_starts(short, canned, inproc):
-    upstream = canned(_http(200, [("content-type", "application/json"), ("content-encoding", "br")], b"\x0b\x02"))
+def test_usage_the_meter_cannot_read_is_priced_at_the_requests_worst_case_and_closes_starts(short, canned, inproc):
+    upstream = canned(_http(200, [("content-type", "application/json")], b"not json"))
     sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
-    status, _, data = _post(sock, "lh-fake-a", _request(stream=False))
-    assert (status, data, [(e["event"], e["reason"]) for e in _events(state)]) == (
-        200, b"\x0b\x02", [("close_starts", "usage unreadable")])
+    request = json.dumps(_request(stream=False)).encode()
+    status, _, data = _post(sock, "lh-fake-a", request)
+    worst = price_check.price({"input_tokens": len(request), "output_tokens": 1000}, RULE)
+    assert (status, data, round(_rows(state)[0]["usd"], 12), _rows(state)[0]["worst_case"],
+            [(e["event"], e["reason"]) for e in _events(state)]) == (
+        200, b"not json", round(worst, 12), True, [("close_starts", "usage incomplete")])
 
 
 def test_every_vendor_response_is_passed_on_unchanged(short, canned, inproc):
@@ -679,7 +841,7 @@ def test_a_vendor_401_is_passed_on_and_stops_the_tranche(short, stub, inproc):
         401, "authentication_error", [("stop", "vendor 401")], 403, "lh-passthrough: tranche stopped", 1)
 
 
-def test_a_paid_usage_header_stops_the_tranche_before_the_response_is_passed_on(short, canned, inproc):
+def test_a_configured_paid_usage_header_stops_the_tranche_and_its_answer_is_not_passed_on(short, canned, inproc):
     body = json.dumps(_message(USAGE)).encode()
     head = _http(200, [("content-type", "application/json"), ("x-made-up-overage", "in-use")], body)[:-len(body)]
     gate = threading.Event()
@@ -688,13 +850,47 @@ def test_a_paid_usage_header_stops_the_tranche_before_the_response_is_passed_on(
                          paid_usage=[("x-made-up-overage", "in-use")])
     conn = _Unix(sock)
     conn.request("POST", MESSAGES, json.dumps(_request(stream=False)), {"authorization": "Bearer lh-fake-a"})
-    resp = conn.getresponse()  # its headers have reached the client while the vendor still holds the body
+    resp = conn.getresponse()  # the refusal has reached the client while the vendor still holds the body
     at_headers = [(e["event"], e["reason"]) for e in _events(state)]
     gate.set()
-    resp.read()
+    data = resp.read()
+    row = _eventually(lambda: _rows(state))[0]
+    assert (resp.status, _error(data)[1], at_headers, round(row["usd"], 12), row["passed_on"]) == (
+        403, "lh-passthrough: tranche stopped", [("stop", "paid extra usage")], round(SMALL_USD, 12), False)
+
+
+RATE = "anthropic-ratelimit-unified"
+PAID = [("a rejected status", [(f"{RATE}-status", "rejected")]),
+        ("overage in use", [(f"{RATE}-overage-in-use", "true")]),
+        ("overage allowed", [(f"{RATE}-overage-status", "allowed")]),
+        ("overage allowed with a warning", [(f"{RATE}-overage-status", "allowed_warning")]),
+        ("the three together", [(f"{RATE}-status", "rejected"), (f"{RATE}-overage-status", "allowed"),
+                                (f"{RATE}-overage-in-use", "true"), (f"{RATE}-representative-claim", "five_hour")])]
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["plain", "streamed"])
+@pytest.mark.parametrize("case,headers", PAID, ids=[p[0] for p in PAID])
+def test_a_200_showing_paid_extra_usage_stops_the_tranche_and_is_not_passed_on(short, canned, inproc, case, headers,
+                                                                              stream):
+    kind, body = (("text/event-stream", _sse(_message(USAGE))) if stream
+                  else ("application/json", json.dumps(_message(USAGE)).encode()))
+    upstream = canned(_http(200, [("content-type", kind), *headers], body))
+    sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    status, _, data = _post(sock, "lh-fake-a", _request(stream=stream))
+    row = _eventually(lambda: _rows(state))[0]
     after, _, refusal = _post(sock, "lh-fake-a", _request())
-    assert (resp.status, at_headers, after, _error(refusal)[1]) == (
-        200, [("stop", "paid extra usage")], 403, "lh-passthrough: tranche stopped")
+    assert (status, _error(data)[1], [(e["event"], e["reason"]) for e in _events(state)], round(row["usd"], 12),
+            row["passed_on"], after, _error(refusal)[1]) == (
+        403, "lh-passthrough: tranche stopped", [("stop", "paid extra usage")], round(SMALL_USD, 12), False, 403,
+        "lh-passthrough: tranche stopped")
+
+
+def test_an_allowed_status_without_overage_is_passed_on(short, canned, inproc):
+    headers = [("content-type", "application/json"), (f"{RATE}-status", "allowed_warning"),
+               (f"{RATE}-overage-status", "rejected"), (f"{RATE}-overage-in-use", "false")]
+    upstream = canned(_http(200, headers, json.dumps(_message(USAGE)).encode()))
+    sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    assert (_post(sock, "lh-fake-a", _request(stream=False))[0], _events(state)) == (200, [])
 
 
 def test_a_response_that_names_another_model_stops_the_tranche(short, canned, inproc):
@@ -818,16 +1014,19 @@ def probe(short):
     for name, text in (("python", FAKE_HARNESS.replace("{python}", sys.executable)), ("podman", FAKE_PODMAN)):
         (lh / "hvenv" / "bin" / name).write_text(text)
         (lh / "hvenv" / "bin" / name).chmod(0o700)
-    head = subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    kit = subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%H", "--", str(KIT)], capture_output=True,
+                         text=True).stdout.strip()
+    ledger = short / "ledger.md"
+    ledger.write_text(f"| 2026-11-14 | Live probe approved by the coordinator at `{kit[:8]}` |\n")
     env = {"PATH": f"{NO_PROVIDER}:/usr/bin:/bin", "HOME": str(lh / "home"), "LH": str(lh), "LH_PYTHON": sys.executable,
-           "LH_PROBE_COMMIT": head, "LH_PROBE_STATE": str(short / "probe-state"),
-           "LH_TRANSCRIPTS": str(lh / "transcripts")}
+           "LH_PROBE_COMMIT": kit, "LH_PROBE_STATE": str(short / "probe-state"),
+           "LH_TRANSCRIPTS": str(lh / "transcripts"), "LH_PROBE_LEDGER": str(ledger)}
 
     def run(scenario="normal", out="live-probe", **extra):
         env_run = {**env, "LH_PROBE_STAND_IN": scenario, **extra}
         return subprocess.run(["bash", str(PROBE), str(lh / "recordings" / out)], env=env_run,
                               capture_output=True, text=True, timeout=600)
-    run.lh, run.state = lh, short / "probe-state"
+    run.lh, run.state, run.ledger = lh, short / "probe-state", ledger
     return run
 
 
@@ -896,3 +1095,413 @@ def test_a_body_larger_than_the_limit_is_refused_unread(short, stub, inproc):
         reply = reply.decode()
     assert (reply.split()[1], "lh-passthrough: request too large" in reply, _rows(state)[-1]["refused"],
             _stub_rows(upstream_log)) == ("403", True, "request too large", [])
+
+
+def test_a_probe_without_an_approval_row_for_its_commit_in_the_ledger_is_refused(probe):
+    probe.ledger.write_text("| 2026-11-14 | Live probe approved by the coordinator at `00000000` |\n")
+    result = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
+    assert (result.returncode, "no approval row" in result.stderr, probe.state.exists()) == (3, True, False)
+
+
+def test_a_start_that_fails_before_the_passthrough_listens_claims_nothing(probe):
+    failed = probe("no-such-scenario", LH_PROBE_SPEND_AUTHORIZED="yes")
+    retried = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
+    assert (failed.returncode, retried.returncode) == (4, 0)
+
+
+def test_within_a_session_the_probe_stops_the_tranche_at_the_first_answer_that_is_not_200(probe):
+    probe("overloaded", LH_PROBE_SPEND_AUTHORIZED="yes")
+    record = json.loads((probe.lh / "recordings" / "live-probe" / "probe.json").read_text())
+    assert [(e["event"], e["reason"]) for e in record["tranche_events"]] == [("stop", "vendor status 529")]
+
+
+# --- the response: the token never goes back --------------------------------------------------------------
+
+ECHOES = [("plain", 200), ("plain", 401), ("hex", 200), ("HEX", 200), ("base64-0", 200), ("base64-2", 200),
+          ("base64url-1", 200), ("utf16le", 200)]
+
+
+@pytest.mark.parametrize("form,status", ECHOES, ids=[f"{f}-{s}" for f, s in ECHOES])
+def test_a_response_body_holding_the_token_is_cut_before_it_and_stops_the_tranche(short, canned, inproc, form, status):
+    real = _token()
+    prefix = b'{"type": "error", "note": "you sent '
+    upstream = canned(_http(status, [("content-type", "application/json")],
+                            prefix + token_scan.forms(real)[form] + b'"}'))
+    sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}), token=real)
+    request = json.dumps(_request(stream=False)).encode()
+    reply = _exchange(sock, _raw(_headers(request), request))
+    _eventually(lambda: _rows(state))  # the answer is metered after the client was dropped
+    forms = token_scan.forms(real)
+    stops = [(e["place"], forms[e["form"]]) for e in _events(state) if e.get("reason") == "token in a response"]
+    assert (_found(reply, real), len(reply.partition(b"\r\n\r\n")[2]) <= len(prefix), stops,
+            _found(_written(state), real)) == ([], True, [(f"body offset {len(prefix)}", forms[form])], [])
+
+
+ECHOED_HEADS = [
+    ("a header", lambda real: _http(200, [("content-type", "application/json"), ("x-echo", f"Bearer {real}")],
+                                    json.dumps(_message(USAGE)).encode()), "header 1 x-echo"),
+    ("a logged header", lambda real: _http(200, [("content-type", "application/json"), ("anthropic-echo", real)],
+                                           json.dumps(_message(USAGE)).encode()), "header 1 anthropic-echo"),
+    ("the status line", lambda real: f"HTTP/1.1 401 {real}\r\ncontent-length: 0\r\n\r\n".encode(), "status line"),
+]
+
+
+@pytest.mark.parametrize("case,head,place", ECHOED_HEADS, ids=[e[0] for e in ECHOED_HEADS])
+def test_a_response_head_holding_the_token_sends_nothing_and_stops_the_tranche(short, canned, inproc, case, head,
+                                                                              place):
+    real = _token()
+    upstream = canned(head(real))
+    sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}), token=real)
+    request = json.dumps(_request(stream=False)).encode()
+    reply = _exchange(sock, _raw(_headers(request), request))
+    _eventually(lambda: _rows(state))
+    stops = [e["place"] for e in _events(state) if e.get("reason") == "token in a response"]
+    assert (reply, stops, _found(_written(state), real)) == (b"", [place], [])
+
+
+def test_a_token_split_across_two_upstream_writes_is_held_back_and_never_sent(short, canned, inproc):
+    real = _token()
+    prefix = b'data: {"echo": "'
+    body = prefix + real.encode() + b'"}\n\n'
+    whole = _http(200, [("content-type", "text/event-stream")], body)
+    cut = len(whole) - len(body) + len(prefix) + len(real) // 2
+    gate = threading.Event()
+    upstream = canned((whole[:cut], gate, whole[cut:]))
+    sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}), token=real)
+    request = json.dumps(_request()).encode()
+    first = rest = b""
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(WAIT)
+        client.connect(str(sock))
+        client.sendall(_raw(_headers(request), request))
+        while not first.endswith(prefix) and (chunk := client.recv(65536)):  # the bytes before the token's run
+            first += chunk
+        gate.set()
+        while chunk := client.recv(65536):
+            rest += chunk
+    stops = [e["place"] for e in _events(state) if e.get("reason") == "token in a response"]
+    assert (first.endswith(prefix), rest, stops) == (True, b"", [f"body offset {len(prefix)}"])
+
+
+def test_a_log_row_holding_the_token_keeps_its_numbers_only_and_stops_the_tranche(short, canned, inproc):
+    real = _token()
+    message = json.dumps(_message(USAGE)).encode()
+    upstream = canned(_http(200, [("content-type", "application/json"), ("anthropic-echo", real)], message))
+    sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}), token=real)
+    request = json.dumps(_request(stream=False)).encode()
+    _exchange(sock, _raw(_headers(request), request))
+    row = _eventually(lambda: _rows(state))[0]
+    assert (row["withheld"], "headers" in row, round(row["usd"], 12),
+            [e["reason"] for e in _events(state) if e["event"] == "stop"]) == (
+        "plain", False, round(SMALL_USD, 12), ["token in a response", "token in a log row"])
+
+
+# --- the request line and headers ------------------------------------------------------------------------
+
+LINES = [
+    ("an extra query", "POST /v1/messages?beta=true&x=1 HTTP/1.1", "path not allowed"),
+    ("another letter case", "POST /V1/messages?beta=true HTTP/1.1", "path not allowed"),
+    ("the absolute form", "POST http://api.anthropic.com/v1/messages?beta=true HTTP/1.1", "path not allowed"),
+    ("a doubled slash", "POST //v1/messages?beta=true HTTP/1.1", "path not allowed"),
+    ("HTTP/1.0", "POST /v1/messages?beta=true HTTP/1.0", "path not allowed"),
+    ("CONNECT", "CONNECT api.anthropic.com:443 HTTP/1.1", "path not allowed"),
+    ("a lower-case method", "post /v1/messages?beta=true HTTP/1.1", "path not allowed"),
+    ("an unknown method", "BREW /v1/messages?beta=true HTTP/1.1", "path not allowed"),
+    ("a malformed line", "POST /v1/messages?beta=true HTTP/1.1 extra", "request malformed"),
+    ("a line that is not HTTP", "hello", "request malformed"),
+]
+
+
+@pytest.mark.parametrize("case,line,reason", LINES, ids=[c[0] for c in LINES])
+def test_a_request_line_other_than_the_recorded_one_is_refused_in_the_one_form(short, stub, inproc, case, line,
+                                                                              reason):
+    upstream, upstream_log = stub("normal")
+    sock, _ = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    body = json.dumps(_request()).encode()
+    assert (_reason(_exchange(sock, _raw(_headers(body), body, line=line))), _stub_rows(upstream_log)) == (reason, [])
+
+
+def _replaced(name, value):
+    return lambda headers: [(k, value if k == name else v) for k, v in headers]
+
+
+def _added(*pairs):
+    return lambda headers: [*headers, *pairs]
+
+
+HEADERS = [
+    ("two content-length headers", lambda h: [*h, next(p for p in h if p[0] == "content-length")], "header repeated"),
+    ("two authorization headers", _added(("Authorization", "Bearer lh-fake-a")), "header repeated"),
+    ("transfer-encoding", _added(("transfer-encoding", "chunked")), "header not allowed"),
+    ("x-api-key", _added(("x-api-key", "sk-made-up")), "header not allowed"),
+    ("a cookie", _added(("cookie", "a=b")), "header not allowed"),
+    ("an unrecorded header", _added(("x-probe", "echo")), "header not allowed"),
+    ("expect 100-continue", _added(("expect", "100-continue")), "header not allowed"),
+    ("an unrecorded beta flag", _added(("anthropic-beta", "files-api-2025-04-14")), "header not allowed"),
+    ("another API version", _added(("anthropic-version", "2024-01-01")), "header not allowed"),
+    ("another client", _added(("user-agent", "curl/8.0")), "header not allowed"),
+    ("a length with a leading zero", lambda h: _replaced("content-length", "0" + dict(h)["content-length"])(h),
+     "request malformed"),
+    ("a superscript digit as the length", _replaced("content-length", "\u00b2"), "request malformed"),
+    ("a value that is not ASCII", _added(("x-claude-code-session-id", "\u00e9")), "request malformed"),
+    ("headers above 32 KiB", _added(("x-claude-code-session-id", "s" * 40000)), "request too large"),
+    ("a header line above 64 KiB", _added(("x-claude-code-session-id", "s" * 70000)), "request too large"),
+    ("more than 100 headers", _added(*[(f"x-stainless-{i}", "x") for i in range(101)]), "request too large"),
+]
+
+
+@pytest.mark.parametrize("case,change,reason", HEADERS, ids=[c[0] for c in HEADERS])
+def test_a_header_set_outside_the_recorded_one_is_refused_in_the_one_form(short, stub, inproc, case, change, reason):
+    upstream, upstream_log = stub("normal")
+    sock, _ = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    body = json.dumps(_request()).encode()
+    assert (_reason(_exchange(sock, _raw(change(_headers(body)), body))), _stub_rows(upstream_log)) == (reason, [])
+
+
+def test_the_committed_allowlist_is_what_the_request_fixtures_give():
+    make = _load("make_allowlist")
+    assert (KIT / "request_allowlist.json").read_text() == make.render(make.build(make.shapes()))
+
+
+FILL = {"accept": "application/json", "connection": "keep-alive", "host": "relay:8080"}
+
+
+def _recorded_request(shape):
+    """A request in a recorded shape: its headers (a value for each the cutter dropped), body fields and tools."""
+    body = {"model": shape["model"], "max_tokens": shape["max_tokens"], "stream": shape["stream"],
+            "output_config": {"effort": shape["effort"]}, "system": [], "messages": [{"role": "user", "content": "x"}],
+            "tools": [{"name": name, "description": "d", "input_schema": SCHEMA} for name in shape["tools"]],
+            **{key: {} for key in shape["other_params"]}}
+    data = json.dumps(body).encode()
+    headers = {**{k: v or FILL.get(k, "x") for k, v in shape["headers"].items() if k != "x-api-key"},
+               "authorization": "Bearer lh-fake-a", "content-length": str(len(data))}
+    return http.client.parse_headers(io.BytesIO(_raw(headers.items()).split(b"\r\n", 1)[1])), data
+
+
+def test_every_recorded_request_shape_passes_the_checks():
+    make = _load("make_allowlist")
+    reasons = set()
+    for shape in make.shapes():
+        headers, data = _recorded_request(shape)
+        reasons |= {passthrough.header_reason(headers), passthrough.content_reason(passthrough.parse_body(data))}
+    assert reasons == {None}
+
+
+# --- the request's time and size, and the slot's gate ---------------------------------------------------------
+
+
+def test_an_unknown_token_is_refused_before_any_body_byte_is_read(short, stub, inproc):
+    upstream, _ = stub("normal")
+    sock, _ = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    head = _raw(_headers(b"x" * 1000, token="lh-fake-unknown"))  # the body is never sent
+    assert _reason(_exchange(sock, head, timeout=10)) == "unknown token"
+
+
+def test_a_body_that_trickles_past_its_time_is_refused(short, stub, inproc, monkeypatch):
+    monkeypatch.setattr(passthrough, "BODY_TIME", 1)
+    upstream, upstream_log = stub("normal")
+    sock, _ = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    body = json.dumps(_request()).encode()
+    reply = b""
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(WAIT)
+        client.connect(str(sock))
+        client.sendall(_raw(_headers(body)))
+        for byte in body[:20]:  # one byte every 0.25 s
+            with contextlib.suppress(OSError):
+                client.sendall(bytes([byte]))
+            time.sleep(0.25)
+        with contextlib.suppress(ConnectionResetError):
+            while chunk := client.recv(65536):
+                reply += chunk
+    assert (_reason(reply), _stub_rows(upstream_log)) == ("request timed out", [])
+
+
+def test_headers_that_trickle_past_their_time_cut_the_connection(short, stub, inproc, monkeypatch):
+    monkeypatch.setattr(passthrough, "HEADER_TIME", 1)
+    upstream, _ = stub("normal")
+    sock, _ = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    started, closed = time.monotonic(), None
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(0.25)
+        client.connect(str(sock))
+        client.sendall(f"POST {MESSAGES} HTTP/1.1\r\n".encode())
+        while closed is None and time.monotonic() - started < 10:
+            with contextlib.suppress(OSError):
+                client.sendall(b"x-claude-code-session-id: s\r\n"[:1])
+            try:
+                if client.recv(65536) == b"":
+                    closed = time.monotonic() - started
+            except TimeoutError:
+                pass
+            except OSError:
+                closed = time.monotonic() - started
+    assert closed is not None and closed < 5
+
+
+def test_connections_beyond_the_cap_are_refused_until_one_closes(short, stub, inproc, monkeypatch):
+    monkeypatch.setattr(passthrough, "MAX_CONNECTIONS", 2)
+    upstream, _ = stub("normal")
+    sock, _ = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    idle = [socket.socket(socket.AF_UNIX) for _ in range(2)]
+    for client in idle:
+        client.connect(str(sock))
+    time.sleep(0.5)  # both are accepted and wait for a request line
+    over = _reason(_exchange(sock, b"", timeout=10))
+    for client in idle:
+        client.close()
+
+    def served():
+        try:
+            return _post(sock, "lh-fake-a", _request())[0] == 200
+        except (OSError, http.client.HTTPException):  # refused at once while the idle ones are still counted
+            return False
+    assert (over, _eventually(served)) == ("too many connections", True)
+
+
+def _gated(more):
+    """A plain 200 whose body waits for the test's signal, then `more` plain 200s: (gate, responses)."""
+    gate = threading.Event()
+    body = json.dumps(_message(USAGE)).encode()
+    head = _http(200, [("content-type", "application/json")], body)[:-len(body)]
+    return gate, [(head, gate, body), *[_http(200, [("content-type", "application/json")], body)] * more]
+
+
+def test_a_third_open_request_of_one_slot_is_refused(short, canned, inproc):
+    gate, responses = _gated(1)
+    upstream = canned(*responses)
+    sock, _ = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    results = []
+    post = lambda: results.append(_post(sock, "lh-fake-a", _request(stream=False)))  # noqa: E731
+    threads = [threading.Thread(target=post)]
+    threads[0].start()
+    _eventually(lambda: upstream.received)  # the first is in flight
+    threads += [threading.Thread(target=post) for _ in range(2)]
+    for thread in threads[1:]:
+        thread.start()
+    _eventually(lambda: results)  # one of the two is refused at once; the other waits for its slot
+    gate.set()
+    for thread in threads:
+        thread.join(WAIT)
+    assert sorted((status, _error(data)[1] if status == 403 else None) for status, _, data in results) == [
+        (200, None), (200, None), (403, "lh-passthrough: too many connections")]
+
+
+def test_a_request_waiting_on_its_slot_past_the_wait_is_refused_as_busy(short, canned, inproc, monkeypatch):
+    monkeypatch.setattr(passthrough, "SLOT_WAIT", 1)
+    gate, responses = _gated(0)
+    upstream = canned(*responses)
+    sock, _ = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    first = []
+    thread = threading.Thread(target=lambda: first.append(_post(sock, "lh-fake-a", _request(stream=False))[0]))
+    thread.start()
+    _eventually(lambda: upstream.received)
+    status, _, data = _post(sock, "lh-fake-a", _request(stream=False))
+    gate.set()
+    thread.join(WAIT)
+    assert (status, _error(data)[1], first) == (403, "lh-passthrough: slot busy", [200])
+
+
+def test_twenty_clients_on_one_slot_overshoot_its_cap_by_less_than_one_response(short, stub, inproc, monkeypatch):
+    """One request in flight per slot, each checked with the one before it metered: below cap + one response."""
+    monkeypatch.setattr(passthrough, "MAX_PER_SLOT", 32)
+    monkeypatch.setattr(passthrough, "MAX_CONNECTIONS", 64)
+    upstream, _ = stub("slow", "--delay", "0.5")
+    cap = SMALL_USD * 2.5
+    sock, state = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a", cap_usd=cap)}))
+    statuses = _concurrently([lambda: _post(sock, "lh-fake-a", _request(turn=1))[0]] * 20)
+    overshoot = sum(r.get("usd") or 0 for r in _rows(state)) - cap
+    assert (statuses.count(200), 0 <= overshoot < SMALL_USD) == (3, True)
+
+
+def test_four_slots_at_once_overshoot_the_tranche_total_by_less_than_one_response_each(short, stub, inproc,
+                                                                                        monkeypatch):
+    """The total is checked under one lock; at most one unmetered response per slot: below total + 4 responses."""
+    monkeypatch.setattr(passthrough, "MAX_PER_SLOT", 32)
+    monkeypatch.setattr(passthrough, "MAX_CONNECTIONS", 64)
+    upstream, _ = stub("slow", "--delay", "0.5")
+    total = SMALL_USD * 2.5
+    slots = {name: _slot(f"lh-fake-{name}") for name in "abcd"}
+    sock, state = inproc(upstream, _slots(short / "slots.json", slots, total_usd=total))
+    _concurrently([lambda n=name: _post(sock, f"lh-fake-{n}", _request(turn=1))[0] for name in "abcd" for _ in range(5)])
+    overshoot = sum(r.get("usd") or 0 for r in _rows(state)) - total
+    assert 0 <= overshoot < 4 * SMALL_USD
+
+
+# --- the meter, to the end of every answer ----------------------------------------------------------------
+
+
+@pytest.mark.parametrize("left", ["before the head", "after the head"])
+def test_an_answer_whose_client_went_away_is_read_and_metered_to_its_end(short, canned, inproc, left):
+    stream = _sse(_message(USAGE))
+    whole = _http(200, [("content-type", "text/event-stream")], stream)
+    cut = 0 if left == "before the head" else len(whole) - len(stream) + 10
+    gate = threading.Event()
+    upstream = canned((whole[:cut], gate, whole[cut:]))
+    sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    request = json.dumps(_request()).encode()
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(WAIT)
+        client.connect(str(sock))
+        client.sendall(_raw(_headers(request), request))
+        _ = client.recv(12) if cut else _eventually(lambda: upstream.received)
+    gate.set()  # the rest of the answer comes after the client is gone
+    rows = _eventually(lambda: _rows(state))
+    assert (round(rows[0]["usd"], 12), rows[0]["worst_case"]) == (round(SMALL_USD, 12), False)
+
+
+def test_a_stream_that_ends_before_its_message_stop_is_priced_at_the_requests_worst_case(short, canned, inproc):
+    stream = _sse(_message(USAGE))
+    upstream = canned(_http(200, [("content-type", "text/event-stream")],
+                            stream[:stream.index(b"event: message_delta")]))
+    sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    _post(sock, "lh-fake-a", _request())
+    worst = price_check.price({**USAGE, "output_tokens": 1000}, RULE)  # message_start's usage, max_tokens as output
+    assert (round(_rows(state)[0]["usd"], 12), _rows(state)[0]["worst_case"],
+            [(e["event"], e["reason"]) for e in _events(state)]) == (
+        round(worst, 12), True, [("close_starts", "usage incomplete")])
+
+
+def test_a_null_in_a_usage_delta_leaves_the_figure_before_it(short, canned, inproc):
+    stream = _sse(_message(USAGE)).replace(b'"usage": {"output_tokens": 100}',
+                                           b'"usage": {"output_tokens": 100, "input_tokens": null}')
+    upstream = canned(_http(200, [("content-type", "text/event-stream")], stream))
+    sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    _post(sock, "lh-fake-a", _request())
+    assert round(_rows(state)[0]["usd"], 12) == round(SMALL_USD, 12)
+
+
+# --- the start: the token file, the slots, the trust store, the probe's switch ----------------------------------
+
+
+def test_a_token_file_reached_through_a_symlinked_directory_is_refused(short):
+    token_file = _secret_file(short, _token())
+    (short / "link").symlink_to(token_file.parent)
+    with pytest.raises(OSError):
+        passthrough.read_token(short / "link" / "token")
+
+
+def test_two_slots_with_one_fake_token_are_refused(short, stub):
+    upstream, _ = stub("normal")
+    state = short / "state"
+    state.mkdir(mode=0o700)
+    with pytest.raises(passthrough.Refused, match="own fake token"):
+        passthrough.Passthrough(state, _slots(short / "slots.json", {"a": _slot("lh-fake-x"), "b": _slot("lh-fake-x")}),
+                                "t", "live", passthrough.unix_upstream(str(upstream)))
+
+
+def test_the_vendor_client_trusts_pythons_own_store_whatever_the_environment_names(short, monkeypatch):
+    (short / "empty.pem").write_text("")
+    monkeypatch.setenv("SSL_CERT_FILE", str(short / "empty.pem"))
+    monkeypatch.setenv("SSL_CERT_DIR", str(short))
+    ours = passthrough.vendor_upstream()()._context.cert_store_stats()["x509_ca"]
+    assert (ssl.create_default_context().cert_store_stats()["x509_ca"], ours > 0) == (0, True)
+
+
+def test_with_the_probes_switch_any_answer_but_200_stops_the_tranche(short, stub, inproc):
+    upstream, _ = stub("overloaded")
+    sock, state = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}), stop_on_non_200=True)
+    first = _post(sock, "lh-fake-a", _request(turn=1))[0]
+    after, _, data = _post(sock, "lh-fake-a", _request(turn=1))
+    assert (first, [(e["event"], e["reason"]) for e in _events(state)], after, _error(data)[1]) == (
+        529, [("stop", "vendor status 529")], 403, "lh-passthrough: tranche stopped")

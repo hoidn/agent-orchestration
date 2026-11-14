@@ -3,22 +3,28 @@
 # scratch task, one after another at effort low, medium and high, in the ladder's configuration (CLI 2.1.311 in
 # the task container, token mode with a fake token per session, the relay as base URL, the deny list, the
 # recordings' allowlist, model claude-haiku-5-5, verification off), through passthrough.py on the owner's
-# subscription token. It runs only under the coordinator's approval row in the plan's ledger.
+# subscription token. It runs only under the coordinator's approval row in the plan's ledger: a line of the
+# plan that holds "live probe", "approv" and the first 8 or more characters of the kit's commit (the last commit
+# that changed this directory; the row itself is committed after it).
 #
 #   LH_PROBE_SPEND_AUTHORIZED=yes LH_PROBE_COMMIT=<the approval row's commit> LH_TOKEN_FILE=<path> \
 #     live_probe.sh OUT                                                   (the probe: subscription usage)
-#   LH_PROBE_SPEND_AUTHORIZED=yes LH_PROBE_COMMIT=<HEAD> LH_PROBE_STAND_IN=<stub_api.py scenario> \
-#     LH_PROBE_STATE=<new dir> LH_TRANSCRIPTS=<dir> live_probe.sh OUT     (against stub_api.py: no token, no spend)
+#   LH_PROBE_SPEND_AUTHORIZED=yes LH_PROBE_COMMIT=<the kit's commit> LH_PROBE_STAND_IN=<stub_api.py scenario> \
+#     LH_PROBE_STATE=<dir> LH_TRANSCRIPTS=<dir> [LH_PROBE_LEDGER=<file>] live_probe.sh OUT
+#                                                                         (against stub_api.py: no token, no spend)
 #
 # OUT is normally $LH/recordings/live-probe; cutting fixtures from it and hashing it into recordings.json is done
 # afterwards, as for the other recordings. A stand-in run puts stub_api.py behind the passthrough's rehearsal
 # switch, whose canary stands for the token.
 #
-# Refuses (exit 3) before anything starts: without LH_PROBE_SPEND_AUTHORIZED=yes; a HEAD other than
-# LH_PROBE_COMMIT; for the probe, a kit with uncommitted changes or no LH_TOKEN_FILE; for a stand-in run, a token
-# file, or no LH_PROBE_STATE or LH_TRANSCRIPTS (a stand-in run never reads the agents' transcripts); no provider
-# guard; a scratch task off the recordings' allowlist; an existing OUT; a probe that has run (its state directory,
-# $HOME/.local/state/lh-probe for the probe, is claimed once, for good: no second try under one approval row).
+# Refuses (exit 3) before anything starts: without LH_PROBE_SPEND_AUTHORIZED=yes; a kit commit other than
+# LH_PROBE_COMMIT; no approval row for it in the ledger (the plan; LH_PROBE_LEDGER in a stand-in run only); for the
+# probe, a kit with uncommitted changes or no LH_TOKEN_FILE; for a stand-in run, a token file, or no LH_PROBE_STATE
+# or LH_TRANSCRIPTS (a stand-in run never reads the agents' transcripts); no provider guard; a scratch task off the
+# recordings' allowlist; an existing OUT; a probe that has run. Its state directory ($HOME/.local/state/lh-probe
+# for the probe) is claimed once, for good (no second try under one approval row), and only once the passthrough
+# reports it is listening: a start the passthrough refuses claims nothing, and its state is moved aside to
+# STATE.start-<time> by the next run. The passthrough runs with an empty environment but PATH.
 #
 # Limits (item 1), enforced by the passthrough's meter: 6 requests and priced USD 0.15 per session, 18 and USD
 # 0.45 in all; the CLI's own budget USD 0.10 a session. Each session has its own slot and fake token, and only
@@ -26,7 +32,8 @@
 # events, the session's stream, its egress log and the runtime check: a vendor status other than 200, a refusal by
 # the passthrough (a limit), a response naming another model, a stop or closed starts, isUsingOverage other than
 # false, the CLI's budget stop, an allowed connection to anything but the relay, a runtime-check finding. The
-# probe then ends at once; there is no second try.
+# probe then ends at once; there is no second try. Within a session the passthrough's --stop-on-non-200 makes the
+# first answer other than 200 a stop, so the CLI's own retries of it are refused.
 # The runtime check, per session, before its containers are removed (they are kept by the harness's
 # keep_containers): every container of the trial is inspected, each one's process environments are read every 2 s
 # while the harness runs, and the agent container's exported file system is streamed through token_scan.py.
@@ -52,16 +59,20 @@ REPO=$(git -C "$HERE" rev-parse --show-toplevel)
 LH=${LH:-$HOME/lh-cache}
 NO_PROVIDER=$REPO/experiments/thread_m/no_provider
 [ -x "$NO_PROVIDER/claude" ] || refuse "no provider guard at $NO_PROVIDER"
-[ "$(git -C "$REPO" rev-parse HEAD)" = "${LH_PROBE_COMMIT:-}" ] || refuse "HEAD is not LH_PROBE_COMMIT, the approval row's commit"
+KIT_COMMIT=$(git -C "$REPO" log -1 --format=%H -- "$HERE")
+[ "$KIT_COMMIT" = "${LH_PROBE_COMMIT:-}" ] || refuse "the kit's commit is not LH_PROBE_COMMIT, the approval row's commit"
+LEDGER=$REPO/docs/plans/2026-11-13-long-horizon-task-family-and-seed-plan.md
 if [ -n "${LH_PROBE_STAND_IN:-}" ]; then
   [ -z "${LH_TOKEN_FILE:-}" ] || refuse "a stand-in run never names a token file"
   [ -n "${LH_PROBE_STATE:-}" ] && [ -n "${LH_TRANSCRIPTS:-}" ] || refuse "a stand-in run needs LH_PROBE_STATE and LH_TRANSCRIPTS"
-  STATE=$LH_PROBE_STATE TRANSCRIPTS=$LH_TRANSCRIPTS CREDENTIAL=rehearsal
+  STATE=$LH_PROBE_STATE TRANSCRIPTS=$LH_TRANSCRIPTS CREDENTIAL=rehearsal LEDGER=${LH_PROBE_LEDGER:-$LEDGER}
 else
   [ -n "${LH_TOKEN_FILE:-}" ] || refuse "no LH_TOKEN_FILE"
   [ -z "$(git -C "$REPO" status --porcelain -- "$HERE")" ] || refuse "the kit has uncommitted changes"
   STATE=$HOME/.local/state/lh-probe TRANSCRIPTS=${LH_TRANSCRIPTS:-$HOME/.claude/projects} CREDENTIAL=live
 fi
+grep -i 'live probe' "$LEDGER" 2>/dev/null | grep -i 'approv' | grep -q "${KIT_COMMIT:0:8}" ||
+  refuse "no approval row for ${KIT_COMMIT:0:8} in $LEDGER"
 OUT=$(realpath -m "$1")
 [ ! -e "$OUT" ] || refuse "$OUT exists"
 TASK=$LH/scratch/recording-task
@@ -70,13 +81,17 @@ grep -qx 'network_mode = "allowlist"' "$TASK/task.toml" 2>/dev/null &&
   refuse "$TASK/task.toml is not on the recordings' allowlist (record.sh make_task)"
 PYTHON=$(command -v "${LH_PYTHON:-python3}") || refuse "no python3"
 mkdir -p -m 700 "$(dirname "$STATE")"
-mkdir -m 700 "$STATE" 2>/dev/null || refuse "$STATE exists: the probe has run (one run, no second try)"
+[ ! -e "$STATE/claimed" ] || refuse "$STATE is claimed: the probe has run (one run, no second try)"
+if [ -e "$STATE" ] || [ -e "$STATE.canary" ]; then  # a start that never claimed: no session ran under it
+  aside=$STATE.start-$(date +%s)
+  mkdir -m 700 "$aside"
+  for f in "$STATE" "$STATE.canary"; do [ ! -e "$f" ] || mv "$f" "$aside/"; done
+fi
+mkdir -m 700 "$STATE"
 
 PT=$STATE/passthrough SOCKET_DIR=$STATE/relay
 FP=$PT/fingerprint.json
 mkdir -m 700 "$PT" "$SOCKET_DIR"
-mkdir -p "$(dirname "$OUT")"
-mkdir -m 700 "$OUT"
 export PATH="$NO_PROVIDER:$LH/hvenv/bin:/usr/local/bin:/usr/bin:/bin"
 PASS= STUB= HARBOR=
 cleanup() {
@@ -279,8 +294,8 @@ def prompt_tokens(rows):
     return None if usage is None else sum(usage.get(k) or 0 for k in PROMPT)
 
 
-REQUEST_KEYS = ("time", "status", "refused", "error", "effort", "response_model", "message_id", "headers", "usage",
-                "usd", "credential")
+REQUEST_KEYS = ("time", "status", "refused", "limit", "error", "effort", "response_model", "message_id", "headers",
+                "usage", "usd", "worst_case", "passed_on", "credential")
 RESULT_KEYS = ("terminal_reason", "api_error", "api_error_status", "total_cost_usd", "usage", "modelUsage")
 PROMPT = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
 
@@ -359,17 +374,20 @@ probe_py() { "$PYTHON" -I -c "$PROBE_PY" "$@"; }
 write_slots '{}'
 if [ -n "${LH_PROBE_STAND_IN:-}" ]; then
   "$PYTHON" -I "$HERE/stub_api.py" --unix "$STATE/stub.sock" --model "$MODEL" --scenario "$LH_PROBE_STAND_IN" \
-    --log "$OUT/stub.jsonl" > "$OUT/stub.out" 2>&1 &
+    --log "$STATE/stub.jsonl" > "$STATE/stub.out" 2>&1 &
   STUB=$!
-  wait_for "$OUT/stub.out" listening "$STUB"
+  wait_for "$STATE/stub.out" listening "$STUB"
   credential=(--rehearsal "$STATE/stub.sock" --canary-out "$STATE.canary" --canary-length "$CANARY_LENGTH")
 else
   credential=(--token-file "$LH_TOKEN_FILE")
 fi
-"$PYTHON" -I "$HERE/passthrough.py" --socket "$SOCKET_DIR/passthrough.sock" --state "$PT" --slots "$PT/slots.json" \
-  "${credential[@]}" > "$PT/output.log" 2>&1 &
+env -i PATH=/usr/bin:/bin "$PYTHON" -I "$HERE/passthrough.py" --socket "$SOCKET_DIR/passthrough.sock" --state "$PT" \
+  --slots "$PT/slots.json" --stop-on-non-200 "${credential[@]}" > "$PT/output.log" 2>&1 &
 PASS=$!
 wait_for "$PT/output.log" listening "$PASS"
+mkdir -m 700 "$STATE/claimed" || refuse "$STATE was claimed by another run"
+mkdir -p "$(dirname "$OUT")"
+mkdir -m 700 "$OUT" || refuse "$OUT exists"
 
 STOP=
 for effort in "${EFFORTS[@]}"; do

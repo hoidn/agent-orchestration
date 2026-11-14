@@ -1,55 +1,85 @@
 """The long-horizon passthrough (plan D4; Task 4, first slice): the one host process that holds the owner's
 subscription token, meters every request and enforces the caps.
 
-It listens on one unix socket only; the relay container forwards its one TCP port to it. For each request it
-maps the fake bearer token to a slot. It refuses, in one form (HTTP 403 `permission_error`,
-`x-should-retry: false`, message `lh-passthrough: <reason>`, connection closed): any request but
-`POST /v1/messages?beta=true` ("path not allowed"); an unknown token ("unknown token"); a stopped tranche
-("tranche stopped"); any model but the price rule's exact id, or a body that is not JSON ("model not
-allowed"); a request that declares a provider-side tool, one without `input_schema` ("provider-side tool
-refused"); a body above 64 MiB or without a valid length, unread ("request too large"); a slot at its
-request count or priced cap ("slot cap reached"); the tranche at its request count or priced total
-("tranche total reached"). Otherwise it replaces the value of the `authorization` header with
-`Bearer <real token>`, sets `host` to the vendor's host (the server it connects to) and changes no other byte
-of the request. It passes the vendor's response through unchanged (a chunked body is re-chunked) and prices
-its usage by `price_rule.json` (`price_check.price`, each cache write at its own lifetime's rate), metering a
-response in flight at a cap to its end; the caps act on the next request.
+It listens on one unix socket only; the relay container forwards its one TCP port to it. Everything from the
+container is checked against `request_allowlist.json` (built by `make_allowlist.py` from the recorded request
+fixtures) and refused otherwise, in one form: HTTP 403 `permission_error`, `x-should-retry: false`, message
+`lh-passthrough: <reason>`, connection closed. In order, before any body byte is read:
+  the request line is exactly `POST /v1/messages?beta=true HTTP/1.1` ("path not allowed"; an unparsable line
+  "request malformed", an over-long line or header block "request too large"); every header name is recorded
+  and appears once ("header not allowed", "header repeated"); the recorded headers have recorded values; the
+  values are printable ASCII and there is one `content-length` of plain digits ("request malformed"), at most
+  64 MiB, with at most 32 KiB of headers ("request too large"); the line and headers come within HEADER_TIME
+  (else the connection is cut); the bearer token maps to a slot ("unknown token"); the tranche is not stopped
+  ("tranche stopped"); the slot has at most two requests open and the process at most 16 connections ("too
+  many connections").
+Then, holding the slot (one request in flight per slot; a second waits for the first to be metered, then
+"slot busy" after the wait): the body, read within its time ("request timed out"), is strict JSON (UTF-8, no
+duplicate key at any depth, no NaN: "request malformed"); its top-level keys are recorded ("field not
+allowed"); `model` is the exact id ("model not allowed"); `stream`, `max_tokens` and the effort hold recorded
+values ("field not allowed"); every tool has the recorded keys, a recorded name and an `input_schema`, and no
+`type` ("provider-side tool refused" for a tool with a `type` or without a schema, else "tool not allowed");
+nothing in it asks the vendor to fetch (a `source` that is not base64, text or content, or a `file_id`:
+"field not allowed"); the slot's and the tranche's request counts and priced caps hold, counted with every
+earlier request of the slot metered ("slot cap reached", "tranche total reached").
 
-The vendor's answers, acted on before the response is passed on: a 429 closes starts (reason "usage limit"
-with its `anthropic-ratelimit-unified-reset` when `anthropic-ratelimit-unified-status` is `rejected`, else
-"vendor 429" with no reset); a 401 stops the tranche; a configured paid-usage header value (--paid-usage,
-from the recording of Task 2a; none is configured until one is recorded) stops it. After the body: a response
-naming another model stops it; a 200 whose usage the meter cannot read closes starts ("usage unreadable").
-Starts are the launcher's: the passthrough records `close_starts` and never refuses on it.
+The upstream request is built: the client's header lines in their order, with exactly three values set by the
+passthrough, `authorization` (`Bearer <real token>`), `host` (the vendor's host) and `accept-encoding`
+(`identity`, so every response byte can be checked), and `content-length` from the body read; the body byte
+for byte. The response goes back unchanged, except that everything sent to the client and every log row is
+checked for the token in each form of `token_scan.forms` (plain, hex, base64 at three alignments, UTF-16LE),
+across writes (a tail that could start a form is held until the next write shows it is not one). On a match
+nothing more is sent, the client connection is dropped and the tranche is stopped with the place (a header's
+index and name, or a body offset) and the form, never the bytes; a response whose `content-encoding` is not
+identity is handled the same way, since it cannot be checked. The meter reads the response to its end even
+when the client has gone; a 200 whose usage cannot be read whole, or a request that got no status back, is
+priced at the request's worst case (its `max_tokens` as output; as input, the measured figure or the body's
+size in bytes), flagged, and closes starts ("usage incomplete"). Prices are `price_rule.json`
+(`price_check.price`, each cache write at its lifetime's rate).
+
+The vendor's answers, recorded before the response is passed on: a 429 closes starts ("usage limit" with its
+`anthropic-ratelimit-unified-reset` when `anthropic-ratelimit-unified-status` is `rejected`, else "vendor 429"
+with no reset); a 401 stops the tranche; with --stop-on-non-200 (the live probe's) any status but 200 stops
+it. Paid extra usage (PAID_USAGE: a status other than allowed on a response that is not a 429, overage in use,
+or overage allowed; and each --paid-usage HEADER=VALUE) stops it, and that response is not passed on: the
+client gets the 403 form with "tranche stopped", while the answer is still read and metered. After the body:
+a response naming another model stops it. Starts are the launcher's: `close_starts` is a record.
 
 State, in DIR (mode 700, this user's; the output file belongs there too):
-  requests.jsonl  one row per request: time, slot, path, credential, model, effort, declared tools, status,
-                  the logged response headers (anthropic-*, retry-after, x-should-retry, request-id, the
-                  paid-usage names), usage as reported, its price, response model, message id, a refusal
-                  reason or an error class. Never a request header. It is the meter: a restart sums it.
+  requests.jsonl  one row per request; a refusal: time, slot, status, reason, and for a cap the limit that acted
+                  (cap_usd, cap_requests, total_usd, total_requests); a forwarded request: also
+                  model, effort, declared tools, the logged response headers (anthropic-*, retry-after,
+                  x-should-retry, request-id, content-encoding, the paid-usage names), usage, price, response
+                  model, message id, error class, worst-case flag. It is the meter: a restart sums it. A row in
+                  which a form of the token appears is written with its numbers only (`withheld`: the form), and
+                  the tranche stops.
   tranche.jsonl   events: close_starts and stop (written here), stop and resume (written by the launcher or a
                   person); every request is refused while the last stop or resume is a stop.
-  fingerprint.json  salt, length and salted SHA-256 of the token (token_scan.py), written at the start.
+  fingerprint.json  one salt and each form's length and salted SHA-256 (token_scan.py), written at the start.
 The slots file, re-read on every request (the launcher replaces it atomically):
   {"total_usd": T (at most 200), "total_requests": N or null,
-   "slots": {NAME: {"token": FAKE, "cap_usd": C, "cap_requests": M or null}}}
+   "slots": {NAME: {"token": FAKE, "cap_usd": C, "cap_requests": M or null}}}   (no fake token twice)
+A slot is retired by the launcher alone, by removing it: only a token absent from the file is "unknown token". A
+slot at a cap stays and answers "slot cap reached" (cap_requests is the live probe's; the ladder sets none).
 
-The token: --token-file is opened once, at the start, and refused unless it is a regular file of mode 600 in
-a directory of mode 700, both this user's, holding one bearer token (RFC 6750 b64token). It is in no argument,
-environment, log row or exception text: errors print the exception's class and this module's own message.
-Core dumps are off and the process is not dumpable. It starts no child process. The vendor client is
-`http.client` (it reads no proxy variable), verifies TLS and connects to api.anthropic.com:443 only.
---rehearsal connects to a stand-in's unix socket instead, refuses --token-file, and holds a canary it makes
-itself and writes once to --canary-out (a new mode-600 file, outside the scanned file set).
+The token: --token-file is opened once, at the start, without following a symlink in the file or its
+directory, and refused unless the opened file is a regular file of mode 600 in a directory of mode 700, both
+this user's, holding one bearer token (RFC 6750 b64token). It is in no argument, environment, log row or
+exception text: errors print the exception's class and this module's own message. Core dumps are off and the
+process is not dumpable. It starts no child process. The vendor client is `http.client` (it reads no proxy
+variable), verifies TLS against the trust store compiled into Python (not one named by the environment) and
+connects to api.anthropic.com:443 only. --rehearsal connects to a stand-in's unix socket instead, refuses
+--token-file, and holds a canary it makes itself and writes once to --canary-out (a new mode-600 file).
 
 Usage: python -I passthrough.py --socket PATH --state DIR --slots FILE [--paid-usage HEADER=VALUE]...
-         (--token-file FILE | --rehearsal STAND_IN_SOCKET --canary-out FILE --canary-length N)
+         [--stop-on-non-200] (--token-file FILE | --rehearsal STAND_IN_SOCKET --canary-out FILE --canary-length N)
 Prints `listening <socket>` once bound. Exit 2: refused at the start. SIGTERM: records close_starts
 ("passthrough down"), removes the socket, exits 0. A crash leaves no such record: the launcher (Task 5) must
 treat an unanswered socket as the passthrough being down.
 """
 
 import argparse
+import contextlib
 import ctypes
 import http.client
 import importlib.util
@@ -67,7 +97,6 @@ import string
 import sys
 import threading
 import time
-import zlib
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -84,19 +113,51 @@ def _kit(name):
 price_check, token_scan = _kit("price_check"), _kit("token_scan")
 RULE = price_check.load_rule()
 MODEL = RULE["model"]
-MESSAGES = "/v1/messages?beta=true"  # the only path any recording shows
+ALLOW = json.loads((HERE / "request_allowlist.json").read_text())
+MESSAGES = ALLOW["path"]
+REQUEST_LINE = f"{ALLOW['method']} {MESSAGES} HTTP/1.1"
 VENDOR = "api.anthropic.com"
 CEILING_USD = 200.0  # the approval's ceiling; no slots file may set a larger total
 BEARER = re.compile(r"[A-Za-z0-9\-._~+/]+=*")
-LOGGED = ("retry-after", "x-should-retry", "request-id")
+DIGITS = re.compile(r"0|[1-9][0-9]{0,9}")
+PRINTABLE = re.compile(r"[\x20-\x7e]*")
+TAIL = re.compile(rb"[A-Za-z0-9\-._~+/=\x00]*\Z")  # the bytes any form of the token is made of
+SOURCES = ("base64", "text", "content")  # a content block's source the vendor reads from the request itself
+LOGGED = ("retry-after", "x-should-retry", "request-id", "content-encoding")
 READ = 65536
-MAX_BODY = 64 << 20  # bytes; a request body above it is refused unread (the relay's port is the agent's to reach)
-UPSTREAM_TIMEOUT = 900  # seconds without a byte; a long output streams for minutes
+MAX_BODY = 64 << 20  # bytes of request body
+MAX_HEADER_BYTES = 32 << 10  # bytes of request header names and values together
+MAX_CONNECTIONS = 16  # open connections from the relay, in all
+MAX_PER_SLOT = 2  # requests of one slot open at once: one in flight, one waiting
+CLIENT_TIMEOUT = 60  # seconds for any one read from or write to the container's side
+HEADER_TIME = 60  # seconds from waiting for a request line to the end of its headers
+BODY_TIME = 120  # seconds to read a request body
+SLOT_WAIT = 300  # seconds a request waits for its slot's request in flight to be metered
+UPSTREAM_TIMEOUT = 900  # seconds without a byte from the vendor; a long output streams for minutes
+HANDLER_TIME = 3600  # seconds for one request, from its first header to the end of the vendor's answer
 SLOTS_ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError)
+NUMBERS = ("time", "event", "slot", "status", "usd", "slot_usd", "total_usd", "worst_case")  # kept in a withheld row
+# Paid extra usage: the header names and values are Task 2a's reading of the CLI 2.1.311 bundle (the headers its
+# stand-in sent in recording t2a-overage-low, fixture token-paid-extra-usage-normal-end), not a vendor document;
+# one combination was recorded. --paid-usage HEADER=VALUE adds to them.
+PAID_USAGE = {"status": "anthropic-ratelimit-unified-status", "overage": "anthropic-ratelimit-unified-overage-status",
+              "in_use": "anthropic-ratelimit-unified-overage-in-use", "allowed": ("allowed", "allowed_warning")}
 
 
 class Refused(Exception):
     """A refusal at the start; its message names the reason and never a secret."""
+
+
+class Refusal(Exception):
+    """A request refused in the one 403 form; `reason` is the passthrough's own text, `limit` the cap that acted."""
+
+    def __init__(self, reason, limit=None):
+        super().__init__(reason)
+        self.reason, self.limit = reason, limit
+
+
+class TokenSeen(Exception):
+    """A form of the token in bytes bound for the client or a log; holds the place, never the bytes."""
 
 
 def _owned(st, mode, what):
@@ -107,14 +168,19 @@ def _owned(st, mode, what):
 
 
 def read_token(path):
-    """The token in `path`, checked as D4's token path requires; the file is read here and nowhere else."""
+    """The token in `path`, checked on the opened descriptors as D4's token path requires; read here only."""
     path = os.path.abspath(path)
-    _owned(os.stat(os.path.dirname(path)), 0o700, "the token file's directory")
-    st = os.lstat(path)
-    if not stat.S_ISREG(st.st_mode):
-        raise Refused("the token file is not a regular file")
-    _owned(st, 0o600, "the token file")
-    with open(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as fh:
+    folder = os.open(os.path.dirname(path), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        _owned(os.fstat(folder), 0o700, "the token file's directory")
+        fd = os.open(os.path.basename(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+    finally:
+        os.close(folder)
+    with open(fd, "rb") as fh:
+        st = os.fstat(fh.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            raise Refused("the token file is not a regular file")
+        _owned(st, 0o600, "the token file")
         value = fh.read().decode("ascii", "replace").strip()
     if not BEARER.fullmatch(value):
         raise Refused("the token file does not hold one bearer token")
@@ -132,7 +198,7 @@ def make_canary(path, length):
 def _json(data):
     try:
         return json.loads(data)
-    except ValueError:  # an unreadable body is refused or metered as unreadable, never raised
+    except ValueError:  # an unreadable response body is metered as unreadable, never raised
         return None
 
 
@@ -151,46 +217,148 @@ def _bearer(value):
     return value[len("Bearer "):] if value and value.startswith("Bearer ") else None
 
 
-def _content_reason(request):
-    if not isinstance(request, dict) or request.get("model") != MODEL:
-        return "model not allowed"
-    tools = request.get("tools") or []
-    if not isinstance(tools, list) or any(not isinstance(t, dict) or "input_schema" not in t for t in tools):
-        return "provider-side tool refused"
+# --- the request: line, headers, body -------------------------------------------------------------------
+
+
+def _unique(pairs):
+    keys = [key for key, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate key")
+    return dict(pairs)
+
+
+def _no_constant(name):
+    raise ValueError(f"{name} is not JSON")
+
+
+def parse_body(body):
+    """The request body as strict JSON: UTF-8 without a BOM, no duplicate key at any depth, no NaN."""
+    try:
+        return json.loads(body.decode("utf-8"), object_pairs_hook=_unique, parse_constant=_no_constant)
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        raise Refusal("request malformed") from None
+
+
+def header_reason(headers):
+    """Why a request's headers are refused, or None."""
+    names = [name.lower() for name in headers.keys()]
+    if len(names) != len(set(names)):
+        return "header repeated"
+    if set(names) - set(ALLOW["headers"]):
+        return "header not allowed"
+    if sum(len(name) + len(value) for name, value in headers.items()) > MAX_HEADER_BYTES:
+        return "request too large"
+    if not all(PRINTABLE.fullmatch(value) for value in headers.values()):
+        return "request malformed"
+    length = headers.get("content-length")
+    if length is None or not DIGITS.fullmatch(length):
+        return "request malformed"
+    if int(length) > MAX_BODY:
+        return "request too large"
+    return _value_reason(headers)
+
+
+def _value_reason(headers):
+    for name, allowed in ALLOW["header_values"].items():
+        if headers.get(name) is not None and headers[name] not in allowed:
+            return "header not allowed"
+    beta, agent = headers.get("anthropic-beta"), headers.get("user-agent")
+    if beta is not None and set(beta.split(",")) - set(ALLOW["anthropic_beta"]):
+        return "header not allowed"
+    if agent is not None and agent.split(" ", 1)[0] not in ALLOW["user_agent"]:
+        return "header not allowed"
     return None
 
 
-def _reached(count, cap):
-    return cap is not None and count >= cap
+def _tool_reason(tool):
+    if not isinstance(tool, dict) or "type" in tool or not isinstance(tool.get("input_schema"), dict):
+        return "provider-side tool refused"
+    if set(tool) - set(ALLOW["tool_keys"]) or tool.get("name") not in ALLOW["tool_names"]:
+        return "tool not allowed"
+    return None
 
 
-def _row(slot, path, request, credential):
-    request = request if isinstance(request, dict) else {}
-    tools = request.get("tools") if isinstance(request.get("tools"), list) else []
-    config = request.get("output_config") if isinstance(request.get("output_config"), dict) else {}
-    return {"time": time.time(), "slot": slot, "path": path, "credential": credential, "model": request.get("model"),
-            "effort": config.get("effort"),
-            "tools": [t.get("name") or t.get("type") for t in tools if isinstance(t, dict)]}
+def _fetches(content):
+    """Whether a content block in `content` asks the vendor to fetch: a source other than the request's own
+    bytes, or a file. A tool call's `input` is the model's own and is not read."""
+    stack = [content]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            source = item.get("source")
+            if "file_id" in item or (isinstance(source, dict) and source.get("type") not in SOURCES):
+                return True
+            stack.extend(value for key, value in item.items() if key != "input")
+        elif isinstance(item, list):
+            stack.extend(item)
+    return False
+
+
+def _recorded(value, allowed):
+    return any(type(value) is type(item) and value == item for item in allowed)  # no 1 for true
+
+
+def _field_reason(request):
+    config = request.get("output_config", {})
+    tokens = request.get("max_tokens")
+    if not _recorded(request.get("stream"), ALLOW["stream"]):
+        return "field not allowed"
+    if type(tokens) is not int or not 0 < tokens <= ALLOW["max_tokens_max"]:
+        return "field not allowed"
+    if not isinstance(config, dict) or not _recorded(config.get("effort"), ALLOW["effort"]):
+        return "field not allowed"
+    return "field not allowed" if _fetches([request.get("messages"), request.get("system")]) else None
+
+
+def content_reason(request):
+    """Why a parsed request body is refused, or None."""
+    if not isinstance(request, dict) or set(request) - set(ALLOW["top_level"]):
+        return "field not allowed"
+    if request.get("model") != MODEL:
+        return "model not allowed"
+    tools = request.get("tools", [])
+    if not isinstance(tools, list):
+        return "tool not allowed"
+    return next((reason for reason in map(_tool_reason, tools) if reason), None) or _field_reason(request)
+
+
+def _leaves(value):
+    """Every string in a log row, unescaped, so a form JSON would escape (UTF-16LE's NULs) is still seen."""
+    if isinstance(value, dict):
+        return b"\n".join(_leaves(key) + b"\n" + _leaves(item) for key, item in value.items())
+    if isinstance(value, list):
+        return b"\n".join(map(_leaves, value))
+    return value.encode("utf-8", "surrogatepass") if isinstance(value, str) else b""
+
+
+def _row(slot, request, credential):
+    tools = request.get("tools") or []
+    return {"time": time.time(), "slot": slot, "credential": credential, "model": request.get("model"),
+            "effort": (request.get("output_config") or {}).get("effort"), "tools": [t["name"] for t in tools]}
+
+
+def _worst_case(start, request, body_size):
+    """The usage a response could have had when its own cannot be read whole."""
+    output = request.get("max_tokens", ALLOW["max_tokens_max"])
+    usage = {k: v for k, v in (start or {}).items() if v is not None} or {"input_tokens": body_size}
+    return {**usage, "output_tokens": output}
+
+
+# --- the response: meter and guard ----------------------------------------------------------------------
 
 
 class Meter:
-    """Reads usage, model and message id from a response's bytes as they are passed on, streamed or plain."""
+    """Reads usage, model and message id from a response's bytes as they come, streamed or plain."""
 
     def __init__(self, headers):
-        encoding = (headers.get("content-encoding") or "identity").lower()
         self.stream = (headers.get("content-type") or "").startswith("text/event-stream")
-        self.readable = encoding in ("identity", "gzip", "deflate")
-        self.inflate = zlib.decompressobj(47) if encoding in ("gzip", "deflate") else None  # 47: gzip or zlib
+        self.readable = (headers.get("content-encoding") or "identity").lower() == "identity"
         self.buf, self.message, self.delta, self.complete = b"", None, {}, False
 
     def feed(self, data):
         if not self.readable:
             return
-        try:
-            self.buf += self.inflate.decompress(data) if self.inflate else data
-        except zlib.error:  # a body the meter cannot decode is still passed on; its usage is unreadable
-            self.readable = False
-            return
+        self.buf += data
         if self.stream:
             *lines, self.buf = self.buf.split(b"\n")
             for line in lines:
@@ -202,28 +370,75 @@ class Meter:
         if kind == "message_start":
             self.message = event.get("message")
         elif kind == "message_delta" and isinstance(event.get("usage"), dict):
-            self.delta.update(event["usage"])  # cumulative counts: the last delta's figures stand
+            self.delta.update({k: v for k, v in event["usage"].items() if v is not None})  # cumulative counts
         elif kind == "message_stop":
             self.complete = True
 
     def result(self):
-        """(usage, model, message id); usage None when it cannot be read."""
+        """(usage, model, message id, whole): usage None when unreadable; whole False for a stream cut short."""
         message = self.message if self.stream else _json(self.buf) if self.readable else None
         if not self.readable or not isinstance(message, dict) or not isinstance(message.get("usage"), dict):
-            return None, None, None
-        return {**message["usage"], **self.delta}, message.get("model"), message.get("id")
+            return None, None, None, False
+        whole = self.complete or not self.stream
+        return {**message["usage"], **self.delta}, message.get("model"), message.get("id"), whole
+
+    def start_usage(self):
+        return (self.message or {}).get("usage") if self.stream and isinstance(self.message, dict) else None
+
+
+class Guard:
+    """The token's forms, searched for in every byte bound for the client or a log."""
+
+    def __init__(self, token):
+        self.forms = token_scan.forms(token)
+        self.keep = max(len(form) for form in self.forms.values()) - 1
+
+    def find(self, data):
+        """(form name, offset) of the first form in `data`, or None."""
+        hits = [(data.find(form), name) for name, form in self.forms.items() if form in data]
+        return (min(hits)[1], min(hits)[0]) if hits else None
+
+    def held(self, data):
+        """How many trailing bytes of `data` could begin a form and must wait for the next write."""
+        return min(len(TAIL.search(data[-self.keep:]).group()), self.keep) if data else 0
+
+
+class Outgoing:
+    """The body bound for the client: checked before it is written, with a held tail across writes. Once the
+    client has gone (`gone`), the rest is still checked, and nothing is written."""
+
+    def __init__(self, guard, write):
+        self.guard, self.write, self.held, self.sent, self.gone = guard, write, b"", 0, False
+
+    def send(self, data, final=False):
+        """Write what of `held + data` cannot begin a form; TokenSeen, writing nothing of it, on a match."""
+        data = self.held + data
+        hit = self.guard.find(data)
+        if hit:
+            raise TokenSeen(f"body offset {self.sent + hit[1]}", hit[0])
+        keep = 0 if final else self.guard.held(data)
+        if len(data) > keep and not self.gone:
+            try:
+                self.write(data[:len(data) - keep])
+            except OSError:  # the client went away: the answer is still checked, read and metered to its end
+                self.gone = True
+        self.sent, self.held = self.sent + len(data) - keep, data[len(data) - keep:]
+
+
+# --- the passthrough ------------------------------------------------------------------------------------
 
 
 class Passthrough:
-    """One token, one upstream, one meter, the caps and the tranche's events."""
+    """One token, one upstream, one meter, the caps, the slots' gates and the tranche's events."""
 
-    def __init__(self, state, slots, token, credential, upstream, paid_usage=()):
+    def __init__(self, state, slots, token, credential, upstream, paid_usage=(), stop_on_non_200=False):
         self.state, self.slots_file = Path(state), Path(slots)
         self.authorization = f"Bearer {token}"
-        self.credential, self.upstream = credential, upstream
+        self.guard = Guard(token)
+        self.credential, self.upstream, self.strict = credential, upstream, stop_on_non_200
         self.paid_usage = [(name.lower(), value) for name, value in paid_usage]
         self.lock, self.write_lock = threading.Lock(), threading.Lock()
-        self.spent, self.count = {}, {}
+        self.spent, self.count, self.open, self.gates = {}, {}, {}, {}
         for row in _jsonl(self.state / "requests.jsonl"):
             if "refused" not in row and row.get("slot"):
                 self._add(row["slot"], row.get("usd") or 0.0, 1)
@@ -237,14 +452,28 @@ class Passthrough:
         data = json.loads(self.slots_file.read_text())
         if not 0 < data["total_usd"] <= CEILING_USD:
             raise Refused(f"total_usd {data['total_usd']} is outside (0, {CEILING_USD}], the approved ceiling")
-        for name, slot in data["slots"].items():
-            if not isinstance(slot["token"], str) or not slot["cap_usd"] > 0:
-                raise Refused(f"slot {name} needs a token and a positive cap_usd")
+        tokens = [slot["token"] for slot in data["slots"].values()]
+        if len(tokens) != len(set(tokens)) or not all(isinstance(t, str) for t in tokens):
+            raise Refused("every slot needs its own fake token")
+        if not all(slot["cap_usd"] > 0 for slot in data["slots"].values()):
+            raise Refused("every slot needs a positive cap_usd")
         return data, {slot["token"]: name for name, slot in data["slots"].items()}
 
+    def _slots(self):
+        try:
+            return self.load_slots()
+        except (Refused, *SLOTS_ERRORS) as exc:
+            self.event("stop", reason=f"slots file unreadable ({type(exc).__name__})")
+            raise Refusal("tranche stopped") from None
+
     def _append(self, name, row):
+        hit = self.guard.find(_leaves(row))
+        if hit:  # a vendor value carried the token: the row keeps its numbers only, and the tranche stops
+            row = {**{key: row[key] for key in NUMBERS if key in row}, "withheld": hit[0]}
         with self.write_lock, open(self.state / name, "a") as fh:
             fh.write(json.dumps(row) + "\n")
+        if hit:
+            self.event("stop", reason="token in a log row", form=hit[0])
 
     def log(self, row):
         self._append("requests.jsonl", row)
@@ -259,54 +488,99 @@ class Passthrough:
             return True
         return bool(marks) and marks[-1] == "stop"
 
-    def admit(self, method, path, authorization, request):
-        """(slot or None, refusal reason or None); a request let through is counted at once."""
-        if method != "POST" or path != MESSAGES:
-            return None, "path not allowed"
-        try:
-            slots, tokens = self.load_slots()
-        except (Refused, *SLOTS_ERRORS) as exc:
-            self.event("stop", reason=f"slots file unreadable ({type(exc).__name__})")
-            return None, "tranche stopped"
+    def slot_for(self, authorization):
+        """The slot of a fake token, from the headers alone."""
+        _, tokens = self._slots()
         slot = tokens.get(_bearer(authorization))
         if slot is None:
-            return None, "unknown token"
-        reason = "tranche stopped" if self.stopped() else _content_reason(request)
-        with self.lock:
-            reason = reason or self._cap_reason(slot, slots)
-            if reason is None:
-                self._add(slot, 0.0, 1)
-        return slot, reason
+            raise Refusal("unknown token")
+        if self.stopped():
+            raise Refusal("tranche stopped")
+        return slot
 
-    def _cap_reason(self, slot, slots):
-        cap = slots["slots"][slot]
-        if _reached(self.count.get(slot, 0), cap.get("cap_requests")) or self.spent.get(slot, 0.0) >= cap["cap_usd"]:
-            return "slot cap reached"
-        if _reached(sum(self.count.values()), slots.get("total_requests")) or \
-                sum(self.spent.values()) >= slots["total_usd"]:
-            return "tranche total reached"
-        return None
+    @contextlib.contextmanager
+    def holding(self, slot):
+        """The slot's gate: one request in flight; one more may wait for it, SLOT_WAIT at most."""
+        with self.lock:
+            if self.open.get(slot, 0) >= MAX_PER_SLOT:
+                raise Refusal("too many connections")
+            self.open[slot] = self.open.get(slot, 0) + 1
+            gate = self.gates.setdefault(slot, threading.Lock())
+        try:
+            if not gate.acquire(timeout=SLOT_WAIT):
+                raise Refusal("slot busy")
+            try:
+                yield
+            finally:
+                gate.release()
+        finally:
+            with self.lock:
+                self.open[slot] -= 1
+
+    def admit(self, slot):
+        """Under the slot's gate, every earlier request of the slot metered: the caps, then the count."""
+        slots, _ = self._slots()
+        if slot not in slots["slots"]:
+            raise Refusal("unknown token")
+        if self.stopped():
+            raise Refusal("tranche stopped")
+        with self.lock:
+            limit = self._cap_reached(slot, slots)
+            if limit:
+                raise Refusal("slot cap reached" if limit.startswith("cap_") else "tranche total reached", limit)
+            self._add(slot, 0.0, 1)
+
+    def _cap_reached(self, slot, slots):
+        """The limit the slot's next request would pass (its own, then the tranche's), or None."""
+        cap, total = slots["slots"][slot], slots.get("total_requests")
+        if cap.get("cap_requests") is not None and self.count.get(slot, 0) >= cap["cap_requests"]:
+            return "cap_requests"
+        if self.spent.get(slot, 0.0) >= cap["cap_usd"]:
+            return "cap_usd"
+        if total is not None and sum(self.count.values()) >= total:
+            return "total_requests"
+        return "total_usd" if sum(self.spent.values()) >= slots["total_usd"] else None
 
     def on_headers(self, slot, status, headers):
-        """What the vendor's answer closes or stops, recorded before the answer is passed on."""
+        """What the vendor's answer closes or stops, recorded before the answer is passed on; True when the
+        answer must not be passed on (paid extra usage)."""
         if status == 401:
             self.event("stop", slot=slot, reason="vendor 401")
+        elif self.strict and status != 200:
+            self.event("stop", slot=slot, reason=f"vendor status {status}")
         if status == 429:
-            limit = headers.get("anthropic-ratelimit-unified-status") == "rejected"
+            limit = headers.get(PAID_USAGE["status"]) == "rejected"
             self.event("close_starts", slot=slot, status=status, reason="usage limit" if limit else "vendor 429",
                        reset=headers.get("anthropic-ratelimit-unified-reset") if limit else None)
-        if any(headers.get(name) == value for name, value in self.paid_usage):
-            self.event("stop", slot=slot, reason="paid extra usage")
+        signal = self.paid_signal(status, headers)
+        if signal:
+            self.event("stop", slot=slot, reason="paid extra usage", signal=signal)
+        return bool(signal)
 
-    def settle(self, slot, row, meter):
-        usage, model, message_id = meter.result()
-        usd = _price(usage) if usage is not None else None
+    def paid_signal(self, status, headers):
+        """The header that shows paid extra usage in an answer, or None."""
+        value = {key: (headers.get(name) or "").lower() for key, name in PAID_USAGE.items() if key != "allowed"}
+        if status != 429 and value["status"] and value["status"] not in PAID_USAGE["allowed"]:
+            return PAID_USAGE["status"]
+        if value["in_use"] == "true":
+            return PAID_USAGE["in_use"]
+        if value["overage"] in PAID_USAGE["allowed"]:
+            return PAID_USAGE["overage"]
+        return next((name for name, wanted in self.paid_usage if headers.get(name) == wanted), None)
+
+    def settle(self, slot, row, meter, request, body_size):
+        usage, model, message_id, whole = meter.result()
+        usd = _price(usage) if usage is not None and whole else None
+        worst = row.get("status") in (200, None) and usd is None  # no status: the vendor may have taken it
+        if worst:
+            usage = _worst_case(meter.start_usage(), request, body_size)
+            usd = _price(usage)
         with self.lock:
             self._add(slot, usd or 0.0, 0)
-            row.update(usd=usd, slot_usd=self.spent[slot], total_usd=sum(self.spent.values()))
+            row.update(usd=usd, slot_usd=self.spent[slot], total_usd=sum(self.spent.values()), worst_case=worst)
         self.log({**row, "usage": usage, "response_model": model, "message_id": message_id})
-        if row.get("status") == 200 and usd is None:
-            self.event("close_starts", slot=slot, reason="usage unreadable", reset=None)
+        if worst:
+            self.event("close_starts", slot=slot, reason="usage incomplete", reset=None)
         if model not in (None, MODEL):
             self.event("stop", slot=slot, reason=f"response model {model}")
 
@@ -318,89 +592,218 @@ class Passthrough:
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    timeout = CLIENT_TIMEOUT
 
     def log_message(self, *args):  # the request line stays out of the output
         pass
 
-    def _handle(self):
-        pt = self.server.pt
-        length = self.headers.get("content-length") or "0"
-        if not length.isdigit() or int(length) > MAX_BODY:
-            pt.log({**_row(None, self.path, None, pt.credential), "status": 403, "refused": "request too large"})
-            return self._refuse("request too large")
-        body = self.rfile.read(int(length))
-        request = _json(body)
-        slot, reason = pt.admit(self.command, self.path, self.headers.get("authorization"), request)
-        row = _row(slot, self.path, request, pt.credential)
+    def handle_one_request(self):  # a request line and headers slower than HEADER_TIME cut the connection
+        self.cut = threading.Timer(HEADER_TIME, self._drop)
+        self.cut.daemon = True
+        self.cut.start()
+        try:
+            super().handle_one_request()
+        finally:
+            self.cut.cancel()
+
+    def _drop(self):
+        with contextlib.suppress(OSError):
+            self.connection.shutdown(socket.SHUT_RDWR)
+        self.close_connection = True
+
+    def handle_expect_100(self):  # no interim answer: `expect` is not a recorded header, so it is refused
+        return True
+
+    def send_error(self, code, message=None, explain=None):  # http.server's own refusals, in the one form
+        reason = {414: "request too large", 431: "request too large", 501: "path not allowed"}.get(
+            code, "request malformed")
+        self.server.pt.log({"time": time.time(), "slot": None, "status": 403, "refused": reason})
+        self._refuse(reason)
+
+    def do_POST(self):
+        self.cut.cancel()
+        pt, slot, deadline = self.server.pt, None, time.monotonic() + HANDLER_TIME
+        try:
+            reason = ("path not allowed" if self.requestline != REQUEST_LINE else header_reason(self.headers))
+            if reason:
+                raise Refusal(reason)
+            slot = pt.slot_for(self.headers.get("authorization"))
+            with pt.holding(slot):
+                body, request = self._read_request()
+                pt.admit(slot)
+                self._forward(pt, slot, body, request, deadline)
+        except Refusal as refusal:
+            limit = {"limit": refusal.limit} if refusal.limit else {}
+            pt.log({"time": time.time(), "slot": slot, "status": 403, "refused": refusal.reason, **limit})
+            self._refuse(refusal.reason)
+
+    def _read_request(self):
+        length, deadline, parts = int(self.headers["content-length"]), time.monotonic() + BODY_TIME, []
+        while length > 0:
+            try:
+                data = self.rfile.read1(min(length, READ))
+            except OSError:  # the client stalled past its read timeout, or went away
+                raise Refusal("request timed out") from None
+            if not data:
+                raise Refusal("request malformed")
+            if time.monotonic() > deadline:
+                raise Refusal("request timed out")
+            parts.append(data)
+            length -= len(data)
+        body = b"".join(parts)
+        request = parse_body(body)
+        reason = content_reason(request)
         if reason:
-            pt.log({**row, "status": 403, "refused": reason})
-            return self._refuse(reason)
-        conn = pt.upstream()
+            raise Refusal(reason)
+        return body, request
+
+    def _forward(self, pt, slot, body, request, deadline):
+        row, conn = _row(slot, request, pt.credential), pt.upstream()
         try:
             resp = self._send(conn, pt, body)
         except (OSError, http.client.HTTPException) as exc:  # nothing came back: the client sees a dropped line
             conn.close()
-            return self._fault(pt, {**row, "status": None}, exc)
+            pt.settle(slot, {**row, "status": None, "error": type(exc).__name__}, Meter({}), request, len(body))
+            return self._fault(exc)
         row.update(status=resp.status, headers=pt.logged_headers(resp.headers))
         meter, settled = Meter(resp.headers), []
 
         def settle():  # once: before the last bytes reach the client when the end is known, else at the end
             if not settled:
-                settled.append(pt.settle(slot, row, meter))
-        pt.on_headers(slot, resp.status, resp.headers)
+                settled.append(pt.settle(slot, row, meter, request, len(body)))
+        withhold = pt.on_headers(slot, resp.status, resp.headers)
+        row["passed_on"] = not withhold
         try:
-            self._relay(resp, meter, settle)
-        except (OSError, http.client.HTTPException) as exc:  # a fault mid-body: what was read is still metered
+            self._relay(pt, resp, meter, settle, deadline, withhold)
+        except (OSError, http.client.HTTPException) as exc:  # a fault upstream mid-body: metered as it stands
             row["error"] = type(exc).__name__
-            self._fault(pt, None, exc)
+            self._fault(exc)
         finally:
             conn.close()
             settle()
 
-    do_POST = do_GET = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = _handle
-
     def _send(self, conn, pt, body):
-        conn.putrequest(self.command, self.path, skip_host=True, skip_accept_encoding=True)
+        conn.putrequest("POST", MESSAGES, skip_host=True, skip_accept_encoding=True)
+        values = {"authorization": pt.authorization, "host": VENDOR, "accept-encoding": "identity",
+                  "content-length": str(len(body))}
         for name, value in self.headers.items():
-            low = name.lower()
-            conn.putheader(name, pt.authorization if low == "authorization" else VENDOR if low == "host" else value)
+            conn.putheader(name, values.get(name.lower(), value))
+        for name in ("host", "accept-encoding"):
+            if name not in self.headers:
+                conn.putheader(name, values[name])
         conn.endheaders(body)
         return conn.getresponse()
 
-    def _relay(self, resp, meter, settle):
-        close_delimited = not resp.chunked and resp.length is None
-        self.send_response_only(resp.status, resp.reason)
-        for name, value in resp.getheaders():
-            self.send_header(name, value)
-        self.end_headers()
+    def _relay(self, pt, resp, meter, settle, deadline, withhold=False):
+        """Pass the answer on while it is clean and the client reads (or, withheld, refuse it); meter all of it."""
+        out = Outgoing(pt.guard, self._chunk if resp.chunked else self.wfile.write)
+        open_line = self._withhold(out) if withhold else self._pass_headers(pt, resp, out)
         while data := resp.read1(READ):
             meter.feed(data)
             if meter.complete or resp.length == 0:  # the message or the body is whole: meter it, then pass it on
                 settle()
-            self.wfile.write(b"%x\r\n%s\r\n" % (len(data), data) if resp.chunked else data)
-        if resp.chunked:
-            self.wfile.write(b"0\r\n\r\n")
-        self.close_connection = self.close_connection or close_delimited
+            open_line = open_line and self._pass(pt, out, data)
+            if time.monotonic() > deadline:
+                raise TimeoutError("the answer outlasted the handler's time")
+        self._finish(pt, resp, out, open_line)
 
-    def _fault(self, pt, row, exc):
-        if row is not None:
-            pt.log({**row, "error": type(exc).__name__})
+    def _finish(self, pt, resp, out, open_line):
+        """The held tail and a chunked body's end, while the line is open; then whether the connection stays."""
+        if open_line and self._pass(pt, out, b"", final=True) and resp.chunked and not out.gone:
+            with contextlib.suppress(OSError):
+                self.wfile.write(b"0\r\n\r\n")
+        self.close_connection = (self.close_connection or not open_line or out.gone
+                                 or (not resp.chunked and resp.length is None))
+
+    def _withhold(self, out):
+        """The answer is not passed on: the client gets the refusal, and the rest is only checked and metered."""
+        self._refuse("tranche stopped")
+        out.gone = True
+        return True
+
+    def _pass_headers(self, pt, resp, out):
+        """The status line and headers, checked whole before any of it is written; False if they were not sent."""
+        encoding = (resp.getheader("content-encoding") or "identity").lower()
+        lines = [f"{self.protocol_version} {resp.status} {resp.reason}", *(f"{k}: {v}" for k, v in resp.getheaders())]
+        hit = pt.guard.find("\r\n".join(lines).encode("latin-1", "replace"))
+        if hit or encoding != "identity":
+            place = self._header_place(pt, resp) if hit else f"content-encoding {encoding[:32]}"
+            pt.event("stop", reason="token in a response" if hit else "response not checkable", place=place,
+                     form=hit[0] if hit else None)
+            self._drop()
+            return False
+        try:
+            self.send_response_only(resp.status, resp.reason)
+            for name, value in resp.getheaders():
+                self.send_header(name, value)
+            self.end_headers()
+        except OSError:  # the client went away: the answer is still checked, read and metered to its end
+            out.gone = True
+        return True
+
+    @staticmethod
+    def _header_place(pt, resp):
+        for index, (name, value) in enumerate(resp.getheaders()):
+            if pt.guard.find(f"{name}: {value}".encode("latin-1", "replace")):
+                return f"header {index} {name[:64] if not pt.guard.find(name.encode('latin-1', 'replace')) else ''}"
+        return "status line"
+
+    def _pass(self, pt, out, data, final=False):
+        """Send `data` through the guard; False once the token was seen (the client is then dropped)."""
+        try:
+            out.send(data, final)
+            return True
+        except TokenSeen as seen:
+            pt.event("stop", reason="token in a response", place=seen.args[0], form=seen.args[1])
+            self._drop()
+            return False
+
+    def _chunk(self, data):
+        self.wfile.write(b"%x\r\n%s\r\n" % (len(data), data))
+
+    def _fault(self, exc):
         print(f"lh-passthrough: upstream error {type(exc).__name__}", flush=True)
         self.close_connection = True
 
     def _refuse(self, reason):
-        data = json.dumps({"type": "error", "error": {"type": "permission_error",
-                                                      "message": f"lh-passthrough: {reason}"}}).encode()
-        self.send_response_only(403, "Forbidden")
-        for name, value in (("content-type", "application/json"), ("x-should-retry", "false"),
-                            ("content-length", str(len(data))), ("connection", "close")):
-            self.send_header(name, value)
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.wfile.write(_refusal(reason))
+        except OSError:  # the client is gone; the refusal is in the log
+            pass
+        self.close_connection = True
+
+
+def _refusal(reason):
+    """The one refusal form, as the bytes of a whole response."""
+    data = json.dumps({"type": "error", "error": {"type": "permission_error",
+                                                  "message": f"lh-passthrough: {reason}"}}).encode()
+    return (f"HTTP/1.1 403 Forbidden\r\ncontent-type: application/json\r\nx-should-retry: false\r\n"
+            f"content-length: {len(data)}\r\nconnection: close\r\n\r\n").encode() + data
 
 
 class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
+    request_queue_size = 64  # a burst is accepted and refused in the one form, not failed at connect
+
+    def __init__(self, path, handler):
+        super().__init__(path, handler)
+        self.connections = threading.BoundedSemaphore(MAX_CONNECTIONS)
+
+    def process_request(self, request, client_address):
+        if not self.connections.acquire(blocking=False):  # over the cap: refused without a thread
+            with contextlib.suppress(OSError):
+                request.settimeout(1)
+                request.sendall(_refusal("too many connections"))
+            self.pt.log({"time": time.time(), "slot": None, "status": 403, "refused": "too many connections"})
+            self.shutdown_request(request)
+            return
+        super().process_request(request, client_address)
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.connections.release()
 
     def handle_error(self, request, client_address):  # the class only: an exception's text may quote a header
         print(f"lh-passthrough: error {sys.exc_info()[0].__name__}", flush=True)
@@ -427,8 +830,20 @@ def unix_upstream(path):
     return lambda: _UnixConnection(path)
 
 
+def vendor_context():
+    """TLS that verifies the vendor against the trust store compiled into Python, whatever the environment names."""
+    paths = ssl.get_default_verify_paths()
+    cafile = paths.openssl_cafile if os.path.isfile(paths.openssl_cafile) else None
+    capath = paths.openssl_capath if os.path.isdir(paths.openssl_capath) else None
+    if not (cafile or capath):
+        raise Refused("no trust store at Python's compiled-in paths")
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)  # certificate and host name required
+    context.load_verify_locations(cafile=cafile, capath=capath)
+    return context
+
+
 def vendor_upstream():
-    context = ssl.create_default_context()
+    context = vendor_context()
     return lambda: http.client.HTTPSConnection(VENDOR, 443, timeout=UPSTREAM_TIMEOUT, context=context)
 
 
@@ -469,6 +884,7 @@ def _parse(argv):
     for flag in ("--socket", "--state", "--slots"):
         parser.add_argument(flag, required=True)
     parser.add_argument("--paid-usage", action="append", default=[], metavar="HEADER=VALUE")
+    parser.add_argument("--stop-on-non-200", action="store_true")
     parser.add_argument("--token-file")
     parser.add_argument("--rehearsal", metavar="STAND_IN_SOCKET")
     parser.add_argument("--canary-out")
@@ -482,7 +898,7 @@ def _start(args):
     if any(len(pair) != 2 for pair in paid):
         raise Refused("--paid-usage takes HEADER=VALUE")
     token, credential, upstream = _credential(args)
-    pt = Passthrough(args.state, args.slots, token, credential, upstream, paid)
+    pt = Passthrough(args.state, args.slots, token, credential, upstream, paid, args.stop_on_non_200)
     (Path(args.state) / "fingerprint.json").write_text(json.dumps(token_scan.fingerprint(token)))
     _clear_stale(args.socket)
     return pt, serve(args.socket, pt)
