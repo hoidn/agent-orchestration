@@ -433,6 +433,25 @@ every removed test is listed with the code it covered".
      `match` works; `cond`, `if` and `match` can be bound as names; the
      `and`/`or` proof item above has its cause confirmed a second time (the
      facts are lost when the condition is hoisted into a generated binding).
+   - added 2026-11-13 (ninth batch, from the reviews of the fixture
+     migration, the missing-prompt-file fix and the effects change; each
+     reproduced by the reviewer on `main`): `path/join-under` looks up its
+     path type in the caller's scope, so a procedure called from a module that
+     does not import that type is refused `path_join_under_type_invalid` (a
+     module-qualified type name works); a prompt `input_file` given as an
+     absolute path, with `..`, or as a symlink that leaves the workspace is
+     read and the provider launches, while `asset_file` refuses all three;
+     `(continue (if c (if c E 0) 0))` and a procedure call holding a
+     conditional effect used as a `match` subject each fail with
+     `compiler_defect`; two refusal messages mislead (a parallel map in an
+     `if` condition; `bind-proc` with an effect).
+   The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
+   (in review on its branch) orders this list by harm. By the owner's
+   direction of 2026-11-13 it is cut to seven tasks (29 hours): what can
+   spend provider money or commit a wrong output, and the crashes a short
+   staged seed or its mutants would plausibly hit. The rest stay listed and
+   pinned as known, and return only when the mutant generator or a real
+   workflow hits one.
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
@@ -525,7 +544,8 @@ until it is, this section is the staging.
   point of the Phase 6 search.
 - **Tasks:** individual tasks taken from public benchmarks. First candidate
   set: 16 named Terminal-Bench 4 tasks (single image, no GPU), with
-  Terminal-Bench-Science as a second source. Scoring is each task's own
+  Terminal-Bench-Science as a second source and single MLE-bench
+  competitions as a third (decision 17; steps 10 to 12). Scoring is each task's own
   verifier, so the family is oracle-scored: its qualification is the oracle
   check (the reference solution passes, an untouched environment fails), not
   a judge.
@@ -551,6 +571,9 @@ until it is, this section is the staging.
 | 7 | Freeze the task set from the ladder: tasks in the band, and the answer on whether success falls as effort rises | Reported to the owner | After step 6 |
 | 8 | Merge the seed to `main` and freeze it | Surface-coherence changes merged (the seed is written once, in the language as revised); the staged-authoring revisions are not required for the first search space | Waits on Lane D stage 5 |
 | 9 | Seed against a direct session at matched priced-token cost on the frozen tasks | **A new owner approval** (not covered by decision 16) | Not requested |
+| 10 | MLE-bench competitions as tasks of this harness ([feasibility report](../reports/2026-11-13-mle-bench-subset-feasibility.md)): each candidate wrapped so that the private answers and the API key stay outside the agent's container (the upstream harness puts both inside), reusing the launcher, relay and allowlist of step 5; the grader check (the answers file earns a gold medal, an untouched environment scores zero); a CPU-only competition first, then one on the GPU. The score is continuous, so every attempt also records the leaderboard percentile as a graded outcome | Step 5 done; its own plan and ledger, with the success definition (any medal, as proposed) and a total ceiling fixed before spend; independent review. Owner actions: a Kaggle API token and acceptance of each competition's rules; the NVIDIA Container Toolkit for rootless Podman | Staged 2026-11-13 (decision 17); not started. About 16 hours for the first CPU-only competition, 6 to 10 more for the first on the GPU, 1 to 2 for each further one |
+| 11 | Screen the 13 ranked candidates: a direct Haiku session, 3 attempts each at one effort (39 attempts), the benchmark's 24-hour limit, about four attempts at once and one of them on the GPU | Step 10; decision 17 (Haiku up to USD 200 a day; the report estimates USD 40 to 310 in all and 3 to 4 days if sessions stop by themselves) | Not started |
+| 12 | Place the competitions: one enters the family only at 10 to 30 percent success. Three attempts only exclude the clear ceilings and floors, so a competition that survives the screen gets the ladder's attempts (step 6's size per task) before it is frozen with step 7's set | Reported to the owner; a top-up beyond the plan's ceiling is a new request | After step 11. The report expects 2 to 5 of the 13 to fall in the band |
 
 - **Exit test:** a frozen task list with each task's measured direct success
   rate by effort; a seed on `main` that completes those tasks' stages under
@@ -663,9 +686,9 @@ from judgment where none does; a progress figure is done weeks over this total a
 | Lane D | 17 | 9 as first scoped; stage 5 about 3; stage 6 about 2 (79 hours); documentation consolidation about 3 (112 hours); defect backlog and the changes assigned to the cut about 2 (judgment, unsized) |
 | Consumer thread | 3 | Judgment: one pipeline written, run to a used result, and its friction log |
 | Phase 5, seed set | 4 | Judgment: tasks, programs and runner (built), calibration, seed evaluation |
-| Phase 5b, long-horizon | 4 | 93 hours for the ladder and the freeze, plus the staged comparison (judgment) |
+| Phase 5b, long-horizon | 5 | 93 hours for the ladder and the freeze, plus the staged comparison (judgment); about 1 for the MLE-bench steps 10 to 12 (about 45 hours and the screen) |
 | Phase 6, program evolution | 8 | Judgment: the three readiness items, a search harness and its runs; the least certain row |
-| **Total** | **about 53** | |
+| **Total** | **about 54** | |
 
 ## Dispositions
 
@@ -707,7 +730,7 @@ the owner can amend any of them.
 | 14 | A long-horizon seed and task family | 2026-11-13, owner direction, added to the seed work: tasks with a long horizon on which `claude-haiku-5-5` succeeds 10 to 30 percent of the time, in software, machine learning and scientific programming or reasoning, extracted individually from public benchmarks; and one compact `.orc` seed (few lines) that stages the work (a clean project repository with its documentation structure and agent guides, then spec-driven targets, then design and planning, then implementation) with feedback at several timescales and semantic levels. Nothing like it exists in the repository yet. Staged as [Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed). Added the same day: mutations of the seed vary model (Haiku or Sonnet) and effort level per agent role; the first space searched keeps one model (Haiku) and varies only effort per role, after an effort ladder confirms that success does not fall as effort rises |
 | 15 | How a role is bound once | 2026-11-13: the owner asked for "a nice schemey partial application simple fix" and then for the design and roadmap staging of "the principled fix that this points to". Decided direction: a typed prompt is a first-class value and a role is a generic procedure wrapping `provider-result`, partially applied with `bind-proc`; no new `role` form. The design must still report any guarantee this would break (effect identity per call site, the provider declaration digest, metering, the closures boundary) before code is written |
 | 16 | Budget for the long-horizon effort ladder | Approved 2026-11-13 ("ok" to the stated request): 16 named benchmark tasks, a direct `claude-haiku-5-5` session at effort low, medium and high, five attempts each; at most 240 attempts, ceiling USD 200 (requested as about USD 170 at reported prices). Conditions before the first attempt: the oracle check passes here, the network policy is fixed, a guarded launcher is reviewed, the plan and its ledger exist. It places tasks relative to the 10 to 30 percent band and tests whether success falls as effort rises; the workflow comparison is a separate request ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
-| 17 | A second long-horizon family from MLE-bench | 2026-11-13: the owner asked "can we consider some mlebench tasks" and, told that the benchmark's standard limit is 24 hours per attempt, answered "parallel up to 24 hours ok , haiku spend up to $200 per day ok". The coordinator's reading: attempts on this family may run in parallel under the benchmark's 24-hour limit, and `claude-haiku-5-5` spend on this family may reach USD 200 per calendar day. Added the same day: "mlebench includsion depends on the included tasks fallin in the 10 to 30 percent range we specified", so a competition enters the family only when a calibration places `claude-haiku-5-5` at 10 to 30 percent success on it (the band of decision 14), under a success definition the plan fixes before spend. It is not yet a tranche. No call is made before the feasibility study is in, a plan with its ledger exists (attempt caps, a total ceiling, stop rules), an oracle-style check passes on this machine, the launcher is guarded and reviewed, and the calibration rules of [`AGENTS.md`](../../AGENTS.md) hold; the `AGENTS.md` rule for the line is written with that plan. The Kaggle account and the acceptance of each competition's rules are the owner's action. Open: the owner gave a daily figure and no total, so the plan proposes a total; the daily figure is read as covering this family only, not the other Haiku experiment lines |
+| 17 | A second long-horizon family from MLE-bench | 2026-11-13: the owner asked "can we consider some mlebench tasks" and, told that the benchmark's standard limit is 24 hours per attempt, answered "parallel up to 24 hours ok , haiku spend up to $200 per day ok". The coordinator's reading: attempts on this family may run in parallel under the benchmark's 24-hour limit, and `claude-haiku-5-5` spend on this family may reach USD 200 per calendar day. Added the same day: "mlebench includsion depends on the included tasks fallin in the 10 to 30 percent range we specified", so a competition enters the family only when a calibration places `claude-haiku-5-5` at 10 to 30 percent success on it (the band of decision 14), under a success definition the plan fixes before spend. It is not yet a tranche. No call is made before the feasibility study is in, a plan with its ledger exists (attempt caps, a total ceiling, stop rules), an oracle-style check passes on this machine, the launcher is guarded and reviewed, and the calibration rules of [`AGENTS.md`](../../AGENTS.md) hold; the `AGENTS.md` rule for the line is written with that plan. The Kaggle account and the acceptance of each competition's rules are the owner's action. The [feasibility report](../reports/2026-11-13-mle-bench-subset-feasibility.md) (no spend) ranks 13 candidate competitions (13.4 GB) and expects 2 to 5 of them to fall in the band; it recommends a small screen after the Terminal-Bench launcher exists, each competition wrapped as a Harbor task because the upstream harness puts the answers and the API key inside the agent's container. Told that the coordinator recommends the screen after the Terminal-Bench launcher is built, the owner answered "ok. stage in the roadmap": staged as steps 10 to 12 of [Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed). Open: the owner gave a daily figure and no total, so the plan proposes a total; the daily figure is read as covering this family only, not the other Haiku experiment lines |
 
 ## Process rules
 
