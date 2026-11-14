@@ -1579,6 +1579,15 @@ def _rename_free_names(expr: ExprNode, names: Mapping[str, str]) -> ExprNode:
     return rewritten
 
 
+def _inlined_call_site(expr: ProcedureCallExpr, span: SourceSpan,
+    expansion_stack: ExpansionStack) -> tuple[SourceSpan, ExpansionStack]:
+    """A call inlined from a procedure body keeps its own span and stack, so two calls of that body stay two
+    sites; a call cloned by any other expansion takes the expansion's span and stack."""
+    if expansion_stack and isinstance(expansion_stack[-1], ProcedureExpansionFrame):
+        return expr.span, expansion_stack + expr.expansion_stack
+    return span, expansion_stack
+
+
 def _clone_function_expr(
     expr: ExprNode,
     *,
@@ -1905,8 +1914,7 @@ def _clone_function_expr(
             expansion_stack=expansion_stack,
         )
     if isinstance(expr, ProcedureCallExpr):
-        # A call inlined from a procedure body keeps its own span and stack, so two calls of that body stay two sites.
-        inlined = bool(expansion_stack) and isinstance(expansion_stack[-1], ProcedureExpansionFrame)
+        call_span, call_stack = _inlined_call_site(expr, span, expansion_stack)
         return replace(
             expr,
             args=tuple(
@@ -1918,9 +1926,9 @@ def _clone_function_expr(
                 )
                 for arg in expr.args
             ),
-            span=expr.span if inlined else span,
+            span=call_span,
             form_path=form_path,
-            expansion_stack=expansion_stack + expr.expansion_stack if inlined else expansion_stack,
+            expansion_stack=call_stack,
         )
     if isinstance(expr, BindProcExpr):
         return replace(
