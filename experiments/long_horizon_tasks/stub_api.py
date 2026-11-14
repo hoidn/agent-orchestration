@@ -6,8 +6,9 @@ the log as one JSON line: path, model, declared tools, headers (key and token re
 top-level parameters (no message or system text), the usage served and the running total. Any other path
 answers 404 and is logged too. Standard library only; no request leaves the host.
 
-Usage: python -I stub_api.py --host H --port P --model claude-haiku-5-5 --scenario NAME --log FILE
-Prints `listening <host> <port>` once bound (port 0 picks a free port).
+Usage: python -I stub_api.py (--host H --port P | --unix PATH) --model claude-haiku-5-5 --scenario NAME
+       --log FILE [--delay SECONDS]
+Prints `listening <host> <port>` (port 0 picks a free port) or `listening <unix path>` once bound.
 
 Scenarios (the reply depends on the request, so side requests and subagents get sensible answers):
   normal    a Bash call (probes the vendor's API host from inside the container), then an end
@@ -23,11 +24,27 @@ Scenarios (the reply depends on the request, so side requests and subagents get 
   subagent_override  as subagent, but the call runs in the foreground and asks for model "fable" and
             effort "max" (the Agent tool's own override fields)
   web       a WebFetch call, then a WebSearch call, then an end
+Faults and refusals: a Bash call first, then every later request of the main session is answered with
+  rate_limit_retry_after  429 rate_limit_error with `retry-after: 5`
+  rate_limit              429 rate_limit_error without retry-after
+  overloaded              529 overloaded_error
+  server_error            500 api_error
+  pt_cap, pt_total, pt_stopped  403 permission_error with `x-should-retry: false` (the proposed
+            passthrough refusal for a slot at its cap, the tranche's total reached, a stopped tranche)
+  pt_model  404 not_found_error with `x-should-retry: false` (proposed: a model other than the bound one)
+  pt_tool   400 invalid_request_error with `x-should-retry: false` (proposed: a provider-side tool)
+  drop      the stream is cut after its first content block (no message_delta, no message_stop)
+  slow      the response starts only after --delay seconds (default 120), then ends normally
+  transient the first three attempts of the second turn get 429 (retry-after 2), 529, 500; then an end
 """
 
 import argparse
+import collections
 import itertools
 import json
+import os
+import socketserver
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SUB_MARK = "stub-subagent-task"
@@ -39,7 +56,23 @@ FULL = {"input_tokens": 990000, "output_tokens": 100, "cache_creation_input_toke
 DEAR = {"input_tokens": 20000, "output_tokens": 100000, "cache_creation_input_tokens": 0,
         "cache_read_input_tokens": 0}
 REDACT = ("x-api-key", "authorization")
+NO_RETRY = {"x-should-retry": "false"}
+FAULTS = {
+    "rate_limit_retry_after": (429, "rate_limit_error", "stub: rate limited", {"retry-after": "5"}),
+    "rate_limit": (429, "rate_limit_error", "stub: rate limited", {}),
+    "overloaded": (529, "overloaded_error", "Overloaded", {}),
+    "server_error": (500, "api_error", "Internal server error", {}),
+    "pt_cap": (403, "permission_error", "lh-passthrough: slot cap reached", NO_RETRY),
+    "pt_total": (403, "permission_error", "lh-passthrough: tranche total reached", NO_RETRY),
+    "pt_stopped": (403, "permission_error", "lh-passthrough: tranche stopped", NO_RETRY),
+    "pt_model": (404, "not_found_error", "lh-passthrough: model not allowed", NO_RETRY),
+    "pt_tool": (400, "invalid_request_error", "lh-passthrough: provider-side tool refused", NO_RETRY),
+}
+TRANSIENT = [(429, "rate_limit_error", "stub: rate limited", {"retry-after": "2"}),
+             (529, "overloaded_error", "Overloaded", {}), (500, "api_error", "Internal server error", {})]
+TOO_LONG = (400, "invalid_request_error", "prompt is too long: 250000 tokens > 200000 maximum", {})
 _ids = itertools.count(1)
+_attempts = collections.Counter()
 
 
 def _turn(body):
@@ -86,7 +119,7 @@ def _subagent(body, turn, override=None):
 def _context_late(body, turn):
     if turn == 0:
         return _bash(body, "true", FULL)
-    return None if _declared(body, "Bash") else ([_text("summary")], "end_turn", SMALL)
+    return TOO_LONG if _declared(body, "Bash") else ([_text("summary")], "end_turn", SMALL)
 
 
 def _web(body, turn):
@@ -97,30 +130,47 @@ def _web(body, turn):
     return [_text("web done")], "end_turn", SMALL
 
 
-def reply(scenario, body):
-    """Return (content blocks, stop_reason, usage) for one request, or None for a context-limit error."""
-    turn = _turn(body)
-    if scenario == "context":
-        return None
-    if scenario == "context_late":
-        return _context_late(body, turn)
-    if scenario == "refusal":
-        return [_text("I can't help with that.")], "refusal", SMALL
-    if scenario == "max_tokens":
-        return [_text("A long answer that stops here")], "max_tokens", SMALL
-    if scenario == "budget":
-        return _bash(body, "true", DEAR)
-    if scenario == "timeout":
-        return _bash(body, "sleep 30")
-    if scenario == "subagent":
-        return _subagent(body, turn)
-    if scenario == "subagent_override":
-        return _subagent(body, turn, {"run_in_background": False, "model": "fable", "effort": "max"})
-    if scenario == "web":
-        return _web(body, turn)
+def _later(body, turn, answer):
+    """A Bash call on the first turn, then `answer` (a fault or a special reply)."""
+    return _bash(body, "true") if turn == 0 else answer
+
+
+def _transient(body, turn):
     if turn == 0:
-        return _bash(body, PROBE)
+        return _bash(body, "true")
+    _attempts[turn] += 1
+    if _attempts[turn] <= len(TRANSIENT):
+        return TRANSIENT[_attempts[turn] - 1]
     return [_text("done")], "end_turn", SMALL
+
+
+def _normal(body, turn):
+    return _bash(body, PROBE) if turn == 0 else ([_text("done")], "end_turn", SMALL)
+
+
+SCENARIOS = {
+    "normal": _normal,
+    "context": lambda body, turn: TOO_LONG,
+    "context_late": _context_late,
+    "refusal": lambda body, turn: ([_text("I can't help with that.")], "refusal", SMALL),
+    "max_tokens": lambda body, turn: ([_text("A long answer that stops here")], "max_tokens", SMALL),
+    "budget": lambda body, turn: _bash(body, "true", DEAR),
+    "timeout": lambda body, turn: _bash(body, "sleep 30"),
+    "subagent": _subagent,
+    "subagent_override": lambda body, turn: _subagent(
+        body, turn, {"run_in_background": False, "model": "fable", "effort": "max"}),
+    "web": _web,
+    "drop": lambda body, turn: _later(body, turn, ([_text("cut")], "end_turn", SMALL, "drop")),
+    "slow": lambda body, turn: _later(body, turn, ([_text("done")], "end_turn", SMALL, "slow")),
+    "transient": _transient,
+    **{name: (lambda fault: lambda body, turn: _later(body, turn, fault))(fault) for name, fault in FAULTS.items()},
+}
+
+
+def reply(scenario, body):
+    """One request's answer: (content blocks, stop_reason, usage[, "drop" | "slow"]), or a fault as
+    (status, error type, message, headers)."""
+    return SCENARIOS[scenario](body, _turn(body))
 
 
 def _message(model, content, stop_reason, usage):
@@ -171,9 +221,11 @@ class Stub(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def _send_json(self, status, payload):
+    def _send_json(self, status, payload, headers=None):
         data = json.dumps(payload).encode()
         self.send_response(status)
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(data)))
         self.end_headers()
@@ -191,48 +243,71 @@ class Stub(BaseHTTPRequestHandler):
         raw = self.rfile.read(int(self.headers.get("content-length", 0)))
         body = json.loads(raw or b"{}")
         row = _record(self.path, self.headers, body)
-        status, payload = self._answer(body)
+        status, payload, extra = self._answer(body)
         row.update(status=status, usage=payload.get("usage"), stop_reason=payload.get("stop_reason"),
                    content=[b.get("name") or b["type"] for b in payload.get("content", [])],
-                   total_usage=dict(self.totals))
+                   total_usage=dict(self.totals), mode=extra if status == 200 else None, time=time.time())
         self._log(row)
-        if status == 200 and body.get("stream"):
-            self._stream(payload)
+        if status != 200:
+            self._send_json(status, payload, extra)
+        elif body.get("stream"):
+            self._stream(payload, extra)
         else:
             self._send_json(status, payload)
 
     def _answer(self, body):
+        """(status, payload, headers for an error or the mode of a reply)."""
         if not self.path.startswith("/v1/messages") or self.path.startswith("/v1/messages/"):
-            return 404, {"type": "error", "error": {"type": "not_found_error", "message": f"stub: {self.path}"}}
+            return _error(404, "not_found_error", f"stub: {self.path}", {})
         if body.get("model") != self.cfg.model:
-            return 404, {"type": "error", "error": {"type": "not_found_error", "message": f"model: {body.get('model')}"}}
+            return _error(404, "not_found_error", f"model: {body.get('model')}", {})
         canned = reply(self.cfg.scenario, body)
-        if canned is None:
-            return 400, {"type": "error", "error": {"type": "invalid_request_error",
-                                                    "message": "prompt is too long: 250000 tokens > 200000 maximum"}}
+        if isinstance(canned[0], int):
+            return _error(*canned)
         for key, value in canned[2].items():
             self.totals[key] += value
-        return 200, _message(self.cfg.model, *canned)
+        return 200, _message(self.cfg.model, *canned[:3]), canned[3] if len(canned) > 3 else None
 
-    def _stream(self, message):
+    def _stream(self, message, mode):
+        if mode == "slow":
+            time.sleep(self.cfg.delay)
         self.send_response(200)
         self.send_header("content-type", "text/event-stream")
         self.send_header("connection", "close")
         self.end_headers()
         for name, data in sse_events(message):
             self.wfile.write(f"event: {name}\ndata: {json.dumps({'type': name, **data})}\n\n".encode())
-        self.wfile.flush()
+            self.wfile.flush()
+            if mode == "drop" and name == "content_block_delta":
+                break
         self.close_connection = True
+
+
+def _error(status, etype, message, headers):
+    return status, {"type": "error", "error": {"type": etype, "message": message}}, headers
+
+
+class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
 
 
 def main():
     parser = argparse.ArgumentParser()
-    for flag in ("--host", "--model", "--scenario", "--log"):
+    for flag in ("--model", "--scenario", "--log"):
         parser.add_argument(flag, required=True)
-    parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--host")
+    parser.add_argument("--port", type=int)
+    parser.add_argument("--unix")
+    parser.add_argument("--delay", type=float, default=120)
     Stub.cfg = parser.parse_args()
-    server = ThreadingHTTPServer((Stub.cfg.host, Stub.cfg.port), Stub)
-    print("listening", Stub.cfg.host, server.server_address[1], flush=True)
+    if Stub.cfg.unix:
+        if os.path.exists(Stub.cfg.unix):
+            os.unlink(Stub.cfg.unix)
+        server = _UnixServer(Stub.cfg.unix, Stub)
+        print("listening", Stub.cfg.unix, flush=True)
+    else:
+        server = ThreadingHTTPServer((Stub.cfg.host, Stub.cfg.port), Stub)
+        print("listening", Stub.cfg.host, server.server_address[1], flush=True)
     server.serve_forever()
 
 
