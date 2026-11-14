@@ -133,7 +133,7 @@ def field_type(authority, record_type: str, field: str) -> dict:
 
 # Small single-purpose programs ------------------------------------------------------
 
-HEAD = '(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule main) (export run)\n'
+HEAD = '(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule main) (export run)\n'
 LOGGED = '''import json, os, sys
 from pathlib import Path
 with open(Path(sys.argv[0]).stem + ".log", "a", encoding="utf-8") as log:
