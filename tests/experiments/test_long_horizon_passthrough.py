@@ -870,3 +870,17 @@ def test_a_session_message_missing_from_the_passthroughs_log_fails_the_probe(pro
     assert (result.returncode, record["stopped"], record["failures"]) == (1, None, [
         f"{effort}: request msg_elsewhere is not in the passthrough's log as answered 200 by {MODEL} at {effort}"
         for effort in ("low", "medium", "high")])
+
+
+def test_a_body_larger_than_the_limit_is_refused_unread(short, stub, inproc):
+    upstream, upstream_log = stub("normal")
+    sock, state = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    head = (f"POST {MESSAGES} HTTP/1.1\r\nhost: relay:8080\r\nauthorization: Bearer lh-fake-a\r\n"
+            f"content-length: {passthrough.MAX_BODY + 1}\r\n\r\n")
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(WAIT)
+        client.connect(str(sock))
+        client.sendall(head.encode())
+        reply = client.recv(4096).decode()
+    assert (reply.split()[1], "lh-passthrough: request too large" in reply, _rows(state)[-1]["refused"],
+            _stub_rows(upstream_log)) == ("403", True, "request too large", [])

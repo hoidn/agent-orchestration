@@ -7,7 +7,7 @@ maps the fake bearer token to a slot. It refuses, in one form (HTTP 403 `permiss
 `POST /v1/messages?beta=true` ("path not allowed"); an unknown token ("unknown token"); a stopped tranche
 ("tranche stopped"); any model but the price rule's exact id, or a body that is not JSON ("model not
 allowed"); a request that declares a provider-side tool, one without `input_schema` ("provider-side tool
-refused"); a slot at its request count or priced cap ("slot cap reached"); the tranche at its request count
+refused"); a body above 64 MiB or without a valid length, unread ("request too large"); a slot at its request count or priced cap ("slot cap reached"); the tranche at its request count
 or priced total ("tranche total reached"). Otherwise it replaces the value of the `authorization` header with
 `Bearer <real token>`, sets `host` to the vendor's host (the server it connects to) and changes no other byte
 of the request. It passes the vendor's response through unchanged (a chunked body is re-chunked) and prices
@@ -89,6 +89,7 @@ CEILING_USD = 200.0  # the approval's ceiling; no slots file may set a larger to
 BEARER = re.compile(r"[A-Za-z0-9\-._~+/]+=*")
 LOGGED = ("retry-after", "x-should-retry", "request-id")
 READ = 65536
+MAX_BODY = 64 << 20  # bytes; a request body above it is refused unread (the relay's port is the agent's to reach)
 UPSTREAM_TIMEOUT = 900  # seconds without a byte; a long output streams for minutes
 SLOTS_ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError)
 
@@ -322,7 +323,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle(self):
         pt = self.server.pt
-        body = self.rfile.read(int(self.headers.get("content-length") or 0))
+        length = self.headers.get("content-length") or "0"
+        if not length.isdigit() or int(length) > MAX_BODY:
+            pt.log({**_row(None, self.path, None, pt.credential), "status": 403, "refused": "request too large"})
+            return self._refuse("request too large")
+        body = self.rfile.read(int(length))
         request = _json(body)
         slot, reason = pt.admit(self.command, self.path, self.headers.get("authorization"), request)
         row = _row(slot, self.path, request, pt.credential)
