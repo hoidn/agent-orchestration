@@ -2,7 +2,8 @@
 
 Each scenario of `demo.py` is one run of a seed through the command line: it must end with the declared result,
 committed steps and provider calls; a killed run, once resumed, must start no step it had committed; every step after
-the setup must be given the guide path the setup reported; and no run may leave a socket directory outside its world.
+the setup must be given the guide path the setup reported; and no run may leave a socket directory outside its world
+(the Agent Sessions seed must name one, so that the check has something to look at).
 """
 
 import pytest

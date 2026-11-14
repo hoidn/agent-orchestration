@@ -7,7 +7,7 @@ Without a program it runs the four candidates; for each it first prints the comp
 Each scenario is what the run must show (its result, its committed steps) and the list of answers the scripted
 `claude` gives, one per call in order (the fake CLI of `tests/agent_session_shims.py`, plus a `kill` answer that
 kills the orchestrator in the middle of the call; the run is then resumed). The stand-in task: `src/m1.txt` and
-`src/m2.txt` must both hold `ok`; that is its visible check (`dev-check.json`, run by the seed catalog's
+`src/m2.txt` must both hold `ok`; that is its visible check (`dev-check.json`, run by the kit's
 `dev_check.py`). `run` returns what happened and `expected` what the scenario declares; the two must be equal, so a
 wrong branch in a program, a step dispatched twice after a kill, a call the script did not foresee, a later step that
 is not given the guide the setup reported, or a socket directory left behind fails here.
@@ -56,6 +56,12 @@ CHECK = ("import pathlib, sys; bad = [n for n in ('m1', 'm2') if not pathlib.Pat
          "or pathlib.Path('src', n + '.txt').read_text() != 'ok']; print('failing: ' + ' '.join(bad) if bad else 'passed'); "
          "sys.exit(1 if bad else 0)")
 INPUTS = {"task": "make src/m1.txt and src/m2.txt hold ok", "intent": "both files hold ok"}
+DEV_CHECK = HERE / "dev_check.py"  # the script of the `dev-check` command, copied into each workspace
+COMMAND = [sys.executable, "-c", CHECK]
+SLEEPS = [sys.executable, "-c", "import time; time.sleep(30)"]
+# dev-check.json per scenario; None: the workspace has none
+CHECKS = {"check-times-out": {"argv": SLEEPS, "timeout_sec": 1}, "check-not-configured": None}
+SOCKET = re.compile(r"tmux -S (\S+)/tmux\.sock")  # the socket directory in an Agent Sessions run's agent-view line
 
 
 def change(files):
@@ -87,7 +93,9 @@ DESIGN = {"result": {"doc": "docs/design.md"}, "files": {"docs/design.md": "# De
 REVISED = {"result": {"doc": "docs/design.md"}, "files": {"docs/design.md": "# Design (revised)\n"}}
 BUILD = [plan("M1", "M2"), work(m1="ok", m2="ok"), MET]
 DONE = {"summary": "accepted", "variant": "DONE"}
-REASONS, FAILING = NOT_MET["result"]["reasons"], "failing: m2\n"  # a refusal's reasons; the stand-in check's output
+REASONS = NOT_MET["result"]["reasons"]  # a refusal's reasons
+FAILING = f"{' '.join(COMMAND)} exited 1\nfailing: m2\n"  # a failed check's excerpt: why it failed, then its output
+TIMED_OUT, UNCONFIGURED = f"{' '.join(SLEEPS)} timed out after 1s\n", "dev-check.json missing\n"
 NO_SETUP = ({"error": "provider_result_invalid", "at": "ready"}, 0, [NO_GUIDE])
 
 
@@ -112,6 +120,8 @@ FLAT = {
     "review-rejects-once": (DONE, 9, START + [work(m1="ok", m2="ok"), NOT_MET, work(memory="round 2\n"), MET]),
     "kill-and-resume": (DONE, 8, START + [work("round 1\n", m1="ok", m2="bad"), KILL, work(m2="ok"), MET]),
     "refused-then-check-fails": (blocked("round limit reached", *REASONS, *3 * [FAILING]), 12, START + OPEN),
+    "check-times-out": (blocked("round limit reached", *4 * [TIMED_OUT]), 11, START + 4 * [work()]),
+    "check-not-configured": (blocked("round limit reached", *4 * [UNCONFIGURED]), 11, START + 4 * [work()]),
     "setup-incomplete": NO_SETUP,
 }
 FLAT["guide-under-another-name"] = elsewhere(FLAT["clean"])
@@ -150,10 +160,10 @@ FLAGS = ("--provider-externs-file", str(HERE / "providers.json"), "--command-bou
 
 def expected(program, scenario):
     """What `run` must return for the scenario: every answer used once, no step started twice, every later step
-    given the reported guide, no socket directory left."""
+    given the reported guide, no socket directory left, and one seen at all exactly where there are conversations."""
     result, steps, answers = PROGRAMS[program][scenario]
     return {"result": result, "steps": steps, "calls": len(answers) - answers.count(KILL), "restarted": [],
-            "settings": [["claude-haiku-5-5", "medium"]], "unguided": [], "stray": []}
+            "settings": [["claude-haiku-5-5", "medium"]], "unguided": [], "stray": [], "sockets": program == "roles"}
 
 
 def orchestrator(world, *argv, hash_seed="0"):
@@ -209,7 +219,7 @@ def unguided(run_root, guide):
 def stray(world, proc):
     """The socket directories the process named that lie outside the world, or that it left behind although it ended
     by itself (a killed process cannot remove its own, which stays in the world)."""
-    named = [Path(path) for path in re.findall(r"tmux -S (\S+)/tmux\.sock", proc.stderr)]
+    named = [Path(path) for path in SOCKET.findall(proc.stderr)]
     return [str(path) for path in named if world not in path.parents or (proc.returncode != -9 and path.exists())]
 
 
@@ -218,14 +228,16 @@ def run(base, program, scenario):
     answers = PROGRAMS[program][scenario][2]
     world = new_world(base, f"{program}-{scenario}", answers)
     repo = world / "repo"
-    shutil.copy(ROOT / "experiments" / "orc_structural_search" / "seeds" / "dev_check.py", repo)
-    (repo / "dev-check.json").write_text(json.dumps({"argv": [sys.executable, "-c", CHECK], "timeout_sec": 30}))
+    shutil.copy(DEV_CHECK, repo / "dev_check.py")
+    config = CHECKS.get(scenario, {"argv": COMMAND, "timeout_sec": 30})
+    if config is not None:
+        (repo / "dev-check.json").write_text(json.dumps(config))
     (world / "inputs.json").write_text(json.dumps(INPUTS))
     proc = orchestrator(world, "run", str(HERE / f"{program}.orc"), "--entry-workflow", f"{program}::run",
                         "--source-root", str(HERE), *FLAGS, "--input-file", str(world / "inputs.json"))
     print(f"\n== {program} / {scenario}: run exit {proc.returncode}")
     print("\n".join(line for line in proc.stderr.splitlines() if line.startswith(("start ", "commit "))))
-    committed, restarted, left = events(proc, "commit"), [], stray(world, proc)
+    committed, restarted, left, sockets = events(proc, "commit"), [], stray(world, proc), bool(SOCKET.search(proc.stderr))
     (run_root,) = (repo / ".orchestrate" / "runs").iterdir()
     if KILL in answers:
         assert proc.returncode == -9, proc.stdout + proc.stderr
@@ -242,7 +254,7 @@ def run(base, program, scenario):
           f"in {len({r['session'] for r in requests})} conversations")
     return {"result": result, "steps": len(committed), "calls": len(requests), "restarted": restarted,
             "settings": sorted(map(list, settings)), "unguided": unguided(run_root, answers[0]["result"]["guide"]),
-            "stray": sorted(set(left))}
+            "stray": sorted(set(left)), "sockets": sockets}
 
 
 if __name__ == "__main__":

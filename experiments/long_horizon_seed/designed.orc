@@ -1,8 +1,7 @@
 (workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule designed)
   (import common :only (Change CheckReport Outcome DocPath GuidePath Setup Spec Design Reviewed Milestone Plan Verdict))
   (export run)
-  ;; Candidate D. Candidate A with a design between spec and plan: reviewed at most twice, revised after a refusal;
-  ;; a design refused twice ends the run BLOCKED. Inputs: the task text and the intent only.
+  ;; Candidate D: A with a design reviewed at most twice, revised between; refused twice, BLOCKED. Inputs: task, intent.
   (defprompt guides (:fills (task :text)) -> Setup
     "Work in the current working directory and nowhere else. Prepare the project there for the task below; do not start the task. If there is no AGENTS.md, write it: how to build and test, the layout, the conventions, that the check this workflow runs after each piece of work is `python dev_check.py`, and the documentation rules below, so that every later step follows them. If there is code already, AGENTS.md describes its layout and conventions as they are, and you move or rewrite none of it; if there is none, create the directories the task needs (source, tests, docs; no task code yet). If AGENTS.md exists, keep what it says and add only what it lacks of the above. Then add what is missing of: docs/index.md (the catalogue: every document, one line each with a link and what it is for, grouped by kind); docs/log.md (append-only; each entry starts `## [date] step | title` and says what was done and decided); docs/notes/ (one page per lasting topic: a decision, a component, a pitfall; for existing code, what a newcomer needs). Documentation rules: read docs/index.md first; put lasting knowledge in a page under docs/notes/ and revise that page rather than adding a second; list every new document in docs/index.md; each step that changes a file appends one entry to docs/log.md (a review changes nothing and logs nothing). Never change dev_check.py or dev-check.json.\n\nTask: {task}\n\nReport `guide`: the path of that guide; every later step is given it and reads it first. `index`: the path of the catalogue. `log`: the path of the log.")
   (defprompt specify (:fills (guide :path GuidePath) (task :text)) -> Spec
@@ -25,9 +24,7 @@
   (defworkflow review-design ((draft DocPath) (guide GuidePath) (spec DocPath)) -> Reviewed
     (loop/recur :max 2 :state (loop-state (doc DocPath draft) (notes List[String] (list)))
       :on-exhausted (variant Reviewed REFUSED :reasons state.notes) (fn (state)
-        (let* ((design
-                 (if (list/empty? state.notes) state.doc
-                   (let* ((revised
+        (let* ((design (if (list/empty? state.notes) state.doc (let* ((revised
                             (provider-result providers.planner :model "claude-haiku-5-5" :effort "medium"
                               :timeout-sec 1200
                               :prompt (revise :guide guide :spec spec :design state.doc :notes state.notes))))
