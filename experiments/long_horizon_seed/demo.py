@@ -2,15 +2,15 @@
 
     PYTHONPATH=$PWD python experiments/long_horizon_seed/demo.py /tmp/lhs-tmp/demo [program [scenario]]
 
-Without a program it runs the four candidates. The two programs under `variants/` run when named;
-`roles_whole_run` needs a tree with change I1, named in `ORC_ROOT` (its orchestrator and tests are used).
+Without a program it runs the four candidates; for each it first prints the compiled program's digest and site keys.
 
-Each scenario is the list of answers the scripted `claude` gives, one per call in order (the fake CLI of
-`tests/agent_session_shims.py`, plus a `kill` answer that kills the orchestrator in the middle of the call).
-The stand-in task: `src/m1.txt` and `src/m2.txt` must both hold `ok`; that is its visible check
-(`dev-check.json`, run by the seed catalog's `dev_check.py`). Every scenario must end in DONE with exactly
-the scripted number of calls, so a wrong branch in a program fails here. After a kill, `resume` must start no
-step that the killed run had committed.
+Each scenario is what the run must show (its result, its committed steps) and the list of answers the scripted
+`claude` gives, one per call in order (the fake CLI of `tests/agent_session_shims.py`, plus a `kill` answer that
+kills the orchestrator in the middle of the call; the run is then resumed). The stand-in task: `src/m1.txt` and
+`src/m2.txt` must both hold `ok`; that is its visible check (`dev-check.json`, run by the seed catalog's
+`dev_check.py`). `run` returns what happened and `expected` what the scenario declares; the two must be equal, so a
+wrong branch in a program, a step dispatched twice after a kill or a call the script did not foresee fails here.
+`tests/experiments/test_long_horizon_seed.py` runs every scenario.
 """
 
 import json
@@ -20,18 +20,37 @@ import shutil
 import subprocess
 import sys
 
-ROOT = Path(os.environ.get("ORC_ROOT") or Path(__file__).resolve().parents[2]).resolve()
+ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+from orchestrator.contracts.closed_program.program import ClosedProgram  # noqa: E402
+from orchestrator.workflow.evaluated.machine import site_classes  # noqa: E402
 from tests.agent_session_shims import FAKE_CLAUDE, closed_path  # noqa: E402
-from tests.test_workflow_evaluated_agent_consumer_smoke import DRIVER  # noqa: E402  (no tmux server is started)
 
+# The orchestrator's command line with observation panes that do nothing: a killed run skips its cleanup and
+# would leave a tmux server behind (`roles` has Agent Sessions, which open one).
+DRIVER = '''import itertools, sys
+from orchestrator.workflow.evaluated import runtime
+from orchestrator.cli import main
+class NoPanes:
+    panes = itertools.count()
+    def start_server(self, socket_path, session_name): pass
+    def open_pane(self, socket_path, session_name, display_path): return f"%{next(self.panes)}"
+    def pane_alive(self, socket_path, target): return True
+    def server_alive(self, socket_path, session_name): return True
+    def close_pane(self, socket_path, target): pass
+    def close_server(self, socket_path): pass
+runtime.observation_backend = NoPanes
+sys.argv = ["orchestrator", *sys.argv[1:]]
+sys.exit(main())
+'''
 ANCHOR = 'if mode == "timeout":'
 assert ANCHOR in FAKE_CLAUDE, "the fake claude changed; move the kill hook"
 SHIM = FAKE_CLAUDE.replace(ANCHOR, 'if step.get("kill"):\n    os.kill(os.getppid(), 9); sys.exit(1)\n' + ANCHOR, 1)
 CHECK = ("import pathlib, sys; bad = [n for n in ('m1', 'm2') if not pathlib.Path('src', n + '.txt').is_file() "
          "or pathlib.Path('src', n + '.txt').read_text() != 'ok']; print('failing: ' + ' '.join(bad) if bad else 'passed'); "
          "sys.exit(1 if bad else 0)")
+INPUTS = {"task": "make src/m1.txt and src/m2.txt hold ok", "intent": "both files hold ok"}
 
 
 def change(files):
@@ -59,86 +78,121 @@ START = [GUIDES, SPEC, plan("M1", "M2")]
 DESIGN = {"result": {"doc": "docs/design.md"}, "files": {"docs/design.md": "# Design\n"}}
 REVISED = {"result": {"doc": "docs/design.md"}, "files": {"docs/design.md": "# Design (revised)\n"}}
 BUILD = [plan("M1", "M2"), work(m1="ok", m2="ok"), MET]
+DONE = {"summary": "accepted", "variant": "DONE"}
 
+# scenario: (result, committed steps, answers)
 FLAT = {
-    "clean": START + [work(m1="ok", m2="ok"), MET],
-    "check-fails-once": START + [work(m1="ok", m2="bad"), work(m2="ok"), MET],
-    "review-rejects-once": START + [work(m1="ok", m2="ok"), NOT_MET, work(memory="round 2\n"), MET],
-    "kill-and-resume": START + [work("round 1\n", m1="ok", m2="bad"), KILL, work(m2="ok"), MET],
-}
-MILESTONES = {  # per milestone: work, review; then the acceptance
-    "clean": START + [work(m1="ok"), MET, work(m2="ok"), MET, MET],
-    "check-fails-once": START + [work(m1="ok"), MET, work(m2="bad"), MET, plan("M3"), work(m2="ok"), MET, MET],
-    "review-rejects-once": START + [work(m1="ok"), MET, work(m2="bad"), NOT_MET, work(m2="ok"), MET, MET],
-    "kill-and-resume": START + [work("M1 done\n", m1="ok"), MET, KILL, work(m2="ok"), MET, MET],
-    "kill-in-a-second-attempt": START + [work(m1="ok"), MET, work(m2="bad"), NOT_MET, KILL, work(m2="ok"), MET, MET],
+    "clean": (DONE, 6, START + [work(m1="ok", m2="ok"), MET]),
+    "check-fails-once": (DONE, 8, START + [work(m1="ok", m2="bad"), work(m2="ok"), MET]),
+    "review-rejects-once": (DONE, 9, START + [work(m1="ok", m2="ok"), NOT_MET, work(memory="round 2\n"), MET]),
+    "kill-and-resume": (DONE, 8, START + [work("round 1\n", m1="ok", m2="bad"), KILL, work(m2="ok"), MET]),
 }
 DESIGNED = {  # guides, spec, design, design review; then plan, work, acceptance
-    "clean": [GUIDES, SPEC, DESIGN, MET] + BUILD,
-    "design-refused-once": [GUIDES, SPEC, DESIGN, NOT_MET, REVISED] + BUILD,
-    "acceptance-refused-once": [GUIDES, SPEC, DESIGN, MET] + BUILD[:2] + [NOT_MET, work(memory="round 2\n"), MET],
-    "kill-between-design-and-plan": [GUIDES, SPEC, DESIGN, MET, KILL] + BUILD,
+    "clean": (DONE, 8, [GUIDES, SPEC, DESIGN, MET] + BUILD),
+    "design-refused-once": (DONE, 9, [GUIDES, SPEC, DESIGN, NOT_MET, REVISED] + BUILD),
+    "acceptance-refused-once": (DONE, 11, [GUIDES, SPEC, DESIGN, MET] + BUILD[:2] + [NOT_MET, work(memory="round 2\n"), MET]),
+    "kill-between-design-and-plan": (DONE, 8, [GUIDES, SPEC, DESIGN, MET, KILL] + BUILD),
 }
-PROGRAMS = {"staged": FLAT, "milestones": MILESTONES, "roles": MILESTONES, "designed": DESIGNED}
-VARIANTS = {"roles_whole_run": MILESTONES, "roles_whole_run_cursor": MILESTONES}
+MILESTONES = {  # per milestone: work, review; then the acceptance
+    "clean": (DONE, 11, START + [work(m1="ok"), MET, work(m2="ok"), MET, MET]),
+    "check-fails-once": (DONE, 16, START + [work(m1="ok"), MET, work(m2="bad"), MET, plan("M3"), work(m2="ok"), MET, MET]),
+    "review-rejects-once": (DONE, 14, START + [work(m1="ok"), MET, work(m2="bad"), NOT_MET, work(m2="ok"), MET, MET]),
+    "kill-and-resume": (DONE, 11, START + [work("M1 done\n", m1="ok"), MET, KILL, work(m2="ok"), MET, MET]),
+    "kill-in-a-second-attempt": (DONE, 14, START + [work(m1="ok"), MET, work(m2="bad"), NOT_MET, KILL, work(m2="ok"), MET, MET]),
+}
+ROLES = {  # the same answers; each conversation's constructor is a step too
+    name: (result, steps + {"check-fails-once": 8}.get(name, 6), answers) for name, (result, steps, answers) in MILESTONES.items()
+}
+PROGRAMS = {"staged": FLAT, "designed": DESIGNED, "milestones": MILESTONES, "roles": ROLES}
+FLAGS = ("--provider-externs-file", str(HERE / "providers.json"), "--command-boundaries-file", str(HERE / "commands.json"))
 
 
-def orchestrator(world, *argv):
+def expected(program, scenario):
+    """What `run` must return for the scenario: every answer used once, no step started twice."""
+    result, steps, answers = PROGRAMS[program][scenario]
+    return {"result": result, "steps": steps, "calls": len(answers) - answers.count(KILL), "restarted": [],
+            "settings": [["claude-haiku-5-5", "medium"]]}
+
+
+def orchestrator(world, *argv, hash_seed="0"):
+    """The orchestrator's command line in the world's workspace; `claude` resolves to the world's script only."""
     env = {"PATH": closed_path(world / "bin"), "PYTHONPATH": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1",
-           "HOME": str(world), "CLAUDE_CONFIG_DIR": str(world / "claude"),
-           "AGENT_SHIM_PLAN": (world / "plan.json").read_text()}
+           "PYTHONHASHSEED": hash_seed, "HOME": str(world), "CLAUDE_CONFIG_DIR": str(world / "claude"),
+           "AGENT_SHIM_PLAN": json.dumps({"claude": json.loads((world / "plan.json").read_text())})}
     return subprocess.run([sys.executable, "-c", DRIVER, *argv], cwd=world / "repo", env=env, capture_output=True, text=True)
 
 
-def steps(proc):
-    return [line.split("  attempt")[0] for line in proc.stderr.splitlines() if line.startswith(("start ", "commit "))]
-
-
-def sites(proc, event):
-    return [line.split(None, 1)[1] for line in steps(proc) if line.startswith(event)]
-
-
-def run(base, program, scenario):
-    world, answers = base / f"{program}-{scenario}", (PROGRAMS | VARIANTS)[program][scenario]
-    source = HERE / ("variants" if program in VARIANTS else "") / f"{program}.orc"
+def new_world(base, name, answers=()):
+    world = base / name
     shutil.rmtree(world, ignore_errors=True)
     (world / "repo").mkdir(parents=True)
     (world / "bin").mkdir()
     (world / "bin" / "claude").write_text(f"#!{sys.executable}\n" + SHIM)
     (world / "bin" / "claude").chmod(0o700)
-    (world / "plan.json").write_text(json.dumps({"claude": answers}))
+    (world / "plan.json").write_text(json.dumps(list(answers)))
+    return world
+
+
+def build(base, program, hash_seed="0"):
+    """The seed's closed program, compiled by the command line under the given hash seed."""
+    world = new_world(base, f"{program}-build-{hash_seed}")
+    proc = orchestrator(world, "compile", str(HERE / f"{program}.orc"), "--entry-workflow", f"{program}::run",
+                        "--source-root", str(HERE), *FLAGS, hash_seed=hash_seed)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return ClosedProgram.from_artifact(Path(json.loads(proc.stdout)["artifact_paths"]["closed_program"]).read_text())
+
+
+def events(proc, event):
+    """The identities the run printed as started (`start`) or committed (`commit`), in order."""
+    lines = [line.split("  attempt")[0] for line in proc.stderr.splitlines() if line.startswith(event + " ")]
+    return [line.split(None, 1)[1] for line in lines]
+
+
+def failure(proc):
+    """A failed run's diagnostic code: the last `[code]` its stderr prints."""
+    codes = [line.split("]")[0].lstrip("[") for line in proc.stderr.splitlines() if line.startswith("[")]
+    assert codes, proc.stdout + proc.stderr
+    return {"error": codes[-1]}
+
+
+def run(base, program, scenario):
+    """Run the scenario in a new world under `base`; returns what happened, in the shape of `expected`."""
+    answers = PROGRAMS[program][scenario][2]
+    world = new_world(base, f"{program}-{scenario}", answers)
     repo = world / "repo"
     shutil.copy(ROOT / "experiments" / "orc_structural_search" / "seeds" / "dev_check.py", repo)
     (repo / "dev-check.json").write_text(json.dumps({"argv": [sys.executable, "-c", CHECK], "timeout_sec": 30}))
-    (world / "inputs.json").write_text(json.dumps({"task": "make src/m1.txt and src/m2.txt hold ok", "intent": "both files hold ok",
-                                                  "repo": str(repo),
+    (world / "inputs.json").write_text(json.dumps({**INPUTS, "repo": str(repo),
                                                   **dict.fromkeys(("planner", "coder", "reviewer"), "claude-haiku-5-5")}))
-    proc = orchestrator(world, "run", str(source), "--entry-workflow", f"{program}::run",
-                        "--source-root", str(source.parent), "--source-root", str(HERE),
-                        "--provider-externs-file", str(HERE / "providers.json"),
-                        "--command-boundaries-file", str(HERE / "commands.json"), "--input-file", str(world / "inputs.json"))
+    proc = orchestrator(world, "run", str(HERE / f"{program}.orc"), "--entry-workflow", f"{program}::run",
+                        "--source-root", str(HERE), *FLAGS, "--input-file", str(world / "inputs.json"))
     print(f"\n== {program} / {scenario}: run exit {proc.returncode}")
-    print("\n".join(steps(proc)))
-    committed = sites(proc, "commit")
+    print("\n".join(line for line in proc.stderr.splitlines() if line.startswith(("start ", "commit "))))
+    committed, restarted = events(proc, "commit"), []
     if KILL in answers:
         assert proc.returncode == -9, proc.stdout + proc.stderr
         (run_root,) = (repo / ".orchestrate" / "runs").iterdir()
         proc = orchestrator(world, "resume", run_root.name)
         print(f"-- resume exit {proc.returncode}; steps started again:")
-        print("\n".join(steps(proc)))
-        again = set(committed) & set(sites(proc, "start"))
-        assert not again, f"dispatched twice: {sorted(again)}"
-        committed += sites(proc, "commit")
-    assert proc.returncode == 0, proc.stdout + proc.stderr
+        print("\n".join(line for line in proc.stderr.splitlines() if line.startswith(("start ", "commit "))))
+        restarted = sorted(set(committed) & set(events(proc, "start")))
+        committed += events(proc, "commit")
     requests = [json.loads(line) for line in (repo / "requests.jsonl").read_text().splitlines()]
-    sessions = len({request["session"] for request in requests})
-    result = json.loads(proc.stdout.splitlines()[-1])
-    print(f"-- result {json.dumps(result)}; {len(committed)} steps committed, {len(requests)} provider calls in {sessions} conversations")
-    assert result["variant"] == "DONE" and len(requests) == len(answers) - answers.count(KILL), (result, len(requests))
+    settings = {(r["argv"][r["argv"].index("--model") + 1], r["argv"][r["argv"].index("--effort") + 1]) for r in requests}
+    result = json.loads(proc.stdout.splitlines()[-1]) if proc.returncode == 0 else failure(proc)
+    print(f"-- result {json.dumps(result)}; {len(committed)} steps committed, {len(requests)} provider calls "
+          f"in {len({r['session'] for r in requests})} conversations")
+    return {"result": result, "steps": len(committed), "calls": len(requests), "restarted": restarted,
+            "settings": sorted(map(list, settings))}
 
 
 if __name__ == "__main__":
     base, wanted = Path(sys.argv[1]), sys.argv[2:]
     for program in wanted[:1] or PROGRAMS:
-        for scenario in wanted[1:2] or (PROGRAMS | VARIANTS)[program]:
-            run(base, program, scenario)
+        closed = build(base, program)
+        print(f"\n== {program}: {len((HERE / f'{program}.orc').read_text().splitlines())} lines, {closed.digest}, "
+              f"inputs {[name for name, _ in closed.tree['params']]}")
+        print("\n".join(f"   {kind:11} {key}" for key, kind in site_classes(closed).items()))
+        for scenario in wanted[1:2] or PROGRAMS[program]:
+            observed = run(base, program, scenario)
+            assert observed == expected(program, scenario), (observed, expected(program, scenario))
