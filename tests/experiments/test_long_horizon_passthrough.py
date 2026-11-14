@@ -775,6 +775,8 @@ for turn in range(2):
     session.append({"type": "assistant", "message": {"id": message["id"], "model": message["model"], "usage": usage}})
     stream.append({"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", "isUsingOverage": False}})
 factor = pathlib.Path(sys.argv[0]).parents[2] / "cost-factor"  # $LH/cost-factor: a CLI that prices otherwise
+if (pathlib.Path(sys.argv[0]).parents[2] / "elsewhere").exists():  # a message that did not pass the passthrough
+    session.append({"type": "assistant", "message": {"id": "msg_elsewhere", "model": "claude-haiku-5-5"}})
 cost *= float(factor.read_text()) if factor.exists() else 1.0
 stream.append({"type": "result", "terminal_reason": "completed" if status == 200 else "api_error",
                "api_error_status": None if status == 200 else status, "total_cost_usd": cost,
@@ -859,3 +861,12 @@ def test_a_probe_whose_priced_figure_differs_from_the_clis_by_more_than_one_perc
     record = json.loads((probe.lh / "recordings" / "live-probe" / "probe.json").read_text())
     assert (result.returncode, record["stopped"], [f.split(":")[0] for f in record["failures"]],
             all("not within 1%" in f for f in record["failures"])) == (1, None, ["low", "medium", "high"], True)
+
+
+def test_a_session_message_missing_from_the_passthroughs_log_fails_the_probe(probe):
+    (probe.lh / "elsewhere").write_text("")
+    result = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
+    record = json.loads((probe.lh / "recordings" / "live-probe" / "probe.json").read_text())
+    assert (result.returncode, record["stopped"], record["failures"]) == (1, None, [
+        f"{effort}: request msg_elsewhere is not in the passthrough's log as answered 200 by {MODEL} at {effort}"
+        for effort in ("low", "medium", "high")])
