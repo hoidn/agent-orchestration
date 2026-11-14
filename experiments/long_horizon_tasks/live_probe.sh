@@ -157,7 +157,7 @@ remove_containers() {  # remove_containers DIR: this trial's containers and netw
 session() {  # session EFFORT: one harness trial with its own slot and fake token
   local effort=$1 dir=$OUT/$1 fake rc=0
   mkdir -m 700 "$dir" "$dir/containers"
-  fake=lh-fake-oauth-token-not-real-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+  fake=lh-fake-slot-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')  # the form Task 2a records for the CLI
   write_slots "{\"probe-$effort\": {\"token\": \"$fake\", \"cap_usd\": $CAP_USD, \"cap_requests\": $CAP_REQUESTS}}"
   env -i HOME="$HOME" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PATH="$PATH" HARBOR_TELEMETRY=0 \
     DO_NOT_TRACK=1 CONTAINERS_CONF_OVERRIDE="$LH/logs/containers-override.conf" LH_RELAY_SOCKET_DIR="$SOCKET_DIR" \

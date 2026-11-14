@@ -48,11 +48,19 @@ def _token():
     return secrets.token_urlsafe(81)
 
 
+_STARTED = []  # passthrough processes of the running test, killed at its end even when it fails
+
+
 @pytest.fixture
 def short():
     """A mode-700 directory with a short path (AF_UNIX paths stop at 108 bytes)."""
     path = Path(tempfile.mkdtemp(prefix="lhp", dir="/tmp"))
     yield path
+    while _STARTED:
+        proc = _STARTED.pop()
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=WAIT)
     for root, dirs, _ in os.walk(path):
         for d in dirs:
             os.chmod(os.path.join(root, d), 0o700)
@@ -513,6 +521,7 @@ def _start(short, slots, *mode, name="pt"):
     with open(out, "ab") as fh:
         proc = subprocess.Popen([sys.executable, "-I", str(KIT / "passthrough.py"), "--socket", str(sock), "--state",
                                  str(state), "--slots", str(slots), *map(str, mode)], stdout=fh, stderr=fh)
+    _STARTED.append(proc)
     deadline = time.monotonic() + WAIT
     while out.read_text().count("listening") == seen and proc.poll() is None and time.monotonic() < deadline:
         time.sleep(0.1)
@@ -881,6 +890,9 @@ def test_a_body_larger_than_the_limit_is_refused_unread(short, stub, inproc):
         client.settimeout(WAIT)
         client.connect(str(sock))
         client.sendall(head.encode())
-        reply = client.recv(4096).decode()
+        reply = b""
+        while chunk := client.recv(4096):  # the refusal closes the connection
+            reply += chunk
+        reply = reply.decode()
     assert (reply.split()[1], "lh-passthrough: request too large" in reply, _rows(state)[-1]["refused"],
             _stub_rows(upstream_log)) == ("403", True, "request too large", [])
