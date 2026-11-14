@@ -314,6 +314,228 @@ recordings show what each route entails:
   harness never allows it, so the launcher need not either);
 - how long a `setup-token` token lives before the 401 recorded above.
 
+## Task 2b: the 32 pinned images, measured and checked (no spend)
+
+Run on 2026-11-14 by `image_check.py`, one image at a time in `tasks.json` order (vba-userform-port
+first).
+- Each image was pulled by digest with rootless Podman 4.9.3, then measured.
+- Each agent image was then checked for withholding.
+- The image was deleted before the next pull.
+- Pulls ran on four CPUs at idle I/O priority.
+- The only network use was the public registry.
+- No container was started, and no model or provider was called.
+
+There is one JSON line per image in `image_measure.json`. The totals come from `image_check.py totals`.
+
+**Pull by digest works for all 32.**
+- Each pull used the pinned reference as written (tag and digest), with `docker.io/` added in front.
+  That prefix is the "full name" host-side step of D1: this host's registries configuration has no
+  unqualified search registry.
+- Every pull succeeded on its first attempt, and the stored image's repository digest equals the pinned
+  one.
+- No fallback was needed, so no image is a local build and no task carries a different configuration
+  label.
+- Pull times were 3 to 42 s each, 520 s in all.
+
+### Withholding: what is checked
+
+The check runs against the task's cached package. Before anything else, the package's content digest is
+recomputed with Harbor's packager and must equal `digest_4_1_0` in `tasks.json`; a missing or different
+package stops the run. Each agent container is created with `--network none` and never started. Its file
+system is exported to a tar, and the tar is read on the host.
+
+1. **By path, every member:** regular files, hard links, symlinks (and their targets) and directories.
+   A member is a hit if it is a root `solution` or `tests`, or if its path ends in a package file's
+   relative path under `solution/` or `tests/`.
+2. **By SHA-256, every regular file,** against the package's `solution/` and `tests/` files. Empty files
+   and files that the package's `environment/` also ships are left out.
+3. **The canary**, in every regular file (below).
+4. **Near copies, in every text file** that is not a byte-identical environment copy. The reference is
+   the "distinctive lines": stripped lines of at least 25 characters that occur in a `solution/` or
+   `tests/` text file, in no `environment/` file, and are not the canary line. Only the SHA-256 of each
+   matched line is recorded, never the line.
+   - A file is in a system path if it is under `/usr`, `/bin`, `/sbin`, `/etc`, `/lib`, `/lib32`,
+     `/lib64`, `/libx32`, `/var/lib/dpkg` or `/var/lib/apt`. Language package directories count too:
+     `site-packages`, `dist-packages`, `node_modules`, `.cargo/registry`, `.rustup`, `go/pkg/mod`,
+     `gems`, `.npm`, `.cache/pip`, and a uv-managed Python under `.local/share/uv/python`.
+   - So does every virtual environment: any directory that holds a `pyvenv.cfg`, with everything below
+     it (coordinator ruling, 2026-11-14). The rule is by the file, not by the directory's name.
+     gsea-proteomics, hof-topology-interpenetration and roy-polymorph-cn each have one, at `opt/venv`.
+   - The verdict is "needs a look" for any match in a file outside these paths, and for 10 or more
+     matched lines in a file inside them. Fewer than 10 inside them is noise.
+   - **Why 10.** Over the 16 images, no system-path file has more than 6 matched lines. The 6 is a Node
+     `package.json` under `usr/share/nodejs` in vba-userform-port, which shares lines with the
+     solution's `package-lock.json`. Every other case is at most 3, mostly generic Python standard
+     library lines such as a main guard. 10 is above everything observed. A planted copy of a solution
+     file would share far more lines than that, unless the file is very short.
+5. **Archives and git objects outside system paths** are opened when they are at most 64 MiB, and their
+   members get checks 1 to 4.
+   - This covers zip and wheel files, tar files of any compression, a `.gz` of a single file, and loose
+     `.git` objects.
+   - An archive inside an archive, a git pack, an unreadable archive and anything larger are listed as
+     "not opened", with path and size.
+   - Every `.git` directory outside system paths is listed and is "needs a look".
+6. **Each layer of the image is walked**, deleted files included, in Podman's user namespace
+   (`podman unshare`). Every entry, whiteouts included, is tested by path, and every regular file by
+   SHA-256.
+
+**Passes.**
+- The first pass (checks 1 to 3, regular files only) was replaced in the file by the second, and its
+  numbers are not in `image_measure.json`.
+- Every record now in the file was written by the committed code, after the virtual-environment rule.
+  All 16 agent images were pulled again one at a time under the 25 GB stop; the record says `pass` 4
+  or 5.
+- The verdicts are the ones the earlier records predicted under the final rule. The one change is
+  roy-polymorph-cn: its two launcher scripts are now inside a virtual environment.
+- The earlier passes are kept as `earlier_passes` summaries.
+
+### Withholding: the result
+
+**No solution or test material by path or SHA-256, in any of the 16 agent images, in the merged file
+system or in any layer.**
+- No file needs a look under the final rule.
+- The two `.git` directories (bold in the table) are listed by rule. The coordinator ruled them not hits
+  (below).
+
+| Task | Path / digest hits | Layer walk (files, whiteouts) | Canary: copies / name-only / other | Near-copy files needing a look | Archives and git objects opened | `.git` dirs | Not opened | Highest system-path count |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| vba-userform-port | 0 / 0 | clean (31,289, 12) | 1 / 0 / 0 | 0 | 0 | 0 | 0 | 6 |
+| vf2-speedup-networkx | 0 / 0 | clean (82,478, 0) | 0 / 0 / 0 | 0 | 0 | 0 | 0 | 3 |
+| wal-recovery-ordering | 0 / 0 | clean (5,057, 0) | 15 / 0 / 0 | 0 | 0 | 0 | 0 | 2 |
+| session-window-debug | 0 / 0 | clean (4,503, 8) | 8 / 0 / 0 | 0 | 0 | 0 | 0 | 2 |
+| production-planning | 0 / 0 | clean (5,269, 8) | 0 / 0 / 0 | 0 | 0 | 0 | 0 | 2 |
+| vpp-loss-divergence | 0 / 0 | clean (50,619, 64) | 2 / 0 / 0 | 0 | 0 | 0 | 0 | 3 |
+| batched-eval-parity | 0 / 0 | clean (5,938, 2) | 17 / 0 / 0 | 0 | 0 | 0 | 0 | 1 |
+| pretrain-shard-corruption | 0 / 0 | clean (23,603, 10) | 8 / 0 / 0 | 0 | 9 | **1** | 0 | 2 |
+| gsea-proteomics | 0 / 0 | clean (7,771, 0) | 0 / 0 / 0 | 0 | 1 | 0 | 0 | 1 |
+| lake-temp-glm | 0 / 0 | clean (29,734, 2) | 0 / 0 / 0 | 0 | 0 | 0 | 0 | 2 |
+| sound-change-cascade | 0 / 0 | clean (6,834, 7) | 1 / 0 / 0 | 0 | 0 | 0 | 0 | 0 |
+| hof-topology-interpenetration | 0 / 0 | clean (7,241, 0) | 0 / 0 / 0 | 0 | 0 | 0 | 0 | 1 |
+| shadow-relay | 0 / 0 | clean (8,008, 3) | 0 / 0 / 0 | 0 | 23 | **1** | 0 | 1 |
+| rs-archive-clone | 0 / 0 | clean (4,721, 2) | 0 / 0 / 0 | 0 | 0 | 0 | 0 | 3 |
+| retro-console-soc | 0 / 0 | clean (17,465, 52) | 0 / 0 / 0 | 0 | 0 | 0 | 0 | 2 |
+| roy-polymorph-cn | 0 / 0 | clean (18,590, 2) | 0 / 0 / 0 | 0 | 0 | 0 | 0 | 1 |
+
+**The three items that needed a look, and the coordinator's ruling (2026-11-14): none is a withholding
+hit, and none drops a task.**
+- **pretrain-shard-corruption, `app/.git`.** It is made by the environment's own Dockerfile (`git init
+  /app`, then commits of the environment's files; its comment calls it a decoy history). All 9 objects
+  are loose and were opened, and there is no pack. Four blobs hold the canary, and each is a
+  byte-identical copy of an environment file. No blob matches a solution or test file by digest, and none
+  holds a distinctive line.
+- **shadow-relay, `app/.git`.** It is made by the environment's Dockerfile (`git init`, then a commit of
+  the build's files, for the verifier's diff hook). All 23 objects are loose and were opened, and there
+  is no pack. No digest hit, no canary and no distinctive line.
+- **roy-polymorph-cn, `opt/venv/bin/f2py` and `opt/venv/bin/numpy-config`.** These are the console-script
+  wrappers pip writes into a virtual environment. Each matched one distinctive line, which is a generic
+  Python main guard that `solution/solve.py` and `tests/checks.py` also contain. Under the
+  virtual-environment rule they are noise, because `opt/venv` holds a `pyvenv.cfg`.
+
+**Name matches** are files with the same base name as a solution or test file, such as `README.md` or
+`package.json`. They are recorded as information only and are not hits. `name_match_dirs` and
+`name_match_names` give the top five by directory and by name. Of the 1,840 in vba-userform-port:
+- 1,797 are Node `package.json` files, most of them under `usr/share`;
+- 29 come from `shared/legacy_app`, which the package's `tests/legacy_app` mirrors.
+
+**The canary.** The identifier was read at run time from each task's cached 4.1.0 package. It is in
+neither this repository nor `image_measure.json`.
+- **Not found** in 9 images: vf2-speedup-networkx, production-planning, gsea-proteomics, lake-temp-glm,
+  hof-topology-interpenetration, shadow-relay, rs-archive-clone, retro-console-soc and roy-polymorph-cn.
+- **Found** in 7 images, each time in a byte-identical copy of a file in the task's own `environment/`
+  (counts in the table). In pretrain-shard-corruption, 4 of its 8 copies are blobs in `app/.git`.
+  There is no name-only match and no other file.
+- **Why the environment files carry it.** The benchmark marks its source files with the canary, and all
+  16 packages carry it in `environment/` too (1 to 18 files each). Where a Dockerfile copies those files
+  in, the agent sees them by design.
+- **The coordinator's ruling (2026-11-14).** A canary in a byte-identical copy of an environment file is
+  not a hit and drops no task.
+- **A name-only match** would get "needs a look", never "clean". It would be recorded with its path, the
+  environment file of that name, both sizes, whether the two are identical, and the shared lines other
+  than the canary line.
+
+### Sizes and disk
+
+GB = 10^9 bytes.
+- *Unpacked* is the store's size of the layers: Podman's image size, and per layer the diff size in the
+  store's `layers.json`.
+- *Compressed* is the registry's layer size, which is what was downloaded.
+- *Shared before* counts the layers that images earlier in the table already had. So adding up the
+  unpacked column counts those layers twice (26.96 GB over all 32). The totals below count each layer
+  once.
+
+| Task | Role | Digest | Compressed GB | Unpacked GB | Layers | Shared before: layers, GB unpacked | Pull by digest | Pull s | Withholding |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| vba-userform-port | agent | `104fb670ee58` | 0.12 | 0.41 | 8 | 0, 0.00 | yes | 9 | clean; canary only in 1 byte-identical environment copies; near copies clean |
+| vba-userform-port | verifier | `ce013facbe7c` | 0.55 | 1.54 | 17 | 6, 0.12 | yes | 28 | n/a |
+| vf2-speedup-networkx | agent | `b90a92781095` | 0.54 | 2.11 | 6 | 0, 0.00 | yes | 34 | clean; canary not found; near copies clean |
+| vf2-speedup-networkx | verifier | `a84e6fc87075` | 0.17 | 0.51 | 7 | 1, 0.08 | yes | 10 | n/a |
+| wal-recovery-ordering | agent | `71d215eab08b` | 0.04 | 0.13 | 6 | 0, 0.00 | yes | 4 | clean; canary only in 15 byte-identical environment copies; near copies clean |
+| wal-recovery-ordering | verifier | `627bc7812cd0` | 0.17 | 0.50 | 10 | 4, 0.13 | yes | 9 | n/a |
+| session-window-debug | agent | `62d159cb3a81` | 0.09 | 0.23 | 10 | 4, 0.12 | yes | 3 | clean; canary only in 8 byte-identical environment copies; near copies clean |
+| session-window-debug | verifier | `ae6248a5d486` | 0.17 | 0.50 | 11 | 4, 0.12 | yes | 6 | n/a |
+| production-planning | agent | `51110ff01e23` | 0.07 | 0.19 | 12 | 0, 0.00 | yes | 4 | clean; canary not found; near copies clean |
+| production-planning | verifier | `0f3eb5e73654` | 0.16 | 0.47 | 11 | 4, 0.13 | yes | 6 | n/a |
+| vpp-loss-divergence | agent | `81611f7fdd8d` | 0.73 | 2.42 | 14 | 0, 0.00 | yes | 37 | clean; canary only in 2 byte-identical environment copies; near copies clean |
+| vpp-loss-divergence | verifier | `460f7e259689` | 0.86 | 2.79 | 17 | 8, 0.57 | yes | 42 | n/a |
+| batched-eval-parity | agent | `f00c28880710` | 0.09 | 0.25 | 11 | 1, 0.08 | yes | 5 | clean; canary only in 17 byte-identical environment copies; near copies clean |
+| batched-eval-parity | verifier | `6b04e7760112` | 0.19 | 0.56 | 12 | 1, 0.08 | yes | 10 | n/a |
+| pretrain-shard-corruption | agent | `ff18338c6eeb` | 0.34 | 1.14 | 18 | 4, 0.13 | yes | 20 | clean; canary only in 8 byte-identical environment copies; environment-built `.git`, opened, ruled not a hit |
+| pretrain-shard-corruption | verifier | `336d1e81ebfa` | 0.39 | 1.30 | 11 | 4, 0.12 | yes | 22 | n/a |
+| gsea-proteomics | agent | `e400f6486197` | 0.36 | 0.73 | 9 | 0, 0.00 | yes | 14 | clean; canary not found; near copies clean |
+| gsea-proteomics | verifier | `43e108555adb` | 0.14 | 0.40 | 10 | 4, 0.13 | yes | 11 | n/a |
+| lake-temp-glm | agent | `8f1f182ad639` | 0.44 | 1.46 | 10 | 1, 0.08 | yes | 31 | clean; canary not found; near copies clean |
+| lake-temp-glm | verifier | `496fb5526ea1` | 0.52 | 1.69 | 14 | 2, 0.08 | yes | 34 | n/a |
+| sound-change-cascade | agent | `95bd365954df` | 0.08 | 0.23 | 8 | 4, 0.12 | yes | 4 | clean; canary only in 1 byte-identical environment copies; near copies clean |
+| sound-change-cascade | verifier | `8980723c9498` | 0.14 | 0.41 | 10 | 4, 0.12 | yes | 9 | n/a |
+| hof-topology-interpenetration | agent | `a758f32e5d39` | 0.06 | 0.17 | 5 | 0, 0.00 | yes | 6 | clean; canary not found; near copies clean |
+| hof-topology-interpenetration | verifier | `cc54700dda4c` | 0.14 | 0.40 | 9 | 4, 0.13 | yes | 11 | n/a |
+| shadow-relay | agent | `584cd120342b` | 0.11 | 0.29 | 12 | 4, 0.13 | yes | 9 | clean; canary not found; environment-built `.git`, opened, ruled not a hit |
+| shadow-relay | verifier | `864d9d5dc766` | 0.18 | 0.52 | 12 | 2, 0.08 | yes | 13 | n/a |
+| rs-archive-clone | agent | `396a2f9f0af2` | 0.05 | 0.14 | 7 | 2, 0.08 | yes | 6 | clean; canary not found; near copies clean |
+| rs-archive-clone | verifier | `a890aca2de72` | 0.26 | 0.75 | 8 | 1, 0.08 | yes | 17 | n/a |
+| retro-console-soc | agent | `11b017483cf6` | 0.52 | 1.48 | 5 | 0, 0.00 | yes | 36 | clean; canary not found; near copies clean |
+| retro-console-soc | verifier | `359a891415a2` | 0.63 | 1.81 | 7 | 1, 0.17 | yes | 42 | n/a |
+| roy-polymorph-cn | agent | `ec42a0858ef1` | 0.30 | 0.90 | 10 | 1, 0.08 | yes | 17 | clean; canary not found; near copies clean |
+| roy-polymorph-cn | verifier | `4606480cae2b` | 0.17 | 0.50 | 11 | 4, 0.13 | yes | 11 | n/a |
+
+**Totals for the disk plan.** Each distinct layer is counted once, unpacked; the compressed size is in
+brackets.
+- **Block order.** D7 orders the blocks by a hash of a seed that is not frozen yet, and runs up to four
+  attempts at once, so several blocks can be on disk together.
+- **The per-block rows are therefore worst cases** over every choice of 2, 3 or 4 tasks. Any seeded order
+  stays within them.
+
+| Strategy | Layers | Store size |
+| --- | --- | --- |
+| All 32 kept for the tranche | 253 | **23.86 GB** (7.70 GB) |
+| Only the 16 agent images kept (verifiers pulled per block) | 130 | **11.46 GB** (3.64 GB) |
+| One block on disk (worst: vpp-loss-divergence) | 24 | **4.64 GB** (1.38 GB) |
+| Two blocks on disk (worst: retro-console-soc, vpp-loss-divergence) | 35 | **7.76 GB** (2.47 GB) |
+| Three blocks on disk (worst: lake-temp-glm, retro-console-soc, vpp-loss-divergence) | 57 | **10.84 GB** (3.40 GB) |
+| Four blocks on disk (worst: those three and vf2-speedup-networkx) | 68 | **13.30 GB** (4.06 GB) |
+
+**Free space.** The image store is on `/home`, at `~/.local/share/containers/storage`. Other agents were
+writing to both disks throughout, so every figure below holds for its date only and drifts.
+- **The first pass:** before its first pull, `/home` had 78.45 GB free and `/` had 57.00 GB. After its
+  last delete they had 77.55 GB and 56.20 GB.
+- **Room if all 32 are kept**, measured at 77.55 GB on 2026-11-14 around 13:00: about 53.7 GB left, 33.7
+  GB above the tranche's 20 GB stop. Measured at 71 GB later that day (`df`): about 47 GB left, 27 GB
+  above the stop. Neither allows for the four attempts' output, which was not measured.
+- **The pull and the export are guarded.**
+  - Before a pull, the script needs the image's compressed size plus its unpacked size to fit above the
+    25 GB stop. When the unpacked size is not yet measured, it is estimated as four times the compressed
+    size; the 32 images show 2.05 to 3.89 times.
+  - Before an export, the image's unpacked size must fit in the same way.
+  - An export tar is about the size of its unpacked image: 2.42 GB at most (vpp-loss-divergence). The
+    tars' own sizes were not recorded.
+- **Low point, from the checkpoints in `image_measure.json`** (before and after each pull, during each
+  export, after each delete, over every pass kept there):
+  - `/home` 68.25 GB, during the third pass's export of vf2-speedup-networkx;
+  - `/` 51.43 GB, during the fourth pass's export of wal-recovery-ordering.
+- **At the end of the regeneration** (`df -h`): `/home` 70 GB, `/` 50 GB.
+- **Not in the file any more:** the first pass's export figures were overwritten (their low was
+  72.18 GB on `/home` and 55.20 GB on `/`).
+
 ## Fixtures
 
 **Stream fixtures** (`fixtures/*.json`) are cut by `cut_fixture.py` from one trial. They keep:
