@@ -329,7 +329,7 @@ def _select_elaboration_procedure_edges(typed_body, procedure_edges_by_site, res
         for node in walk_expr(typed_body.expr):
             if not isinstance(node, ProcedureCallExpr):
                 continue
-            site = (node.span, node.form_path)
+            site = (node.span, node.form_path, node.expansion_stack)
             edge_name = procedure_edges_by_site.get(site)
             edge_procedure = (
                 None
@@ -360,7 +360,7 @@ def _elaboration_procedure_return_types(typed_body, procedure_edges_by_site, pro
         if not isinstance(node, ProcedureCallExpr):
             continue
         specialized_name = procedure_edges_by_site.get(
-            (node.span, node.form_path)
+            (node.span, node.form_path, node.expansion_stack)
         )
         complete = _complete_named_reference_procedure(
             node, {}, resolved_procedures_by_name or {})
@@ -393,6 +393,29 @@ def _elaboration_procedure_return_types(typed_body, procedure_edges_by_site, pro
     return resolved_procedure_return_types
 
 
+def _procedure_edges_by_site(typed_body):
+    """Map each call site (span, form path, macro expansion stack) to its one recorded callee.
+
+    A site of this body's own calls that records two callees is a compiler defect, never a
+    choice. A summary that includes callees' edges (a workflow's at 2.39 and later) may record
+    two callees at a site inside a callee's body; no call of this body is there, so that site
+    is left out.
+    """
+    callees_by_site = {}
+    for edge in typed_body.effect_summary.procedure_edges:
+        if edge.span is not None:
+            site = (edge.span, edge.form_path, edge.expansion_stack)
+            callees_by_site.setdefault(site, set()).add(edge.callee_name)
+    for node in walk_expr(typed_body.expr):
+        callees = callees_by_site.get((node.span, node.form_path, node.expansion_stack), ()) \
+            if isinstance(node, ProcedureCallExpr) else ()
+        if len(callees) > 1:
+            start = node.span.start
+            raise ValueError(f"call site {start.path}:{start.line}:{start.column} {'/'.join(node.form_path)} "
+                f"records {len(callees)} callees: {', '.join(sorted(callees))}")
+    return {site: next(iter(callees)) for site, callees in callees_by_site.items() if len(callees) == 1}
+
+
 def _prepare_elaboration_body(typed_body):
     return replace(typed_body, expr=prepare_closed_condition_expr(typed_body.expr))
 
@@ -402,11 +425,7 @@ def prepare_elaboration_call_types(
 ):
     """Use the elaboration owner's selected call edges and return types."""
     typed_body = _prepare_elaboration_body(typed_body)
-    procedure_edges_by_site = {
-        (edge.span, edge.form_path): edge.callee_name
-        for edge in typed_body.effect_summary.procedure_edges
-        if edge.span is not None
-    }
+    procedure_edges_by_site = _procedure_edges_by_site(typed_body)
     _select_elaboration_procedure_edges(typed_body, procedure_edges_by_site,
         resolved_procedures_by_name)
     returns = _elaboration_procedure_return_types(typed_body, procedure_edges_by_site,
@@ -6214,7 +6233,8 @@ def _elaborate_effect_expr_to_binding_value(
             command_context.prepare_call(expr, call, variants=scope.enclosing_variants)
         return call
     if isinstance(expr, ProcedureCallExpr):
-        specialized_name = procedure_edges_by_site.get((expr.span, expr.form_path), expr.callee_name)
+        specialized_name = procedure_edges_by_site.get((expr.span, expr.form_path, expr.expansion_stack),
+            expr.callee_name)
         select_edge = compile_time_bindings.get(_CLOSED_PROCEDURE_SELECTION)
         if select_edge is not None:
             specialized_name = select_edge(expr, specialized_name, compile_time_bindings)

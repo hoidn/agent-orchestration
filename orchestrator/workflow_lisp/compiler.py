@@ -4711,7 +4711,8 @@ def _validate_procedure_effects_and_cycles(
                 definition=procedure.definition,
                 signature=procedure.signature,
                 typed_body=(procedure.typed_body if reference_calls is None else
-                    replace(procedure.typed_body, effect_summary=summary)),
+                    replace(procedure.typed_body, effect_summary=replace(summary,
+                        procedure_edges=procedure.direct_effect_summary.procedure_edges))),
                 direct_effect_summary=procedure.direct_effect_summary,
                 transitive_effect_summary=summary,
                 resolved_lowering_mode=procedure.resolved_lowering_mode,
