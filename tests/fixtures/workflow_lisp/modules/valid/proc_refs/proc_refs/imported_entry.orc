@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule proc_refs/imported_entry)
   (import proc_refs/imported_helper :as helper :only (echo-helper))
   (export Output forward entry)
@@ -10,7 +10,6 @@
     ((runner ProcRef[String -> String])
      (input String))
     -> Output
-    :effects ((uses-command run_checks))
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py" input)
       :returns Output))

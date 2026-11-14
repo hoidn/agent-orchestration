@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defrecord WorkflowInput
     (value String))
   (defrecord WorkflowOutput
@@ -8,8 +8,6 @@
   (defproc helper
     ((input WorkflowInput))
     -> WorkflowOutput
-    :effects ()
-    :lowering inline
     (record WorkflowOutput
       :value input.value))
   (defworkflow entry

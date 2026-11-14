@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defenum BlockerClass
     missing_resource
     unavailable_hardware
@@ -30,12 +30,10 @@
                :prompt prompts.implementation.execute
                :inputs (input report_path)
                :returns ImplementationState)))
-      (loop/recur
+      (loop/recur ((state attempt))
         :max 2
-        :state attempt
-        (fn (state)
-          (match state
-            ((COMPLETED completed)
-             (continue state))
-            ((BLOCKED blocked)
-             (continue state))))))))
+        (match state
+          ((COMPLETED completed)
+           (continue state))
+          ((BLOCKED blocked)
+           (continue state)))))))

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule generic_loop_union_cross_module/entry)
   (import generic_loop_union_cross_module/helper :only (LoopResult drain-generic))
   (export drain-status)
@@ -17,8 +17,6 @@
   (defproc pick
     ((ctx Ctx))
     -> Selection
-    :effects ((uses-command probe_select))
-    :lowering inline
     (command-result probe_select
       :argv ("python" "scripts/select_next_item.py" ctx.manifest)
       :returns Selection))

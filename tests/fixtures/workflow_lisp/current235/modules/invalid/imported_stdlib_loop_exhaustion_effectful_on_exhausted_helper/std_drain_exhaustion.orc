@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule std_drain_exhaustion)
   (export BlockerClass
           WorkReport
@@ -29,8 +29,6 @@
     ((report_path WorkReport)
      (run_state StateExisting))
     -> DrainTerminalResult
-    :effects ((uses-command run_checks))
-    :lowering inline
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py" report_path run_state)
       :returns DrainTerminalResult))
@@ -38,8 +36,6 @@
     ((report_path WorkReport)
      (run_state StateExisting))
     -> DrainTerminalResult
-    :effects ()
-    :lowering inline
     (variant DrainTerminalResult EXHAUSTED
       :report report_path
       :run_state run_state
@@ -49,31 +45,23 @@
       ()
       -> DrainTerminalResult
       (let* ((progress-report-target
-               (__generated-relpath-seed__
-                 WorkReport
-                 "artifacts/work/imported-stdlib-loop-exhaustion-effectful-helper.json"
-                 "imported_stdlib_loop_exhaustion_effectful_helper_summary_seed"))
+               (path/join-under WorkReport "imported-stdlib-loop-exhaustion-effectful-helper.json"))
              (initial-run-state
-               (__generated-relpath-seed__
-                 StateExisting
-                 "state/imported-stdlib-loop-exhaustion-effectful-helper.json"
-                 "imported_stdlib_loop_exhaustion_effectful_helper_state_seed")))
-        (loop/recur
+               (path/join-under StateExisting "imported-stdlib-loop-exhaustion-effectful-helper.json")))
+        (loop/recur ((state (loop-state
+                              (items-processed Int 0)
+                              (run-state StateExisting initial-run-state)
+                              (progress-report-path WorkReport progress-report-target))))
           :max 1
-          :state (loop-state
-                   (items-processed Int 0)
-                   (run-state StateExisting initial-run-state)
-                   (progress-report-path WorkReport progress-report-target))
           :on-exhausted
           (std_drain_exhaustion/effectful-exhausted-terminal
             state.progress-report-path
             state.run-state)
-          (fn (state)
-            (if false
-              (done
-                (std_drain_exhaustion/pure-exhausted-terminal
-                  state.progress-report-path
-                  state.run-state))
-              (continue
-                (loop-state :like state
-                  :items-processed (+ state.items-processed 1))))))))))
+          (if false
+            (done
+              (std_drain_exhaustion/pure-exhausted-terminal
+                state.progress-report-path
+                state.run-state))
+            (continue
+              (loop-state :like state
+                :items-processed (+ state.items-processed 1)))))))))

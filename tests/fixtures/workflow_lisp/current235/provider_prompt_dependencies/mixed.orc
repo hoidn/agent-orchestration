@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule provider_prompt_dependencies/mixed)
   (export RequiredReport OptionalContext DependencyInputs E2eDependencyInputs WorkResult invoke-provider mixed mixed-e2e dependency-leaf dependency-middle dependency-call-root)
   (defpath RequiredReport
@@ -27,8 +27,6 @@
     ((required RequiredReport)
      (optional OptionalContext))
     -> WorkResult
-    :effects ((uses-provider providers.execute))
-    :lowering inline
     (provider-result providers.execute
       :prompt prompts.execute
       :inputs ()

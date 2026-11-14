@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defrecord Item
     (item-id String))
   (defrecord Ctx
@@ -10,8 +10,6 @@
   (defproc consume-item
     ((payload Item))
     -> WorkflowOutput
-    :effects ()
-    :lowering inline
     (record WorkflowOutput
       :status payload.item-id))
   (defproc read-payload
@@ -21,8 +19,6 @@
     :where ((CtxT is-record)
             (CtxT has-field payload PayloadT))
     -> WorkflowOutput
-    :effects ((uses-command run_checks))
-    :lowering inline
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py")
       :returns WorkflowOutput))
