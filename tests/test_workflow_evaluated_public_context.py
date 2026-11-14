@@ -389,8 +389,8 @@ def test_public_named_phase_targets_reach_real_provider_in_named_order(tmp_path,
     payload = {"variant": "COMPLETED", "implementation_state": "COMPLETED",
                "execution_report_path": context["execution_report_target"]}
     monkeypatch.setenv("PROVIDER_SHIM_RESULT", json.dumps(payload))
-    root = tmp_path / "2.35"
-    files, input_file = prepare_phase_provider(root, source.replace("TARGET", "2.35"), inputs)
+    root = tmp_path / "2.40"
+    files, input_file = prepare_phase_provider(root, source.replace("TARGET", "2.40"), inputs)
     monkeypatch.setenv("PATH", closed_path(root / "bin"))
     monkeypatch.chdir(root)
     output = _paused_phase_provider_value(root, files, input_file, monkeypatch)

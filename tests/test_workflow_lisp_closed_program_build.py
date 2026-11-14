@@ -1482,7 +1482,7 @@ def test_compound_union_if_proof_updates_actual_elaboration_frames(tmp_path, mon
     program = _compile(tmp_path, '0', params='(choice Choice)', declarations='(defrecord Payload (text String)) (defunion Choice (SCALAR (value Int)) (RECORD (value Payload)))')
     inputs, facts = _scope_inputs(program, closed_build.Builder(program))
     source = '(if (= choice.variant RECORD) ' + _command('choice.value.text') + ' ' + _command('choice.value') + ')'
-    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(inputs['value_env']), target_dsl_version='2.35')
+    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(inputs['value_env']), target_dsl_version='2.40')
     typed = typecheck_expression(expr, type_env=inputs['type_env'], value_env=inputs['value_env'])
     assert typed.expr.true_proof_context and typed.expr.false_proof_context
     transitions = []
@@ -1848,7 +1848,7 @@ def test_retained_constructor_internal_let_and_if_freeze_selected_creation_facts
     program = _compile(tmp_path, '0', declarations='(defunion Choice (YES (n Int) (label String)) (NO))')
     env = program.workflow_type_env(program.entry.definition.name)
     source = '(let* ((label "before") (saved (variant Choice YES :n runtime :label label))) (let* ((label "after")) (if true saved (variant Choice NO))))'
-    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset({'runtime'}), target_dsl_version='2.35')
+    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset({'runtime'}), target_dsl_version='2.40')
     typed = typecheck_expression(expr, type_env=env, value_env={'runtime': env.resolve_type('Int', span=expr.span, form_path=expr.form_path)})
     fact = _resolve_inline_expr_value(typed.expr, local_values={'runtime': RUNTIME_REFERENCE}, retain_expression_facts=True)
     assert isinstance(fact, RetainedExpressionFact) and fact.form == 'union'
