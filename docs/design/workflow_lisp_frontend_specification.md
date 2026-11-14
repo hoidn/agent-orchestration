@@ -2281,12 +2281,17 @@ fields, list elements, `call` and procedure arguments, operator operands,
   not in a map source (`run_ref_placement_invalid`), alone as a map body, with
   a pure `:commit`. Elsewhere in a workflow body it takes the places above,
   record and variant fields and list elements included.
-- *A `continue` value with a conditional effect inside it is bound first:* a
-  `continue` value that holds an effect under an `if`, `cond`, `match`, `and` or
-  `or`, other than one that is the whole value, is refused with
-  `effect_not_permitted`; write `(let* ((next <value>)) (continue next))`. The
-  same value is admitted everywhere else: as a `done` value, a loop `:state`,
-  `:on-exhausted`, a `let*` binding or a workflow or procedure result.
+- *A value the compiler needs whole is bound first:* a `continue` value, a
+  `match` subject or a parallel map's source whose record, variant, list, path
+  child or map source holds an effect is lowered as
+  `(let* ((g <value>)) …g…)`, as a `done` value is, and runs; so does any
+  effectful source of a parallel map. Any other `continue` value that holds an
+  effect under a conditional (`if`, `cond`, `match`, `and`, `or`), a loop or a
+  map that is not the whole value, such as `(continue (+ (if c (fetch) 0) 9))`,
+  is refused with `effect_not_permitted`; write
+  `(let* ((next <value>)) (continue next))`. The same value is admitted
+  everywhere else: as a `done` value, a loop `:state`, `:on-exhausted`, a `let*`
+  binding or a workflow or procedure result.
 - *A pure operator waits for its value:* it is computed when the value around
   it is built, after the effects of its sibling operands, and `print` is one.
   `(+ (print 1) (fetch) (print 3))` fetches, then prints `1` and `3`; a `let*`
@@ -2306,17 +2311,25 @@ ordinal among the unnamed effects of its scope, in evaluation order;
 `#k / body / then|else|<variant> / …` inside a selected branch, and
 `loop:<label> / exhausted / …` in `:on-exhausted`. No aggregate position enters
 an identity, so an effect in a field has the same identity whether or not a
-sibling field is a `match`.
+sibling field is a `match`, and a pure edit moves no identity, with one
+exception: a pure `match` written as an operand of an operator application that
+a `let*` binds makes that binding a join, which renames the effects inside it
+and the unnamed effects after it in the same body. `(let* ((w (+ (fetch) M)))
+(+ w (fetch)))`, `M` a pure `match`, names its steps `w / body / #1` and `#1`;
+with `0` for `M` they are `#1` and `#2`. In a field,
+`(record Tri :a (let* ((w (+ (fetch) M))) w) :b 1 :c 2)` names its step
+`#1 / body / w / body / #1`, against `#1`.
 
 A `let*` names its step by its binding name when the `let*` is a statement (a
 `let*` body or binding value, a branch of `if`, `cond` or `match`, a loop or
 procedure body), a procedure or workflow argument, a command `:argv` item, a
-loop `:state` or `:max`, a `done` or `continue` value, the whole `:on-exhausted`
-value, a `list/map-effect` source, or a field of a constructor that is itself a
-`match` subject. As an operator operand (an `if` or `cond` condition and an
-`and` or `or` operand included), a constructor or `record-update` field, a list
-element, a `path/join-under` child, a `list/map` source, a `match` subject or
-an operand inside `:on-exhausted`, its step is `#k`: `(let* ((z E)) (+ z 1))`
+loop `:state` or `:max`, the whole `done` or `continue` value, the whole
+`:on-exhausted` value or a `list/map-effect` source. As an operator operand (an
+`if` or `cond` condition and an `and` or `or` operand included), a constructor
+or `record-update` field, a list element, a `path/join-under` child, a
+`list/map` source, a `match` subject or an operand inside `:on-exhausted`, its
+step is `#k`, whatever value holds the field or element (a `done` or `continue`
+value, a `match` subject, a loop `:state` or an argument): `(let* ((z E)) (+ z 1))`
 names the step `z`, `(+ (let* ((z E)) z) 1)` names it `#1`. Bind a step as a
 statement when someone will `invalidate` it by name.
 
