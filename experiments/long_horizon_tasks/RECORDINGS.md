@@ -314,6 +314,111 @@ recordings show what each route entails:
   harness never allows it, so the launcher need not either);
 - how long a `setup-token` token lives before the 401 recorded above.
 
+## Task 2b: the 32 pinned images, measured and checked (no spend)
+
+Run on 2026-11-14 by `image_check.py`, one image at a time in `tasks.json` order (vba-userform-port
+first). Each image was pulled by digest with rootless Podman 4.9.3, then measured. Each agent image was
+then checked for withholding, and the image was deleted before the next pull. Pulls ran on four CPUs at
+idle I/O priority. The only network use was the public registry. No container was started and no model or
+provider was called. One JSON line per image is in `image_measure.json`; the totals come from
+`image_check.py totals`.
+
+**Pull by digest works for all 32.** Each pull used the pinned reference as written (tag and digest),
+with `docker.io/` prefixed. That prefix is the "full name" host-side step of D1: this host's registries
+configuration has no unqualified search registry. Every pull succeeded on its first attempt, and the
+stored image's repository digest equals the pinned one. No fallback was needed, so no image is a local
+build and no task carries a different configuration label. Pull times were 3 to 42 s each, 520 s in all.
+
+**Withholding: all 16 agent images are clean.**
+- **Method.** Each container was created with `--network none` and never started. Its file system was
+  exported to a tar, and 302,254 regular files were read on the host. The listing was searched for any
+  `solution/` or `tests/` directory at the root, and for any path ending in a package file's relative
+  path under `solution/` or `tests/`. File contents were compared by SHA-256 against every package file
+  under those two directories. Empty files and files the package's `environment/` also ships were left
+  out of that comparison.
+- **Result.** No path hit and no digest hit, in any of the 16.
+- **Name matches** (a file with the same base name as a solution or test file, such as `README.md` or
+  `Dockerfile`) are counted in `image_measure.json` as information only. They are not hits. The 1,840 in
+  vba-userform-port come from its `shared/legacy_app` tree, which the package's `tests/legacy_app` copies.
+
+**The canary.** The identifier was read at run time from each task's cached 4.1.0 package; it is not in
+this repository or in `image_measure.json`.
+- **Not found** in 9 images: vf2-speedup-networkx, production-planning, gsea-proteomics, lake-temp-glm,
+  hof-topology-interpenetration, shadow-relay, rs-archive-clone, retro-console-soc and roy-polymorph-cn.
+- **Found** in 7 images, and in each of them only in files that come from the task's `environment/`
+  directory (same SHA-256 or same base name): vba-userform-port 1 file, wal-recovery-ordering 15,
+  session-window-debug 8, vpp-loss-divergence 2, batched-eval-parity 17, pretrain-shard-corruption 4,
+  sound-change-cascade 1. **No canary was found in any other file.**
+- **Why the environment files carry it.** The benchmark marks its source files with the canary, and all
+  16 packages carry it in `environment/` too (in 1 to 18 files each). Where a Dockerfile copies those
+  files in, the agent sees them by design.
+- **This is for the coordinator to decide.** D1 says "a hit drops the task". Read literally, that rule
+  would drop seven tasks for files the agent is meant to see. Read as a test of withholding, the evidence
+  is no solution or test content and no canary outside the environment's own files. This record does not
+  drop any task and does not reinterpret the rule.
+
+**Sizes** (GB = 10^9 bytes).
+- *Unpacked* is the store's size of the layers: Podman's image size, and per layer the diff size in the
+  store's `layers.json`.
+- *Compressed* is the registry's layer size, which is what was downloaded.
+- *Shared before* counts the layers that images earlier in the table already had. Adding the unpacked
+  column therefore counts those layers twice (26.96 GB over all 32); the totals below count each layer
+  once.
+
+| Task | Role | Digest | Compressed GB | Unpacked GB | Layers | Shared before: layers, GB unpacked | Pull by digest | Pull s | Withholding |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| vba-userform-port | agent | `104fb670ee58` | 0.12 | 0.41 | 8 | 0, 0.00 | yes | 9 | clean; canary in 1 environment file(s) |
+| vba-userform-port | verifier | `ce013facbe7c` | 0.55 | 1.54 | 17 | 6, 0.12 | yes | 28 | n/a |
+| vf2-speedup-networkx | agent | `b90a92781095` | 0.54 | 2.11 | 6 | 0, 0.00 | yes | 34 | clean; canary not found |
+| vf2-speedup-networkx | verifier | `a84e6fc87075` | 0.17 | 0.51 | 7 | 1, 0.08 | yes | 10 | n/a |
+| wal-recovery-ordering | agent | `71d215eab08b` | 0.04 | 0.13 | 6 | 0, 0.00 | yes | 4 | clean; canary in 15 environment file(s) |
+| wal-recovery-ordering | verifier | `627bc7812cd0` | 0.17 | 0.50 | 10 | 4, 0.13 | yes | 9 | n/a |
+| session-window-debug | agent | `62d159cb3a81` | 0.09 | 0.23 | 10 | 4, 0.12 | yes | 3 | clean; canary in 8 environment file(s) |
+| session-window-debug | verifier | `ae6248a5d486` | 0.17 | 0.50 | 11 | 4, 0.12 | yes | 6 | n/a |
+| production-planning | agent | `51110ff01e23` | 0.07 | 0.19 | 12 | 0, 0.00 | yes | 4 | clean; canary not found |
+| production-planning | verifier | `0f3eb5e73654` | 0.16 | 0.47 | 11 | 4, 0.13 | yes | 6 | n/a |
+| vpp-loss-divergence | agent | `81611f7fdd8d` | 0.73 | 2.42 | 14 | 0, 0.00 | yes | 37 | clean; canary in 2 environment file(s) |
+| vpp-loss-divergence | verifier | `460f7e259689` | 0.86 | 2.79 | 17 | 8, 0.57 | yes | 42 | n/a |
+| batched-eval-parity | agent | `f00c28880710` | 0.09 | 0.25 | 11 | 1, 0.08 | yes | 5 | clean; canary in 17 environment file(s) |
+| batched-eval-parity | verifier | `6b04e7760112` | 0.19 | 0.56 | 12 | 1, 0.08 | yes | 10 | n/a |
+| pretrain-shard-corruption | agent | `ff18338c6eeb` | 0.34 | 1.14 | 18 | 4, 0.13 | yes | 20 | clean; canary in 4 environment file(s) |
+| pretrain-shard-corruption | verifier | `336d1e81ebfa` | 0.39 | 1.30 | 11 | 4, 0.12 | yes | 22 | n/a |
+| gsea-proteomics | agent | `e400f6486197` | 0.36 | 0.73 | 9 | 0, 0.00 | yes | 14 | clean; canary not found |
+| gsea-proteomics | verifier | `43e108555adb` | 0.14 | 0.40 | 10 | 4, 0.13 | yes | 11 | n/a |
+| lake-temp-glm | agent | `8f1f182ad639` | 0.44 | 1.46 | 10 | 1, 0.08 | yes | 31 | clean; canary not found |
+| lake-temp-glm | verifier | `496fb5526ea1` | 0.52 | 1.69 | 14 | 2, 0.08 | yes | 34 | n/a |
+| sound-change-cascade | agent | `95bd365954df` | 0.08 | 0.23 | 8 | 4, 0.12 | yes | 4 | clean; canary in 1 environment file(s) |
+| sound-change-cascade | verifier | `8980723c9498` | 0.14 | 0.41 | 10 | 4, 0.12 | yes | 9 | n/a |
+| hof-topology-interpenetration | agent | `a758f32e5d39` | 0.06 | 0.17 | 5 | 0, 0.00 | yes | 6 | clean; canary not found |
+| hof-topology-interpenetration | verifier | `cc54700dda4c` | 0.14 | 0.40 | 9 | 4, 0.13 | yes | 11 | n/a |
+| shadow-relay | agent | `584cd120342b` | 0.11 | 0.29 | 12 | 4, 0.13 | yes | 9 | clean; canary not found |
+| shadow-relay | verifier | `864d9d5dc766` | 0.18 | 0.52 | 12 | 2, 0.08 | yes | 13 | n/a |
+| rs-archive-clone | agent | `396a2f9f0af2` | 0.05 | 0.14 | 7 | 2, 0.08 | yes | 6 | clean; canary not found |
+| rs-archive-clone | verifier | `a890aca2de72` | 0.26 | 0.75 | 8 | 1, 0.08 | yes | 17 | n/a |
+| retro-console-soc | agent | `11b017483cf6` | 0.52 | 1.48 | 5 | 0, 0.00 | yes | 36 | clean; canary not found |
+| retro-console-soc | verifier | `359a891415a2` | 0.63 | 1.81 | 7 | 1, 0.17 | yes | 42 | n/a |
+| roy-polymorph-cn | agent | `ec42a0858ef1` | 0.30 | 0.90 | 10 | 1, 0.08 | yes | 17 | clean; canary not found |
+| roy-polymorph-cn | verifier | `4606480cae2b` | 0.17 | 0.50 | 11 | 4, 0.13 | yes | 11 | n/a |
+
+**Totals for the disk plan** (each distinct layer counted once, unpacked; compressed in brackets).
+
+| Strategy | Layers | Store size |
+| --- | --- | --- |
+| All 32 kept for the tranche | 253 | **23.86 GB** (7.70 GB) |
+| Only the 16 agent images kept (verifiers pulled per block) | 130 | **11.46 GB** (3.64 GB) |
+| Block by block, one block on disk at a time (largest block: vpp-loss-divergence, agent and verifier) | 24 | **4.64 GB** (1.38 GB) |
+| Block in flight plus the next one (largest pair: vpp-loss-divergence and batched-eval-parity) | 47 | **5.45 GB** (1.66 GB) |
+
+**Free space.** The image store is on `/home`, at `~/.local/share/containers/storage`. Before the first
+pull, `/home` had 78.45 GB free and `/` had 57.00 GB. After the last image was deleted, they had 77.55 GB
+and 56.20 GB. Other agents were writing to both disks during the run.
+- **Room left if all 32 are kept:** 77.5 − 23.9 ≈ 53.7 GB on `/home`, which is about 33.7 GB above the
+  tranche's 20 GB stop. This is before the four attempts' output, which these numbers do not measure.
+- **Exports:** an export tar is about the size of its unpacked agent image. The largest agent image is
+  2.42 GB (vpp-loss-divergence); the tars' own sizes were not recorded.
+- **Low point:** at the script's checkpoints (before the pull, after it, during the export, after the
+  delete), the lowest free space was 72.18 GB on `/home`, during an export, and 55.20 GB on `/`.
+
 ## Fixtures
 
 **Stream fixtures** (`fixtures/*.json`) are cut by `cut_fixture.py` from one trial. They keep:
