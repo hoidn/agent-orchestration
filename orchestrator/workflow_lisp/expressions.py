@@ -216,8 +216,8 @@ class RecordExpr:
     resolved_type: "TypeRef | None" = field(
         default=None, repr=False, hash=False, metadata={"json_omit_if_none": True}
     )
-    # Set by the typechecker when a field other than a `match` holds an effect: the
-    # constructor then lowers as other effectful values do, whatever its `match` fields.
+    # Set by the typechecker when a field holds an effect; every field is then simple
+    # (frontend specification 16.3) and the fields lower as ordered operands.
     effectful_fields: bool = field(
         default=False, repr=False, compare=False, hash=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},
@@ -438,8 +438,8 @@ class UnionVariantExpr:
     resolved_type: "TypeRef | None" = field(
         default=None, repr=False, hash=False, metadata={"json_omit_if_none": True}
     )
-    # Set by the typechecker when a field other than a `match` holds an effect: the
-    # constructor then lowers as other effectful values do, whatever its `match` fields.
+    # Set by the typechecker when a field holds an effect; every field is then simple
+    # (frontend specification 16.3) and the fields lower as ordered operands.
     effectful_fields: bool = field(
         default=False, repr=False, compare=False, hash=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},
@@ -1106,6 +1106,12 @@ class LoopRecurExpr:
             "json_omit_always": True,
             "semantic_identity_omit": True,
         },
+    )
+    # Set by typecheck when `:on-exhausted`, or the source of the serial map this loop is,
+    # holds an effect: the code that place gave before surface coherence E1 admitted it.
+    effect_place_code: str | None = field(
+        default=None, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
 
 

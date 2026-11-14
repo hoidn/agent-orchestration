@@ -45,6 +45,7 @@ from .typecheck_context import (
     _type_refs_compatible,
     raise_error,
     raise_run_ref_placement_invalid,
+    require_simple_parts,
 )
 from .typecheck_proofs import _allocate_binding_identity
 
@@ -90,6 +91,27 @@ def _first_direct_effect(expr):
     if isinstance(expr, _EFFECT_EXPRS) and not isinstance(expr, ProcedureCallExpr):
         return expr
     return next((found for child in iter_child_exprs(expr) if (found := _first_direct_effect(child)) is not None), None)
+
+
+def _refuse_effectful_source_of_template_binder(expr: ListMapEffectExpr, typed_source) -> None:
+    """Refuse a parallel map whose binder a macro template introduces and whose source holds an effect.
+
+    Such a binder has no authored label, which the parallel lowering needs (an older defect: the same
+    map with a pure source does not build). The program was refused before effects were admitted in
+    sources, and keeps that code.
+    """
+
+    from .expression_traversal import first_effect_place_code
+
+    if expr.parallel_count is not None and expr.binding_label is None:
+        raise_error(
+            "a parallel `list/map-effect` whose binder a macro template introduces cannot take a source "
+            "that holds an effect; pass the binder's name to the macro as an argument",
+            code=first_effect_place_code(typed_source) or "list_map_effect_body_unsupported",
+            span=expr.source_expr.span,
+            form_path=expr.source_expr.form_path,
+            expansion_stack=expr.source_expr.expansion_stack,
+        )
 
 
 def _typecheck_serial_map_max(expr, recurse):
@@ -259,6 +281,8 @@ def typecheck_structural_value_expr(
                 expansion_stack=expr.expansion_stack,
             )
         effect, effectful = _effect_of([item.effect_summary for item in typed_item_values], context=context)
+        if effectful:
+            require_simple_parts(typed_items, place="this list", code="effect_not_permitted")
         return typed_factory(
             expr=replace(
                 expr,
@@ -285,6 +309,9 @@ def typecheck_structural_value_expr(
                 typed_source.expr,
                 reason="is not permitted in a `list/map` source",
             )
+        if not _is_pure_or_provisional_procedure_call(typed_source.effect_summary, context=context):
+            require_simple_parts([typed_source.expr], place="this `list/map` source", code="list_map_body_effect_forbidden",
+                                 advice="bind the source with `let*` before the map")
         if not _is_transportable_result_type(
             typed_source.type_ref,
             type_env=type_env,
@@ -428,6 +455,11 @@ def typecheck_structural_value_expr(
                 form_path=expr.source_expr.form_path,
                 expansion_stack=expr.source_expr.expansion_stack,
             )
+        source_has_effect = typed_source.effect_summary != EMPTY_EFFECT_SUMMARY
+        if source_has_effect:
+            require_simple_parts([typed_source.expr], place="this `list/map-effect` source",
+                                 code="list_map_effect_body_unsupported", advice="bind the source with `let*` before the map")
+            _refuse_effectful_source_of_template_binder(expr, typed_source.expr)
         typed_max = _typecheck_serial_map_max(expr, recurse)
         body_env = {
             **value_env,
@@ -721,6 +753,7 @@ def typecheck_structural_value_expr(
             # Written order: the source, then `:max` (an effect in a literal
             # `:max` cannot exist, so existing programs keep their bindings).
             operand_evaluation_order=(":state", ":max"),
+            effect_place_code="list_map_effect_body_unsupported" if source_has_effect else None,
         )
         _register_map_run_ref_types(type_env, context=context)
         return recurse(synthetic_loop, expected_type=result_type)
@@ -766,6 +799,8 @@ def typecheck_structural_value_expr(
                 expansion_stack=expr.child_expr.expansion_stack,
             )
         effect, effectful = _effect_of([typed_child.effect_summary], context=context)
+        if effectful:
+            require_simple_parts([typed_child.expr], place="this `path/join-under` child", code="effect_not_permitted")
         return typed_factory(
             expr=replace(
                 expr,

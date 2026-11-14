@@ -139,23 +139,24 @@ def map_command_operands(expr: CommandResultExpr, transform):
                    adapter_inputs=tuple((name, values["inputs", name]) for name, _ in expr.adapter_inputs))
 
 
+# Expressions without a child expression: literals, names and field reads.
+_LEAF_EXPRS = (
+    NameExpr,
+    LiteralExpr,
+    EnumMemberExpr,
+    UnionVariantTagExpr,
+    FieldAccessExpr,
+    PhaseTargetExpr,
+    GeneratedRelpathSeedExpr,
+    WorkflowRefLiteralExpr,
+    ProcRefLiteralExpr,
+)
+
+
 def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     """Return the direct child expressions for one authored expression node."""
 
-    if isinstance(
-        expr,
-        (
-            NameExpr,
-            LiteralExpr,
-            EnumMemberExpr,
-            UnionVariantTagExpr,
-            FieldAccessExpr,
-            PhaseTargetExpr,
-            GeneratedRelpathSeedExpr,
-            WorkflowRefLiteralExpr,
-            ProcRefLiteralExpr,
-        ),
-    ):
+    if isinstance(expr, _LEAF_EXPRS):
         return ()
     if isinstance(expr, RecordExpr):
         return tuple(field_expr for _, field_expr in expr.fields)
@@ -306,6 +307,43 @@ def walk_expr(expr: ExprNode) -> Iterator[ExprNode]:
     yield expr
     for child in iter_child_exprs(expr):
         yield from walk_expr(child)
+
+
+# Calls, operator applications and constructors: simple when each operand is.
+_SIMPLE_APPLICATIONS = (
+    AgentExpr, ProviderResultExpr, CommandResultExpr, RunRefExpr, CallExpr, ProcedureCallExpr,
+    PureOpExpr, RecordExpr, UnionVariantExpr, ListExpr, PathJoinUnderExpr,
+)
+
+
+def is_simple_value(expr: ExprNode) -> bool:
+    """Whether `expr` is simple (frontend specification 16.3): a literal, a name, a field read, or a
+    provider, command, agent, workflow or procedure call, an operator application other than `and`,
+    `or` and `not`, or a record, variant, list or `path/join-under` whose operands are all simple.
+
+    A simple value evaluates its effects one after another with no branch, so each is named by its
+    ordinal alone. A place that surface coherence E1 opened takes an effect only in a simple value.
+    """
+
+    if isinstance(expr, PureOpExpr) and expr.operator in ("and", "or", "not"):
+        return False
+    if isinstance(expr, _SIMPLE_APPLICATIONS):
+        return all(is_simple_value(child) for child in iter_child_exprs(expr))
+    return isinstance(expr, _LEAF_EXPRS)
+
+
+def first_effect_place_code(expr: ExprNode) -> str | None:
+    """The code `main` gave for the first place in `expr`, innermost first, that holds an effect only
+    since surface coherence E1, or None: a refusal of a value around that place keeps that code."""
+
+    for child in iter_child_exprs(expr):
+        if (code := first_effect_place_code(child)) is not None:
+            return code
+    if any(getattr(expr, flag, False) for flag in ("effectful_fields", "effectful_items", "effectful_child")):
+        return "effect_not_permitted"
+    if getattr(expr, "effectful_source", False):
+        return "list_map_body_effect_forbidden" if isinstance(expr, ListMapExpr) else "list_map_effect_body_unsupported"
+    return getattr(expr, "effect_place_code", None)
 
 
 # Set by typecheck on a constructor, list, `list/map` or path form when an operand holds an effect.

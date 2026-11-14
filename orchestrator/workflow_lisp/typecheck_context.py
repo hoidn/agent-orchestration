@@ -390,6 +390,33 @@ def raise_error(
     )
 
 
+def require_simple_parts(
+    parts,
+    *,
+    place: str,
+    code: str,
+    advice: str = "bind this part with `let*` first and write its name here",
+) -> None:
+    """Refuse `place`, which holds an effect, unless each of its parts is simple (frontend specification 16.3).
+
+    `code` is the code the place gave while it took no effect; a part that holds such a place
+    itself keeps that place's code, so a program refused before is refused under the same code.
+    """
+
+    from .expression_traversal import first_effect_place_code, is_simple_value
+
+    for part in parts:
+        if not is_simple_value(part):
+            raise_error(
+                f"{place} holds an effect, so each of its parts must be simple: a literal, a name, a field "
+                f"read, or a call, an operator application or a constructor over simple parts; {advice}",
+                code=first_effect_place_code(part) or code,
+                span=part.span,
+                form_path=part.form_path,
+                expansion_stack=part.expansion_stack,
+            )
+
+
 def raise_run_ref_placement_invalid(
     expr: ExprNode,
     *,

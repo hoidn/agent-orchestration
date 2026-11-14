@@ -10,7 +10,6 @@ from ..conditionals import (
     _contains_effect,
     fold_pure_short_circuit,
     _normalize_operand,
-    normalize_value_operand,
     prepare_closed_condition_expr,
 )
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
@@ -1630,31 +1629,14 @@ def _body_to_prefix_and_value(body: WccBody) -> tuple[tuple[WccLet, ...], WccVal
     return tuple(prefix), current.result
 
 
-def _normalize_effectful_fields(expr):
-    """Bind the effects of a constructor's effectful fields in written order; leave its pure fields in place.
-
-    A pure field, a `match` or `if` among them, stays a value of the constructor, so the
-    steps of the other fields are named the same whatever their effect-free siblings are.
-    """
-
-    bindings: list[tuple[str, object]] = []
-    fields = []
-    for index, (name, field_expr) in enumerate(expr.fields):
-        if _contains_effect(field_expr):
-            prefix, field_expr = normalize_value_operand(field_expr, path=(index,))
-            bindings.extend(prefix)
-        fields.append((name, field_expr))
-    return tuple(bindings), replace(expr, fields=tuple(fields))
-
-
 def _continue_value_needs_binding(expr: ContinueExpr) -> LispFrontendCompileError:
-    """The refusal of a `continue` value that holds an effect under control below its top."""
+    """The refusal of a `continue` value with a conditional, a loop or a map below its top."""
 
     return LispFrontendCompileError((LispFrontendDiagnostic(
         code="effect_not_permitted",
         message=(
-            "this `continue` value holds an effect under a conditional, a loop or a map that is not the whole "
-            "value; bind the value with `let*` first: `(let* ((next <value>)) (continue next))`"
+            "this `continue` value has a conditional, a loop or a map below its top, which cannot be "
+            "evaluated in place; bind the value with `let*` first: `(let* ((next <value>)) (continue next))`"
         ),
         span=expr.state_expr.span,
         form_path=expr.state_expr.form_path,
@@ -1662,23 +1644,11 @@ def _continue_value_needs_binding(expr: ContinueExpr) -> LispFrontendCompileErro
     ),))
 
 
-def _branch_is_effectful_if(state) -> bool:
-    """Whether a `continue` state is an `if` with a branch that is an `if` holding a provider, command, call,
-    agent or run-reference effect: it has no lowering (a `compiler_defect` before E1) and is refused."""
-
-    return isinstance(state, IfExpr) and any(
-        isinstance(branch, IfExpr) and any(
-            isinstance(node, _EFFECT_NODE_TYPES) and not isinstance(node, ProcedureCallExpr) for node in walk_expr(branch))
-        for branch in (state.then_expr, state.else_expr))
-
-
 def _elaborate_continue_state(expr: ContinueExpr, **inputs):
-    """Elaborate a `continue` value to (prefix, value), or refuse with `effect_not_permitted` a value that
-    cannot lower: an effect under control below its top. Only such a value is refused, so no program that
-    builds changes."""
+    """Elaborate a `continue` value to (prefix, value), or refuse with `effect_not_permitted` a value whose
+    body branches or joins below its top. Such a value had no lowering before either (a `compiler_defect`),
+    so no program that builds is refused."""
 
-    if _branch_is_effectful_if(expr.state_expr):
-        raise _continue_value_needs_binding(expr)
     try:
         return _elaborate_expr_to_value(expr.state_expr, **inputs)
     except NonLinearValueBodyError as exc:
@@ -1709,6 +1679,14 @@ def _bound_first(consumer, attr: str, *, scope: WccIdentityFactory, value_env, c
         form_path=consumer.form_path,
         expansion_stack=consumer.expansion_stack,
     )
+
+
+def _is_constructor_with_match_field(expr) -> bool:
+    """Whether `expr` is a record or variant with a `match` field; none of its fields holds an effect,
+    since a constructor that holds one has only simple fields (frontend specification 16.3)."""
+
+    return isinstance(expr, (RecordExpr, UnionVariantExpr)) and any(
+        isinstance(field_expr, MatchExpr) for _, field_expr in expr.fields)
 
 
 def _wrap_prefix_lets(prefix: tuple[WccLet, ...], tail: WccBody) -> WccBody:
@@ -2081,9 +2059,7 @@ def _elaborate_expr_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
-    if isinstance(expr, (RecordExpr, UnionVariantExpr)) and not expr.effectful_fields and any(
-        isinstance(field_expr, MatchExpr) for _, field_expr in expr.fields
-    ):
+    if _is_constructor_with_match_field(expr):
         return _elaborate_constructor_field_matches_to_body(
             expr,
             scope=scope,
@@ -2097,13 +2073,10 @@ def _elaborate_expr_to_body(
             active_phase_scope=active_phase_scope,
         )
     if _contains_effect(expr):
-        if isinstance(expr, (RecordExpr, UnionVariantExpr)) and expr.effectful_fields:
-            prefix, terminal = _normalize_effectful_fields(expr)
-        else:
-            prefix, terminal = _normalize_operand(
-                expr,
-                path=(),
-            )
+        prefix, terminal = _normalize_operand(
+            expr,
+            path=(),
+        )
         if prefix:
             return _elaborate_let_star(
                 LetStarExpr(

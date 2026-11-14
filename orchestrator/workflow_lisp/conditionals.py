@@ -5,7 +5,6 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 from collections.abc import Mapping, Sequence
-from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
@@ -350,28 +349,6 @@ def normalize_condition_expr(
     )
 
 
-# True while an operand of a place surface coherence E1 opened is normalized (a constructor field,
-# list element, path child or map source that holds an effect): a pure `match` in it stays a value
-# and moves no effect's name. Every other normalization binds it as before, so no earlier program
-# changes (the known exception of frontend specification 16.3).
-_PURE_MATCH_STAYS: ContextVar[bool] = ContextVar("pure_match_stays", default=False)
-
-
-def normalize_value_operand(
-    expr: ExprNode,
-    *,
-    path: tuple[int, ...],
-    closed_program: bool = False,
-) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
-    """`_normalize_operand` for an operand of a place E1 opened: a pure `match` in it stays a value."""
-
-    token = _PURE_MATCH_STAYS.set(True)
-    try:
-        return _normalize_operand(expr, path=path, closed_program=closed_program)
-    finally:
-        _PURE_MATCH_STAYS.reset(token)
-
-
 def _normalize_operand(
     expr: ExprNode,
     *,
@@ -566,8 +543,6 @@ def _normalize_match_value(
     path: tuple[int, ...],
     closed_program: bool = False,
 ) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
-    if _PURE_MATCH_STAYS.get() and not _contains_effect(expr):
-        return (), expr
     subject_prefix, subject_terminal = _normalize_operand(expr.subject, path=path + (0,), closed_program=closed_program)
     arms: list[MatchArm] = []
     for index, arm in enumerate(expr.arms):
@@ -602,8 +577,7 @@ def _normalize_list_map(
 ) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
     # The source evaluates in the enclosing scope; body bindings stay inside
     # the binder/iteration scope so they never leave the per-item execution.
-    normalize_source = normalize_value_operand if expr.effectful_source else _normalize_operand
-    source_prefix, source_terminal = normalize_source(expr.source_expr, path=path + (0,), closed_program=closed_program)
+    source_prefix, source_terminal = _normalize_operand(expr.source_expr, path=path + (0,), closed_program=closed_program)
     body_prefix, body_terminal = _normalize_operand(expr.body_expr, path=path + (1,), closed_program=closed_program)
     workspace_fields = {}
     if isinstance(expr, ListMapEffectExpr) and expr.workspace_expr is not None:
@@ -964,19 +938,6 @@ def _normalize_effect_operand(
     return (*child_prefix, (binding_name, rebuilt)), _name_expr(binding_name, expr)
 
 
-def _child_normalization(expr: ExprNode):
-    """Return how a composite normalizes its children: the normalizer and which children it normalizes.
-
-    A constructor, list or path child that holds an effect (only since surface coherence E1) normalizes
-    only its effectful operands, with `normalize_value_operand`: a pure `match` beside them or among
-    their operands stays a value and moves no effect's name.
-    """
-
-    if any(getattr(expr, flag, False) for flag in ("effectful_fields", "effectful_items", "effectful_child")):
-        return normalize_value_operand, _contains_effect
-    return _normalize_operand, lambda child: True
-
-
 def _normalize_composite(
     expr: ExprNode,
     *,
@@ -1000,11 +961,10 @@ def _normalize_composite(
         return (), expr
     hoisted: list[tuple[str, ExprNode]] = []
     replacements: dict[int, ExprNode] = {}
-    normalize, keep = _child_normalization(expr)
     for index, child in enumerate(children):
-        if not isinstance(child, ExprNode) or not keep(child):
+        if not isinstance(child, ExprNode):
             continue
-        child_prefix, child_terminal = normalize(child, path=path + (index,), closed_program=closed_program)
+        child_prefix, child_terminal = _normalize_operand(child, path=path + (index,), closed_program=closed_program)
         hoisted.extend(child_prefix)
         replacements[id(child)] = child_terminal
     return tuple(hoisted), _rebuild_with_replacements(expr, replacements)

@@ -78,6 +78,7 @@ from .typecheck_context import (
     merge_successful_session_outputs,
     raise_error as _raise_error,
     raise_run_ref_placement_invalid,
+    require_simple_parts,
     restore_session_state,
     snapshot_session_state,
     _literal_type_name,
@@ -708,9 +709,12 @@ def _typecheck(
                 span=expr.span,
                 form_path=expr.form_path,
             )
+        effectful_fields = _effectful_field(field_summaries, context)
+        if effectful_fields:
+            require_simple_parts(
+                [field_expr for _, field_expr in rewritten_fields], place="this record", code="effect_not_permitted")
         return _typed(
-            expr=replace(expr, fields=tuple(rewritten_fields),
-                         effectful_fields=_effectful_field(field_summaries, context)),
+            expr=replace(expr, fields=tuple(rewritten_fields), effectful_fields=effectful_fields),
             type_ref=record_type,
             effect=merge_effect_summaries(*field_summaries),
         )
@@ -797,9 +801,12 @@ def _typecheck(
                 span=expr.span,
                 form_path=expr.form_path,
             )
+        effectful_fields = _effectful_field(field_summaries, context)
+        if effectful_fields:
+            require_simple_parts(
+                [field_expr for _, field_expr in rewritten_fields], place="this variant", code="effect_not_permitted")
         return _typed(
-            expr=replace(expr, fields=tuple(rewritten_fields),
-                         effectful_fields=_effectful_field(field_summaries, context)),
+            expr=replace(expr, fields=tuple(rewritten_fields), effectful_fields=effectful_fields),
             type_ref=union_type,
             effect=merge_effect_summaries(*field_summaries),
         )

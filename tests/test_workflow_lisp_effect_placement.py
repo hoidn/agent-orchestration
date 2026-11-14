@@ -78,28 +78,44 @@ def started(stderr: str) -> list[str]:
     return [identity.split(" / ", 1)[1] for word, identity in effect_rows(stderr) if word == "start"]
 
 
-# Each newly admitted placement: (returns, body, declarations, value, ordered command log).
+# Each admitted placement: (returns, body, declarations, value, ordered command log). A record or variant
+# field, a list element, a path child, a map source and `:on-exhausted` take an effect in a simple value:
+# calls and operators over literals, names, field reads and other simple values (frontend specification 16.3).
+FETCH = f"(defproc fetch ((k Int)) -> Int {E(6)})"
+KID = f"(defworkflow kid ((t Int)) -> Int {E(8)})"
+SAME = "(defworkflow same ((t Int)) -> Int t)"
 PLACEMENTS = {
     "record-fields-in-written-order": ("Pair", f"(record Pair :b {E(2)} :a {E(1)})", "", {"a": 1, "b": 2}, ["2", "1"]),
     "variant-field": ("Int", f"(match (variant Shape CIRCLE :r {E(4)}) ((CIRCLE c) c.r) ((SQUARE s) 0))", "", 4, ["4"]),
-    "field-and-skips-its-second-effect": (
-        "Bool", f"(let* ((w (record Wrap :v (and (> {E(0)} 0) (> {E(2)} 0))))) w.v)", "", False, ["0"]),
     "list-elements": ("List[Int]", f"(list {E(1)} {E(2)} 3)", "", [1, 2, 3], ["1", "2"]),
+    "operator-over-two-effects-in-a-field": ("Pair", f"(record Pair :a (+ {E(1)} {E(2)}) :b n)", "", {"a": 3, "b": 1}, ["1", "2"]),
+    "procedure-call-field": ("Pair", "(record Pair :a (fetch n) :b 9)", FETCH, {"a": 6, "b": 9}, ["6"]),
+    "workflow-call-element": ("List[Int]", "(list (call kid :t n) 9)", KID, [8, 9], ["8"]),
+    "effect-argument-of-a-call-in-a-field": ("Pair", f"(record Pair :a (fetch {E(1)}) :b 9)", FETCH, {"a": 6, "b": 9}, ["1", "6"]),
+    "nested-constructor-subject": (
+        "Int", f"(match (variant Held HELD :p (record Pair :a {E(3)} :b 1)) ((HELD h) (+ h.p.a h.p.b)) ((EMPTY z) 0))",
+        "(defunion Held (HELD (p Pair)) (EMPTY (z Int)))", 4, ["3"]),
     "on-exhausted": (
         "Int", f"(loop/recur :max 1 :state 0 :on-exhausted (+ s {E(9)}) (fn (s) (if (> s 5) (done s) (continue (+ s 1)))))",
         "", 10, ["9"]),
     "on-exhausted-not-run-on-done": (
         "Int", f"(loop/recur :max 3 :state 0 :on-exhausted (+ s {E(9)}) (fn (s) (if (> s 0) (done s) (continue (+ s 1)))))",
         "", 1, []),
+    "on-exhausted-procedure-call": (
+        "Int", "(loop/recur :max 1 :state 0 :on-exhausted (fetch s) (fn (s) (if (> s 5) (done s) (continue (+ s 1)))))",
+        FETCH, 6, ["6"]),
     "serial-map-source": (
         "List[Int]", f'(list/map-effect ((x {E("[1,2]", "List[Int]")})) :max 5 {ITEM})', "", [1, 2], ["[1,2]", "1", "2"]),
     "serial-map-source-list": (
         "List[Int]", f"(list/map-effect ((x (list {E(1)} {E(2)}))) :max 5 {ITEM})", "", [1, 2], ["1", "2", "1", "2"]),
     "pure-map-source": ("List[Int]", f'(list/map ((x {E("[1,2,3]", "List[Int]")})) (+ x 1))', "", [2, 3, 4], ["[1,2,3]"]),
+    "pure-map-source-operator": ("List[Int]", f"(list/map ((x (list/append (list 4) {E(1)}))) (+ x 1))", "", [5, 2], ["1"]),
     "parallel-map-source": (
         "List[Int]", f'(list/map-effect ((x {E("[4]", "List[Int]")})) :max 1 :parallel 1 :workspace "ws/w" {ITEM})', "",
         [4], ["[4]", "4"]),
     "path-child": ("Report", f'(path/join-under Report {E("s", "String")})', "", "artifacts/work/s", ["s"]),
+    "path-child-operator": (
+        "Report", f'(path/join-under Report (string/concat {E("s", "String")} "x"))', "", "artifacts/work/sx", ["s"]),
     "list-in-continue": (
         "Int", f"(loop/recur :max 3 :state (list 0) :on-exhausted 0 (fn (s) (if (> (list/length s) 1) (done (list/length s)) (continue (list {E(1)} {E(2)})))))",
         "", 2, ["1", "2"]),
@@ -111,35 +127,8 @@ PLACEMENTS = {
         "", 2, ["[1,2]"]),
     "field-in-argument-in-if-condition": (
         "Int", f"(if (> (add (let* ((p (record Pair :a {E(1)} :b {E(2)}))) p.a) 0) 0) {E(3)} {E(4)})", "", 3, ["1", "2", "3"]),
-    "field-beside-match-field": (
-        "Pair", f"(record Pair :a {E(1)} :b (match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(2)}) ((SQUARE s) 0)))",
-        "", {"a": 1, "b": 2}, ["1", "2"]),
-    "match-field-written-first": (
-        "Pair", f"(record Pair :b (match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(2)}) ((SQUARE s) 0)) :a {E(1)})",
-        "", {"a": 1, "b": 2}, ["2", "1"]),
     "match-operand-runs-one-arm": (
         "Int", f"(+ 1 (match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(5)}) ((SQUARE s) {E(6)})))", "", 6, ["5"]),
-    "if-field-beside-match-field": ("Tri", f"(record Tri :a (if (> n 0) {E(7)} 0) :b 1 :c {M})", "",
-                                    {"a": 7, "b": 1, "c": 1}, ["7"]),
-    "if-field-after-match-field": ("Tri", f"(record Tri :c {M} :a (if (> n 0) {E(7)} 0) :b 1)", "",
-                                   {"a": 7, "b": 1, "c": 1}, ["7"]),
-    "if-variant-field-beside-match-field": (
-        "Int", f"(let* ((v (variant Box RECT :w (if (> n 0) {E(7)} 0) :h 1 :k {M}))) (match v ((RECT r) (+ r.w r.k)) ((NONE z) 0)))",
-        "", 8, ["7"]),
-    "cond-field-beside-match-field": ("Tri", f"(record Tri :a (cond ((> n 0) {E(7)}) (else 0)) :b 1 :c {M})", "",
-                                      {"a": 7, "b": 1, "c": 1}, ["7"]),
-    "and-field-beside-match-field": ("Bool", f"(let* ((w (record Flag :v (and (> n 0) (> {E(1)} 0)) :k {M}))) w.v)", "",
-                                     True, ["1"]),
-    # A constructor holding an effect, written as a `match` subject (N2).
-    "variant-subject-if-field": (
-        "Int", f"(match (variant Shape CIRCLE :r (if (> n 0) {E(1)} {E(2)})) ((CIRCLE c) c.r) ((SQUARE q) 0))", "", 1, ["1"]),
-    "variant-subject-two-match-fields": (
-        "Int", f"(match (variant Box RECT :w (match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(7)}) ((SQUARE q) 0)) :h 1"
-               f" :k (match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(8)}) ((SQUARE q) 0))) ((RECT r) (+ r.w r.k)) ((NONE z) 0))",
-        "", 15, ["7", "8"]),
-    "nested-constructor-subject": (
-        "Int", f"(match (variant Held HELD :p (record Pair :a (if (> n 0) {E(3)} 0) :b 1)) ((HELD h) (+ h.p.a h.p.b)) ((EMPTY z) 0))",
-        "(defunion Held (HELD (p Pair)) (EMPTY (z Int)))", 4, ["3"]),
     "pure-match-operand": ("Int", f"(+ 1 {M})", "", 2, []),
     "pure-match-operands": ("Int", f"(+ {M} (* 2 {M}))", "", 3, []),
 }
@@ -180,13 +169,6 @@ def test_field_effects_have_stable_distinct_identities(tmp_path: Path) -> None:
     assert [started(result.stderr) for result in runs] == [["#1", "#2"], ["#1", "#2"]]
 
 
-def test_field_effect_identity_does_not_depend_on_a_match_sibling(tmp_path: Path) -> None:
-    with_match = write(tmp_path / "match", "Pair", f"(record Pair :a {E(1)} :b {M})")
-    without = write(tmp_path / "plain", "Pair", f"(record Pair :a {E(1)} :b 3)")
-
-    assert started(run(with_match).stderr) == started(run(without).stderr) == ["#1"]
-
-
 def test_exhaustion_effect_identity_names_its_path(tmp_path: Path) -> None:
     write(tmp_path, "Int", PLACEMENTS["on-exhausted"][1])
 
@@ -194,7 +176,7 @@ def test_exhaustion_effect_identity_names_its_path(tmp_path: Path) -> None:
 
 
 def test_compiled_program_digest_is_stable(tmp_path: Path) -> None:
-    write(tmp_path, "List[Int]", f"(list {E(1)} (+ 1 {M}) {E(2)})")
+    write(tmp_path, "List[Int]", f"(list {E(1)} (+ 1 n) {E(2)})")
     digests = []
     for _ in range(2):
         compiled = cli(tmp_path, "compile", "main.orc")
@@ -204,75 +186,247 @@ def test_compiled_program_digest_is_stable(tmp_path: Path) -> None:
     assert digests[0] == digests[1]
 
 
-# An effect's name does not depend on its effect-free sibling fields, a `match` among them (design §4, §12.1).
-SIBLING_MATCH = {
-    "record": "(record Tri :a (let* ((y {e7})) y) :b {e8} :c {third})",
-    "record-match-written-first": "(record Tri :c {third} :a (let* ((y {e7})) y) :b {e8})",
-    "variant": "(match (variant Box RECT :w (let* ((y {e7})) y) :h {e8} :k {third}) ((RECT r) r.w) ((NONE z) 0))",
-    "variant-in-let": "(let* ((v (variant Box RECT :w (let* ((y {e7})) y) :h {e8} :k {third}))) (match v ((RECT r) r.w) ((NONE z) 0)))",
-    "nested-record": "(record Nest :xs (list {third}) :p (record Pair :a (let* ((y {e7})) y) :b {e8}))",
-    "record-update": "(record-update (record Tri :a 0 :b 0 :c 0) :a (let* ((y {e7})) y) :b {e8} :c {third})",
-    "if-field-variant-in-let": "(let* ((v (variant Box RECT :w (if (> n 0) {e7} 0) :h {e8} :k {third}))) (match v ((RECT r) r.w) ((NONE z) 0)))",
-}
-SIBLING_RETURNS = {"record": "Tri", "record-match-written-first": "Tri", "variant": "Int", "variant-in-let": "Int",
-                   "nested-record": "Nest", "record-update": "Tri", "if-field-variant-in-let": "Int"}
+def refused_at(root: Path, part: str, code: str = "effect_not_permitted") -> str:
+    """`main.orc:<line>:<column>: [<code>]` at `part` in the written program."""
+
+    source = (root / "main.orc").read_text(encoding="utf-8")
+    offset = source.index(part.replace("{probe}", (root / "probe.py").as_posix()))
+    line = source.count("\n", 0, offset) + 1
+    return f"main.orc:{line}:{offset - source.rfind(chr(10), 0, offset)}: [{code}]"
 
 
-SIBLINGS = {"match": M, "plain": "0", "pure-if": "(if (> n 0) 1 2)", "pure-let": "(let* ((q 3)) q)",
-            "pure-cond": "(cond ((> n 5) 0) (else 1))", "pure-map": "(list/length (list/map ((x (list 1 2))) x))"}
-
-
-@pytest.mark.parametrize("case", SIBLING_MATCH)
-def test_field_effect_names_do_not_depend_on_an_effect_free_sibling(tmp_path: Path, case: str) -> None:
-    names = {}
-    for name, third in SIBLINGS.items():
-        body = SIBLING_MATCH[case].format(e7=E(7), e8=E(8), third=third)
-        result = run(write(tmp_path / name, SIBLING_RETURNS[case], body))
-        assert (result.returncode, calls(tmp_path / name)) == (0, ["7", "8"]), result.stderr
-        names[name] = started(result.stderr)
-
-    assert len(set(map(tuple, names.values()))) == 1, names
-
-
-# A `continue` value whose constructor, list, path child or map source holds an effect is bound first and
-# runs; one that holds an effect under control below its top elsewhere (an operator, a `record-update`, a
-# `let*` value) is refused with the rewrite to bind it first. Every one runs in every other value position.
+# What stays refused (frontend specification 16.3): in a place E1 opened, a value that holds an effect and
+# a part that is not simple, be it the part with the effect or one beside it. Each row is refused with the
+# code the place gave before E1, at the part to bind first: (returns, body, declarations, code, that part).
 IFE = f"(if (> n 0) {E(1)} {E(2)})"
-ONE = f"(defproc one ((x Int)) -> Int {E(5)})"
+W = E("w", "String")
+MATCH_E = f"(match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(2)}) ((SQUARE s) 0))"
+PURE_IF, PURE_LET, PURE_COND = "(if (> n 0) 1 2)", "(let* ((q 3)) q)", "(cond ((> n 5) 0) (else 1))"
+PURE_MAP = "(list/length (list/map ((x (list 1 2))) x))"
+INC = "(defun inc ((x Int)) -> Int (+ x 1))"
+COND_SUBJECT = f"(match (variant Shape CIRCLE :r (cond ((> n 5) 6) (else 1))) ((CIRCLE c) {E(1)}) ((SQUARE q) 0))"
+EXHAUSTED = "(loop/recur :max 1 :state 0 :on-exhausted {v} (fn (s) (if (= n 7) (done s) (continue s))))"
+PARALLEL = '(list/map-effect ((x {v})) :max 2 :parallel 1 :workspace (string/concat "ws/" x) (command-result e :argv ("python" "{probe}" x) :returns String))'
+NOT_SIMPLE = {
+    # The part that holds the effect is not simple (a `cond` is reported at its first clause).
+    "if-field": ("Pair", f"(record Pair :a {IFE} :b 9)", "", "effect_not_permitted", IFE),
+    "cond-field": ("Pair", f"(record Pair :a (cond ((> n 0) {E(1)}) (else 0)) :b 9)", "", "effect_not_permitted", "((> n 0)"),
+    "match-field": ("Pair", f"(record Pair :a {E(1)} :b {MATCH_E})", "", "effect_not_permitted", MATCH_E),
+    "and-field": ("Wrap", f"(record Wrap :v (and (> {E(0)} 0) (> {E(2)} 0)))", "", "effect_not_permitted", "(and"),
+    "or-element": ("List[Bool]", f"(list (or (> n 5) (> {E(1)} 0)))", "", "effect_not_permitted", "(or"),
+    "not-field": ("Wrap", f"(record Wrap :v (not (> {E(1)} 5)))", "", "effect_not_permitted", "(not"),
+    "let-field": ("Pair", f"(record Pair :a (let* ((y {E(7)})) y) :b 0)", "", "effect_not_permitted", "(let*"),
+    "let-element": ("List[Int]", f"(list (let* ((y {E(7)})) y) 2)", "", "effect_not_permitted", "(let*"),
+    "if-variant-field-of-a-subject": (
+        "Int", f"(match (variant Shape CIRCLE :r {IFE}) ((CIRCLE c) c.r) ((SQUARE q) 0))", "", "effect_not_permitted", IFE),
+    "if-field-in-a-nested-constructor": (
+        "Nest", f"(record Nest :xs (list 0) :p (record Pair :a {IFE} :b 9))", "", "effect_not_permitted", IFE),
+    "if-path-child": (
+        "Report", f'(path/join-under Report (if (> n 0) {E("x", "String")} "y"))', "", "effect_not_permitted", "(if"),
+    "if-field-in-continue": (
+        "Pair", f"(loop/recur :max 1 :state (record Pair :a 0 :b 0) :on-exhausted s (fn (s) (continue (record Pair :a {IFE} :b 9))))",
+        "", "effect_not_permitted", IFE),
+    "pure-procedure-over-an-effect": ("Pair", f"(record Pair :a (add {E(1)} 1) :b 9)", "", "effect_not_permitted", "(add"),
+    "function-over-an-effect": ("Pair", f"(record Pair :a (inc {E(1)}) :b 9)", INC, "effect_not_permitted", "(inc"),
+    "match-among-the-operands-of-the-effect": ("Pair", f"(record Pair :a (+ {E(1)} {M}) :b 9)", "", "effect_not_permitted", f"(+ {E(1)}"),
+    "match-argument-of-the-call": ("Pair", f"(record Pair :a (call kid :t {M}) :b 9)", KID, "effect_not_permitted", "(call"),
+    "loop-element": (
+        "List[Int]", f"(list (loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done {E(1)}))))", "",
+        "effect_not_permitted", "(loop/recur"),
+    # A part beside the effect is not simple.
+    "match-sibling": ("Tri", f"(record Tri :a {E(7)} :b 1 :c {M})", "", "effect_not_permitted", M),
+    "match-sibling-written-first": ("Tri", f"(record Tri :c {M} :a {E(7)} :b 1)", "", "effect_not_permitted", M),
+    "if-sibling": ("Tri", f"(record Tri :a {E(7)} :b 1 :c {PURE_IF})", "", "effect_not_permitted", PURE_IF),
+    "let-sibling": ("Tri", f"(record Tri :a {E(7)} :b 1 :c {PURE_LET})", "", "effect_not_permitted", PURE_LET),
+    "cond-sibling-element": ("List[Int]", f"(list {E(7)} {PURE_COND})", "", "effect_not_permitted", "((> n 5) 0)"),
+    "map-sibling-of-a-variant": (
+        "Box", f"(variant Box RECT :w {E(7)} :h 0 :k {PURE_MAP})", "", "effect_not_permitted", PURE_MAP),
+    "pure-procedure-sibling": ("Pair", f"(record Pair :a {E(7)} :b (add n 1))", "", "effect_not_permitted", "(add n 1)"),
+    "function-sibling": ("Pair", f"(record Pair :a {E(7)} :b (inc n))", INC, "effect_not_permitted", "(inc n)"),
+    "match-sibling-in-an-inner-list": (
+        "Nest", f"(record Nest :xs (list {M}) :p (record Pair :a {E(7)} :b 9))", "", "effect_not_permitted", f"(list {M})"),
+    # A map source.
+    "conditional-pure-map-source": (
+        "List[Int]", f"(list/map ((x (if (> {E(1)} 0) (list 4) (list 6)))) x)", "", "list_map_body_effect_forbidden", "(if"),
+    "let-pure-map-source": (
+        "List[Int]", f"(list/map ((x (let* ((y {E(1)})) (list y)))) x)", "", "list_map_body_effect_forbidden", "(let*"),
+    "conditional-pure-map-source-holding-a-list": (
+        "List[Int]", f"(list/map ((x (if (> n 0) (list {E(1)}) (list 2)))) x)", "", "effect_not_permitted", "(if"),
+    "conditional-serial-map-source": (
+        "List[Int]", f"(list/map-effect ((x (if (> {E(1)} 0) (list 4) (list 6)))) :max 1 {ITEM})", "",
+        "list_map_effect_body_unsupported", "(if"),
+    "conditional-parallel-map-source": (
+        "List[String]", PARALLEL.replace("{v}", f'(if (> n 0) (list {W}) (list "q"))'), "", "effect_not_permitted", "(if"),
+    "match-parallel-map-source": (
+        "List[String]", PARALLEL.replace("{v}", f'(match (variant Shape CIRCLE :r n) ((CIRCLE c) (list {W})) ((SQUARE q) (list "q")))'),
+        "", "effect_not_permitted", "(match"),
+    "cond-element-of-a-parallel-map-source": (
+        "List[String]", PARALLEL.replace("{v}", f'(list (cond ((> n 5) "q") (else {W})))'), "", "effect_not_permitted", '((> n 5) "q")'),
+    "parallel-map-as-a-parallel-map-source": (
+        "List[String]", PARALLEL.replace(
+            "{v}", f'(list/map-effect ((y (list "w"))) :max 1 :parallel 1 :workspace (string/concat "ws/" y) {W})'),
+        "", "list_map_effect_body_unsupported", "(list/map-effect ((y"),
+    # `:on-exhausted`.
+    "conditional-on-exhausted": ("Int", EXHAUSTED.replace("{v}", IFE), "", "loop_recur_contract_invalid", IFE),
+    "let-on-exhausted": (
+        "Int", EXHAUSTED.replace("{v}", f"(let* ((y {E(1)})) (+ y s))"), "", "loop_recur_contract_invalid", "(let*"),
+    "match-on-exhausted": ("Int", EXHAUSTED.replace("{v}", MATCH_E), "", "loop_recur_contract_invalid", MATCH_E),
+    "record-holding-an-if-on-exhausted": (
+        "Int", EXHAUSTED.replace("{v}", f"(+ 0 (let* ((r (record Pair :a {IFE} :b 0))) r.a))"), "", "effect_not_permitted", IFE),
+    # A `match` over a variant with a pure `cond` field, an arm holding the effect: an older defect outside these places.
+    "match-over-a-cond-field-subject-in-a-field": (
+        "Pair", f"(record Pair :a {COND_SUBJECT} :b {E(3)})", "", "effect_not_permitted", COND_SUBJECT),
+    "match-over-a-cond-field-subject-in-on-exhausted": (
+        "Int", EXHAUSTED.replace("{v}", COND_SUBJECT), "", "loop_recur_contract_invalid", COND_SUBJECT),
+}
+
+
+@pytest.mark.parametrize("case", NOT_SIMPLE)
+def test_effect_in_a_value_that_is_not_simple_is_refused_at_the_part_to_bind(tmp_path: Path, case: str) -> None:
+    returns, body, decls, code, part = NOT_SIMPLE[case]
+    write(tmp_path, returns, body, decls)
+
+    compiled = cli(tmp_path, "compile", "main.orc")
+
+    assert (compiled.returncode, refused_at(tmp_path, part, code) in compiled.stderr, "Traceback" in compiled.stderr) == (
+        2, True, False), compiled.stderr
+    assert calls(tmp_path) == []
+
+
+# The rewrite the refusal asks for runs: (returns, body, declarations, value, ordered command log).
+BOUND_FIRST = {
+    "if-field": ("Pair", f"(let* ((a {IFE})) (record Pair :a a :b 9))", "", {"a": 1, "b": 9}, ["1"]),
+    "match-sibling": ("Tri", f"(let* ((c {M})) (record Tri :a {E(7)} :b 1 :c c))", "", {"a": 7, "b": 1, "c": 1}, ["7"]),
+    "conditional-pure-map-source": (
+        "List[Int]", f"(let* ((src (if (> n 0) (list {E(1)}) (list 2)))) (list/map ((x src)) x))", "", [1], ["1"]),
+    "conditional-on-exhausted": (
+        "Int", EXHAUSTED.replace("{v}", "(give-up s)"), f"(defproc give-up ((s Int)) -> Int (if (> s 5) s {E(1)}))", 1, ["1"]),
+}
+
+
+@pytest.mark.parametrize("case", BOUND_FIRST)
+def test_value_that_is_not_simple_runs_once_its_part_is_bound_first(tmp_path: Path, case: str) -> None:
+    returns, body, decls, expected, log = BOUND_FIRST[case]
+    write(tmp_path, returns, body, decls)
+
+    result = run(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert (value(result), calls(tmp_path)) == (expected, log)
+
+
+# Effect names (frontend specification 16.3): the effects of a simple value are named the same when an
+# authored `let*` binds the value first, and under a pure edit beside the effect: another simple sibling,
+# or the sibling written first. A holder: (returns, the value over the effect part `{a}` and a pure sibling
+# `{s}`, the same with the sibling written first, the same value bound by `let*` first or None).
+ONE_ROUND = "(loop/recur :max 1 :state {seed} :on-exhausted s (fn (s) (if (= n 7) (done s) {step})))"
+BOX_ARMS = "((RECT r) (+ r.w r.h)) ((NONE z) 0)"
+PAIR_SEED = "(record Pair :a 0 :b 0)"
+PARALLEL_ONCE = '(list/map-effect ((x {source})) :max 1 :parallel 1 :workspace "ws/w" ' + E(5) + ")"
+EFFECT_PARTS = {
+    "command": E(1), "operator": f"(+ {E(1)} {E(2)})", "procedure": "(fetch n)", "workflow": "(call kid :t n)",
+    "effect-argument": f"(fetch {E(1)})",
+}
+HOLDERS = {
+    "record": ("Pair", "(record Pair :a {a} :b {s})", "(record Pair :b {s} :a {a})",
+               "(let* ((r (record Pair :a {a} :b {s}))) r)"),
+    "variant": ("Box", "(variant Box RECT :w {a} :h {s} :k 0)", "(variant Box RECT :h {s} :w {a} :k 0)",
+                "(let* ((v (variant Box RECT :w {a} :h {s} :k 0))) v)"),
+    "list": ("List[Int]", "(list {a} {s})", "(list {s} {a})", "(let* ((l (list {a} {s}))) l)"),
+    "nested-constructor": (
+        "Nest", "(record Nest :xs (list {s}) :p (record Pair :a {a} :b 9))",
+        "(record Nest :p (record Pair :b 9 :a {a}) :xs (list {s}))",
+        "(let* ((r (record Nest :xs (list {s}) :p (record Pair :a {a} :b 9)))) r)"),
+    "match-subject": (
+        "Int", f"(match (variant Box RECT :w {{a}} :h {{s}} :k 0) {BOX_ARMS})",
+        f"(match (variant Box RECT :h {{s}} :w {{a}} :k 0) {BOX_ARMS})",
+        f"(let* ((v (variant Box RECT :w {{a}} :h {{s}} :k 0))) (match v {BOX_ARMS}))"),
+    "continue": (
+        "Pair", ONE_ROUND.format(seed=PAIR_SEED, step="(continue (record Pair :a {a} :b {s}))"),
+        ONE_ROUND.format(seed=PAIR_SEED, step="(continue (record Pair :b {s} :a {a}))"),
+        ONE_ROUND.format(seed=PAIR_SEED, step="(let* ((next (record Pair :a {a} :b {s}))) (continue next))")),
+    "pure-map-source": (
+        "List[Int]", "(list/map ((x (list {a} {s}))) (+ x 1))", "(list/map ((x (list {s} {a}))) (+ x 1))",
+        "(let* ((src (list {a} {s}))) (list/map ((x src)) (+ x 1)))"),
+    "serial-map-source": (
+        "List[Int]", f"(list/map-effect ((x (list {{a}} {{s}}))) :max 2 {E(5)})",
+        f"(list/map-effect ((x (list {{s}} {{a}}))) :max 2 {E(5)})",
+        f"(let* ((src (list {{a}} {{s}}))) (list/map-effect ((x src)) :max 2 {E(5)}))"),
+    "parallel-map-source": (
+        "List[Int]", PARALLEL_ONCE.replace("{source}", "(list (record Pair :a {a} :b {s}))"),
+        PARALLEL_ONCE.replace("{source}", "(list (record Pair :b {s} :a {a}))"),
+        "(let* ((src (list (record Pair :a {a} :b {s})))) " + PARALLEL_ONCE.replace("{source}", "src") + ")"),
+    # `:on-exhausted` is evaluated where it stands: there is no place to bind it first.
+    "on-exhausted": ("Int", EXHAUSTED.replace("{v}", "(+ {a} {s})"), EXHAUSTED.replace("{v}", "(+ {s} {a})"), None),
+}
+STABLE_NAMES = [(holder, part) for holder in HOLDERS for part in ("command", "operator", "procedure")] + [
+    ("record", "workflow"), ("list", "workflow"), ("record", "effect-argument"), ("pure-map-source", "effect-argument")]
+
+
+@pytest.mark.parametrize(("holder", "part"), STABLE_NAMES)
+def test_effects_of_a_simple_value_are_named_the_same_bound_or_not_and_under_a_pure_edit(
+        tmp_path: Path, holder: str, part: str) -> None:
+    returns, written, sibling_first, bound = HOLDERS[holder]
+    programs = {"written": (written, "9"), "another-sibling": (written, "(+ n 1)"), "sibling-first": (sibling_first, "9")}
+    if bound is not None:
+        programs["bound"] = (bound, "9")
+    names = {}
+    for label, (template, sibling) in programs.items():
+        (tmp_path / label / "ws" / "w").mkdir(parents=True)
+        body = template.replace("{a}", EFFECT_PARTS[part]).replace("{s}", sibling)
+        result = run(write(tmp_path / label, returns, body, FETCH + KID))
+        assert result.returncode == 0, result.stderr
+        names[label] = started(result.stderr)
+
+    assert names["written"] and all(found == names["written"] for found in names.values()), names
+
+
+def test_path_child_effect_is_named_the_same_bound_or_not(tmp_path: Path) -> None:
+    child = f'(path/join-under Report (string/concat {W} "x"))'
+    names = [started(run(write(tmp_path / label, "Report", body)).stderr)
+             for label, body in (("written", child), ("bound", f"(let* ((p {child})) p)"))]
+
+    assert names == [["#1"], ["#1"]]
+
+
+def test_effect_bound_by_a_name_takes_that_name(tmp_path: Path) -> None:
+    source = E("[1,2]", "List[Int]")
+    names = [started(run(write(tmp_path / label, "List[Int]", body)).stderr) for label, body in (
+        ("written", f"(list/map ((x {source})) (+ x 1))"), ("bound", f"(let* ((src {source})) (list/map ((x src)) (+ x 1)))"))]
+
+    assert names == [["#1"], ["src"]]
+
+
+# A `continue` value that is a simple value holding an effect is bound first and runs; so does a value
+# whose inner `if` calls a workflow that holds no effect, as before E1. One that holds an effect under
+# control below its top (an operator, a `record-update`, a `let*` value) is refused with the rewrite to
+# bind it first. Every one runs in every other value position; `:on-exhausted` takes the simple ones.
 CONTINUE_SHAPES = {
-    "record-if": ("Pair", "(record Pair :a 0 :b 0)", f"(record Pair :a {IFE} :b 9)", {"a": 1, "b": 9}, ["1"], ""),
-    "list-if": ("List[Int]", "(list 0)", f"(list {IFE} 9)", [1, 9], ["1"], ""),
-    "record-match": ("Pair", "(record Pair :a 0 :b 0)",
-                     f"(record Pair :a (match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(1)}) ((SQUARE q) 0)) :b 9)",
-                     {"a": 1, "b": 9}, ["1"], ""),
-    "record-cond": ("Pair", "(record Pair :a 0 :b 0)", f"(record Pair :a (cond ((> n 0) {E(1)}) (else 0)) :b 9)",
-                    {"a": 1, "b": 9}, ["1"], ""),
-    "record-or": ("Wrap", "(record Wrap :v false)", f"(record Wrap :v (or (> n 5) (> {E(1)} 0)))", {"v": True}, ["1"], ""),
-    "list-and": ("List[Bool]", "(list false)", f"(list (and (> n 0) (> {E(1)} 0)))", [True], ["1"], ""),
-    "path-if": ("Report", '(path/join-under Report "z")',
-                f'(path/join-under Report (if (> n 0) {E("x", "String")} "y"))', "artifacts/work/x", ["x"], ""),
-    "map-source-if": ("List[Int]", "(list 0)", f"(list/map ((x (list {IFE}))) x)", [1], ["1"], ""),
-    "list-if-procedure": ("List[Int]", "(list 0)", "(list (if (> n 0) (one 1) 0))", [5], ["5"], ONE),
-    "record-if-procedure": ("Pair", "(record Pair :a 0 :b 0)", "(record Pair :a (if (> n 0) (one 1) 0) :b 9)",
-                            {"a": 5, "b": 9}, ["5"], ONE),
-    "record-if-beside-match": ("Tri", "(record Tri :a 0 :b 0 :c 0)", f"(record Tri :a {IFE} :b 1 :c {M})",
-                               {"a": 1, "b": 1, "c": 1}, ["1"], ""),
-    "record-effects": ("Pair", "(record Pair :a 0 :b 0)", f"(record Pair :a {E(1)} :b {E(2)})",
-                       {"a": 1, "b": 2}, ["1", "2"], ""),
-    "record-update-effect": ("Pair", "(record Pair :a 0 :b 0)", f"(record-update (record Pair :a 0 :b 9) :a {E(1)})",
+    "record-effects": ("Pair", PAIR_SEED, f"(record Pair :a {E(1)} :b {E(2)})", {"a": 1, "b": 2}, ["1", "2"], ""),
+    "list-effects": ("List[Int]", "(list 0)", f"(list {E(1)} {E(2)})", [1, 2], ["1", "2"], ""),
+    "path-effect": ("Report", '(path/join-under Report "z")', f'(path/join-under Report {E("x", "String")})',
+                    "artifacts/work/x", ["x"], ""),
+    "map-source-effect": ("List[Int]", "(list 0)", f"(list/map ((x (list {E(1)}))) x)", [1], ["1"], ""),
+    "record-procedure-call": ("Pair", PAIR_SEED, "(record Pair :a (fetch n) :b 9)", {"a": 6, "b": 9}, ["6"], FETCH),
+    "record-update-effect": ("Pair", PAIR_SEED, f"(record-update (record Pair :a 0 :b 9) :a {E(1)})",
                              {"a": 1, "b": 9}, ["1"], ""),
     "match-arm-if": ("Int", "0", f"(match (variant Shape CIRCLE :r n) ((CIRCLE c) {IFE}) ((SQUARE q) 0))", 1, ["1"], ""),
     "nested-if-pure-procedure": ("Int", "0", "(if (> n 0) (if (> n 0) (add n 0) 0) 0)", 1, [], ""),
+    "nested-if-pure-workflow": ("Int", "0", "(if (> n 0) (if (> n 0) (call same :t 1) 0) 0)", 1, [], SAME),
+    "cond-pure-workflow": ("Int", "0", "(cond ((> n 5) 0) ((> n 0) (call same :t 1)) (else 2))", 1, [], SAME),
+    "nested-if-operator-over-pure-workflow": (
+        "Int", "0", "(if (> n 0) (if (> n 0) (+ 1 (call same :t 1)) 0) 0)", 2, [], SAME),
     # Refused: a `compiler_defect` before effects were admitted in fields.
     "operator-if": ("Int", "0", f"(+ {IFE} 9)", 10, ["1"], ""),
-    "record-update-if": ("Pair", "(record Pair :a 0 :b 0)", f"(record-update (record Pair :a 0 :b 9) :a {IFE})",
+    "record-update-if": ("Pair", PAIR_SEED, f"(record-update (record Pair :a 0 :b 9) :a {IFE})",
                          {"a": 1, "b": 9}, ["1"], ""),
-    "let-then-record": ("Pair", "(record Pair :a 0 :b 0)", f"(let* ((v {IFE})) (record Pair :a v :b 9))",
+    "let-then-record": ("Pair", PAIR_SEED, f"(let* ((v {IFE})) (record Pair :a v :b 9))",
                         {"a": 1, "b": 9}, ["1"], ""),
-    "nested-if": ("Int", "0", f"(if (> n 0) {IFE} 0)", 1, ["1"], ""),
 }
-REFUSED_IN_CONTINUE = ("operator-if", "record-update-if", "let-then-record", "nested-if")
-ONE_ROUND = "(loop/recur :max 1 :state {seed} :on-exhausted s (fn (s) (if (= n 7) (done s) {step})))"
+REFUSED_IN_CONTINUE = ("operator-if", "record-update-if", "let-then-record")
+SIMPLE_CONTINUE_SHAPES = ("record-effects", "list-effects", "path-effect", "record-procedure-call")
+# `:on-exhausted` refuses the others under its own code, or under that of a place inside the value.
+ON_EXHAUSTED_CODE = {"map-source-effect": "effect_not_permitted"}
 VALUE_POSITIONS = {
     "let-then-continue": ONE_ROUND.replace("{step}", "(let* ((next {v})) (continue next))"),
     "done": "(loop/recur :max 1 :state {seed} :on-exhausted s (fn (s) (done {v})))",
@@ -295,13 +449,13 @@ def test_continue_value_holding_an_effect_in_a_value_runs(tmp_path: Path, shape:
     assert (value(result), calls(tmp_path)) == (expected, log)
 
 
-def refused_at(root: Path, value_expr: str) -> str:
-    """`main.orc:<line>:<column>: [effect_not_permitted]` at `value_expr` in the written program."""
+def test_binder_form_continue_value_whose_inner_if_calls_a_pure_workflow_runs(tmp_path: Path) -> None:
+    write(tmp_path, "Int", "(loop/recur ((s 0)) :max 1 :on-exhausted s (if (= n 7) (done s) "
+          "(continue (if (> n 0) (if (> n 0) (call same :t 1) 0) 0))))", SAME)
 
-    source = (root / "main.orc").read_text(encoding="utf-8")
-    offset = source.index(value_expr.replace("{probe}", (root / "probe.py").as_posix()))
-    line = source.count("\n", 0, offset) + 1
-    return f"main.orc:{line}:{offset - source.rfind(chr(10), 0, offset)}: [effect_not_permitted]"
+    result = run(tmp_path)
+
+    assert (result.returncode, value(result), calls(tmp_path)) == (0, 1, []), result.stderr
 
 
 @pytest.mark.parametrize("shape", REFUSED_IN_CONTINUE)
@@ -317,7 +471,7 @@ def test_continue_value_with_an_effect_under_control_below_its_top_is_refused(tm
 
 def test_inner_loop_continue_value_with_an_effect_under_control_is_refused(tmp_path: Path) -> None:
     inner = ONE_ROUND.format(seed="0", step=f"(continue (+ {IFE} 9))")
-    outer = f"(loop/recur :max 1 :state 0 :on-exhausted {inner} (fn (t) (if (= n 7) (done {inner}) (continue t))))"
+    outer = f"(loop/recur :max 1 :state 0 :on-exhausted t (fn (t) (if (= n 7) (done {inner}) (continue t))))"
     write(tmp_path, "Int", outer)
 
     compiled = cli(tmp_path, "compile", "main.orc")
@@ -335,6 +489,10 @@ def test_continue_value_runs_in_every_other_value_position(tmp_path: Path, shape
 
     result = run(tmp_path)
 
+    if position == "on-exhausted" and shape not in SIMPLE_CONTINUE_SHAPES:
+        code = ON_EXHAUSTED_CODE.get(shape, "loop_recur_contract_invalid")
+        assert (result.returncode, f"[{code}]" in result.stderr) == (2, True), result.stderr
+        return
     assert result.returncode == 0, result.stderr
     assert (value(result), calls(tmp_path)) == (expected, log)
 
@@ -351,47 +509,6 @@ def test_continue_record_update_of_the_state_runs_with_a_bare_effect_and_is_refu
     result = run(tmp_path)
 
     assert (result.returncode, "[effect_not_permitted]" in result.stderr) == (exit_code, exit_code == 2), result.stderr
-
-
-# A `let*` inside a field or list element of a `done` or `continue` value names no step (§16.3): both give `#k`.
-LET_IN_LOOP_VALUE = {
-    "record-field": ("Pair", "(record Pair :a 0 :b 0)", f"(record Pair :a (let* ((y {E(7)})) y) :b 0)"),
-    "list-element": ("List[Int]", "(list 0)", f"(list (let* ((y {E(7)})) y) 2)"),
-}
-
-
-@pytest.mark.parametrize("case", LET_IN_LOOP_VALUE)
-def test_let_in_a_field_of_a_continue_value_is_named_as_in_done(tmp_path: Path, case: str) -> None:
-    returns, seed, value_expr = LET_IN_LOOP_VALUE[case]
-    write(tmp_path / "continue", returns, ONE_ROUND.format(seed=seed, step=f"(continue {value_expr})"))
-    write(tmp_path / "done", returns, ONE_ROUND.format(seed=seed, step=f"(done {value_expr})"))
-
-    names = [started(run(tmp_path / form).stderr) for form in ("continue", "done")]
-
-    assert names == [["loop:s[1] / else / #1"], ["loop:s[1] / else / #1"]]
-
-
-W = E("w", "String")
-PARALLEL_SOURCES = {
-    "whole-if": (f'(if (> n 0) (list {W}) (list "q"))', ["w", "w"]),
-    "match": (f'(match (variant Shape CIRCLE :r n) ((CIRCLE c) (list {W})) ((SQUARE q) (list "q")))', ["w", "w"]),
-    "cond-element": (f'(list (cond ((> n 5) "q") (else {W})))', ["w", "w"]),
-    "nested-parallel-map": (
-        f'(list/map-effect ((y (list "w"))) :max 1 :parallel 1 :workspace (string/concat "ws/" y) {W})', ["w", "w"]),
-}
-
-
-@pytest.mark.parametrize("case", PARALLEL_SOURCES)
-def test_parallel_map_source_with_an_effect_under_control_runs_once_before_any_item(tmp_path: Path, case: str) -> None:
-    (tmp_path / "ws" / "w").mkdir(parents=True)
-    source, log = PARALLEL_SOURCES[case]
-    item = '(command-result e :argv ("python" "{probe}" x) :returns String)'
-    write(tmp_path, "List[String]", f'(list/map-effect ((x {source})) :max 2 :parallel 1 :workspace (string/concat "ws/" x) {item})')
-
-    result = run(tmp_path)
-
-    assert result.returncode == 0, result.stderr
-    assert (value(result), calls(tmp_path)) == (["w"], log)
 
 
 # A parallel map whose source holds an effect, inside a loop body (N3).
@@ -419,71 +536,43 @@ def test_parallel_map_with_an_effectful_source_in_a_loop_body_runs(tmp_path: Pat
     assert (value(result), calls(tmp_path)) == (expected, ["w", "bw", "bq"])
 
 
-# A pure `match` in a constructor field, list element, path child or map source that holds an effect
-# moves no effect's name, the value bound by `let*` (authored, or by the compiler before a `continue`,
-# a `match` subject or a parallel map) or not (J5).
-NO_MOVE = {
-    "let-bound-list": ("List[Int]", "(let* ((l (list {e1} {e3} {x}))) l)"),
-    "continue-list": ("List[Int]", ONE_ROUND.format(seed="(list 0)", step="(continue (list {e1} {e3} {x}))")),
-    "subject-list-field": (
-        "Int", "(match (variant Held2 HL :ps (list (record Pair :a {e1} :b {e3}) (record Pair :a {x} :b 0)))"
-               " ((HL h) (list/length h.ps)) ((HN z) 0))"),
-    "parallel-source-element": (
-        "List[Int]", '(list/map-effect ((x (list {ew} (if (= {x} 1) "q" "v")))) :max 2 :parallel 1'
-                     ' :workspace (string/concat "ws/" x) {e3})'),
-    "serial-source-element": ("List[Int]", "(list/map-effect ((x (list {e1} (+ {x} 0)))) :max 2 {e3})"),
-    "workflow-argument-list": ("Int", "(call childl :xs (list {e1} {e3} {x}))"),
-    "let-bound-record-list-field": ("Nest", "(let* ((r (record Nest :xs (list {e1} {x}) :p (record Pair :a {e3} :b 0)))) r)"),
-    "let-bound-record-operator-field": ("Pair", "(let* ((r (record Pair :a (+ {e1} {x}) :b 0))) r)"),
-}
-NO_MOVE_DECLS = ("(defunion Held2 (HL (ps List[Pair])) (HN (z Int)))"
-                 "(defworkflow childl ((xs List[Int])) -> Int (list/length xs))")
-
-
-@pytest.mark.parametrize("case", NO_MOVE)
-def test_pure_match_in_a_value_holding_an_effect_moves_no_effect_name(tmp_path: Path, case: str) -> None:
-    returns, body = NO_MOVE[case]
-    names = []
-    for label, x in (("literal", "1"), ("match", M)):
-        root = tmp_path / label
-        for name in ("w", "q", "v"):
-            (root / "ws" / name).mkdir(parents=True)
-        result = run(write(root, returns, body.format(e1=E(1), e3=E(3), ew=E("w", "String"), x=x), NO_MOVE_DECLS))
-        assert result.returncode == 0, result.stderr
-        names.append(started(result.stderr))
-
-    assert names[0] == names[1]
-
-
-# The one exception (frontend specification 16.3), as `main` has it: a pure `match` among the operands of an
-# operator or procedure application holding an effect, or in an `if` condition whose branch holds one,
-# renames those effects where the application stands as a value; whole as a result it does not.
-PURE_MATCH_OPERAND = {
-    "let-bound-operator": (True, "(let* ((w (+ {e1} {x}))) (+ w {e3}))"),
-    "let-bound-procedure-argument": (True, "(let* ((w (add {e1} {x}))) w)"),
-    "let-bound-if-in-operand": (True, "(let* ((w (+ {e1} (if (= {x} 1) 0 0)))) w)"),
-    "operand-if-condition": (True, "(+ 5 (if (= {x} 1) {e1} 0))"),
-    "loop-state-operator": (True, "(loop/recur :max 1 :state (+ {e1} {x}) :on-exhausted s (fn (s) (done s)))"),
-    "procedure-argument-operator": (True, "(add (+ {e1} {x}) 0)"),
-    "field-if-condition": (True, "(+ 0 (let* ((r (record Pair :a (if (= {x} 1) {e1} 0) :b 0))) r.a))"),
-    "whole-operator": (False, "(+ {e1} {x})"),
-    "whole-procedure": (False, "(add {e1} {x})"),
-    "let-bound-if-condition": (False, "(let* ((w (if (= {x} 1) {e1} 0))) w)"),
-    "let-bound-field-operator": (False, "(+ 0 (let* ((r (record Pair :a (+ {e1} {x}) :b 0))) r.a))"),
-    "let-bound-list-element": (False, "(list/length (let* ((l (list {e1} {x}))) l))"),
+# A parallel map whose binder a macro template introduces has no authored label (an older defect: with a
+# pure source it does not build). With an effect in its source it stays refused, under the code it had.
+ITEM_PROC = ('(defproc item ((x String)) -> String (command-result e :argv ("python" "{probe}" (string/concat "b" x))'
+             " :returns String))")
+PAR_LEN = ("(defmacro par-len (f src) (list/length (list/map-effect ((x src)) :max 2 :parallel 1"
+           ' :workspace (string/concat "ws/" x) (f x))))')
+PAR_NAMED = ("(defmacro par-named (nm f src) (list/length (list/map-effect ((nm src)) :max 2 :parallel 1"
+             ' :workspace (string/concat "ws/" nm) (f nm))))')
+TEMPLATE_BINDER = {
+    "workflow-body": (f'(par-len item (list {W} "q"))', "effect_not_permitted"),
+    "continue": (ONE_ROUND.format(seed="0", step=f'(continue (par-len item (list {W} "q")))'), "effect_not_permitted"),
+    "done": (f'(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (par-len item (list {W} "q")))))',
+             "effect_not_permitted"),
+    "source-is-the-effect": (
+        f'''(par-len item {E('[\\"w\\",\\"q\\"]', "List[String]")})''', "list_map_effect_body_unsupported"),
 }
 
 
-@pytest.mark.parametrize("case", PURE_MATCH_OPERAND)
-def test_pure_match_operand_moves_effect_names_only_where_stated(tmp_path: Path, case: str) -> None:
-    moves, body = PURE_MATCH_OPERAND[case]
-    names = []
-    for label, x in (("literal", "1"), ("match", M)):
-        result = run(write(tmp_path / label, "Int", body.format(e1=E(1), e3=E(3), x=x)))
-        assert result.returncode == 0, result.stderr
-        names.append(started(result.stderr))
+@pytest.mark.parametrize("case", TEMPLATE_BINDER)
+def test_parallel_map_with_a_template_binder_and_an_effectful_source_stays_refused(tmp_path: Path, case: str) -> None:
+    body, code = TEMPLATE_BINDER[case]
+    write(tmp_path, "Int", body, ITEM_PROC + PAR_LEN)
 
-    assert (names[0] != names[1]) == moves, names
+    compiled = cli(tmp_path, "compile", "main.orc")
+
+    assert (compiled.returncode, f"[{code}]" in compiled.stderr, "Traceback" in compiled.stderr) == (2, True, False), compiled.stderr
+
+
+def test_parallel_map_whose_binder_is_a_macro_argument_takes_an_effectful_source(tmp_path: Path) -> None:
+    for name in ("w", "q"):
+        (tmp_path / "ws" / name).mkdir(parents=True)
+    write(tmp_path, "Int", ONE_ROUND.format(seed="0", step=f'(continue (par-named y item (list {W} "q")))'),
+          ITEM_PROC + PAR_NAMED)
+
+    result = run(tmp_path)
+
+    assert (result.returncode, value(result), calls(tmp_path)) == (0, 2, ["w", "bw", "bq"]), result.stderr
 
 
 def test_parallel_map_with_a_pure_conditional_source_runs(tmp_path: Path) -> None:
@@ -496,15 +585,6 @@ def test_parallel_map_with_a_pure_conditional_source_runs(tmp_path: Path) -> Non
 
     assert result.returncode == 0, result.stderr
     assert (value(result), calls(tmp_path)) == (["w"], ["w"])
-
-
-def test_effectful_map_source_bindings_do_not_capture_body_names(tmp_path: Path) -> None:
-    write(tmp_path, "List[Int]", f"(let* ((y {E(5)})) (list/map ((x (let* ((y {E(1)})) (list y)))) (+ x y)))")
-
-    result = run(tmp_path)
-
-    assert result.returncode == 0, result.stderr
-    assert (value(result), calls(tmp_path)) == ([6], ["5", "1"])
 
 
 # Kill, failure and `must_not_repeat`: each newly admitted form beside the equivalent `let*`.

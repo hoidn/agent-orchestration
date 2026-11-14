@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .effects import (
+    EMPTY_EFFECT_SUMMARY,
     EffectSummary,
     effect_summary_contains_runs_ref,
     merge_effect_summaries,
@@ -19,6 +20,7 @@ from .typecheck_context import (
     _type_label,
     raise_error,
     raise_run_ref_placement_invalid,
+    require_simple_parts,
 )
 from .typecheck_proofs import ProofScope, _allocate_binding_identity
 
@@ -105,6 +107,7 @@ def typecheck_loop_recur_expr(
     )
     exhaustion_summaries: list[EffectSummary] = []
     typed_exhausted_expr = None
+    effect_place_code = expr.effect_place_code
     if expr.on_exhausted_result_expr is not None:
         typed_exhausted = check(
             expr.on_exhausted_result_expr,
@@ -135,6 +138,10 @@ def typecheck_loop_recur_expr(
                 span=expr.on_exhausted_result_expr.span,
                 form_path=expr.on_exhausted_result_expr.form_path,
             )
+        if typed_exhausted.effect_summary != EMPTY_EFFECT_SUMMARY:
+            require_simple_parts([typed_exhausted.expr], place="this `:on-exhausted` value", code="loop_recur_contract_invalid",
+                                 advice="do the work in a procedure and call it here")
+            effect_place_code = "loop_recur_contract_invalid"
         exhaustion_summaries.append(typed_exhausted.effect_summary)
         typed_exhausted_expr = typed_exhausted.expr
     return typed_factory(
@@ -145,6 +152,7 @@ def typecheck_loop_recur_expr(
             body_expr=typed_body.expr,
             on_exhausted_result_expr=typed_exhausted_expr,
             binding_identity=binding_identity,
+            effect_place_code=effect_place_code,
         ),
         type_ref=typed_body.type_ref.result_type_ref,
         effect=merge_effect_summaries(

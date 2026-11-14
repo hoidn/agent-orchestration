@@ -140,6 +140,11 @@ def test_public_union_owner_mismatch_refuses_before_dispatch(tmp_path):
                                       "list-element", "variant-field"])
 def test_public_run_ref_placement_commits_and_reuses_exact_child(tmp_path, monkeypatch, position, locality):
     files, input_file = prepare_placement(tmp_path, position, locality)
+    if locality == "direct" and position in ("list-element", "variant-field"):
+        # The direct form binds the child with `let*` inside the element or field, which is not a
+        # simple value (frontend specification 16.3); the call forms of the other localities are.
+        assert_source_refusal(files, _compile(files), "effect_not_permitted")
+        return
     expected = (["placement", "second"] if position == "serial-map"
                 else ["placement"] if position in ("map", "list-element") else "placement")
     count = 2 if position == "serial-map" else 1
