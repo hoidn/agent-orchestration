@@ -272,6 +272,11 @@ its stream holds an init event or the passthrough has metered a request for its 
   per success (the cost of every start at that level over its successes). An effort level is
   named dominated only when another level beats it on the same sign-flip test at p ≤ 0.05 and
   has a lower mean cost; otherwise "not resolved".
+- **Graded outcome, secondary (roadmap Phase 5b, "Making fitness cheaper to measure").** Where
+  a task's verifier reports sub-tests, each observation also records passed and total. It is
+  printed per task and effort beside k of n, places no task and enters no test above. Task 1's
+  recordings establish which verifiers expose it and in what form; a task without it prints
+  "pass or fail only".
 - **Adaptive order: rejected.** Running `high` first and skipping the lower levels of a task at
   0 of 5 assumes the thing under test and removes the tasks where a violation would show;
   leaving those tasks out instead keeps tasks selected for success at high.
@@ -312,6 +317,12 @@ effort at a time; "falls" drops the walk; on "not resolved" the ladder has not c
 assumption, and the owner chooses, with the bound in hand, between the walk with both corners
 added and a direct comparison of the points. Fewer than ten screened-in tasks, about as likely
 as not, is reported as too few for step 9's smallest design.
+Also in step 7, at no spend: every failed attempt's transcript is labelled process (lost track
+of the task, stopped early, did not verify, broke earlier work) or capability, by a fixed
+rubric written before the transcripts are read and applied by two readers; `family.json`
+carries the counts per task. The staged comparison of step 9 is read per label, since a
+structure can repair a process failure and not a capability gap. Tasks with a sub-test count
+are marked, for a later graded fitness.
 
 **Step 8: merge and freeze the seed.** `milestones.orc` (49 lines on `spike/long-horizon-seed`)
 is written once, after the surface-coherence changes of Lane D stage 5 merge (46 lines
@@ -334,6 +345,25 @@ tasks, about 21; the seed design's computation on its own assumed rates). Rough 
 USD 170 to 440, after a measure-free smoke of two seed runs (about USD 15), and excluding any
 ladder for added tasks. Open design work, larger than one line: how a workflow's steps run
 inside a task container, and what the seed uses as its visible check, since the tasks ship none.
+
+**Owner direction for step 9 (2026-11-13): "code quality is compounding and matters".** A task's
+verifier scores pass or fail at the end and does not see the quality of what was built; on a
+long task, later work builds on earlier work, so quality early can decide cost and success
+later. Step 9's design therefore reports two things beside the pass rate, and a null on pass
+rate against re-rolling is not by itself the answer:
+- a blind quality rating of the final repository (the functional rubric of the experiment
+  rules, with a judge qualified by its own predeclared check on natural controls before any
+  rating is read; that qualification is separate spend to be sized in the request);
+- a compounding measure inside the staged arm: with the milestone reviewer present and absent,
+  the priced cost and the refusals of each later milestone, and whether the final check passes.
+  Earlier studies here measured review on one change (a small gain with a stronger reviewer on
+  an easy bug, none on a harder task scored by hidden tests) and could not see compounding.
+Step 9 also records, at each stage boundary of the staged arm, the visible check's pass
+fraction and the agents' typed verdicts beside the final verifier result, and reports how well
+each predicts the end (roadmap Phase 6, readiness item R1 stops candidates only on a signal
+that does).
+The re-roll bar above stays as the pass-rate comparison: it is best-of-k direct sessions with an
+ideal selector, which no real selector reaches, and the request says so.
 
 ## Tasks
 

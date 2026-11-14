@@ -251,9 +251,6 @@ with its details; the lines after it say what to do:
 $ orchestrator resume <run id>
 [effect_input_diverged] workflow:grow::run / loop:pads[1] / else / padded: effect input diverged (input parts changed: ['implementation_files']; dependency identities changed: False; previous sha256:944b4a0ab4faac62789e027c4eda240c5c64d41b90edd275c859800efffb7c90, current sha256:8daa183fb6611eba7aab5312f3e4dcc68e79c0ad87bc2aac245636e52fee662c)
 step workflow:grow::run / loop:pads[1] / else / padded was committed with other inputs; changed: implementation_files; files: pad.py
-to run this step and every later one again (workspace files are not rolled back):
-    orchestrator invalidate 20261112T060138Z-bq9zwh 'workflow:grow::run / loop:pads[1] / else / padded'
-    orchestrator resume 20261112T060138Z-bq9zwh
 if accepted, this run cancels from the changed step, as invalidate does:
   kept      1 committed step:
     workflow:grow::run / loop:pads[1] / words
@@ -268,12 +265,17 @@ if accepted, this run cancels from the changed step, as invalidate does:
   unfinished steps retried: none
   runs first: workflow:grow::run / loop:pads[1] / else / padded
   files that cancelled steps wrote in the workspace are not rolled back
-plan token: plan-2cadffd4-610b7111-1cc50b4d-6373171f
+to accept this plan:
+    orchestrator resume 20261112T060138Z-bq9zwh --accept-changes=plan-2cadffd4-610b7111-1cc50b4d-6373171f
+to run this step and every later one again (workspace files are not rolled back):
+    orchestrator invalidate 20261112T060138Z-bq9zwh 'workflow:grow::run / loop:pads[1] / else / padded'
+    orchestrator resume 20261112T060138Z-bq9zwh
 ```
 
 The lines from `if accepted` on are the plan: which committed steps are
-kept and which run again. No command takes the plan token yet; the two
-commands above do what the plan says.
+kept and which run again. The `--accept-changes=plan-…` command applies that
+plan in one step, and is refused if anything it names changed since it was
+printed; the two commands after it do the same in two steps, as below.
 
 **Invalidate** tells the run to forget a committed step, so `resume` runs it
 and every later step again:
