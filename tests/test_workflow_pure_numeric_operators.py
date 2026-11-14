@@ -28,10 +28,10 @@ INT64_MIN = -(2**63)
 EXPR_LINE, EXPR_COLUMN = 8, 5
 
 
-def _source(expr: str, params: dict[str, object], *, result: str, target: str = "2.35") -> str:
+def _source(expr: str, params: dict[str, object], *, result: str) -> str:
     declared = " ".join(f"({name} {'Int' if type(value) is int else 'Float'})" for name, value in params.items())
     return (
-        f'(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "{target}")\n'
+        '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.40")\n'
         "  (defmodule grt/entry)\n  (export run)\n  (defrecord DivMod (q Int) (r Int) (back Int))\n"
         f"  (defworkflow run ({declared}) -> {result}\n    {expr}))\n"
     )

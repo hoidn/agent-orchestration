@@ -325,7 +325,7 @@ def test_find_purity_violation_allows_pure_cond_body() -> None:
             form_path=("workflow-lisp", "defun", "summarize"),
         ),
         bound_names=frozenset(),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     assert functions._find_purity_violation(expr) is None
@@ -347,7 +347,7 @@ def test_find_purity_violation_flags_effectful_cond_clause_child() -> None:
         ),
         bound_names=frozenset(),
         procedure_names=frozenset({"dispatch"}),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     assert functions._find_purity_violation(expr) == "defproc"
