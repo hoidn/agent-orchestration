@@ -560,6 +560,8 @@ MATCH_IN_AN_APPLICATION = {
     "let-binding-match-under-an-operator": (True, LET_BOUND.replace("{v}", OPERATOR), "1", f"(* 2 {M})"),
     "let-binding-of-a-procedure-application-match-under-an-operator": (
         False, LET_BOUND.replace("{v}", PROCEDURE), "1", f"(* 2 {M})"),
+    "let-binding-application-in-a-record-update-field": (
+        True, "(let* ((p (record Pair :a 0 :b 0))) (+ 0 (let* ((q (record-update p :a " + OPERATOR + "))) q.a)))", "1", M),
     "let-binding-application-under-an-operator": (True, LET_BOUND.replace("{v}", f"(* 2 {OPERATOR})"), "1", M),
     "loop-state": (True, f"(loop/recur :max 1 :state {OPERATOR} :on-exhausted s (fn (s) (done s)))", "1", M),
     "loop-max": (True, f"(loop/recur :max {OPERATOR} :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ s 1)))))", "1", M),

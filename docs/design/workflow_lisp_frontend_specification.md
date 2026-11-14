@@ -2637,7 +2637,8 @@ effects.
    `(let* ((w (+ E M))) (+ w E))` names its steps `w / body / #1` and `#1`,
    against `#1` and `#2` with `1` for `M`. The names
    move when the application is a `let*` binding value (or stands under an
-   operator or in an `if` condition inside one), a loop `:state` or `:max`, a
+   operator, in an `if` condition or in a `record-update` field inside one),
+   a loop `:state` or `:max`, a
    `done` value, an argument of a procedure, a `let-proc` local, a workflow
    or a command, or inside the first operand of an `and`:
    `(call child :t (+ E M))` names its step `#1 / body / #1`. A pure
