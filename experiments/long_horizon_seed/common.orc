@@ -2,7 +2,7 @@
   (:language "0.1")
   (:target-dsl "2.40")
   (defmodule common)
-  (export Change CheckReport Outcome DocPath GuidePath Setup Spec Design Milestone Plan Verdict)
+  (export Change CheckReport Outcome DocPath GuidePath Setup Spec Design Reviewed Milestone Plan Verdict)
 
   ;; Shared result types of the long-horizon seeds. Change and CheckReport are
   ;; the seed catalog's, unchanged; Outcome is the catalog's with the notes an
@@ -38,6 +38,10 @@
 
   (defrecord Design
     (doc DocPath))
+
+  (defunion Reviewed
+    (ACCEPTED (design DocPath))
+    (REFUSED (reasons List[String])))
 
   (defrecord Milestone
     (id String)

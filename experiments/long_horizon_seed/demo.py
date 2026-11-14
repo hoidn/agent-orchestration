@@ -9,13 +9,15 @@ Each scenario is what the run must show (its result, its committed steps) and th
 kills the orchestrator in the middle of the call; the run is then resumed). The stand-in task: `src/m1.txt` and
 `src/m2.txt` must both hold `ok`; that is its visible check (`dev-check.json`, run by the seed catalog's
 `dev_check.py`). `run` returns what happened and `expected` what the scenario declares; the two must be equal, so a
-wrong branch in a program, a step dispatched twice after a kill or a call the script did not foresee fails here.
+wrong branch in a program, a step dispatched twice after a kill, a call the script did not foresee, a later step that
+is not given the guide the setup reported, or a socket directory left behind fails here.
 `tests/experiments/test_long_horizon_seed.py` runs every scenario.
 """
 
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -28,18 +30,21 @@ from orchestrator.workflow.evaluated.machine import site_classes  # noqa: E402
 from tests.agent_session_shims import FAKE_CLAUDE, closed_path, shim_requests  # noqa: E402
 
 # The orchestrator's command line with observation panes that do nothing: a killed run skips its cleanup and
-# would leave a tmux server behind (`roles` has Agent Sessions, which open one).
-DRIVER = '''import itertools, sys
+# would leave a tmux server behind (`roles` has Agent Sessions, which open one). The manager's socket directory
+# goes under TMPDIR, which `orchestrator` sets to the world, instead of /tmp.
+DRIVER = '''import itertools, os, sys
+from orchestrator.providers import observation
 from orchestrator.workflow.evaluated import runtime
 from orchestrator.cli import main
 class NoPanes:
-    panes = itertools.count()
+    panes, alive = itertools.count(), True
     def start_server(self, socket_path, session_name): pass
     def open_pane(self, socket_path, session_name, display_path): return f"%{next(self.panes)}"
     def pane_alive(self, socket_path, target): return True
-    def server_alive(self, socket_path, session_name): return True
+    def server_alive(self, socket_path, session_name): return self.alive
     def close_pane(self, socket_path, target): pass
-    def close_server(self, socket_path): pass
+    def close_server(self, socket_path): self.alive = False
+observation._SOCKET_TEMP_ROOT = os.environ["TMPDIR"]
 runtime.observation_backend = NoPanes
 sys.argv = ["orchestrator", *sys.argv[1:]]
 sys.exit(main())
@@ -72,6 +77,7 @@ DOCS = {"docs/index.md": "spec.md plan.md log.md notes/\n", "docs/log.md": "# Lo
 SETUP = {"guide": "AGENTS.md", "index": "docs/index.md", "log": "docs/log.md"}
 GUIDES = {"result": SETUP, "files": {"AGENTS.md": "# Guide\nCheck: python dev_check.py\n", **DOCS}}
 NO_GUIDE = {"result": SETUP, "files": DOCS}  # the setup step reports a guide it did not write
+ELSEWHERE = {"result": {**SETUP, "guide": "GUIDE.md"}, "files": {"GUIDE.md": "# Guide\n", **DOCS}}  # and no AGENTS.md
 SPEC = {"result": {"doc": "docs/spec.md", "targets": ["T1", "T2"]}, "files": {"docs/spec.md": "T1 m1 holds ok\nT2 m2 holds ok\n"}}
 MET = {"result": {"variant": "MET", "evidence": ["read the files"]}}
 NOT_MET = {"result": {"variant": "NOT_MET", "reasons": ["T2 does not hold: src/m2.txt"]}}
@@ -81,8 +87,23 @@ DESIGN = {"result": {"doc": "docs/design.md"}, "files": {"docs/design.md": "# De
 REVISED = {"result": {"doc": "docs/design.md"}, "files": {"docs/design.md": "# Design (revised)\n"}}
 BUILD = [plan("M1", "M2"), work(m1="ok", m2="ok"), MET]
 DONE = {"summary": "accepted", "variant": "DONE"}
-REFUSED = {"notes": NOT_MET["result"]["reasons"], "variant": "BLOCKED"}  # an exhausted loop returns its last notes
+REASONS, FAILING = NOT_MET["result"]["reasons"], "failing: m2\n"  # a refusal's reasons; the stand-in check's output
 NO_SETUP = ({"error": "provider_result_invalid", "at": "ready"}, 0, [NO_GUIDE])
+
+
+def blocked(reason, *notes):
+    """An exhausted loop's result: its reason and the notes it ended on."""
+    return {"notes": list(notes), "reason": reason, "variant": "BLOCKED"}
+
+
+def elsewhere(scenario):
+    """The scenario with a setup step that writes and reports its guide under another name."""
+    result, steps, answers = scenario
+    return result, steps, [ELSEWHERE, *answers[1:]]
+
+
+# A refused acceptance, then rounds that fail the check until the round loop is exhausted: its notes keep both.
+OPEN = [work(m1="ok", m2="ok"), NOT_MET, work(m2="bad"), work(), work()]
 
 # scenario: (result, committed steps, answers)
 FLAT = {
@@ -90,43 +111,49 @@ FLAT = {
     "check-fails-once": (DONE, 8, START + [work(m1="ok", m2="bad"), work(m2="ok"), MET]),
     "review-rejects-once": (DONE, 9, START + [work(m1="ok", m2="ok"), NOT_MET, work(memory="round 2\n"), MET]),
     "kill-and-resume": (DONE, 8, START + [work("round 1\n", m1="ok", m2="bad"), KILL, work(m2="ok"), MET]),
-    "acceptance-never-given": ({**REFUSED, "reason": "round limit reached"}, 15, START + 4 * [work(m1="ok", m2="ok"), NOT_MET]),
+    "refused-then-check-fails": (blocked("round limit reached", *REASONS, *3 * [FAILING]), 12, START + OPEN),
     "setup-incomplete": NO_SETUP,
 }
-DESIGNED = {  # guides, spec, design, rounds of design review and revision; then plan, work, acceptance
+FLAT["guide-under-another-name"] = elsewhere(FLAT["clean"])
+DESIGNED = {  # guides, spec, design, at most two design reviews with a revision between; then plan, work, acceptance
     "clean": (DONE, 8, [GUIDES, SPEC, DESIGN, MET] + BUILD),
     "design-refused-once": (DONE, 10, [GUIDES, SPEC, DESIGN, NOT_MET, REVISED, MET] + BUILD),
-    "design-refused-twice": (DONE, 11, [GUIDES, SPEC, DESIGN, NOT_MET, REVISED, NOT_MET, REVISED] + BUILD),
+    "design-never-accepted": (blocked("design round limit reached", *REASONS), 6, [GUIDES, SPEC, DESIGN, NOT_MET, REVISED, NOT_MET]),
     "acceptance-refused-once": (DONE, 11, [GUIDES, SPEC, DESIGN, MET] + BUILD[:2] + [NOT_MET, work(memory="round 2\n"), MET]),
     "kill-between-design-and-plan": (DONE, 8, [GUIDES, SPEC, DESIGN, MET, KILL] + BUILD),
-    "acceptance-never-given": ({**REFUSED, "reason": "round limit reached"}, 17,
-                               [GUIDES, SPEC, DESIGN, MET, plan("M1", "M2")] + 4 * [work(m1="ok", m2="ok"), NOT_MET]),
+    "refused-then-check-fails": (blocked("round limit reached", *REASONS, *3 * [FAILING]), 14,
+                                 [GUIDES, SPEC, DESIGN, MET, plan("M1", "M2")] + OPEN),
     "setup-incomplete": NO_SETUP,
 }
+DESIGNED["guide-under-another-name"] = elsewhere(DESIGNED["clean"])
 MILESTONES = {  # per milestone: work, review; then the acceptance
     "clean": (DONE, 11, START + [work(m1="ok"), MET, work(m2="ok"), MET, MET]),
     "check-fails-once": (DONE, 16, START + [work(m1="ok"), MET, work(m2="bad"), MET, plan("M3"), work(m2="ok"), MET, MET]),
     "review-rejects-once": (DONE, 14, START + [work(m1="ok"), MET, work(m2="bad"), NOT_MET, work(m2="ok"), MET, MET]),
     "kill-and-resume": (DONE, 11, START + [work("M1 done\n", m1="ok"), MET, KILL, work(m2="ok"), MET, MET]),
     "kill-in-a-second-attempt": (DONE, 14, START + [work(m1="ok"), MET, work(m2="bad"), NOT_MET, KILL, work(m2="ok"), MET, MET]),
-    "plan-of-nine": (DONE, 32, [GUIDES, SPEC, plan(*(f"M{i}" for i in range(1, 10))), work(m1="ok", m2="ok"), MET]
-                     + 8 * [work(), MET] + [MET]),  # more milestones than the planner is advised to write
-    "acceptance-never-given": ({**REFUSED, "reason": "acceptance round limit reached"}, 14,
-                               [GUIDES, SPEC] + 2 * [plan("M1"), work(m1="ok", m2="ok"), MET, NOT_MET]),
     "setup-incomplete": NO_SETUP,
 }
-# `roles` takes the same answers; opening a conversation is a step too: two for the run, two per milestone built
-OPENED = {"check-fails-once": 8, "plan-of-nine": 20, "setup-incomplete": 2}
+MILESTONES["guide-under-another-name"] = elsewhere(MILESTONES["clean"])
+# `roles` takes these answers; opening a conversation is a step too: two for the run, two per milestone built
+OPENED = {"check-fails-once": 8, "setup-incomplete": 2}
 ROLES = {name: (result, steps + OPENED.get(name, 6), answers) for name, (result, steps, answers) in MILESTONES.items()}
+MILESTONES |= {  # the map's bound and the round loop's exhaustion are the same code with conversations: once is enough
+    "plan-of-nine": (DONE, 32, [GUIDES, SPEC, plan(*(f"M{i}" for i in range(1, 10))), work(m1="ok", m2="ok"), MET]
+                     + 8 * [work(), MET] + [MET]),  # more milestones than the planner is advised to write
+    "refused-then-check-fails": (blocked("acceptance round limit reached", *REASONS, FAILING), 13,
+                                 [GUIDES, SPEC, plan("M1"), *OPEN[:1], MET, NOT_MET, plan("M1"), OPEN[2], MET]),
+}
 PROGRAMS = {"staged": FLAT, "designed": DESIGNED, "milestones": MILESTONES, "roles": ROLES}
 FLAGS = ("--provider-externs-file", str(HERE / "providers.json"), "--command-boundaries-file", str(HERE / "commands.json"))
 
 
 def expected(program, scenario):
-    """What `run` must return for the scenario: every answer used once, no step started twice."""
+    """What `run` must return for the scenario: every answer used once, no step started twice, every later step
+    given the reported guide, no socket directory left."""
     result, steps, answers = PROGRAMS[program][scenario]
     return {"result": result, "steps": steps, "calls": len(answers) - answers.count(KILL), "restarted": [],
-            "settings": [["claude-haiku-5-5", "medium"]]}
+            "settings": [["claude-haiku-5-5", "medium"]], "unguided": [], "stray": []}
 
 
 def orchestrator(world, *argv, hash_seed="0"):
@@ -170,6 +197,22 @@ def failure(proc):
     return {"error": line.rsplit("[", 1)[1].rstrip("]"), "at": events(proc, "failed")[-1].split(" / ")[-1]}
 
 
+def unguided(run_root, guide):
+    """The steps after the setup whose prompt does not hold the guide path the setup reported (a value the program
+    passes on, not the prompt's wording)."""
+    rows = [json.loads(line) for line in (run_root / "memo.jsonl").read_text().splitlines()]
+    prompts = {row["identity"].split(" / ")[-1]: run_root / Path(row["result_path"]).parent / "prompt.txt"
+               for row in rows if row["record"] == "started"}
+    return sorted(step for step, path in prompts.items() if step != "ready" and path.exists() and guide not in path.read_text())
+
+
+def stray(world, proc):
+    """The socket directories the process named that lie outside the world, or that it left behind although it ended
+    by itself (a killed process cannot remove its own, which stays in the world)."""
+    named = [Path(path) for path in re.findall(r"tmux -S (\S+)/tmux\.sock", proc.stderr)]
+    return [str(path) for path in named if world not in path.parents or (proc.returncode != -9 and path.exists())]
+
+
 def run(base, program, scenario):
     """Run the scenario in a new world under `base`; returns what happened, in the shape of `expected`."""
     answers = PROGRAMS[program][scenario][2]
@@ -182,11 +225,12 @@ def run(base, program, scenario):
                         "--source-root", str(HERE), *FLAGS, "--input-file", str(world / "inputs.json"))
     print(f"\n== {program} / {scenario}: run exit {proc.returncode}")
     print("\n".join(line for line in proc.stderr.splitlines() if line.startswith(("start ", "commit "))))
-    committed, restarted = events(proc, "commit"), []
+    committed, restarted, left = events(proc, "commit"), [], stray(world, proc)
+    (run_root,) = (repo / ".orchestrate" / "runs").iterdir()
     if KILL in answers:
         assert proc.returncode == -9, proc.stdout + proc.stderr
-        (run_root,) = (repo / ".orchestrate" / "runs").iterdir()
         proc = orchestrator(world, "resume", run_root.name)
+        left += stray(world, proc)
         print(f"-- resume exit {proc.returncode}; steps started again:")
         print("\n".join(line for line in proc.stderr.splitlines() if line.startswith(("start ", "commit "))))
         restarted = sorted(set(committed) & set(events(proc, "start")))
@@ -197,7 +241,8 @@ def run(base, program, scenario):
     print(f"-- result {json.dumps(result)}; {len(committed)} steps committed, {len(requests)} provider calls "
           f"in {len({r['session'] for r in requests})} conversations")
     return {"result": result, "steps": len(committed), "calls": len(requests), "restarted": restarted,
-            "settings": sorted(map(list, settings))}
+            "settings": sorted(map(list, settings)), "unguided": unguided(run_root, answers[0]["result"]["guide"]),
+            "stray": sorted(set(left))}
 
 
 if __name__ == "__main__":
