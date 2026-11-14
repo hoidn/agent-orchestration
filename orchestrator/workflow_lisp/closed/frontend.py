@@ -11,7 +11,7 @@ from types import MappingProxyType
 from ..command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, compiler_defect_boundary
 from ..procedures import GeneratedLocalProcedure, TypedProcedureDef, procedure_type_env_for
-from ..reader import SourceReadTrace, read_sexpr_file
+from ..reader import SOURCE_READ_ERRORS, SourceReadTrace, read_sexpr_file
 from ..spans import SourceSpan
 from ..syntax import (
     SyntaxIdentifier,
@@ -562,8 +562,8 @@ def compile_typed_program_with_result(
     target, target_span = _entry_target_header_from_tree(parse_tree)
 
     source_syntax = syntax.build_syntax_module(parse_tree)
-    # Reading an imported source raises `OSError` or `UnicodeError`: the command line reports those as I/O errors.
-    with compiler_defect_boundary(entry_path, "typecheck", passes=(OSError, UnicodeError)):
+    # A source read inside typecheck can fail or change: those are refusals, not compiler defects.
+    with compiler_defect_boundary(entry_path, "typecheck", passes=SOURCE_READ_ERRORS):
         result = compiler.compile_stage3_entrypoint(
             entry_path,
             entry_workflow=entry_workflow,

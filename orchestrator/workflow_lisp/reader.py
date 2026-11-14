@@ -31,6 +31,14 @@ def exponent_float_literal(token: str) -> float | None:
     return float(token) if _EXPONENT_FLOAT_RE.match(token) else None
 
 
+class SourceChangedDuringReadError(RuntimeError):
+    """A source read twice in one compiler read trace changed in between: a refusal, not a compiler defect."""
+
+
+# What reading a source raises; the typecheck defect boundary lets these through.
+SOURCE_READ_ERRORS = (OSError, UnicodeError, SourceChangedDuringReadError)
+
+
 @dataclass(frozen=True)
 class SourceReadRecord:
     """One exact source-file read observed by a compiler-owned trace."""
@@ -183,7 +191,7 @@ class SourceReadTrace:
         self._records.append(record)
         previous_revision = self._revisions_by_path.setdefault(canonical_path, revision)
         if previous_revision != revision:
-            raise RuntimeError(
+            raise SourceChangedDuringReadError(
                 f"source `{canonical_path}` changed during one compiler read trace"
             )
         if raw_bytes is not None:
@@ -192,7 +200,7 @@ class SourceReadTrace:
                 raw_bytes,
             )
             if previous_raw_bytes != raw_bytes:
-                raise RuntimeError(
+                raise SourceChangedDuringReadError(
                     f"source `{canonical_path}` changed during one compiler read trace"
                 )
         return record

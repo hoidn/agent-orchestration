@@ -718,19 +718,29 @@ All language-boundary rejection happens at or before typecheck:
 
 In the current checkout an internal exception raised during typecheck, or
 after typecheck by elaboration, normalization or closed-program construction,
-is reported as one `compiler_defect` diagnostic (exit 2). The boundary is
-applied twice (`compiler_defect_boundary` in
-`orchestrator/workflow_lisp/diagnostics.py`): around the typechecker's call of
+is reported as one `compiler_defect` diagnostic (exit 2). The boundary
+(`compiler_defect_boundary` in `orchestrator/workflow_lisp/diagnostics.py`)
+sits at three call sites, and its phase is the one it was applied with. With
+phase `typecheck`, the message names typecheck: around the typechecker's call of
 `compile_stage3_entrypoint` in `orchestrator/workflow_lisp/closed/frontend.py`,
-where the diagnostic's phase is `typecheck` and it names typecheck, and around
-the closed build in `orchestrator/workflow_lisp/closed/build.py`, where its
-phase is `lowering` and it says that the program passed typecheck and names
-the stage. It points at the authored form being handled where a stage after
-typecheck tagged one, else at the start of the entry module; the diagnostic keeps the exception as its
-`cause` (no CLI flag prints the traceback). Diagnostics, `MemoryError` and an
-`AssertionError` raised outside the orchestrator package are not converted; nor,
-around typecheck, are `OSError` and `UnicodeError`, which reading an imported
-source raises and the command line reports as an I/O error. Two internal checks
+and around the typecheck of each imported workflow bundle in
+`orchestrator/workflow_lisp/build.py:_load_imported_workflow_bundle_manifest`.
+With phase `lowering`, the message says that the program passed typecheck and
+names the stage: around the closed build in
+`orchestrator/workflow_lisp/closed/build.py`. It points at the authored form
+handled by the innermost stage that tagged one, else at the start of the module
+being compiled; the message ends with the innermost function of the package
+that raised (`defect_site`, the key `crash_signature` uses in the defect
+backlog), and the diagnostic keeps the exception as its `cause` (no CLI flag
+prints the traceback). Diagnostics, `MemoryError` and an `AssertionError`
+raised outside the orchestrator package are not converted; nor, around
+typecheck, are the errors of reading a source (`SOURCE_READ_ERRORS` in
+`orchestrator/workflow_lisp/reader.py`): `OSError`, `UnicodeError`, and
+`SourceChangedDuringReadError`, the reader's refusal of a source that changed
+between two reads of one compile. `compile` reports an `OSError` or
+`UnicodeError` as an I/O error (exit 2) and `run` reports a `UnicodeError` as a
+validation error (exit 2); `run` with an import it cannot read (`OSError`)
+still ends in a traceback (exit 1), a defect outside this boundary. Two internal checks
 have codes of their own: `compiler_defect_hoisted_binding_rename` and
 `compiler_defect_constructor_type_dropped`; `compiler_defect_loop_control_value`
 and the replay-index code `pure_result_replay_unavailable` were retired with

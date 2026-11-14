@@ -342,6 +342,26 @@ def _raised_by_the_orchestrator(error: BaseException) -> bool:
     return frame.f_globals.get("__name__", "").startswith("orchestrator.")
 
 
+_PACKAGE = Path(__file__).resolve().parents[1]
+# Functions that only raise: a defect's site names their caller.
+RAISING_HELPERS = frozenset({
+    "contracts/closed_program/check.py:_Checker.fail",
+    "workflow_lisp/closed/preparation_check.py:_fail",
+})
+
+
+def defect_site(error: BaseException) -> str:
+    """`path/under/orchestrator.py:qualified.name` of the innermost function of the package in `error`'s
+    traceback that is not a raising helper. No line number, and no path outside the package."""
+
+    places = [
+        f"{path.relative_to(_PACKAGE).as_posix()}:{frame.f_code.co_qualname}"
+        for frame, _line in traceback.walk_tb(error.__traceback__)
+        if _PACKAGE in (path := Path(frame.f_code.co_filename).resolve()).parents
+    ]
+    return next(place for place in reversed(places) if place not in RAISING_HELPERS)
+
+
 @contextmanager
 def compiler_defect_boundary(
     module_path: Path,
@@ -356,7 +376,9 @@ def compiler_defect_boundary(
     the typechecker (`closed/frontend.py`), `lowering` around the closed build
     (`closed/build.py`); only after typecheck does the message say that the program passed
     it. The diagnostic is at the innermost node tagged by `records_defect_provenance`, else
-    at the start of the module, and keeps the exception as its `cause`. Diagnostics,
+    at the start of the module, keeps the exception as its `cause`, and its message ends with
+    the exception's `defect_site` (the boundary's own frame is always in the traceback, so
+    there is one). Diagnostics,
     `MemoryError`, the classes in `passes` and an assertion failure raised outside the
     orchestrator package (a test's stand-in for a stage) pass unchanged; a `BaseException`
     that is not an `Exception` is never caught.
@@ -380,7 +402,7 @@ def compiler_defect_boundary(
             code="compiler_defect",
             message=(
                 f"{passed}{stage} failed on this form: this is a defect of "
-                f"the compiler, not of the program ({type(error).__name__}: {error})"
+                f"the compiler, not of the program ({type(error).__name__}: {error}) in {defect_site(error)}"
             ),
             span=span,
             form_path=form_path,

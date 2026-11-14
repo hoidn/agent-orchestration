@@ -700,3 +700,86 @@ def test_an_unreadable_imported_source_is_not_a_compiler_defect(tmp_path):
     with pytest.raises(UnicodeDecodeError):
         build(tmp_path, {"m.orc": _ONE_LINE.replace("(export run)", "(import m/lib) (export run)")},
               entry_workflow="m::run")
+
+
+def _fail_typecheck_on(monkeypatch, value):
+    """Make the typechecker raise `RuntimeError` on the integer literal `value` and only there."""
+    from orchestrator.workflow_lisp import typecheck_dispatch
+
+    original = typecheck_dispatch.typecheck_structural_value_expr
+
+    def fail(expr, **kwargs):
+        if getattr(expr, "value", None) == value:
+            raise RuntimeError("injected typecheck failure")
+        return original(expr, **kwargs)
+
+    monkeypatch.setattr(typecheck_dispatch, "typecheck_structural_value_expr", fail)
+
+
+def _printed_codes(stderr):
+    import re
+
+    return re.findall(r":\d+:\d+: \[([a-z_0-9]+)\]", stderr)
+
+
+def _cli_project(root, *, bundle=False):
+    import json
+
+    (root / "m.orc").write_text(_ONE_LINE, encoding="utf-8")
+    (root / "commands.json").write_text("{}", encoding="utf-8")
+    flags = ["--entry-workflow", "m::run", "--source-root", ".", "--command-boundaries-file", "commands.json"]
+    if bundle:
+        lib = _ONE_LINE.replace("(defmodule m)", "(defmodule lib)").replace("-> Int 1", "-> Int 7")
+        (root / "lib.orc").write_text(lib, encoding="utf-8")
+        (root / "bundles.json").write_text(json.dumps(
+            {"lib": {"kind": "compiled", "path": "lib.orc", "entry_workflow": "lib::run"}}), encoding="utf-8")
+        flags += ["--imported-workflow-bundles-file", "bundles.json"]
+    return flags
+
+
+@pytest.mark.parametrize("command", ["compile", "run"])
+def test_a_typecheck_compiler_defect_exits_2_on_the_command_line(tmp_path, monkeypatch, command):
+    from tests.workflow_inprocess_cli_helpers import cli_inprocess
+
+    _fail_typecheck_on(monkeypatch, 1)
+    done = cli_inprocess(tmp_path, command, "m.orc", *_cli_project(tmp_path))
+    assert (done.returncode, _printed_codes(done.stderr)) == (2, ["compiler_defect"])
+
+
+@pytest.mark.parametrize("command", ["compile", "run"])
+def test_a_typecheck_failure_in_an_imported_bundle_is_a_compiler_defect(tmp_path, monkeypatch, command):
+    from tests.workflow_inprocess_cli_helpers import cli_inprocess
+
+    _fail_typecheck_on(monkeypatch, 7)  # the bundle's literal: the entry module typechecks
+    done = cli_inprocess(tmp_path, command, "m.orc", *_cli_project(tmp_path, bundle=True))
+    assert (done.returncode, _printed_codes(done.stderr)) == (2, ["compiler_defect"])
+
+
+def test_a_compiler_defect_names_the_innermost_package_function(tmp_path, monkeypatch):
+    from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+    from tests.workflow_lisp_closed_program_helpers import build, crash_signature
+
+    _fail_typecheck_on(monkeypatch, 1)
+    with pytest.raises(LispFrontendCompileError) as exc:
+        build(tmp_path, _ONE_LINE)
+    (diagnostic,) = exc.value.diagnostics
+    site = crash_signature(diagnostic.cause)[1]
+    assert (diagnostic.message.rsplit(" ", 1)[-1], site) == (site, "workflow_lisp/typecheck_dispatch.py:_typecheck")
+
+
+def test_a_source_changed_during_typecheck_is_not_a_compiler_defect(tmp_path, monkeypatch):
+    """Control: the reader's refusal of an entry module edited while it is compiled passes the boundary."""
+    from orchestrator.workflow_lisp.closed import frontend
+    from orchestrator.workflow_lisp.reader import SourceChangedDuringReadError
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    original = frontend.read_sexpr_file
+
+    def read_then_edit(path, *, source_read_trace=None):
+        tree = original(path, source_read_trace=source_read_trace)
+        path.write_text("; edited while compiling\n" + path.read_text(encoding="utf-8"), encoding="utf-8")
+        return tree
+
+    monkeypatch.setattr(frontend, "read_sexpr_file", read_then_edit)
+    with pytest.raises(SourceChangedDuringReadError):
+        build(tmp_path, _ONE_LINE)

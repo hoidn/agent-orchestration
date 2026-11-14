@@ -3710,10 +3710,13 @@ WCC-generated Core AST validation are historical architecture.
 - `semantic_ir_invalid`
 - `executable_ir_invalid`
 - `compiler_defect`: an internal exception raised during typecheck or after
-  typecheck by elaboration, normalization, defunctionalization or lowering,
-  reported at the authored form being handled (at the start of the entry
-  module when no stage names one, as during typecheck), with phase `typecheck`
-  or `lowering`; the internal checks
+  typecheck by elaboration, normalization, defunctionalization or lowering.
+  Its phase is that of the boundary that caught it: `typecheck` while a module
+  or an imported workflow bundle is typechecked, `lowering` during the closed
+  build. It is reported at the authored form handled by the innermost tagged
+  stage, else at the start of the module being compiled (the usual case during
+  typecheck), and its message ends with the innermost function of the
+  compiler that raised it; the internal checks
   `compiler_defect_loop_control_value`, `compiler_defect_hoisted_binding_rename`
   and `compiler_defect_constructor_type_dropped` have codes of their own
 
