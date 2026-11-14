@@ -148,9 +148,10 @@ class _Normalizer:
     """Render one definition with scope-ordinal placeholders.
 
     Binding forms: `let*` (sequential); `list/map`, `list/map-effect`,
-    `with-live-providers`, `with-live-provider-peers` (initializers in the
-    outer scope); `fn` parameters; `let-proc` names and parameters; `match`
-    arm names. Every other list keeps its head and arity.
+    `with-live-providers`, `with-live-provider-peers` and the binder form of
+    `loop/recur` (initializers in the outer scope); `fn` parameters;
+    `let-proc` names and parameters; `match` arm names. Every other list
+    keeps its head and arity.
     """
 
     def __init__(self) -> None:
@@ -285,7 +286,8 @@ class _Normalizer:
         return _wrap(parts)
 
 
-_PARALLEL_BINDING_HEADS = {"list/map", "list/map-effect", "with-live-providers", "with-live-provider-peers"}
+_PARALLEL_BINDING_HEADS = {"list/map", "list/map-effect", "with-live-providers", "with-live-provider-peers",
+                           "loop/recur"}  # the binder form `(loop/recur ((s init)) ...)`; the fn form binds in its `fn`
 
 
 class _ModuleNormalizer(_Normalizer):

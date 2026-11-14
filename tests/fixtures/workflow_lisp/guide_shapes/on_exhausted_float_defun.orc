@@ -1,15 +1,13 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule guide_shapes/on_exhausted_float_defun)
   (export run)
   (defun twice ((x Float)) -> Float
     (+ x x))
   (defworkflow run ((base Float)) -> Float
-    (loop/recur :max 1
-      :state (loop-state (turn Int 0))
+    (loop/recur ((state (loop-state (turn Int 0)))) :max 1
       :on-exhausted (twice base)
-      (fn (state)
-        (if (= state.turn 0)
-          (continue (loop-state :like state :turn (+ state.turn 1)))
-          (done base))))))
+      (if (= state.turn 0)
+        (continue (loop-state :like state :turn (+ state.turn 1)))
+        (done base)))))

@@ -1105,8 +1105,8 @@ narrow validation; where it is kept is stated in §8.10.
 
 For the first-tranche parametric review/revise route, `ReviewDecision` is not a
 global two-token enum. It is a stdlib-owned union with `APPROVE`, `REVISE`, and
-`BLOCKED` variants as defined by
-`workflow_lisp_review_revise_stdlib_parametric_integration.md`.
+`BLOCKED` variants, declared in the `std/phase` module and shown in
+[§27](#27-review-revise-loop).
 
 Enums map to:
 

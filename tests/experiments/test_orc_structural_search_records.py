@@ -77,7 +77,7 @@ def _rename_in_run(source: str, old: str, new: str) -> str:
 @pytest.mark.parametrize(
     ("seed", "binder"),
     [
-        ("implement_review_revise.orc", "state"),  # fn parameter inside loop/recur
+        ("implement_review_revise.orc", "state"),  # loop/recur binder
         ("best_of_n.orc", "label"),  # list/map-effect binding
         ("implement_review_revise.orc", "review"),  # let* name used as match subject
         ("best_of_n.orc", "task"),  # workflow parameter passed as a prompt fill value
