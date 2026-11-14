@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule context_generalization_anchorless_state_path)
   (export orchestrate)
   (defrecord AnchorlessCtx

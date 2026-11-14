@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule imported_stdlib_macro_payload_helper_signature_mismatch/entry)
   (import imported_stdlib_macro_payload_helper_signature_mismatch/std_payload_helpers
     :only (SelectionPayload
@@ -11,8 +11,6 @@
   (defproc load-selected-selection-result
     ()
     -> SelectionResult
-    :effects ()
-    :lowering private-workflow
     (variant SelectionResult SELECTED
       :selection (record SelectionPayload
                    :item-id "selected-1"
@@ -20,8 +18,6 @@
   (defproc consume-selection
     ((selection SelectionPayload))
     -> SelectionPayload
-    :effects ()
-    :lowering inline
     selection)
   (emit-run-drain-like run-drain-like
     load-selected-selection-result

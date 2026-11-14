@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule kiss_backlog_item)
   (import std/phase :only
     (ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop with-phase))
@@ -62,8 +62,6 @@
   (defproc draft-plan-phase
     ((inputs BacklogItemInputs))
     -> PlanDraftSurfaceResult
-    :effects ((uses-provider providers.plan))
-    :lowering auto
     (provider-result providers.plan
       :prompt prompts.plan.draft
       :inputs (inputs.backlog_item inputs.work_instructions)
@@ -73,8 +71,6 @@
     ((completed ReviewableSurfaceResult)
      (inputs ReviewContextInputs))
     -> ReviewDecision
-    :effects ((uses-provider providers.plan-review))
-    :lowering inline
     (provider-result providers.plan-review
       :prompt prompts.plan.review
       :inputs (completed.execution_report_path
@@ -89,8 +85,6 @@
      (inputs ReviewContextInputs)
      (findings ReviewFindings))
     -> ReviewableSurfaceResult
-    :effects ((uses-provider providers.plan-fix))
-    :lowering inline
     (let* ((fixed
              (provider-result providers.plan-fix
                :prompt prompts.plan.fix
@@ -110,8 +104,6 @@
      (work_instructions WorkInstructionsPath)
      (plan_path WorkReport))
     -> ImplementationSurfaceResult
-    :effects ((uses-provider providers.implementation))
-    :lowering auto
     (provider-result providers.implementation
       :prompt prompts.implementation.execute
       :inputs (backlog_item work_instructions plan_path)
@@ -121,8 +113,6 @@
     ((completed ReviewableSurfaceResult)
      (inputs ReviewContextInputs))
     -> ReviewDecision
-    :effects ((uses-provider providers.implementation-review))
-    :lowering inline
     (provider-result providers.implementation-review
       :prompt prompts.implementation.review
       :inputs (completed.execution_report_path
@@ -137,8 +127,6 @@
      (inputs ReviewContextInputs)
      (findings ReviewFindings))
     -> ReviewableSurfaceResult
-    :effects ((uses-provider providers.implementation-fix))
-    :lowering inline
     (let* ((fixed
              (provider-result providers.implementation-fix
                :prompt prompts.implementation.fix
