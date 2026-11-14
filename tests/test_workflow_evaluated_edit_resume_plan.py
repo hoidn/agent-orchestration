@@ -172,10 +172,10 @@ def independent(root):
 def loop(root):
     return workspace(root, f'''  (defworkflow run ((n Int :default 0)) -> Int
     (let* ((pre {cmd("pre", "n")})
-           (acc (loop/recur :max 3 :state pre :on-exhausted s
-                  (fn (s) (let* ((a {cmd("a", "s")})
+           (acc (loop/recur ((s pre)) :max 3 :on-exhausted s
+                  (let* ((a {cmd("a", "s")})
                                  (b {cmd("b", "a")}))
-                      (if (>= b 100) (done b) (continue b))))))
+                      (if (>= b 100) (done b) (continue b)))))
            (post {cmd("post", "acc")}))
       post))''')
 

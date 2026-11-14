@@ -21,7 +21,7 @@ from tests.agent_session_shims import closed_path
 def _create_two_command_run(tmp_path: Path) -> Path:
     source = tmp_path / "order.orc"
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule order) (export run)
           (defworkflow run () -> Int
             (let* ((first (command-result first :argv ("python" "first.py") :returns Int))
@@ -92,7 +92,7 @@ def test_completed_resume_rejects_active_commits_reordered_from_program_order(tm
 def _create_completed_branch_run(tmp_path: Path) -> Path:
     source = tmp_path / "branch.orc"
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule branch) (export run)
           (defworkflow run () -> Int
             (if (command-result choose :argv ("python" "choose.py") :returns Bool)
@@ -155,7 +155,7 @@ def test_resume_refuses_commits_made_unreachable_by_checked_inline_value(tmp_pat
 def _start_pending_yes_branch(tmp_path: Path) -> Path:
     source = tmp_path / "pending-branch.orc"
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule pending-branch) (export run)
           (defworkflow run () -> Int
             (if (command-result choose :argv ("python" "choose.py") :returns Bool)
@@ -253,7 +253,7 @@ def test_halt_refuses_pending_start_in_branch_made_unreachable_by_checked_inline
 def test_public_pending_retry_uses_pinned_path_after_path_and_bytes_change(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "pinned.orc"
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule pinned) (export run)
           (defworkflow run () -> Int
             (command-result emit :argv ("resume-tool") :returns Int)))''',
@@ -372,7 +372,7 @@ def test_resume_uses_newer_uncommitted_start_after_invalidation(tmp_path: Path, 
 def _create_public_failed_terminal_command(tmp_path: Path):
     source = tmp_path / "failed.orc"
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule failed) (export run)
           (defworkflow run () -> Int
             (command-result emit :argv ("python" "probe.py") :returns Int)))''',

@@ -20,15 +20,15 @@ def test_public_generic_hooks_keep_distinct_types_and_once_only_calls(tmp_path, 
     from tests.workflow_evaluated_totality_helpers import checked_run, compile_public
     from tests.test_workflow_evaluated_resume import _resume_cli
 
-    declarations = '''(defproc integer () -> Int :effects ((uses-command fetch)) :lowering inline
+    declarations = '''(defproc integer () -> Int
       (command-result fetch :argv ("python" "hooks.py" "integer") :returns Int))
-      (defproc text () -> String :effects ((uses-command fetch)) :lowering inline
+      (defproc text () -> String
         (command-result fetch :argv ("python" "hooks.py" "text") :returns String))
       (defproc apply :forall (T) ((hook ProcRef[() -> T])) -> T
-        :effects () :lowering inline (hook))'''
+        (hook))'''
     imports = "(import hooks/producer :as old)" if imported else ""
     prefix = "old." if imported else ""
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule hooks/entry) {imports} (export run)
       {"" if imported else declarations}
       (defmacro invoke (hook) ({prefix}apply (proc-ref hook)))
@@ -36,7 +36,7 @@ def test_public_generic_hooks_keep_distinct_types_and_once_only_calls(tmp_path, 
         (let* ((number (invoke {prefix}integer)) (answer (invoke {prefix}text))) answer)))'''
     files, inputs = pure_files(tmp_path, source, {})
     if imported:
-        install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule hooks/producer) (export integer text apply) {declarations})''')
     (tmp_path / "hooks.py").write_text('''import json, os, sys
 from pathlib import Path
@@ -106,7 +106,7 @@ def test_imported_boundary_call_projects_cached_values_and_native_result(
     producer_root.mkdir()
     producer_path = install(
         producer_root,
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule producer) (export get)
           (defpath Report :kind relpath :under "reports" :must-exist false)
           (defrecord Result (left Report) (right Report) (count Int))
@@ -127,7 +127,7 @@ def test_imported_boundary_call_projects_cached_values_and_native_result(
     consumer_root.mkdir()
     consumer_path = install(
         consumer_root,
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule consumer) (export run)
           (defpath Report :kind relpath :under "reports" :must-exist false)
           (defrecord Pair (x Report) (y Report))
@@ -265,7 +265,7 @@ def test_unannotated_local_call_keeps_strict_native_argument_binding(tmp_path: P
 
     source_path = install(
         tmp_path,
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule strict_call) (export run)
           (defworkflow leaf ((left Int) (right Int)) -> Int left)
           (defworkflow run ((x Int) (y Int)) -> Int
@@ -294,7 +294,7 @@ def test_unannotated_local_call_keeps_strict_native_argument_binding(tmp_path: P
 def test_public_unannotated_local_call_keeps_strict_native_argument_binding(tmp_path, monkeypatch):
     from tests.workflow_evaluated_context_helpers import pure_files, assert_pure_public
 
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule strict_call) (export run)
       (defworkflow leaf ((left Int) (right Int)) -> Int left)
       (defworkflow run ((x Int) (y Int)) -> Int (call leaf :right y :left x)))'''
@@ -310,7 +310,7 @@ def test_public_imported_generics_keep_native_owner_and_argument_types(tmp_path,
     from tests.workflow_evaluated_context_helpers import pure_files, assert_pure_public
     from tests.workflow_lisp_closed_program_helpers import install
 
-    entry = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    entry = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule consumer) (export run)
       (defrecord Payload (count Int) (flag Bool))
       (defrecord Result (number Int) (payload Payload))
@@ -325,10 +325,10 @@ def test_public_imported_generics_keep_native_owner_and_argument_types(tmp_path,
         ("int_producer", "number", "Int", "", "int-dep"),
         ("payload_producer", "payload", "Payload", "(defrecord Payload (count Int) (flag Bool))", "payload-dep"),
     ):
-        path = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        path = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule {module}) (export keep)
           {declaration}
-          (defproc identity :forall (T) ((value T)) -> T :effects () :lowering inline value)
+          (defproc identity :forall (T) ((value T)) -> T value)
           (defworkflow keep (({formal} {type_name})) -> {type_name} (identity {formal})))''')
         imports[alias] = {"kind": "compiled", "path": path.relative_to(tmp_path).as_posix()}
     files["imports"] = tmp_path / "imports.json"
@@ -348,13 +348,13 @@ def test_public_imported_boundary_projects_once_only_operand_values(tmp_path, mo
     from tests.workflow_evaluated_totality_helpers import checked_run, compile_public
     from tests.workflow_evaluated_context_helpers import pause_context
 
-    producer = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    producer = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule producer) (export get)
       (defpath Report :kind relpath :under "reports" :must-exist false)
       (defrecord Result (left Report) (right Report) (count Int))
       (defworkflow get ((a__x Report) (a__y Report) (count Int :default 3)) -> Result
         (record Result :left a__x :right a__y :count count)))'''
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defpath Report :kind relpath :under "reports" :must-exist false)
       (defrecord Pair (x Report) (y Report))

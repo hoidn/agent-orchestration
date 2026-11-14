@@ -241,7 +241,7 @@ def test_pure_root_control_target_homonym_preserves_external_value_origin(tmp_pa
     from orchestrator.contracts.closed_program.sites import _ast_nodes, assign_sites
 
     tree, arm, field = _field_certificate_tree(tmp_path / 'command')
-    source = '(loop/recur :max 1 :state 0 :on-exhausted r.i (fn (state) (done r.i)))'
+    source = '(loop/recur ((state 0)) :max 1 :on-exhausted r.i (done r.i))'
     if control == "join":
         source = '(let* ((result (match choice ((A a) r.i) ((B b) r.i)))) result)'
     pure = build_closed_program(_compile(tmp_path / 'pure', source,

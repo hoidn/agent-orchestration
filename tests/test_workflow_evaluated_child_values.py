@@ -40,7 +40,7 @@ def _checked_child_fixture(root, *, source=None, type_name="String", value="dire
         path.write_text(content)
     revision = fixture.materialized_source.repository_revision_id
     parent_source = workspace / "parent.orc"
-    parent_source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    parent_source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule parent) {definitions} (export run)
       (defworkflow run ((payload {type_name})) -> String
         (let* ((child (run-ref :source (:repo {json.dumps(revision.normalized_locator)} :commit "{revision.resolved_commit_sha}")
@@ -82,7 +82,7 @@ def _commit_prepared(request, prepared, owner):
 
 @pytest.mark.parametrize("optional", [None, "present"])
 def test_direct_nested_child_value_survives_envelope_and_reuse(tmp_path, optional):
-    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
+    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule common)
       (export Packet Choice) (defunion Choice (KEEP (text String)) (DROP))
       (defrecord Packet (choices List[Choice]) (scores Map[String,Int]) (note Optional[String])))'''
     definition = "(import common :only (Packet Choice))"
@@ -112,7 +112,7 @@ def test_direct_nested_child_value_survives_envelope_and_reuse(tmp_path, optiona
 
 
 def test_durable_v2_inputs_do_not_check_path_existence_or_copy(tmp_path, monkeypatch):
-    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
+    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule common)
       (export WorkPath) (defpath WorkPath :kind relpath :under "artifacts" :must-exist true))'''
     definition = "(import common :only (WorkPath))"
     source = _closed_source(parameters="(payload WorkPath)", body='"copied"', import_form=definition)
@@ -189,7 +189,7 @@ def test_durable_typed_inputs_do_not_equate_bool_and_numeric_values(tmp_path, ty
 
 
 def test_committed_path_result_is_pure_in_terminal_helper_but_e1_still_checks_artifact(tmp_path):
-    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
+    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule common)
       (export WorkPath) (defpath WorkPath :kind relpath :under "artifacts" :must-exist true))'''
     definition = "(import common :only (WorkPath))"
     with _checked_child_fixture(tmp_path, type_name="WorkPath", value="artifacts/seed.txt", definitions=definition,

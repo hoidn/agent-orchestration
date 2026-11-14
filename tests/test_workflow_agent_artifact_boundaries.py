@@ -243,9 +243,9 @@ def test_retained_imported_factory_can_return_an_agent(tmp_path):
         '(defworkflow run ((task String)) -> Note (let* ((who (make task))) ' \
         '(provider-result who :prompt (ask :task task)))))'
     request = _request(tmp_path, source)
-    (tmp_path / "child.orc").write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.38") ' \
-        '(defmodule child) (export make) (defproc make ((model String)) -> Agent ' \
-        ':effects ((uses-provider providers.claude)) (agent providers.claude :model model)))')
+    (tmp_path / "child.orc").write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.40") ' \
+        '(defmodule child) (export make) (defproc make ((model String)) -> Agent' \
+        ' (agent providers.claude :model model)))')
     tree = deepcopy(build_closed_program_bundle(request).program.tree)
     factory = next(d for d in tree["definitions"].values() if d["result"] == AGENT)
     assert factory["key"][1] == "procedure" and factory["key"][7] == []

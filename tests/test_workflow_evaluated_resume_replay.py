@@ -31,7 +31,7 @@ from tests.agent_session_shims import closed_path
 def _create_completed_three_command_run(tmp_path: Path) -> Path:
     source = tmp_path / "replay.orc"
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule replay) (export run)
           (defworkflow run () -> Int
             (let* ((first (command-result first :argv ("python" "first.py") :returns Int))
@@ -104,7 +104,7 @@ def test_completed_resume_replays_ordered_commits_before_returning_terminal(tmp_
 def test_completed_terminal_halt_compares_bool_and_int_canonically(tmp_path: Path) -> None:
     source = tmp_path / "scalar.orc"
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule scalar) (export run) (defworkflow run () -> Int 1))''',
         encoding="utf-8",
     )
@@ -128,7 +128,7 @@ def test_completed_terminal_halt_compares_bool_and_int_canonically(tmp_path: Pat
 def test_completed_resume_does_not_sweep_an_unreached_command_closure(tmp_path: Path) -> None:
     source = tmp_path / "dormant.orc"
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule dormant) (export run)
           (defworkflow run () -> Int
             (if false
@@ -308,7 +308,7 @@ def test_public_pure_failure_resume_twice_preserves_failed_terminal(tmp_path: Pa
 
     source = tmp_path / "failure.orc"
     source.write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule failure) (export run) '
         '(defworkflow run ((divisor Float)) -> Float (/ 1.0 divisor)))\n',
         encoding="utf-8",
@@ -329,7 +329,7 @@ def test_public_pure_failure_resume_twice_preserves_failed_terminal(tmp_path: Pa
     assert terminal.data["code"] == "pure_expr_division_by_zero"
 
 
-_TWO_PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+_TWO_PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Review (ok Bool))
   (defworkflow run ((message String)) -> Review

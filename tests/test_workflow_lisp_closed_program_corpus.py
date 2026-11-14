@@ -45,7 +45,7 @@ def test_corpus_materializes_declared_workspace_launcher_without_changing_closur
     assert binding.closure == ("scripts/launch_experiment.py",)
     assert (prepared.workspace_root / binding.closure[0]).read_text() == LAUNCH_PROBE
     assert "command:launch_experiment:compile-only-script-stand-in" in prepared.synthetic
-    assert target_dsl_version(prepared.entry) == "2.39"
+    assert target_dsl_version(prepared.entry) == "2.40"
 
 
 def test_corpus_workspace_launcher_does_not_admit_unknown_extra_closure(tmp_path):

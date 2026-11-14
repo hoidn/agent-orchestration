@@ -11,13 +11,13 @@ from tests.agent_session_shims import install_agent_shims, shim_requests
 from tests.test_workflow_evaluated_agent_turns import memo_of
 from tests.test_workflow_evaluated_invalidate import _cli
 
-HEADER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+HEADER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Note (text String))
   (defprompt ask (:fills (task :text)) -> Note "Task: {task}")
-  (defproc make ((model String)) -> Agent :effects ((uses-provider providers.codex))
+  (defproc make ((model String)) -> Agent
     (agent providers.codex :model model :effort "low"))
-  (defproc turn ((who Agent) (task String)) -> Note :effects ((uses-provider providers.codex))
+  (defproc turn ((who Agent) (task String)) -> Note
     (provider-result who :prompt (ask :task task) :timeout-sec 60))
 '''
 

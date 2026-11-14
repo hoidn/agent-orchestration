@@ -13,7 +13,7 @@ from tests.test_workflow_lisp_closed_program_compile_cli import _build_state, _w
 
 def _public_document(tmp_path, inputs):
     files = _write_workspace(tmp_path)
-    files["source"].write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    files["source"].write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule grt/entry) (export run)
       (defworkflow run ((n Int)) -> Int
         (command-result probe_revise :argv ("python" "probe_revise.py" "${{inputs.n}}")

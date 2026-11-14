@@ -293,7 +293,7 @@ def test_public_must_not_repeat_command_window_controls(tmp_path_factory, tmp_pa
 
 # Closure mutation, then an external kill -------------------------------------------------------
 
-MUTATION_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+MUTATION_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule retry) (export run)
   (defworkflow run () -> Int
     (command-result emit :argv ("python" "probe.py") :returns Int)))

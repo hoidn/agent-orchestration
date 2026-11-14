@@ -63,7 +63,7 @@ def _checked_command(
     source_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+  (:target-dsl "2.40")
   (defmodule performer_probe)
   (export run)
   {declarations}
