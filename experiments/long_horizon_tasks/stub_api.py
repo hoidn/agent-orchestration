@@ -92,7 +92,7 @@ def _context_late(body, turn):
 def _web(body, turn):
     steps = [("WebFetch", {"url": "https://example.com/", "prompt": "Summarize the page."}),
              ("WebSearch", {"query": "terminal bench"})]
-    if turn < len(steps) and _declared(body, steps[turn][0]):
+    if turn < len(steps) and _declared(body, "Bash"):  # web tools are deferred: called without being declared
         return [_tool(*steps[turn])], "tool_use", SMALL
     return [_text("web done")], "end_turn", SMALL
 
