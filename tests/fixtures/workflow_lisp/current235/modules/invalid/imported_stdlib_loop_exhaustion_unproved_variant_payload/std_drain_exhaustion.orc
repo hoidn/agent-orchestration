@@ -46,21 +46,19 @@
                (variant SelectionResult GAP
                  :gap (record GapPayload
                         :gap-id "gap-1"))))
-        (loop/recur
+        (loop/recur ((state (loop-state
+                              (run-state StateExisting initial-run-state)
+                              (progress-report-path WorkReport progress-report-target))))
           :max 1
-          :state (loop-state
-                   (run-state StateExisting initial-run-state)
-                   (progress-report-path WorkReport progress-report-target))
           :on-exhausted
           (record std_drain_exhaustion/DrainLoopTerminal
             :selected_id selection-result.selection.item-id
             :run_state state.run-state
             :progress_report_path state.progress-report-path)
-          (fn (state)
-            (if false
-              (done
-                (record std_drain_exhaustion/DrainLoopTerminal
-                  :selected_id ""
-                  :run_state state.run-state
-                  :progress_report_path state.progress-report-path))
-              (continue state))))))))
+          (if false
+            (done
+              (record std_drain_exhaustion/DrainLoopTerminal
+                :selected_id ""
+                :run_state state.run-state
+                :progress_report_path state.progress-report-path))
+            (continue state)))))))

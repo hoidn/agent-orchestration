@@ -48,22 +48,20 @@
                (path/join-under WorkReport "imported-stdlib-loop-exhaustion-effectful-helper.json"))
              (initial-run-state
                (path/join-under StateExisting "imported-stdlib-loop-exhaustion-effectful-helper.json")))
-        (loop/recur
+        (loop/recur ((state (loop-state
+                              (items-processed Int 0)
+                              (run-state StateExisting initial-run-state)
+                              (progress-report-path WorkReport progress-report-target))))
           :max 1
-          :state (loop-state
-                   (items-processed Int 0)
-                   (run-state StateExisting initial-run-state)
-                   (progress-report-path WorkReport progress-report-target))
           :on-exhausted
           (std_drain_exhaustion/effectful-exhausted-terminal
             state.progress-report-path
             state.run-state)
-          (fn (state)
-            (if false
-              (done
-                (std_drain_exhaustion/pure-exhausted-terminal
-                  state.progress-report-path
-                  state.run-state))
-              (continue
-                (loop-state :like state
-                  :items-processed (+ state.items-processed 1))))))))))
+          (if false
+            (done
+              (std_drain_exhaustion/pure-exhausted-terminal
+                state.progress-report-path
+                state.run-state))
+            (continue
+              (loop-state :like state
+                :items-processed (+ state.items-processed 1)))))))))

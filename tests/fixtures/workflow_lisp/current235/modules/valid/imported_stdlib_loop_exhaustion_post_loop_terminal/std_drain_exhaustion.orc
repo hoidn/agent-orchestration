@@ -48,29 +48,27 @@
              (initial-run-state
                (path/join-under StateExisting "imported-stdlib-loop-exhaustion-run-state.json"))
              (terminal
-               (loop/recur
+               (loop/recur ((state (loop-state
+                                     (items-processed Int 0)
+                                     (run-state StateExisting initial-run-state)
+                                     (progress-report-path WorkReport progress-report-target))))
                  :max 1
-                 :state (loop-state
-                          (items-processed Int 0)
-                          (run-state StateExisting initial-run-state)
-                          (progress-report-path WorkReport progress-report-target))
                  :on-exhausted
                   (record std_drain_exhaustion/DrainLoopTerminal
                    :items-processed state.items-processed
                    :run-state state.run-state
                    :progress-report-path state.progress-report-path
                    :blocker-class BlockerClass.unrecoverable_after_fix_attempt)
-                 (fn (state)
-                   (if false
-                     (done
-                       (record std_drain_exhaustion/DrainLoopTerminal
-                         :items-processed state.items-processed
-                         :run-state state.run-state
-                         :progress-report-path state.progress-report-path
-                         :blocker-class BlockerClass.missing_resource))
-                     (continue
-                       (loop-state :like state
-                         :items-processed (+ state.items-processed 1)))))))
+                 (if false
+                   (done
+                     (record std_drain_exhaustion/DrainLoopTerminal
+                       :items-processed state.items-processed
+                       :run-state state.run-state
+                       :progress-report-path state.progress-report-path
+                       :blocker-class BlockerClass.missing_resource))
+                   (continue
+                     (loop-state :like state
+                       :items-processed (+ state.items-processed 1))))))
              (result
                (call std_drain_exhaustion/finalize-terminal
                  :terminal terminal)))
