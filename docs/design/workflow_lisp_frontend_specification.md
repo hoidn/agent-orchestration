@@ -2025,7 +2025,10 @@ surface:
   or `defun` argument, the declared result of a workflow, procedure or `defun`,
   a loop-state field, an item of a list whose item type is known, a `continue`
   value, and an `if`, `cond` or `match` arm of a form that stands in one of
-  these positions. Elsewhere, among them a `let*` binding, a loop's initial
+  these positions other than a `defun` argument or a `continue` value, where
+  only a bare `(list)` takes the type. Open defect: inside a macro template
+  that binds a value named like a type, `:of` that type is `type_unknown`.
+  Elsewhere, among them a `let*` binding, a loop's initial
   state, a `done` or `:on-exhausted` value, an operator operand, a map source,
   an arm of a conditional that does not stand in such a position and a
   `let-proc` local's result, it is `list_empty_type_context_required`;
