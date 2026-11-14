@@ -731,3 +731,130 @@ def test_after_a_crash_nothing_is_recorded_and_a_restart_clears_the_dead_socket_
     after, _, data = _post(sock, "lh-fake-a", _request())
     _stop(again)
     assert (first, events, after, _error(data)[1]) == (200, [], 403, "lh-passthrough: slot cap reached")
+
+
+# --- the live probe script, against the stub only --------------------------------------------------------
+
+PROBE = KIT / "live_probe.sh"
+NO_PROVIDER = REPO / "experiments" / "thread_m" / "no_provider"
+FAKE_HARNESS = r'''#!{python}
+"""Stands in for `harbor_patient.py run` and the CLI in its container: two turns through the passthrough's socket."""
+import http.client, json, os, pathlib, socket, sys, time
+args = sys.argv[1:]
+effort, jobs = args[args.index("--effort") + 1], pathlib.Path(args[args.index("-o") + 1])
+agent = jobs / "2026-11-14__00-00-00" / "recording-task__AbCdEf1" / "agent"
+(agent / "sessions" / "projects" / "-app").mkdir(parents=True)
+time.sleep(3)  # the trial's containers live a while: the probe reads their process environments meanwhile
+
+
+class Unix(http.client.HTTPConnection):
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX)
+        self.sock.connect(os.environ["LH_RELAY_SOCKET_DIR"] + "/passthrough.sock")
+
+
+stream = [{"type": "system", "subtype": "init", "tools": ["Bash", "Edit", "Read"], "model": "claude-haiku-5-5",
+           "apiKeySource": "none", "claude_code_version": "2.1.311"}]
+session, cost, status = [], 0.0, 200
+for turn in range(2):
+    body = {"model": "claude-haiku-5-5", "stream": True, "max_tokens": 128000, "output_config": {"effort": effort},
+            "tools": [{"name": "Bash", "input_schema": {"type": "object"}}],
+            "messages": [{"role": "user", "content": "probe"}] + [{"role": "assistant", "content": "a"},
+                                                                  {"role": "user", "content": "b"}] * turn}
+    conn = Unix("relay", 8080, timeout=60)
+    conn.request("POST", "/v1/messages?beta=true", json.dumps(body),
+                 {"authorization": "Bearer " + os.environ["CLAUDE_CODE_OAUTH_TOKEN"], "content-type": "application/json"})
+    resp = conn.getresponse()
+    data, status = resp.read().decode(), resp.status
+    if status != 200:
+        break
+    events = [json.loads(line[6:]) for line in data.splitlines() if line.startswith("data: ")]
+    message = events[0]["message"]
+    usage = {**message["usage"], **next(e["usage"] for e in events if e["type"] == "message_delta")}
+    cost += (usage["input_tokens"] * 0.10 + usage["output_tokens"] * 0.50) / 1e6
+    session.append({"type": "assistant", "message": {"id": message["id"], "model": message["model"], "usage": usage}})
+    stream.append({"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", "isUsingOverage": False}})
+factor = pathlib.Path(sys.argv[0]).parents[2] / "cost-factor"  # $LH/cost-factor: a CLI that prices otherwise
+cost *= float(factor.read_text()) if factor.exists() else 1.0
+stream.append({"type": "result", "terminal_reason": "completed" if status == 200 else "api_error",
+               "api_error_status": None if status == 200 else status, "total_cost_usd": cost,
+               "modelUsage": {"claude-haiku-5-5": {"costUSD": cost}}})
+(agent / "claude-code.txt").write_text("".join(json.dumps(e) + "\n" for e in stream))
+(agent / "sessions" / "projects" / "-app" / "s.jsonl").write_text("".join(json.dumps(e) + "\n" for e in session))
+sys.exit(0 if status == 200 else 1)
+'''
+FAKE_PODMAN = r'''#!/bin/bash
+# Stands in for podman: one trial's main container and egress sidecar, kept after the run.
+P=recording-task__abcdef1__env
+case "$1" in
+  ps) printf '%s\n' "${P}_main_1" "${P}_harbor-docker-egress-control-sidecar_1" other-session__env_main_1 ;;
+  inspect) printf '[{"Name": "%s", "Config": {"Env": ["PATH=/usr/bin"]}}]\n' "$2" ;;
+  exec) printf 'PATH=/usr/bin\0HOME=/root\0' ;;
+  logs) printf '%s\n' '{"msg": "10.89.0.2:1 <-> relay:8080", "host": "relay:8080"}' ;;
+  export) printf 'a stand-in file system\n' ;;
+esac
+'''
+
+
+@pytest.fixture
+def probe(short):
+    """A stand-in machine for live_probe.sh: a fake harness and podman, the scratch task on the allowlist."""
+    lh = short / "lh"
+    for sub in ("hvenv/bin", "logs", "recordings", "scratch/recording-task", "transcripts", "home"):
+        (lh / sub).mkdir(parents=True)
+    (lh / "scratch" / "recording-task" / "task.toml").write_text(
+        '[agent]\nnetwork_mode = "allowlist"\nallowed_hosts = ["relay", "pypi.org", "files.pythonhosted.org"]\n')
+    for name, text in (("python", FAKE_HARNESS.replace("{python}", sys.executable)), ("podman", FAKE_PODMAN)):
+        (lh / "hvenv" / "bin" / name).write_text(text)
+        (lh / "hvenv" / "bin" / name).chmod(0o700)
+    head = subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    env = {"PATH": f"{NO_PROVIDER}:/usr/bin:/bin", "HOME": str(lh / "home"), "LH": str(lh), "LH_PYTHON": sys.executable,
+           "LH_PROBE_COMMIT": head, "LH_PROBE_STATE": str(short / "probe-state"),
+           "LH_TRANSCRIPTS": str(lh / "transcripts")}
+
+    def run(scenario="normal", **extra):
+        env_run = {**env, "LH_PROBE_STAND_IN": scenario, **extra}
+        return subprocess.run(["bash", str(PROBE), str(lh / "recordings" / "live-probe")], env=env_run,
+                              capture_output=True, text=True, timeout=600)
+    run.lh, run.state = lh, short / "probe-state"
+    return run
+
+
+def test_the_live_probe_refuses_to_start_without_its_authorization_variable(probe):
+    result = probe()
+    assert (result.returncode, "refused" in result.stderr, probe.state.exists()) == (3, True, False)
+
+
+def test_a_stand_in_probe_refuses_a_token_file_and_another_commit(probe, short):
+    token = probe(LH_PROBE_SPEND_AUTHORIZED="yes", LH_TOKEN_FILE=str(_secret_file(short, _token())))
+    commit = probe(LH_PROBE_SPEND_AUTHORIZED="yes", LH_PROBE_COMMIT="0" * 40)
+    assert (token.returncode, commit.returncode, probe.state.exists()) == (3, 3, False)
+
+
+def test_the_live_probe_against_the_stub_passes_and_records_each_session_and_runs_once(probe):
+    result = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
+    record = json.loads((probe.lh / "recordings" / "live-probe" / "probe.json").read_text())
+    again = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
+    sessions = record["sessions"]
+    inspected = sorted(p.name for p in (probe.lh / "recordings" / "live-probe" / "low" / "containers").iterdir())
+    assert (result.returncode, record["pass"], record["failures"], [s["effort"] for s in sessions],
+            [len(s["requests"]) for s in sessions], [s["first_request_prompt_tokens"] for s in sessions],
+            record["file_set_scan"][-2:], [name.split(".")[0] for name in inspected], again.returncode) == (
+        0, True, [], ["low", "medium", "high"], [2, 2, 2], [1000, 1000, 1000], ["canary: pass", "exit 0"],
+        ["recording-task__abcdef1__env_harbor-docker-egress-control-sidecar_1"] * 2
+        + ["recording-task__abcdef1__env_main_1"] * 2, 3)
+
+
+def test_the_live_probe_stops_at_the_first_answer_that_is_not_200(probe):
+    result = probe("unauthorized", LH_PROBE_SPEND_AUTHORIZED="yes")
+    record = json.loads((probe.lh / "recordings" / "live-probe" / "probe.json").read_text())
+    assert (result.returncode, record["pass"], record["stopped"], [s["effort"] for s in record["sessions"]]) == (
+        1, False, "low: vendor status 401; passthrough stop: vendor 401", ["low"])
+
+
+def test_a_probe_whose_priced_figure_differs_from_the_clis_by_more_than_one_percent_fails_its_metering(probe):
+    (probe.lh / "cost-factor").write_text("1.02")
+    result = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
+    record = json.loads((probe.lh / "recordings" / "live-probe" / "probe.json").read_text())
+    assert (result.returncode, record["stopped"], [f.split(":")[0] for f in record["failures"]],
+            all("not within 1%" in f for f in record["failures"])) == (1, None, ["low", "medium", "high"], True)
