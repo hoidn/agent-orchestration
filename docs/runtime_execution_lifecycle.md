@@ -285,12 +285,21 @@ commit  workflow:main::run / three  attempt 2
 {"ok":true}
 ```
 
-The token (`plan-…`) names that one plan. If anything it names changes
-before you run the command (the prompt file again, a declared script,
-another record in the run), the command is refused, exit 2, writes nothing,
-says what changed and prints the new plan with a new token. The two
-commands after it, `invalidate` then `resume`, do the same in two steps. To
-undo the edit instead, restore the file's old contents and resume.
+The token (`plan-…`) names that one plan: the run's journal, the programs,
+the cut and the steps it cancels, not the contents of the files. Editing
+`two.md` again before you run the command leaves the plan and the token as
+they were, and the command is accepted: accepting a plan reruns from the cut
+with the files as they are at that moment, here the newest `two.md`. A
+change that moves the cut, such as an edit of `one.md`, or another record
+in the run, makes the command refuse, exit 2, without writing anything; the
+refusal says what changed and prints the new plan with a new token:
+
+```text
+[effect_input_diverged] the plan token names another plan: the cut moved; it is now at workflow:main::run / one: its input changed (parts: prompt, source:asset_file:one.md; files: none); the cancelled steps, the questions asked again, or the unfinished steps or their files changed
+```
+
+The two commands after it, `invalidate` then `resume`, do the same in two
+steps. To undo the edit instead, restore the file's old contents and resume.
 
 **A command step failed because of its script.** The same works for the
 script of a command step: fix the script and resume. When the step failed,
@@ -373,9 +382,14 @@ commit  workflow:main::run / three  attempt 1
 
 A committed step is kept only if every step before it is kept and its
 identity and inputs are unchanged under the edited program; the first one
-that is not is the cut, and it and every later commit run again. `report
---run-id RUN_ID` then lists the run's programs, each with the journal
-offset it was accepted at, and which program each step ran under.
+that is not is the cut, and it and every later commit run again. With no
+cut nothing runs again (`the cut: none`), and what runs first is the next
+step not yet committed, or nothing when the run is complete. `report
+--run-id RUN_ID` then lists the run's programs under "Programs", each with
+the time it was accepted (`since …`) and, when it cancelled anything, its
+cut (in `--format json`, `run.programs[*].cut`, the journal offset it
+cancelled from, `null` when nothing was cancelled), and which program each
+step ran under.
 
 What the plan says it cannot do, with its code after `no plan can be
 accepted:`, has its own way forward:
@@ -386,18 +400,28 @@ accepted:`, has its own way forward:
   (`lexical_restore_pending_effect_unsafe`): the refusal prints
   `invalidate RUN_ID 'IDENTITY'` for it; run that if repeating the step is
   safe, then `resume` prints a new plan.
+- **A pending run reference or phased provider the plan would not keep**
+  (`resume_program_changed`, "the pending attempt of IDENTITY would not be
+  kept"): restore the source and resume, so that the attempt settles under
+  the program that started it, then edit again.
 - **A pending agent turn the plan would not keep**
   (`invalidate_agent_session_advanced`): restore the source, `resume` so the
   turn is reconciled under the run's own program, then edit again.
-- **A run-reference child.** Running `resume` in a run reference's child
-  workspace (under the run-reference root) after editing the child's source
-  prints `no plan can be accepted: [resume_program_changed] a run-reference
-  child changes program only with its parent; resume its parent run
-  RUN_ID`. A child never changes program: restore its source and resume the
-  parent run it names. If a file a child's committed step read was changed,
-  that `resume` refuses `effect_input_diverged` and still prints
-  `invalidate` lines; do not run them in the child (the parent re-reads the
-  child's journal), restore the file instead, or start a new parent run.
+- **A run-reference child.** A child never changes program. Running
+  `resume` in a path-mode child's workspace (under the run-reference root)
+  after editing the child's source prints `no plan can be accepted:
+  [resume_program_changed] a run-reference child changes program only with
+  its parent; resume its parent run RUN_ID`: restore the child's source and
+  resume the parent run it names. Such a child runs no command or provider,
+  so `invalidate` there refuses with `invalidate_not_committed`. A confined
+  child (target 2.38) has committed steps, and its workspace exists only
+  while its parent runs; its refusal reads "a confined run-reference child
+  never changes program; resume its parent run" without the id (the parent
+  is the run whose run-reference step started it). If a file one of its
+  committed steps read was changed, `resume` there refuses
+  `effect_input_diverged` and still prints `invalidate` lines: do not run
+  them in the child, since the parent re-reads the child's journal; restore
+  the file and resume the parent, or start a new parent run.
 
 A kill during the acceptance leaves the run under the old program or under
 the new one, never between; `resume` (or the same command) continues. A kill

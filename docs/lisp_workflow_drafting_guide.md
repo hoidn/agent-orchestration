@@ -643,11 +643,6 @@ and its identity and inputs are unchanged; from the first one that is not,
 every later commit runs again. Write the workflow so that edits keep what
 you want kept:
 
-- **Hygiene names.** When a provider's `:inputs` reads a binder that shadows
-  another one in the same definition, the compiler names it by a counter
-  (`%1`), and the name is part of the prompt. Adding an unrelated shadowing
-  binder earlier in that definition shifts it to `%2`: the provider's input
-  changed, so it runs again. Give provider inputs names that shadow nothing.
 - **Python-built runs.** A run started from a Python workflow records the
   generated `.orc` copy, and `resume` rebuilds that copy. An edit of the
   `.py` file is not seen and nothing refuses: `resume` continues under the
