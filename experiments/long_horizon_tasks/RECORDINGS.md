@@ -358,8 +358,11 @@ system is exported to a tar, and the tar is read on the host.
      `/lib64`, `/libx32`, `/var/lib/dpkg` or `/var/lib/apt`. Language package directories count too:
      `site-packages`, `dist-packages`, `node_modules`, `.cargo/registry`, `.rustup`, `go/pkg/mod`,
      `gems`, `.npm`, `.cache/pip`, and a uv-managed Python under `.local/share/uv/python`.
-   - The verdict is "needs a look" for any match in a file outside system paths, and for 10 or more
-     matched lines in a system-path file. Fewer than 10 in a system-path file is noise.
+   - So does every virtual environment: any directory that holds a `pyvenv.cfg`, with everything below
+     it (coordinator ruling, 2026-11-14). The rule is by the file, not by the directory's name.
+     gsea-proteomics, hof-topology-interpenetration and roy-polymorph-cn each have one, at `opt/venv`.
+   - The verdict is "needs a look" for any match in a file outside these paths, and for 10 or more
+     matched lines in a file inside them. Fewer than 10 inside them is noise.
    - **Why 10.** Over the 16 images, no system-path file has more than 6 matched lines. The 6 is a Node
      `package.json` under `usr/share/nodejs` in vba-userform-port, which shares lines with the
      solution's `package-lock.json`. Every other case is at most 3, mostly generic Python standard
@@ -379,19 +382,20 @@ system is exported to a tar, and the tar is read on the host.
 **Passes.**
 - The first pass (checks 1 to 3, regular files only) was replaced in the file by the second, and its
   numbers are not in `image_measure.json`.
-- The second pass and the third (all checks) are kept as `earlier_passes` summaries.
-- gsea-proteomics and roy-polymorph-cn ran a fourth pass after the uv-managed Python was added to the
-  language directories.
-- pretrain-shard-corruption and shadow-relay ran a fourth pass after git packs were added to "not
-  opened"; neither has a pack.
-- For the other twelve images, the third pass's verdicts are the same under the final rules, recomputed
-  from their records. Those images have no `.git` directory.
+- Every record now in the file was written by the committed code, after the virtual-environment rule.
+  All 16 agent images were pulled again one at a time under the 25 GB stop; the record says `pass` 4
+  or 5.
+- The verdicts are the ones the earlier records predicted under the final rule. The one change is
+  roy-polymorph-cn: its two launcher scripts are now inside a virtual environment.
+- The earlier passes are kept as `earlier_passes` summaries.
 
 ### Withholding: the result
 
 **No solution or test material by path or SHA-256, in any of the 16 agent images, in the merged file
-system or in any layer.** The near-copy check finds nothing outside system paths except three cases that
-need a look:
+system or in any layer.**
+- No file needs a look under the final rule.
+- The two `.git` directories (bold in the table) are listed by rule. The coordinator ruled them not hits
+  (below).
 
 | Task | Path / digest hits | Layer walk (files, whiteouts) | Canary: copies / name-only / other | Near-copy files needing a look | Archives and git objects opened | `.git` dirs | Not opened | Highest system-path count |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -410,9 +414,10 @@ need a look:
 | shadow-relay | 0 / 0 | clean (8,008, 3) | 0 / 0 / 0 | 0 | 23 | **1** | 0 | 1 |
 | rs-archive-clone | 0 / 0 | clean (4,721, 2) | 0 / 0 / 0 | 0 | 0 | 0 | 0 | 3 |
 | retro-console-soc | 0 / 0 | clean (17,465, 52) | 0 / 0 / 0 | 0 | 0 | 0 | 0 | 2 |
-| roy-polymorph-cn | 0 / 0 | clean (18,590, 2) | 0 / 0 / 0 | **2** | 0 | 0 | 0 | 1 |
+| roy-polymorph-cn | 0 / 0 | clean (18,590, 2) | 0 / 0 / 0 | 0 | 0 | 0 | 0 | 1 |
 
-**The three "needs a look", and what each is.**
+**The three items that needed a look, and the coordinator's ruling (2026-11-14): none is a withholding
+hit, and none drops a task.**
 - **pretrain-shard-corruption, `app/.git`.** It is made by the environment's own Dockerfile (`git init
   /app`, then commits of the environment's files; its comment calls it a decoy history). All 9 objects
   are loose and were opened, and there is no pack. Four blobs hold the canary, and each is a
@@ -422,9 +427,9 @@ need a look:
   the build's files, for the verifier's diff hook). All 23 objects are loose and were opened, and there
   is no pack. No digest hit, no canary and no distinctive line.
 - **roy-polymorph-cn, `opt/venv/bin/f2py` and `opt/venv/bin/numpy-config`.** These are the console-script
-  wrappers pip writes into a virtual environment. Each matches one distinctive line, which is a generic
-  Python main guard that `solution/solve.py` and `tests/checks.py` also contain. `opt/venv/bin` is not a
-  system path under the rule, so a single match there needs a look.
+  wrappers pip writes into a virtual environment. Each matched one distinctive line, which is a generic
+  Python main guard that `solution/solve.py` and `tests/checks.py` also contain. Under the
+  virtual-environment rule they are noise, because `opt/venv` holds a `pyvenv.cfg`.
 
 **Name matches** are files with the same base name as a solution or test file, such as `README.md` or
 `package.json`. They are recorded as information only and are not hits. `name_match_dirs` and
@@ -474,7 +479,7 @@ GB = 10^9 bytes.
 | vpp-loss-divergence | verifier | `460f7e259689` | 0.86 | 2.79 | 17 | 8, 0.57 | yes | 42 | n/a |
 | batched-eval-parity | agent | `f00c28880710` | 0.09 | 0.25 | 11 | 1, 0.08 | yes | 5 | clean; canary only in 17 byte-identical environment copies; near copies clean |
 | batched-eval-parity | verifier | `6b04e7760112` | 0.19 | 0.56 | 12 | 1, 0.08 | yes | 10 | n/a |
-| pretrain-shard-corruption | agent | `ff18338c6eeb` | 0.34 | 1.14 | 18 | 4, 0.13 | yes | 20 | clean; canary only in 8 byte-identical environment copies; near copies: **needs a look** |
+| pretrain-shard-corruption | agent | `ff18338c6eeb` | 0.34 | 1.14 | 18 | 4, 0.13 | yes | 20 | clean; canary only in 8 byte-identical environment copies; environment-built `.git`, opened, ruled not a hit |
 | pretrain-shard-corruption | verifier | `336d1e81ebfa` | 0.39 | 1.30 | 11 | 4, 0.12 | yes | 22 | n/a |
 | gsea-proteomics | agent | `e400f6486197` | 0.36 | 0.73 | 9 | 0, 0.00 | yes | 14 | clean; canary not found; near copies clean |
 | gsea-proteomics | verifier | `43e108555adb` | 0.14 | 0.40 | 10 | 4, 0.13 | yes | 11 | n/a |
@@ -484,13 +489,13 @@ GB = 10^9 bytes.
 | sound-change-cascade | verifier | `8980723c9498` | 0.14 | 0.41 | 10 | 4, 0.12 | yes | 9 | n/a |
 | hof-topology-interpenetration | agent | `a758f32e5d39` | 0.06 | 0.17 | 5 | 0, 0.00 | yes | 6 | clean; canary not found; near copies clean |
 | hof-topology-interpenetration | verifier | `cc54700dda4c` | 0.14 | 0.40 | 9 | 4, 0.13 | yes | 11 | n/a |
-| shadow-relay | agent | `584cd120342b` | 0.11 | 0.29 | 12 | 4, 0.13 | yes | 9 | clean; canary not found; near copies: **needs a look** |
+| shadow-relay | agent | `584cd120342b` | 0.11 | 0.29 | 12 | 4, 0.13 | yes | 9 | clean; canary not found; environment-built `.git`, opened, ruled not a hit |
 | shadow-relay | verifier | `864d9d5dc766` | 0.18 | 0.52 | 12 | 2, 0.08 | yes | 13 | n/a |
 | rs-archive-clone | agent | `396a2f9f0af2` | 0.05 | 0.14 | 7 | 2, 0.08 | yes | 6 | clean; canary not found; near copies clean |
 | rs-archive-clone | verifier | `a890aca2de72` | 0.26 | 0.75 | 8 | 1, 0.08 | yes | 17 | n/a |
 | retro-console-soc | agent | `11b017483cf6` | 0.52 | 1.48 | 5 | 0, 0.00 | yes | 36 | clean; canary not found; near copies clean |
 | retro-console-soc | verifier | `359a891415a2` | 0.63 | 1.81 | 7 | 1, 0.17 | yes | 42 | n/a |
-| roy-polymorph-cn | agent | `ec42a0858ef1` | 0.30 | 0.90 | 10 | 1, 0.08 | yes | 17 | clean; canary not found; near copies: **needs a look** |
+| roy-polymorph-cn | agent | `ec42a0858ef1` | 0.30 | 0.90 | 10 | 1, 0.08 | yes | 17 | clean; canary not found; near copies clean |
 | roy-polymorph-cn | verifier | `4606480cae2b` | 0.17 | 0.50 | 11 | 4, 0.13 | yes | 11 | n/a |
 
 **Totals for the disk plan.** Each distinct layer is counted once, unpacked; the compressed size is in
@@ -526,7 +531,8 @@ writing to both disks throughout, so every figure below holds for its date only 
 - **Low point, from the checkpoints in `image_measure.json`** (before and after each pull, during each
   export, after each delete, over every pass kept there):
   - `/home` 68.25 GB, during the third pass's export of vf2-speedup-networkx;
-  - `/` 52.29 GB, during the fourth pass's export of pretrain-shard-corruption.
+  - `/` 51.43 GB, during the fourth pass's export of wal-recovery-ordering.
+- **At the end of the regeneration** (`df -h`): `/home` 70 GB, `/` 50 GB.
 - **Not in the file any more:** the first pass's export figures were overwritten (their low was
   72.18 GB on `/home` and 55.20 GB on `/`).
 
