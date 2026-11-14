@@ -76,7 +76,8 @@ class TypecheckSessionState:
     generated_local_procedures: dict[str, TypedProcedureDef] = field(
         default_factory=dict
     )
-    let_proc_rewrite_results: dict[int, ExprNode] = field(default_factory=dict)
+    # id(the let-proc node as authored) -> (that node, its replacement); the node is held so the id stays its own.
+    let_proc_rewrite_results: dict[int, tuple[ExprNode, ExprNode]] = field(default_factory=dict)
     pending_local_hook_preparer: Callable[..., object] | None = field(
         default=None, repr=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},

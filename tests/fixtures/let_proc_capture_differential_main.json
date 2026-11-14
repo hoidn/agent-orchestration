@@ -1,0 +1,3136 @@
+{
+ "field/called-twice/group/effect": {
+  "direct": {
+   "digest": "sha256:639f08981590e84e73b261c8f5b05404c5cd2d0f35508a0b791d6f966b53e176",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/called-twice/group/pure": {
+  "direct": {
+   "digest": "sha256:a37315dcd30687f3e279a08c3c17fcd2a2bf05ed07ac4c341b755fd029776972",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "field/called-twice/inferred/effect": {
+  "direct": {
+   "digest": "sha256:639f08981590e84e73b261c8f5b05404c5cd2d0f35508a0b791d6f966b53e176",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "field/called-twice/inferred/pure": {
+  "direct": {
+   "digest": "sha256:a37315dcd30687f3e279a08c3c17fcd2a2bf05ed07ac4c341b755fd029776972",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "field/called-twice/typed/effect": {
+  "direct": {
+   "digest": "sha256:639f08981590e84e73b261c8f5b05404c5cd2d0f35508a0b791d6f966b53e176",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/called-twice/typed/pure": {
+  "direct": {
+   "digest": "sha256:a37315dcd30687f3e279a08c3c17fcd2a2bf05ed07ac4c341b755fd029776972",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "field/called/group/effect": {
+  "direct": {
+   "digest": "sha256:7d586eb3b3671e583f3ca1794f05db0a057a4183e0304a9b69fe4c38c85f4e1d",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/called/group/pure": {
+  "direct": {
+   "digest": "sha256:1e269e475ce6526f1622da155c187b5da9f49f39f2285807caa28ffb56b2aa22",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "field/called/inferred/effect": {
+  "direct": {
+   "digest": "sha256:7d586eb3b3671e583f3ca1794f05db0a057a4183e0304a9b69fe4c38c85f4e1d",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "field/called/inferred/pure": {
+  "direct": {
+   "digest": "sha256:1e269e475ce6526f1622da155c187b5da9f49f39f2285807caa28ffb56b2aa22",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "field/called/typed/effect": {
+  "direct": {
+   "digest": "sha256:7d586eb3b3671e583f3ca1794f05db0a057a4183e0304a9b69fe4c38c85f4e1d",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/called/typed/pure": {
+  "direct": {
+   "digest": "sha256:1e269e475ce6526f1622da155c187b5da9f49f39f2285807caa28ffb56b2aa22",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "field/in-a-loop/group/effect": {
+  "direct": {
+   "digest": "sha256:c8fe818ea0538d20e68ef16d47954f61b1276566937e0dc0e20fab1234910b98",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/in-a-loop/group/pure": {
+  "direct": {
+   "digest": "sha256:b4b4d34b1b947e45693bf00dfbcb7326a87676279ce7a7aa0dd44e2147231a34",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "field/in-a-loop/inferred/effect": {
+  "direct": {
+   "digest": "sha256:c8fe818ea0538d20e68ef16d47954f61b1276566937e0dc0e20fab1234910b98",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "field/in-a-loop/inferred/pure": {
+  "direct": {
+   "digest": "sha256:b4b4d34b1b947e45693bf00dfbcb7326a87676279ce7a7aa0dd44e2147231a34",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "field/in-a-loop/typed/effect": {
+  "direct": {
+   "digest": "sha256:c8fe818ea0538d20e68ef16d47954f61b1276566937e0dc0e20fab1234910b98",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/in-a-loop/typed/pure": {
+  "direct": {
+   "digest": "sha256:b4b4d34b1b947e45693bf00dfbcb7326a87676279ce7a7aa0dd44e2147231a34",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "field/map-effect-body/group/effect": {
+  "direct": {
+   "digest": "sha256:5cc6194c78b9838285232f371048e862a6b1395abed7a0134c1db0548a047dd3",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/map-effect-body/group/pure": {
+  "direct": {
+   "digest": "sha256:1a9f0c450f71c19a524571effb7ec04cbcb747ca73e1525733bb9af95b955291",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "field/map-effect-body/inferred/effect": {
+  "direct": {
+   "digest": "sha256:5cc6194c78b9838285232f371048e862a6b1395abed7a0134c1db0548a047dd3",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "field/map-effect-body/inferred/pure": {
+  "direct": {
+   "digest": "sha256:1a9f0c450f71c19a524571effb7ec04cbcb747ca73e1525733bb9af95b955291",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "field/map-effect-body/typed/effect": {
+  "direct": {
+   "digest": "sha256:5cc6194c78b9838285232f371048e862a6b1395abed7a0134c1db0548a047dd3",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/map-effect-body/typed/pure": {
+  "direct": {
+   "digest": "sha256:1a9f0c450f71c19a524571effb7ec04cbcb747ca73e1525733bb9af95b955291",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "field/passed-to-a-mapping-procedure/group/effect": {
+  "direct": {
+   "digest": "sha256:5ff84442a4ebede8c99c751bccbcd0359145a4eb794bdae6a6f4847f5d94ddac",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/passed-to-a-mapping-procedure/group/pure": {
+  "direct": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/passed-to-a-mapping-procedure/inferred/effect": {
+  "direct": {
+   "digest": "sha256:5ff84442a4ebede8c99c751bccbcd0359145a4eb794bdae6a6f4847f5d94ddac",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/passed-to-a-mapping-procedure/inferred/pure": {
+  "direct": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/passed-to-a-mapping-procedure/typed/effect": {
+  "direct": {
+   "digest": "sha256:5ff84442a4ebede8c99c751bccbcd0359145a4eb794bdae6a6f4847f5d94ddac",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/passed-to-a-mapping-procedure/typed/pure": {
+  "direct": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/passed-to-apply/group/effect": {
+  "direct": {
+   "digest": "sha256:6d76fe5f7b77d8c7768d0bad61122b1e83f09beabcef2f84d7cd60997ae1b150",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/passed-to-apply/group/pure": {
+  "direct": {
+   "digest": "sha256:c20af692db82433889c0b8a3a62a002b71de15db29f1647e3fc3ee83257676cc",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "field/passed-to-apply/inferred/effect": {
+  "direct": {
+   "digest": "sha256:6d76fe5f7b77d8c7768d0bad61122b1e83f09beabcef2f84d7cd60997ae1b150",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/passed-to-apply/inferred/pure": {
+  "direct": {
+   "digest": "sha256:c20af692db82433889c0b8a3a62a002b71de15db29f1647e3fc3ee83257676cc",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "field/passed-to-apply/typed/effect": {
+  "direct": {
+   "digest": "sha256:6d76fe5f7b77d8c7768d0bad61122b1e83f09beabcef2f84d7cd60997ae1b150",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "field/passed-to-apply/typed/pure": {
+  "direct": {
+   "digest": "sha256:c20af692db82433889c0b8a3a62a002b71de15db29f1647e3fc3ee83257676cc",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/called-twice/group/effect": {
+  "direct": {
+   "digest": "sha256:a7fe314d52967a23efc66caac0ca58b5544af150721339e0daa5d507f82a22c8",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/called-twice/group/pure": {
+  "direct": {
+   "digest": "sha256:360a7e632022ce5c00a020d44fcbb14d41a96e6486f073f2f6eee2bc98188249",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/called-twice/inferred/effect": {
+  "direct": {
+   "digest": "sha256:a7fe314d52967a23efc66caac0ca58b5544af150721339e0daa5d507f82a22c8",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "input/called-twice/inferred/pure": {
+  "direct": {
+   "digest": "sha256:360a7e632022ce5c00a020d44fcbb14d41a96e6486f073f2f6eee2bc98188249",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "input/called-twice/typed/effect": {
+  "direct": {
+   "digest": "sha256:a7fe314d52967a23efc66caac0ca58b5544af150721339e0daa5d507f82a22c8",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/called-twice/typed/pure": {
+  "direct": {
+   "digest": "sha256:360a7e632022ce5c00a020d44fcbb14d41a96e6486f073f2f6eee2bc98188249",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/called/group/effect": {
+  "direct": {
+   "digest": "sha256:bd0a882a86e53ce15dfcc63b26e13978d7960a93b0613cfdf388a4bd2fba0a79",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/called/group/pure": {
+  "direct": {
+   "digest": "sha256:726a1c6a6dc546c2411b1304599185c4c84de631d1a5c01e9764066af5ed206e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/called/inferred/effect": {
+  "direct": {
+   "digest": "sha256:bd0a882a86e53ce15dfcc63b26e13978d7960a93b0613cfdf388a4bd2fba0a79",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "input/called/inferred/pure": {
+  "direct": {
+   "digest": "sha256:726a1c6a6dc546c2411b1304599185c4c84de631d1a5c01e9764066af5ed206e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "input/called/typed/effect": {
+  "direct": {
+   "digest": "sha256:bd0a882a86e53ce15dfcc63b26e13978d7960a93b0613cfdf388a4bd2fba0a79",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/called/typed/effect/fn-state-binder": {
+  "direct": {
+   "digest": "sha256:cc965efc6530d4853a4b3b51cd807bd4df077ef50659c212490e5a137b5750bb",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/called/typed/effect/let-binder": {
+  "direct": {
+   "digest": "sha256:31f5839e53e93d7fb6f0f03f19001f1434d5e4e9d275be33e0f817864a8dfea7",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/called/typed/effect/loop-binder": {
+  "direct": {
+   "digest": "sha256:cc965efc6530d4853a4b3b51cd807bd4df077ef50659c212490e5a137b5750bb",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/called/typed/pure": {
+  "direct": {
+   "digest": "sha256:726a1c6a6dc546c2411b1304599185c4c84de631d1a5c01e9764066af5ed206e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/called/typed/pure/fn-state-binder": {
+  "direct": {
+   "digest": "sha256:6c3e52b4a834211375c2a011c95ed86992f8bbb22caa68a47e929c4bd7929766",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/called/typed/pure/let-binder": {
+  "direct": {
+   "digest": "sha256:fcec53fc0966a50f56824c9b4770c69598870aab3c17120435d0184a87855ea0",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/called/typed/pure/loop-binder": {
+  "direct": {
+   "digest": "sha256:6c3e52b4a834211375c2a011c95ed86992f8bbb22caa68a47e929c4bd7929766",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/in-a-loop/group/effect": {
+  "direct": {
+   "digest": "sha256:0fcaecb372006954c9380e611509c03b785f1e5b42e1fc2c29e8fff6529a1e2d",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/in-a-loop/group/pure": {
+  "direct": {
+   "digest": "sha256:efaa9551856ef98428dcc8b7c046a8273e9788c24b9043ffd5a35e0dcedef0dd",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/in-a-loop/inferred/effect": {
+  "direct": {
+   "digest": "sha256:0fcaecb372006954c9380e611509c03b785f1e5b42e1fc2c29e8fff6529a1e2d",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "input/in-a-loop/inferred/pure": {
+  "direct": {
+   "digest": "sha256:efaa9551856ef98428dcc8b7c046a8273e9788c24b9043ffd5a35e0dcedef0dd",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "input/in-a-loop/typed/effect": {
+  "direct": {
+   "digest": "sha256:0fcaecb372006954c9380e611509c03b785f1e5b42e1fc2c29e8fff6529a1e2d",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/in-a-loop/typed/pure": {
+  "direct": {
+   "digest": "sha256:efaa9551856ef98428dcc8b7c046a8273e9788c24b9043ffd5a35e0dcedef0dd",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/map-effect-body/group/effect": {
+  "direct": {
+   "digest": "sha256:756e099d298a29a8707ff5893dc9491bed7fcffd3411948631c0f23c3bb563cb",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/map-effect-body/group/pure": {
+  "direct": {
+   "digest": "sha256:fd629de9908d206c1927e7bd520ae47b97d7c64f67a620583769179c5432e87e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/map-effect-body/inferred/effect": {
+  "direct": {
+   "digest": "sha256:756e099d298a29a8707ff5893dc9491bed7fcffd3411948631c0f23c3bb563cb",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "input/map-effect-body/inferred/pure": {
+  "direct": {
+   "digest": "sha256:fd629de9908d206c1927e7bd520ae47b97d7c64f67a620583769179c5432e87e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "input/map-effect-body/typed/effect": {
+  "direct": {
+   "digest": "sha256:756e099d298a29a8707ff5893dc9491bed7fcffd3411948631c0f23c3bb563cb",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/map-effect-body/typed/effect/fn-state-binder": {
+  "direct": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  }
+ },
+ "input/map-effect-body/typed/effect/let-binder": {
+  "direct": {
+   "digest": "sha256:d0dbba772cf78d174f648088d44867c6100780fe05636cd383b0d9dfb12146e8",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/map-effect-body/typed/effect/loop-binder": {
+  "direct": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  }
+ },
+ "input/map-effect-body/typed/pure": {
+  "direct": {
+   "digest": "sha256:fd629de9908d206c1927e7bd520ae47b97d7c64f67a620583769179c5432e87e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/map-effect-body/typed/pure/fn-state-binder": {
+  "direct": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  }
+ },
+ "input/map-effect-body/typed/pure/let-binder": {
+  "direct": {
+   "digest": "sha256:db28ed15964a74bbd15cbc8365c1bdc78749ae3399f4cbfef7d27f1a7171441b",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/map-effect-body/typed/pure/loop-binder": {
+  "direct": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/group/effect": {
+  "direct": {
+   "digest": "sha256:17b94b455548185d46565b393664b1410350fea15a6aa613110119bdba6324de",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/group/pure": {
+  "direct": {
+   "digest": "sha256:9cd5da2ca6c9c57fdd04992939f7c943dd7321468ce56b5d06d04d5942815e62",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/inferred/effect": {
+  "direct": {
+   "digest": "sha256:17b94b455548185d46565b393664b1410350fea15a6aa613110119bdba6324de",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/inferred/pure": {
+  "direct": {
+   "digest": "sha256:9cd5da2ca6c9c57fdd04992939f7c943dd7321468ce56b5d06d04d5942815e62",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/typed/effect": {
+  "direct": {
+   "digest": "sha256:17b94b455548185d46565b393664b1410350fea15a6aa613110119bdba6324de",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/typed/effect/fn-state-binder": {
+  "direct": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/typed/effect/let-binder": {
+  "direct": {
+   "digest": "sha256:80fb7e0f416d7f8f639843e1bd2bc77c8ca6a34776f4bea803af2824e902f540",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/typed/effect/loop-binder": {
+  "direct": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/typed/pure": {
+  "direct": {
+   "digest": "sha256:9cd5da2ca6c9c57fdd04992939f7c943dd7321468ce56b5d06d04d5942815e62",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/typed/pure/fn-state-binder": {
+  "direct": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/typed/pure/let-binder": {
+  "direct": {
+   "digest": "sha256:3dea84854ac274db02bc4548e5789d4399856088f2f6f75604c1c40cfd553e8d",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/passed-to-a-mapping-procedure/typed/pure/loop-binder": {
+  "direct": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "loop_recur_done_type_mismatch"
+   ]
+  }
+ },
+ "input/passed-to-apply/group/effect": {
+  "direct": {
+   "digest": "sha256:93e566448f9947942921fe1dea1fbdd95eac48346951251f74beee346c64a94e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/passed-to-apply/group/pure": {
+  "direct": {
+   "digest": "sha256:07487e450a056cbbf870f14b43cb830a680207f55869b5ff8733e009ccc128b5",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/passed-to-apply/inferred/effect": {
+  "direct": {
+   "digest": "sha256:93e566448f9947942921fe1dea1fbdd95eac48346951251f74beee346c64a94e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/passed-to-apply/inferred/pure": {
+  "direct": {
+   "digest": "sha256:07487e450a056cbbf870f14b43cb830a680207f55869b5ff8733e009ccc128b5",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "input/passed-to-apply/typed/effect": {
+  "direct": {
+   "digest": "sha256:93e566448f9947942921fe1dea1fbdd95eac48346951251f74beee346c64a94e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "input/passed-to-apply/typed/pure": {
+  "direct": {
+   "digest": "sha256:07487e450a056cbbf870f14b43cb830a680207f55869b5ff8733e009ccc128b5",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "let-value/called-twice/group/effect": {
+  "direct": {
+   "digest": "sha256:e9ca12cdbe23f7afb32cd739616e89f0598cc2d39728f206061d9be397e36073",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/called-twice/group/pure": {
+  "direct": {
+   "digest": "sha256:5874431388566e1c210030137f3c59dbf5cc7e42cdd018f1c614e06ecc311c95",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "let-value/called-twice/inferred/effect": {
+  "direct": {
+   "digest": "sha256:e9ca12cdbe23f7afb32cd739616e89f0598cc2d39728f206061d9be397e36073",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "let-value/called-twice/inferred/pure": {
+  "direct": {
+   "digest": "sha256:5874431388566e1c210030137f3c59dbf5cc7e42cdd018f1c614e06ecc311c95",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "let-value/called-twice/typed/effect": {
+  "direct": {
+   "digest": "sha256:e9ca12cdbe23f7afb32cd739616e89f0598cc2d39728f206061d9be397e36073",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/called-twice/typed/pure": {
+  "direct": {
+   "digest": "sha256:5874431388566e1c210030137f3c59dbf5cc7e42cdd018f1c614e06ecc311c95",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "let-value/called/group/effect": {
+  "direct": {
+   "digest": "sha256:2260fcb6851c0dc5de38aa624e4c550697d5bbbcb41b637c390c3fe3923cbede",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/called/group/pure": {
+  "direct": {
+   "digest": "sha256:18ce07cccb0fc0dc2452b83c63f4fabef2a6e2d3358c289cb8f211c374e78a3e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "let-value/called/inferred/effect": {
+  "direct": {
+   "digest": "sha256:2260fcb6851c0dc5de38aa624e4c550697d5bbbcb41b637c390c3fe3923cbede",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "let-value/called/inferred/pure": {
+  "direct": {
+   "digest": "sha256:18ce07cccb0fc0dc2452b83c63f4fabef2a6e2d3358c289cb8f211c374e78a3e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "let-value/called/typed/effect": {
+  "direct": {
+   "digest": "sha256:2260fcb6851c0dc5de38aa624e4c550697d5bbbcb41b637c390c3fe3923cbede",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/called/typed/pure": {
+  "direct": {
+   "digest": "sha256:18ce07cccb0fc0dc2452b83c63f4fabef2a6e2d3358c289cb8f211c374e78a3e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "let-value/in-a-loop/group/effect": {
+  "direct": {
+   "digest": "sha256:e8b4b48e97dff93c14b47b01680f9e2db340353661430932f7fcaf5cf1b28132",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/in-a-loop/group/pure": {
+  "direct": {
+   "digest": "sha256:583836c342e6362026a5a379c8a45dfb812cdfb501dc2b8e01a28c098219d5ad",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "let-value/in-a-loop/inferred/effect": {
+  "direct": {
+   "digest": "sha256:e8b4b48e97dff93c14b47b01680f9e2db340353661430932f7fcaf5cf1b28132",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "let-value/in-a-loop/inferred/pure": {
+  "direct": {
+   "digest": "sha256:583836c342e6362026a5a379c8a45dfb812cdfb501dc2b8e01a28c098219d5ad",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "let-value/in-a-loop/typed/effect": {
+  "direct": {
+   "digest": "sha256:e8b4b48e97dff93c14b47b01680f9e2db340353661430932f7fcaf5cf1b28132",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/in-a-loop/typed/pure": {
+  "direct": {
+   "digest": "sha256:583836c342e6362026a5a379c8a45dfb812cdfb501dc2b8e01a28c098219d5ad",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "let-value/map-effect-body/group/effect": {
+  "direct": {
+   "digest": "sha256:6ba6b033e5337277bd0f0f1afdef353147ff5232fec6f4c1c35467ff33f9e146",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/map-effect-body/group/pure": {
+  "direct": {
+   "digest": "sha256:dd608d3da585ec8bbeb3855764151d8970d044f80ca810dcb7af43bf67d5401b",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "let-value/map-effect-body/inferred/effect": {
+  "direct": {
+   "digest": "sha256:6ba6b033e5337277bd0f0f1afdef353147ff5232fec6f4c1c35467ff33f9e146",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "let-value/map-effect-body/inferred/pure": {
+  "direct": {
+   "digest": "sha256:dd608d3da585ec8bbeb3855764151d8970d044f80ca810dcb7af43bf67d5401b",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "let-value/map-effect-body/typed/effect": {
+  "direct": {
+   "digest": "sha256:6ba6b033e5337277bd0f0f1afdef353147ff5232fec6f4c1c35467ff33f9e146",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/map-effect-body/typed/pure": {
+  "direct": {
+   "digest": "sha256:dd608d3da585ec8bbeb3855764151d8970d044f80ca810dcb7af43bf67d5401b",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "let-value/passed-to-a-mapping-procedure/group/effect": {
+  "direct": {
+   "digest": "sha256:80d0dd221dbb2a4250f86ab98ec6f9d0133e9f32b7c466d46f3a8d98c427e2d0",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/passed-to-a-mapping-procedure/group/pure": {
+  "direct": {
+   "digest": "sha256:e20a1377c503fbf0c21cdd9896587d1e5785067038bb6c50f48ed749b236cb26",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/passed-to-a-mapping-procedure/inferred/effect": {
+  "direct": {
+   "digest": "sha256:80d0dd221dbb2a4250f86ab98ec6f9d0133e9f32b7c466d46f3a8d98c427e2d0",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/passed-to-a-mapping-procedure/inferred/pure": {
+  "direct": {
+   "digest": "sha256:e20a1377c503fbf0c21cdd9896587d1e5785067038bb6c50f48ed749b236cb26",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/passed-to-a-mapping-procedure/typed/effect": {
+  "direct": {
+   "digest": "sha256:80d0dd221dbb2a4250f86ab98ec6f9d0133e9f32b7c466d46f3a8d98c427e2d0",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/passed-to-a-mapping-procedure/typed/pure": {
+  "direct": {
+   "digest": "sha256:e20a1377c503fbf0c21cdd9896587d1e5785067038bb6c50f48ed749b236cb26",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/passed-to-apply/group/effect": {
+  "direct": {
+   "digest": "sha256:a8a37f7b626644a5bc4510e6b7eba078467f531d422b06dcb0623a6425d842a3",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/passed-to-apply/group/pure": {
+  "direct": {
+   "digest": "sha256:d7559f2470053a5cfe8b1b06d14b2761309a5ab0c81a3bb1f0c4d5c69ae5c593",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "let-value/passed-to-apply/inferred/effect": {
+  "direct": {
+   "digest": "sha256:a8a37f7b626644a5bc4510e6b7eba078467f531d422b06dcb0623a6425d842a3",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/passed-to-apply/inferred/pure": {
+  "direct": {
+   "digest": "sha256:d7559f2470053a5cfe8b1b06d14b2761309a5ab0c81a3bb1f0c4d5c69ae5c593",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "let-value/passed-to-apply/typed/effect": {
+  "direct": {
+   "digest": "sha256:a8a37f7b626644a5bc4510e6b7eba078467f531d422b06dcb0623a6425d842a3",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/names.py:_capture_index_mapping"
+   ]
+  }
+ },
+ "let-value/passed-to-apply/typed/pure": {
+  "direct": {
+   "digest": "sha256:d7559f2470053a5cfe8b1b06d14b2761309a5ab0c81a3bb1f0c4d5c69ae5c593",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/called-twice/group/effect": {
+  "direct": {
+   "digest": "sha256:253502d0bbfbe6b2fc27e97a1bd42512e7d189bfe589415dbfd331ad4a45a25b",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/called-twice/group/pure": {
+  "direct": {
+   "digest": "sha256:ee2a201af2083f8375416b328a61c7861dcdaf2a00a0619e604dac8e1a00ae56",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/called-twice/inferred/effect": {
+  "direct": {
+   "digest": "sha256:253502d0bbfbe6b2fc27e97a1bd42512e7d189bfe589415dbfd331ad4a45a25b",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "literal/called-twice/inferred/pure": {
+  "direct": {
+   "digest": "sha256:ee2a201af2083f8375416b328a61c7861dcdaf2a00a0619e604dac8e1a00ae56",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "literal/called-twice/typed/effect": {
+  "direct": {
+   "digest": "sha256:253502d0bbfbe6b2fc27e97a1bd42512e7d189bfe589415dbfd331ad4a45a25b",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/called-twice/typed/pure": {
+  "direct": {
+   "digest": "sha256:ee2a201af2083f8375416b328a61c7861dcdaf2a00a0619e604dac8e1a00ae56",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/called/group/effect": {
+  "direct": {
+   "digest": "sha256:bbab277aa45af37d82c7cfb00fc6b273feb0b47cb7805776448639723b1388a4",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/called/group/pure": {
+  "direct": {
+   "digest": "sha256:4acac19ec6fc3d53016dcc43a6df796c948642882ed0dcafcef283f8d5f4940c",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/called/inferred/effect": {
+  "direct": {
+   "digest": "sha256:bbab277aa45af37d82c7cfb00fc6b273feb0b47cb7805776448639723b1388a4",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "literal/called/inferred/pure": {
+  "direct": {
+   "digest": "sha256:4acac19ec6fc3d53016dcc43a6df796c948642882ed0dcafcef283f8d5f4940c",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "literal/called/typed/effect": {
+  "direct": {
+   "digest": "sha256:bbab277aa45af37d82c7cfb00fc6b273feb0b47cb7805776448639723b1388a4",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/called/typed/pure": {
+  "direct": {
+   "digest": "sha256:4acac19ec6fc3d53016dcc43a6df796c948642882ed0dcafcef283f8d5f4940c",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/in-a-loop/group/effect": {
+  "direct": {
+   "digest": "sha256:f73baf6314ce885ac19093fba0cc1f35c594d625722beae5a5e555b43a5be493",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/in-a-loop/group/pure": {
+  "direct": {
+   "digest": "sha256:ea1d155128f91cea09f762588e6876495f6510f58994ff2a369606d25aa36d69",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/in-a-loop/inferred/effect": {
+  "direct": {
+   "digest": "sha256:f73baf6314ce885ac19093fba0cc1f35c594d625722beae5a5e555b43a5be493",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "literal/in-a-loop/inferred/pure": {
+  "direct": {
+   "digest": "sha256:ea1d155128f91cea09f762588e6876495f6510f58994ff2a369606d25aa36d69",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "literal/in-a-loop/typed/effect": {
+  "direct": {
+   "digest": "sha256:f73baf6314ce885ac19093fba0cc1f35c594d625722beae5a5e555b43a5be493",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/in-a-loop/typed/pure": {
+  "direct": {
+   "digest": "sha256:ea1d155128f91cea09f762588e6876495f6510f58994ff2a369606d25aa36d69",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/map-effect-body/group/effect": {
+  "direct": {
+   "digest": "sha256:367e6b295a233db1c1394a2e8cab7bdbbaee998ab36ca2c30b5d97cfee2b06f9",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/map-effect-body/group/pure": {
+  "direct": {
+   "digest": "sha256:97864b4fffd77f28cc4a166fc45e5f0189992c20fda99e8d688c8fcb02271df6",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/map-effect-body/inferred/effect": {
+  "direct": {
+   "digest": "sha256:367e6b295a233db1c1394a2e8cab7bdbbaee998ab36ca2c30b5d97cfee2b06f9",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "literal/map-effect-body/inferred/pure": {
+  "direct": {
+   "digest": "sha256:97864b4fffd77f28cc4a166fc45e5f0189992c20fda99e8d688c8fcb02271df6",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "literal/map-effect-body/typed/effect": {
+  "direct": {
+   "digest": "sha256:367e6b295a233db1c1394a2e8cab7bdbbaee998ab36ca2c30b5d97cfee2b06f9",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/map-effect-body/typed/pure": {
+  "direct": {
+   "digest": "sha256:97864b4fffd77f28cc4a166fc45e5f0189992c20fda99e8d688c8fcb02271df6",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-a-mapping-procedure/group/effect": {
+  "direct": {
+   "digest": "sha256:39d37e808746fe3a20924b72d5972726968088648f6b5c54ae102dd7cc77cba4",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-a-mapping-procedure/group/pure": {
+  "direct": {
+   "digest": "sha256:dee4282d74ce0cbd48b857b9363ceda09eb480dfb24deaaa90ea68225b9ec3b2",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-a-mapping-procedure/inferred/effect": {
+  "direct": {
+   "digest": "sha256:39d37e808746fe3a20924b72d5972726968088648f6b5c54ae102dd7cc77cba4",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-a-mapping-procedure/inferred/pure": {
+  "direct": {
+   "digest": "sha256:dee4282d74ce0cbd48b857b9363ceda09eb480dfb24deaaa90ea68225b9ec3b2",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-a-mapping-procedure/typed/effect": {
+  "direct": {
+   "digest": "sha256:39d37e808746fe3a20924b72d5972726968088648f6b5c54ae102dd7cc77cba4",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-a-mapping-procedure/typed/pure": {
+  "direct": {
+   "digest": "sha256:dee4282d74ce0cbd48b857b9363ceda09eb480dfb24deaaa90ea68225b9ec3b2",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-apply/group/effect": {
+  "direct": {
+   "digest": "sha256:443b7c42b385ac4c8b711656f892c353dac29e7d08d732a7ceeaa305816a8f70",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-apply/group/pure": {
+  "direct": {
+   "digest": "sha256:3fb76cf4cf8fd96b9f07308bc0b7a9bf186ad412ca5292c17f4e3057ff5291cf",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-apply/inferred/effect": {
+  "direct": {
+   "digest": "sha256:443b7c42b385ac4c8b711656f892c353dac29e7d08d732a7ceeaa305816a8f70",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-apply/inferred/pure": {
+  "direct": {
+   "digest": "sha256:3fb76cf4cf8fd96b9f07308bc0b7a9bf186ad412ca5292c17f4e3057ff5291cf",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-apply/typed/effect": {
+  "direct": {
+   "digest": "sha256:443b7c42b385ac4c8b711656f892c353dac29e7d08d732a7ceeaa305816a8f70",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "literal/passed-to-apply/typed/pure": {
+  "direct": {
+   "digest": "sha256:3fb76cf4cf8fd96b9f07308bc0b7a9bf186ad412ca5292c17f4e3057ff5291cf",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/called-twice/group/effect": {
+  "direct": {
+   "digest": "sha256:69da60af4799432974923973d11546ebc1779372b5a10e0652401915917f0889",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/called-twice/group/pure": {
+  "direct": {
+   "digest": "sha256:4d84172dc06ef13c2b3abacc3f5b5ad96f4def3afa016019a23f3614bcc0128d",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/called-twice/inferred/effect": {
+  "direct": {
+   "digest": "sha256:69da60af4799432974923973d11546ebc1779372b5a10e0652401915917f0889",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "reference/called-twice/inferred/pure": {
+  "direct": {
+   "digest": "sha256:4d84172dc06ef13c2b3abacc3f5b5ad96f4def3afa016019a23f3614bcc0128d",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "reference/called-twice/typed/effect": {
+  "direct": {
+   "digest": "sha256:69da60af4799432974923973d11546ebc1779372b5a10e0652401915917f0889",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/called-twice/typed/pure": {
+  "direct": {
+   "digest": "sha256:4d84172dc06ef13c2b3abacc3f5b5ad96f4def3afa016019a23f3614bcc0128d",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/called/group/effect": {
+  "direct": {
+   "digest": "sha256:faa3874647ec1a7d1dafa342e11b5f2d1a13da8e0647e1c3bfcc9ae1d2dc6743",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/called/group/pure": {
+  "direct": {
+   "digest": "sha256:2e0ea60355b8a6daad4bb622b5f2cde2c79cbc28b9fa7b3a769e3a42fede3883",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/called/inferred/effect": {
+  "direct": {
+   "digest": "sha256:faa3874647ec1a7d1dafa342e11b5f2d1a13da8e0647e1c3bfcc9ae1d2dc6743",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "reference/called/inferred/pure": {
+  "direct": {
+   "digest": "sha256:2e0ea60355b8a6daad4bb622b5f2cde2c79cbc28b9fa7b3a769e3a42fede3883",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "reference/called/typed/effect": {
+  "direct": {
+   "digest": "sha256:faa3874647ec1a7d1dafa342e11b5f2d1a13da8e0647e1c3bfcc9ae1d2dc6743",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/called/typed/pure": {
+  "direct": {
+   "digest": "sha256:2e0ea60355b8a6daad4bb622b5f2cde2c79cbc28b9fa7b3a769e3a42fede3883",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/in-a-loop/group/effect": {
+  "direct": {
+   "digest": "sha256:b61575a6fe8533b67e30db6bfe988480c383879596a310bcd461c9ca52ca204e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/in-a-loop/group/pure": {
+  "direct": {
+   "digest": "sha256:b3ebc5647f127b9f8cd2b735fb6323bb950a946f1f6a970723e951d6cd83392c",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/in-a-loop/inferred/effect": {
+  "direct": {
+   "digest": "sha256:b61575a6fe8533b67e30db6bfe988480c383879596a310bcd461c9ca52ca204e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "reference/in-a-loop/inferred/pure": {
+  "direct": {
+   "digest": "sha256:b3ebc5647f127b9f8cd2b735fb6323bb950a946f1f6a970723e951d6cd83392c",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "reference/in-a-loop/typed/effect": {
+  "direct": {
+   "digest": "sha256:b61575a6fe8533b67e30db6bfe988480c383879596a310bcd461c9ca52ca204e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/in-a-loop/typed/pure": {
+  "direct": {
+   "digest": "sha256:b3ebc5647f127b9f8cd2b735fb6323bb950a946f1f6a970723e951d6cd83392c",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/map-effect-body/group/effect": {
+  "direct": {
+   "digest": "sha256:4e0fc95c43b4072788f2566af5ecc5953f04d5fd320d9b10447b03906a118617",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/map-effect-body/group/pure": {
+  "direct": {
+   "digest": "sha256:fdce7cf0f4aaf2c37744b681571b77e2cff4193575c64f53e61658473dac35a2",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/map-effect-body/inferred/effect": {
+  "direct": {
+   "digest": "sha256:4e0fc95c43b4072788f2566af5ecc5953f04d5fd320d9b10447b03906a118617",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "reference/map-effect-body/inferred/pure": {
+  "direct": {
+   "digest": "sha256:fdce7cf0f4aaf2c37744b681571b77e2cff4193575c64f53e61658473dac35a2",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "refused",
+    "let_proc_signature_required"
+   ]
+  }
+ },
+ "reference/map-effect-body/typed/effect": {
+  "direct": {
+   "digest": "sha256:4e0fc95c43b4072788f2566af5ecc5953f04d5fd320d9b10447b03906a118617",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/map-effect-body/typed/pure": {
+  "direct": {
+   "digest": "sha256:fdce7cf0f4aaf2c37744b681571b77e2cff4193575c64f53e61658473dac35a2",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-a-mapping-procedure/group/effect": {
+  "direct": {
+   "digest": "sha256:62cc0e4c418954808f38c8586fb862546427bfca63ccb4cc70f0c81e05b5d60e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-a-mapping-procedure/group/pure": {
+  "direct": {
+   "digest": "sha256:1498efc02b6c37fd1e438e355f74defa4ec40264f4354effb16324cb473f793f",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-a-mapping-procedure/inferred/effect": {
+  "direct": {
+   "digest": "sha256:62cc0e4c418954808f38c8586fb862546427bfca63ccb4cc70f0c81e05b5d60e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-a-mapping-procedure/inferred/pure": {
+  "direct": {
+   "digest": "sha256:1498efc02b6c37fd1e438e355f74defa4ec40264f4354effb16324cb473f793f",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-a-mapping-procedure/typed/effect": {
+  "direct": {
+   "digest": "sha256:62cc0e4c418954808f38c8586fb862546427bfca63ccb4cc70f0c81e05b5d60e",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-a-mapping-procedure/typed/pure": {
+  "direct": {
+   "digest": "sha256:1498efc02b6c37fd1e438e355f74defa4ec40264f4354effb16324cb473f793f",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-apply/group/effect": {
+  "direct": {
+   "digest": "sha256:d68c41fd315869dd0d8c1b8f9ffcb5b7c1890892883723fb0921485069319b2b",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-apply/group/pure": {
+  "direct": {
+   "digest": "sha256:48e3729be72c7fe1c39d4bef2576fe6e3f004fae52a6b08a87d364485ff96a3a",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-apply/inferred/effect": {
+  "direct": {
+   "digest": "sha256:d68c41fd315869dd0d8c1b8f9ffcb5b7c1890892883723fb0921485069319b2b",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-apply/inferred/pure": {
+  "direct": {
+   "digest": "sha256:48e3729be72c7fe1c39d4bef2576fe6e3f004fae52a6b08a87d364485ff96a3a",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-apply/typed/effect": {
+  "direct": {
+   "digest": "sha256:d68c41fd315869dd0d8c1b8f9ffcb5b7c1890892883723fb0921485069319b2b",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "TypeError",
+    "workflow/evaluated/provider_io.py:ProviderIOContext.bind"
+   ]
+  }
+ },
+ "reference/passed-to-apply/typed/pure": {
+  "direct": {
+   "digest": "sha256:48e3729be72c7fe1c39d4bef2576fe6e3f004fae52a6b08a87d364485ff96a3a",
+   "outcome": [
+    "builds"
+   ]
+  },
+  "local": {
+   "digest": null,
+   "outcome": [
+    "crash",
+    "ValueError",
+    "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"
+   ]
+  }
+ }
+}

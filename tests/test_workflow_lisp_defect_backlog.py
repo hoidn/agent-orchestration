@@ -129,6 +129,8 @@ KNOWN: dict[str, tuple] = {
     "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D26": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D27": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"), "D27-pure": crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
@@ -204,6 +206,9 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D23-macro": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
     "D24": ("crash", "ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D26": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D27": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D27-pure": ("crash", "ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
     "E1-and": ("refused", "variant_ref_unproved"),
     "E1-or": ("refused", "variant_ref_unproved"),
     "E2": ("refused", "variant_ref_unproved"),
@@ -313,6 +318,12 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D23-macro": ("value", 705),
     "D24": None,
     "D25": None,
+    "D26": ("value", 2),
+    "D27": ("value", 3, "add"),
+    "D27-pure": ("value", 2),
+    "E28": ("refused", "let_proc_capture_rebound"),
+    "E28-parameter": ("refused", "let_proc_capture_rebound"),
+    "E28-renamed": ("value", 3, "add"),
     "E1-and": None,
     "E1-or": None,
     "E2": None,
@@ -503,6 +514,10 @@ B7_WRITTEN = "(inc1 (bind-proc (proc-ref foo) :runner (workflow-ref W)) input)"
 B7_HELPER = "(defproc helper ((fixed Int) (y Int)) -> Int (+ fixed y))"
 B7_APPLYI = "(defproc applyi ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))"
 B7_BF = "(defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (+ k 0)) x))"
+D27_ROLE = ("(let* ((r (record R :k k)) (role (bind-proc (proc-ref add) :n r.k))) "
+            "(let-proc ((step ((x Int)) -> Int (role x))) BODY))")
+E28_ROLE = ("(let* ((role (bind-proc (proc-ref add) :n k))) (loop/recur ((K 100)) :max 1 :on-exhausted 0 "
+            "(done (let-proc ((step ((x Int)) -> Int (role x))) (step 1)))))")
 LOOP_LOCAL_ADDING = "(let-proc ((h ((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted s (done (+ s ADDEND))))) (h x))"
 D23_LOCAL = "((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted s (done BODY))"
 D23_BOTH = ("(defproc both ((n Int)) -> Int (let-proc ((f " + D23_LOCAL.replace("BODY", "(+ s 1)") + ")\n"
@@ -660,6 +675,20 @@ ROWS: dict[str, Row] = {
                + LOOP_LOCAL_ADDING.replace("ADDEND", "r.k") + ")", "(defrecord R (k Int))", inputs=("n=3",)),
     "D25": row(None, "((n Int)) -> Int (both n 1)", "(defproc both ((x Int) (k Int)) -> Int (let* ((kk (+ k 0))) "
                + LOOP_LOCAL_ADDING.replace("ADDEND", "kk") + "))", inputs=("n=3",)),
+    # Twelfth batch (TD6 fix round 1): a role over a value name, used from a pure local at an inlined call; a role
+    # over a field read. E28: the copied role reads `k`, bound again between the role and the local (a loop
+    # binder; a parameter of the local), refused by ruling; renamed, it runs.
+    "D26": row(value(2), "((k Int)) -> Int " + ROLE_STEP.replace(":n 1", ":n k").replace("BODY", "(step 1)"), ADD,
+               inputs=("k=1",)),
+    "D27": row(value(3, "add"), "((k Int)) -> Int " + D27_ROLE.replace("BODY", "(step 1)"), ADDE, "(defrecord R (k Int))",
+               inputs=("k=1",)),
+    "D27-pure": row(value(2), "((k Int)) -> Int " + D27_ROLE.replace("BODY", "(step 1)"), ADD, "(defrecord R (k Int))",
+                    inputs=("k=1",)),
+    "E28": row(refused("let_proc_capture_rebound"), "((k Int)) -> Int " + E28_ROLE.replace("K", "k"), ADDE,
+               inputs=("k=1",)),
+    "E28-parameter": row(refused("let_proc_capture_rebound"), "((x Int)) -> Int (let* ((role (bind-proc (proc-ref add) "
+                         ":n x))) (let-proc ((step ((x Int)) -> Int (role x))) (step 2)))", ADDE, inputs=("x=1",)),
+    "E28-renamed": row(value(3, "add"), "((k Int)) -> Int " + E28_ROLE.replace("K", "q"), ADDE, inputs=("k=1",)),
     "D23": row(value(34), "((n Int)) -> Int (both n)", D23_BOTH, inputs=("n=3",)),
     "D23-macro": row(value(705), "((n Int)) -> Int (both n)", D23_MACRO,
                      "(defproc both ((n Int)) -> Int (+ (with-loop n 5) (* 100 (with-loop n 7))))", inputs=("n=3",)),

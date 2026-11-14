@@ -1,5 +1,9 @@
 """Structural and creator-scope capture contracts for W3 local procedures."""
 
+import json
+import subprocess
+import sys
+
 import pytest
 
 from orchestrator.workflow_lisp.closed.build import build_closed_program
@@ -783,11 +787,100 @@ def test_role_bound_over_a_workflow_input_is_a_map_body(tmp_path):
     assert observed == backlog.value(2, "add", "add"), detail
 
 
-def test_role_reading_a_name_a_local_parameter_shadows_is_refused(tmp_path):
-    run = ("((x Int)) -> Int (let* ((role (bind-proc (proc-ref add) :n x))) "
-           "(let-proc ((step ((x Int)) -> Int (role x))) (step 2)))")
-    path = backlog._install(tmp_path, {"m.orc": backlog.module(run, backlog.ADD)})
-    outcome = build_outcome(lambda: build_closed_program_bundle(FrontendBuildRequest(source_path=path,
-        source_roots=(tmp_path,), entry_workflow="m::run", command_boundaries_path=tmp_path / "commands.json",
-        workspace_root=tmp_path)))
-    assert outcome == ("refused", "let_proc_capture_duplicate")
+# A role bound over `k` and a local using it, with `k` bound again between them. The copied role must read the
+# binding the role read, so where `k` is bound again the program is refused; with the inner binder renamed it
+# runs and gives the role's value. `ADDV` is a command-backed `add` whose value is `n + x`.
+ADDV = ('(defproc add ((n Int) (x Int)) -> Int (let* ((z (command-result c :argv ("python" "c.py" "add" "0") '
+        ':returns Int))) (+ (+ n x) z)))')
+UNION_U = "(defunion U (A (n Int)) (B (why String)))"
+BIND_AS = "(defmacro bind-as (nm body) (let* ((nm 100)) body))"
+WITH_K = "(defmacro with-k (body) (let* ((k 100)) body))"
+ROLE_OVER_K = "(let* ((role (bind-proc (proc-ref add) :n k))) BODY)"
+STEP_LOCAL = "(let-proc ((step ((x Int)) -> Int (role x))) (step 1))"
+REBINDINGS = {
+    "loop-binder": ("Int", "(loop/recur ((K 100)) :max 1 :on-exhausted 0 (done LOCAL))", "let_proc_capture_rebound"),
+    "fn-state-binder": ("Int", "(loop/recur :max 1 :state 100 :on-exhausted 0 (fn (K) (done LOCAL)))",
+                        "let_proc_capture_rebound"),
+    "let-binder": ("Int", "(let* ((K 100)) LOCAL)", "let_proc_capture_rebound"),
+    "let-in-loop": ("Int", "(loop/recur ((s 0)) :max 1 :on-exhausted 0 (let* ((K 100)) (done LOCAL)))",
+                    "let_proc_capture_rebound"),
+    "match-arm-binder": ("Int", "(match (variant U A :n 100) ((A K) LOCAL) ((B b) 0))", "let_proc_capture_rebound"),
+    "macro-binder": ("Int", "(bind-as K LOCAL)", "let_proc_capture_rebound"),
+    "local-parameter": ("Int", "(let-proc ((step ((K Int)) -> Int (role K))) (step 1))", "let_proc_capture_rebound"),
+    "map-effect-binder": ("List[Int]", "(list/map-effect ((K (list 100))) :max 1 LOCAL)", "list_map_binder_invalid"),
+    "map-binder": ("List[Int]", "(list/map ((K (list 100))) LOCAL)", "list_map_binder_invalid"),
+    "enclosing-local-parameter": ("Int", "(let-proc ((outer ((K Int)) -> Int LOCAL)) (outer 100))",
+                                  "let_proc_nested_unsupported"),
+}
+
+
+def _rebinding(case, binder):
+    returns, body, _ = REBINDINGS[case]
+    return f"((k Int)) -> {returns} " + ROLE_OVER_K.replace("BODY", body.replace("LOCAL", STEP_LOCAL).replace("K", binder))
+
+
+def _build_twice(tmp_path, run):
+    path = backlog._install(tmp_path, {"m.orc": backlog.module(run, ADDV, UNION_U, BIND_AS, WITH_K)})
+
+    def build():
+        return build_closed_program_bundle(FrontendBuildRequest(source_path=path, source_roots=(tmp_path,),
+            entry_workflow="m::run", command_boundaries_path=tmp_path / "commands.json", workspace_root=tmp_path))
+
+    return path, build_outcome(build), build_outcome(build)
+
+
+CLI_TWICE = """import json, sys
+from orchestrator.cli import main
+run = sys.argv[1:]
+sys.argv = ["orchestrator", "compile", *[a for a in run if a != "--input" and "=" not in a]]
+assert main() == 0
+sys.argv = ["orchestrator", "run", *run]
+sys.exit(main())
+"""
+
+
+def _run_in_one_process_after_a_compile(root, path, inputs):
+    """The public command line twice in one process: `compile`, then `run`."""
+    flags = [flag for item in inputs for flag in ("--input", item)]
+    done = subprocess.run([sys.executable, "-B", "-c", CLI_TWICE, str(path.relative_to(root)),
+        "--entry-workflow", "m::run", "--source-root", ".", "--command-boundaries-file", "commands.json", *flags],
+        cwd=root, env=backlog._env(), capture_output=True, text=True, check=False)
+    log = (root / "log.txt").read_text(encoding="utf-8").split() if (root / "log.txt").exists() else []
+    if done.returncode:
+        return ("exit", done.returncode, *log), done.stderr
+    return backlog.value(json.loads(done.stdout.splitlines()[-1]), *log), done.stderr
+
+
+@pytest.mark.parametrize("case", sorted(REBINDINGS))
+def test_role_read_name_bound_again_before_the_local_is_refused(tmp_path, case):
+    _, first, second = _build_twice(tmp_path, _rebinding(case, "k"))
+    assert (first, second) == (("refused", REBINDINGS[case][2]),) * 2
+
+
+@pytest.mark.parametrize("case", ["loop-binder", "fn-state-binder", "let-binder", "let-in-loop", "match-arm-binder",
+                                  "macro-binder", "local-parameter"])
+def test_role_read_name_with_the_inner_binder_renamed_gives_the_role_value(tmp_path, case):
+    _assert_runs_to(tmp_path, _rebinding(case, "q"), backlog.value(2, "add"))
+
+
+def test_macro_binder_renamed_by_hygiene_keeps_the_role_value(tmp_path):
+    run = "((k Int)) -> Int " + ROLE_OVER_K.replace("BODY", f"(with-k {STEP_LOCAL})")
+    _assert_runs_to(tmp_path, run, backlog.value(2, "add"))
+
+
+def test_local_in_a_loop_done_builds_alike_in_one_process_and_cold(tmp_path):
+    run = ("((k Int)) -> Int " + ROLE_OVER_K.replace(
+        "BODY", f"(loop/recur ((s 0)) :max 1 :on-exhausted 0 (done {STEP_LOCAL}))"))
+    _assert_runs_to(tmp_path, run, backlog.value(2, "add"))
+
+
+def _assert_runs_to(tmp_path, run, wanted):
+    path, first, second = _build_twice(tmp_path / "in-process", run)
+    assert (first, second) == (backlog.BUILDS, backlog.BUILDS)
+    cold_root = tmp_path / "cold"
+    cold_root.mkdir()
+    cold_path = backlog._install(cold_root, {"m.orc": path.read_text(encoding="utf-8")})
+    cold, detail = backlog._run(cold_root, cold_path, "m::run", ("k=1",))
+    assert cold == wanted, detail
+    warm, detail = _run_in_one_process_after_a_compile(path.parent, path, ("k=1",))
+    assert warm == wanted, detail
