@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.40")
+  (:target-dsl "2.39")
   (defmodule mlevolve_pair/search_compact)
   (export run-search)
 
@@ -99,39 +99,41 @@
                          :history (list seed-a-trial seed-b-trial) :evaluations 2
                          :next_branch "A" :pending_branch "none" :pending_candidate seed-a
                          :stall_a 0 :stall_b 0 :fused false)))
-        (loop/recur ((state initial))
+        (loop/recur
           :max 16
+          :state initial
           :on-exhausted (result state "loop_bound_exhausted")
-          (if (and state.best_evaluation.valid
-                   (<= state.best_evaluation.score target_score))
-            (done (result state "solved"))
-            (if (>= state.evaluations max_evaluations)
-              (done (result state "budget_exhausted"))
-              (if (!= state.pending_branch "none")
-                (let* ((next-state (branch-step state "repair" state.pending_branch)))
-                  (continue next-state))
-                (if (and (>= state.stall_a 2) (>= state.stall_b 2)
-                         (= state.fused false))
-                  (let* ((candidate (command-result propose-fusion
-                                     :adapter propose_candidate
-                                     :inputs ((operation "fuse") (branch "both")
-                                              (candidate_a state.a.a) (candidate_b state.a.b)
-                                              (other_a state.b.a) (other_b state.b.b)
-                                              (history_size state.evaluations))
-                                     :returns Candidate))
-                         (evaluation (command-result evaluate-fusion
-                                       :adapter evaluate_candidate
-                                       :inputs ((a candidate.a) (b candidate.b))
-                                       :returns Evaluation))
-                         (accepted (and evaluation.valid (< evaluation.score state.best_evaluation.score)))
-                         (trial (record Trial :action "fuse" :branch "both"
-                                  :parents (list state.a state.b) :candidate candidate
-                                  :evaluation evaluation :accepted accepted)))
-                    (continue (record-update state
-                      :best (if accepted candidate state.best)
-                      :best_evaluation (if accepted evaluation state.best_evaluation)
-                      :history (list/append state.history trial)
-                      :evaluations (+ state.evaluations 1)
-                      :stall_a 0 :stall_b 0 :fused true)))
-                  (let* ((next-state (branch-step state "improve" state.next_branch)))
-                    (continue next-state)))))))))))
+          (fn (state)
+            (if (and state.best_evaluation.valid
+                     (<= state.best_evaluation.score target_score))
+              (done (result state "solved"))
+              (if (>= state.evaluations max_evaluations)
+                (done (result state "budget_exhausted"))
+                (if (!= state.pending_branch "none")
+                  (let* ((next-state (branch-step state "repair" state.pending_branch)))
+                    (continue next-state))
+                  (if (and (>= state.stall_a 2) (>= state.stall_b 2)
+                           (= state.fused false))
+                    (let* ((candidate (command-result propose-fusion
+                                       :adapter propose_candidate
+                                       :inputs ((operation "fuse") (branch "both")
+                                                (candidate_a state.a.a) (candidate_b state.a.b)
+                                                (other_a state.b.a) (other_b state.b.b)
+                                                (history_size state.evaluations))
+                                       :returns Candidate))
+                           (evaluation (command-result evaluate-fusion
+                                         :adapter evaluate_candidate
+                                         :inputs ((a candidate.a) (b candidate.b))
+                                         :returns Evaluation))
+                           (accepted (and evaluation.valid (< evaluation.score state.best_evaluation.score)))
+                           (trial (record Trial :action "fuse" :branch "both"
+                                    :parents (list state.a state.b) :candidate candidate
+                                    :evaluation evaluation :accepted accepted)))
+                      (continue (record-update state
+                        :best (if accepted candidate state.best)
+                        :best_evaluation (if accepted evaluation state.best_evaluation)
+                        :history (list/append state.history trial)
+                        :evaluations (+ state.evaluations 1)
+                        :stall_a 0 :stall_b 0 :fused true)))
+                    (let* ((next-state (branch-step state "improve" state.next_branch)))
+                      (continue next-state))))))))))))

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.40")
+  (:target-dsl "2.39")
   (defmodule improve_experiment_proposal)
   (import std/improve :only (Decision improve))
   (export run-experiment)
