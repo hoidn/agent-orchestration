@@ -1393,6 +1393,18 @@ change of the [surface-coherence design](../docs/design/workflow_lisp_surface_co
   parallel map may be written directly in a serial map or loop body. Every program that compiled
   before keeps its closed program, digest and identities, and its recorded runs resume.
 
+- **E1, an effect inside a value.** A record or variant field, a list element, a
+  `path/join-under` child, a `list/map` or `list/map-effect` source and an `:on-exhausted` value
+  may hold an effect when every part of the value is simple, and a `continue` value and a `match`
+  subject may hold one under the same exceptions; before, each of these places refused any effect.
+  What counts as simple, the order of evaluation, the refusal codes (unchanged from before for
+  every value that is not simple) and the places where nothing new is admitted (the body of a
+  `let-proc` local; an argument of a procedure or function call) are stated in the
+  [frontend specification](../docs/design/workflow_lisp_frontend_specification.md), section 16.3.
+  The effect names of an admitted program are the same whether the value is bound with `let*`
+  first or written in place. Every program that compiled before keeps its closed program, digest
+  and identities, and its recorded runs resume.
+
 ### Run-time corrections without a new target
 
 - **Output slots checked before a fresh launch.** A provider, phased provider or agent turn about
