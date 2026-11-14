@@ -82,6 +82,7 @@ Read the one for a feature when you use it.
 | [workflow_lisp_edit_and_continue.md](workflow_lisp_edit_and_continue.md) | Resume under an edited program | Implemented (Phase 3b, 2026-11-13); evaluated execution (C10) and `specs/cli.md` own resume; the H-G3 measurement is not done |
 | [workflow_lisp_surface_coherence.md](workflow_lisp_surface_coherence.md) | One rule each for effect placement, iteration forms and callables | Accepted; the callables, map-body and loop-binder changes are implemented, effects in fields is in review; the specification describes what compiles today |
 | [workflow_lisp_staged_workflow_authoring.md](workflow_lisp_staged_workflow_authoring.md) | A timeout as a name, a typed list literal, list operators, prompts as values and roles by partial application | Accepted 2026-11-13, not implemented; the specification describes what compiles today |
+| [orc_search_checkpoint_controller.md](orc_search_checkpoint_controller.md) | Roadmap readiness item R1. Part 1: a stop at a named effect site (`--stop-after`, exit status 3, no new record or file) and a documented harness procedure that copies a stopped run whole, with its preconditions. Part 2, deferred: a snapshot store, a fork at an earlier step, the container route, the pause at a usage limit | Draft; in review, not accepted, not implemented. Not built until the comparison step's design says where a staged seed's workspace lives and the first paid seed runs show whether stage signals predict the result |
 
 ## Historical
 
