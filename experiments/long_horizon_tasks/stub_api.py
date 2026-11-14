@@ -223,10 +223,11 @@ def _redact(name, value):
 
 
 def _system(body):
-    """Each system block's size and its first 80 characters (the identity line), not the whole prompt."""
+    """Each system block's size, first 80 characters (the identity line) and cache control; not the whole prompt."""
     system = body.get("system") or []
     blocks = [{"text": system}] if isinstance(system, str) else system
-    return [{"chars": len(b.get("text", "")), "opening": b.get("text", "")[:80]} for b in blocks]
+    return [{"chars": len(b.get("text", "")), "opening": b.get("text", "")[:80],
+             **({"cache_control": b["cache_control"]} if "cache_control" in b else {})} for b in blocks]
 
 
 def _record(path, headers, body):

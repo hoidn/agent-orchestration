@@ -182,3 +182,10 @@ def test_the_system_prompt_is_recorded_by_block_size_and_opening(stub):
     port, log = stub
     _post(port, {**_request(), "system": [{"type": "text", "text": "You are a stand-in. " + "x" * 300}]})
     assert _log(log)[0]["system"] == [{"chars": 320, "opening": "You are a stand-in. " + "x" * 60}]
+
+
+def test_a_system_block_keeps_its_cache_control(stub):
+    port, log = stub
+    block = {"type": "text", "text": "cached", "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+    _post(port, {**_request(), "system": [block]})
+    assert _log(log)[0]["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
