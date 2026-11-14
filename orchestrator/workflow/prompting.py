@@ -733,13 +733,20 @@ class PromptComposer:
                     },
                 )
 
-        prompt = ""
-        digest = None
-        if "input_file" in step:
-            input_path = self.workspace / step["input_file"]
-            if input_path.exists():
-                prompt, digest = read_text_with_sha256(input_path)
-        return prompt, digest, None
+        if "input_file" not in step:
+            return "", None, None
+        try:
+            return (*read_text_with_sha256(self.workspace / step["input_file"]), None)
+        except OSError as exc:
+            return "", None, contract_violation_result(
+                "Provider prompt input file read failed",
+                {
+                    "step": step_name,
+                    "reason": "input_file_read_failed",
+                    "path": step["input_file"],
+                    "error": str(exc),
+                },
+            )
 
     def apply_asset_depends_on_prompt_injection(
         self,

@@ -487,6 +487,7 @@ schema notation, not authored workflow files.
   - Read exactly one base prompt source:
     - `input_file` literally from WORKSPACE for workspace-owned or runtime-generated prompt material, or
     - `asset_file` literally from the directory containing the authored workflow file for bundled reusable-workflow assets.
+    - A declared source that is missing or cannot be read (a directory, no permission) fails the step before `started` with `input_file_read_failed` or `asset_file_read_failed`, naming the path; no provider is launched. An empty file is a valid, empty prompt source.
   - `asset_depends_on` source assets are injected in-memory as deterministic content blocks in declared order.
   - Apply workspace dependency injection in-memory if `depends_on.inject` is enabled (see `dependencies.md`).
   - For `version: "1.2"` provider steps with `consumes`, inject a deterministic `Consumed Artifacts` block by default using resolved consume values from preflight (not prompt-authored paths).
