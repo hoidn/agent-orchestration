@@ -9,6 +9,7 @@ from __future__ import annotations
 
 
 HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.35")\n'
+CURRENT_HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.40")\n'
 
 
 DECISION_LIB = HEADER + """  (defmodule grt/lib)
@@ -276,7 +277,7 @@ TWO_INSTANCES_ENTRY = HEADER + """  (defmodule grt/entry)
 """
 
 
-MAKE_LIB = HEADER + """  (defmodule grt/lib)
+MAKE_LIB = CURRENT_HEADER + """  (defmodule grt/lib)
   (export Outcome make)
   (defunion Outcome :forall (T E)
     (OK (value T))
@@ -285,20 +286,18 @@ MAKE_LIB = HEADER + """  (defmodule grt/lib)
     :forall (S)
     ((x S))
     -> Outcome[S String]
-    :effects ()
-    :lowering inline
     (variant Outcome[S String] OK :value x)))
 """
 
-PROC_REF_PAYLOAD_ENTRY = HEADER + """  (defmodule grt/entry)
+PROC_REF_PAYLOAD_ENTRY = CURRENT_HEADER + """  (defmodule grt/entry)
   (import grt/lib :only (Outcome make))
   (export run)
   (defrecord Out (n Int))
-  (defproc inc ((n Int)) -> Out :effects () (record Out :n n))
+  (defproc inc ((n Int)) -> Out
+    (record Out :n n))
   (defproc use-it
     ((n Int))
     -> Out
-    :effects ()
     (let* ((o (make (proc-ref inc))))
       (record Out :n n)))
   (defworkflow run () -> Out
