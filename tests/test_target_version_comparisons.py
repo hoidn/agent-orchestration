@@ -168,6 +168,7 @@ ALLOWED = {
         'if target_dsl_supports_local_hook_inference(type_env.target_dsl_version)',
         'return_type_ref=expected_return or returns[0], declared_effects=(None if target_dsl_supports_effect_ceilings(creator["type_env"].target_dsl_version) else frozenset()),',
         'requested_lowering_mode=(ProcedureLoweringMode.INLINE if target_dsl_supports_effect_ceilings(',
+        'if not target_dsl_supports_effect_ceilings(type_env.target_dsl_version):',
         'declared_effects=(None if target_dsl_supports_effect_ceilings(creator["type_env"].target_dsl_version) else frozenset()), requested_lowering_mode=(ProcedureLoweringMode.INLINE if target_dsl_supports_effect_ceilings(',
         'if target_dsl_supports_local_hook_inference(target_dsl_version) and procedure_catalog is not None:',
         'if definition is None and target_dsl_supports_local_hook_inference(target_dsl_version):',
