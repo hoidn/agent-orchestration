@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule procedure_lowering_identity_modes)
   (export orchestrate)
   (defpath WorkReport
@@ -17,10 +17,6 @@
   (defproc inline-plan
     ((report_path WorkReport))
     -> PlanResult
-    :effects
-      ((uses-provider providers.review)
-       (uses-command run_checks))
-    :lowering inline
     (let* ((attempt
              (provider-result providers.review
                :prompt prompts.review
@@ -40,16 +36,12 @@
   (defproc private-helper
     ((report_path WorkReport))
     -> ChecksResult
-    :effects ((uses-command run_checks))
-    :lowering private-workflow
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py" report_path)
       :returns ChecksResult))
   (defproc auto-helper
     ((report_path WorkReport))
     -> ChecksResult
-    :effects ((uses-command run_checks))
-    :lowering auto
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py" report_path)
       :returns ChecksResult))
@@ -60,12 +52,10 @@
            (private_result (private-helper report_path))
            (auto_first (auto-helper report_path))
            (auto_second (auto-helper report_path)))
-      (loop/recur
+      (loop/recur ((state plan))
         :max 1
-        :state plan
-        (fn (state)
-          (match state
-            ((APPROVE approved)
-             (done state))
-            ((REVISE revise)
-             (done state))))))))
+        (match state
+          ((APPROVE approved)
+           (done state))
+          ((REVISE revise)
+           (done state)))))))

@@ -446,8 +446,9 @@ every removed test is listed with the code it covered".
      `compiler_defect`; two refusal messages mislead (a parallel map in an
      `if` condition; `bind-proc` with an effect).
    The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
-   (in review on its branch) orders this list by harm. By the owner's
-   direction of 2026-11-13 it is cut to seven tasks (29 hours): what can
+   (accepted 2026-11-13 after an independent review and one revision) orders
+   this list by harm. By the owner's direction of 2026-11-13 it is cut to
+   eight tasks (48 hours, about 85 with reviews): what can
    spend provider money or commit a wrong output, and the crashes a short
    staged seed or its mutants would plausibly hit. The rest stay listed and
    pinned as known, and return only when the mutant generator or a real

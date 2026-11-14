@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defpath WorkReport
     :kind relpath
     :under "artifacts/work"
@@ -19,7 +19,6 @@
     ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])
      (input WorkflowInput))
     -> WorkflowOutput
-    :effects ((calls-workflow runner))
     (call runner
       :input input))
   (defworkflow entry

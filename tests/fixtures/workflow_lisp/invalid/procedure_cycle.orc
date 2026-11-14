@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defpath WorkReport
     :kind relpath
     :under "artifacts/work"
@@ -14,12 +14,8 @@
   (defproc first-checks
     ((report_path WorkReport))
     -> ChecksResult
-    :effects ()
-    :lowering inline
     (second-checks report_path))
   (defproc second-checks
     ((report_path WorkReport))
     -> ChecksResult
-    :effects ()
-    :lowering inline
     (first-checks report_path)))

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defpath StateFile
     :kind relpath
     :under "state"
@@ -36,8 +36,6 @@
   (defproc probe-selector
     ((ctx DrainCtx))
     -> SelectionResult
-    :effects ((uses-command probe_select))
-    :lowering inline
     (command-result probe_select
       :argv ("python" "scripts/select_next_item.py" ctx.manifest)
       :returns SelectionResult))
@@ -52,8 +50,6 @@
             (SelectionT has-union-variant GAP)
             (SelectionT has-union-variant BLOCKED (reason String)))
     -> String
-    :effects ()
-    :lowering inline
     (match (selector ctx)
       ((EMPTY e) "empty")
       ((SELECTED s) "selected")

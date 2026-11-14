@@ -1,4 +1,4 @@
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule let_proc_missing_context)
   (import std/phase :only (with-phase))
   (export run)
