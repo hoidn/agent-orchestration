@@ -234,13 +234,13 @@ STAGES = (
 # Codes that the typechecker reports for a restriction, with the place that raises each one.
 # A rule cell must also fail in the typecheck stage: some of these codes are raised later too.
 RESTRICTION_CODES = frozenset({
-    "effect_not_permitted",  # typecheck_dispatch._typecheck: record and variant fields must be pure
-    "loop_recur_contract_invalid",  # typecheck_loop_recur: the `:on-exhausted` value must be pure
+    "effect_not_permitted",  # typecheck_dispatch._typecheck: a record or variant that holds an effect takes simple fields
+    "loop_recur_contract_invalid",  # typecheck_loop_recur: an `:on-exhausted` value that holds an effect is simple
 })
 
-# Typecheck rejects the cell: (form, position) -> code. Each form here has a real effect:
-# the same command written inline with `command-result`, without a procedure call, is
-# rejected with the same code in the same position.
+# Typecheck rejects the cell: (form, position) -> code. Each form here has a real effect behind
+# a procedure call, and no procedure call is a simple value (frontend specification 16.3); the
+# same command written with `command-result`, without a procedure call, is admitted there.
 RULES = {
     ("command-call", "record-field"): "effect_not_permitted",
     ("command-call", "variant-field"): "effect_not_permitted",
@@ -301,10 +301,6 @@ DEFECTS = {
     "d": ("pure replay binding references an unknown result member", "pure-result replay, case d: a pure "
         "`match` whose arms build a record, as a variant field or procedure argument "
         "(workflow/pure_result_replay.py `_validate_result_member`)"),
-    "on-exhausted-call-edge": ("`loop/recur` exhaustion projection must be pure", "typecheck restriction wrongly "
-        "applied: the `:on-exhausted` check compares the whole effect summary, procedure-call edges included, "
-        "with the empty summary, so a call to a `defproc` declared `:effects ()` is rejected; the variant it "
-        "returns, written directly, compiles (typecheck_loop_recur.py `typecheck_loop_recur_expr`)"),
 }
 
 
@@ -339,7 +335,6 @@ KNOWN_DEFECTS = {
     ("pure-proc-call", "match-subject"): Defect("subject-producer", 2, "wcc_lowering_route_unsupported", "defunctionalization"),
     ("pure-proc-call", "variant-field"): Defect("nested-union-result", 2, "collection_element_type_unsupported", "lowering"),
     ("pure-proc-call", "loop-state-field"): Defect("loop-state-union", 2, "compiler_defect", "lowering"),
-    ("pure-proc-call", "on-exhausted-value"): Defect("on-exhausted-call-edge", 2, "loop_recur_contract_invalid", "typecheck"),
     ("pure-proc-call", "procedure-argument"): Defect("replay-union-argument", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("pure-proc-call", "match-arm-result"): Defect("replay-frame-scope", 2, "pure_result_replay_unavailable", "replay index at run start"),
     ("command-call", "loop-state-field"): Defect("loop-call-argument", 2, "workflow_signature_mismatch", "lowering"),

@@ -316,12 +316,16 @@ def test_closed_loop_run_ref_keeps_path_defaults(tmp_path):
 _PURE_REFUSALS = {
     "exhaustion": "run_ref_placement_invalid",
     "map_source": "run_ref_placement_invalid",
+    "pure_map_source": "run_ref_placement_invalid",
     "map_args": "list_map_effect_body_unsupported",
     "pure_map": "list_map_body_effect_forbidden",
     "pure_function": "run_ref_placement_invalid",
     "map_let": "list_map_effect_body_unsupported",
     "map_control": "list_map_effect_body_unsupported",
     "map_nested": "list_map_effect_body_unsupported",
+    # A run reference is not a simple value: in a list element it stays refused, written or behind a call.
+    "list_element": "effect_not_permitted",
+    "list_element_written": "effect_not_permitted",
 }
 
 
@@ -335,10 +339,13 @@ def _restricted_source(root, position, locality):
         "map_source": f'(list/map-effect ((item (let* ((ignored {value})) (list payload)))) :max 1 (call echo :payload item))',
         "map_args": f'(list/map-effect ((item (list payload))) :max 1 (call echo :payload {value}))',
         "pure_map": f'(list/map ((item (list payload))) {value})',
+        "pure_map_source": f'(list/map ((item (let* ((ignored {value})) (list payload)))) item)',
         "pure_function": '(bad payload)',
         "map_let": f'(list/map-effect ((item (list payload))) :max 1 (let* ((ignored {value})) payload))',
         "map_control": f'(list/map-effect ((item (list payload))) :max 1 (if true {value} payload))',
         "map_nested": f'(list/map-effect ((item (list payload))) :max 1 (list/map-effect ((other (list item))) :max 1 (call echo :payload {value})))',
+        "list_element": f'(list {value})',
+        "list_element_written": f'(list {_path_form(revision)})',
     }
     definitions = '(defworkflow echo ((payload String)) -> String payload)'
     if position == "pure_function":

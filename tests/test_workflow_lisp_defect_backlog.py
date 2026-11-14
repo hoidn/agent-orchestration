@@ -120,7 +120,7 @@ KNOWN: dict[str, tuple] = {
     "B7-int": value(404),
     "B7-same-written": refused("procedure_lowering_unresolved"),
     "C1": value(7, "libw"),
-    "D1": OPERAND, "D2": OPERAND, "D3": OPERAND, "D20": OPERAND,
+    "D20": OPERAND,
     "D4-loop": NO_ELABORATION, "D4-map-value": NO_ELABORATION, "D4-map-bound": NO_ELABORATION,
     "D5": crash("TypeError", f"{ELABORATE}:_infer_expr_type"),
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
