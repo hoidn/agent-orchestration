@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule proc_refs/private_entry)
   (import proc_refs/private_helper :as helper)
   (export Output forward entry)
@@ -10,8 +10,6 @@
     ((runner ProcRef[String -> String])
      (input String))
     -> String
-    :effects ()
-    :lowering inline
     input)
   (defworkflow entry
     ((input String))
