@@ -118,6 +118,12 @@ def _headed(text: str, *heads: str) -> list[ListExpr]:
     return [form for form in _lists(root) if _head(form) in heads]
 
 
+def entry_inputs(text: str) -> list[str]:
+    """The names of the inputs the entry workflow, `run`, declares, in order; read from the source, no compile."""
+    (entry,) = [form for form in _headed(text, "defworkflow") if form.items[1].value == "run"]
+    return [param.items[0].value for param in entry.items[2].items]
+
+
 def _operand(form: ListExpr, key: str) -> SExpr | None:
     """The item after the keyword `key` among the form's own items, or None."""
     for item, after in zip(form.items, form.items[1:]):
