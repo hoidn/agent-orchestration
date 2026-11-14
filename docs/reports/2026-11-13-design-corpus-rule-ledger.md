@@ -41,7 +41,7 @@ history or targets the code never met are counted apart.
 | `refactor_architecture` | 14 | 14 | 5 | 1 (3.6, T4c) | Historical |
 | `shared_owner_lane_prerequisites` | 10 | 10 | 4 | 0 (4.3 closed by T4e) | Historical |
 | `trial_runs` | 14 | 14 | 3 | 0 | Historical |
-| `mlevolve_workflow_lisp_system_architecture` | 11 | 7 | 1 | 1 (6.6, no owner) | **Current** until TR |
+| `mlevolve_workflow_lisp_system_architecture` | 11 | 7 | 1 | 0 (6.6 closed by TR) | Historical (notice restored after TR) |
 | `judgment_views` | 4 | 4 | 1 | 1 (7.4, T8) | Historical |
 | `lexical_execution_checkpoints` | 5 | 5 | 1 | 0 | Historical |
 | `provider_live_binding`, `provider_peer_messaging` | 5 | 6 | 1 | 0 | Historical |
@@ -399,8 +399,9 @@ stays current while row 12.24 is open.
 
 - `mlevolve_workflow_lisp_system_architecture` is back to current: row 6.6 (`module_path_mismatch`)
   has no owner and its home, specification section 4, is lane B's (TR). TR can add the sentence;
-  then the notice can return. Lane B's TR closed row 6.6 (specification section 4); the notice can
-  return in a later task.
+  then the notice can return. Lane B's TR closed row 6.6 (specification section 4); the notice
+  returned in the citation repoint follow-up of T2b (2026-11-13), every row 6.1 to 6.6 with a
+  current owner and 6.7 history.
 - Open rows with a current owner that a later task retires: 3.6 (T4c; closed by T4c in §37), 4.3 (T4e; closed by T4e in §8.10), 7.4 (T8). Those
   tasks must carry the sentence given in the row.
 - Owners written by this revision: `orchestrator/workflow_lisp/README.md` (rows 3.11, 3.12),

@@ -199,7 +199,7 @@ at the newest target, adding only `:parallel 2 :workspace repo`.
       requests match commits by identity and attempt.
 - [ ] `test_failed_implementation_keeps_sibling_commits_and_resume_judges_once`,
       `test_compile_dry_run_run_report_and_two_completed_resumes`.
-- [ ] Live smoke, only after tranche T1 is approved: the same copy, both
+- [x] Live smoke, run once on 2026-11-13 under tranche T1 (result in the Ledger): the same copy, both
       aliases bound to `claude_unrestricted_workspace`, every model
       `claude-haiku-5-5`, four candidates, then a completed resume. Keep the
       request, attempt and usage files; retry a failure by `resume`.

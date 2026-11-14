@@ -5,7 +5,7 @@
 - **Status:** current execution contract. Target 2.35 admits commands, portable
   composed providers without context capture, calls/captures and path-mode run
   references. Target 2.36 adds bounded W3; 2.37 adds bounded parallel map
-  (§11), qualified through the public command line with stand-ins, not yet with
+  (§11), qualified through the public command line with stand-ins and run once with
   a real provider; 2.38 confined-provider qualification remains separately gated. Target 2.38
   has bounded Agent Sessions and command-only confined run-ref admission.
   Target 2.39 changes procedure authoring and finite source admission under the
@@ -108,6 +108,19 @@ outside the release is refused at build with `closed_program_gap`, naming
 the form and its source location. This target-aware admission check is part
 of accepting a typed program at the new target; a defect closing an admitted
 form is a compiler defect, not permission to shrink this release's scope.
+A discriminant `if` or `cond` (frontend specification §12) whose branch reads
+a variant-only field of the tested value lowers to a `case` on that value; the
+closed program has no unreachable arm and no branch shared between arms, so two
+bounded shapes of that admitted form are refused with `closed_program_gap`,
+naming the value, the variant and the `match` form that lowers: a branch that
+more than one arm must hold (reached by more than one variant, or standing in
+for a variant an earlier test excluded) and that runs an effect (a command, a
+provider, a request for input, or a call of a procedure that has effects); and
+a test whose two branches both read a variant-only field after an earlier test
+excluded a third variant. In a `cond` the second shape is a clause order: an
+earlier clause that only excludes a variant, then a reading clause followed by
+reading code; testing the variants that are only excluded after the reading
+clauses lowers.
 Calls include the existing compile-time `WorkflowRef`, `ProcRef`, `bind-proc`
 and bounded `let-proc` forms. Explicit supplied compiled imports require the
 matching producer-owned typed snapshot (§4.2.1); ordinary source calls remain
@@ -3009,7 +3022,7 @@ The form is qualified through the public command line with stand-in
 providers and commands: item working directories, kill and resume in every
 window, whole-suffix invalidation and the best-of-N consumer
 ([addendum](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification)).
-It has not run against a real provider, and the addendum lists what stays
+It has run once against a real provider (2026-11-13, [Phase 2 plan's ledger](../plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#ledger)), and the addendum lists what stays
 open. The [drafting guide](../lisp_workflow_drafting_guide.md#173-parallel-map-target-237)
 gives the recipe and its limits. Its rules preserve the existing identity and memo.
 The accepted D2/D3 [concrete refinements](../plans/2026-10-07-evaluated-execution-phase-5-plan.md#contract-delta-to-review-before-implementation)
@@ -3091,7 +3104,7 @@ code to its rule here.
 
 | Code | Raised |
 | --- | --- |
-| `closed_program_gap` | At target-aware admission: a form or effect class explicitly outside this release (§1.1); not a fallback for a missing implementation of an admitted form |
+| `closed_program_gap` | At target-aware admission: a form or effect class explicitly outside this release (§1.1), or one of the two bounded discriminant-conditional shapes §1.1 names; not a fallback for any other missing implementation of an admitted form |
 | `compiled_workflow_source_required` | Before admitting an explicit compiled import at 2.35: the matching complete original typed snapshot is missing or structurally mismatched (§4.2.1); not a historical-authenticity check |
 | `compiled_workflow_snapshot_conflict` | At closure admission: different source/context under one canonical definition, naming both origins (§4.2.1) |
 | `command_boundary_closure_missing` | At build: a boundary without a `closure` field (C1) |

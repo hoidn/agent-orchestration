@@ -345,7 +345,7 @@ it does enforce for every binding is the stable-command rule above: an inline
 `python -c` command refuses. Diagnostics: `inline_python_command_in_workflow`,
 `inline_shell_command_in_workflow`.
 
-See also: [Workflow Lisp Legacy Adapter](workflow_lisp_legacy_adapter.md).
+See also: [Workflow Lisp Legacy Adapter](workflow_lisp_legacy_adapter.md) (historical record).
 
 ## Provider Output Protocol
 

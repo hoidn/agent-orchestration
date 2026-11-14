@@ -341,7 +341,8 @@ every removed test is listed with the code it covered".
      `compiler_defect`, although the specification's own example has that
      shape;
    - choosing a procedure reference with `if` fails with `compiler_defect`
-     where a refusal is intended;
+     where a refusal is intended (closed 2026-11-13 by the callables change:
+     `proc_ref_literal_required`);
    - inside a macro template: `list/map`, a call to a `let-proc` local, and a
      nested loop used as an operand each fail or crash;
    - a free name in a macro template binds to the caller's local, so hygiene
@@ -408,6 +409,19 @@ every removed test is listed with the code it covered".
      knowledge; it needs one resolver-aware change, not a patch. Also: a
      workflow defined by a macro gets its parameters renamed, so it cannot be
      called or used as an entry through its public inputs.
+   - added 2026-11-13 (seventh batch, from the third review of the map-body
+     change): effect summaries are unsound for imported workflows. The effect
+     fixpoint keeps an imported workflow's summary for its first round only,
+     and a missing summary is read as "no effects", so any check that asks a
+     summary whether a call reaches an effect can be answered wrongly (found
+     through the run-reference rule for map bodies, which no longer relies on
+     summaries; other effect checks on `main` may be affected and have not
+     been audited: second in line after the missing prompt file). Also: a
+     one-call map body that is a `let-proc` capture, and a map inside a
+     `continue` argument of a specialized procedure, each fail with
+     `compiler_defect`; a variant-only field read fails with `compiler_defect`
+     when the tested name is rebound in one operand while a sibling operand
+     tests it (needs four lines in the renaming pass).
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
@@ -535,6 +549,20 @@ until it is, this section is the staging.
   at 20 percent shows 0 of 5 about a third of the time), so step 7 places
   tasks in bands and makes no fine ranking. No claim about any workflow comes
   from step 6.
+- **Making fitness cheaper to measure (added 2026-11-13, owner direction).**
+  A search over workflows is limited by fitness: one evaluation costs dollars
+  and pass or fail at a 20 percent rate needs about 290 attempts per
+  candidate to tell 20 from 30 percent. These five items raise the chance
+  that a later search finds anything; each is attached to a step above and
+  none adds spend unless marked.
+
+| Lever | What is done | Where | Spend |
+| --- | --- | --- | --- |
+| Graded fitness | Record, for every attempt, the verifier's count of sub-tests passed and total, where the verifier exposes one; prefer tasks with many sub-tests when the set is frozen. Reported beside pass or fail; it places no task and changes no frozen rule of the ladder | Steps 6 and 7 | None |
+| Deterministic stage signals | On the first paid seed runs, record at each stage boundary the visible check's pass fraction and the agents' typed verdicts, beside the final verifier result; report how well each predicts the end. Early stopping is designed only on a signal that does | Step 9 (its smoke first) | None beyond step 9 |
+| Tasks chosen by how the direct session fails | Read the ladder's failed transcripts and label each failure as process (lost track, stopped early, did not verify, broke earlier work) or capability; the frozen set states the mix, and the staged comparison is read per label | Step 7 | None (the transcripts are paid for by step 6) |
+| A cheaper task family for the inner loop | A second, shorter family with the same failure labels, at about a tenth of the cost per attempt, for selection; finalists are validated on the long tasks | A new step after 7 | **New calibration spend; needs an owner approval; not requested** |
+| Exhaust the small space before searching | The first space (one model, an effort per role, three levels) has 27 points: it is evaluated as a grid, or a declared fraction of one, on the frozen tasks, not searched | Phase 6, first run | Part of the Phase 6 request |
 
 ### Phase 6: Program evolution
 
@@ -564,6 +592,32 @@ was not taken. No spend is authorized.
 - The campaign code from the closed search roadmap is kept outside the default
   test suite (`ORCHESTRATE_CAMPAIGN_TESTS=1` runs its tests) until this
   phase decides what it reuses.
+- **Search readiness (added 2026-11-13, owner direction; no spend).** What
+  this system could add to a search is not the rejection of invalid
+  candidates (in October the typed admission rejected nothing). It is:
+  evaluation that can be paused at a stage boundary and resumed, so weak
+  candidates stop early and promising ones continue without paying twice;
+  an identity that recognises the same program respelled; spend bounds the
+  runtime enforces on a generated program; a uniform typed tree to mutate;
+  and typed per-stage records for a proposer. Three pieces of work make
+  those real before any paid search, each with its own plan when it starts:
+
+| Readiness item | What is built or measured | Gate | Depends on |
+| --- | --- | --- | --- |
+| R1 Checkpoint controller and workspace snapshots | A snapshot of the workspace after every committed step (a commit for a repository task, an image layer for a container task), recorded beside the memo; a controller that runs candidates to a named stage boundary, stops the weak ones and resumes the rest; a fork of a run at a step with its workspace. This is the design item H-E2 needs and nobody has assessed: design first | Stand-in runs: a stopped candidate resumes with no step dispatched twice; a fork at step k reproduces the parent's workspace at k byte for byte; cost of a child equals its changed suffix | Phase 3b (done); the stage-signal result of Phase 5b for where to stop |
+| R2 Canonical digest, then a replay of October | Local and generated names leave the program digest, so two spellings of one program share it; then the digests of the October search's recorded candidates are recomputed and the share that collapse is reported | Zero spend. The replay decides whether de-duplication is worth wiring into admission | The one-target cut (a digest change moves identity) |
+| R3 Mutants never crash the compiler | A generator of mechanical mutants of the seeds over the declared dimensions (a few hundred); every mutant compiles or is refused with a code, none ends in `compiler_defect`, and the count of distinct digests is reported. The open defect list of Lane D stage 5 is the backlog it draws on, ordered by what the mutants actually hit | Zero spend; runs in the default suite at a small sample | Stage 5 merges; the mutation operators are the same ones a search uses |
+
+  Order: R3 and the October replay first (days, no design); R1 after its
+  design is reviewed. A zero-spend check of H-E2's reach belongs here too:
+  apply each declared mutation to a stand-in run of the seed and read the
+  plan `resume` prints, which gives the share of steps each dimension keeps.
+- **Estimate these items answer (coordinator's judgment, 2026-11-13, not a
+  measurement):** about a quarter to a third that a search on this system
+  produces a workflow that beats its seed with these mechanisms material to
+  it; the items here and the fitness items of Phase 5b are what could raise
+  that. The cap is whether a staged structure pays for its extra calls on
+  long tasks, which Phase 5b step 9 tests.
 
 ## Effort
 
@@ -581,6 +635,26 @@ Phase 3 is larger than the table says: the accepted plan for 3b alone estimates
 | Phase 4 | 3–5 |
 | Lane D | 7–11 |
 | Total | 21–32 |
+
+**Whole-roadmap weights (coordinator's estimate, 2026-11-13; the owner asked that progress
+figures cover every part).** The table above covers Phases 0 to 4 and Lane D as first scoped.
+Lane D has since gained stages 5 and 6, the documentation consolidation and a defect backlog, and
+four parts had no weight. Midpoints in engineer-weeks, from each plan's hours where one exists and
+from judgment where none does; a progress figure is done weeks over this total and says so.
+
+| Part | Weeks | Basis |
+| --- | --- | --- |
+| Phase 0 | 0.75 | Table above |
+| Phase 1 | 2.5 | Table above |
+| Phase 2 | 4 | Table above |
+| Phase 3 | 6 | Table above |
+| Phase 4 | 4 | Table above |
+| Lane D | 17 | 9 as first scoped; stage 5 about 3; stage 6 about 2 (79 hours); documentation consolidation about 3 (112 hours); defect backlog and the changes assigned to the cut about 2 (judgment, unsized) |
+| Consumer thread | 3 | Judgment: one pipeline written, run to a used result, and its friction log |
+| Phase 5, seed set | 4 | Judgment: tasks, programs and runner (built), calibration, seed evaluation |
+| Phase 5b, long-horizon | 4 | 93 hours for the ladder and the freeze, plus the staged comparison (judgment) |
+| Phase 6, program evolution | 8 | Judgment: the three readiness items, a search harness and its runs; the least certain row |
+| **Total** | **about 53** | |
 
 ## Dispositions
 
@@ -697,13 +771,14 @@ is manual. Phase plans are linked here as they start:
   accepted. Target 2.40 survives; after the cut a run recorded at an older target is read-only
   (`report`, dashboard and monitor read it; continuing it needs the tagged release).
 - Lane D, surface coherence (stage 5): [design](../design/workflow_lisp_surface_coherence.md)
-  accepted. A wrong-value defect the review found in constructor fields is fixed first; the
-  changes that only admit refused source follow; the loop binder rewrite rides the stage 4
+  accepted. The constructor-field defect is fixed and the callables change (C1) is merged
+  (2026-11-13); effects in fields (E1), map bodies (I1) and the loop binder form (I2a) are in
+  review; the loop binder rewrite rides the stage 4
   sweep and the `fn` form goes at the stage 4 cut.
-- Lane D, authoring revisions for staged workflows (stage 6): design and plan being drafted
-  (`docs/design/workflow_lisp_staged_workflow_authoring.md`,
-  `docs/plans/2026-11-13-staged-workflow-authoring-revisions-plan.md`; neither exists until the
-  draft is committed). Direction fixed by owner decision 15: roles by partial application over
+- Lane D, authoring revisions for staged workflows (stage 6):
+  [design](../design/workflow_lisp_staged_workflow_authoring.md) and
+  [plan](2026-11-13-staged-workflow-authoring-revisions-plan.md), reviewed and accepted
+  2026-11-13; code starts after the stage 5 changes merge. Direction fixed by owner decision 15: roles by partial application over
   first-class prompts.
 - Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
   after every record; memo reduction now continues from the last fold, a start the evaluator has
