@@ -32,7 +32,7 @@ from .memo import MemoError
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
 from . import phased_providers
 from .providers import (DELIVERY_NAMES_BY_DIGEST, FILE_DELIVERY_NAME, PHASED_DELIVERY_NAME, check_output_slots,
-                        resolve_provider_input)
+                        resolve_provider_input, ProviderTimeoutNonpositive)
 from .run_ref import require_run_ref_root, resolve_run_ref_input, validate_evaluated_run_ref
 
 
@@ -301,12 +301,16 @@ def _resolve_external_input(authority, node, operands, identity, workspace, read
         return resolve_run_ref_input(node, operands)
     if node["class"] == "agent":
         return resolve_allocation_input(node, operands)
-    if node["class"] == "agent_turn":
-        resolved = _resolve_turn_effect_input(authority, node, operands, identity, workspace, reader,
-            commit, result_path, launch_cwd, snapshot)
-    else:
-        resolved = _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader,
-            commit, result_path, launch_cwd)
+    try:
+        if node["class"] == "agent_turn":
+            resolved = _resolve_turn_effect_input(authority, node, operands, identity, workspace, reader,
+                commit, result_path, launch_cwd, snapshot)
+        else:
+            resolved = _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader,
+                commit, result_path, launch_cwd)
+    except ProviderTimeoutNonpositive as exc:
+        exc.identity = identity     # the recovery lines name the refused step
+        raise
     if commit is not None:      # comparison point 1: both callers of `_reuse_effect_commit` resolve here
         return resolved, replay_parts(resolved.input_parts, commit.data["input_parts"], declaration_subject(node, resolved),
                                       written_subject(authority, commit, node, resolved))
