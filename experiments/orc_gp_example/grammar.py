@@ -1,4 +1,4 @@
-"""Genotype grammar and its total rendering to a target-2.39 Workflow Lisp module.
+"""Genotype grammar and its total rendering to a target-2.40 Workflow Lisp module.
 
 A genotype is a tuple of stages, each a tuple drawn from STAGE_KINDS:
 
@@ -26,7 +26,7 @@ STAGE_KINDS = ("plan", "implement", "check_and_repair", "review_and_revise")
 
 HEADER = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.39")
+  (:target-dsl "2.40")
   (defmodule individual)
   (export run)
 

@@ -246,10 +246,7 @@
                                    :iteration 0
                                    :drain_status DrainStatus.CONTINUE
                                    :drain_summary_path
-                                     (__generated-relpath-seed__
-                                       DrainSummaryPath
-                                       "artifacts/work/drain-summary.json"
-                                       "verified_iteration_drain_summary_seed"))))
+                                     (path/join-under DrainSummaryPath "drain-summary.json"))))
                :max 40
                :on-exhausted (variant DrainLoopOutput EXHAUSTED
                                :drain_status DrainStatus.STALLED
