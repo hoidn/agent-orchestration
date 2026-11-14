@@ -1927,8 +1927,7 @@ A return is written after `->` in `defun`, `defproc` and `defworkflow`, and as `
 ```
 
 Pure expressions are side-effect-free. A pure expression may be written
-wherever a value is expected; so may an effect, except in the pure places of
-§16.3.
+wherever a value is expected; so may an effect, under the rules of §16.3.
 
 ## 10. Sequential Binding: `let*`
 
@@ -2293,7 +2292,8 @@ the current state root/fields and recursively package records/variants with
 renamed fields and scalar literals; normal `done` preserves its actual payload,
 even when it chooses the exhaustion variant. `:on-exhausted` is evaluated only
 on exhaustion, once, with the last state bound, wherever it is written among
-the options; it may hold effects (§16.3) but not a run reference.
+the options; it may hold an effect in a simple value (§16.3) but not a run
+reference.
 
 ### 13.2 `loop-state`
 
@@ -2477,33 +2477,73 @@ a procedure never publishes it implicitly.
 
 An effect may be written wherever a value is expected in a workflow or
 procedure body; effects run in the order written, each once, and `if`, `cond`,
-`match`, `and` and `or` run only the branch they take. Record and variant
-fields, list elements, `call` and procedure arguments, operator operands,
-`record-update` operands, a `list/map` or `list/map-effect` source, a
-`path/join-under` child and an `:on-exhausted` value are all such places.
+`match`, `and` and `or` run only the branch they take. `call` and procedure
+arguments, operator operands, `record-update` operands, `if` and `cond`
+conditions, a `match` subject, a `let*` binding, a `done` or `continue` value,
+a loop `:state` and `:max` and a command's `:argv` take any expression that
+holds an effect.
 
+- *A record or variant field, a list element, a `path/join-under` child, a
+  `list/map` or `list/map-effect` source and an `:on-exhausted` value take an
+  effect only in a simple value.* A value is **simple** when it is
+  - a literal, a name or a field read;
+  - a provider, command, agent or workflow call, a run reference, or a call
+    of a procedure that holds an effect, each with simple arguments;
+  - an operator application other than `and`, `or` and `not`, with simple
+    operands;
+  - a record, a variant, a list or a `path/join-under` whose parts are simple.
+
+  An `if`, `cond`, `match`, `let*`, `and`, `or` or `not`, a loop, a map, a
+  `record-update`, a `defun` application and a call of a pure procedure are
+  not simple. When one of these places holds an effect, every part of its
+  value must be simple: the part with the effect and the parts beside it.
+  Otherwise the program is refused, at the part to bind first, with the code
+  the place gave before it took effects: `effect_not_permitted` for a field,
+  an element and a path child, `list_map_body_effect_forbidden` for a
+  `list/map` source, `list_map_effect_body_unsupported` for a
+  `list/map-effect` source, `loop_recur_contract_invalid` for
+  `:on-exhausted`; when the part holds another such place with an effect, the
+  code is that inner place's.
+
+  ```lisp
+  (record Pair :a (fetch) :b (+ n 1))                          ; runs
+  (record Pair :a (if c (fetch) 0) :b 1)                       ; refused: the part with the effect is an `if`
+  (let* ((a (if c (fetch) 0))) (record Pair :a a :b 1))        ; runs
+  (record Pair :a (fetch) :b (match shape ((CIRCLE c) c.r) ((SQUARE s) 0)))   ; refused: a `match` beside the effect
+  (let* ((b (match shape ((CIRCLE c) c.r) ((SQUARE s) 0)))) (record Pair :a (fetch) :b b))   ; runs
+  ```
+
+  A value with no effect is not concerned: `(record Pair :a (if c 1 0) :b 2)`
+  builds as it always did. `:on-exhausted` has no place to bind first: do the
+  work in a procedure and call it, `:on-exhausted (give-up s)`.
 - *Pure places take no effect:* a `defun` body (`pure_function_has_effect`), a
   `list/map` body (`list_map_body_effect_forbidden`), a parallel `:workspace`
   (`list_map_effect_workspace_invalid`).
 - *A run reference keeps its own placement contract:* not in `:on-exhausted`,
   not in a map source (`run_ref_placement_invalid`), alone as a map body, with
-  a pure `:commit`. Elsewhere in a workflow body it takes the places above,
-  record and variant fields and list elements included.
+  a pure `:commit`. Elsewhere in a workflow body it takes the places above; in
+  a record or variant field and a list element, as a simple value.
 - *A value the compiler needs whole is bound first:* a `continue` value, a
-  `match` subject or a parallel map's source whose record, variant, list, path
-  child or map source holds an effect is lowered as
-  `(let* ((g <value>)) …g…)`, as a `done` value is, and runs; so does any
-  effectful source of a parallel map. Any other `continue` value that holds an
-  effect under a conditional (`if`, `cond`, `match`, `and`, `or`), a loop or a
-  map that is not the whole value, such as `(continue (+ (if c (fetch) 0) 9))`
-  or `(continue (if c (if d (fetch) 0) 0))` (an inner `if` holding a
-  provider, command, agent, workflow call or run reference), is refused with
-  `effect_not_permitted`; write `(let* ((next <value>)) (continue next))`. A
-  `record-update` is not a record here: `(continue (record-update s :a (if c
-  (fetch) 0)))` is refused, `(continue (record-update s :a (fetch)))` runs. The
-  same value is admitted
-  everywhere else: as a `done` value, a loop `:state`, `:on-exhausted`, a `let*`
-  binding or a workflow or procedure result.
+  `match` subject or a parallel map's source that holds an effect in a record,
+  variant, list, path child or map source is lowered as
+  `(let* ((g <value>)) …g…)`, as a `done` value is, and runs; so is any
+  source of a parallel map that holds an effect. A `continue` value with a
+  conditional (`if`, `cond`, `match`, `and`, `or`), a loop or a map below its
+  top that cannot be evaluated in place, such as
+  `(continue (+ (if c (fetch) 0) 9))`, is refused with `effect_not_permitted`;
+  write `(let* ((next <value>)) (continue next))`. A `record-update` is not a
+  record here: `(continue (record-update s :a (if c (fetch) 0)))` is refused,
+  `(continue (record-update s :a (fetch)))` runs. The same values are admitted
+  as a `done` value, a loop `:state`, a `let*` binding or a workflow or
+  procedure result. Open defect, as before these places took effects: a
+  `continue` value that is an `if` with a branch that is an `if` holding a
+  command or a call of a workflow or procedure that holds an effect ends in
+  `compiler_defect`; bound first, it runs.
+- *A parallel map whose binder a macro template introduces takes a pure
+  source.* With an effect in its source it is refused as before
+  (`effect_not_permitted`, or `list_map_effect_body_unsupported` when the
+  source is the effect itself); pass the binder's name to the macro as an
+  argument. Open defect: with a pure source such a map does not build.
 - *A pure operator waits for its value:* it is computed when the value around
   it is built, after the effects of its sibling operands, and `print` is one.
   `(+ (print 1) (fetch) (print 3))` fetches, then prints `1` and `3`; a `let*`
@@ -2522,38 +2562,56 @@ runs once, before its first item.
 ordinal among the unnamed effects of its scope, in evaluation order;
 `#k / body / then|else|<variant> / …` inside a selected branch, and
 `loop:<label> / exhausted / …` in `:on-exhausted`. No aggregate position enters
-an identity, so an effect in a field has the same identity whether or not a
-sibling field is a `match`, and a pure edit moves no identity, with one
-exception, older than effects in fields: a pure `match` among the operands of
-an operator or procedure application that holds an effect (directly, inside a
-nested operator, or in the condition of an `if` whose branch holds the effect)
-renames that application's effects wherever the application stands as a value,
-not as the whole result: a `let*` binding, where the unnamed effects after it
-in the same body move too, a loop `:state`, a `done` value, a procedure argument
-or an operand. With `M` a pure `match`, `(let* ((w (+ (fetch) M))) (+ w
-(fetch)))` names its steps `w / body / #1` and `#1`, against `#1` and `#2` with
-`0` for `M`; `(+ 5 (if (= M 1) (fetch) 0))` names its step
-`#1 / body / #1 / body / then / #1`, against `#1 / body / then / #1`. As the
-whole result, `(+ (fetch) M)` and `(add (fetch) M)` keep `#1`, and
-`(let* ((w (if (= M 1) (fetch) 0))) w)` keeps `w / body / then / #1`. In a
-constructor field, list element, path child or map source that holds an
-effect, only the `if`-condition form moves names
-(`(record Pair :a (if (= M 1) (fetch) 0) :b 0)`); a pure `match` beside the
-effect, or among an operator's operands there, moves nothing, bound by `let*`
-or not.
+an identity. Below, `E` is a command and `M` a pure `match`.
+
+*In a field, an element, a path child, a map source and `:on-exhausted`, no
+pure edit moves an effect's name.* A value that holds an effect there is
+simple, so it has no branch and its effects are named by ordinal alone: the
+same whether or not an authored `let*` binds the value first
+(`(record Pair :a E :b 9)` and `(let* ((r (record Pair :a E :b 9))) r)` both
+name the step `#1`), whatever simple parts stand beside the effect and in
+whatever order they are written. An edit that makes the value not simple is
+refused, not renamed. An effect that is itself bound takes the binding's
+name, as everywhere: `(let* ((src E)) (list/map ((x src)) (+ x 1)))` names the
+step `src`, `(list/map ((x E)) (+ x 1))` names it `#1`.
+
+*Elsewhere two older cases move names under a pure edit.* Both are in values
+that are not simple, and both behave as they did before these places took
+effects.
+
+1. A pure `match` inside another operand of an operator application, or of a
+   pure procedure's application, that holds an effect: the operand itself, or
+   inside a pure `if`, a pure `let*` or a pure procedure's argument there, or,
+   for an operator application, inside a nested operator.
+   `(let* ((w (+ E M))) (+ w E))` names its steps `w / body / #1` and `#1`,
+   against `#1` and `#2` with `1` for `M`. The names
+   move when the application is a `let*` binding value (or stands under an
+   operator or in an `if` condition inside one), a loop `:state` or `:max`, a
+   `done` value, or a procedure, workflow or command argument:
+   `(call child :t (+ E M))` names its step `#1 / body / #1`. A pure
+   procedure's application moves them also as an operator operand and in an
+   `if` condition: `(* 2 (add E M))` does, `(* 2 (+ E M))` does not. They do not move when the application is the whole result of a body,
+   a `let*` body, or a branch of `if` or `match`. Without a `match`, a pure
+   `if`, `let*` or procedure call in that operand moves nothing.
+2. An `if` or `cond` with an effect in a branch, written as an operand of an
+   operator, whose condition holds a pure procedure call, `if`, `cond`, `let*`
+   or `match`: `(* 2 (if (= (add n 0) 1) E 0))` names its step
+   `#1 / body / #1 / body / then / #1`, against `#1 / body / then / #1` with
+   `n` for `(add n 0)`. A condition of names, literals and operators moves
+   nothing; nor does the same `if` as a `let*` binding, an argument, a loop
+   `:state`, a `done` value or the whole result; nor does the operator
+   application when it is itself the condition of an `if`.
 
 A `let*` names its step by its binding name when the `let*` is a statement (a
 `let*` body or binding value, a branch of `if`, `cond` or `match`, a loop or
 procedure body), a procedure or workflow argument, a command `:argv` item, a
-loop `:state` or `:max`, the whole `done` or `continue` value, the whole
-`:on-exhausted` value or a `list/map-effect` source. As an operator operand (an
-`if` or `cond` condition and an `and` or `or` operand included), a constructor
-or `record-update` field, a list element, a `path/join-under` child, a
-`list/map` source, a `match` subject or an operand inside `:on-exhausted`, its
-step is `#k`, whatever value holds the field or element (a `done` or `continue`
-value, a `match` subject, a loop `:state` or an argument): `(let* ((z E)) (+ z 1))`
-names the step `z`, `(+ (let* ((z E)) z) 1)` names it `#1`. Bind a step as a
-statement when someone will `invalidate` it by name.
+loop `:state` or `:max`, or the whole `done` or `continue` value. As an
+operator operand (an `if` or `cond` condition and an `and` or `or` operand
+included), a `record-update` field or a `match` subject, its step is `#k`:
+`(let* ((z E)) (+ z 1))` names the step `z`, `(+ (let* ((z E)) z) 1)` names it
+`#1`. A `let*` that holds an effect is not simple, so it does not stand in a
+field, an element, a path child, a map source or `:on-exhausted`. Bind a step
+as a statement when someone will `invalidate` it by name.
 
 ## 17. Artifact Authority
 

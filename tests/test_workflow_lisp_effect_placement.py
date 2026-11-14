@@ -301,6 +301,10 @@ BOUND_FIRST = {
         "List[Int]", f"(let* ((src (if (> n 0) (list {E(1)}) (list 2)))) (list/map ((x src)) x))", "", [1], ["1"]),
     "conditional-on-exhausted": (
         "Int", EXHAUSTED.replace("{v}", "(give-up s)"), f"(defproc give-up ((s Int)) -> Int (if (> s 5) s {E(1)}))", 1, ["1"]),
+    # The open defect of a `continue` value that is an `if` whose branch is an `if` holding an effect.
+    "nested-if-continue-value": (
+        "Int", "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) "
+        f"(let* ((next (if (> n 0) (if (> n 0) {E(1)} 0) 0))) (continue next)))))", "", 1, ["1"]),
 }
 
 
@@ -395,6 +399,78 @@ def test_effect_bound_by_a_name_takes_that_name(tmp_path: Path) -> None:
         ("written", f"(list/map ((x {source})) (+ x 1))"), ("bound", f"(let* ((src {source})) (list/map ((x src)) (+ x 1)))"))]
 
     assert names == [["#1"], ["src"]]
+
+
+# Outside the places E1 opened, two older cases move an effect's name under a pure edit (frontend
+# specification 16.3), and `main` before E1 gives the same names. Each row: (whether the names move, the
+# program over `{x}`, `{x}` before the edit, `{x}` after it).
+OPERATOR, PROCEDURE = "(+ {e1} {x})", "(add {e1} {x})"
+ONE_ROUND_DONE = "(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (done {v}))))"
+LET_BOUND = "(let* ((w {v})) (+ w {e3}))"
+# 1. A pure `match` inside another operand of an operator or pure-procedure application that holds an effect.
+MATCH_IN_AN_APPLICATION = {
+    "let-binding": (True, LET_BOUND.replace("{v}", OPERATOR), "1", M),
+    "let-binding-of-a-procedure-application": (True, LET_BOUND.replace("{v}", PROCEDURE), "1", M),
+    "let-binding-match-under-a-pure-if": (True, LET_BOUND.replace("{v}", OPERATOR), "1", f"(if (> n 0) {M} 0)"),
+    "let-binding-match-under-a-pure-let": (True, LET_BOUND.replace("{v}", OPERATOR), "1", f"(let* ((q {M})) q)"),
+    "let-binding-match-in-a-procedure-argument": (True, LET_BOUND.replace("{v}", OPERATOR), "1", f"(add {M} 0)"),
+    "let-binding-match-under-an-operator": (True, LET_BOUND.replace("{v}", OPERATOR), "1", f"(* 2 {M})"),
+    "let-binding-of-a-procedure-application-match-under-an-operator": (
+        False, LET_BOUND.replace("{v}", PROCEDURE), "1", f"(* 2 {M})"),
+    "let-binding-application-under-an-operator": (True, LET_BOUND.replace("{v}", f"(* 2 {OPERATOR})"), "1", M),
+    "loop-state": (True, f"(loop/recur :max 1 :state {OPERATOR} :on-exhausted s (fn (s) (done s)))", "1", M),
+    "loop-max": (True, f"(loop/recur :max {OPERATOR} :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ s 1)))))", "1", M),
+    "done-value": (True, ONE_ROUND_DONE.replace("{v}", OPERATOR), "1", M),
+    "procedure-argument": (True, f"(add {OPERATOR} 0)", "1", M),
+    "workflow-argument": (True, f"(call same :t {OPERATOR})", "1", M),
+    "command-argument": (True, '(command-result e :argv ("python" "{probe}" ' + OPERATOR + ") :returns Int)", "1", M),
+    "procedure-application-as-an-operator-operand": (True, f"(* 2 {PROCEDURE})", "1", M),
+    "procedure-application-in-an-if-condition": (True, f"(if (> {PROCEDURE} 0) 7 8)", "1", M),
+    "operator-application-as-an-operator-operand": (False, f"(* 2 {OPERATOR})", "1", M),
+    "operator-application-in-an-if-condition": (False, f"(if (> {OPERATOR} 0) 7 8)", "1", M),
+    "whole-result": (False, OPERATOR, "1", M),
+    "whole-result-of-a-procedure-application": (False, PROCEDURE, "1", M),
+    "let-body": (False, f"(let* ((p 5)) {OPERATOR})", "1", M),
+    "if-branch": (False, f"(if (> n 0) {OPERATOR} 0)", "1", M),
+    "match-arm": (False, f"(match (variant Shape CIRCLE :r n) ((CIRCLE c) {OPERATOR}) ((SQUARE q) 0))", "1", M),
+    "let-binding-pure-if-without-a-match": (False, LET_BOUND.replace("{v}", OPERATOR), "1", "(if (> n 0) 1 0)"),
+    "let-binding-pure-procedure-without-a-match": (False, LET_BOUND.replace("{v}", OPERATOR), "1", "(add 1 0)"),
+}
+# 2. An `if` or `cond` with an effect in a branch, an operand of an operator, whose condition holds more
+# than names, literals and operators.
+IF_E = "(if (= {x} 1) {e1} 0)"
+CONDITION_OF_AN_OPERAND_IF = {
+    "pure-procedure-call": (True, f"(* 2 {IF_E})", "n", "(add n 0)"),
+    "pure-if": (True, f"(* 2 {IF_E})", "n", "(if (> n 0) n 0)"),
+    "pure-let": (True, f"(* 2 {IF_E})", "n", "(let* ((q n)) q)"),
+    "pure-cond": (True, f"(* 2 {IF_E})", "n", "(cond ((> n 5) 0) (else n))"),
+    "pure-match": (True, f"(* 2 {IF_E})", "n", M),
+    "cond-operand": (True, "(* 2 (cond ((= {x} 1) {e1}) (else 0)))", "n", "(add n 0)"),
+    "operator-application-let-bound": (True, LET_BOUND.replace("{v}", f"(* 2 {IF_E})"), "n", "(add n 0)"),
+    "operator": (False, f"(* 2 {IF_E})", "n", "(+ n 0)"),
+    "list-length": (False, f"(* 2 {IF_E})", "n", "(list/length (list n))"),
+    "operator-application-in-an-if-condition": (False, f"(if (> (* 2 {IF_E}) 0) 7 8)", "n", "(add n 0)"),
+    "if-as-the-whole-result": (False, IF_E, "n", "(add n 0)"),
+    "if-as-a-let-binding": (False, LET_BOUND.replace("{v}", IF_E), "n", "(add n 0)"),
+    "if-as-a-procedure-argument": (False, f"(add {IF_E} 0)", "n", "(add n 0)"),
+    "if-as-a-workflow-argument": (False, f"(call same :t {IF_E})", "n", "(add n 0)"),
+    "if-as-a-loop-state": (False, f"(loop/recur :max 1 :state {IF_E} :on-exhausted s (fn (s) (done s)))", "n", "(add n 0)"),
+    "if-as-a-done-value": (False, ONE_ROUND_DONE.replace("{v}", IF_E), "n", "(add n 0)"),
+}
+PURE_EDITS = {f"{family}/{case}": row for family, rows in (
+    ("match", MATCH_IN_AN_APPLICATION), ("condition", CONDITION_OF_AN_OPERAND_IF)) for case, row in rows.items()}
+
+
+@pytest.mark.parametrize("case", PURE_EDITS)
+def test_pure_edit_outside_the_opened_places_moves_effect_names_only_as_stated(tmp_path: Path, case: str) -> None:
+    moves, body, before, after = PURE_EDITS[case]
+    names = []
+    for label, x in (("before", before), ("after", after)):
+        result = run(write(tmp_path / label, "Int", body.replace("{e1}", E(1)).replace("{e3}", E(3)).replace("{x}", x), SAME))
+        assert result.returncode == 0, result.stderr
+        names.append(started(result.stderr))
+
+    assert (names[0] != names[1]) == moves, names
 
 
 # A `continue` value that is a simple value holding an effect is bound first and runs; so does a value
