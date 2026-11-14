@@ -422,6 +422,15 @@ every removed test is listed with the code it covered".
      `compiler_defect`; a variant-only field read fails with `compiler_defect`
      when the tested name is rebound in one operand while a sibling operand
      tests it (needs four lines in the renaming pass).
+   - added 2026-11-13 (eighth batch, from the conditionals documentation and
+     its review; each confirmed by probe): a discriminant proof reaches a
+     parallel `list/map-effect` body and a pure `list/map` body but not a
+     serial `list/map-effect` body (the same read is refused there); inside a
+     generic procedure a discriminant test on a value of a type parameter is
+     refused with a misleading code (`variant_tag_union_mismatch`), although
+     `match` works; `cond`, `if` and `match` can be bound as names; the
+     `and`/`or` proof item above has its cause confirmed a second time (the
+     facts are lost when the condition is hoisted into a generated binding).
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
