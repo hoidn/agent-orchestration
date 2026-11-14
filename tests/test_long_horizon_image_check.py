@@ -205,8 +205,26 @@ def test_an_edited_copy_outside_system_paths_is_a_near_copy_that_needs_a_look():
     ("srv/venv/lib/python3.12/site-packages/x.py", 1, "noise"), ("app/x.py", 1, "needs a look"),
     ("lib64/x", 1, "noise"), ("library/x", 1, "needs a look"),
     ("root/.local/share/uv/python/cpython-3.11/lib/python3.11/code.py", 1, "noise"), ("opt/venv/bin/tool", 1, "needs a look")])
+# (without a pyvenv.cfg beside it, opt/venv/bin is not a virtual environment)
 def test_a_near_copy_in_a_system_path_is_noise_only_below_the_threshold(path, count, verdict):
     assert image_check.near_verdict(path, count) == verdict
+
+
+def test_every_directory_holding_a_pyvenv_cfg_is_a_virtual_environment():
+    paths = ["opt/venv/pyvenv.cfg", "opt/venv/bin/tool", "srv/app/.venv/pyvenv.cfg", "opt/notvenv/cfg"]
+    assert image_check.venv_roots(paths) == {"opt/venv", "srv/app/.venv"}
+
+
+@pytest.mark.parametrize(("path", "verdict"), [
+    ("opt/venv/bin/tool", "noise"), ("opt/venv/lib/x.py", "noise"), ("opt/venv2/bin/tool", "needs a look")])
+def test_a_near_copy_inside_a_virtual_environment_is_judged_as_in_a_language_directory(path, verdict):
+    assert image_check.near_verdict(path, 1, {"opt/venv"}) == verdict
+
+
+def test_a_launcher_script_in_a_virtual_environment_is_noise_in_the_search():
+    index = _index() | {"venvs": {"opt/venv"}}
+    found = image_check.classify([_file("opt/venv/bin/tool", SOLVED + b"\n")], index)
+    assert (found["near_copies"][0]["verdict"], found["near_copy"]) == ("noise", "clean")
 
 
 def _zip(members):

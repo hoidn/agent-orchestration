@@ -13,7 +13,8 @@ Plan D1 and Task 2b. For the image of <task> and <role> (`agent` or `verifier`) 
      and never written out; a file holding it is a byte-identical environment copy, a name-only match
      ("needs a look") or other;
    - text files for near copies: lines of 25 or more characters that occur in solution/ or tests/ and in
-     no environment/ file (only the lines' SHA-256 is recorded);
+     no environment/ file (only the lines' SHA-256 is recorded); system paths, language package
+     directories and virtual environments (any directory holding a pyvenv.cfg) need NOISE_N matches;
    - archives and .git objects outside system paths, opened when small enough and searched the same way;
    then each layer of the image is walked, deleted files included, by path and SHA-256;
 3. delete the tar and the container, and the image unless it was in the store before the pull.
@@ -204,8 +205,15 @@ def canary_id(texts):
 # ---- the search -------------------------------------------------------------------------------
 
 
-def is_system(path):
-    return bool(SYSTEM.match(path)) or any(d in "/" + path for d in LANG_DIRS)
+def is_system(path, venvs=()):
+    """A system path, a language package directory, or anything inside a virtual environment."""
+    return (bool(SYSTEM.match(path)) or any(d in "/" + path for d in LANG_DIRS)
+            or any(path.startswith(root + "/") for root in venvs))
+
+
+def venv_roots(paths):
+    """The virtual environments of an image: every directory that holds a `pyvenv.cfg`."""
+    return {p.rsplit("/", 1)[0] for p in paths if p.endswith("/pyvenv.cfg")}
 
 
 def closest_env(path, rels):
@@ -238,8 +246,8 @@ def compare_texts(image, env, needle):
             "image_only_lines": len(a - b), "env_only_lines": len(b - a)}
 
 
-def near_verdict(path, count):
-    return "needs a look" if not is_system(path) or count >= NOISE_N else "noise"
+def near_verdict(path, count, venvs=()):
+    return "needs a look" if not is_system(path, venvs) or count >= NOISE_N else "noise"
 
 
 def near_copy(path, raw, index):
@@ -247,7 +255,7 @@ def near_copy(path, raw, index):
     if not index["lines"] or not _is_text(raw):
         return None
     got = sorted({index["lines"][line] for line in (x.strip() for x in raw.splitlines()) if line in index["lines"]})
-    return {"path": path, "count": len(got), "lines": got, "verdict": near_verdict(path, len(got))} if got else None
+    return {"path": path, "count": len(got), "lines": got, "verdict": near_verdict(path, len(got), index.get("venvs", ()))} if got else None
 
 
 def answer_paths(path, index):
@@ -295,10 +303,11 @@ def _note_name(found, path, index):
 
 
 def _open_archive(found, entry, index, depth):
-    if GIT_PACK.search(entry.path) and not is_system(entry.path):
+    venvs = index.get("venvs", ())
+    if GIT_PACK.search(entry.path) and not is_system(entry.path, venvs):
         found["not_opened"].append({"path": entry.path, "size": entry.size, "why": "git pack"})
         return
-    if is_system(entry.path) or not (ARCHIVE.search(entry.path) or GIT_OBJECT.search(entry.path)):
+    if is_system(entry.path, venvs) or not (ARCHIVE.search(entry.path) or GIT_OBJECT.search(entry.path)):
         return
     if depth:
         found["not_opened"].append({"path": entry.path, "size": entry.size, "why": "archive inside an archive"})
@@ -321,7 +330,7 @@ def judge(found, entry, index, depth=0):
     found["members"] += 1
     found["path_hits"] += [{"path": entry.path, "kind": entry.kind, "matches": rel}
                            for rel in answer_paths(entry.path, index) + answer_paths(entry.link or "", index)]
-    if entry.kind == "dir" and entry.path.rstrip("/").endswith(".git") and not is_system(entry.path):
+    if entry.kind == "dir" and entry.path.rstrip("/").endswith(".git") and not is_system(entry.path, index.get("venvs", ())):
         found["git_dirs"].append(entry.path)
     if entry.kind != "file":
         return
@@ -573,7 +582,10 @@ def withholding(image_id, task, scratch, unpacked):
     try:
         _run(NICE + ["podman", "export", "-o", str(tar_path), name])
         free = _check_room()
+        with tarfile.open(tar_path, "r:") as tar:
+            index["venvs"] = venv_roots(m.name.removeprefix("./").lstrip("/") for m in tar)
         found = classify(tar_entries(tar_path, index["needle"]), index)
+        found["venvs"] = sorted(index["venvs"])
         describe_name_only(tar_path, pkg, found["canary_name_only"], index["needle"])
     finally:  # the tar and the container never outlive the check, whatever fails
         tar_path.unlink(missing_ok=True)
