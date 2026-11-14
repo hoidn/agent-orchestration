@@ -31,7 +31,6 @@ HELPER = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
   (defmodule helper) (export bump fetch Box)
   (defrecord Box (n Int))
   (defproc fetch ((n Int)) -> Box
-    :effects ((uses-command fetch)) :lowering inline
     (command-result fetch :argv ("python" "probe.py" "fetch" n) :returns Box))
   (defun bump ((n Int)) -> Int (+ n 1)))'''
 
@@ -169,7 +168,7 @@ RUN_REF = ('(run-ref :source (:repo "file:///srv/project.git" :commit revision) 
 PATH_RUN_REF = ('(run-ref :source (:repo "file:///srv/x.git" :commit "' + "a" * 40 + '") '
                 ':program (:path "c.orc" :entry run) :inputs (:payload "p") :returns String '
                 ':policy (:environment :deterministic-effect-free :setup ()))')
-CONFINED = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+CONFINED = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule controller) (import helper :only (bump fetch Box nested peek)) (export run)
   (defrecord Verdict (ok Bool))
   (defpath Loose :kind relpath :under "artifacts" :must-exist false)
@@ -187,34 +186,40 @@ CONFINED = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
         ((COMPLETED c) c.result.value)
         ((FAILED f) f.accounting.attempt_ordinal)))))'''
 NESTED_HELPER = HELPER.replace("(export bump fetch Box)", "(export bump fetch Box nested peek)").replace(
-    "(defun bump", f'''(defproc nested ((n Int)) -> Int :effects ((runs-ref run)) :lowering inline
+    "(defun bump", f'''(defproc nested ((n Int)) -> Int
     (let* ((c {PATH_RUN_REF})) n))
   (defrecord Seen (ok Bool))
   (defpath Located :kind relpath :under ".orchestrate/runs" :must-exist false)
-  (defproc peek ((n Int)) -> Int :effects ((uses-provider providers.review)) :lowering inline
+  (defproc peek ((n Int)) -> Int
     (let* ((v (provider-result providers.review :prompt prompts.base :inputs (n) :returns Seen))
            (b (provider-bundle-path v :as Located))) n))
   (defun bump''')
 
 
+OLDER_NESTED_HELPER = NESTED_HELPER.replace('(:target-dsl "TARGET")', '(:target-dsl "2.35")').replace(
+    "(defproc fetch ((n Int)) -> Box", "(defproc fetch ((n Int)) -> Box :effects ((uses-command fetch)) :lowering inline").replace(
+    "(defproc nested ((n Int)) -> Int", "(defproc nested ((n Int)) -> Int :effects ((runs-ref run)) :lowering inline").replace(
+    "(defproc peek ((n Int)) -> Int", "(defproc peek ((n Int)) -> Int :effects ((uses-provider providers.review)) :lowering inline")
+
+
 TRIAL_RUBRIC = PromptExtern(name="trial-rubric", asset_file="rubrics/trial.md")
 
 
-def _confined(root: Path, *edits: tuple[str, str], extra: str = ""):
+def _confined(root: Path, *edits: tuple[str, str], extra: str = "", helper: str | None = None):
     source = CONFINED.replace("EXTRA", extra).replace("RUN_REF", RUN_REF)
     for old, new in edits:
         assert old in source, old
         source = source.replace(old, new)
-    install(root, {"helper.orc": NESTED_HELPER, "controller.orc": source})
+    install(root, {"helper.orc": helper or NESTED_HELPER, "controller.orc": source})
     return compile_typed_program(
         root / "controller.orc", entry_workflow="controller::run", source_roots=(root,),
         command_boundaries=BOUNDARIES, provider_externs={"providers.review": "probe-provider", "scorer": "probe-provider"},
         prompt_externs={"prompts.base": PROMPTS["prompt"], "trial-rubric": TRIAL_RUBRIC}, workspace_root=root)
 
 
-def _refusal(root: Path, *edits: tuple[str, str], extra: str = "") -> str:
+def _refusal(root: Path, *edits: tuple[str, str], extra: str = "", helper: str | None = None) -> str:
     with pytest.raises(LispFrontendCompileError) as refused:
-        _confined(root, *edits, extra=extra)
+        _confined(root, *edits, extra=extra, helper=helper)
     return refused.value.diagnostics[0].code
 
 
@@ -286,7 +291,7 @@ def test_workflow_program_child_without_provider_admits_network_none(tmp_path):
 
 
 SHAPE_REFUSALS = {
-    "older-target": (('(:target-dsl "2.38")', '(:target-dsl "2.37")'),
+    "older-target": (('(:target-dsl "2.40")', '(:target-dsl "2.37")'),
                      "run_ref_child_target_unavailable"),
     "mixed-program": (("(:workflow candidate-body)", '(:workflow candidate-body :path "c.orc" :entry run)'),
                       "run_ref_program_mode_invalid"),
@@ -321,7 +326,7 @@ SHAPE_REFUSALS = {
 def test_workflow_program_refuses_invalid_site(tmp_path, case):
     edit, code = SHAPE_REFUSALS[case]
 
-    assert _refusal(tmp_path, edit) == code
+    assert _refusal(tmp_path, edit, helper=OLDER_NESTED_HELPER if case == "older-target" else None) == code
 
 
 def test_workflow_program_headroom_boundary_is_admitted(tmp_path):
@@ -346,14 +351,14 @@ EFFECT_REFUSALS = {
     "nested-run-ref-imported-helper": (_child("bad", "(nested seed)"),
                                        "run_ref_environment_effect_unsupported"),
     "human-input-through-call": (
-        _child("asker", '(let* ((r (request-input "q"))) seed)') + _child("bad", "(call asker :seed seed)"),
+        _child("asker", '(let* ((r (request-input "q" :returns String))) seed)') + _child("bad", "(call asker :seed seed)"),
         "run_ref_environment_effect_unsupported"),
     "parallel-map": (_child("bad", '(let* ((xs (list/map-effect ((repo (list "a"))) :max 1 :parallel 1 '
                                    ':workspace repo (call leaf :value repo)))) seed)'),
                      "run_ref_environment_effect_unsupported"),
     "provider-bundle-path-imported-helper": (_child("bad", "(peek seed)"), "run_ref_child_transport_unsupported"),
     "provider-bundle-path-through-procedure": (
-        "(defproc look ((n Int)) -> Int :effects ((uses-provider providers.review)) :lowering inline "
+        "(defproc look ((n Int)) -> Int "
         "(let* ((v (provider-result providers.review :prompt prompts.base :inputs (n) :returns Verdict)) "
         "(b (provider-bundle-path v :as Bundle))) n))" + _child("bad", "(look seed)"),
         "run_ref_child_transport_unsupported"),
@@ -381,9 +386,11 @@ def test_workflow_program_refuses_unsupported_child(tmp_path, case):
     extra, code = EFFECT_REFUSALS[case]
     inputs = ":inputs (:seed seed :role (record Holder :p providers.review))" if case == "authority-input" else ":inputs (:seed seed)"
 
+    host = (("(export run)", "(import std/host :only (HostReply)) (export run)"),) if case == "human-input-through-call" else ()
+
     assert _refusal(tmp_path, ('(:workflow candidate-body) :inputs (:seed seed :task "t")',
                                f"(:workflow bad) {inputs}"),
-                    ("((COMPLETED c) c.result.value)", "((COMPLETED c) 1)"), extra=extra) == code
+                    ("((COMPLETED c) c.result.value)", "((COMPLETED c) 1)"), *host, extra=extra) == code
 
 
 def test_workflow_program_network_none_refuses_provider_child(tmp_path):
@@ -479,9 +486,10 @@ def test_in_memory_frontend_build_reports_child_refusal(tmp_path):
     """The LSP and `_compile_entry` path compiles without the typed-program selector."""
     from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle_in_memory
 
-    source = CONFINED.replace("EXTRA", _child("bad", '(let* ((r (request-input "q"))) seed)')).replace(
+    source = CONFINED.replace("EXTRA", _child("bad", '(let* ((r (request-input "q" :returns String))) seed)')).replace(
         "RUN_REF", RUN_REF).replace('(:workflow candidate-body) :inputs (:seed seed :task "t")',
-                                    "(:workflow bad) :inputs (:seed seed)")
+                                    "(:workflow bad) :inputs (:seed seed)").replace(
+        "(export run)", "(import std/host :only (HostReply)) (export run)")
     install(tmp_path, {"helper.orc": NESTED_HELPER, "controller.orc": source})
     boundaries = tmp_path / "boundaries.json"
     boundaries.write_text(json.dumps({"fetch": {"kind": "external_tool", "stable_command": ["python", "probe.py"],
@@ -586,7 +594,7 @@ def test_confined_config_binds_child_owner_configuration_policy_and_inputs(tmp_p
             config.program.owner_configuration_digest, config.policy.image, config.policy.network,
             dict(config.policy.limits)["memory-mib"], [row.name for row in config.inputs],
             child.tree["configuration"]["providers"]) == (
-        "2.38", "file:///srv/project.git", CHILD, canonical_digest(child.tree["configuration"]),
+        "2.40", "file:///srv/project.git", CHILD, canonical_digest(child.tree["configuration"]),
         f"registry.example/project@sha256:{DIGEST}", "model-only", 4096, ["seed", "task"],
         {"providers.review": {"provider_id": "probe-provider"}, "scorer": {"provider_id": "probe-provider"}})
 
@@ -928,7 +936,7 @@ REFUSED_ON_MAIN = {
 @pytest.mark.parametrize("case", sorted(REFUSED_ON_MAIN))
 def test_run_reference_behind_a_procedure_reference_is_refused_as_on_main(tmp_path, monkeypatch, case):
     body, code = REFUSED_ON_MAIN[case]
-    controller = CONFINED.replace('(:target-dsl "2.38")', '(:target-dsl "2.40")').replace("EXTRA", "EXTRA " + PROC_REF_ROUTES)
+    controller = CONFINED.replace("EXTRA", "EXTRA " + PROC_REF_ROUTES)
     monkeypatch.setattr(sys.modules[__name__], "CONFINED", controller)
     with pytest.raises(LispFrontendCompileError) as refused:
         _built(_map_program(tmp_path, f"(let* ((xs {body})) 1)"))

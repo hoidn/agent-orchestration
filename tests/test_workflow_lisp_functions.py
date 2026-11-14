@@ -134,7 +134,7 @@ def test_elaborate_function_return_spec(return_source: str, has_guidance: bool) 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 f"  (defun approved () -> {return_source} true))",
             ]
         )
@@ -156,7 +156,7 @@ def test_function_definition_stores_only_canonical_return_spec() -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 '  (defun approved () -> (result Bool :description "No blockers remain.") true))',
             ]
         )
@@ -181,7 +181,7 @@ def test_elaborate_function_rejects_result_annotation_in_parameter_position() ->
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     "  (defun approved ((value (result Bool))) -> Bool value))",
                 ]
             )
@@ -226,7 +226,7 @@ def test_compile_stage3_rejects_helper_return_type_mismatches(tmp_path: Path) ->
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -325,7 +325,7 @@ def test_find_purity_violation_allows_pure_cond_body() -> None:
             form_path=("workflow-lisp", "defun", "summarize"),
         ),
         bound_names=frozenset(),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     assert functions._find_purity_violation(expr) is None
@@ -347,7 +347,7 @@ def test_find_purity_violation_flags_effectful_cond_clause_child() -> None:
         ),
         bound_names=frozenset(),
         procedure_names=frozenset({"dispatch"}),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     assert functions._find_purity_violation(expr) == "defproc"
@@ -389,7 +389,7 @@ def test_compile_stage3_normalizes_helper_calls_inside_if(tmp_path: Path) -> Non
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -445,7 +445,7 @@ def test_function_dependency_walker_descends_through_if_expr(tmp_path: Path) -> 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',

@@ -559,7 +559,7 @@ def test_public_run_displays_provider_timeout_value_and_minimum(
     entry = tmp_path / "grt" / "entry.orc"
     entry.parent.mkdir(parents=True, exist_ok=True)
     entry.write_text(
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.40\") "
         "(defmodule grt/entry) (export run) "
         "(defworkflow run () -> Bool "
         "(provider-result providers.execute :prompt prompts.execute :inputs () "

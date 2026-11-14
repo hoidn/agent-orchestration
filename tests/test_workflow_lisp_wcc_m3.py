@@ -104,7 +104,7 @@ def test_wcc_m3_route_compiles_match_over_provider_result_subject(tmp_path: Path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule provider_subject_match_probe)",
                 "  (export summarize)",
                 "  (defpath WorkReport",
@@ -156,7 +156,7 @@ def test_wcc_m3_route_compiles_provider_input_match(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule provider_input_match_probe)",
                 "  (export summarize)",
                 "  (defpath WorkReport",
@@ -242,7 +242,7 @@ def test_wcc_m3_route_compiles_record_field_match(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule record_field_match_probe)",
                 "  (export summarize)",
                 "  (defpath WorkReport",
@@ -295,7 +295,7 @@ def test_wcc_m3_route_compiles_let_bound_record_field_match(tmp_path: Path) -> N
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule let_bound_record_field_match_probe)",
                 "  (export summarize)",
                 "  (defpath WorkReport",
@@ -350,7 +350,7 @@ def test_wcc_m3_route_compiles_union_field_match(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule union_field_match_probe)",
                 "  (export summarize)",
                 "  (defpath WorkReport",

@@ -82,7 +82,7 @@ def _type_env(*extra_types) -> FrontendTypeEnvironment:
     refs.update({type_ref.name: type_ref for type_ref in extra_types})
     return FrontendTypeEnvironment(
         refs,
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
         nominal_descriptor_names_by_definition_id={
             id(type_ref.definition): type_ref.name
             for type_ref in extra_types
@@ -118,7 +118,7 @@ def _mode_one_expr(*, inputs=(), source_path="run_ref_expression.orc") -> RunRef
             module_path=source_path,
             form_path=FORM_PATH,
         ),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
     return replace(expr, inputs=tuple(inputs))
 
@@ -141,7 +141,7 @@ def _mode_one_source() -> str:
 def test_run_ref_current_source_elaborates_frozen_mode_one_carriers() -> None:
     expr = parse_run_ref_expression(
         _expression(_mode_one_source()),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     assert expr == RunRefExpr(
@@ -176,7 +176,7 @@ def test_run_ref_current_source_elaborates_mode_two_with_return(
 
     expr = parse_run_ref_expression(
         _expression(source),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     assert expr.source == RunRefSource(
@@ -208,7 +208,7 @@ def test_run_ref_mode_one_elaborates_inputs_setup_and_traversal() -> None:
 
     expr = parse_run_ref_expression(
         _expression(source),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
         bound_names=frozenset({"task"}),
     )
 
@@ -257,13 +257,13 @@ def test_run_ref_inputs_preserve_visible_callable_context_without_state_leak(
     )
     session_state = ElaborationSessionState(
         function_names=frozenset({"original"}),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
         guidance_example=True,
     )
 
     expr = parse_run_ref_expression(
         _expression(source),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
         bound_names=frozenset({"task"}),
         function_names=(
             frozenset({"normalize"})
@@ -289,7 +289,7 @@ def test_run_ref_inputs_preserve_visible_callable_context_without_state_leak(
         ),
     )
     assert session_state.function_names == frozenset({"original"})
-    assert session_state.target_dsl_version == "2.35"
+    assert session_state.target_dsl_version == "2.40"
     assert session_state.guidance_example is True
 
 
@@ -303,12 +303,12 @@ def test_run_ref_bundle_uses_workflow_resolver_without_session_leak() -> None:
 
     session_state = ElaborationSessionState(
         workflow_name_resolver=resolve_workflow,
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     expr = parse_run_ref_expression(
         _expression(source),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
         session_state=session_state,
     )
 
@@ -321,7 +321,7 @@ def test_run_ref_bundle_uses_workflow_resolver_without_session_leak() -> None:
     assert authored_span.start.column == source.index("local-alias") + 1
     assert resolver_form_path == FORM_PATH
     assert session_state.workflow_name_resolver is resolve_workflow
-    assert session_state.target_dsl_version == "2.35"
+    assert session_state.target_dsl_version == "2.40"
 
 
 def test_run_ref_mode_two_without_returns_defers_default() -> None:
@@ -338,7 +338,7 @@ def test_run_ref_mode_two_without_returns_defers_default() -> None:
 
     expr = parse_run_ref_expression(
         _expression(source),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     assert isinstance(expr.program, RunRefPathProgram)
@@ -357,7 +357,7 @@ def test_run_ref_repository_locator_normalization_is_clone_root_independent(
     expressions = tuple(
         parse_run_ref_expression(
             _expression(_mode_one_source().replace("file:///workspace", locator)),
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
         for locator in spellings
     )
@@ -371,7 +371,7 @@ def test_run_ref_invalid_repository_locator_is_literal_diagnostic() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -445,7 +445,7 @@ def test_run_ref_nested_shape_and_mode_restrictions(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
 
     assert excinfo.value.diagnostics[0].code == expected_code
@@ -471,7 +471,7 @@ def test_run_ref_setup_static_policy_failures_are_literal_diagnostics(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
 
     assert excinfo.value.diagnostics[0].code == "run_ref_literal_required"
@@ -597,7 +597,7 @@ def test_run_ref_invalid_sha_or_program_path_is_literal_diagnostic(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -625,7 +625,7 @@ def test_run_ref_structural_errors_use_closed_shape_diagnostic(source: str) -> N
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
 
     assert excinfo.value.diagnostics[0].code == "run_ref_shape_invalid"
@@ -667,7 +667,7 @@ def test_run_ref_nonliteral_static_fields_use_closed_literal_diagnostic(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
 
     assert excinfo.value.diagnostics[0].code == "run_ref_literal_required"
@@ -685,14 +685,14 @@ def test_run_ref_program_discriminator_uses_closed_mode_diagnostic(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
 
     assert excinfo.value.diagnostics[0].code == "run_ref_program_mode_invalid"
 
 
 def test_run_ref_parser_is_registered_for_current_source() -> None:
-    spec = get_form_spec("run-ref", target_dsl_version="2.35")
+    spec = get_form_spec("run-ref", target_dsl_version="2.40")
     assert spec is not None
     assert spec.kind.value == "core_effect"
     assert spec.elaboration_route == "run_ref"
@@ -1673,7 +1673,7 @@ def _assert_current_map_run_ref(tmp_path: Path, *, locality: str) -> None:
     from tests.test_workflow_lisp_closed_run_ref_placement import _placement_source
 
     source, _ = _placement_source(tmp_path, "map", locality)
-    assert '(:target-dsl "2.35")' in source.read_text()
+    assert '(:target-dsl "2.40")' in source.read_text()
     built = build_closed_program_bundle(FrontendBuildRequest(
         source_path=source, source_roots=(tmp_path,), workspace_root=tmp_path))
     [(identity, node)] = site_nodes(built.program).items()
@@ -1721,9 +1721,9 @@ def test_non_run_ref_procedure_keeps_public_pure_function_diagnostic(tmp_path: P
     from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
     source = tmp_path / "command_purity.orc"
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defrecord Note (text String))
-      (defproc wrapper () -> Note :effects ((uses-command shell)) :lowering inline
+      (defproc wrapper () -> Note
         (command-result shell :argv ("true") :returns Note))
       (defun pure-helper () -> Note (wrapper))
       (defworkflow run () -> Note (pure-helper)))''')
@@ -2032,7 +2032,7 @@ def _mode_two_expr(*, returns_type_name=None, inputs=()) -> RunRefExpr:
         )
     )
     expr = parse_run_ref_expression(
-        _expression(source), target_dsl_version="2.35"
+        _expression(source), target_dsl_version="2.40"
     )
     return replace(expr, returns_type_name=returns_type_name, inputs=tuple(inputs))
 

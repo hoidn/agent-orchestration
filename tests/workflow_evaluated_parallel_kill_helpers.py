@@ -20,7 +20,7 @@ from tests.workflow_evaluated_recovery_helpers import kill_at
 
 
 ITEMS = ("a", "b", "c", "d")
-FOUR = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+FOUR = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow worker ((repo String)) -> Int
     (let* ((first (command-result step :argv ("python" "step.py" repo "first") :returns Int)))
@@ -133,7 +133,7 @@ def item_of(identity: str) -> str:
 
 
 def run_ref_batch(root: Path, invoke: str, items: tuple[str, ...], *, must_not_repeat=()) -> Batch:
-    """A 2.37 controller whose items call `invoke` (its run reference spelled `CALL`) in `parent/<item>`.
+    """A controller whose items call `invoke` (its run reference spelled `CALL`) in `parent/<item>`.
 
     Its commands are `peer` and `target`; those named in `must_not_repeat` declare it.
     """
@@ -142,7 +142,7 @@ def run_ref_batch(root: Path, invoke: str, items: tuple[str, ...], *, must_not_r
     listed = " ".join(json.dumps(item) for item in items)
     body = (f'(list/map-effect ((repo (list {listed}))) :max {len(items)} :parallel 2 :workspace repo '
             '(call invoke :repo repo))')
-    parent, source, refs = _public_fixture(root, parent_target="2.37", child_target="2.35",
+    parent, source, refs = _public_fixture(root,
         definitions=lambda call: invoke.replace("CALL", call),
         body=lambda _call: f"(let* ((items {body})) (= (list/length items) {len(items)}))")
     boundary = {"stable_command": ["python", "step.py"], "closure": []}

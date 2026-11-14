@@ -168,7 +168,7 @@ def test_compile_stage3_rejects_malformed_publish_metadata(tmp_path: Path) -> No
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule entry_publication_policy_invalid)",
                 "  (export entry-publication-policy-invalid)",
                 "  (defunion EntryPublicationResult",
@@ -217,7 +217,7 @@ def test_compile_stage3_rejects_publish_on_exported_non_selected_helper(tmp_path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule entry_publication_selected_entry_only)",
                 "  (export entry helper)",
                 "  (defunion EntryPublicationResult",

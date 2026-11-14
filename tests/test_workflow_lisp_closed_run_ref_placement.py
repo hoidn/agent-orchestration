@@ -35,26 +35,25 @@ def _placement_source(root, position, locality, *, twice=False, map_shape="singl
     if twice:
         helper_body = f'(let* ((first {perform}) (second {perform})) second.value)'
     helper = f'''(defproc invoke ((payload String)) -> String
-      :effects ((runs-ref run)) :lowering inline {helper_body})'''
+      {helper_body})'''
     imports = ""
     sources = {}
     if locality == "imported":
         imports = '(import placement/helper :only (invoke))'
         sources["placement/helper.orc"] = f'''(workflow-lisp
-          (:language "0.1") (:target-dsl "2.35")
+          (:language "0.1") (:target-dsl "2.40")
           (defmodule placement/helper) (export invoke) {helper})'''
         helper = ""
     elif locality == "direct":
         helper = ""
     value = f'(let* ((child {perform})) child.value)' if locality == "direct" else '(invoke payload)'
     bodies = {
-        "body": f'''(loop/recur :max 1 :state (loop-state (current String payload))
-          :on-exhausted "exhausted" (fn (state) (done {value})))''',
-        "budget": f'''(loop/recur :max (let* ((limit {value})) 1)
-          :state (loop-state (current String payload))
-          :on-exhausted "exhausted" (fn (state) (done state.current)))''',
-        "seed": f'''(loop/recur :max 1 :state (loop-state (current String {value}))
-          :on-exhausted "exhausted" (fn (state) (done state.current)))''',
+        "body": f'''(loop/recur ((state (loop-state (current String payload)))) :max 1
+          :on-exhausted "exhausted" (done {value}))''',
+        "budget": f'''(loop/recur ((state (loop-state (current String payload)))) :max (let* ((limit {value})) 1)
+          :on-exhausted "exhausted" (done state.current))''',
+        "seed": f'''(loop/recur ((state (loop-state (current String {value})))) :max 1
+          :on-exhausted "exhausted" (done state.current))''',
         "match": f'''(match (let* ((child-value {value}))
           (variant Choice YES :value child-value)) ((YES chosen) chosen.value))''',
         "map": f'''(let* ((children (list/map-effect ((item (list payload))) :max 1
@@ -72,7 +71,7 @@ def _placement_source(root, position, locality, *, twice=False, map_shape="singl
           (list/map ((child second)) child.value))'''
     result = "List[String]" if position == "map" else "String"
     sources["placement/entry.orc"] = f'''(workflow-lisp
-      (:language "0.1") (:target-dsl "2.35")
+      (:language "0.1") (:target-dsl "2.40")
       (defmodule placement/entry) {imports} (export run)
       (defunion Choice (YES (value String))) {helper}
       (defworkflow run ((payload String)) -> {result} {bodies[position]}))'''
@@ -118,12 +117,11 @@ def test_inline_inner_loop_run_ref_keeps_specialized_boundary(tmp_path, position
     budget = f'(let* ((ignored {projected})) 1)' if position == "budget" else "1"
     seed = projected if position == "seed" else "payload"
     helper = f'''(defproc invoke ((payload String)) -> String
-      :effects ((runs-ref run)) :lowering inline
       (loop/recur :max {budget} :state (loop-state (current String {seed}))
         :on-exhausted "exhausted" (fn (state) (done state.current))))'''
     body = '(list/map-effect ((item (list payload))) :max 1 (invoke item))' if in_map else '(invoke payload)'
     result = "List[String]" if in_map else "String"
-    source = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule placement/inline_loop) (export run) {helper}
       (defworkflow run ((payload String)) -> {result} {body}))''')
     built = build_closed_program_bundle(FrontendBuildRequest(
@@ -143,13 +141,13 @@ def test_imported_inline_chain_keeps_inner_loop_effect_cardinality(tmp_path, twi
     projected = f'(let* ((child {_path_form(revision)})) child.value)'
     result = projected if twice else 'state.current'
     helper = tmp_path / "placement" / "helper.orc"
-    helper.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    helper.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule placement/helper) (export invoke)
-      (defproc leaf ((payload String)) -> String :effects ((runs-ref run)) :lowering inline
-        (loop/recur :max 1 :state (loop-state (current String {projected}))
-          :on-exhausted "exhausted" (fn (state) (done {result}))))
-      (defproc invoke ((payload String)) -> String :effects ((runs-ref run))
-        :lowering inline (leaf payload)))''')
+      (defproc leaf ((payload String)) -> String
+        (loop/recur ((state (loop-state (current String {projected})))) :max 1
+          :on-exhausted "exhausted" (done {result})))
+      (defproc invoke ((payload String)) -> String
+        (leaf payload)))''')
     request = FrontendBuildRequest(
         source_path=source, source_roots=(tmp_path,), workspace_root=tmp_path)
     if twice:
@@ -209,7 +207,7 @@ def test_closed_effect_map_keeps_existing_effect_boundaries(tmp_path, kind):
         "provider": '(provider-result reviewer :prompt prompt :inputs (item) :returns String)',
     }
     source = install(tmp_path, f'''(workflow-lisp
-      (:language "0.1") (:target-dsl "2.35") (defmodule placement/existing) (export run)
+      (:language "0.1") (:target-dsl "2.40") (defmodule placement/existing) (export run)
       (defworkflow run () -> List[String]
         (list/map-effect ((item (list "payload"))) :max 1 {effects[kind]})))''')
     built = build_closed_program_bundle(FrontendBuildRequest(
@@ -223,7 +221,7 @@ def test_closed_effect_map_keeps_existing_effect_boundaries(tmp_path, kind):
 def test_closed_effect_map_keeps_workflow_call_as_one_boundary(tmp_path):
     source, _ = _placement_source(tmp_path, "map", "same", twice=True)
     text = source.read_text().replace(
-        "(defproc invoke ((payload String)) -> String\n      :effects ((runs-ref run)) :lowering inline",
+        "(defproc invoke ((payload String)) -> String\n",
         "(defworkflow invoke ((payload String)) -> String",
     ).replace("(invoke item)", "(call invoke :payload item)")
     source.write_text(text)
@@ -238,7 +236,7 @@ def test_placement_projects_actual_typed_child_result(tmp_path, position):
     repository = tmp_path / "repository-typed"
     result_type = {"budget": "Int", "match": "Choice"}[position]
     child_body = {"budget": "count", "match": '(variant Choice YES :value payload)'}[position]
-    child_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    child_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule placement/child) (export run Choice)
       (defunion Choice (YES (value String)))
       (defworkflow run ((payload String) (count Int :default 1)) -> {result_type}
@@ -255,14 +253,13 @@ def test_placement_projects_actual_typed_child_result(tmp_path, position):
       :policy (:environment :deterministic-effect-free :setup ()))'''
     projected = f'(let* ((child {perform})) child.value)'
     bodies = {
-        "budget": f'''(loop/recur :max {projected}
-          :state (loop-state (current String payload)) :on-exhausted "exhausted"
-          (fn (state) (done state.current)))''',
+        "budget": f'''(loop/recur ((state (loop-state (current String payload)))) :max {projected} :on-exhausted "exhausted"
+          (done state.current))''',
         "match": f'(match {projected} ((YES chosen) chosen.value))',
     }
     source = install(tmp_path, {
         "placement/child.orc": child_source,
-        "placement/typed.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        "placement/typed.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule placement/typed) (import placement/child :only (Choice)) (export run)
           (defworkflow run ((payload String) (count Int :default 1)) -> String {bodies[position]}))''',
     }, entry_path="placement/typed.orc")
@@ -296,12 +293,12 @@ def test_closed_loop_run_ref_keeps_path_defaults(tmp_path):
     fixture = _build_path_fixture(tmp_path, case="defaults")
     revision = fixture.materialized_source.repository_revision_id
     perform = _path_form(revision).replace(':returns String', '')
-    source = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule placement/defaults) (export run)
       (defworkflow run ((payload String)) -> String
-        (loop/recur :max 1 :state (loop-state (current String payload))
+        (loop/recur ((state (loop-state (current String payload)))) :max 1
           :on-exhausted "exhausted"
-          (fn (state) (let* ((child {perform})) (done payload))))))''')
+          (let* ((child {perform})) (done payload)))))''')
     built = build_closed_program_bundle(FrontendBuildRequest(source_path=source, workspace_root=tmp_path))
     restored = ClosedProgram.from_artifact(built.artifact_path.read_text())
     [node] = site_nodes(restored).values()
@@ -334,8 +331,8 @@ def _restricted_source(root, position, locality):
     prefix = source.read_text().split("(defworkflow run ", 1)[0]
     value = f'(let* ((child {_path_form(revision)})) child.value)' if locality == "direct" else '(invoke payload)'
     bodies = {
-        "exhaustion": f'''(loop/recur :max 0 :state (loop-state (current String payload))
-          :on-exhausted {value} (fn (state) (done state.current)))''',
+        "exhaustion": f'''(loop/recur ((state (loop-state (current String payload)))) :max 0
+          :on-exhausted {value} (done state.current))''',
         "map_source": f'(list/map-effect ((item (let* ((ignored {value})) (list payload)))) :max 1 (call echo :payload item))',
         "map_args": f'(list/map-effect ((item (list payload))) :max 1 (call echo :payload {value}))',
         "pure_map": f'(list/map ((item (list payload))) {value})',
@@ -368,9 +365,9 @@ def test_closed_permission_keeps_pure_and_shape_refusals(tmp_path, locality, pos
 def test_closed_entry_allows_imported_effectful_if_condition(tmp_path):
     source, revision = _placement_source(tmp_path, "body", "imported")
     helper = tmp_path / "placement" / "helper.orc"
-    helper.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    helper.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule placement/helper) (export invoke)
-      (defproc invoke ((payload String)) -> String :effects ((runs-ref run)) :lowering inline
+      (defproc invoke ((payload String)) -> String
         (if (let* ((child {_path_form(revision)})) true) payload payload)))''')
     built = build_closed_program_bundle(FrontendBuildRequest(
         source_path=source, source_roots=(tmp_path,), workspace_root=tmp_path))
@@ -389,8 +386,6 @@ def test_closed_loop_permission_still_refuses_bundle_mode(tmp_path, locality):
         ':program (:path "candidate.orc" :entry run)', ':program (:bundle child)'
     ).replace(':returns String', '').replace(
         ':policy (:environment :deterministic-effect-free :setup ())', ':policy (:setup ())')
-    module = "placement/helper" if locality == "imported" else "placement/entry"
-    text = text.replace(':effects ((runs-ref run))', f':effects ((runs-ref {module}::child))')
     at = text.index('(defproc invoke ' if locality != "direct" else '(defworkflow run ')
     owner.write_text(text[:at] + '(defworkflow child ((payload String)) -> String payload)\n' + text[at:])
     with pytest.raises(LispFrontendCompileError) as caught:
@@ -410,15 +405,13 @@ def test_path_run_ref_is_admitted_in_evaluated_loop_body(tmp_path) -> None:
       :inputs (:payload state.current) :returns String
       :policy (:environment :deterministic-effect-free :setup ()))'''
     source.write_text(f'''(workflow-lisp
-      (:language "0.1") (:target-dsl "2.35")
+      (:language "0.1") (:target-dsl "2.40")
       (defmodule placement/loop_entry) (export run)
       (defworkflow run ((payload String)) -> String
-        (loop/recur :max 1
-          :state (loop-state (current String payload))
+        (loop/recur ((state (loop-state (current String payload)))) :max 1
           :on-exhausted "exhausted"
-          (fn (state)
-            (let* ((child {run_ref}))
-              (done "parent"))))))''', encoding="utf-8")
+          (let* ((child {run_ref}))
+            (done "parent")))))''', encoding="utf-8")
 
     built = build_closed_program_bundle(
         FrontendBuildRequest(source_path=source, workspace_root=tmp_path)

@@ -65,7 +65,7 @@ def _write_minimal_orc(path: Path) -> Path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule entry)",
                 "  (export run)",
                 "  (defrecord Result (ok Bool))",

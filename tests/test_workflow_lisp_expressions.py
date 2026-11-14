@@ -454,10 +454,10 @@ def test_elaborate_expression_builds_match_arms_with_spans_and_form_paths() -> N
 def test_elaborate_expression_supports_loop_recur() -> None:
     expr = elaborate_expression(
         _expression_syntax(
-            "(loop/recur :max 3 :state attempt "
-            "(fn (state) (match state "
+            "(loop/recur ((state attempt)) :max 3 "
+            "(match state "
             "((COMPLETED completed) (done completed.execution_report)) "
-            "((BLOCKED blocked) (continue state)))))"
+            "((BLOCKED blocked) (continue state))))"
         ),
         bound_names=frozenset({"attempt"}),
     )
@@ -472,11 +472,11 @@ def test_elaborate_expression_supports_loop_recur() -> None:
 def test_elaborate_expression_supports_loop_recur_on_exhausted() -> None:
     expr = elaborate_expression(
         _expression_syntax(
-            "(loop/recur :max 3 :state attempt "
+            "(loop/recur ((state attempt)) :max 3 "
             ":on-exhausted (record ChecksResult :status \"exhausted\" :report state.report) "
-            "(fn (state) (match state "
+            "(match state "
             "((COMPLETED completed) (done (record ChecksResult :status \"ok\" :report completed.execution_report))) "
-            "((BLOCKED blocked) (continue state)))))"
+            "((BLOCKED blocked) (continue state))))"
         ),
         bound_names=frozenset({"attempt"}),
     )
@@ -1104,7 +1104,7 @@ def test_compile_stage3_elaborates_same_file_procedure_call_heads(tmp_path: Path
         _expression_syntax("(build-checks report_path)"),
         bound_names=frozenset({"report_path"}),
         procedure_names=frozenset(result.procedure_catalog.signatures_by_name),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
     assert isinstance(expr, ProcedureCallExpr)
     assert expr.callee_name == "build-checks"

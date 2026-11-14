@@ -316,13 +316,13 @@ def _library_source(symbol_name: str) -> str:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         "  (defmodule entry)\n"
         f"  (defproc {symbol_name}\n"
         "    ((value Bool))\n"
         "    -> Bool\n"
-        "    :effects ()\n"
-        "    :lowering inline\n"
+        "\n"
+        "\n"
         "    value))\n"
     )
 
@@ -338,15 +338,15 @@ def _stateful_recompile_source(
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         "  (defmodule entry)\n"
         f"  (export {record_name} {helper_name} run)\n"
         f"  (defrecord {record_name} (value String))\n"
         f"  (defproc {helper_name}\n"
         "    ((value String))\n"
         "    -> String\n"
-        "    :effects ()\n"
-        "    :lowering inline\n"
+        "\n"
+        "\n"
         "    value)\n"
         f"  (defworkflow run () -> {record_name}\n"
         f'    (let* ((state (loop-state (value String "{value}")))\n'
@@ -589,7 +589,7 @@ def test_l3_real_stdio_mixed_entries_match_isolated_peers_without_bleed(
         "uri": application_path.as_uri(),
         "range": {
             "start": {"line": 5, "character": 2},
-            "end": {"line": 10, "character": 10},
+            "end": {"line": 8, "character": 10},
         },
     }
     assert combined[library_path]["definition"] is None
