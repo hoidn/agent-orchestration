@@ -316,8 +316,8 @@ def test_public_certified_document_is_delivered_and_included_in_input_digest(tmp
     fixture = Path(__file__).parent / "fixtures/workflow_lisp/valid/certified_adapter_call.orc"
     source.write_text(
         fixture.read_text(encoding="utf-8").replace(
-            '(:target-dsl "2.35")',
-            '(:target-dsl "2.35")\n  (defmodule r12/entry) (export normalize-summary)',
+            '(:target-dsl "2.40")',
+            '(:target-dsl "2.40")\n  (defmodule r12/entry) (export normalize-summary)',
         ),
         encoding="utf-8",
     )

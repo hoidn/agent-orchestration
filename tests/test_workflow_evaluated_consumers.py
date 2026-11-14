@@ -145,7 +145,7 @@ def _w3_consumer(root, monkeypatch, name, plan, inputs, marker):
     install_shims(root.parent / "bin", monkeypatch, plan)
     program = PROGRAMS[name]
     frontend = install(root, program, inputs)
-    target = "2.39" if name == "w3_improve" else "2.36"
+    target = "2.39" if name == "w3_improve" else "2.40"
     assert entry_target_dsl_version(root / program.source) == target
     route = current_route(root, frontend, marker)
     assert (root / program.source).read_bytes() == (ROOT / program.source).read_bytes()
