@@ -851,13 +851,13 @@ def test_each_selected_effect_outside_the_release_is_a_located_gap(
 
 _COPIED_CAPTURE_SOURCE = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "TARGET")
   (defmodule cp/copied_capture) (export entry)
   (defproc invoke ((runner ProcRef[Int -> Int]) (n Int)) -> Int
-    :effects () :lowering inline (runner n))
+    (runner n))
   (defproc forward ((runner ProcRef[Int -> Int]) (n Int)) -> Int
-    :effects () :lowering inline (invoke runner n))
-  (defproc outer ((flag Bool) (n Int)) -> Int :effects ((runs-ref child)) :lowering inline
+    (invoke runner n))
+  (defproc outer ((flag Bool) (n Int)) -> Int
     (let* ((first
              (run-ref
                :source (:repo "file:///workspace"

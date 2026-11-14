@@ -13,10 +13,10 @@ from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.model import WCC_M4_ROUTE_SCHEMA_VERSION, WccLet
 
 
-def _compile(tmp_path, body, *, params="", returns="Result", declarations="", target="2.40"):
+def _compile(tmp_path, body, *, params="", returns="Result", declarations="", prelude="", target="2.40"):
     path = tmp_path / "entry.orc"
     path.write_text(
-        f'(workflow-lisp (:language "0.1") (:target-dsl "{target}") '
+        f'(workflow-lisp (:language "0.1") (:target-dsl "{target}") {prelude}'
         '(defrecord Result (i Int) (s String)) '
         '(defunion Choice (A (i Int)) (B (s String))) '
         + declarations + f' (defworkflow run ({params}) -> {returns} {body}))'
@@ -171,10 +171,10 @@ def test_variant_frames_keep_real_continuation_demands_separate(tmp_path, monkey
     from orchestrator.workflow_lisp.expressions import LiteralExpr
 
     program, inputs, facts = _compile(tmp_path,
-        '(match choice ((A same) (let* ((x (if true "chosen" "other")) (reply (request-input x))) '
+        '(match choice ((A same) (let* ((x (if true "chosen" "other")) (reply (request-input x :returns String))) '
         '(command-result echo :argv ("python" "probe.py" x) :returns Int))) '
         '((B same) (let* ((x (if true true false))) (command-result echo :argv ("python" "probe.py" x) :returns Int))))',
-        params="(choice Choice)", returns="Int", target="2.35")
+        params="(choice Choice)", returns="Int", prelude="(defmodule entry) (import std/host :only (HostReply)) (export run) ")
     observed = []
     original = CommandScopeContext.bind
 

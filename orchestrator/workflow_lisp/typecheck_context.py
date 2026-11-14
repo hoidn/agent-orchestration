@@ -99,11 +99,6 @@ def snapshot_session_state(state: TypecheckSessionState) -> TypecheckSessionStat
         pending_local_hook_preparer=state.pending_local_hook_preparer,
         workflow_signature=state.workflow_signature,
         procedure_hidden_context_signature=state.procedure_hidden_context_signature,
-        reusable_state_producer_context=(
-            None
-            if state.reusable_state_producer_context is None
-            else dict(state.reusable_state_producer_context)
-        ),
         shared_union_field_capabilities=tuple(state.shared_union_field_capabilities),
         loop_carrier_metadata_by_name=dict(
             state.loop_carrier_metadata_by_name
@@ -147,7 +142,6 @@ def restore_session_state(
     state.pending_local_hook_preparer = snapshot.pending_local_hook_preparer
     state.workflow_signature = snapshot.workflow_signature
     state.procedure_hidden_context_signature = snapshot.procedure_hidden_context_signature
-    state.reusable_state_producer_context = snapshot.reusable_state_producer_context
     state.shared_union_field_capabilities = tuple(snapshot.shared_union_field_capabilities)
     state.loop_carrier_metadata_by_name = dict(
         snapshot.loop_carrier_metadata_by_name

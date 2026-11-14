@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cx/lib)
   (export Tagged keep)
   (defunion Tagged :forall (Tag)
@@ -9,6 +9,4 @@
     :forall (T)
     ((value T))
     -> T
-    :effects ()
-    :lowering inline
     value))

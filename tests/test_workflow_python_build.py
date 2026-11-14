@@ -354,19 +354,19 @@ def test_final_build_identity_is_checked_before_pin(tmp_path, monkeypatch):
 def test_python_facade_entry_selection_preserves_defining_owner(tmp_path):
     from orchestrator.py.build import build
     owner = authored(tmp_path, '''
-    TARGET = "2.38"
+    TARGET = "2.40"
     @workflow
     def original() -> int:
         return 3
     ''', name="owner")
     source = authored(tmp_path, '''
-    TARGET = "2.39"
+    TARGET = "2.40"
     from owner import original as selected
     __all__ = ["selected"]
     ''', name="facade")
     built = build(source, workspace_root=tmp_path)
     assert built.entry_workflow == "py/owner::original" and value(built) == 3
-    assert ClosedProgram.from_artifact(built.artifact_path.read_text()).tree["target"] == "2.38"
+    assert ClosedProgram.from_artifact(built.artifact_path.read_text()).tree["target"] == "2.40"
     for selected in ("selected", "py/facade::selected", "py/owner::original"):
         explicit = build(source, entry_workflow=selected, frozen=True, workspace_root=tmp_path)
         assert explicit.snapshot_path == built.snapshot_path
