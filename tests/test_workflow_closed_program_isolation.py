@@ -291,7 +291,7 @@ assert not any(name.startswith("orchestrator.workflow_lisp") for name in sys.mod
 ''', tmp_path)
 
 
-@pytest.mark.parametrize("child_target", ["2.35", "2.36"])
+@pytest.mark.parametrize("child_target", ["2.40"])
 @pytest.mark.parametrize("operation", ["settle", "reconcile"])
 def test_real_child_parent_settlement_without_compiler(tmp_path, child_target, operation):
     _prepare('''

@@ -14,7 +14,7 @@ from tests.test_workflow_evaluated_path_compile import _closed_source, _typed_cl
 
 def test_child_public_resume_uses_own_recipe_twice(tmp_path, monkeypatch):
     monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(
-        root, target_dsl_version="2.35"))
+        root, target_dsl_version="2.40"))
     with caller._checked_launch_fixture(tmp_path) as (request, fixture, document, owner):
         launch = runtime.RunRefChildLaunch("path", fixture.request_path, document,
             fixture.materialized_source.workspace_path, document["child_run_id"], owner.root_fd)
@@ -42,7 +42,7 @@ def test_child_public_resume_uses_own_recipe_twice(tmp_path, monkeypatch):
 def test_closed_child_json_and_omitted_defaults_resume(tmp_path, monkeypatch, capsys, optional):
     from orchestrator.workflow.evaluated.authority import load_run_authority
 
-    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule common) (export Packet Choice)
       (defunion Choice (KEEP (text String)) (DROP))
       (defrecord Packet (choices List[Choice]) (scores Map[String,Int]) (note Optional[String])))'''
@@ -72,7 +72,7 @@ def test_child_resume_uses_post_copy_override_once(tmp_path, monkeypatch, capsys
     from orchestrator.cli.commands.resume import resume_workflow
     from orchestrator.workflow.evaluated.authority import load_run_authority
 
-    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
+    common = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule common)
       (export WorkPath) (defpath WorkPath :kind relpath :under "artifacts" :must-exist true))'''
     definition = "(import common :only (WorkPath))"
     source = _closed_source(parameters="(payload WorkPath)", import_form=definition, body='"copied"')
@@ -100,7 +100,7 @@ def test_child_resume_rebuilds_only_own_sources(tmp_path, monkeypatch, capsys, c
     from orchestrator.cli.commands.resume import resume_workflow
     from orchestrator.workflow.evaluated.authority import load_run_authority
 
-    common = '(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common) (export carry) (defproc carry ((x String)) -> String :effects () :lowering inline x))'
+    common = '(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule common) (export carry) (defproc carry ((x String)) -> String x))'
     source = _closed_source(import_form="(import common :only (carry))", body="(carry payload)")
     with _typed_closed_launch(tmp_path, monkeypatch, source, imports={"common.orc": common}) as (_request, fixture, document, owner):
         assert child.main(["--path-request", fixture.request_path.as_posix(), "--parent-root-fd", str(owner.root_fd)]) == 0, capsys.readouterr().err

@@ -168,7 +168,7 @@ def test_item_run_reference_keeps_outer_parent_authority_and_child_clone(tmp_pat
     from orchestrator.workflow.evaluated.machine import site_nodes
     from orchestrator.workflow_lisp.build import FrontendBuildRequest
     from tests.test_workflow_evaluated_run_ref import _public_fixture
-    parent, source, refs = _public_fixture(tmp_path, parent_target='2.37', child_target='2.35')
+    parent, source, refs = _public_fixture(tmp_path, parent_target='2.40', child_target='2.40')
     (parent / 'item').mkdir()
     built = build_closed_program_bundle(FrontendBuildRequest(source_path=source, workspace_root=parent))
     with _publish(parent, built.program, run_ref_root=str(refs)) as authority, closing(WorkspaceFiles(parent)) as files:
@@ -192,7 +192,7 @@ def test_item_run_reference_keeps_outer_parent_authority_and_child_clone(tmp_pat
         assert (identity, 1) in snapshot.settlements
 
 
-@pytest.mark.parametrize('target', ['2.35', '2.37'])
+@pytest.mark.parametrize('target', ['2.40'])
 def test_public_serial_commands_clear_ambient_root_without_item_protocol(tmp_path, monkeypatch, target):
     from orchestrator.workflow.evaluated.authority import load_run_authority
     from orchestrator.workflow.evaluated.memo import read_memo
@@ -201,7 +201,7 @@ def test_public_serial_commands_clear_ambient_root_without_item_protocol(tmp_pat
     (tmp_path / 'probe.py').write_text(SCRIPT)
     program = command_program(tmp_path)
     source = tmp_path / 'cwd.orc'
-    source.write_text(source.read_text().replace('"2.37"', json.dumps(target)))
+    source.write_text(source.read_text().replace('"2.40"', json.dumps(target)))
     manifest = tmp_path / 'commands.json'
     manifest.write_text(json.dumps({'fetch': {'stable_command': ['python', 'probe.py', 'data.txt'], 'closure': []}}))
     monkeypatch.setenv('ORCHESTRATOR_WORKSPACE_ROOT', '/ambient/poison')

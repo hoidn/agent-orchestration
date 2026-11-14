@@ -102,7 +102,7 @@ def _run_ref_child(tmp_path):
     from tests.test_workflow_evaluated_run_ref import _public_fixture
     body = lambda call: f'''(let* ((batch (list/map-effect ((place (list "item"))) :max 1 :parallel 1
         :workspace place {call}))) true)'''
-    parent, source, refs = _public_fixture(tmp_path, parent_target="2.37", body=body)
+    parent, source, refs = _public_fixture(tmp_path, parent_target="2.40", body=body)
     (parent / "item").mkdir()
     (parent / "launch.py").write_text(CHILD_LAUNCH_LOG)
     log = tmp_path / "child-launch.log"

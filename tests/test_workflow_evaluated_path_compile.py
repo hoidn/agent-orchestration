@@ -41,7 +41,7 @@ def _closed_source_fixture(root, source, imports=None):
 
 
 def _closed_source(*, parameters="(payload String)", body="payload", definitions="", returns="String", import_form=""):
-    return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule candidate) {import_form} (export run) {definitions}
       (defworkflow run ({parameters}) -> {returns} {body}))'''
 
@@ -61,7 +61,7 @@ def _typed_closed_launch(root, monkeypatch, source, *, type_name="String", value
         path.write_text(content)
     revision = fixture.materialized_source.repository_revision_id
     parent_source = workspace / "parent.orc"
-    parent_source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    parent_source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule parent) {definitions} (export run)
       (defworkflow run ((payload {type_name})) -> String
         (let* ((child (run-ref :source (:repo {json.dumps(revision.normalized_locator)} :commit "{revision.resolved_commit_sha}")
@@ -104,7 +104,7 @@ def _typed_closed_launch(root, monkeypatch, source, *, type_name="String", value
 
 def test_authorized_path_child_uses_ordinary_closed_build(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(
-        root, target_dsl_version="2.35"))
+        root, target_dsl_version="2.40"))
     prepared = []
     real_prepare = artifact.prepare_closed_program_bundle
 
@@ -171,7 +171,7 @@ def test_closed_child_refuses_source_and_signature_before_publication(tmp_path, 
 
 
 def test_closed_signature_retains_nominal_identity(tmp_path, monkeypatch, capsys):
-    common = '(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common) (export Packet) (defrecord Packet (text String)))'
+    common = '(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule common) (export Packet) (defrecord Packet (text String)))'
     source = _closed_source(parameters="(payload Packet)", definitions="(defrecord Packet (text String))", body="payload.text")
     with _typed_closed_launch(tmp_path, monkeypatch, source, type_name="Packet", value={"text": "nominal"},
         definitions="(import common :only (Packet))", imports={"common.orc": common}) as (_request, fixture, document, owner):
@@ -186,7 +186,7 @@ def test_closed_facts_validator_uses_recorded_authority_without_source_io(tmp_pa
     from orchestrator.workflow.run_ref import path_compile
     from orchestrator.workflow.run_ref.path_contracts import validate_closed_path_facts
 
-    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))
+    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.40"))
     with caller._checked_launch_fixture(tmp_path) as (_request, fixture, document, owner):
         assert child.main(["--path-request", fixture.request_path.as_posix(), "--parent-root-fd", str(owner.root_fd)]) == 0
         facts = json.loads(capsys.readouterr().out)["path_compile"]
@@ -205,7 +205,7 @@ def test_closed_facts_do_not_equate_bool_and_int(tmp_path, monkeypatch, capsys):
     from orchestrator.workflow.run_ref.path_contracts import validate_closed_path_facts
     from orchestrator.workflow.run_ref.path_compile import RunRefPathCompileRefusal
 
-    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))
+    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.40"))
     with caller._checked_launch_fixture(tmp_path) as (_request, fixture, document, owner):
         assert child.main(["--path-request", fixture.request_path.as_posix(), "--parent-root-fd", str(owner.root_fd)]) == 0
         facts = json.loads(capsys.readouterr().out)["path_compile"]
@@ -218,7 +218,7 @@ def test_closed_facts_do_not_equate_bool_and_int(tmp_path, monkeypatch, capsys):
 
 @pytest.mark.parametrize("field", ["signature", "effect_facts", "program_identity", "evidence", "diagnostics", "extra"])
 def test_closed_facts_are_checked_before_publication(tmp_path, monkeypatch, capsys, field):
-    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))
+    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.40"))
     real_admit = child._admit_path_request
 
     def change_facts(request):
@@ -240,7 +240,7 @@ def test_closed_facts_are_checked_before_publication(tmp_path, monkeypatch, caps
 
 
 def test_closed_child_invalid_input_retains_binding_refusal(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))
+    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.40"))
     with caller._checked_launch_fixture(tmp_path, allocate=False) as (request, fixture, document, owner):
         document["inputs"] = {"payload": 17}
         caller._allocate_launched(request, fixture, document, owner)
@@ -254,7 +254,7 @@ def test_closed_child_invalid_input_retains_binding_refusal(tmp_path, monkeypatc
 def test_closed_child_requires_actual_compile_metadata(tmp_path, monkeypatch, capsys, metadata):
     from orchestrator.workflow_lisp.effects import EffectSummary, UsesCommandEffect
 
-    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))
+    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.40"))
     real_prepare = artifact.prepare_closed_program_bundle
     parent_program = []
 
@@ -286,7 +286,7 @@ def test_closed_child_retains_linked_diagnostics(tmp_path, monkeypatch, capsys):
     from orchestrator.workflow_lisp.lints import required_lint_diagnostic
     from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 
-    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))
+    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.40"))
     real_compile = compiler.compile_stage3_entrypoint
     linked = []
 
@@ -312,7 +312,7 @@ def test_closed_child_allows_pure_procedure(tmp_path, monkeypatch, capsys):
     from orchestrator.workflow.run_ref.closed_path import _require_closed_effects
     from orchestrator.workflow_lisp.effects import EffectSummary, ProcedureCallEdge
 
-    definition = '(defproc carry ((value String)) -> String :effects () :lowering inline value)'
+    definition = '(defproc carry ((value String)) -> String value)'
     source = _closed_source(definitions=definition, body="(carry payload)")
     monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _closed_source_fixture(root, source))
     captured = []
@@ -340,7 +340,7 @@ def test_import_graph_matches_public_closed_type_refusal(tmp_path, monkeypatch, 
     from orchestrator.cli.commands.compile import compile_workflow
     from orchestrator.cli.main import create_parser
 
-    old = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    old = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule old) (export choose Choice)
       (defunion Choice (KEEP (value String)) (DROP))
       (defworkflow choose ((payload Choice)) -> String
@@ -367,7 +367,7 @@ def test_closed_child_checks_compiler_before_build(tmp_path, monkeypatch, capsys
     from types import SimpleNamespace
     from orchestrator.workflow.run_ref import path_compile
 
-    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))
+    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.40"))
     with caller._checked_launch_fixture(tmp_path) as (_request, fixture, document, owner):
         monkeypatch.setattr(path_compile, "compute_compiler_runtime_identity", lambda:
                             SimpleNamespace(digest="sha256:" + "f" * 64))
@@ -380,7 +380,7 @@ def test_closed_child_checks_compiler_before_build(tmp_path, monkeypatch, capsys
 
 
 def test_closed_child_never_uses_flat_execution_or_build_cache(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.35"))
+    monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(root, target_dsl_version="2.40"))
     with caller._checked_launch_fixture(tmp_path) as (_request, fixture, _document, owner):
         forbidden = lambda *_args, **_kwargs: pytest.fail("legacy dispatch or second cache publication")
         assert not hasattr(child, "compile_and_admit_path_program")

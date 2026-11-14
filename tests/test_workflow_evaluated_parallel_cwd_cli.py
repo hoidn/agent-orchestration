@@ -17,7 +17,7 @@ from tests.test_workflow_evaluated_providers import _cli as _provider_cli, _fixt
 from tests.test_workflow_evaluated_resume import _resume_cli
 
 
-COMMAND_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+COMMAND_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule parallel/cwd-cli) (export run)
   (defpath Findings :kind relpath :under "artifacts/work" :must-exist true)
   (defrecord Seen (item String) (data String) (finding String) (cwd String)
@@ -78,7 +78,7 @@ value = {"item": sys.argv[2], "data": Path(sys.argv[1]).read_text(),
 result_path.write_text(json.dumps(value))
 '''
 
-PARALLEL_INDEX_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+PARALLEL_INDEX_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule parallel/index-cli) (export run)
   (defworkflow run () -> List[Int]
     (list/map-effect ((repo (list "alpha" "beta"))) :max 2 :parallel 2
