@@ -283,7 +283,7 @@ def test_public_source_compiles_the_primitive_contract(tmp_path: Path) -> None:
     source_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule primitives)
   (export Result run)
   (defrecord Result

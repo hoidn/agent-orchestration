@@ -412,7 +412,7 @@ def test_current_target_accepts_nested_transportable_workflow_inputs(
     source.write_text(
         """(workflow-lisp
   (:language \"0.1\")
-  (:target-dsl \"2.35\")
+  (:target-dsl \"2.40\")
   (defmodule current_nested_input)
   (defunion Choice
     (ONE (value Int))

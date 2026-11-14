@@ -26,7 +26,7 @@ BODY = '''(let* ((draft (provider-result providers.plan :prompt prompts.base
       (print feedback))'''
 BAD = '{"findings":"not a list"}'
 LINES = ['["one","two"]', '{"findings":[]}']
-PROPAGATION = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+PROPAGATION = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Plan (steps List[String]))
   (defrecord Feedback (findings List[String]))

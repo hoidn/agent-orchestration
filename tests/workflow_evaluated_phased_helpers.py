@@ -81,7 +81,7 @@ for line in sys.stdin:
 
 
 def checked_request(tmp_path, *, task="Tarea ñ\n", attempts=2, timeout=60, policy="", typed_artifact=False):
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule phased239) (export run)
       (defpath Note :kind relpath :under "docs" :must-exist true)
       (defpath Report :kind relpath :under "outputs" :must-exist false)

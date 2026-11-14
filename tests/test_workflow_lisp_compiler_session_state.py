@@ -890,12 +890,10 @@ def test_procedure_typecheck_recursion_uses_its_compiler_session_state(
         """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defproc echo
     ((value String))
     -> String
-    :effects ()
-    :lowering inline
     (let* ((copy value)) copy))
   (defworkflow run () -> String (echo "ok")))
 """,
@@ -978,7 +976,7 @@ def test_direct_module_sequential_edit_does_not_reuse_loop_carrier_metadata(
         """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defworkflow first () -> String
     (let* ((state (loop-state (value String "first"))))
       state.value)))
@@ -997,7 +995,7 @@ def test_direct_module_sequential_edit_does_not_reuse_loop_carrier_metadata(
         f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defworkflow second ((state {old_carrier_name})) -> String "second"))
 """,
     )
@@ -1034,14 +1032,12 @@ def _library_only_source(procedure_name: str) -> str:
     return f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule library_only)
   (export {procedure_name})
   (defproc {procedure_name}
     ((value String))
     -> String
-    :effects ()
-    :lowering inline
     value))
 """
 
@@ -1050,7 +1046,7 @@ def _multi_export_application_source() -> str:
     return """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule multi_export)
   (export first selected)
   (defworkflow first () -> String "first")

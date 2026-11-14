@@ -20,7 +20,7 @@ from tests.workflow_evaluated_recovery_helpers import kill_at
 
 
 ITEMS = ("a", "b", "c", "d")
-FOUR = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+FOUR = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow worker ((repo String)) -> Int
     (let* ((first (command-result step :argv ("python" "step.py" repo "first") :returns Int)))
