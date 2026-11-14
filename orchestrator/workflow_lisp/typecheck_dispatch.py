@@ -840,7 +840,7 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         loop_context = session_state.loop_context[-1]
-        typed_state = recurse(expr.state_expr)
+        typed_state = recurse(expr.state_expr, expected_type=loop_context.state_type_ref)
         if typed_state.type_ref != loop_context.state_type_ref:
             _raise_error(
                 f"`continue` expected `{_type_label(loop_context.state_type_ref)}` but got `{_type_label(typed_state.type_ref)}`",

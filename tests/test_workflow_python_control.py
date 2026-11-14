@@ -221,6 +221,18 @@ def test_float_literal_branch_hint_survives_unary_negation(tmp_path, control):
     assert evaluate_closed_program(built.program, inputs).value == -1.0
 
 
+def test_loop_continued_with_an_empty_list_takes_the_state_type(tmp_path):
+    """The emitter writes `cont([])` as `(continue (list))`, which takes its type from the loop state."""
+    _, _, built = compile_source(tmp_path, '''
+    @workflow
+    def run(xs: list[str], flag: bool) -> int:
+        return loop(state=xs, max=2,
+            body=lambda s: when(flag, then=lambda: done(1), else_=lambda: cont([])),
+            on_exhausted=lambda s: 0)
+    ''')
+    assert evaluate_closed_program(built.program, {"xs": ["a"], "flag": False}).value == 0
+
+
 def test_module_level_record_constant_remains_usable(tmp_path):
     _, _, built = compile_source(tmp_path, '''
     @record
