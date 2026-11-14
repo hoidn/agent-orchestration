@@ -139,6 +139,7 @@ KNOWN: dict[str, tuple] = {
     "D28": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"), "D29": CAPTURED_COMMAND,
     "B7-free-eff": crash("ValueError", CAPTURE_REQUESTS + "register_request"), "B7-free-pure": CAPTURED_COMMAND,
     "B7-free-arg": crash("ValueError", CAPTURE_REQUESTS + "register_request"),
+    "B7-same-written": refused("procedure_lowering_unresolved"), "B7-same-ref": refused("procedure_lowering_unresolved"),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
@@ -180,6 +181,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "B7-let": ("value", 103103),
     "B7-ref": ("value", 103103),
     "B7-same-written": ("refused", "procedure_lowering_unresolved"),
+    "B7-same-ref": ("refused", "procedure_lowering_unresolved"),
     "C1": ("value", 7, "libw"),
     "D1": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D2": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
@@ -277,6 +279,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "B7-ref": ("value", 203103),
     "B7-same-macro": ("value", 104104),
     "B7-same-written": ("value", 104104),
+    "B7-same-ref": ("value", 103103),
     "B7-written": ("value", 204104),
     "C1": ("refused", "procedure_effect_ceiling_exceeded"),
     "C1-local": ("refused", "procedure_effect_ceiling_exceeded"),
@@ -595,6 +598,10 @@ ROWS: dict[str, Row] = {
                   inputs=("n=3",)),
     "B7-same-written": row(value(104104), B7_RUN.replace("(CALL c1 input)", B7_WRITTEN.replace("W", "c1"))
                            .replace("(CALL c2 input)", B7_WRITTEN.replace("W", "c1")), *B7_BOX, B7_INC1, inputs=("n=3",)),
+    # Bound to `ap` directly, not through `inc1`: the same refusal (bound-value re-review, `Q-wfref-same`).
+    "B7-same-ref": row(value(103103), B7_RUN.replace("(CALL c1 input)", "(ap (bind-proc (proc-ref foo) :runner "
+                       "(workflow-ref c1)) input)").replace("(CALL c2 input)", "(ap (bind-proc (proc-ref foo) :runner "
+                       "(workflow-ref c1)) input)"), *B7_BOX, B7_AP, inputs=("n=3",)),
     # A bound value that reads a local keeps its position identity, so two expansions of a template whose bound
     # value still reads a local after substitution share one specialization: the build stops.
     "B7-free-eff": row(value(111105), B7_FREE_RUN.replace("FIRST", "(lk 1 input)").replace("SECOND", "(lk 7 input)"),

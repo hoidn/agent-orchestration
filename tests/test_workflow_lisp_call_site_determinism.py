@@ -95,6 +95,15 @@ def _captured(bindings_and_body: str, definitions: str = "", returns: str = "Int
             f"    (let* ((input (record Box :n n)) {bindings_and_body})))\n")
 
 
+def _two_sites(value: str) -> str:
+    """`fwk` (a workflow call) bound to `value` at two sites, the second result times 1000."""
+    bound = f"(applyi (bind-proc (proc-ref fwk) :k {value}) n)"
+    return (HEAD + "  (defworkflow c1 ((input Box)) -> Box (record Box :n (+ input.n 100)))\n"
+            "  (defproc fwk ((k Int) (y Int)) -> Int (let* ((r (call c1 :input (record Box :n (+ y k))))) r.n))\n"
+            "  (defproc applyi ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))\n"
+            f"  (defworkflow run ((n Int)) -> Int (+ {bound} (* 1000 {bound}))))\n")
+
+
 def _let_hook(b: int) -> str:
     return f"(let* ((b {b}) (hook (bind-proc (proc-ref fwi) :k (+ b 1)))) (ap hook input))"
 BOUND_RUNW = ("  (defproc ap ((hook ProcRef[Box -> Box]) (input Box)) -> Box (hook input))\n"
@@ -141,17 +150,17 @@ PROGRAMS = {
     "inlined-two-locals": (_pure(f"  (defproc both ((n Int)) -> Int (let-proc ((f {ADDS_ONE}) "
         f"(g {ADDS_ONE.replace('(+ s 1)', '(* s 10)')})) (+ (f n) (g n))))\n",
         "(+ (both n) (* 1000 (both (+ n 1))))"), ({"n": 3}, 34 + 1000 * 45)),
-    # A closed value bound by `bind-proc` is identified by its content: expansions binding different values get
-    # their own specialization, and two equal bindings written at two sites share one.
+    # A value bound by `bind-proc` is identified by its position and, when it is made of stable kinds only, its
+    # content: two expansions of one template binding different such values get their own specializations.
     "bound-value-macro": (_pure("  (defproc helper ((fixed Int) (y Int)) -> Int (+ fixed y))\n"
         "  (defproc applyi ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))\n"
         "  (defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (+ k 0)) x))\n",
         "(+ (bf 1 n) (* 100 (bf 7 n)))"), ({"n": 3}, 1004)),
     "bound-workflow-ref-macro": (_workflow_ref_macro("(let* ((a (ba c1 input)) (b (ba c2 input))) (+ a.n (* 1000 b.n)))",
         definitions=BOUND_RUNW), ({"n": 3}, 203103)),
-    "bound-workflow-ref-equal-written": (_workflow_ref_macro("(let* ((a (ap (bind-proc (proc-ref runw) :w (workflow-ref c1)) "
-        "input)) (b (ap (bind-proc (proc-ref runw) :w (workflow-ref c1)) input))) (+ a.n (* 1000 b.n)))",
-        definitions=BOUND_RUNW), ({"n": 3}, 103103)),
+    # One closed value written at two sites stays two bindings, whatever later passes hoist out of it.
+    "written-if-twice": (_two_sites("(if (> 1 0) 1 0)"), ({"n": 3}, 104104)),
+    "written-call-twice": (_two_sites("(let* ((r (call c1 :input (record Box :n 1)))) r.n)"), ({"n": 3}, 204204)),
     # A bound value that reads a local keeps its position: the same text read in two scopes is two values.
     "captured-two-lets": (_captured(f"(a {_let_hook(1)}) (c {_let_hook(7)})) (+ a.n (* 1000 c.n))"), ({"n": 3}, 111105)),
     "captured-shadowed": (_captured("(b 1) (a (let* ((hook (bind-proc (proc-ref fwi) :k (+ b 1)))) (ap hook input))) "
@@ -169,11 +178,11 @@ SWEEP = ("two-provider-chains", "one-chain", "one-chain-adding", "three-levels-a
          "macro-local", "macro-local-captured", "macro-proc-ref", "macro-generic", "workflow-ref-macro-2.39",
          "workflow-ref-macro-three", "workflow-ref-macro-in-procedure", "inlined-two-equal-locals",
          "inlined-macro-same-arguments", "inlined-two-locals", "bound-value-macro", "bound-workflow-ref-macro",
-         "bound-workflow-ref-equal-written")
+         "written-if-twice")
 IN_PROCESS = ("macro-local", "macro-local-captured", "workflow-ref-macro", "workflow-ref-macro-reversed",
               "workflow-ref-macro-in-map", "inlined-two-equal-locals", "inlined-macro-same-arguments",
-              "inlined-two-locals", "bound-value-macro", "bound-workflow-ref-macro", "bound-workflow-ref-equal-written",
-              "captured-two-lets", "captured-shadowed", "captured-loop-state", "captured-map-binder",
+              "inlined-two-locals", "bound-value-macro", "bound-workflow-ref-macro", "written-if-twice",
+              "written-call-twice", "captured-two-lets", "captured-shadowed", "captured-loop-state", "captured-map-binder",
               "captured-two-procedures")
 
 
@@ -253,7 +262,41 @@ def test_nested_specializations_keep_every_level(tmp_path):
     assert _value(program, {"input": {"n": 4}}) == {"n": 7}
 
 
-def test_closed_bound_values_share_a_specialization_by_content(tmp_path):
+def test_bound_value_identity_only_splits_what_the_position_joins():
+    """Over hand-built bound values: bindings at two positions never share an identity; at one position, values of
+    stable kinds split by content and other kinds stay joined; equal content at one position stays one."""
+    from orchestrator.workflow_lisp.expressions import IfExpr, LiteralExpr, PureOpExpr, WorkflowRefLiteralExpr
+    from orchestrator.workflow_lisp.procedure_refs import _source_identity
+    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+
+    def at(column):
+        return SourceSpan(SourcePosition("m.orc", 4, column, column), SourcePosition("m.orc", 4, column + 9, column + 9))
+
+    def lit(value, column):
+        return LiteralExpr(value=value, literal_kind="int", span=at(column), form_path=())
+
+    def plus(k, column):
+        return PureOpExpr("+", (lit(k, column), lit(0, column)), at(column), ())
+
+    def choose(k, column):
+        return IfExpr(PureOpExpr(">", (lit(k, column), lit(0, column)), at(column), ()), lit(k, column),
+                      lit(0, column), at(column), ())
+
+    values = [plus(1, 10), plus(7, 10), plus(1, 10), plus(1, 40), choose(1, 70), choose(7, 70), choose(1, 90),
+              WorkflowRefLiteralExpr("m::c1", at(110), ()), WorkflowRefLiteralExpr("m::c2", at(110), ()),
+              WorkflowRefLiteralExpr("m::c1", at(130), ()), lit(3, 150), lit(3, 160)]
+    position = {id(v): ("literal:3" if isinstance(v, LiteralExpr) else v.span.start.column) for v in values}
+    identity = {id(v): _source_identity(v) for v in values}
+    joined = [(a, b) for a in values for b in values if position[id(a)] != position[id(b)]]
+    assert all(identity[id(a)] != identity[id(b)] for a, b in joined)
+    assert identity[id(values[0])] != identity[id(values[1])]
+    assert identity[id(values[0])] == identity[id(values[2])]
+    assert identity[id(values[4])] == identity[id(values[5])]
+    assert identity[id(values[7])] != identity[id(values[8])]
+    assert identity[id(values[10])] == identity[id(values[11])]
+
+
+def test_bound_values_of_two_expansions_split_by_content(tmp_path):
     """Two expansions binding `(+ 1 0)` and `(+ 7 0)` specialize `fwi` twice; binding `(+ 1 0)` twice, once."""
     macro = "  (defmacro mk (k v) (ap (bind-proc (proc-ref fwi) :k (+ k 0)) v))\n"
     counts = {}

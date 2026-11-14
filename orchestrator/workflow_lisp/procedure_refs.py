@@ -5,11 +5,22 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field, fields
 from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .expressions import BindProcExpr, NameExpr, ProcedureCallExpr, ProcRefLiteralExpr
+from .expressions import (
+    BindProcExpr,
+    EnumMemberExpr,
+    ListExpr,
+    LiteralExpr,
+    NameExpr,
+    ProcRefLiteralExpr,
+    PureOpExpr,
+    RecordExpr,
+    UnionVariantExpr,
+    WorkflowRefLiteralExpr,
+)
 from .type_env import ProcRefTypeRef, TypeRef, render_type_ref, type_refs_compatible
 
 if TYPE_CHECKING:
@@ -485,43 +496,42 @@ def _source_identity(expr: object) -> str:
         return f"field:{base.name}:{'.'.join(fields)}"
     if isinstance(expr, NameExpr):
         return f"name:{expr.name}"
-    from .expression_traversal import free_expr_names
-
-    # Content is the identity of a closed value only: a free local name reads a binding that its spelling does not
-    # identify, so such a value keeps its position.
-    content = None if free_expr_names(expr) else _expression_content(expr)
-    if content is not None:
-        return "content:" + hashlib.sha1(json.dumps(content).encode("utf-8")).hexdigest()[:16]
     span = getattr(expr, "span", None)
     if span is None:
         return repr(expr)
     start = span.start
-    return f"{start.path}:{start.line}:{start.column}"
+    position = f"{start.path}:{start.line}:{start.column}"
+    # The content only splits what the position joins (two expansions of one template): a binding never shares an
+    # identity that the position alone would not give it.
+    content = _stable_content(expr)
+    if content is None:
+        return position
+    return f"{position}:content:" + hashlib.sha1(json.dumps(content).encode("utf-8")).hexdigest()[:16]
 
 
-_POSITION_FIELDS = frozenset({
-    "span", "form_path", "expansion_stack", "keyword_span", "keyword_form_path", "keyword_expansion_stack",
-    "definition_span", "authored_callee_span",
+# Expression kinds that no later pass rewrites in a bound value (conditional normalization hoists `if`, `let*`,
+# `match`, loops, `and`/`or`/`not` and effects into generated bindings; inlining rewrites calls). None of them binds
+# a name, so a value made only of them reads no local.
+_STABLE_KINDS = (LiteralExpr, PureOpExpr, WorkflowRefLiteralExpr, EnumMemberExpr, RecordExpr, UnionVariantExpr, ListExpr)
+_SHORT_CIRCUIT = frozenset({"and", "or", "not"})
+_IGNORED_FIELDS = frozenset({
+    "span", "form_path", "expansion_stack", "resolved_type", "element_type_ref",
 })
 
 
-def _expression_content(item: object) -> object | None:
-    """The expression without source coordinates, or None when a part has no stable content.
-
-    A procedure call or procedure reference has none: later passes inline or rename it, so the same binding
-    would get another identity there.
-    """
+def _stable_content(item: object) -> object | None:
+    """The value without source coordinates and types, or None when a node is not of a stable kind."""
     if item is None or type(item) in (str, int, float, bool):
         return [type(item).__name__, item]
     if isinstance(item, tuple):
-        parts = [_expression_content(child) for child in item]
+        parts = [_stable_content(child) for child in item]
         return None if None in parts else ["tuple", parts]
-    if not is_dataclass(item) or isinstance(item, (type, ProcedureCallExpr, ProcRefLiteralExpr)):
+    if not isinstance(item, _STABLE_KINDS) or getattr(item, "operator", None) in _SHORT_CIRCUIT:
         return None
     parts = [
-        [entry.name, _expression_content(getattr(item, entry.name))]
+        [entry.name, _stable_content(getattr(item, entry.name))]
         for entry in fields(item)
-        if entry.name not in _POSITION_FIELDS and not entry.metadata.get("semantic_identity_omit")
+        if entry.name not in _IGNORED_FIELDS and not entry.metadata.get("semantic_identity_omit")
     ]
     return None if any(part is None for _, part in parts) else [type(item).__name__, parts]
 
