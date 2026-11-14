@@ -13,7 +13,7 @@ from ..conditionals import (
     prepare_closed_condition_expr,
 )
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
-from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
+from ..effects import EMPTY_EFFECT_SUMMARY, CallsWorkflowEffect, EffectSummary
 from ..expression_traversal import (
     first_effect_place_code,
     holds_effect_in_a_value,
@@ -205,6 +205,8 @@ _PRESERVE_BOUND_PROC_CAPTURES = (
 
 _COMMAND_SCOPE_CONTEXT = object()
 _CLOSED_PROCEDURE_SELECTION = object()
+# The workflows and procedures whose calls run an effect, by canonical name (`_effectful_callees`).
+_EFFECTFUL_CALLEES = object()
 
 
 def _closed_reference_actual(argument, bindings):
@@ -499,6 +501,8 @@ def elaborate_typed_workflow_body(
     initial_compile_time_bindings[
         _PRESERVE_BOUND_PROC_CAPTURES
     ] = True
+    initial_compile_time_bindings[_EFFECTFUL_CALLEES] = _effectful_callees(
+        resolved_procedures_by_name, typed_workflows_by_name)
     body = _elaborate_expr_to_body(
         typed_body.expr,
         scope=scope,
@@ -520,6 +524,15 @@ def elaborate_typed_workflow_body(
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types or {},
     )
+
+
+def _effectful_callees(procedures, workflows) -> frozenset[str]:
+    """The procedures and workflows of the program whose effects, transitively, are more than workflow calls."""
+
+    summaries = [(name, row.transitive_effect_summary) for name, row in (procedures or {}).items()]
+    summaries += [(name, row.effect_summary) for name, row in (workflows or {}).items()]
+    return frozenset(name for name, summary in summaries
+                     if any(not isinstance(atom, CallsWorkflowEffect) for atom in summary.transitive_effects))
 
 
 def close_wcc_provider_supervision_members(
@@ -1699,25 +1712,31 @@ def _elaborate_continue_state(expr: ContinueExpr, **inputs):
         if not getattr(exc, "non_linear_value_body", False):
             raise
         raise _continue_value_needs_binding(expr) from exc
-    if _branch_is_a_select_that_runs_effect(value):
+    if _branch_is_a_select_that_runs_effect(value, inputs["compile_time_bindings"].get(_EFFECTFUL_CALLEES, frozenset())):
         # An `if` in a branch of the top `if` with an effect in its own branches: the closed program
         # cannot place that effect, which was a `compiler_defect`.
         raise _continue_value_needs_binding(expr)
     return prefix, value
 
 
-def _branch_is_a_select_that_runs_effect(value) -> bool:
-    return isinstance(value, WccSelect) and any(_select_runs_effect(arm.value) for arm in (value.then_arm, value.else_arm))
+def _branch_is_a_select_that_runs_effect(value, effectful: frozenset[str]) -> bool:
+    return isinstance(value, WccSelect) and any(
+        _select_runs_effect(arm.value, effectful) for arm in (value.then_arm, value.else_arm))
 
 
-def _select_runs_effect(value) -> bool:
-    """Whether `value` is a select one of whose arms runs a command, provider or request. A workflow call is
-    left out: whether it has an effect is known only to the closed program, which runs a pure one here."""
+def _select_runs_effect(value, effectful: frozenset[str]) -> bool:
+    """Whether `value` is a select one of whose arms runs an effect: a command, provider or request, or a call
+    of a workflow or procedure in `effectful`. A call of a pure workflow there runs, as it did before."""
 
     return isinstance(value, WccSelect) and any(
-        any(isinstance(let.bound_value, WccPerform) and let.bound_value.perform_kind != "workflow_call"
-            for let in arm.prefix) or _select_runs_effect(arm.value)
+        any(_runs_effect(let.bound_value, effectful) for let in arm.prefix) or _select_runs_effect(arm.value, effectful)
         for arm in (value.then_arm, value.else_arm))
+
+
+def _runs_effect(bound, effectful: frozenset[str]) -> bool:
+    if isinstance(bound, WccPerform):
+        return bound.perform_kind != "workflow_call" or bound.target_name in effectful
+    return isinstance(bound, WccCall) and bound.callee_name in effectful
 
 
 def _bound_first(consumer, attr: str, *, scope: WccIdentityFactory, value_env, compile_time_bindings, role: str) -> LetStarExpr:
@@ -3275,10 +3294,13 @@ def _bind_effectful_loop_operands(
 
 
 def _elaborate_loop_operand_to_value(operand, *, scope: WccIdentityFactory, **inputs):
-    """A loop's `:state` or `:max` as (prefix, value). A pure `match` there is a block value, as an operand's
-    is; an effectful one was bound with `let*` before (`_bind_effectful_loop_operands`)."""
+    """A loop's `:state` or `:max` as (prefix, value). A `match` there, or a pure value with a `match` in it,
+    is elaborated as an operand is, which makes a pure one a block value; an effectful one was bound with
+    `let*` before (`_bind_effectful_loop_operands`)."""
 
-    if isinstance(operand, MatchExpr):
+    if isinstance(operand, MatchExpr) or (
+        not _contains_effect(operand) and any(isinstance(node, MatchExpr) for node in walk_expr(operand))
+    ):
         prefix, (value,) = _elaborate_operands_to_values(((operand, scope),), **inputs)
         return prefix, value
     return _elaborate_expr_to_value(operand, scope=scope, **inputs)
@@ -4720,7 +4742,7 @@ def _elaborate_match_to_body(
         procedure_return_types=procedure_return_types, effect_summary=effect_summary,
         procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope)
-    if _subject_is_bound_first(expr.subject):
+    if holds_effect_in_a_value(expr.subject) or _subject_needs_binding(expr.subject, scope=subject_scope, **inputs):
         bound_scope = scope.child_scope("match-subject-bound")
         return _elaborate_let_star(_bound_first(expr, "subject", scope=bound_scope, value_env=value_env,
             compile_time_bindings=compile_time_bindings, role="subject"), scope=bound_scope, **inputs)
@@ -4751,14 +4773,24 @@ def _elaborate_match_to_body(
     return _wrap_prefix_lets(subject_prefix, case_body)
 
 
-def _subject_is_bound_first(subject) -> bool:
-    """Whether a `match` subject lowers as its `let*` spelling: a constructor, list, path child or map source
-    in it holds an effect, or it is a `let*` (written, or left by an inlined procedure call) with an `if` or a
-    `match` binding that holds one. Such a binding lowers to a join, which a subject value cannot hold; it was
-    a `compiler_defect`, so no program that builds lowers differently."""
+def _subject_needs_binding(subject, *, compile_time_bindings, **inputs) -> bool:
+    """Whether an effectful subject, such as a `let*` (written, or left by an inlined procedure call) or an `if`
+    choosing one, lowers to a join, which a subject value cannot hold: it lowers as its `let*`-bound spelling.
 
-    return holds_effect_in_a_value(subject) or isinstance(subject, LetStarExpr) and any(
-        isinstance(value, (IfExpr, MatchExpr)) and _contains_effect(value) for _, value in subject.bindings)
+    Decided by elaborating the subject as a value without the command scope context, whose demands only the
+    real elaboration may record; that is side-effect free and gives the same answer in both passes of the
+    command scope analysis. Only the non-linear body error answers yes: every other outcome leaves the
+    subject to the route it took before, so a program that built keeps its program and one that failed
+    otherwise fails as before."""
+
+    if not _contains_effect(subject):
+        return False
+    probe_bindings = {key: value for key, value in compile_time_bindings.items() if key is not _COMMAND_SCOPE_CONTEXT}
+    try:
+        _elaborate_expr_to_value(subject, compile_time_bindings=probe_bindings, **inputs)
+    except TypeError as exc:  # the probe's answer; the real elaboration raises any other error itself
+        return getattr(exc, "non_linear_value_body", False)
+    return False
 
 
 def _elaborate_match_case_with_subject(

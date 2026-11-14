@@ -385,10 +385,12 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     - an external command with omitted argv: typecheck resolves its static
       command, and the authored empty argv cannot cross into the closed program;
     - a subject whose constructor, list, `list/map` source or path child holds an
-      effect: only the typechecked form records it, and no earlier program has one.
+      effect: only the typechecked form records it, and no earlier program has one;
+    - a subject with a `cond` in it: typecheck erases it into `if`, and the authored
+      `cond`, which elaboration does not take, ended in `compiler_defect`.
     """
     from .expression_traversal import walk_expr
-    from .expressions import CommandResultExpr, ProviderResultExpr
+    from .expressions import CommandResultExpr, CondExpr, ProviderResultExpr
     from .procedure_typecheck import calls_generic_procedure_through_type_dependent_hook
     from .prompts import PromptApplicationExpr
 
@@ -398,6 +400,7 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     if any(
         (isinstance(node, ProviderResultExpr) and isinstance(node.prompt, PromptApplicationExpr))
         or (isinstance(node, CommandResultExpr) and node.adapter_name is None and not node.argv)
+        or isinstance(node, CondExpr)
         for node in walk_expr(expr.subject)
     ) or (
         context.procedure_catalog is not None

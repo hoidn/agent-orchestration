@@ -246,7 +246,7 @@ def test_generic_helper_as_match_subject_runs_like_the_let_bound_call(
 
 # A field read on the subject of a `match` inside its arm (frontend specification §11: a match refines its
 # exact selector).
-from tests.workflow_lisp_cli_run_helpers import A_3, run_workflow  # noqa: E402
+from tests.workflow_lisp_cli_run_helpers import A_3, U, run_workflow  # noqa: E402
 
 
 @pytest.mark.parametrize(("run", "inputs", "wanted"), [
@@ -294,3 +294,36 @@ def test_subject_bound_first_with_a_conditional_effect_argument_runs_it_once(tmp
     run = f"((n Int)) -> Int (let* ((shape (mkshape {E1_OR_E2}))) (match shape {SHAPE_ARMS}))"
 
     assert run_workflow(tmp_path, run, "n=0", definitions=(SHAPE, MKSHAPE)) == (2, ["e2"])
+
+
+E1 = '(command-result c :argv ("python" "c.py" "e1" "1") :returns Int)'
+E2 = '(command-result c :argv ("python" "c.py" "e2" "2") :returns Int)'
+SUBJECT_ARGUMENTS = {
+    "cond": f"(cond ((> n 5) {E1}) ((> n 0) {E2}) (else 0))",
+    "plus-match": f"(+ {E1} (match (variant U A :n n) ((A a) a.n) ((B b) 0)))",
+    "match-arm": f"(match (variant U A :n n) ((A a) {E1}) ((B b) 0))",
+    "loop": f"(loop/recur ((s 0)) :max 2 :on-exhausted s (if (> s 0) (done s) (continue {E1})))",
+    "let-if": f"(let* ((q (if (> n 0) {E1} 2))) q)",
+}
+
+
+@pytest.mark.parametrize("spelling", ["call", "let", "nested-let", "cond-subject"])
+@pytest.mark.parametrize("argument", SUBJECT_ARGUMENTS)
+def test_subject_with_an_effectful_argument_runs_like_its_let_bound_spelling(tmp_path, argument, spelling):
+    x = SUBJECT_ARGUMENTS[argument]
+    subject = {
+        "call": f"(mkshape {x})",
+        "let": f"(let* ((r {x})) (variant Shape CIRCLE :r r))",
+        "nested-let": f"(let* ((r (let* ((q {x})) q))) (variant Shape CIRCLE :r r))",
+        "cond-subject": f"(cond ((> n 5) (variant Shape SQUARE :side 1)) (else (mkshape {x})))",
+    }[spelling]
+    definitions = (U, SHAPE, MKSHAPE)
+    (tmp_path / "direct").mkdir()
+    (tmp_path / "bound").mkdir()
+
+    direct = run_workflow(tmp_path / "direct", f"((n Int)) -> Int (match {subject} {SHAPE_ARMS})", "n=1",
+                          definitions=definitions)
+    bound = run_workflow(tmp_path / "bound", f"((n Int)) -> Int (let* ((shape {subject})) (match shape {SHAPE_ARMS}))",
+                         "n=1", definitions=definitions)
+
+    assert direct == bound

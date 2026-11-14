@@ -468,6 +468,17 @@ def test_conditional_as_a_loop_budget_runs(tmp_path: Path, budget: str) -> None:
     assert run_workflow(tmp_path, run, "n=1") == (3, [])
 
 
+@pytest.mark.parametrize("value", [f"(if (> n 0) {MATCH_MAX} 4)", "(let* ((k 1)) (match u ((A a) (+ k a.n)) ((B b) 1)))",
+                                   f"(cond ((> n 5) 1) ((> n 0) {MATCH_MAX}) (else 4))"],
+                         ids=["if", "let", "cond"])
+@pytest.mark.parametrize("position", ["max", "state"])
+def test_pure_value_holding_a_match_as_a_loop_budget_or_seed_runs(tmp_path: Path, value: str, position: str) -> None:
+    run = (f"((u U) (n Int)) -> Int (loop/recur ((s 0)) :max {value} {COUNT_TO_EXHAUSTION})" if position == "max"
+           else f"((u U) (n Int)) -> Int (loop/recur ((s {value})) :max 2 :on-exhausted 9 (done s))")
+
+    assert run_workflow(tmp_path, run, A_3, "n=1") == ((4 if value.startswith("(let*") else 3), [])
+
+
 def test_match_as_a_serial_map_cap_bounds_the_map(tmp_path: Path) -> None:
     done = cli_run(tmp_path, f"((u U)) -> List[Int] (list/map-effect ((x (list 1 2 3))) :max {MATCH_MAX} {M})", B_X)
 
@@ -493,6 +504,36 @@ def test_continue_value_whose_branch_is_an_if_holding_an_effect_is_refused(tmp_p
     done = cli_run(tmp_path, f"((n Int)) -> Int {loop}", "n=1")
 
     assert (done.returncode, "[effect_not_permitted]" in done.stderr, command_log(tmp_path)) == (2, True, []), done.stderr
+
+
+EFFECTFUL_CALLEES = (f"(defworkflow w ((n Int)) -> Int {E})", f"(defproc pe ((n Int)) -> Int {E})",
+                     "(defproc pw ((n Int)) -> Int (call w :n n))")
+CALLEE_VALUES = {
+    "workflow": "(if (> n 0) (if (> n 0) (call w :n n) 0) 0)",
+    "procedure": "(cond ((> n 5) 2) ((> n 0) (pe n)) (else 0))",
+    "procedure-calling-a-workflow": "(if (> n 0) 0 (if (> n 0) (pw n) 0))",
+}
+
+
+@pytest.mark.parametrize("form", ["binder", "fn"])
+@pytest.mark.parametrize("value", CALLEE_VALUES)
+def test_continue_value_whose_branch_is_an_if_calling_an_effectful_callee_is_refused(
+    tmp_path: Path, value: str, form: str
+) -> None:
+    step = f"(if (> s 0) (done s) (continue {CALLEE_VALUES[value]}))"
+    loop = (f"(loop/recur ((s 0)) :max 2 :on-exhausted 0 {step})" if form == "binder"
+            else f"(loop/recur :max 2 :state 0 :on-exhausted 0 (fn (s) {step}))")
+
+    done = cli_run(tmp_path, f"((n Int)) -> Int {loop}", "n=1", definitions=EFFECTFUL_CALLEES)
+
+    assert (done.returncode, "[effect_not_permitted]" in done.stderr, command_log(tmp_path)) == (2, True, []), done.stderr
+
+
+def test_continue_value_whose_branch_is_an_if_calling_a_pure_workflow_runs(tmp_path: Path) -> None:
+    run = ("((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 "
+           "(if (> s 0) (done s) (continue (if (> n 0) (if (> n 0) (call wp :n n) 0) 0))))")
+
+    assert run_workflow(tmp_path, run, "n=1", definitions=("(defworkflow wp ((n Int)) -> Int (+ n 0))",)) == (1, [])
 
 
 @pytest.mark.parametrize("step", [f"(done {INNER_IF_VALUES['then']})",
