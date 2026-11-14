@@ -2009,7 +2009,17 @@ Deliberate exclusions stay enforced by typed diagnostics:
 Target 2.18 implements one deliberately bounded, constraint-first collection
 surface:
 
-- `(list ...)` constructs an ordered eligible `List[T]`;
+- `(list ...)` constructs an ordered eligible `List[T]`. `(list :of T item…)`
+  writes the item type: `T` is a type name or a type parameter in scope, each
+  item is checked against it, and `List[T]` is the list's type wherever it
+  stands; a position that also states a list type must state `List[T]`
+  (`pure_expr_operand_type_mismatch`), and `(list :of)` or a non-name after
+  `:of` is `list_item_type_invalid`. Where the position states `List[T]`,
+  `(list :of T …)` builds the program the list without `:of` builds. An
+  empty `(list)` without `:of` takes its type from its position: a record or
+  variant field, a procedure, workflow or `defun` argument, a workflow or
+  procedure result, the other arm of an `if`, a loop-state field or a
+  `continue` value; elsewhere it is `list_empty_type_context_required`;
 - `list/map` binds one element at a time in a pure body;
 - `path/join-under` constructs a value of an explicitly selected rooted path
   family after pure lexical containment validation;

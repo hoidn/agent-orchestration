@@ -1374,6 +1374,19 @@ change of the [surface-coherence design](../docs/design/workflow_lisp_surface_co
   parallel map may be written directly in a serial map or loop body. Every program that compiled
   before keeps its closed program, digest and identities, and its recorded runs resume.
 
+### Source admitted without a new target (staged-workflow authoring)
+
+Under the same rule, one entry per change of the
+[staged-workflow authoring design](../docs/design/workflow_lisp_staged_workflow_authoring.md):
+
+- **L, the typed list literal.** `(list :of T item…)` writes a list's item type, at every target,
+  in every position; it was refused (`keyword_argument_invalid`). An empty `(list)` passed to a
+  `defun` or written as a `continue` value takes its type from the parameter or the loop state; it
+  was refused (`list_empty_type_context_required`). Where the position states `List[T]`,
+  `(list :of T …)` builds the closed program, digest and effect identities of the list without
+  `:of`. A list element that holds an effect is admitted and refused as in a list without `:of`.
+  Every program that compiled before keeps its closed program, digest and identities.
+
 ### Run-time corrections without a new target
 
 - **Output slots checked before a fresh launch.** A provider, phased provider or agent turn about
