@@ -244,8 +244,10 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
 
 def _check_pending_turn(authority, snapshot, node, operands, identity, reader, workspace, launch_cwd) -> None:
     """Read-only: a later turn whose latest attempt closed `agent_turn_result_invalid` refuses with that code; a pending
-    agent turn is classified at its own result path (probe only, nothing signalled) and only `unresolved` refuses;
-    `needs_quiescence`, `recoverable`, `not_dispatched` and `bootstrap` are admitted (bootstrap writes under the lock)."""
+    agent turn is classified at its own result path (probe only, nothing signalled): `unresolved` refuses;
+    `not_dispatched` and `bootstrap`, which a new dispatch follows, refuse when the turn's output slots collide
+    (`check_output_slots`) and are otherwise admitted (bootstrap writes under the lock); `needs_quiescence` and
+    `recoverable` are admitted."""
     if node["class"] != "agent_turn":
         return
     failure = latest_failure(snapshot, identity)
@@ -335,9 +337,19 @@ def _resolve_provider_effect_input(authority, node, operands, identity, workspac
         if commit is not None:
             raise _EffectInputDiverged(identity, f"provider inputs could not be resolved: {exc}") from exc
         raise
-    if commit is None:  # a committed row replays as recorded (specs/versioning.md rule 3)
+    # A committed row replays as recorded (specs/versioning.md rule 3); a phased step is checked in
+    # `runtime.prepare_effect`, after its old attempt is cleaned up.
+    if commit is None and node["class"] == "provider":
         check_output_slots(node, resolved, workspace=workspace, result_path=bundle_path)
     return resolved
+
+
+def check_phased_output_slots(authority, node, resolved, workspace, result_path) -> None:
+    """A phased step's slots, before its new attempt's `started`: `runtime.prepare_effect` calls this after
+    `check_phased_retry` has cleaned up and abandoned an old attempt, so a refusal leaves no live provider."""
+    if node["class"] == "provider_phased":
+        check_output_slots(node, resolved, workspace=workspace,
+            result_path=workspace_relative_path(workspace, authority.run_root / result_path))
 
 
 def _provider_delivery_name(node, commit, identity):

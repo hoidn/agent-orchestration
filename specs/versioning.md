@@ -1382,8 +1382,14 @@ change of the [surface-coherence design](../docs/design/workflow_lisp_surface_co
   workspace is refused before its `started` ([CLI diagnostics](cli.md)), as [IO](io.md) and
   [providers](providers.md) already required. No target, compile outcome or digest changes; a step
   committed before the check replays and its run resumes. A run left open at such a step before
-  the check: a pending or failed plain-provider start would be launched again, so `resume` refuses
-  it (exit 2 in preflight at a pending start; 1 when a failed attempt is retried), and so does
-  `resume` preflight at an open phased start; such a run finishes only after a source change. A
-  pending agent turn whose work already completed in the provider's store commits that work on
-  `resume`, also on the edited-program route.
+  the check, by kind:
+  - a plain provider's pending start: `resume` refuses it in preflight (exit 2, the journal
+    unchanged); a failed attempt: `resume` refuses its retry (exit 1). Either run finishes after a
+    source change accepted with `resume RUN_ID --accept-changes=TOKEN`;
+  - a phased step's pending or failed attempt: `resume` first cleans up the old attempt as before
+    (its provider and terminal session stopped, its receipt abandoned), closes a pending one
+    `failed` with the refusal's code, and refuses the new attempt (exit 1); the run then finishes
+    after a source change accepted the same way;
+  - an agent turn whose work already completed in the provider's store: `resume` commits that work
+    with no new call; a pending turn with nothing to recover: refused in preflight (exit 2, the
+    journal unchanged); a first turn that failed: its restart is refused (exit 1, no call).

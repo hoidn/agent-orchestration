@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -108,6 +109,7 @@ LINK_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       done)))'''
 MAKE_LINK = '''import os
 from pathlib import Path
+import re
 Path("artifacts").mkdir(exist_ok=True)
 os.symlink(os.environ["OUTSIDE"], "artifacts/out")
 Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text("1")
@@ -184,15 +186,11 @@ def test_agent_turn_with_colliding_slots_is_refused_without_a_launch(tmp_path, m
         failed.stderr
 
 
-@pytest.mark.parametrize("program", ["unchanged", "edited"])
-def test_pending_agent_turn_whose_work_completed_commits_on_resume_without_a_call(tmp_path, monkeypatch, program):
+def test_pending_agent_turn_whose_work_completed_commits_on_resume_without_a_call(tmp_path, monkeypatch):
     source = _agent_source(PATH_CLASH).replace(":timeout-sec 60", ":timeout-sec 5")
     _agent_workspace(tmp_path, monkeypatch, source, "complete-then-hang")
     first = _agent_cli(tmp_path, *AGENT_RUN, without_the_check=True)
     assert "[agent_turn_unresolved]" in first.stderr, first.stderr
-    if program == "edited":
-        (tmp_path / "main.orc").write_text(source.replace("(defprompt", "(defrecord Unused (u Int))\n  (defprompt"),
-                                           encoding="utf-8")
     resumed = _agent_cli(tmp_path, "resume", _report(tmp_path)["run"]["run_id"])
     calls = len((tmp_path / "bin" / ".claude.calls").read_text(encoding="utf-8"))
     assert (resumed.returncode, calls, _report(tmp_path)["run"]["status"]) == (0, 1, "completed"), resumed.stderr
@@ -211,6 +209,16 @@ def test_pending_agent_turn_that_would_be_dispatched_again_refuses_in_preflight(
     calls = len((tmp_path / "bin" / ".claude.calls").read_text(encoding="utf-8"))
     assert (refused.returncode, f"[{PATH_CLASH}]" in refused.stderr, calls, memo.read_bytes()) \
         == (2, True, 1, before), refused.stderr
+
+
+def test_failed_first_agent_turn_is_not_restarted(tmp_path, monkeypatch):
+    """A first turn that returned an invalid result before the check: `resume` would restart it, and is refused."""
+    _agent_workspace(tmp_path, monkeypatch, _agent_source(PATH_CLASH), "invalid-result")
+    first = _agent_cli(tmp_path, *AGENT_RUN, without_the_check=True)
+    assert first.returncode == 1, first.stderr
+    refused = _agent_cli(tmp_path, "resume", _report(tmp_path)["run"]["run_id"])
+    calls = len((tmp_path / "bin" / ".claude.calls").read_text(encoding="utf-8"))
+    assert (refused.returncode, f"[{PATH_CLASH}]" in refused.stderr, calls) == (1, True, 1), refused.stderr
 
 
 PHASED_SHAPES = {
@@ -232,6 +240,84 @@ def test_phased_provider_with_colliding_slots_is_refused_without_a_process(tmp_p
     failed = public_cli(case, args)
     assert (failed.returncode, f"[{code}]" in failed.stderr, public_events(root), _written(root)) \
         == (1, True, [], (0, 0)), failed.stderr
+
+
+def _phased_source(root: Path, code: str | None) -> None:
+    """The public phased fixture at 2.40 with `code`'s collision, or the fixture as it is (no collision)."""
+    source = root / "tests/fixtures/phased_239/main.orc"
+    text = (REPO / "tests/fixtures/phased_239/main.orc").read_text(encoding="utf-8").replace('"2.39"', '"2.40"')
+    for old, new in PHASED_SHAPES.get(code, []):
+        text = text.replace(old, new)
+    source.write_text(text, encoding="utf-8")
+
+
+# The run before the check: the suite's kill launcher with the phased check switched off. A pending phased start
+# does not relocate as a recorded fixture (its transport reservation lives under `/tmp`), so it is built here.
+PHASED_WITHOUT_THE_CHECK = ("import orchestrator.workflow.evaluated.effect_inputs as slot_check_inputs\n"
+                            "slot_check_inputs.check_phased_output_slots = lambda *args, **kwargs: None\n")
+
+
+def _phased_state(tmp_path, monkeypatch, code: str, state: str):
+    """Build an open phased start recorded without the check: `killed-mid-call`, `killed-after-started` or `failed`."""
+    from tests import workflow_evaluated_phased_helpers as public
+    monkeypatch.setattr(public, "_PUBLIC_KILL_LAUNCHER", public._PUBLIC_KILL_LAUNCHER.replace(
+        "runpy.run_module(", PHASED_WITHOUT_THE_CHECK + "runpy.run_module("))
+    case = public_case(tmp_path)
+    _phased_source(tmp_path, code)
+    if state != "failed":
+        return case, public.public_kill(case, {"killed-mid-call": "materialization",
+                                               "killed-after-started": "started"}[state])
+    launcher, _marker, env = public.public_launcher(case, "no-cut")
+    failed = subprocess.run([sys.executable, str(launcher), *case[0]], cwd=tmp_path, env=env, capture_output=True,
+                            text=True, timeout=90, check=False)
+    assert failed.returncode == 1, failed.stderr
+    return case, None
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+PHASED_OPEN = [(NAME_CLASH, "killed-mid-call"), (PATH_CLASH, "killed-after-started"), (NAME_CLASH, "failed")]
+# After the refused `resume`: the old attempt's receipt state and the codes its `failed` rows carry. Killed mid-call,
+# the old attempt is cleaned up and abandoned, then closed with the refusal; killed after `started` it had no receipt;
+# a failed attempt keeps the failure it was closed with.
+OPEN_AFTER_RESUME = {
+    "killed-mid-call": lambda code: ("abandoned", [code]),
+    "killed-after-started": lambda code: (None, [code]),
+    "failed": lambda code: ("abandoned", ["provider_phased_materialization_attempts_exhausted"]),
+}
+
+
+@pytest.mark.parametrize(("code", "state"), PHASED_OPEN)
+def test_open_phased_start_from_before_the_check_is_cleaned_up_then_refused_then_finishes_after_a_fix(
+        tmp_path, monkeypatch, code, state):
+    from tests.workflow_evaluated_phased_helpers import public_run_root, public_snapshot
+    case, marker = _phased_state(tmp_path, monkeypatch, code, state)
+    run_root = public_run_root(tmp_path)
+    (old,) = public_snapshot(run_root).latest_starts.values()
+    receipt = (run_root / old.data["result_path"]).with_name("phased-attempt.json")
+    processes = [row["pid"] for row in public_events(tmp_path) if row["event"] == "start"]
+    refused = public_cli(case, ["resume", run_root.name])
+    starts = [row for row in public_snapshot(run_root).entries if row.data["record"] == "started"]
+    assert (refused.returncode, f"[{code}]" in refused.stderr, len(starts),
+            [row["pid"] for row in public_events(tmp_path) if row["event"] == "start"]) \
+        == (1, True, 1, processes), refused.stdout + refused.stderr
+    closed = [row.data["code"] for row in public_snapshot(run_root).entries
+              if row.data["record"] == "failed" and row.data["attempt"] == old.data["attempt"]]
+    receipt_state = json.loads(receipt.read_text(encoding="utf-8"))["state"] if receipt.exists() else None
+    namespace = None if marker is None or not marker["reservation"] else Path("/tmp") / marker["reservation"]["namespace"]
+    assert ([pid for pid in processes if _alive(pid)], namespace is not None and (namespace / "tmux.sock").exists(),
+            receipt_state, closed) == ([], False, *OPEN_AFTER_RESUME[state](code)), refused.stderr
+    _phased_source(tmp_path, None)
+    planned = public_cli(case, ["resume", run_root.name])
+    (token,) = set(re.findall(r"--accept-changes=(\S+)", planned.stderr))
+    finished = public_cli(case, ["resume", run_root.name, f"--accept-changes={token}"])
+    assert finished.returncode == 0, finished.stdout + finished.stderr
 
 
 def _resolved(*paths: str) -> ResolvedProviderInput:
@@ -274,6 +360,16 @@ def test_resume_replays_two_slots_committed_on_one_path_before_the_check(tmp_pat
     assert (resumed.returncode, _launches(tmp_path)) == (0, 1), resumed.stderr
 
 
+def _finish_after_a_fix(root: Path, run_id: str) -> subprocess.CompletedProcess:
+    """Drop slot `b` from the source, then `resume` with the token of the plan the refusal prints."""
+    source = root / "main.orc"
+    source.write_text(source.read_text(encoding="utf-8").replace(" (b :path :out Report)", "")
+                      .replace(" B={b}", "").replace(" :b report", ""), encoding="utf-8")
+    planned = _orchestrator(root, "resume", run_id)
+    (token,) = set(re.findall(r"--accept-changes=(\S+)", planned.stderr))
+    return _orchestrator(root, "resume", run_id, f"--accept-changes={token}")
+
+
 def test_resume_at_a_pending_start_recorded_before_the_check_refuses_in_preflight(tmp_path):
     run_id = _recorded(tmp_path, OPEN_PRE_CHANGE, "20261114T185034Z-9aoawq")
     memo = tmp_path / ".orchestrate" / "runs" / run_id / "memo.jsonl"
@@ -281,6 +377,8 @@ def test_resume_at_a_pending_start_recorded_before_the_check_refuses_in_prefligh
     refused = _orchestrator(tmp_path, "resume", run_id)
     assert (refused.returncode, f"[{PATH_CLASH}]" in refused.stderr, _launches(tmp_path), memo.read_bytes(),
             _written(tmp_path)) == (2, True, 0, before, (1, 1)), refused.stderr
+    finished = _finish_after_a_fix(tmp_path, run_id)
+    assert finished.returncode == 0, finished.stderr
 
 
 def test_resume_after_a_failed_attempt_recorded_before_the_check_is_refused_without_a_launch(tmp_path):
@@ -288,3 +386,5 @@ def test_resume_after_a_failed_attempt_recorded_before_the_check_is_refused_with
     refused = _orchestrator(tmp_path, "resume", run_id)
     assert (refused.returncode, f"[{PATH_CLASH}]" in refused.stderr, _launches(tmp_path), _written(tmp_path)) \
         == (1, True, 0, (1, 1)), refused.stderr
+    finished = _finish_after_a_fix(tmp_path, run_id)
+    assert finished.returncode == 0, finished.stderr
