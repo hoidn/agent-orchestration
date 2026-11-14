@@ -35,12 +35,14 @@ workflow or procedure body; effects run in the order written, each once, and
 
 - *A field, a list element, a path child, a map source and `:on-exhausted`
   take an effect only in a simple value:* a literal, a name, a field read, or
-  a call (provider, command, agent, workflow, run reference, a procedure that
-  holds an effect), an operator application other than `and`, `or` and `not`,
-  or a record, variant, list or `path/join-under`, over simple parts. Every
-  part of the value must be simple, the one with the effect and the ones
-  beside it; any other value there stays refused, with the code the place
-  gave before (§4, §13).
+  an effect form (a provider, command, agent or workflow call), an operator
+  application other than `and`, `or` and `not`, or a record, variant, list or
+  `path/join-under`, over simple parts. No call of a procedure, a `let-proc`
+  local or a `defun` is simple, whatever the callee holds. Every part of the
+  value must be simple, the one with the effect and the ones beside it; any
+  other value there stays refused, with the code the place gave before, and
+  so does such a place inside a call's argument or a `let-proc` local's body
+  (§4, §13).
 - *Pure places take no effect:* a `defun` body, a `list/map` body, a parallel
   `:workspace`.
 - *A run reference keeps its own placement contract:* not in `:on-exhausted`,
@@ -234,12 +236,23 @@ statement position keeps its name: `(let* ((z E)) (+ z 1))` names the step
 has no branch, so its effects are named by ordinal alone: the same whether an
 authored `let*` binds the value first or not, whatever simple parts stand
 beside the effect and in whatever order. Any other value that holds an effect
-there (an `if`, `cond`, `match`, `let*`, `and`, `or`, a loop, a map, a
-`defun` application or a pure procedure's call, as the part with the effect or
-beside it) is refused as before, at the part to bind first; `:on-exhausted`,
-which has no place to bind first, calls a procedure. The reason is identity:
-with a branch in the value, an effect's name depended on whether a `let*`
-bound the value and on the pure parts beside it (§13).
+there (an `if`, `cond`, `match`, `let*`, `and`, `or`, a loop, a map, a run
+reference, or a call of a procedure, a `let-proc` local or a `defun`, as the
+part with the effect or beside it) is refused as before, at the part to bind
+first; `:on-exhausted`, which has no place to bind first, calls a workflow.
+The reason is identity: with a branch in the value, an effect's name depended
+on whether a `let*` bound the value and on the pure parts beside it (§13).
+
+A procedure call is not simple even when the procedure holds the effect: the
+compiler knows what a callee holds only after its provisional passes, and it
+replaces a pure procedure's call by the procedure's body in one pass and not
+in another, so no test of the call gives one answer in every place. For the
+same reason a call's arguments and a `let-proc` local's body admit nothing
+new: a field, an element, a path child, a map source or an `:on-exhausted`
+value that holds an effect stays refused anywhere inside an argument of a
+procedure, `let-proc` local or `defun` call and anywhere in a local's body.
+The effect, or the value, is bound with `let*` first. A top-level `defproc`
+body takes these places as a workflow body does.
 
 **Becomes legal** (nothing becomes refused; the `let*` spelling stays legal):
 
@@ -248,8 +261,9 @@ bound the value and on the pure parts beside it (§13).
 (record Outcome
   :words (command-result count :argv ("python" "count.py" file) :returns Int)
   :pads 0)
-(list (fetch "a") (fetch "b"))
-(loop/recur ((s 0)) :max 3 :on-exhausted (give-up s) (step s))
+(list (call fetch :key "a") (call fetch :key "b"))      ; `fetch` is a workflow
+(loop/recur ((s 0)) :max 3 :on-exhausted (call give-up :s s)
+  (if (> s 5) (done s) (continue (call step :s s))))
 ;; today: compiler_defect
 (+ 1 (match shape ((CIRCLE c) c.r) ((SQUARE s) 0)))
 ```
@@ -421,7 +435,7 @@ is evidence, not the implementation: no tests, no capture fix.
 | Effects in record and variant fields | Their lowering already calls `_elaborate_operands_to_values`, the function behind operator operands | Two checks deleted; fields run in written order, short-circuit intact. With a `match` in a sibling field the capture defect of §2.1 applies until fixed |
 | Effects in list elements | The same function, selected by a typechecker-set flag on `ListExpr` (beside `item_type_refs`) so pure lists keep today's lowering | Runs in order; pure lists keep their digest |
 | Effectful `:on-exhausted`, map source | The closed loop's exhaustion body; the loop-state seed | Checks deleted; identity `loop:s / exhausted / #1` |
-| The three placements across helper kinds | Totality matrix | The 24 field cells and 14 `:on-exhausted` cells that refuse today pass as admitted (native value, ordered command log) for inline, same-module and imported helpers |
+| The three placements across helper kinds | Totality matrix | The 24 field cells and 14 `:on-exhausted` cells that refuse today pass as admitted (native value, ordered command log) for inline, same-module and imported helpers. As merged (§13): the cells whose effect stands behind a procedure call keep their refusal; the command forms written inline are admitted |
 | A pure `match` as an operand | The block value a list item already uses | 20 lines in `_elaborate_operands_to_values`; 9 programs that are `compiler_defect` today build, and the 3 that already build keep their digest |
 | Map body is any expression | A serial map is a `loop/recur`; a `par-map` body is general | Serial and parallel maps ran `if`, a `let*` of two effects, a record of two effects, a `match`, a nested map, a nested loop and a pure body; the run-reference body tests still refuse |
 | Serial `:max` expression, source first | The map passes `:max` to its loop as the budget, and budgets are values; an optional `max_expr` child, as `workspace_expr` is one | 26 lines; a variable, a pure expression, an effect and a procedure parameter all run |
@@ -535,6 +549,7 @@ the ruling that decided it; the sections above state the rule as merged.
 | C1 | A `let*` binding of a reference that is neither a literal nor forwarded is refused with `proc_ref_literal_required`, also in a procedure that nothing calls: the one place where C1 refuses source that compiled (rule 3, §6, §8) | Finding M3 of the first callables review for the refusal; coordinator ruling MA2 on the second review for the never-called procedure, stated in C1's versioning entry |
 | C1 | A workflow cycle is refused only for workflows the entry reaches, and a cycle through a procedure or a workflow reference parameter is reported as that procedure's cycle; the message for `(w n)` is not given for a module-qualified name or in a compile with imported workflow bundles (rule 3, §6) | First callables review, minors m4 to m6, applied in the round the coordinator ruled on and stated in the specification's §14 |
 | C1 | Caller code passed to a macro can call the template's `let-proc` local by name: hygiene does not rename that binder, and the alias form already reached it | Coordinator ruling MA1 on the second callables review: accepted; the fix changes macro programs that compile and goes to the release that removes the older targets |
+| E1 | In a simple value no procedure call is simple, a call's arguments and a `let-proc` local's body admit nothing new, and a run reference is not simple: an effect behind a `defproc`, a `let-proc` local or a `defun` call is bound with `let*` first, as before E1. The examples of §4 call workflows (rule 1, §4) | Coordinator adjudication of the fifth effect-placement review (2026-11-13), findings B1 to B3 and J1: programs `main` refuses by name must not reach an older defect or rename an effect; where a pure and an effectful callee cannot be told apart at the point of the check, no procedure call is simple |
 | E1 | A field, a list element, a path child, a map source and `:on-exhausted` take an effect only in a simple value; every other value there stays refused with its earlier code. The accepted text admitted any expression ("nothing becomes refused" still holds: no program that compiled is refused) (rule 1, §4, §8, §9) | Coordinator ruling A on the fourth effect-placement review (2026-11-13): effect names must not depend on whether a `let*` binds the value or on a pure edit beside the effect, and what cannot guarantee it is not admitted |
 | E1 | A `continue` value with a conditional, a loop or a map below its top is refused with `effect_not_permitted` where it was a `compiler_defect`; a `continue` value that is an `if` whose branch is an `if` holding an effect remains a `compiler_defect`; a parallel map whose binder a macro template introduces stays refused when its source holds an effect | Rulings B and C on the same review: no program that builds on `main` is refused, and a program `main` refuses by name is never left in a defect; the two older defects are listed, not fixed |
 | I1 | The run-reference exception covers the program, not the body: general bodies only in a program that contains no run reference (rule 2, §3, §5, §10) | Coordinator ruling after the third map-bodies review (its findings R2-B1 and R2-M1): the per-iteration decision was unsound for imported workflows |

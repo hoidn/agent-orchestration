@@ -2517,15 +2517,14 @@ and a `match` subject do, with the exceptions below.
   `list/map` or `list/map-effect` source and an `:on-exhausted` value take an
   effect only in a simple value.* A value is **simple** when it is
   - a literal, a name or a field read;
-  - a provider, command, agent or workflow call or a run reference, each with
-    simple arguments;
+  - a provider, command, agent or workflow call, each with simple arguments;
   - an operator application other than `and`, `or` and `not`, with simple
     operands;
   - a record, a variant, a list or a `path/join-under` whose parts are simple.
 
   An `if`, `cond`, `match`, `let*`, `and`, `or` or `not`, a loop, a map, a
-  `record-update` and every call of a procedure, of a `let-proc` local or of a
-  `defun` are not simple, whatever the callee holds: the test reads the form
+  `record-update`, a run reference and every call of a procedure, of a
+  `let-proc` local or of a `defun` are not simple, whatever the callee holds: the test reads the form
   written, so one call has one answer in every place. When one of these
   places holds an effect, every part of its
   value must be simple: the part with the effect and the parts beside it.
@@ -2564,8 +2563,8 @@ and a `match` subject do, with the exceptions below.
   (`list_map_effect_workspace_invalid`).
 - *A run reference keeps its own placement contract:* not in `:on-exhausted`,
   not in a map source (`run_ref_placement_invalid`), alone as a map body, with
-  a pure `:commit`. Elsewhere in a workflow body it takes the places above; in
-  a record or variant field and a list element, as a simple value.
+  a pure `:commit`. It is not a simple value, so it does not stand in a
+  field, an element or a path child (`effect_not_permitted`).
 - *A value the compiler needs whole is bound first:* a `continue` value, a
   `match` subject or a parallel map's source that holds an effect in a record,
   variant, list, path child or map source is lowered as
@@ -2639,13 +2638,13 @@ effects.
    move when the application is a `let*` binding value (or stands under an
    operator or in an `if` condition inside one), a loop `:state` or `:max`, a
    `done` value, an argument of a procedure, a `let-proc` local, a workflow
-   or a command, or inside an operand of `and`:
+   or a command, or inside the first operand of an `and`:
    `(call child :t (+ E M))` names its step `#1 / body / #1`. A pure
    procedure's application moves them also as an operator operand and in an
    `if` condition: `(* 2 (add E M))` does, `(* 2 (+ E M))` does not. They do
    not move when the application is the whole result of a body, a `let*`
-   body, a branch of `if`, `cond` or `match`, a `continue` value or a
-   `list/append` operand. Without a `match`, a pure `if`, `let*` or procedure
+   body, a branch of `if`, `cond` or `match`, a later operand of `and`, a
+   `continue` value or a `list/append` operand. Without a `match`, a pure `if`, `let*` or procedure
    call in that operand moves nothing.
 2. An `if` or `cond` with an effect in a branch, written as an operand of an
    operator, whose condition holds a pure procedure call, a `defun`

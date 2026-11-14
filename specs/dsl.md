@@ -162,15 +162,20 @@ YAML-fenced snippets are structural notation, not authored workflow files.
     - A record or variant field, a list element, a `path/join-under` child, a
       `list/map` or `list/map-effect` source and an `:on-exhausted` value take
       an effect only in a simple value: a literal, a name or a field read; a
-      provider, command, agent or workflow call, a run reference, or a call of
-      a procedure that holds an effect, with simple arguments; an operator
-      application other than `and`, `or` and `not`, with simple operands; a
-      record, variant, list or `path/join-under` of simple parts. Every part of
+      provider, command, agent or workflow call, with simple arguments; an operator application other than `and`, `or` and
+      `not`, with simple operands; a record, variant, list or
+      `path/join-under` of simple parts. A run reference is not simple, nor
+      is any call of a procedure, a `let-proc` local or a `defun`, whatever
+      the callee holds. Every part of
       a value that holds an effect there must be simple, the part with the
       effect and the parts beside it; otherwise the program is refused, at the
       part to bind with `let*` first, with the code the place gave before
       (`effect_not_permitted`, `list_map_body_effect_forbidden`,
-      `list_map_effect_body_unsupported`, `loop_recur_contract_invalid`). The
+      `list_map_effect_body_unsupported`, `loop_recur_contract_invalid`). Such
+      a place that holds an effect is also refused, with its own code,
+      anywhere inside an argument of a procedure, `let-proc` local or `defun`
+      call and anywhere in the body of a `let-proc` local: bind the value
+      first and pass its name. The
       effects of a simple value are named the same bound by `let*` or not, and
       under a pure edit that keeps it simple. Normative rule and the two older
       cases where a pure edit moves a name elsewhere:
@@ -179,7 +184,9 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       child or map source is bound first, as a `done` value is, and runs. A
       `continue` value with a conditional (`if`, `cond`, `match`, `and`, `or`),
       a loop or a map below its top that cannot be evaluated in place is
-      refused with `effect_not_permitted`; bind it first,
+      refused with `effect_not_permitted`, or with the code of the first such
+      place in it that holds an effect (a serial map over an effectful source:
+      `list_map_effect_body_unsupported`); bind it first,
       `(let* ((next <value>)) (continue next))`. A `record-update` is not a
       record here: an effect under a conditional in its field is refused. Open
       defect: a `continue` value that is an `if` with a branch that is an `if`
@@ -833,10 +840,10 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       reviewed target owns effect-loop settlement. Under a 2.35 or 2.36 entry a
       path-mode `run-ref` is additionally admitted in a loop body, in a
       budget or seed expression, as a `match` subject and as the one-effect
-      body of a serial `list/map-effect`, and as a simple value in the record
-      and variant fields and list elements of a workflow body, directly or through admitted
+      body of a serial `list/map-effect`, directly or through admitted
       calls, including older-target helpers; a run reference stays refused
-      in `:on-exhausted`, a map source and the pure places, and trials, bundle mode and effectful
+      in `:on-exhausted`, a map source, a record or variant field, a list
+      element, a path child and the pure places, and trials, bundle mode and effectful
       children stay excluded. Older entries (2.24–2.34) keep the rejection
       above.
       Evidence: `tests/test_workflow_evaluated_run_ref.py`,

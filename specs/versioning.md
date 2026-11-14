@@ -877,7 +877,8 @@ own delivery status and captured evidence.
     a budget or seed expression, as a `match` subject and as the one-effect
     body of a serial `list/map-effect`, directly or through admitted calls
     including imported helpers at target 2.35 or newer; a run reference stays
-    refused in `:on-exhausted`, a map source and the pure places, trials, bundle mode and effectful children stay
+    refused in `:on-exhausted`, a map source, a record or variant field, a
+    list element, a path child and the pure places, trials, bundle mode and effectful children stay
     excluded; retired old child entries refuse before child publication.
     Older executable entries (2.24–2.34) are retired ([DSL](dsl.md)).
     Evidence: `tests/test_workflow_evaluated_run_ref.py`,
