@@ -25,7 +25,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from orchestrator.contracts.closed_program.program import ClosedProgram  # noqa: E402
 from orchestrator.workflow.evaluated.machine import site_classes  # noqa: E402
-from tests.agent_session_shims import FAKE_CLAUDE, closed_path  # noqa: E402
+from tests.agent_session_shims import FAKE_CLAUDE, closed_path, shim_requests  # noqa: E402
 
 # The orchestrator's command line with observation panes that do nothing: a killed run skips its cleanup and
 # would leave a tmux server behind (`roles` has Agent Sessions, which open one).
@@ -68,8 +68,10 @@ def plan(*ids):
     return {"result": {"doc": "docs/plan.md", "milestones": milestones}, "files": {"docs/plan.md": "# Plan\n" + " ".join(ids) + "\n"}}
 
 
-GUIDES = change({"AGENTS.md": "# Guide\nCheck: python dev_check.py\n", "docs/index.md": "spec.md plan.md log.md notes/\n",
-                 "docs/log.md": "# Log\n", "docs/notes/layout.md": "# Layout\n"})
+DOCS = {"docs/index.md": "spec.md plan.md log.md notes/\n", "docs/log.md": "# Log\n", "docs/notes/layout.md": "# Layout\n"}
+SETUP = {"guide": "AGENTS.md", "index": "docs/index.md", "log": "docs/log.md"}
+GUIDES = {"result": SETUP, "files": {"AGENTS.md": "# Guide\nCheck: python dev_check.py\n", **DOCS}}
+NO_GUIDE = {"result": SETUP, "files": DOCS}  # the setup step reports a guide it did not write
 SPEC = {"result": {"doc": "docs/spec.md", "targets": ["T1", "T2"]}, "files": {"docs/spec.md": "T1 m1 holds ok\nT2 m2 holds ok\n"}}
 MET = {"result": {"variant": "MET", "evidence": ["read the files"]}}
 NOT_MET = {"result": {"variant": "NOT_MET", "reasons": ["T2 does not hold: src/m2.txt"]}}
@@ -79,6 +81,8 @@ DESIGN = {"result": {"doc": "docs/design.md"}, "files": {"docs/design.md": "# De
 REVISED = {"result": {"doc": "docs/design.md"}, "files": {"docs/design.md": "# Design (revised)\n"}}
 BUILD = [plan("M1", "M2"), work(m1="ok", m2="ok"), MET]
 DONE = {"summary": "accepted", "variant": "DONE"}
+REFUSED = {"notes": NOT_MET["result"]["reasons"], "variant": "BLOCKED"}  # an exhausted loop returns its last notes
+NO_SETUP = ({"error": "provider_result_invalid", "at": "ready"}, 0, [NO_GUIDE])
 
 # scenario: (result, committed steps, answers)
 FLAT = {
@@ -86,12 +90,18 @@ FLAT = {
     "check-fails-once": (DONE, 8, START + [work(m1="ok", m2="bad"), work(m2="ok"), MET]),
     "review-rejects-once": (DONE, 9, START + [work(m1="ok", m2="ok"), NOT_MET, work(memory="round 2\n"), MET]),
     "kill-and-resume": (DONE, 8, START + [work("round 1\n", m1="ok", m2="bad"), KILL, work(m2="ok"), MET]),
+    "acceptance-never-given": ({**REFUSED, "reason": "round limit reached"}, 15, START + 4 * [work(m1="ok", m2="ok"), NOT_MET]),
+    "setup-incomplete": NO_SETUP,
 }
-DESIGNED = {  # guides, spec, design, design review; then plan, work, acceptance
+DESIGNED = {  # guides, spec, design, rounds of design review and revision; then plan, work, acceptance
     "clean": (DONE, 8, [GUIDES, SPEC, DESIGN, MET] + BUILD),
-    "design-refused-once": (DONE, 9, [GUIDES, SPEC, DESIGN, NOT_MET, REVISED] + BUILD),
+    "design-refused-once": (DONE, 10, [GUIDES, SPEC, DESIGN, NOT_MET, REVISED, MET] + BUILD),
+    "design-refused-twice": (DONE, 11, [GUIDES, SPEC, DESIGN, NOT_MET, REVISED, NOT_MET, REVISED] + BUILD),
     "acceptance-refused-once": (DONE, 11, [GUIDES, SPEC, DESIGN, MET] + BUILD[:2] + [NOT_MET, work(memory="round 2\n"), MET]),
     "kill-between-design-and-plan": (DONE, 8, [GUIDES, SPEC, DESIGN, MET, KILL] + BUILD),
+    "acceptance-never-given": ({**REFUSED, "reason": "round limit reached"}, 17,
+                               [GUIDES, SPEC, DESIGN, MET, plan("M1", "M2")] + 4 * [work(m1="ok", m2="ok"), NOT_MET]),
+    "setup-incomplete": NO_SETUP,
 }
 MILESTONES = {  # per milestone: work, review; then the acceptance
     "clean": (DONE, 11, START + [work(m1="ok"), MET, work(m2="ok"), MET, MET]),
@@ -99,10 +109,15 @@ MILESTONES = {  # per milestone: work, review; then the acceptance
     "review-rejects-once": (DONE, 14, START + [work(m1="ok"), MET, work(m2="bad"), NOT_MET, work(m2="ok"), MET, MET]),
     "kill-and-resume": (DONE, 11, START + [work("M1 done\n", m1="ok"), MET, KILL, work(m2="ok"), MET, MET]),
     "kill-in-a-second-attempt": (DONE, 14, START + [work(m1="ok"), MET, work(m2="bad"), NOT_MET, KILL, work(m2="ok"), MET, MET]),
+    "plan-of-nine": (DONE, 32, [GUIDES, SPEC, plan(*(f"M{i}" for i in range(1, 10))), work(m1="ok", m2="ok"), MET]
+                     + 8 * [work(), MET] + [MET]),  # more milestones than the planner is advised to write
+    "acceptance-never-given": ({**REFUSED, "reason": "acceptance round limit reached"}, 14,
+                               [GUIDES, SPEC] + 2 * [plan("M1"), work(m1="ok", m2="ok"), MET, NOT_MET]),
+    "setup-incomplete": NO_SETUP,
 }
-ROLES = {  # the same answers; each conversation's constructor is a step too
-    name: (result, steps + {"check-fails-once": 8}.get(name, 6), answers) for name, (result, steps, answers) in MILESTONES.items()
-}
+# `roles` takes the same answers; opening a conversation is a step too: two for the run, two per milestone built
+OPENED = {"check-fails-once": 8, "plan-of-nine": 20, "setup-incomplete": 2}
+ROLES = {name: (result, steps + OPENED.get(name, 6), answers) for name, (result, steps, answers) in MILESTONES.items()}
 PROGRAMS = {"staged": FLAT, "designed": DESIGNED, "milestones": MILESTONES, "roles": ROLES}
 FLAGS = ("--provider-externs-file", str(HERE / "providers.json"), "--command-boundaries-file", str(HERE / "commands.json"))
 
@@ -115,9 +130,10 @@ def expected(program, scenario):
 
 
 def orchestrator(world, *argv, hash_seed="0"):
-    """The orchestrator's command line in the world's workspace; `claude` resolves to the world's script only."""
+    """The orchestrator's command line in the world's workspace; `claude` resolves to the world's script only, and
+    temporary files (an Agent Sessions run makes a socket directory) stay in the world."""
     env = {"PATH": closed_path(world / "bin"), "PYTHONPATH": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1",
-           "PYTHONHASHSEED": hash_seed, "HOME": str(world), "CLAUDE_CONFIG_DIR": str(world / "claude"),
+           "PYTHONHASHSEED": hash_seed, "HOME": str(world), "TMPDIR": str(world), "CLAUDE_CONFIG_DIR": str(world / "claude"),
            "AGENT_SHIM_PLAN": json.dumps({"claude": json.loads((world / "plan.json").read_text())})}
     return subprocess.run([sys.executable, "-c", DRIVER, *argv], cwd=world / "repo", env=env, capture_output=True, text=True)
 
@@ -143,16 +159,15 @@ def build(base, program, hash_seed="0"):
 
 
 def events(proc, event):
-    """The identities the run printed as started (`start`) or committed (`commit`), in order."""
+    """The identities the run printed as started (`start`), committed (`commit`) or `failed`, in order."""
     lines = [line.split("  attempt")[0] for line in proc.stderr.splitlines() if line.startswith(event + " ")]
     return [line.split(None, 1)[1] for line in lines]
 
 
 def failure(proc):
-    """A failed run's diagnostic code: the last `[code]` its stderr prints."""
-    codes = [line.split("]")[0].lstrip("[") for line in proc.stderr.splitlines() if line.startswith("[")]
-    assert codes, proc.stdout + proc.stderr
-    return {"error": codes[-1]}
+    """A failed run's diagnostic code and the step it failed at, from its last `failed  <identity> ... [code]` line."""
+    line = [line for line in proc.stderr.splitlines() if line.startswith("failed ")][-1]
+    return {"error": line.rsplit("[", 1)[1].rstrip("]"), "at": events(proc, "failed")[-1].split(" / ")[-1]}
 
 
 def run(base, program, scenario):
@@ -162,8 +177,7 @@ def run(base, program, scenario):
     repo = world / "repo"
     shutil.copy(ROOT / "experiments" / "orc_structural_search" / "seeds" / "dev_check.py", repo)
     (repo / "dev-check.json").write_text(json.dumps({"argv": [sys.executable, "-c", CHECK], "timeout_sec": 30}))
-    (world / "inputs.json").write_text(json.dumps({**INPUTS, "repo": str(repo),
-                                                  **dict.fromkeys(("planner", "coder", "reviewer"), "claude-haiku-5-5")}))
+    (world / "inputs.json").write_text(json.dumps(INPUTS))
     proc = orchestrator(world, "run", str(HERE / f"{program}.orc"), "--entry-workflow", f"{program}::run",
                         "--source-root", str(HERE), *FLAGS, "--input-file", str(world / "inputs.json"))
     print(f"\n== {program} / {scenario}: run exit {proc.returncode}")
@@ -177,7 +191,7 @@ def run(base, program, scenario):
         print("\n".join(line for line in proc.stderr.splitlines() if line.startswith(("start ", "commit "))))
         restarted = sorted(set(committed) & set(events(proc, "start")))
         committed += events(proc, "commit")
-    requests = [json.loads(line) for line in (repo / "requests.jsonl").read_text().splitlines()]
+    requests = shim_requests(repo)
     settings = {(r["argv"][r["argv"].index("--model") + 1], r["argv"][r["argv"].index("--effort") + 1]) for r in requests}
     result = json.loads(proc.stdout.splitlines()[-1]) if proc.returncode == 0 else failure(proc)
     print(f"-- result {json.dumps(result)}; {len(committed)} steps committed, {len(requests)} provider calls "
