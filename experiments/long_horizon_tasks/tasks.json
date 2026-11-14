@@ -10,8 +10,12 @@
    "environment_image": "harborframework/terminal-bench:vba-userform-port-environment-bf930c7a5b5b812c@sha256:104fb670ee582f21fb4bb56814e25c4e846d099c3af765aeed7a04a038a5ed28",
    "verifier_image": "harborframework/terminal-bench:vba-userform-port-verifier-2561c54d4ae37e58@sha256:ce013facbe7cdaf21cd60b1930282bcfc3cdb6b0543682bed253453952e82a28",
    "checked_copy_vs_4_1_0": [
-    "Files src/tb/tasks:vba-userform-port/task.toml and tasks41:vba-userform-port/x/task.toml differ"
-   ]
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/vf2-speedup-networkx",
@@ -21,8 +25,12 @@
    "environment_image": "harborframework/terminal-bench:vf2-speedup-networkx-environment-59eb15e45ae0d4f9@sha256:b90a9278109552c04b9d3535690ecd3dda8f3372992df445f9d47412e85cc608",
    "verifier_image": "harborframework/terminal-bench:vf2-speedup-networkx-verifier-9ea5a1b9e0a033fa@sha256:a84e6fc87075ee3f62ff8479a1566731cc52b3231decca45b3c235c455b00ed4",
    "checked_copy_vs_4_1_0": [
-    "Files src/tb/tasks:vf2-speedup-networkx/task.toml and tasks41:vf2-speedup-networkx/x/task.toml differ"
-   ]
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/wal-recovery-ordering",
@@ -32,8 +40,12 @@
    "environment_image": "harborframework/terminal-bench:wal-recovery-ordering-environment-4b8e041ddc112263@sha256:71d215eab08bf95f60d828a5328d7bc1424b4a048ebf6551027267a651396657",
    "verifier_image": "harborframework/terminal-bench:wal-recovery-ordering-verifier-19979e3c03f0c8db@sha256:627bc7812cd00b6e6ff30fec94e1adb413f0eb211adbb1bb11f7e288d75046ef",
    "checked_copy_vs_4_1_0": [
-    "Files src/tb/tasks:wal-recovery-ordering/task.toml and tasks41:wal-recovery-ordering/x/task.toml differ"
-   ]
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/session-window-debug",
@@ -43,8 +55,12 @@
    "environment_image": "harborframework/terminal-bench:session-window-debug-environment-1979e39a2d0785d9@sha256:62d159cb3a81205766c5560037802d4b951c15626d86e7a8aaf0e9912cc78b2a",
    "verifier_image": "harborframework/terminal-bench:session-window-debug-verifier-b15c5820597dd33d@sha256:ae6248a5d486bbdf600f0133c8440910b437f1dc9b734e7b8240fe26e3f603d1",
    "checked_copy_vs_4_1_0": [
-    "Files src/tb/tasks:session-window-debug/task.toml and tasks41:session-window-debug/x/task.toml differ"
-   ]
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/production-planning",
@@ -54,8 +70,12 @@
    "environment_image": "harborframework/terminal-bench:production-planning-environment-c5889431f3076fed@sha256:51110ff01e23ca0a0c96394f0d56dbc2e32c86569b6475f3c7a0a7641cedf828",
    "verifier_image": "harborframework/terminal-bench:production-planning-verifier-5a4b6b63e4f179a7@sha256:0f3eb5e7365486466759aa62585f87fb1b07ef59acede90cfafc572b9adc11a3",
    "checked_copy_vs_4_1_0": [
-    "Files src/tb/tasks:production-planning/task.toml and tasks41:production-planning/x/task.toml differ"
-   ]
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/vpp-loss-divergence",
@@ -65,8 +85,12 @@
    "environment_image": "harborframework/terminal-bench:vpp-loss-divergence-environment-02f6e588846fd410@sha256:81611f7fdd8d76366cd1f23145306b4fda4661d328d9eaeef81b8663c7b8dd7f",
    "verifier_image": "harborframework/terminal-bench:vpp-loss-divergence-verifier-a08fd62ced625f45@sha256:460f7e2596897c3303791a72ae171841ca55231077f866180c771401a480fe99",
    "checked_copy_vs_4_1_0": [
-    "Files src/tb/tasks:vpp-loss-divergence/task.toml and tasks41:vpp-loss-divergence/x/task.toml differ"
-   ]
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/batched-eval-parity",
@@ -76,8 +100,12 @@
    "environment_image": "harborframework/terminal-bench:batched-eval-parity-environment-6bc3dbb355c127cd@sha256:f00c28880710dbdac7aad68507784627015429a5dcc68ff7c3ba991affad9e98",
    "verifier_image": "harborframework/terminal-bench:batched-eval-parity-verifier-7edd2e50cb11f316@sha256:6b04e77601123a97056a3163716fa768811364ed70a1b18877eb30b8c6ec8bd4",
    "checked_copy_vs_4_1_0": [
-    "Files src/tb/tasks:batched-eval-parity/task.toml and tasks41:batched-eval-parity/x/task.toml differ"
-   ]
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/pretrain-shard-corruption",
@@ -87,8 +115,12 @@
    "environment_image": "harborframework/terminal-bench:pretrain-shard-corruption-environment-754d6171fa653e79@sha256:ff18338c6eeb85fc2dcc4b4d1f36d1946d8b328953318de7671943319fed8be7",
    "verifier_image": "harborframework/terminal-bench:pretrain-shard-corruption-verifier-63039e393d0ade2c@sha256:336d1e81ebfa73fc34df74663de0647530018f0514de573b5ef344cccf1ec456",
    "checked_copy_vs_4_1_0": [
-    "Files src/tb/tasks:pretrain-shard-corruption/task.toml and tasks41:pretrain-shard-corruption/x/task.toml differ"
-   ]
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/gsea-proteomics",
@@ -98,9 +130,13 @@
    "environment_image": "harborframework/terminal-bench:gsea-proteomics-environment-7a4fe4d83a65de6a@sha256:e400f648619756dc7a25d7e47027e191ac5e3c83d46b0329cd3e4fb0f892e4da",
    "verifier_image": "harborframework/terminal-bench:gsea-proteomics-verifier-6456628be60114b7@sha256:43e108555adb2bc0a74a2a8c02b069829d5b06bf4149ea652dd967939709259a",
    "checked_copy_vs_4_1_0": [
-    "Only in src/tb/tasks:gsea-proteomics: LICENSE.md",
-    "Files src/tb/tasks:gsea-proteomics/task.toml and tasks41:gsea-proteomics/x/task.toml differ"
-   ]
+    "only in the checked copy: LICENSE.md",
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/lake-temp-glm",
@@ -110,8 +146,12 @@
    "environment_image": "harborframework/terminal-bench:lake-temp-glm-environment-436200176fce4cae@sha256:8f1f182ad639a1d3a4dd445f3a0b254f2b242c4f81b32d7d24cf46f4e1b7d79b",
    "verifier_image": "harborframework/terminal-bench:lake-temp-glm-verifier-c6d51e4e676e0651@sha256:496fb5526ea1e26019b9d92d0a7d06427a5067216e4431619005d24f42a1353f",
    "checked_copy_vs_4_1_0": [
-    "Files src/tb/tasks:lake-temp-glm/task.toml and tasks41:lake-temp-glm/x/task.toml differ"
-   ]
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/sound-change-cascade",
@@ -121,8 +161,12 @@
    "environment_image": "harborframework/terminal-bench:sound-change-cascade-environment-a15c89a3496c7168@sha256:95bd365954dfecf3cc661853b0576473a85cf8bdf44eb01af64995e7de6cecc0",
    "verifier_image": "harborframework/terminal-bench:sound-change-cascade-verifier-198013e541645bef@sha256:8980723c9498d52e56a1f6d934924bb9e294f657961f4b5e5c81ddb6921aacf0",
    "checked_copy_vs_4_1_0": [
-    "Files src/tb/tasks:sound-change-cascade/task.toml and tasks41:sound-change-cascade/x/task.toml differ"
-   ]
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/hof-topology-interpenetration",
@@ -132,9 +176,13 @@
    "environment_image": "harborframework/terminal-bench:hof-topology-interpenetration-environment-7f2225f69353e548@sha256:a758f32e5d39c06c65819d54622e0212c65f7a00191e32176612377cc3b97c1d",
    "verifier_image": "harborframework/terminal-bench:hof-topology-interpenetration-verifier-19ef14306303fb31@sha256:cc54700dda4c50c330cc714b49143a8ee0e2f58999e5c24348f74f6582bf1b65",
    "checked_copy_vs_4_1_0": [
-    "Only in src/tb/tasks:hof-topology-interpenetration: LICENSE.md",
-    "Files src/tb/tasks:hof-topology-interpenetration/task.toml and tasks41:hof-topology-interpenetration/x/task.toml differ"
-   ]
+    "only in the checked copy: LICENSE.md",
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/shadow-relay",
@@ -144,9 +192,13 @@
    "environment_image": "harborframework/terminal-bench:shadow-relay-environment-0d9ab3daf6e5bf73@sha256:584cd120342b153054ca2d87a420fe4ba987f46ed02f8f444354e75119cdb928",
    "verifier_image": "harborframework/terminal-bench:shadow-relay-verifier-fd968360a09d7e0b@sha256:864d9d5dc76698a788ed746d370a4242709325573d7b185d519d3f093a2e8add",
    "checked_copy_vs_4_1_0": [
-    "Only in src/tb/tasks:shadow-relay/environment: .dockerignore",
-    "Files src/tb/tasks:shadow-relay/task.toml and tasks41:shadow-relay/x/task.toml differ"
-   ]
+    "only in the checked copy: environment/.dockerignore",
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/rs-archive-clone",
@@ -156,9 +208,13 @@
    "environment_image": "harborframework/terminal-bench:rs-archive-clone-environment-98d75e09a2f0b502@sha256:396a2f9f0af2079eac7a61f38cec875b2002663e04c77bfee5b2252d0b8b5c1c",
    "verifier_image": "harborframework/terminal-bench:rs-archive-clone-verifier-f7356117c1694f91@sha256:a890aca2de72a12ba5ed879fb79a72c27204c00513edcf9128f28e8679088190",
    "checked_copy_vs_4_1_0": [
-    "Only in src/tb/tasks:rs-archive-clone: .gitignore",
-    "Files src/tb/tasks:rs-archive-clone/task.toml and tasks41:rs-archive-clone/x/task.toml differ"
-   ]
+    "only in the checked copy: .gitignore",
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/retro-console-soc",
@@ -168,9 +224,13 @@
    "environment_image": "harborframework/terminal-bench:retro-console-soc-environment-6ab33aade245cc0c@sha256:11b017483cf6fa17cc217940e75e121a63f17a5623fc963dc114b89c4a427ad0",
    "verifier_image": "harborframework/terminal-bench:retro-console-soc-verifier-0d742888c434aa43@sha256:359a891415a23f45a852e36096fb2aa8f8dccb399cef27ff440ae73b6b70e81a",
    "checked_copy_vs_4_1_0": [
-    "Files src/tb/tasks:retro-console-soc/task.toml and tasks41:retro-console-soc/x/task.toml differ",
-    "Only in src/tb/tasks:retro-console-soc: THIRD_PARTY_NOTICES"
-   ]
+    "task.toml differs",
+    "only in the checked copy: THIRD_PARTY_NOTICES"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   },
   {
    "name": "terminal-bench/roy-polymorph-cn",
@@ -180,9 +240,15 @@
    "environment_image": "harborframework/terminal-bench:roy-polymorph-cn-environment-7505caee8b2d7b43@sha256:ec42a0858ef13b6da622e83e8e8c39610acd28d0045a3e462406a9a65fb93d0e",
    "verifier_image": "harborframework/terminal-bench:roy-polymorph-cn-verifier-b68c10c0bc6f102f@sha256:4606480cae2b2681421d1787c3b877f01a3328db44a4ab6488e2065244bbb052",
    "checked_copy_vs_4_1_0": [
-    "Only in src/tb/tasks:roy-polymorph-cn: LICENSE.md",
-    "Files src/tb/tasks:roy-polymorph-cn/task.toml and tasks41:roy-polymorph-cn/x/task.toml differ"
-   ]
+    "only in the checked copy: LICENSE.md",
+    "task.toml differs"
+   ],
+   "overlay_digest": null,
+   "cap": null,
+   "extra_hosts": null,
+   "oracle_evidence": null
   }
- ]
+ ],
+ "recompute": "digests: $LH/hvenv/bin/python -I -c 'import sys; from pathlib import Path; from harbor.publisher.packager import Packager; [print(p, \"sha256:\" + Packager.compute_content_hash(Path(p))[0]) for p in sys.argv[1:]]' <task dir>... (each a 4.1.0 or 4.0.0 package unpacked, or a checked copy under harbor-framework/terminal-bench/tasks); packages: the hub's public storage, path packages/terminal-bench/<task>/<hex digest>/dist.tar.gz, read with the publishable key that ships in the harbor package (not copied here)",
+ "pending": "overlay_digest, cap, extra_hosts and oracle_evidence are filled by the plan's Task 2 oracle runs (five oracle and five do-nothing runs per task under the final policy), which were not run in the recording rounds; null means not yet measured"
 }
