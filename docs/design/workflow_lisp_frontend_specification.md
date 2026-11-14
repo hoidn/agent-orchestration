@@ -18,9 +18,8 @@ retired under the [source-floor contract](workflow_lisp_executor_retirement.md#s
 not selected by an old imported header.
 
 Lifecycle note: this document is the parent language contract for Workflow
-Lisp. Focused companion contracts refine current ProcRef, compiler
+Lisp. Focused companion contracts refine current compiler
 middle-end, runtime migration, and composition/stdlib behavior:
-[Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md) (historical record; §7.8 states its rules),
 [Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md),
 [Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md),
 [Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md),
@@ -1281,16 +1280,21 @@ several and `ProcRef[() -> R]` none. It gives the parameter types and the
 return type; parameter names are not part of it. Diagnostics:
 `type_expression_invalid`, `type_unknown`.
 
-**Where the type is written.** As the type of a `defproc` parameter. It is
-refused as a record field, a union field, a `List` or `Optional` element, a
-workflow parameter and a loop state (`proc_ref_runtime_transport_forbidden`;
-`loop_state_runtime_transport_forbidden` in a `loop-state` field), as a
-workflow's return type (`workflow_return_type_invalid`) and as a command's
-result type (`command_result_return_type_invalid`). A `defproc` return type
-and a `defun` parameter of this type compile where they are declared, with
-two limits: the returned reference is refused where it is bound or passed
-(`proc_ref_literal_required`), and a `defun` that calls its parameter is
-refused where the `defun` is called (`procedure_call_unknown`).
+**Where the type is written.**
+
+- As the type of a `defproc` parameter.
+- Not in a record field, a union field, a collection element (`List`,
+  `Optional`, `Map`), a workflow parameter or a loop state:
+  `proc_ref_runtime_transport_forbidden`, and in a `loop-state` field
+  `loop_state_runtime_transport_forbidden`.
+- Not as a workflow's return type (`workflow_return_type_invalid`) or a
+  command's result type (`command_result_return_type_invalid`).
+- A `defproc` return type of this type compiles where it is declared. The
+  returned reference is refused where it is bound or passed
+  (`proc_ref_literal_required`).
+- A `defun` parameter of this type compiles where it is declared. A `defun`
+  that calls the parameter is refused where the `defun` is called
+  (`procedure_call_unknown`).
 
 **`(proc-ref name)`** takes one symbol. It names a `defproc` of the module, an
 exported `defproc` of an imported module (by its `:only` name, as `alias.name`
@@ -1300,10 +1304,14 @@ written without `proc-ref` is not a reference. Diagnostics: `proc_ref_unknown`
 `proc_ref_private_import_invalid` (a qualified name the other module does not
 export; an `:only` import of it is `module_export_missing`),
 `frontend_parse_error` (not one symbol), `proc_ref_literal_required` (a bare
-procedure name where a reference is expected). A module does not define two
-procedures of one name (`procedure_definition_duplicate`) or a procedure and a
-function of one name (`callable_name_collision`); a workflow, a record or a
-macro that has a procedure's name is not refused.
+procedure name where a reference is expected).
+
+A module does not define two procedures of one name
+(`procedure_definition_duplicate`) or a procedure and a function of one name
+(`callable_name_collision`). A workflow or a type (a record, a union, an enum)
+may have a procedure's name: a workflow is named by `call`, a type in a type
+position. A procedure and a macro of one name are an open defect (`T9.13`
+below).
 
 **What is done with a reference.** A reference is
 
@@ -1316,42 +1324,54 @@ macro that has a procedure's name is not refused.
 - called with positional arguments, `(g a …)` (§14).
 
 In the body of a `defproc`, a `ProcRef` parameter is called and is passed on as
-an argument. A reference has no run-time value. One chosen by `if`, `cond` or
-`match`, or returned by a procedure, is refused where it is bound or passed
-(`proc_ref_literal_required`); a reference is refused as an operand of `=`
-(`pure_expr_operand_type_mismatch`), as a list element
-(`list_collection_contract_unsupported`) and as a field value
-(`type_mismatch`). `proc-ref` and `bind-proc` run nothing: a reference that is
-bound and not called runs no effect.
+an argument. A reference has no run-time value:
+
+- one chosen by `if`, `cond` or `match`, or returned by a procedure, is
+  refused where it is bound or passed (`proc_ref_literal_required`);
+- a reference is refused as an operand of `=`
+  (`pure_expr_operand_type_mismatch`), as a list element
+  (`list_collection_contract_unsupported`) and as a field value
+  (`type_mismatch`).
+
+`proc-ref` and `bind-proc` run none of the procedure's effects: a reference
+that is bound and not called does not run the procedure.
 
 **`(bind-proc base :param value …)`** fixes some parameters of a procedure and
-gives a reference to the rest. `base` is `(proc-ref …)`, another `bind-proc`,
-or a `let*` name bound to one of these; one or more keyword and value pairs
-follow. A `ProcRef` parameter of the enclosing procedure is not accepted as
-`base`. Each keyword names a parameter of the procedure that is not bound yet,
-in this form or in `base`, and its value has that parameter's type; a `ProcRef`
-parameter takes a reference and a `WorkflowRef` parameter takes
-`(workflow-ref w)`. The result takes the parameters left unbound, in the order
-the procedure declares them, whatever the order of the keywords; when none is
-left it is a `ProcRef[() -> R]`. A bound value keeps the bindings of the place
-where `bind-proc` is written: a later binding of a name it reads does not
-change it, and a bound name that holds an effect's result is read, not run
-again, by each call. Diagnostics: `frontend_parse_error` (no pair, or a value
-without a keyword), `proc_ref_literal_required` (`base`),
-`proc_ref_binding_unknown`, `proc_ref_binding_duplicate`,
-`proc_ref_binding_type_invalid`, `proc_ref_signature_invalid` (the result does
-not match the parameter it is passed to), `let_proc_capture_agent_forbidden`
-(an `Agent` value).
+gives a reference to the rest.
+
+- `base` is a reference: `(proc-ref …)`, another `bind-proc`, or a name of
+  `ProcRef` type. One or more keyword and value pairs follow. Diagnostics:
+  `frontend_parse_error` (no pair, or a value without a keyword),
+  `proc_ref_literal_required` (`base` is not a reference).
+- Each keyword names a parameter of the procedure that is not bound yet, in
+  this form or in `base` (`proc_ref_binding_unknown`,
+  `proc_ref_binding_duplicate`).
+- Each value has the type of its parameter (`proc_ref_binding_type_invalid`).
+  A `ProcRef` parameter takes a reference of that type
+  (`proc_ref_signature_invalid`), and a `WorkflowRef` parameter takes
+  `(workflow-ref w)`. An `Agent` value is not bound
+  (`let_proc_capture_agent_forbidden`).
+- The result takes the parameters left unbound, in the order the procedure
+  declares them, whatever the order of the keywords. When none is left it is
+  a `ProcRef[() -> R]`. Passed to a parameter of another type it is refused
+  (`proc_ref_signature_invalid`).
+- A bound value is evaluated once, where the `bind-proc` is evaluated: before
+  a call of the result, and also when the result is not called. An effect
+  written as a bound value (a command, a call of a procedure that has
+  effects, a workflow call) runs there, and not again at a call of the
+  result. It is an effect of the procedure or workflow that holds the
+  `bind-proc`. A later binding of a name that a bound value reads does not
+  change the value.
 
 Two `bind-proc` forms over one procedure are two specializations when they
-bind different literals, names or field reads; with literals and names also in
-two expansions of one macro. A bound value of another kind, such as
-`(workflow-ref w)` or the computed `(+ k 1)`, is identified by its source
-position, so two such forms written at two places are two specializations.
-Open defect (rows `B7-chain`, `B7-ref`, `B7-deep`, `B7-let` and `B7-int` of the
-defect record, `tests/test_workflow_lisp_defect_backlog.py`): two expansions of
-one macro template have one source position, share one specialization, and
-both use the value of the first expansion.
+bind different literals, names or field reads, also in two expansions of one
+macro. A bound value of another kind, such as `(workflow-ref w)` or the
+computed `(+ k 1)`, is identified by its source position, so two such forms
+written at two places are two specializations. Open defect (rows `B7-chain`,
+`B7-ref`, `B7-deep`, `B7-let` and `B7-int` of the defect record,
+`tests/test_workflow_lisp_defect_backlog.py`): two expansions of one macro
+template have one source position, share one specialization, and both use the
+value of the first expansion.
 
 **`let-proc`** defines procedures that are local to one expression.
 
@@ -1374,11 +1394,11 @@ both use the value of the first expansion.
 - *Names.* A local's name differs from the names bound where the `let-proc`
   stands (a `let*` binding, a procedure parameter, a workflow input), from
   the name of a `defproc` of the module or imported with `:only`, and from
-  the declared externs (`let_proc_syntax_invalid`). The name is used in `body`: called, or
-  passed as `(proc-ref name)`; the bare name is not a reference
-  (`proc_ref_literal_required`). It is unknown after the `let-proc`
-  (`procedure_call_unknown`, `proc_ref_unknown`), in its own `local-body`
-  (`let_proc_recursive_unsupported`) and in a sibling's
+  the declared externs (`let_proc_syntax_invalid`). The name is used in
+  `body`: called, or passed as `(proc-ref name)`. The bare name is not a
+  reference (`proc_ref_literal_required`). The name is unknown after the
+  `let-proc` (`procedure_call_unknown`, `proc_ref_unknown`), in its own
+  `local-body` (`let_proc_recursive_unsupported`) and in a sibling's
   (`let_proc_sibling_call_unsupported`; a sibling's `proc-ref` is
   `proc_ref_unknown`). The procedure generated for a local has no name that
   source can write (`module_reference_invalid`, `proc_ref_unknown`).
@@ -1395,43 +1415,48 @@ both use the value of the first expansion.
   (`let_proc_return_type_invalid`).
 - *A signature taken from the consumer.* A local that leaves out a parameter
   type or `-> Type` takes the missing types from the `ProcRef` parameter it
-  is passed to. `(proc-ref f)` is then written as an argument of one procedure
-  call in `body`. Several arguments of that call may pass it, and a call
-  inside a loop is one call. No such call, or two (also one in each branch of
-  an `if`), is refused with `let_proc_consumer_site_invalid`; `(proc-ref f)`
-  anywhere else (a `let*` binding, the base of `bind-proc`) with
-  `let_proc_indirect_reference_unsupported`; a call by name with
-  `let_proc_signature_required`. The parameter is a `ProcRef`
-  (`let_proc_expected_signature_missing`) of the local's arity
-  (`proc_ref_signature_invalid`). When the called procedure is generic, its
-  type parameters are bound from its other arguments and from the types of
-  the locals' bodies, in whatever order the locals and the arguments are
-  written; a type that neither an annotation nor the call fixes is refused
-  (`let_proc_expected_signature_missing`). A `local-body` that does not fit
-  is refused with `type_mismatch`, or with `let_proc_return_type_invalid`
-  when it contradicts a written `-> Type`.
+  is passed to.
+  - `(proc-ref f)` is written as an argument of one call in `body`, of a
+    `defproc` or of a name bound to a reference. Several arguments of that
+    call may pass it, and a call inside a loop is one call. No such call, or
+    two (also one in each branch of an `if`):
+    `let_proc_consumer_site_invalid`.
+  - `(proc-ref f)` anywhere else (a `let*` binding, the base of `bind-proc`):
+    `let_proc_indirect_reference_unsupported`. A call by name:
+    `let_proc_signature_required`.
+  - The parameter is a `ProcRef` (`let_proc_expected_signature_missing`) of
+    the local's arity (`proc_ref_signature_invalid`).
+  - When the called procedure is generic, its type parameters are bound from
+    its other arguments and from the types of the locals' bodies, in whatever
+    order the locals and the arguments are written. A type that neither an
+    annotation nor the call fixes: `let_proc_expected_signature_missing`.
+  - A `local-body` that does not fit: `type_mismatch`, or
+    `let_proc_return_type_invalid` when it contradicts a written `-> Type`.
 - *Captures.* A `local-body` reads the names in scope where the `let-proc`
   stands; those it reads are its captures. A parameter, and a binding inside
-  `local-body`, hide an outer name. `:captures (a b)` is optional and is
-  checked: its entries are plain names (`let_proc_capture_not_identifier`),
-  in scope (`let_proc_capture_unknown`), without a repeat
-  (`let_proc_capture_duplicate`), and they include each outer name that
-  `local-body` reads (`let_proc_capture_missing`). An entry that is not read
-  is dropped, and the program is the one built without the clause. A capture
-  keeps the value it has where the `let-proc` stands: a later binding of the
-  same name, in `body` or in the procedure that calls the local, does not
-  change it, and a captured name that holds an effect's result is read, not
-  run again, by each call. A declared provider extern is used in a
-  `local-body` without being a capture and is not listed in `:captures`. An
-  `Agent` value is not captured (`let_proc_capture_agent_forbidden`).
+  `local-body`, hide an outer name.
+  - `:captures (a b)` is optional and is checked: its entries are plain names
+    (`let_proc_capture_not_identifier`), in scope
+    (`let_proc_capture_unknown`), without a repeat
+    (`let_proc_capture_duplicate`), and they include each outer name that
+    `local-body` reads (`let_proc_capture_missing`). An entry that is not
+    read is dropped, and the program is the one built without the clause.
+  - A capture keeps the value it has where the `let-proc` stands. A later
+    binding of the same name, in `body` or in the procedure that calls the
+    local, does not change it. A captured name that holds an effect's result
+    is read, not run again, by each call.
+  - A declared provider extern is used in a `local-body` without being a
+    capture and is not listed in `:captures`. An `Agent` value is not
+    captured (`let_proc_capture_agent_forbidden`).
 - *Body and effects.* A `local-body` may run effects, and it may be a
-  `loop/recur` with a `loop-state`, in either loop form. The
-  effects of a local, and of a procedure passed by reference, count for the
-  procedure that calls them: under `:effects ()` they are refused
-  (`procedure_effect_ceiling_exceeded`, §8.8). A place in a `local-body` that
-  holds an effect follows §16.3 (`effect_not_permitted`). A local is called in
-  the body of a `list/map-effect` and refused in the body of a pure
-  `list/map` (`list_map_body_effect_forbidden`).
+  `loop/recur` with a `loop-state`, in either loop form. A local that is not
+  called runs nothing. The effects of a local, and of a procedure passed by
+  reference, count for the procedure that calls them: under `:effects ()`
+  they are refused (`procedure_effect_ceiling_exceeded`, §8.8). A place in a
+  `local-body` that holds an effect follows §16.3 (`effect_not_permitted`). A
+  local is called in the body of a `list/map-effect`. In the body of a pure
+  `list/map` a call of a local is refused (`list_map_body_effect_forbidden`);
+  that a local whose body is pure is refused too is open defect `T9.15`.
 - *Scope and cycles.* A local's reference does not leave its `let-proc`:
   bound outside or returned by the enclosing procedure it is
   `let_proc_scope_escape`, and passed as the value of the whole `let-proc` it
@@ -1445,46 +1470,56 @@ both use the value of the first expansion.
   Diagnostics: `let_proc_multiple_bindings_unsupported`,
   `let_proc_name_collision`, `let_proc_syntax_invalid`.
 
-**A `let-proc` local does not shadow a function or a form.** A local named
-like a `defun` or a built-in form compiles, and `(f …)` then calls the function
-or the form, not the local: give locals distinct names. The defect record keeps
-this as open rows `B3` and `B3-print`, and the release that removes the older
-targets decides whether such a local is refused. What `(f …)` reaches in `body`:
+**Open defect (rows `B3`, `B3-print`): a local named like a function or a
+form.** A local named like a `defun` or a built-in form compiles, and `(f …)`
+calls the function or the form, not the local; the one-target cut decides
+whether such a local is refused. Give locals distinct names. What `(f …)`
+reaches in `body`:
 
 | The local's name is also | `(f …)` |
 | --- | --- |
 | a `defproc` (same module or imported), a declared extern, a workflow parameter or an outer `let*` binding | refused at the local's definition (`let_proc_syntax_invalid`) |
 | an import alias (`(import lib/hl :as f)`) | the local; `(f.helper …)` still names the import |
 | a macro | the local's definition is expanded as a use of the macro, and refused |
-| a `defun`, same module or imported | the function |
-| a built-in form or operator (`print`, `list`, `+`, `not`, `if`, `record`, `call`, `done`, …) | the form, which gives its own value or refusal |
+| a `defun`, same module or imported | the function (open defect `B3`) |
+| a built-in form or operator (`print`, `list`, `+`, `not`, `if`, `record`, `call`, `done`, …) | the form, which gives its own value or refusal (open defect `B3-print`) |
 | a workflow | the local |
 | an inner binding: a `let*` binding, a `match` arm, the loop state, a `list/map-effect` item, or a parameter of a local | the inner binding: called when it is a procedure reference, otherwise refused (`procedure_call_unknown`) |
 | a `list/map` item | refused: the pure-body check speaks first (`list_map_body_effect_forbidden`) |
 
-**Open defects.** Each row is source these rules admit that the compiler
-refuses, stops on with `compiler_defect`, or builds wrongly. The ids are rows
-of the defect record; "none" is a shape that has no row yet.
+**Open defects of callables.** Each row is source that the rules of this
+section and of §14 admit, and that the compiler refuses, stops on with
+`compiler_defect`, or builds wrongly. An id is a row of the defect record
+(`tests/test_workflow_lisp_defect_backlog.py`), or `T9.n`, a finding of the
+[rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#t9-callables)
+that has no row yet; the ledger gives the smallest program of each finding.
 
-| Row | Shape | Today | What builds |
+| Id | Shape | Outcome | What builds |
 | --- | --- | --- | --- |
-| `B2-let`, `B2-arm` | Under a `let*` name bound to a reference, an inner `let*` or `match` arm binds the same name to a value that is not a reference, and the name is called | the outer reference is called | - |
+| `B2-let`, `B2-arm` | Under a `let*` name bound to a reference, an inner `let*` or `match` arm binds the same name to a value that is not a reference, and the name is called | the outer reference is called. The wanted outcome is the one-target cut's to decide; with no outer reference the call is `procedure_call_unknown` | - |
 | `B4`, `B5` | A macro template calls a `let*`-bound reference by name, or defines a local (§34) | the caller's binding of that name is called; code passed to the macro sees the template's local | - |
+| `T9.13` | A module defines a procedure and a macro of one name | builds; `(f …)` expands the macro | - |
 | `E6` | A `ProcRef` parameter bound to another name with `let*` | `name_unknown` where the procedure is called | call or pass the parameter itself |
-| none | A `ProcRef` parameter read in a `local-body` of its procedure | `procedure_call_unknown` | - |
+| `T9.7` | A `ProcRef` parameter as the `base` of `bind-proc` | `proc_ref_literal_required` at the definition | - |
+| `T9.8` | A `ProcRef` parameter read in a `local-body` of its procedure | `procedure_call_unknown` at the definition | - |
 | `D10`, `D10-R1`, `D11`, `D11-R1`, `D11-R2`, `D11-R5` | A `local-body` calls or passes an outer `let*` name bound to a reference or to a `bind-proc` | `compiler_defect` | write `(proc-ref …)` in the `local-body`; call the bound name in `body` |
-| `E8` | `bind-proc` binds a parameter of the enclosing procedure | `procedure_lowering_unresolved` | - |
-| `E23-local`, `E23-input` | `bind-proc` written as an argument binds a name | `name_unknown` | bind the `bind-proc` with `let*`, then pass the name |
-| `E26` | `bind-proc` written as an argument binds a value that holds an effect | `procedure_call_unknown` | bind the effect's result with `let*` first |
-| none | `bind-proc` written as an argument binds a value of the wrong type | `pure_expr_operand_type_mismatch` or `compiler_defect`, not `proc_ref_binding_type_invalid` | bound with `let*`, the form gives `proc_ref_binding_type_invalid` |
+| `E8`, `D25`, `T9.5` | In a `defproc`, a `bind-proc` or a local whose bound or captured value is not a literal or a name bound to a literal: a parameter of the procedure, a computed value, a field of a record | called by name: `compiler_defect`; passed: `procedure_lowering_unresolved`; with an effect in the procedure or in the local: `compiler_defect` | the same form in a workflow body; a literal, or a name bound to a literal |
+| `D24` | In a workflow, a local whose body is a loop that reads a field of a captured `let*` record | `compiler_defect` | - |
+| `E23-local`, `E23-input` | `bind-proc` written as an argument binds a value that reads a name: a name, a field read, a computed value | `name_unknown` | bind the `bind-proc` with `let*`, then pass the name |
+| `E26`, `T9.17` | A `bind-proc` whose bound value holds an effect, passed to a procedure that has no effect: written as the argument (`E26`) or through a `let*` name (`T9.17`) | `procedure_call_unknown` | bind the effect's result with `let*` first; call the result by name |
+| `T9.10` | In a `defproc` with an `:effects` restriction, a `bind-proc` whose bound value is a command or a call of a procedure that has effects | builds and runs the effect: it is not counted against the restriction | with the effect's result bound by `let*` first, the effect is counted (`procedure_effect_ceiling_exceeded`) |
+| `T9.2` | `bind-proc` written as an argument binds a value of the wrong type | `pure_expr_operand_type_mismatch` or `compiler_defect`, not `proc_ref_binding_type_invalid` | bound with `let*`, the form gives `proc_ref_binding_type_invalid` |
+| `T9.14` | `bind-proc` binds a `let*` name that holds a reference to a `ProcRef` parameter, and the result is passed | `procedure_call_unknown` | write `(proc-ref …)` as the value; call the result by name |
 | `B7-same-written` | Two equal `bind-proc` forms over a `(workflow-ref w)`, written at two places and passed to one procedure | `procedure_lowering_unresolved` | - |
 | `E9`, `E9-local` | A pure procedure or local whose body is a loop, passed to a pure procedure that calls it | `procedure_call_unknown` | call it by name |
-| `D24`, `D25` | A local whose body is a loop that reads a field of a captured record, or a capture bound to a computed value inside a pure procedure | `compiler_defect` | - |
-| none | In a `defproc`, a local that captures a parameter of that procedure and computes with it | `compiler_defect`; `procedure_lowering_unresolved` when the local is passed | - |
-| none | A local that captures an effect's result, called by name as an operand of an operator or in an `if` condition | `compiler_defect`; `proc_ref_literal_required` in the condition | bind the call with `let*` first |
-| none | A local that reads a captured effect's result and binds an effect in its own body (§16.3) | `compiler_defect` | - |
-| none | In one `let-proc`, a local with a declared signature and a capture, used in the arguments of the call that gives a sibling its signature | `proc_ref_binding_duplicate` | declare both signatures, or bind the first local's result with `let*` |
-| none | A `let-proc` written in the body of a `list/map-effect` without `:parallel` | `proc_ref_unknown` | write the `let-proc` around the map |
+| `T9.1` | A local that captures an effect's result, or a `let*`-bound `bind-proc` whose bound value holds an effect, used inside an operand of an operator; such a local called in an `if` condition | `compiler_defect` in the operand; `proc_ref_literal_required` in the condition | bind the call with `let*` first |
+| `T9.6` | A local that reads a captured effect's result and binds an effect in its own body (§16.3) | `compiler_defect` | - |
+| `T9.4` | In one `let-proc`, a local with a declared signature and a capture, used in the arguments of the call that gives a sibling its signature | `proc_ref_binding_duplicate` | declare both signatures, or bind the first local's result with `let*` |
+| `T9.3` | A `let-proc` written in the body of a `list/map-effect` without `:parallel` | `proc_ref_unknown` | write the `let-proc` around the map |
+| `T9.15` | A local whose body is pure, called in the body of a pure `list/map` | `list_map_body_effect_forbidden` | a `defproc` with the same body |
+| `T9.11` | A `defun` called from a workflow, a procedure or a local with the wrong number of arguments (§14) | `compiler_defect` | - |
+| `T9.12` | A `defun` called from a workflow, a procedure or a local with an argument that has not its parameter's type (§14) | not checked: the program builds and the value passes through | - |
+| `T9.16` | A call through a `WorkflowRef` parameter whose keywords are not the input names of the workflow passed (§14) | `compiler_defect`; the keywords are not checked where the procedure is defined | use the input names of the workflow passed |
 
 ### 7.9 Type Parameters And Structural Constraints
 
@@ -2507,9 +2542,12 @@ runtime boundary, such as `WorkflowRef`. Diagnostics: `loop_state_requires_typed
 
 A workflow, which can also be run from the command line, is called as the
 command line calls it, with named inputs: `(call w :x value)`. A workflow
-reference parameter is called the same way. A function, a procedure, a local
-procedure and a procedure parameter are called by name with positional
-arguments, `(p a …)`. The misuses are refused:
+reference parameter is called the same way. Open defect (`T9.16`, §7.8): the
+type of such a parameter carries no input names, the keywords are not checked
+where the procedure is defined, and a call whose keywords are not the input
+names of the workflow passed stops the build with `compiler_defect`. A
+function, a procedure, a local procedure and a procedure parameter are called
+by name with positional arguments, `(p a …)`. The misuses are refused:
 
 - a keyword in a positional call: `keyword_argument_invalid`, naming `(p …)`;
 - `(w n)` on a same-module or `:only`-imported workflow:
@@ -2546,18 +2584,16 @@ Checks on `(call w :x value …)`:
   function cycles are refused wherever they are.
 
 A positional call `(p a …)` takes as many arguments as the callee has
-parameters (`procedure_arity_mismatch`), each of its parameter's type
-(`type_mismatch`); a head that names nothing callable is
-`procedure_call_unknown`.
+parameters, each of the type of its parameter. Diagnostics:
+`procedure_arity_mismatch` and `type_mismatch` for a procedure, a local and
+a procedure reference; `function_arity_mismatch` and `type_mismatch` for a
+function called in a function. A function called from a workflow, a procedure
+or a local is an open defect on both counts (`T9.11`, `T9.12`, §7.8). A head
+that names nothing callable is `procedure_call_unknown`.
 
-**Call sites.** A call of a procedure, a local or a reference is identified
-by its source position, its form path and its macro expansion stack (§33).
-Two expansions of one macro are two call sites, and each calls the target
-resolved for its own expansion. A pure procedure whose body is copied into
-two callers gives each copy its own call sites. During elaboration, a call
-site that records two targets stops the build with `compiler_defect`, which
-names the site. The value bound by a `bind-proc` is identified differently
-(§7.8, rows `B7-*`).
+**Call sites.** Each expansion of a macro calls the target resolved for that
+expansion: a call is identified by its source position, its form path and its
+macro expansion stack (§33).
 
 ## 15. Higher-Order Workflow Parameters
 
