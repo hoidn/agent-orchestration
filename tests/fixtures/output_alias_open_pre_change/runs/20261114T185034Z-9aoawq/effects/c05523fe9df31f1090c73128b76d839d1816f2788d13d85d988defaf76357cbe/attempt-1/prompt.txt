@@ -1,0 +1,21 @@
+A=artifacts/report.txt B=artifacts/report.txt
+
+## Output Contract
+Write the following artifacts exactly as specified.
+Each artifact file must contain only the value for that artifact.
+# Relpath values are workspace-relative. Include the declared `under` prefix in the value: for `under: artifacts/work`, write `artifacts/work/...`; for `under: artifacts/review`, write `artifacts/review/...`.
+- name: a
+  path: artifacts/report.txt
+  type: string
+- name: b
+  path: artifacts/report.txt
+  type: string
+
+
+## Output Contract
+Write the JSON result to the file on the `- path:` line, with a file-writing or shell tool, before you finish. ORCHESTRATOR_OUTPUT_BUNDLE_PATH names the same file. Returning the value in your reply does not deliver it.
+- path: .orchestrate/runs/20261114T185034Z-9aoawq/effects/c05523fe9df31f1090c73128b76d839d1816f2788d13d85d988defaf76357cbe/attempt-1/result.json
+JSON shape, not an example: <...> denotes a type; | chooses one alternative; ... denotes zero or more entries. Comments are contract annotations, not output.
+{
+  "ok": <boolean>
+}

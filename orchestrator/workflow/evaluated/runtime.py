@@ -27,7 +27,7 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
-from .providers import provider_result, provider_transport
+from .providers import ProviderPerformerError, provider_result, provider_transport
 from .spend_cap import check_spend_cap
 from .agent_sessions import allocation_result
 from . import effect_execution
@@ -384,6 +384,7 @@ def prepare_effect(
     if commit is not None:
         return _reuse_reached_commit(authority, node, identity, parts, input_digest,
             dependencies, resolved, workspace, commit, snapshot, site_classes)
+    _check_phased_slots(authority, node, identity, snapshot, resolved, workspace, result_path, site_classes)
     if node['class'] == 'agent_turn':
         return agent_turns.prepare_agent_attempt(authority, node, operands, identity, snapshot, ordinal=ordinal,
             attempt_directory=attempt_directory, result_path=result_path, resolved=resolved, parts=parts,
@@ -563,6 +564,21 @@ def _validate_attempt_outcome(attempt, outcome):
             attempt.workspace_files, outcome.result_path,
             transport=provider_transport(attempt.provider_executor, attempt.node))
     return result, digest, None, None
+
+
+def _check_phased_slots(authority, node, identity, snapshot, resolved, workspace, result_path, site_classes) -> None:
+    """A phased step's output slots, before its new `started` and after `check_phased_retry` cleaned up and
+    abandoned an old attempt. A refusal closes a pending old attempt `failed` with the refusal's code, so the run is
+    left as a failed attempt that a corrected source can move past (`resume --accept-changes=TOKEN`)."""
+    try:
+        effect_inputs.check_phased_output_slots(authority, node, resolved, workspace, result_path)
+    except ProviderPerformerError as exc:
+        pending = snapshot.pending_starts.get(identity)
+        error = None if pending is None else _fail_started_effect(
+            authority, identity, pending.data["attempt"], site_classes, exc)
+        if error is not None:
+            raise error from exc
+        raise
 
 
 def _fail_started_effect(authority, identity, ordinal, site_classes, exc, *, closure=None) -> Exception | None:

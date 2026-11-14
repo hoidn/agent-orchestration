@@ -1373,3 +1373,23 @@ change of the [surface-coherence design](../docs/design/workflow_lisp_surface_co
   below 1 fails the same way over a non-empty list, and an empty list gives the empty list. A
   parallel map may be written directly in a serial map or loop body. Every program that compiled
   before keeps its closed program, digest and identities, and its recorded runs resume.
+
+### Run-time corrections without a new target
+
+- **Output slots checked before a fresh launch.** A provider, phased provider or agent turn about
+  to be started whose output slot is named like an artifact that every result has, whose two
+  slots, or one slot and the result bundle, resolve to one file, or whose slot path leaves the
+  workspace is refused before its `started` ([CLI diagnostics](cli.md)), as [IO](io.md) and
+  [providers](providers.md) already required. No target, compile outcome or digest changes; a step
+  committed before the check replays and its run resumes. A run left open at such a step before
+  the check, by kind:
+  - a plain provider's pending start: `resume` refuses it in preflight (exit 2, the journal
+    unchanged); a failed attempt: `resume` refuses its retry (exit 1). Either run finishes after a
+    source change accepted with `resume RUN_ID --accept-changes=TOKEN`;
+  - a phased step's pending or failed attempt: `resume` first cleans up the old attempt as before
+    (its provider and terminal session stopped, its receipt abandoned), closes a pending one
+    `failed` with the refusal's code, and refuses the new attempt (exit 1); the run then finishes
+    after a source change accepted the same way;
+  - an agent turn whose work already completed in the provider's store: `resume` commits that work
+    with no new call; a pending turn with nothing to recover: refused in preflight (exit 2, the
+    journal unchanged); a first turn that failed: its restart is refused (exit 1, no call).
