@@ -19,7 +19,7 @@ from tests.test_workflow_evaluated_provider_usage import _run as _run_one
 from tests.test_workflow_evaluated_spend_cap import COMMAND, _run, _run_id
 
 FIRST, SECOND, BUILD = "workflow:main::run / first", "workflow:main::run / second", "workflow:main::run / built"
-STEPS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+STEPS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> Result

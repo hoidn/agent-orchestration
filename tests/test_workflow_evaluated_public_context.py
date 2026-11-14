@@ -125,16 +125,16 @@ def test_public_runtime_captures_keep_nested_reference_values(tmp_path, monkeypa
         "(bind-proc (proc-ref helper) :fixed x)) x)"
         if nested else "(invoke (bind-proc (proc-ref helper) :fixed x) x)"
     )
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule cp/captures) (export run)
-      (defproc helper ((fixed Int) (x Int)) -> Int :effects () :lowering inline (+ fixed x))
+      (defproc helper ((fixed Int) (x Int)) -> Int (+ fixed x))
       (defproc apply-one ((callback ProcRef[Int -> Int]) (x Int)) -> Int
-        :effects () :lowering inline (callback x))
+        (callback x))
       (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int
-        :effects () :lowering inline (runner x))
+        (runner x))
       (defproc invoke-three ((a ProcRef[Int -> Int]) (b ProcRef[Int -> Int])
                              (runner ProcRef[Int -> Int]) (x Int)) -> Int
-        :effects () :lowering inline (runner x))
+        (runner x))
       (defworkflow run ((x Int)) -> Int {call}))'''
     files, inputs = pure_files(tmp_path, source, {"x": 4})
     _, result = assert_pure_public(files, inputs, 8, monkeypatch)
@@ -190,7 +190,7 @@ def test_public_run_and_phase_context_match_existing_route(tmp_path, monkeypatch
         if explicit else
         "(defworkflow entry ((payload Int)) -> Observed (call leaf :payload payload))"
     )
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule context_probe)
       (import std/context :only (RunCtx PhaseCtx))
       (import std/phase :only (with-phase)) (export entry)
@@ -262,7 +262,7 @@ def test_public_item_carried_run_and_explicit_phase_keep_all_fields(tmp_path, ex
     override = (''' :phase-ctx (record PhaseCtx :run item-ctx.run :phase-name payload.phase
                   :state-root item-ctx.state-root :artifact-root item-ctx.artifact-root)'''
                 if explicit else "")
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule context_probe) (import std/context :only (RunCtx PhaseCtx ItemCtx))
       (import std/phase :only (with-phase)) (export entry)
       (defrecord Observed (run-id RunId) (run-state Path.state-root)

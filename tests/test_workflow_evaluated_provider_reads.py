@@ -132,7 +132,7 @@ def test_input_and_asset_with_same_path_use_different_roots(tmp_path):
     workflow_root.mkdir()
     (workflow_root / "same.md").write_text("ASSET ROOT\n", encoding="utf-8")
     (tmp_path / "same.md").write_text("WORKSPACE ROOT\n", encoding="utf-8")
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((message String)) -> Bool
         (provider-result provider :prompt prompt :inputs (message) :returns Bool)))'''
@@ -154,7 +154,7 @@ def test_input_and_asset_with_same_path_use_different_roots(tmp_path):
 
 
 def test_input_source_absent_empty_and_raw_bytes_are_distinct(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((message String)) -> Bool
         (provider-result provider :prompt prompt :inputs (message) :returns Bool)))'''
@@ -179,7 +179,7 @@ def test_input_source_absent_empty_and_raw_bytes_are_distinct(tmp_path):
 
 
 def test_duplicate_doc_fills_share_one_raw_snapshot(tmp_path, monkeypatch):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defpath DocPath :kind relpath :under "docs" :must-exist true)
       (defprompt review
@@ -230,7 +230,7 @@ def test_duplicate_doc_fills_share_one_raw_snapshot(tmp_path, monkeypatch):
 def test_required_and_optional_dependency_aliases_share_one_raw_snapshot(
     tmp_path, monkeypatch
 ):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defpath DocPath :kind relpath :under "docs" :must-exist true)
       (defworkflow run
@@ -276,7 +276,7 @@ def test_required_and_optional_dependency_aliases_share_one_raw_snapshot(
 
 
 def test_raw_dependency_tail_changes_hash_but_not_captured_render(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defpath DocPath :kind relpath :under "docs" :must-exist true)
       (defworkflow run ((document DocPath) (message String)) -> Bool
@@ -321,7 +321,7 @@ def test_raw_dependency_tail_changes_hash_but_not_captured_render(tmp_path):
 
 
 def test_unreached_provider_does_not_read_prompt_source(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((should_read Bool) (message String)) -> Bool
         (if should_read
@@ -340,7 +340,7 @@ def test_unreached_provider_does_not_read_prompt_source(tmp_path):
 
 
 def test_asset_file_read_requires_a_checked_reader(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((message String)) -> Bool
         (provider-result provider :prompt prompt :inputs (message) :returns Bool)))'''
@@ -364,7 +364,7 @@ def test_asset_file_read_requires_a_checked_reader(tmp_path):
 
 
 def test_mismatched_provider_io_is_rejected_before_dispatch(tmp_path):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defworkflow run ((message String)) -> Bool
         (provider-result provider :prompt prompt :inputs (message) :returns Bool)))'''

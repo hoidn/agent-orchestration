@@ -19,7 +19,7 @@ from tests.workflow_evaluated_consumer_sources import PROGRAMS, install
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> Result

@@ -232,7 +232,7 @@ def test_evaluated_provider_labels_reserve_authored_suffixes(
 ) -> None:
     source = f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+  (:target-dsl "2.40")
   (defmodule prompt_assembly)
   (export run)
   (defworkflow run ((name String) (name__2 String)) -> Bool

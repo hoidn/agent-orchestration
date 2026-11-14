@@ -234,7 +234,7 @@ def test_accept_changes_after_invalidate_prints_the_unreached_attempts_it_accept
 
 
 MANY = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow run () -> List[Int]
     (list/map-effect ((repo (list {items}))) :max 22 :parallel 4

@@ -25,7 +25,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from tests.agent_session_shims import closed_path
 
 
-SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> Result
