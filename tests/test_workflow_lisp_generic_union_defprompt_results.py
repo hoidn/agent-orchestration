@@ -30,13 +30,9 @@ PROMPT = """  (defprompt review-prompt
 """
 
 SOURCE = PRELUDE + PROMPT + """  (defproc review ((draft String)) -> Decision[Notes Blocker]
-    :effects ((uses-provider providers.review))
-    :lowering inline
     (provider-result providers.review
       :prompt (review-prompt :draft draft)))
   (defproc record-outcome ((variant String) (detail String) (severity Int)) -> Outcome
-    :effects ((uses-command record_outcome))
-    :lowering inline
     (command-result record_outcome
       :argv ("python" "record_outcome.py" variant detail severity)
       :returns Outcome))
