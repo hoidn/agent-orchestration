@@ -1334,7 +1334,8 @@ contracts or authorize provider spend.
 
 Under versioning rule 2 as ruled on 2026-11-12, a change that admits source refused before and moves
 no closed program, digest or effect identity of source that compiles adds no target. One entry per
-change of the [surface-coherence design](../docs/design/workflow_lisp_surface_coherence.md):
+change of the [surface-coherence design](../docs/design/workflow_lisp_surface_coherence.md), and of
+other designs whose entry names them:
 
 - **C1, a local called by name.** A `let-proc` local that declares its signature is called by
   name with positional arguments and builds the program of its alias call
@@ -1373,6 +1374,17 @@ change of the [surface-coherence design](../docs/design/workflow_lisp_surface_co
   below 1 fails the same way over a non-empty list, and an empty list gives the empty list. A
   parallel map may be written directly in a serial map or loop body. Every program that compiled
   before keeps its closed program, digest and identities, and its recorded runs resume.
+- **Three list operators** (change O of the
+  [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workflow_authoring.md)).
+  `(list/take xs n)` gives the first `n` items of a list (all of them when `n` exceeds its length,
+  none when `n` is below 1); `(list/all bools)` and `(list/any bools)` reduce a `List[Bool]`, `true`
+  and `false` on the empty list. They are pure operators of the list group of the frontend
+  specification's section 10.2, usable in a `defun` and a `list/map` body, under every target the
+  other list operators are. Each was refused before (`pure_expr_operator_unsupported`); a build that
+  predates them still refuses such a source with that code, also on `resume`, and a closed program
+  that holds one with `closed_program_invalid`, naming the operator. A serial map's cap is
+  unchanged. Every program that compiled before keeps its closed program, digest and identities,
+  and its recorded runs resume.
 
 ### Run-time corrections without a new target
 
