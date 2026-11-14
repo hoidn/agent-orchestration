@@ -76,17 +76,16 @@ def test_closed_shared_union_projection_preserves_resolved_proof(
     assert restored.digest == closed.digest
 
 
-HELPER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+HELPER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule helper) (export project Output Payload)
   (defrecord Payload (item-id String))
   (defrecord Output (status String))
   (defproc project :forall (T) ((choice T))
     :where ((T has-shared-union-field selection helper::Payload)) -> Output
-    :effects ((uses-command probe)) :lowering inline
     (command-result probe
       :argv ("python" "probe.py" choice.selection.item-id) :returns Output)))'''
 
-ENTRY_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+ENTRY_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule entry) (import helper :as h) (export run)
   (defrecord Payload (item-id FIELD_TYPE))
   (defunion Choice (A (selection Payload)) (B (selection Payload)))
