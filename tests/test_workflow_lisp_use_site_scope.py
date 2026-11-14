@@ -1,4 +1,4 @@
-"""Pure bindings and specialization values keep their creation scope at 2.35.
+"""Pure bindings and specialization values keep their creation scope at the current target.
 
 Expected values and command order are fixed lexical outcomes. Excluded
 live-provider forms must refuse before any effect executes.
@@ -22,36 +22,28 @@ from orchestrator.providers.executor import ProviderExecutor
 
 MODULE = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
   (export run)
   (defrecord Pair (left Int) (right Int))
   (defunion Choice (YES (v Int)) (NO (v Int)))
   (defproc tick ((v Int)) -> Int
-    :effects ((uses-command tick))
-    :lowering inline
     (command-result tick :argv ("python" "TICK" v) :returns Int))
   (defproc choose ((v Int)) -> Choice
-    :effects ((uses-command choose))
-    :lowering inline
     (command-result choose :argv ("python" "CHOOSE" v) :returns Choice))
   (defproc add-tick ((n Int)) -> Int
-    :effects ((uses-command tick))
-    :lowering inline
     (let* ((b (tick 5))) (+ n b)))
   (defun select-second ((x Int) (y Int)) -> Int y)
   (defun last-two ((x Int) (y Int) (z Int)) -> Pair (record Pair :left y :right z))
   (defun crossed ((x Int) (y Int)) -> Pair (record Pair :left x :right y))
-  (defproc add-one ((n Int)) -> Int :effects () :lowering inline (+ n 1))
-  (defproc add-leading ((leading Int) (value Int)) -> Int :effects () :lowering inline (+ leading value))
-  (defproc rebind-leading ((leading Int) (value Int)) -> Int :effects () :lowering inline
+  (defproc add-one ((n Int)) -> Int (+ n 1))
+  (defproc add-leading ((leading Int) (value Int)) -> Int (+ leading value))
+  (defproc rebind-leading ((leading Int) (value Int)) -> Int
     (let* ((leading 100)) (+ leading value)))
   (defproc add-leading-tick ((leading Int) (value Int)) -> Int
-    :effects ((uses-command tick))
-    :lowering inline
     (let* ((b (tick 5))) (+ leading (+ value b))))
-  (defproc apply-int ((hook ProcRef[Int -> Int]) (value Int)) -> Int :effects () :lowering inline (hook value))
-  (defproc apply-int-to-b ((hook ProcRef[Int -> Int]) (b Int)) -> Int :effects () :lowering inline (hook b))
+  (defproc apply-int ((hook ProcRef[Int -> Int]) (value Int)) -> Int (hook value))
+  (defproc apply-int-to-b ((hook ProcRef[Int -> Int]) (b Int)) -> Int (hook b))
   (defworkflow run () -> RETURNS
     BODY))
 """
@@ -84,7 +76,7 @@ def _outcome(
     return result.exit_code, dict(result.workflow_outputs or {}), _log(probes["tick"]), _log(probes["choose"])
 
 
-LOOP = "(loop/recur :max 3 :state (loop-state (n Int 0)) :on-exhausted 0 (fn (state) BODY))"
+LOOP = "(loop/recur ((state (loop-state (n Int 0)))) :max 3 :on-exhausted 0 BODY)"
 
 # Each shape: (returns, body, lexical value, tick log, choose log). `v` reads the outer `b`; a later binder of `b` sits between `v` and its use.
 USE_SITE_SHAPES = {
@@ -271,7 +263,7 @@ def test_a_bound_value_keeps_its_scope_across_a_later_binder(
 
 
 PURE_CAPTURE_PROCS = """  (defproc add ((fixed Int) (n Int)) -> Int
-    :effects () :lowering inline (+ fixed n))"""
+    (+ fixed n))"""
 
 
 def test_unused_letproc_does_not_steal_a_body_created_capture(
@@ -301,10 +293,10 @@ def test_generic_letproc_static_argument_keeps_its_creation_value(
     declarations = PURE_CAPTURE_PROCS + """
   (defproc invoke :forall (T)
     ((a T) (hook ProcRef[Int -> Int])) -> Int
-    :effects () :lowering inline (let* ((a 100)) (hook 1)))
+    (let* ((a 100)) (hook 1)))
   (defproc invoke_first :forall (T)
     ((hook ProcRef[Int -> Int]) (a T)) -> Int
-    :effects () :lowering inline (let* ((a 100)) (hook 1)) )"""
+    (let* ((a 100)) (hook 1)) )"""
     body = f"""(let-proc (local ((n Int)) -> Int :captures (a) (+ a n))
       {call})"""
 
