@@ -1,5 +1,9 @@
 # Workflow Lisp Local ProcRef Bindings Delta
 
+Status: **Historical — archived in place.** Superseded: `let-proc` is specified, with its diagnostic codes, by the language reference. The V1 form described below (one binding, an explicit `:captures` list, a full signature, use through `(proc-ref name)` alone) is the form of target 2.35; later targets take several bindings, inferred captures, a signature taken from the consumer, and a call by name. Current authority: [frontend specification §7.8](workflow_lisp_frontend_specification.md#78-procedure-references) and, for effects in a local's body, [§16.3](workflow_lisp_frontend_specification.md#163-effect-placement). Its Semantic IR and Executable IR path and its explain metadata describe removed code. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#t9-callables).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: implemented bounded V1; W3 implemented at target 2.36
 Extends: `workflow_lisp_proc_refs_partial_application.md`
 Parent contract: `workflow_lisp_frontend_specification.md`

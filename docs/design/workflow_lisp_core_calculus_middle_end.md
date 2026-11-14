@@ -51,7 +51,7 @@ Related docs:
 - `docs/design/workflow_lisp_semantic_workflow_ir.md` (historical record)
 - `docs/design/workflow_lisp_executable_ir.md` (historical record)
 - `docs/design/workflow_lisp_state_layout.md` (historical record)
-- `docs/design/workflow_lisp_proc_refs_partial_application.md`
+- [Frontend specification §7.8](workflow_lisp_frontend_specification.md#78-procedure-references) (procedure references; `docs/design/workflow_lisp_proc_refs_partial_application.md` is the historical record)
 - `docs/design/workflow_lisp_compile_time_parametric_specialization.md` (historical record)
 - `docs/design/workflow_lisp_runtime_closures_boundary.md`
 - `docs/design/workflow_language_design_principles.md`
