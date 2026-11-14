@@ -92,3 +92,75 @@ def test_apply_splices_disjoint_edits_given_in_any_order():
 def test_apply_refuses_overlapping_edits(edits):
     with pytest.raises(ValueError):
         operators.apply("abcdef", Mutation("graft", "0<-1", edits))
+
+
+# The number of mutations each operator has on `SEED`.
+COUNTS = {
+    "effort": 12,  # 3 roles times 5 levels, less the level each role already has
+    "model": 6,  # 3 roles times 2 models; the seed's models are inputs, so none is an identity
+}
+
+
+def mutants(name: str, text: str = SEED) -> list[tuple[Mutation, str]]:
+    return [(mutation, operators.apply(text, mutation)) for mutation in operators.OPERATORS[name](text)]
+
+
+def frozen(text: str) -> list:
+    """The surfaces no operator may change, as forms."""
+    module = read(text).items[0].items
+    surfaces = [shape(form) for form in module if not shape(form)[0][1].startswith(("defprompt", "defworkflow"))]
+    surfaces += [shape(prompt)[1:-1] for prompt in headed(text, "defprompt")]
+    return surfaces + [shape(headed(text, "defworkflow")[-1].items[2])]
+
+
+@pytest.mark.parametrize("name,allowed", [("effort", EFFORTS), ("model", MODELS)])
+def test_effort_and_model_write_only_declared_literals(name, allowed):
+    written = {replacement for mutation, _ in mutants(name) for _, _, replacement in mutation.edits}
+    assert written and written <= {f'"{value}"' for value in allowed}
+
+
+def test_a_value_outside_the_sets_is_refused():
+    with pytest.raises(ValueError):
+        operators.effort(SEED, levels=("turbo",))
+    with pytest.raises(ValueError):
+        operators.model(SEED, models=("claude-fable-5-2",))
+    # The first space: 3 roles times 3 levels on the spike's spelling (a name as the operand); the
+    # frozen spelling already holds one of the three levels at every role.
+    spike = SEED.replace(':effort "medium"', ":effort effort")
+    assert len(list(operators.effort(spike, levels=("low", "medium", "high")))) == 9
+    assert len(list(operators.effort(SEED, levels=("low", "medium", "high")))) == 6
+
+
+@pytest.mark.parametrize("name", COUNTS)
+def test_each_operator_yields_mutations_of_the_fixture(name):
+    assert len(mutants(name)) == COUNTS[name]
+
+
+def test_mutation_names_are_unique_per_operator():
+    names = [(mutation.operator, mutation.params) for name in COUNTS for mutation, _ in mutants(name)]
+    assert len(set(names)) == len(names) == sum(COUNTS.values())
+
+
+@pytest.mark.parametrize("key,name,value", [(":effort", "effort", "low"), (":model", "model", "claude-haiku-5-5")])
+def test_effort_edits_every_call_of_one_role_and_nothing_else(key, name, value):
+    # Two reviewer calls, so that "every call of the role" is more than one site.
+    source = SEED.replace("providers.coder", "providers.reviewer")
+    mutation = next(m for m in operators.OPERATORS[name](source) if m.params == f"reviewer={value}")
+    mutant = operators.apply(source, mutation)
+    calls = zip(headed(source, "provider-result"), headed(mutant, "provider-result"), strict=True)
+    operands = [(shape(before.items[1])[1], shape(operand(before, key)), shape(operand(after, key)))
+                for before, after in calls]
+    assert operands == [(role, old, ("StringAtom", value) if role == "providers.reviewer" else old)
+                        for role, old, _ in operands]
+    assert [role for role, _, _ in operands].count("providers.reviewer") == len(mutation.edits) == 2
+    assert [shape(f) for f in read(mutant).items[0].items[:-1]] == [shape(f) for f in read(source).items[0].items[:-1]]
+
+
+@pytest.mark.parametrize("name", COUNTS)
+def test_frozen_surfaces_survive(name):
+    assert all(frozen(mutant) == frozen(SEED) for _, mutant in mutants(name))
+
+
+@pytest.mark.parametrize("name", COUNTS)
+def test_only_graft_adds_a_line(name):
+    assert any(mutant.count("\n") > SEED.count("\n") for _, mutant in mutants(name)) is (name == "graft")
