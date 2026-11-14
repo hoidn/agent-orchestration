@@ -266,6 +266,14 @@ NOT_SIMPLE = {
         "List[String]", PARALLEL.replace(
             "{v}", f'(list/map-effect ((y (list "w"))) :max 1 :parallel 1 :workspace (string/concat "ws/" y) {W})'),
         "", "list_map_effect_body_unsupported", "(list/map-effect ((y"),
+    # A place inside the part that is not simple keeps its own code, as it had; a place refused after
+    # one that is admitted reports its own (before E1 the program stopped at the first).
+    "pure-map-holding-an-effect-as-a-field": (
+        "Nest", f'(record Nest :xs (list/map ((x {E("[1,2]", "List[Int]")})) (+ x 1)) :p (record Pair :a 1 :b 2))', "",
+        "list_map_body_effect_forbidden", "(list/map"),
+    "field-refused-after-an-admitted-map-source": (
+        "Pair", f'(let* ((xs (list/map ((x {E("[1,2]", "List[Int]")})) (+ x 1)))) (record Pair :a {IFE} :b (list/length xs)))',
+        "", "effect_not_permitted", IFE),
     # `:on-exhausted`.
     "conditional-on-exhausted": ("Int", EXHAUSTED.replace("{v}", IFE), "", "loop_recur_contract_invalid", IFE),
     "let-on-exhausted": (
