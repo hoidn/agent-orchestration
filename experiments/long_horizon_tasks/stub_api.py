@@ -3,12 +3,15 @@
 Serves `POST /v1/messages` (streamed or plain) with canned replies chosen by a scenario, and refuses any
 model other than the one configured (404 `not_found_error`, as the API does). Every request is appended to
 the log as one JSON line: path, model, declared tools, headers (key and token redacted), the request's
-top-level parameters (no message or system text), the usage served and the running total. Any other path
+top-level parameters (no message text; each system block's length, first 80 characters and cache control,
+which stay in the local log: the committed request fixtures drop the characters), the usage served and the
+running total. Any other path
 answers 404 and is logged too. Standard library only; no request leaves the host.
 
-Usage: python -I stub_api.py (--host H --port P | --unix PATH) --model claude-haiku-5-5 --scenario NAME
+Usage: python -I stub_api.py ([--host 127.0.0.1] [--port P] | --unix PATH) --model claude-haiku-5-5 --scenario NAME
        --log FILE [--delay SECONDS] [--other-status STATUS]
-Prints `listening <host> <port>` (port 0 picks a free port) or `listening <unix path>` once bound.
+Prints `listening <host> <port>` (port 0 picks a free port) or `listening <unix path>` once bound. Only a
+loopback address or a unix socket is accepted; any other --host is refused.
 
 Scenarios (the reply depends on the request, so side requests and subagents get sensible answers):
   normal    a Bash call (probes the vendor's API host from inside the container), then an end
@@ -63,6 +66,7 @@ DEAR = {"input_tokens": 20000, "output_tokens": 100000, "cache_creation_input_to
 HOUR_WRITES = {**SMALL, "cache_creation_input_tokens": 20000,
                "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 20000}}
 REDACT = ("x-api-key", "authorization")
+LOOPBACK = ("127.0.0.1", "localhost")
 NO_RETRY = {"x-should-retry": "false"}
 FAULTS = {
     "rate_limit_retry_after": (429, "rate_limit_error", "stub: rate limited", {"retry-after": "5"}),
@@ -335,14 +339,18 @@ class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
 def main():
     parser = argparse.ArgumentParser()
-    for flag in ("--model", "--scenario", "--log"):
+    for flag in ("--model", "--log"):
         parser.add_argument(flag, required=True)
-    parser.add_argument("--host")
-    parser.add_argument("--port", type=int)
+    parser.add_argument("--scenario", required=True, choices=sorted(SCENARIOS))
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--unix")
     parser.add_argument("--delay", type=float, default=120)
     parser.add_argument("--other-status", type=int, default=404)
     Stub.cfg = parser.parse_args()
+    if Stub.cfg.host not in LOOPBACK:
+        parser.error(f"--host {Stub.cfg.host}: the stub binds only a loopback address ({', '.join(LOOPBACK)}) "
+                     "or a unix socket (--unix)")
     if Stub.cfg.unix:
         if os.path.exists(Stub.cfg.unix):
             os.unlink(Stub.cfg.unix)

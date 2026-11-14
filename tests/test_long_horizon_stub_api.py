@@ -7,11 +7,15 @@ provider is involved.
 from __future__ import annotations
 
 import http.client
+import importlib.util
 import json
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
+import time
 
 import pytest
 
@@ -25,8 +29,13 @@ def _start(tmp_path, scenario, *where):
     log = tmp_path / "requests.jsonl"
     proc = subprocess.Popen(
         [sys.executable, "-I", str(STUB), *where, "--model", MODEL, "--scenario", scenario, "--log", str(log)],
-        stdout=subprocess.PIPE, text=True)
-    return proc, proc.stdout.readline().split()[-1], log
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    line = proc.stdout.readline().split()
+    if line[:1] != ["listening"]:
+        proc.kill()
+        _, err = proc.communicate(timeout=10)
+        raise AssertionError(f"stub did not start (exit {proc.returncode}): {err.strip()[-300:]}")
+    return proc, line[-1], log
 
 
 @pytest.fixture
@@ -115,13 +124,15 @@ def test_the_request_is_recorded_with_the_key_redacted(stub):
 
 
 def test_the_stub_answers_on_a_unix_socket(tmp_path):
-    sock = tmp_path / "pt.sock"
+    short = tempfile.mkdtemp(prefix="lhs", dir="/tmp")  # mode 700; AF_UNIX paths stop at 108 bytes
+    sock = Path(short) / "pt.sock"
     proc, _, _ = _start(tmp_path, "normal", "--unix", str(sock))
     try:
         status, text, _ = _post(None, _request(), conn=_UnixConnection(str(sock)))
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+        shutil.rmtree(short)
     assert (status, _events(text)[-1]["type"]) == (200, "message_stop")
 
 
@@ -208,3 +219,84 @@ def test_cache_writes_are_reported_as_one_hour_writes(scenario_stub):
     usage = _events(text)[0]["message"]["usage"]
     assert (usage["cache_creation_input_tokens"], usage["cache_creation"]) == (
         20000, {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 20000})
+
+
+def test_a_stub_that_cannot_start_says_so(tmp_path):
+    with pytest.raises(AssertionError, match="stub did not start"):
+        _start(tmp_path, "no-such-scenario", "--host", "127.0.0.1", "--port", "0")
+
+
+def test_the_stub_refuses_a_non_loopback_address(tmp_path):
+    with pytest.raises(AssertionError, match="loopback"):
+        _start(tmp_path, "normal", "--host", "0.0.0.0", "--port", "0")
+
+
+def test_a_slow_reply_holds_its_first_byte_for_the_delay(tmp_path):
+    proc, port, _ = _start(tmp_path, "slow", "--host", "127.0.0.1", "--port", "0", "--delay", "1")
+    try:
+        started = time.monotonic()
+        status, _, _ = _post(int(port), _request(turn=1))
+        waited = time.monotonic() - started
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+    assert (status, waited >= 1) == (200, True)
+
+
+_spec = importlib.util.spec_from_file_location("lh_stub_api", STUB)
+stub_module = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(stub_module)
+
+
+def _reply(scenario, turn=0, tools=("Bash", "Agent"), first="hello"):
+    body = {**_request(turn=turn), "tools": [{"name": t, "input_schema": {}} for t in tools]}
+    body["messages"][0] = {"role": "user", "content": first}
+    return stub_module.reply(scenario, body)
+
+
+@pytest.mark.parametrize("scenario,stop", [("refusal", "refusal"), ("max_tokens", "max_tokens")])
+def test_a_refusal_and_an_output_limit_end_with_their_stop_reason(scenario, stop):
+    assert _reply(scenario)[1] == stop
+
+
+def test_a_refusal_stream_carries_stop_details():
+    message = stub_module._message(MODEL, *_reply("refusal"))
+    delta = [d for name, d in stub_module.sse_events(message) if name == "message_delta"][0]
+    assert delta["delta"]["stop_details"]["type"] == "refusal"
+
+
+def test_a_context_limit_refuses_the_first_request_as_too_long():
+    assert _reply("context")[:2] == (400, "invalid_request_error")
+
+
+def test_a_late_context_limit_fills_the_window_then_refuses():
+    first, later = _reply("context_late"), _reply("context_late", turn=1)
+    assert (first[2]["input_tokens"] >= 900000, later[0]) == (True, 400)
+
+
+def test_a_budget_reply_reports_costly_usage():
+    assert _reply("budget")[2]["output_tokens"] >= 100000
+
+
+def test_a_timeout_reply_runs_a_long_command():
+    assert "sleep" in _reply("timeout")[0][0]["input"]["command"]
+
+
+@pytest.mark.parametrize("scenario,status", [("overloaded", 529), ("server_error", 500)])
+def test_overload_and_server_faults_answer_after_the_first_turn(scenario, status):
+    assert (_reply(scenario)[1], _reply(scenario, turn=1)[0]) == ("tool_use", status)
+
+
+def test_a_subagent_reply_launches_the_agent_tool_and_the_subagent_runs_commands():
+    main = _reply("subagent")[0][0]
+    sub = _reply("subagent", first=main["input"]["prompt"])[0][0]
+    assert (main["name"], sub["name"]) == ("Agent", "Bash")
+
+
+def test_an_override_subagent_asks_for_another_model_and_effort():
+    args = _reply("subagent_override")[0][0]["input"]
+    assert (args["model"], args["effort"]) == ("fable", "max")
+
+
+def test_a_web_reply_calls_web_tools_that_were_not_declared():
+    assert [_reply("web", turn=t)[0][0]["name"] for t in (0, 1)] == ["WebFetch", "WebSearch"]
