@@ -8,38 +8,38 @@ from orchestrator.workflow_lisp.procedures import GeneratedLocalProcedure
 from tests.test_workflow_lisp_procedures import _write_module
 
 
-W3_TARGET = "2.36"
+W3_TARGET = "2.40"
 MODULE = "w3/local_hook_signatures"
 
 DECLARATIONS = """\
 (defproc need
   :forall (T)
   ((hook ProcRef[(T) -> T])) -> Int
-  :effects () :lowering inline 0)
+  0)
 (defproc seed
   :forall (T)
   ((value T) (hook ProcRef[(T) -> T])) -> Int
-  :effects () :lowering inline 0)
+  0)
 (defproc apply-hook
   ((hook ProcRef[(Int) -> Int])) -> Int
-  :effects () :lowering inline (hook 1))
+  (hook 1))
 (defproc use-two-compatible
   ((left ProcRef[(Int) -> Int]) (right ProcRef[(Int) -> Int])) -> Int
-  :effects () :lowering inline (+ (left 1) (right 2)))
+  (+ (left 1) (right 2)))
 (defproc use-two-conflicting
   ((left ProcRef[(Int) -> Int]) (right ProcRef[(String) -> String])) -> Int
-  :effects () :lowering inline (+ (left 1) (if true 0 1)))
+  (+ (left 1) (if true 0 1)))
 (defproc use-two-conflicting-return
   ((left ProcRef[(Int) -> Int]) (right ProcRef[(Int) -> String])) -> Int
-  :effects () :lowering inline (left 1))
+  (left 1))
 (defproc improve
   :forall (S F)
   ((initial S) (review ProcRef[(S) -> F]) (revise ProcRef[(S F) -> S])) -> S
-  :effects () :lowering inline (revise initial (review initial)))
+  (revise initial (review initial)))
 (defproc improve-reversed
   :forall (S F)
   ((initial S) (revise ProcRef[(S F) -> S]) (review ProcRef[(S) -> F])) -> S
-  :effects () :lowering inline (revise initial (review initial)))
+  (revise initial (review initial)))
 (defrecord Candidate (value Int))
 (defrecord ReviewFeedback (notes String))
 (defrecord ReviewBlocker (issue String))
@@ -59,37 +59,30 @@ DECLARATIONS = """\
    (limit Int))
   :where ((S is-record))
   -> Improvement[S F B]
-  :effects ()
-  :lowering inline
-  (loop/recur :max limit
-    :state (loop-state (current S initial))
+  (loop/recur ((state (loop-state (current S initial)))) :max limit
     :on-exhausted (variant Improvement[S F B] EXHAUSTED :value state.current)
-    (fn (state)
-      (let* ((decision (review state.current)))
-        (match decision
-          ((APPROVE approved)
-           (done (variant Improvement[S F B] APPROVED
-                   :value state.current :evidence approved.evidence)))
-          ((BLOCKED blocked)
-           (done (variant Improvement[S F B] BLOCKED
-                   :value state.current :reason blocked.reason)))
-          ((REVISE revised)
-           (let* ((next (revise state.current revised.feedback)))
-             (continue (loop-state :like state :current next)))))))))
+    (let* ((decision (review state.current)))
+      (match decision
+        ((APPROVE approved)
+         (done (variant Improvement[S F B] APPROVED
+                 :value state.current :evidence approved.evidence)))
+        ((BLOCKED blocked)
+         (done (variant Improvement[S F B] BLOCKED
+                 :value state.current :reason blocked.reason)))
+        ((REVISE revised)
+         (let* ((next (revise state.current revised.feedback)))
+           (continue (loop-state :like state :current next))))))))
 (defproc repeat-hook
   ((count Int) (hook ProcRef[(Int) -> Int])) -> Int
-  :effects () :lowering inline
-  (loop/recur
+  (loop/recur ((state (loop-state (i Int 0) (total Int 0))))
     :max count
-    :state (loop-state (i Int 0) (total Int 0))
     :on-exhausted state.total
-    (fn (state)
-      (if (< state.i count)
-        (continue
-          (loop-state :like state
-            :i (+ state.i 1)
-            :total (+ state.total (hook state.i))))
-        (done state.total)))))
+    (if (< state.i count)
+      (continue
+        (loop-state :like state
+          :i (+ state.i 1)
+          :total (+ state.total (hook state.i))))
+      (done state.total))))
 (defmacro duplicate-call (call)
   (let* ((first call)
          (second call))
@@ -156,7 +149,7 @@ def test_local_hooks_exclude_declared_externs_but_type_their_bodies(
     declarations = DECLARATIONS
     if root == "procedure":
         declarations += f'''(defproc wrapper ((offset Int)) -> Int
-          :effects ((uses-provider {provider})) :lowering inline {body})'''
+          {body})'''
         body = "(wrapper offset)"
     path = _write_case(tmp_path, body, params="((offset Int))", declarations=declarations)
     (tmp_path / "review.md").write_text("Review the integer inputs.\n")
@@ -368,8 +361,8 @@ def test_incomplete_local_refuses_indirect_forwarding_as_inference_site(tmp_path
     declarations = DECLARATIONS + """\
 (defproc relay
   ((hook ProcRef[(Int) -> Int])) -> ProcRef[(Int) -> Int]
-  :effects () :lowering inline hook)
-(defproc fixed ((x Int)) -> Int :effects () :lowering inline x)
+  hook)
+(defproc fixed ((x Int)) -> Int x)
 """
     body = f"(let-proc ((h (x) x)) {forwarding})"
     path = _write_case(tmp_path, body, declarations=declarations)
@@ -601,7 +594,7 @@ def test_incompatible_inferred_body_reports_its_source_location(tmp_path):
 def test_all_return_positions_supply_concrete_context_before_body(tmp_path, reverse):
     params = "(concrete ProcRef[() -> List[Int]]) (generic ProcRef[() -> List[T]])" if reverse else "(generic ProcRef[() -> List[T]]) (concrete ProcRef[() -> List[Int]])"
     declarations = DECLARATIONS + f"""(defproc consume-lists :forall (T)
-      ({params}) -> Int :effects () :lowering inline 0)
+      ({params}) -> Int 0)
 """
     typed = _compile_evaluated(tmp_path,
       "(let-proc ((h () (list))) (consume-lists (proc-ref h) (proc-ref h)))",
@@ -639,15 +632,13 @@ def test_repeated_activation_uses_creator_capture_at_one_authored_site(tmp_path,
     from orchestrator.workflow.evaluated.values import EvaluatedValue
     consumer = "(let* ((offset 100)) (repeat-hook count (proc-ref h)))"
     if consumer_loop:
-        consumer = """(loop/recur :max count
-          :state (loop-state (i Int 0) (total Int 0))
+        consumer = """(loop/recur ((state (loop-state (i Int 0) (total Int 0)))) :max count
           :on-exhausted state.total
-          (fn (state)
-            (let* ((offset 100) (value (apply-hook (proc-ref h))))
-              (if (< state.i count)
-                (continue (loop-state :like state :i (+ state.i 1)
-                  :total (+ state.total value)))
-                (done state.total)))))"""
+          (let* ((offset 100) (value (apply-hook (proc-ref h))))
+            (if (< state.i count)
+              (continue (loop-state :like state :i (+ state.i 1)
+                :total (+ state.total value)))
+              (done state.total))))"""
     typed = _compile_evaluated(tmp_path,
         f"(let-proc ((h (x) (+ x offset))) {consumer})",
         params="((offset Int) (count Int))")
@@ -711,7 +702,7 @@ def test_pending_and_creator_state_restored_after_error_then_success(tmp_path, m
     options = {}
     if body_error:
         bad = '(let* ((runner (proc-ref increment))) (let-proc ((h (x) (runner (+ x offset)))) (let* ((value (seed "text" (proc-ref h)))) value)))'
-        options = {"params":"((offset Int))", "declarations":DECLARATIONS + '(defproc increment ((x Int)) -> Int :effects () :lowering inline (+ x 1))'}
+        options = {"params":"((offset Int))", "declarations":DECLARATIONS + '(defproc increment ((x Int)) -> Int (+ x 1))'}
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile_evaluated(tmp_path/'bad', bad, **options)
     assert excinfo.value.diagnostics[0].code == ("pure_expr_operand_type_mismatch" if body_error else "type_mismatch")
@@ -728,7 +719,7 @@ def test_pending_and_creator_state_restored_after_error_then_success(tmp_path, m
 ])
 def test_authored_constraints_ground_all_shared_positions_before_readiness(tmp_path, local, helper, params):
     declarations = DECLARATIONS + """(defproc need-pair :forall (T)
-      ((hook ProcRef[(T T) -> T])) -> Int :effects () :lowering inline 0)"""
+      ((hook ProcRef[(T T) -> T])) -> Int 0)"""
     typed = _compile_evaluated(tmp_path, f"(let-proc ({local}) ({helper} (proc-ref h)))", declarations=declarations)
     _assert_inferred_local(typed, "h", params=params, result="Int")
 
@@ -736,7 +727,7 @@ def test_authored_constraints_ground_all_shared_positions_before_readiness(tmp_p
 def test_incomplete_hook_cannot_escape_through_direct_identity_consumer(tmp_path):
     declarations = DECLARATIONS + """(defproc relay
       ((hook ProcRef[(Int) -> Int])) -> ProcRef[(Int) -> Int]
-      :effects () :lowering inline hook)"""
+      hook)"""
     body = "(let* ((escaped (let-proc ((h (x) x)) (relay (proc-ref h))))) (apply-hook escaped))"
     path = _write_case(tmp_path, body, declarations=declarations)
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -749,7 +740,7 @@ def test_incomplete_hook_cannot_escape_through_direct_identity_consumer(tmp_path
 def test_resolved_lexical_consumer_supplies_the_direct_expected_signature(tmp_path, consumer, full):
     declarations = DECLARATIONS + """(defproc consume-with-offset
       ((offset Int) (hook ProcRef[(Int) -> Int])) -> Int
-      :effects () :lowering inline (+ offset (hook 1)))"""
+      (+ offset (hook 1)))"""
     local = "(h ((x Int)) -> Int (+ x 1))" if full else "(h (x) (+ x 1))"
     body = f"(let* ((consumer {consumer})) (let-proc ({local}) (consumer (proc-ref h))))"
     typed = _compile_evaluated(tmp_path, body, declarations=declarations)
@@ -806,7 +797,7 @@ def test_generic_relay_without_concrete_constraint_stops_before_body(tmp_path, m
     monkeypatch.setattr(owner, "_typecheck_owner", check)
     declarations = DECLARATIONS + """(defproc relay-generic :forall (T)
         ((hook ProcRef[(T) -> T])) -> ProcRef[(T) -> T]
-        :effects () :lowering inline hook)"""
+        hook)"""
     body = '(let-proc ((h (x) x)) (seed 1 (relay-generic (proc-ref h))))'
     path = _write_case(tmp_path, body, declarations=declarations)
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -821,10 +812,10 @@ def test_generic_relay_without_concrete_constraint_stops_before_body(tmp_path, m
 def test_resolved_lexical_relay_cannot_return_local_from_its_scope(tmp_path, full, consumer_site, bound):
     declarations = DECLARATIONS + """(defproc relay
       ((hook ProcRef[(Int) -> Int])) -> ProcRef[(Int) -> Int]
-      :effects () :lowering inline hook)
+      hook)
     (defproc relay-bound
       ((marker Int) (hook ProcRef[(Int) -> Int])) -> ProcRef[(Int) -> Int]
-      :effects () :lowering inline hook)"""
+      hook)"""
     consumer = "(bind-proc (proc-ref relay-bound) :marker 5)" if bound else "(proc-ref relay)"
     local = "(h ((x Int)) -> Int x)" if full else "(h (x) x)"
     if consumer_site == "creator":
@@ -846,7 +837,7 @@ def test_resolved_lexical_relay_cannot_return_local_from_its_scope(tmp_path, ful
 def test_consumer_shadow_and_forwarded_alias_use_the_inner_resolved_fact(tmp_path):
     declarations = DECLARATIONS + """(defproc relay
       ((hook ProcRef[(Int) -> Int])) -> ProcRef[(Int) -> Int]
-      :effects () :lowering inline hook)"""
+      hook)"""
     body = """(let* ((consumer (proc-ref relay)))
       (let-proc ((h (x) (+ x 1)))
         (let* ((consumer (proc-ref apply-hook)) (forwarded consumer))
