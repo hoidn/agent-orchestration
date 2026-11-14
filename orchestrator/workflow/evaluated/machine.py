@@ -79,6 +79,20 @@ class _ControlTransfer(Exception):
         self.selection_dependencies = selection_dependencies
 
 
+_MAP_CAP_CODE = "list_map_effect_cap_exceeded"
+
+
+def _exhaustion_message(code: str, budget: int, state: EvaluatedValue) -> str:
+    """What exhausted the loop; a serial `list/map-effect` says which bound its list passed."""
+    if code != _MAP_CAP_CODE:
+        return "bounded loop exhausted without a result"
+    if budget < 1:
+        return f"`list/map-effect` `:max` evaluated to {budget}, which is below 1"
+    length = budget + len(state.value["remaining"])
+    return (f"`list/map-effect` list has {length} items, more than its `:max` of {budget}; "
+            f"the first {budget} ran")
+
+
 @dataclass(frozen=True)
 class _Machine:
     program: ClosedProgram
@@ -247,6 +261,8 @@ class _Machine:
         except (TypeError, ValueError) as exc:
             raise self._error("loop_budget_invalid", str(exc), node["budget"]) from exc
         state = self._coerce_result(initial, node["state_type"], node["init"])
+        if budget < 1 and node.get("code") == _MAP_CAP_CODE and not state.value["remaining"]:
+            budget = 1  # a serial map over an empty list needs no item: its one round finds the list empty
         # Choices select the eventual loop result even when it does not read state.
         selection_dependencies = budget_value.dependencies
         for ordinal in range(1, max(0, budget) + 1):
@@ -277,14 +293,14 @@ class _Machine:
                     continue
                 raise self._error("loop_control", "invalid loop transfer", node)
             raise self._error("loop_control", "loop body returned without continue or done", node)
-        exhausted = self._exhausted(node, environment, state, owner, activation, loops)
+        exhausted = self._exhausted(node, environment, state, owner, activation, loops, budget)
         return self._add_dependencies(exhausted, selection_dependencies)
 
-    def _exhausted(self, node, environment, state, owner, activation, loops):
+    def _exhausted(self, node, environment, state, owner, activation, loops, budget):
         exhausted = node.get("exhausted")
         if exhausted is None:
             code = node.get("code") or "loop_exhausted"
-            raise self._error(code, "bounded loop exhausted without a result", node)
+            raise self._error(code, _exhaustion_message(code, budget, state), node)
         local = environment.extend(node["param"], state)
         result = self._body(exhausted, local, owner, activation, loops)
         return self._coerce_result(result, node["result"], exhausted)

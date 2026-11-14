@@ -416,6 +416,9 @@ class Builder:
         self.configuration_imports: dict[str, dict[str, Any]] = {}
         self.run_ref_producers: list[RunRefProducer] = []
         self.run_ref_producers_by_effect: dict[int, RunRefProducer] = {}
+        # Map bodies that are not one call with pure arguments: refused only in a program that holds a
+        # run reference (`refuse_map_bodies_beside_run_refs`).
+        self.map_body_faults: list[LispFrontendCompileError] = []
         self.emitted_descriptors: list[
             tuple[dict[str, Any], TypeRef, Any, tuple[RunRefProducer, ...], RunRefProducer | None]
         ] = []
@@ -2144,12 +2147,35 @@ class Builder:
             procedure_type_envs=d.source_program.procedure_type_envs,
             type_env=d.type_env,
         )
-        effects = list(_iter_specialized_loop_effect_values(node.body, context=context))
+        effects = _iter_specialized_loop_effect_values(node.body, context=context)
         kinds = [_effect_boundary_step_kind(effect) for effect in effects]
         if len(kinds) != 1 or kinds[0] not in node.single_iteration_effect_kinds:
-            raise _loop_effect_compile_error(node,
+            self.map_body_faults.append(_loop_effect_compile_error(node,
                 code=node.effect_cardinality_diagnostic_code or "closed_program_gap",
-                message="loop iteration must contain exactly one permitted effect boundary after specialization")
+                message=("loop iteration must contain exactly one permitted effect boundary after specialization"
+                         if node.single_iteration_effect_kinds else
+                         "`list/map-effect` body must be one provider, command, workflow, or procedure call")))
+
+    def _note_parallel_map_body(self, node: WccParallelMap) -> None:
+        from ..wcc.analysis import _loop_effect_compile_error
+
+        if not node.one_call_body:
+            self.map_body_faults.append(_loop_effect_compile_error(node, code="list_map_effect_body_unsupported",
+                message="`list/map-effect` body must be one provider, command, workflow, or procedure call"))
+
+    def refuse_map_bodies_beside_run_refs(self, tree: Mapping[str, Any]) -> None:
+        """In a program that holds a run reference anywhere, every `list/map-effect` iteration is exactly one
+        call with pure arguments (evaluated execution 1.2); other programs admit any body.
+
+        Scans the final closed tree: the entry body and every definition it holds (imported, specialized and
+        procedure-reference callees are all definitions there). A confined site's child is its own closed
+        program, built and scanned on its own.
+        """
+        from orchestrator.contracts.closed_program.check_agents import _tree_nodes
+
+        if self.map_body_faults and any(node.get("k") == "perform" and node.get("class") == "run_ref"
+                                        for node in _tree_nodes(tree)):
+            raise self.map_body_faults[0]
 
     def _retain_map_result_descriptors(self, descriptor_start, producers):
         for index in range(descriptor_start, len(self.emitted_descriptors)):
@@ -4339,6 +4365,7 @@ class Builder:
                 visit(node.body)
                 visit(node.continuation)
             elif isinstance(node, WccParallelMap):
+                self._note_parallel_map_body(node)
                 visit_value(node.source)
                 visit(node.workspace_body)
                 visit(node.body)
@@ -4621,6 +4648,7 @@ def _build_with_builder(typed: Any, builder: Builder) -> ClosedProgram:
     }
     if command_params is not None:
         tree["command_params"] = command_params
+    builder.refuse_map_bodies_beside_run_refs(tree)
     refuse_parallel_effects(tree)
     tree["sites"] = [list(row) for row in assign_sites(tree)]
     builder.finalize_run_refs(tree)

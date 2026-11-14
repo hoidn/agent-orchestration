@@ -1,5 +1,9 @@
 # Workflow Lisp Strict Boolean Control Flow
 
+Status: **Historical — archived in place.** Superseded: its rules for `if`, `cond`, exact `Bool` conditions and discriminant proof are now stated, with their diagnostic codes, by the language reference. Current authority: [frontend specification §12](workflow_lisp_frontend_specification.md#12-conditionals) (`if`, effects in conditions, resume), [§12.1](workflow_lisp_frontend_specification.md#121-cond) (`cond`) and [§12.2](workflow_lisp_frontend_specification.md#122-discriminant-tests) (variant tags and proof); [§7.5](workflow_lisp_frontend_specification.md#75-unions) for the proven reads the checked program refuses and [§11](workflow_lisp_frontend_specification.md#11-pattern-matching) for the run-time check. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#t4d-conditionals).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Execution scope: strict Boolean control was introduced at 2.26. Current source,
 transitive imports, retained typed-program capsules, REPL and LSP admit only
 targets 2.35–2.40; see the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).

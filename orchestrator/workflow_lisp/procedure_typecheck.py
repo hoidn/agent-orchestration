@@ -2447,7 +2447,7 @@ def _dataclass_semantic_identity(value):
         item for item in fields(value)
         if item.name not in {"span", "form_path", "expansion_stack"}
         and not item.metadata.get("semantic_identity_omit")
-        and not (isinstance(value, ListMapEffectExpr) and item.name in {"parallel_count", "workspace_expr"} and getattr(value, item.name) is None)
+        and not (isinstance(value, ListMapEffectExpr) and item.name in {"parallel_count", "workspace_expr", "max_expr"} and getattr(value, item.name) is None)
     )
     if isinstance(value, CommandResultExpr):
         identity_fields = tuple(
