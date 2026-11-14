@@ -5,7 +5,7 @@
 - **Status:** current execution contract. Target 2.35 admits commands, portable
   composed providers without context capture, calls/captures and path-mode run
   references. Target 2.36 adds bounded W3; 2.37 adds bounded parallel map
-  (§11), qualified through the public command line with stand-ins, not yet with
+  (§11), qualified through the public command line with stand-ins and run once with
   a real provider; 2.38 confined-provider qualification remains separately gated. Target 2.38
   has bounded Agent Sessions and command-only confined run-ref admission.
   Target 2.39 changes procedure authoring and finite source admission under the
@@ -3009,7 +3009,7 @@ The form is qualified through the public command line with stand-in
 providers and commands: item working directories, kill and resume in every
 window, whole-suffix invalidation and the best-of-N consumer
 ([addendum](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification)).
-It has not run against a real provider, and the addendum lists what stays
+It has run once against a real provider (2026-11-13, [Phase 2 plan's ledger](../plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#ledger)), and the addendum lists what stays
 open. The [drafting guide](../lisp_workflow_drafting_guide.md#173-parallel-map-target-237)
 gives the recipe and its limits. Its rules preserve the existing identity and memo.
 The accepted D2/D3 [concrete refinements](../plans/2026-10-07-evaluated-execution-phase-5-plan.md#contract-delta-to-review-before-implementation)

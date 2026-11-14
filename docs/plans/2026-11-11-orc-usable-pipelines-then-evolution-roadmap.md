@@ -337,7 +337,8 @@ every removed test is listed with the code it covered".
      `compiler_defect`, although the specification's own example has that
      shape;
    - choosing a procedure reference with `if` fails with `compiler_defect`
-     where a refusal is intended;
+     where a refusal is intended (closed 2026-11-13 by the callables change:
+     `proc_ref_literal_required`);
    - inside a macro template: `list/map`, a call to a `let-proc` local, and a
      nested loop used as an operand each fail or crash;
    - a free name in a macro template binds to the caller's local, so hygiene
@@ -746,13 +747,14 @@ is manual. Phase plans are linked here as they start:
   accepted. Target 2.40 survives; after the cut a run recorded at an older target is read-only
   (`report`, dashboard and monitor read it; continuing it needs the tagged release).
 - Lane D, surface coherence (stage 5): [design](../design/workflow_lisp_surface_coherence.md)
-  accepted. A wrong-value defect the review found in constructor fields is fixed first; the
-  changes that only admit refused source follow; the loop binder rewrite rides the stage 4
+  accepted. The constructor-field defect is fixed and the callables change (C1) is merged
+  (2026-11-13); effects in fields (E1), map bodies (I1) and the loop binder form (I2a) are in
+  review; the loop binder rewrite rides the stage 4
   sweep and the `fn` form goes at the stage 4 cut.
-- Lane D, authoring revisions for staged workflows (stage 6): design and plan being drafted
-  (`docs/design/workflow_lisp_staged_workflow_authoring.md`,
-  `docs/plans/2026-11-13-staged-workflow-authoring-revisions-plan.md`; neither exists until the
-  draft is committed). Direction fixed by owner decision 15: roles by partial application over
+- Lane D, authoring revisions for staged workflows (stage 6):
+  [design](../design/workflow_lisp_staged_workflow_authoring.md) and
+  [plan](2026-11-13-staged-workflow-authoring-revisions-plan.md), reviewed and accepted
+  2026-11-13; code starts after the stage 5 changes merge. Direction fixed by owner decision 15: roles by partial application over
   first-class prompts.
 - Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
   after every record; memo reduction now continues from the last fold, a start the evaluator has

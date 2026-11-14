@@ -505,6 +505,33 @@ Needs 4a, the precondition of R7, and a Phase 3b boundary ([Work in flight](#wor
   that `report`, the dashboard or the monitor no longer reads; a 2.40 run recorded by `v0.2.x` that
   no longer resumes; a program at 2.40 whose digest moved (none may).
 
+### Changes assigned to the cut's release on 2026-11-13 (not yet sized)
+
+Reviews of the stage 5 changes found defects whose fix either stops source that compiles at 2.40
+from compiling, changes what it means, or moves an identity. By [the versioning rule](#the-versioning-rule)
+none of them may ride a change that only admits refused source. The coordinator assigned each to
+the release of Task 4b, the one release that already removes source forms and raises the package
+version; none is part of Task 4b's own scope or estimate. When Task 4b starts, each is sized, given
+its own tests and commit, and either taken or left; one that is left needs a new target (rule 2)
+or its own declared break (rule 3). Task 4b's check "no program at 2.40 moves" is run on the cut
+proper, before any of these; each of them then states exactly which programs move.
+
+| Change | Kind (rule) | Found by |
+| --- | --- | --- |
+| Refuse at its definition a `let-proc` local named like a `defun` visible in the module, a registered form, an operator, `run-ref` or `agent` (today the by-name call reaches the function or form, not the local) | Stops source compiling (2) | Callables review; the paragraph is in frontend specification §7.8 |
+| An inner binding that is not a procedure reference hides an outer procedure reference of the same name (today `(let* ((g (proc-ref p))) (let* ((g 5)) (g 1)))` calls `p`) | Changes meaning (2) | Callables fix round |
+| Macro hygiene renames a template's `let-proc` binder, so caller code passed to the macro cannot call the template's local | Changes meaning and moves digests of macro programs (2) | Callables second review |
+| Macro hygiene in head position, by a resolver-aware change: a template-bound name at the head of a list is renamed, so a caller's binding cannot answer the template's call | Changes meaning (2) | Loop-binder reviews; two attempts inside the hygiene pass were withdrawn |
+| A workflow defined by a macro keeps its parameter names, so it can be called and used as an entry | Changes meaning (2) | Loop-binder third review |
+| `defpath` refuses a keyword it does not know (today it ignores it) | Stops source compiling (2) | Documentation probes |
+| Return guidance on a `defworkflow`, `defproc` or `defun` is either kept or refused (today it is checked and discarded) | Decide first; refusing stops source compiling (2) | Documentation probes |
+| A pure operand of an operator does not rename the effects beside it (today changing a pure operand to a `match` renames them, also a later unrelated one) | Moves effect identity without changing meaning (3) | Effects-in-fields second review |
+| Local and generated names leave the program digest, so two spellings of one program share it | Moves every digest (3); decide with roadmap Phase 6, readiness item R2 | Search readiness |
+
+The roadmap's [open defect list](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#lane-d-delete-and-unify-background-time-boxed)
+holds the reproductions. Defects whose fix only turns a crash into a refusal or a correct result
+are not in this table: they move nothing that compiles and can merge at any time.
+
 ### Task 5: Final verification (0.5 day)
 
 - [ ] Exit test: the guard test's list holds only the wire values and the checker's label gates; a

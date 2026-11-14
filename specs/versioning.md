@@ -1128,7 +1128,7 @@ is qualified ([bounded record](../docs/reports/2026-10-07-evaluated-execution-ph
 Bounded parallel execution is implemented and reviewed ([Task 4 record](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-4--bounded-workers-and-coordinator));
 its public command-line qualification with stand-in providers and commands is
 recorded in the [execution record's addendum](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification),
-which lists what remains open; no real provider has run it. Existing
+which lists what remains open; one run with a real provider is recorded in the [Phase 2 plan's ledger](../docs/plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#ledger). Existing
 2.35/2.36 contracts remain unchanged.
 
 Target **2.38** is registered for run-ref confined workflow children

@@ -81,7 +81,8 @@ Read the one for a feature when you use it.
 | [workflow_lisp_typed_program_gates.md](workflow_lisp_typed_program_gates.md) | Typed compiler verdicts and child-run adapters | C2 dropped, C1 and C3 parked |
 | [Provider-phase isolation](../superpowers/specs/2026-07-23-provider-phase-information-isolation-design.md) | Information isolation between provider phases | Partial, pre-integration; remaining integration dropped or archived ([roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions)) |
 | [workflow_lisp_edit_and_continue.md](workflow_lisp_edit_and_continue.md) | Resume under an edited program | Accepted for implementation; evaluated execution and `specs/cli.md` own resume until it lands |
-| [workflow_lisp_surface_coherence.md](workflow_lisp_surface_coherence.md) | One rule each for effect placement, iteration forms and callables | Accepted for implementation; the specification describes what compiles today |
+| [workflow_lisp_surface_coherence.md](workflow_lisp_surface_coherence.md) | One rule each for effect placement, iteration forms and callables | Accepted; the callables change is implemented, the others are in review; the specification describes what compiles today |
+| [workflow_lisp_staged_workflow_authoring.md](workflow_lisp_staged_workflow_authoring.md) | A timeout as a name, a typed list literal, list operators, prompts as values and roles by partial application | Accepted 2026-11-13, not implemented; the specification describes what compiles today |
 | [mlevolve_workflow_lisp_system_architecture.md](mlevolve_workflow_lisp_system_architecture.md) | An MLEvolve-style workflow | Never built; dropped 2026-11-11; stays current until the module-path rule has an owner ([rule ledger 6.6](../reports/2026-11-13-design-corpus-rule-ledger.md#mlevolve_workflow_lisp_system_architecture-not-retired)) |
 
 ## Historical
