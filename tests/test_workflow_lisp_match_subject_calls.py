@@ -12,9 +12,14 @@ run's command log ends with the selected arm.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
+
+from tests.agent_session_shims import closed_path
 
 from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
 from tests.workflow_evaluated_totality_helpers import _public_run
@@ -242,3 +247,50 @@ def test_generic_helper_as_match_subject_runs_like_the_let_bound_call(
     )
 
     assert (direct, direct[1].get("outcome")) == (bound, "OK")
+
+
+# A field read on the subject of a `match` inside its arm (frontend specification §11: a match refines its
+# exact selector). The command `c LABEL VALUE` logs LABEL and returns VALUE.
+REPO = Path(__file__).resolve().parents[1]
+U = "(defunion U (A (n Int)) (B (why String)))"
+COMMAND = """import os, sys
+open("log.txt", "a").write(sys.argv[1] + "\\n")
+open(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"], "w").write(sys.argv[2])
+"""
+A_3 = '{"variant":"A","n":3}'
+
+
+def _run_workflow(root: Path, run: str, *inputs: str) -> tuple[object, list[str]]:
+    """The value `python -m orchestrator run` prints for workflow `run` of module `m`, and the command log."""
+    source = f'(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n  (defmodule m) (export run)\n  {U}\n  (defworkflow run {run}))\n'
+    (root / "m.orc").write_text(source, encoding="utf-8")
+    (root / "c.py").write_text(COMMAND, encoding="utf-8")
+    (root / "commands.json").write_text(json.dumps({"c": {"stable_command": ["python", "c.py"], "closure": ["c.py"]}}))
+    env = {**os.environ, "PATH": closed_path(REPO / "experiments" / "thread_m" / "no_provider"), "PYTHONPATH": str(REPO)}
+    done = subprocess.run([sys.executable, "-B", "-m", "orchestrator", "run", "m.orc", "--entry-workflow", "m::run",
+        "--source-root", ".", "--command-boundaries-file", "commands.json",
+        *(flag for item in inputs for flag in ("--input", item))], cwd=root, env=env, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    log = (root / "log.txt").read_text(encoding="utf-8").split() if (root / "log.txt").exists() else []
+    return json.loads(done.stdout.splitlines()[-1]), log
+
+
+@pytest.mark.parametrize(("run", "inputs", "wanted"), [
+    ("((u U)) -> Int (match u ((A a) u.n) ((B b) 0))", (f"u={A_3}",), (3, [])),
+    ('((u U)) -> String (match u ((A a) "x") ((B b) u.why))', ('u={"variant":"B","why":"no"}',), ("no", [])),
+    ("((u U)) -> Int (+ 1 (match u ((A a) u.n) ((B b) 0)))", (f"u={A_3}",), (4, [])),
+    ("((u U)) -> Int (match u ((A a) (match u ((A a2) u.n) ((B b2) 1))) ((B b) 0))", (f"u={A_3}",), (3, [])),
+    ('((u U)) -> Int (match u ((A a) (command-result c :argv ("python" "c.py" "argv" u.n) :returns Int)) ((B b) 0))',
+     (f"u={A_3}",), (3, ["argv"])),
+    ('() -> Int (let* ((u (command-result c :argv ("python" "c.py" "make" "{\\"variant\\":\\"A\\",\\"n\\":4}") '
+     ":returns U))) (match u ((A a) u.n) ((B b) 0)))", (), (4, ["make"])),
+], ids=["arm-value", "other-arm", "operand", "nested-match", "command-argv", "effect-result-subject"])
+def test_field_read_on_the_subject_inside_its_arm(tmp_path, run, inputs, wanted):
+    assert _run_workflow(tmp_path, run, *inputs) == wanted
+
+
+def test_a_subject_rebound_inside_its_arm_is_read_as_the_new_binding(tmp_path):
+    run = ("((u U)) -> Int (match u ((A a) (let* ((u (variant U A :n 9))) (if (= u.variant A) u.n 0))) "
+           "((B b) 0))")
+
+    assert _run_workflow(tmp_path, run, f"u={A_3}") == (9, [])

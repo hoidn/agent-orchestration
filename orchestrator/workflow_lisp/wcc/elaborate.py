@@ -19,6 +19,7 @@ from ..expression_traversal import (
     holds_effect_in_a_value,
     is_pure_projection_expr,
     map_command_operands,
+    map_expr,
     walk_expr,
 )
 from ..expressions import (
@@ -4952,6 +4953,34 @@ def _branch_proof_narrowing(
     return tuple(triples), narrowed
 
 
+def _is_variant_read(node, name: str) -> bool:
+    """Whether `node` reads a field of `name` that is neither its tag nor a field shared by every variant."""
+    return (isinstance(node, FieldAccessExpr) and node.base.name == name and node.fields[0] != "variant"
+            and not (node.shared_field_types and node.shared_field_types[0] is not None))
+
+
+def _arm_body(match_expr: MatchExpr, arm):
+    """The arm's body, with each variant field read of a name subject made a read of the arm's binder: a
+    `match` refines its exact selector (frontend specification §11). Kept as written where a binding inside
+    the arm hides the binder's name at such a read."""
+    subject, binder = match_expr.subject, arm.binding_name
+    if not isinstance(subject, NameExpr) or subject.name == binder:
+        return arm.body
+    bases = {id(node.base) for node in walk_expr(arm.body) if _is_variant_read(node, subject.name)}
+    moved: list[NameExpr] = []
+
+    def on_binder(node: NameExpr) -> NameExpr:
+        if id(node) not in bases:
+            return node
+        moved.append(replace(node, name=binder))
+        return moved[-1]
+
+    body = map_expr(arm.body, on_binder)
+    free: set[int] = set()
+    map_expr(body, lambda node: free.add(id(node)) or node)
+    return body if all(id(node) in free for node in moved) else arm.body
+
+
 def _elaborate_case_arm(
     match_expr: MatchExpr,
     arm,
@@ -4984,6 +5013,7 @@ def _elaborate_case_arm(
     )
     arm_env = dict(value_env)
     arm_env[arm.binding_name] = binding_type_ref
+    arm_body = _arm_body(match_expr, arm)
     command_scope = None
     command_context = compile_time_bindings.get(_COMMAND_SCOPE_CONTEXT)
     if command_context is not None:
@@ -4992,7 +5022,7 @@ def _elaborate_case_arm(
             source_span=arm.span, form_path=arm.form_path,
             binding_identity=arm.binding_identity), name=arm.binding_name)
         command_scope, child_context = command_context.arm(
-            arm.body, result_type=_infer_expr_type(match_expr, type_env=type_env,
+            arm_body, result_type=_infer_expr_type(match_expr, type_env=type_env,
                 value_env=value_env, workflow_return_types=workflow_return_types,
                 procedure_return_types=procedure_return_types),
             name=arm.binding_name, type_ref=binding_type_ref, operand=operand, value_env=arm_env)
@@ -5005,7 +5035,7 @@ def _elaborate_case_arm(
         binding_identity=arm.binding_identity,
         command_scope=command_scope,
         body=_elaborate_expr_to_body(
-            arm.body,
+            arm_body,
             scope=scope,
             type_env=type_env,
             value_env=arm_env,
@@ -7011,7 +7041,7 @@ def _infer_expr_type(
                 expansion_stack=arm.expansion_stack,
             )
             arm_type = _infer_expr_type(
-                arm.body,
+                _arm_body(expr, arm),
                 type_env=type_env,
                 value_env=arm_env,
                 workflow_return_types=workflow_return_types,

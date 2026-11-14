@@ -119,7 +119,6 @@ KNOWN: dict[str, tuple] = {
     "C1": value(7, "libw"),
     "D20": OPERAND,
     "D4-loop": NO_ELABORATION, "D4-map-value": NO_ELABORATION, "D4-map-bound": NO_ELABORATION,
-    "D5": crash("TypeError", f"{ELABORATE}:_infer_expr_type"),
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
     "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
