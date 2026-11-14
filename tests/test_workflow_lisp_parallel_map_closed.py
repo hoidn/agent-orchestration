@@ -104,7 +104,7 @@ def test_map_owned_command_index_scopes(tmp_path, kind):
     declarations = ''
     result = 'List[Box]'
     if kind == 'helper':
-        loop = '(loop/recur :max 1 :state 0 :on-exhausted own (fn (state) (done own)))'
+        loop = '(loop/recur ((state 0)) :max 1 :on-exhausted own (done own))'
         declarations = f'(defproc worker ((repo String)) -> Box :effects ((uses-command fetch)) :lowering inline (let* ((own {command})) {loop}))'
         mapped = MAP.replace('(command-result fetch :argv ("python" "probe.py" "fetch" repo) :returns Box)', '(worker repo)')
     if kind == 'nested':
@@ -127,7 +127,7 @@ def test_map_owned_command_index_scopes(tmp_path, kind):
 
 def test_nested_map_and_loop_sites(tmp_path):
     command = '(command-result fetch :argv ("python" "probe.py" "fetch" repo) :returns Box)'
-    loop = f'(loop/recur :max 2 :state (loop-state (n Int 0)) :on-exhausted (record Box :n 0) (fn (state) (done {command})))'
+    loop = f'(loop/recur ((state (loop-state (n Int 0)))) :max 2 :on-exhausted (record Box :n 0) (done {command}))'
     inner = MAP.replace(command, '(call leaf :repo repo)')
     declarations = f'(defworkflow leaf ((repo String)) -> Box {loop}) (defworkflow worker ((root String)) -> List[Box] {inner})'
     program = checked(tmp_path, source(MAP.replace(command, '(call worker :root repo)'), declarations=declarations, result='List[List[Box]]'))
@@ -239,10 +239,10 @@ def test_effectful_bound_capture_keeps_creation_binding_under_map(tmp_path):
     assert program.tree['definitions'][call['callee']]['key'][7]
 
 
-PURE_NESTED_INLINE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+PURE_NESTED_INLINE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule parallel) (export run)
-  (defproc identity ((value String)) -> String :effects () :lowering inline value)
-  (defproc worker ((root String)) -> List[String] :effects () :lowering inline
+  (defproc identity ((value String)) -> String value)
+  (defproc worker ((root String)) -> List[String]
     (list/map-effect ((child (list root))) :max 1 :parallel 1 :workspace child
       (identity child)))
   (defworkflow run () -> List[List[String]]

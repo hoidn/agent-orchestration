@@ -11,13 +11,12 @@ from tests.workflow_lisp_closed_program_helpers import install
 
 
 INT_SOURCE = '''(workflow-lisp
-  (:language "0.1") (:target-dsl "2.35")
+  (:language "0.1") (:target-dsl "2.40")
   (defmodule probe/shared_int) (export run)
   (defrecord Output (n Int))
   (defunion Choice (YES (n Int)) (NO (n Int)))
   (defproc extract :forall (T) ((value T))
     :where ((T has-shared-union-field n Int)) -> Output
-    :effects ((uses-command probe)) :lowering inline
     (command-result probe :argv ("python" "probe.py" value.n) :returns Output))
   (defworkflow run () -> Output
     (extract (variant Choice YES :n 7))))'''
@@ -145,14 +144,13 @@ def test_imported_proof_survives_deleted_sources_and_relocation(tmp_path):
     assert ClosedProgram.from_artifact(first.artifact()).digest == first.digest
 
 
-MATCH_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+MATCH_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule probe/shared_match) (export run)
   (defrecord Output (status String))
   (defunion Inner (A (a String)) (B (b String)))
   (defunion Outer (LEFT (selection Inner)) (RIGHT (selection Inner)))
   (defproc extract :forall (T) ((choice T))
     :where ((T has-shared-union-field selection Inner)) -> Output
-    :effects ((uses-command probe)) :lowering inline
     (match choice.selection
       ((A proven) (command-result probe :argv ("python" "probe.py" proven.a) :returns Output))
       ((B proven) (command-result probe :argv ("python" "probe.py" proven.b) :returns Output))))
@@ -246,16 +244,14 @@ def test_shared_fact_concatenation_aligns_ordinary_prefix_and_suffix(tmp_path):
     assert hash(replace(field, shared_field_types=())) == hash(field)
 
 
-BOUND_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+BOUND_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule probe/shared_bound) (export run)
   (defrecord Output (n Int))
   (defunion Choice (YES (n Int)) (NO (n Int)))
   (defproc deliver ((fixed Int)) -> Output
-    :effects ((uses-command probe)) :lowering inline
     (command-result probe :argv ("python" "probe.py" fixed) :returns Output))
   (defproc forward :forall (T) ((value T))
     :where ((T has-shared-union-field n Int)) -> Output
-    :effects ((uses-command probe)) :lowering inline
     (let* ((runner (bind-proc (proc-ref deliver) :fixed value.n))) (runner)))
   (defworkflow run ((flag Bool)) -> Output
     (forward (if flag (variant Choice YES :n 7) (variant Choice NO :n 9)))))'''
@@ -308,7 +304,7 @@ def test_generic_bound_projection_survives_retained_condition_input(tmp_path):
     from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 
     source = BOUND_SOURCE.replace('(defproc forward',
-        '(defproc accepts ((fixed Int)) -> Bool :effects () :lowering inline (= fixed 7))\n  (defproc forward')
+        '(defproc accepts ((fixed Int)) -> Bool (= fixed 7))\n  (defproc forward')
     source = source.replace(
         '(let* ((runner (bind-proc (proc-ref deliver) :fixed value.n))) (runner))',
         '(if (let* ((predicate (bind-proc (proc-ref accepts) :fixed value.n))) (predicate)) '
@@ -377,9 +373,8 @@ def test_pure_shared_int_survives_inline_retyping(tmp_path, flag, expected):
     from tests.workflow_lisp_closed_program_helpers import build
     from orchestrator.workflow.evaluated.machine import evaluate_closed_program
     source = BOUND_SOURCE.replace('''-> Output
-    :effects ((uses-command probe)) :lowering inline
     (let* ((runner (bind-proc (proc-ref deliver) :fixed value.n))) (runner))''',
-        '''-> Int :effects () :lowering inline value.n''').replace('(defworkflow run ((flag Bool)) -> Output', '(defworkflow run ((flag Bool)) -> Int')
+        '''-> Int value.n''').replace('(defworkflow run ((flag Bool)) -> Output', '(defworkflow run ((flag Bool)) -> Int')
     closed = build(tmp_path, source, boundaries={"probe": ExternalToolBinding(
         name="probe", stable_command=("python", "probe.py"), closure=("probe.py",))})
     restored = ClosedProgram.from_artifact(closed.artifact())
@@ -391,11 +386,10 @@ def test_pure_shared_full_union_then_match_survives_inline_retyping(tmp_path, fl
     from tests.workflow_lisp_closed_program_helpers import build
     from orchestrator.workflow.evaluated.machine import evaluate_closed_program
     source = MATCH_SOURCE.replace('''-> Output
-    :effects ((uses-command probe)) :lowering inline
     (match choice.selection
       ((A proven) (command-result probe :argv ("python" "probe.py" proven.a) :returns Output))
       ((B proven) (command-result probe :argv ("python" "probe.py" proven.b) :returns Output)))''',
-        '''-> Inner :effects () :lowering inline choice.selection''').replace('(defworkflow run ((flag Bool)) -> Output', '(defworkflow run ((flag Bool)) -> String').replace('''(selected (extract choice))) selected''', '''(selected (extract choice))) (match selected ((A proven) proven.a) ((B proven) proven.b))''')
+        '''-> Inner choice.selection''').replace('(defworkflow run ((flag Bool)) -> Output', '(defworkflow run ((flag Bool)) -> String').replace('''(selected (extract choice))) selected''', '''(selected (extract choice))) (match selected ((A proven) proven.a) ((B proven) proven.b))''')
     closed = build(tmp_path, source, boundaries={})
     restored = ClosedProgram.from_artifact(closed.artifact())
     assert evaluate_closed_program(restored, {"flag": flag}).value == expected
@@ -454,7 +448,7 @@ def test_union_leaf_projection_preserves_shared_suffix_alignment(tmp_path, share
         _union_variant_expr_value_at_path,
     )
     from orchestrator.workflow_lisp.typecheck import typecheck_expression
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule probe/concat) (export run)
       (defrecord Payload (item-id String))
       (defrecord Envelope (selection Payload))
@@ -462,7 +456,7 @@ def test_union_leaf_projection_preserves_shared_suffix_alignment(tmp_path, share
       (defunion Wrap (DONE (payload Payload)))
       (defproc wrap :forall (T) ((choice T))
         :where ((T has-shared-union-field selection Payload)) -> Wrap
-        :effects () :lowering inline (variant Wrap DONE :payload choice.selection))
+        (variant Wrap DONE :payload choice.selection))
       (defworkflow run ((choice Choice)) -> Wrap (wrap choice)))'''
     if not shared:
         source = source.replace(':forall (T) ((choice T))', '((choice Envelope))').replace(
