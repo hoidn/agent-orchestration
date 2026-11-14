@@ -895,9 +895,10 @@ def test_new_map_body_shapes_reaching_a_confined_site_are_refused(tmp_path, shap
 
 
 # A run reference reached only through a procedure reference, confined (`one`) or path-mode (`onep`): every
-# program here is refused on `main` before I1 and stays refused. Not pinned: the same one-call body reaching a
-# confined site through a procedure reference (`(viaparam1 (proc-ref hide1r) …)`, a `let-proc` local, a parallel
-# `(f 1)`) builds on `main` too; that is P12's own gap, outside this change.
+# program here is refused on `main` before I1 and stays refused. The same one-call body reaching a confined site
+# through a procedure reference (`(viaparam1 (proc-ref hide1r) …)`, a `let-proc` local, a parallel `(f 1)`) builds:
+# that is P12's own gap, pinned as the known rows `A2-C`, `A2-G` and `A2-M` of
+# `tests/test_workflow_lisp_defect_backlog.py`.
 PROC_REF_ROUTES = '''
   (defproc hide1r ((n Int)) -> Int (call one :seed n :revision "r"))
   (defproc hide2r ((n Int)) -> Int (let* ((a (call one :seed n :revision "r"))) (call one :seed a :revision "r")))
