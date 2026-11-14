@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -484,11 +485,37 @@ def _source_identity(expr: object) -> str:
         return f"field:{base.name}:{'.'.join(fields)}"
     if isinstance(expr, NameExpr):
         return f"name:{expr.name}"
+    content = _expression_content(expr)
+    if content is not None:
+        return "content:" + hashlib.sha1(json.dumps(content).encode("utf-8")).hexdigest()[:16]
     span = getattr(expr, "span", None)
     if span is None:
         return repr(expr)
     start = span.start
     return f"{start.path}:{start.line}:{start.column}"
+
+
+_POSITION_FIELDS = frozenset({
+    "span", "form_path", "expansion_stack", "keyword_span", "keyword_form_path", "keyword_expansion_stack",
+    "definition_span", "authored_callee_span",
+})
+
+
+def _expression_content(item: object) -> object | None:
+    """The expression without source coordinates, or None when a part has no stable content."""
+    if item is None or type(item) in (str, int, float, bool):
+        return [type(item).__name__, item]
+    if isinstance(item, tuple):
+        parts = [_expression_content(child) for child in item]
+        return None if None in parts else ["tuple", parts]
+    if not is_dataclass(item) or isinstance(item, type):
+        return None
+    parts = [
+        [entry.name, _expression_content(getattr(item, entry.name))]
+        for entry in fields(item)
+        if entry.name not in _POSITION_FIELDS and not entry.metadata.get("semantic_identity_omit")
+    ]
+    return None if any(part is None for _, part in parts) else [type(item).__name__, parts]
 
 
 def _raise_unknown_or_private(

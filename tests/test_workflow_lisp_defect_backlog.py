@@ -116,9 +116,6 @@ KNOWN: dict[str, tuple] = {
     "B1": ("ran", 0, 1, 0),
     "B2-let": value(2), "B2-arm": value(2), "B3": value(100), "B3-print": value(1), "B4": value(10),
     "B5": value(6), "B5-ref": value(6),
-    "B7-chain": value(104104), "B7-ref": value(103103), "B7-deep": value(105105), "B7-let": value(103103),
-    "B7-int": value(404),
-    "B7-same-written": refused("procedure_lowering_unresolved"),
     "C1": value(7, "libw"),
     "D20": OPERAND,
     "D4-loop": NO_ELABORATION, "D4-map-value": NO_ELABORATION, "D4-map-bound": NO_ELABORATION,
@@ -556,8 +553,8 @@ ROWS: dict[str, Row] = {
     "B5-ref": row(None, "((n Int)) -> Int (with-bump 5 (apply1 (proc-ref bump) n))", AP, WITH_BUMP, inputs=("n=1",)),
     # Not fixed: specification 8.10 states that a `Bool` result accepts the strings.
     "B6": row(value(True, "strb"), "() -> Bool " + E("strb", r'\"TRUE\"', "Bool")),
-    # Eleventh batch: a `(workflow-ref w)` bound by `bind-proc` is identified by its source position alone,
-    # so two expansions of one template bound to different workflows share one specialization.
+    # Eleventh batch: a value bound by `bind-proc` is identified by its content, so two expansions of one
+    # template that bind different values get two specializations and two that bind equal values share one.
     "B7-chain": row(value(204104), B7_RUN.replace("CALL", "ch"), *B7_BOX, B7_INC1, B7_CH, inputs=("n=3",)),
     "B7-ref": row(value(203103), B7_RUN.replace("CALL", "ba"), *B7_BOX, B7_AP,
                   "(defmacro ba (w v) (ap (bind-proc (proc-ref foo) :runner (workflow-ref w)) v))", inputs=("n=3",)),
@@ -569,8 +566,6 @@ ROWS: dict[str, Row] = {
                   inputs=("n=3",)),
     "B7-written": row(value(204104), B7_RUN.replace("(CALL c1 input)", B7_WRITTEN.replace("W", "c1"))
                       .replace("(CALL c2 input)", B7_WRITTEN.replace("W", "c2")), *B7_BOX, B7_INC1, inputs=("n=3",)),
-    # The fix of B7 that keys the identity by the expansion stack makes the next pin refuse as its written-out
-    # spelling `B7-same-written` does today: two equal bindings at two sites are an ambiguous specialization row.
     "B7-same-macro": row(value(104104), B7_RUN.replace("c2", "c1").replace("CALL", "ch"), *B7_BOX, B7_INC1, B7_CH,
                          inputs=("n=3",)),
     "B7-int": row(value(1004), "((n Int)) -> Int (+ (bf 1 n) (* 100 (bf 7 n)))", B7_HELPER, B7_APPLYI, B7_BF,
