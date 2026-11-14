@@ -477,13 +477,6 @@ def test_sample_refuses_a_negative_cap():
 
 PROVIDERS = {f"providers.{role}": "claude_unrestricted_workspace" for role in ("planner", "coder", "reviewer")}
 COMMANDS = {"dev-check": {"stable_command": ["python", "dev_check.py"], "closure": ["dev_check.py"]}}
-# P8's crash (backlog row D21): the `graft` of the binding's value by the `done` form.
-CRASH_SEED = """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
-  (defmodule crash) (export run)
-  (defworkflow run () -> Int
-    (loop/recur :max 2 :state (loop-state (i Int 0)) :on-exhausted 0
-      (fn (state) (let* ((x (+ state.i 1))) (done state.i))))))
-"""
 # The kinds of the backlog's signatures; the mutants' crash keys are those of the first two.
 KINDS = ("crash", "traceback", "refused", "builds", "value", "digests", "ran")
 
@@ -554,13 +547,6 @@ def test_a_coded_crash_and_its_traceback_have_one_key(kind, tmp_path, monkeypatc
                                   operators=("rounds",))
     assert [(record["key"], record["kinds"], record["mutants"]) for record in report["crashes"]] == [
         (["RuntimeError", "workflow_lisp/closed/build.py:build_closed_program"], [kind], COUNTS["rounds"])]
-
-
-def test_a_crashing_mutant_is_reported_under_the_backlog_key(tmp_path):
-    # Deleted with the backlog's row D21 when its defect is fixed.
-    report = check.compile_report(seed_dir(tmp_path / "seed", {"crash": CRASH_SEED}), ["crash"], 100, 0,
-                                  operators=("graft",))
-    assert [record["key"] for record in report["crashes"]] == [list(KNOWN["D21"][1:])]
 
 
 def test_the_fixture_sample_has_no_crash(tmp_path):
