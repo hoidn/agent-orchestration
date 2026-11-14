@@ -1294,9 +1294,11 @@ Under versioning rule 2 as ruled on 2026-11-12, a change that admits source refu
 no closed program, digest or effect identity of source that compiles adds no target. One entry per
 change of the [surface-coherence design](../docs/design/workflow_lisp_surface_coherence.md):
 
-- **I1, map bodies and a computed serial `:max`.** A `list/map-effect` body is any expression; one
-  that reaches a run reference, by any route and after specialization, stays exactly one call with
-  pure arguments (`list_map_effect_body_unsupported`). A serial map's `:max` is any `Int` expression,
+- **I1, map bodies and a computed serial `:max`.** In a program that contains a run reference
+  anywhere, every `list/map-effect` iteration is exactly one call with pure arguments, as before
+  (`list_map_effect_body_unsupported`); a program that contains no run reference admits any
+  expression as a map body. A later change may admit more bodies beside a run reference by
+  analysing each iteration. A serial map's `:max` is any `Int` expression,
   evaluated once after the source and before the first item; a parallel map's `:max` and `:parallel`
   stay positive integer literals. A list longer than `:max` fails `list_map_effect_cap_exceeded` as
   before (a serial map after its first `:max` items, a parallel map before any); a computed `:max`

@@ -1984,10 +1984,14 @@ surface:
 - eligible whole-list values may cross pure projections, callable contracts,
   and `loop/recur` state; and
 - `list/map-effect` erases to the existing bounded loop and ordinary
-  effect-call/checkpoint machinery. Its body is any expression, evaluated once
-  per element with its effects in written order; a body that holds a run
-  reference, directly or through a procedure reference once specialized, is
-  exactly one call with pure arguments. A serial map's `:max` is
+  effect-call/checkpoint machinery. In a program that contains a run
+  reference anywhere, every `list/map-effect` iteration is exactly one call
+  with pure arguments, after specialization (`list_map_effect_body_unsupported`);
+  the program is the final closed program, every definition it holds included.
+  In a program that contains no run reference the body is any expression,
+  evaluated once per element with its effects in written order. A later change
+  may admit more bodies beside a run reference by analysing each iteration.
+  A serial map's `:max` is
   a positive integer literal or any `Int` expression, evaluated once after the
   source and before the first element (a non-`Int` one refuses with
   `list_map_effect_max_invalid`); a parallel map's `:max` and `:parallel` are

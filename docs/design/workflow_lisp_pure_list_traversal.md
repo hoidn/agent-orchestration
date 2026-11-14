@@ -254,8 +254,8 @@ The first-tranche rule above describes target 2.18 and its legacy route.
 The accepted target-2.35 evaluated placement contract additionally admits
 direct path-mode `run-ref` and an already-admitted call containing it in the
 one-effect body; see [evaluated execution §1.2](workflow_lisp_evaluated_execution.md#12-ordinary-path-run-reference-placement-at-235).
-The source remains pure, and so do the call's arguments when the body holds a
-run reference, with the existing collection,
+The source remains pure, and so do the call's arguments in any map of a
+program that holds a run reference, with the existing collection,
 serial-order and bound rules. That placement is implemented for target-2.35
 entries: the Task 9 frontend cut with its public 9F/9G gates
 (`tests/test_workflow_evaluated_run_ref.py`, two-iteration K7 repetition with
@@ -367,7 +367,7 @@ runtime validation:
 | `list_map_binder_invalid` | binder shape/name is invalid |
 | `list_map_body_effect_forbidden` | `list/map` body is not pure |
 | `list_map_effect_max_invalid` | `:max` is absent, a literal below 1, a serial `:max` that is not `Int`, or a parallel `:max` or `:parallel` that is not an integer literal |
-| `list_map_effect_body_unsupported` | a body that holds a run reference and is not exactly one call with pure arguments, also after specialization; a non-pure source |
+| `list_map_effect_body_unsupported` | in a program that holds a run reference anywhere, a body that is not exactly one call with pure arguments after specialization; a non-pure source |
 | `list_collection_contract_unsupported` | complete list type fails the shared transport predicate |
 | `list_empty_type_context_required` | `(list)` has no exact expected `List[T]` |
 | `list_nonempty_invariant_broken` | compiler-owned nonempty extraction observed an empty list |
