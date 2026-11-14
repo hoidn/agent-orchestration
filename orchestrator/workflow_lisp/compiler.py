@@ -4134,7 +4134,8 @@ def _infer_stage3_effect_summaries(
         reference_calls = {} if inferred_contract else None
 
         def retain_reference_call(owner, node, target):
-            reference_calls.setdefault(owner, {})[(type(node), node.span, node.form_path)] = (node, target)
+            reference_calls.setdefault(owner, {})[(type(node), node.span, node.form_path, node.expansion_stack)] = (
+                node, target)
 
         def resolved_procedures(procedures, *, validate_declared):
             return _validate_procedure_effects_and_cycles(
@@ -4476,7 +4477,7 @@ def _reference_effect_source(owner, summary, *, reference_calls, workflow_effect
     from .effects import CallsWorkflowEffect
 
     calls = reference_calls.get(owner, {})
-    procedure_sites = {(node.span, node.form_path): target
+    procedure_sites = {(node.span, node.form_path, node.expansion_stack): target
         for node, target in calls.values() if isinstance(node, ProcedureCallExpr)}
     workflow_calls = [(node, target) for node, target in calls.values()
         if isinstance(node, CallExpr)]
@@ -4490,9 +4491,9 @@ def _reference_effect_source(owner, summary, *, reference_calls, workflow_effect
         if target is not None and target in workflow_effects_by_name:
             transitive.update(workflow_effects_by_name[target].transitive_effects)
             workflow_edges.update(workflow_effects_by_name[target].procedure_edges)
-    edges = frozenset(replace(edge, callee_name=procedure_sites[(edge.span, edge.form_path)]
+    edges = frozenset(replace(edge, callee_name=procedure_sites[(edge.span, edge.form_path, edge.expansion_stack)]
             or edge.callee_name)
-        for edge in summary.procedure_edges if (edge.span, edge.form_path) in procedure_sites)
+        for edge in summary.procedure_edges if (edge.span, edge.form_path, edge.expansion_stack) in procedure_sites)
     return EffectSummary(frozenset(direct), frozenset(transitive), edges | workflow_edges)
 
 
@@ -4655,7 +4656,7 @@ def _validate_procedure_effects_and_cycles(
         procedure = typed_by_name[name]
         transitive_effects = set(procedure.direct_effect_summary.transitive_effects)
         procedure_edges = set(procedure.direct_effect_summary.procedure_edges)
-        for callee in call_graph.get(name, frozenset()):
+        for callee in sorted(call_graph.get(name, frozenset())):
             callee_summary = visit(callee)
             transitive_effects.update(callee_summary.transitive_effects if reference_calls is None else
                 _callee_effect_identities(callee_summary, typed_by_name[callee],
@@ -4711,7 +4712,8 @@ def _validate_procedure_effects_and_cycles(
                 definition=procedure.definition,
                 signature=procedure.signature,
                 typed_body=(procedure.typed_body if reference_calls is None else
-                    replace(procedure.typed_body, effect_summary=summary)),
+                    replace(procedure.typed_body, effect_summary=replace(summary,
+                        procedure_edges=procedure.direct_effect_summary.procedure_edges))),
                 direct_effect_summary=procedure.direct_effect_summary,
                 transitive_effect_summary=summary,
                 resolved_lowering_mode=procedure.resolved_lowering_mode,

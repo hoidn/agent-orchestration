@@ -4,49 +4,16 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import signal
 import subprocess
 import sys
-import time
-
-import pytest
 
 from orchestrator.workflow.evaluated.authority import load_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from tests.test_workflow_evaluated_providers import _fixture, _requests
 from tests.agent_session_shims import closed_path
+from tests.workflow_evaluated_commit_kill import kill_after_first_commit as _kill_after_first_commit
 
-
-_COMMIT_GATE = '''\
-import os
-import signal
-import sys
-import time
-from pathlib import Path
-
-from orchestrator.workflow.evaluated import runtime
-
-append_record = runtime.append_record
-marker = Path(os.environ["ORCHESTRATOR_TEST_COMMIT_MARKER"])
-
-def gate(*args, **kwargs):
-    entry = append_record(*args, **kwargs)
-    record = args[1] if len(args) > 1 else kwargs["record"]
-    if record.get("record") == "committed" and not marker.exists():
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        temporary_marker = marker.with_name(marker.name + ".tmp")
-        with temporary_marker.open("w", encoding="utf-8") as stream:
-            time.sleep(0.25)  # Widen the marker visibility window for this regression.
-            stream.write(record["identity"])
-        temporary_marker.replace(marker)
-        signal.pause()
-    return entry
-
-runtime.append_record = gate
-from orchestrator.cli import main
-raise SystemExit(main())
-'''
 
 _COMMAND_SOURCE = '''\
 (workflow-lisp (:language "0.1") (:target-dsl "2.40")
@@ -87,36 +54,6 @@ def _cli(root: Path, args: list[str], env: dict[str, str]) -> subprocess.Complet
         [sys.executable, "-m", "orchestrator", *args], cwd=root, env=env,
         capture_output=True, text=True, check=False,
     )
-
-
-def _kill_after_first_commit(root: Path, args: list[str], env: dict[str, str]) -> str:
-    control = root / ".test-control"
-    marker = control / "committed-identity"
-    launcher = control / "cli_with_commit_gate.py"
-    control.mkdir(parents=True)
-    launcher.write_text(_COMMIT_GATE, encoding="utf-8")
-    child_env = {**env, "ORCHESTRATOR_TEST_COMMIT_MARKER": str(marker)}
-    process = subprocess.Popen(
-        [sys.executable, str(launcher), *args], cwd=root, env=child_env,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
-    )
-    try:
-        deadline = time.monotonic() + 15
-        while process.poll() is None and not marker.is_file() and time.monotonic() < deadline:
-            time.sleep(0.02)
-        if not marker.is_file():
-            if process.poll() is None:
-                os.killpg(process.pid, signal.SIGKILL)
-            stdout, stderr = process.communicate(timeout=5)
-            pytest.fail(f"CLI did not reach a committed effect: {stdout}\n{stderr}")
-        os.killpg(process.pid, signal.SIGKILL)
-        stdout, stderr = process.communicate(timeout=5)
-        assert process.returncode == -signal.SIGKILL, (stdout, stderr)
-        return marker.read_text(encoding="utf-8")
-    finally:
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait(timeout=5)
 
 
 def _run_root(root: Path) -> Path:

@@ -216,6 +216,12 @@ class RecordExpr:
     resolved_type: "TypeRef | None" = field(
         default=None, repr=False, hash=False, metadata={"json_omit_if_none": True}
     )
+    # Set by the typechecker when a field holds an effect; every field is then simple
+    # (frontend specification 16.3) and the fields lower as ordered operands.
+    effectful_fields: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -240,6 +246,11 @@ class ListExpr:
     expansion_stack: ExpansionStack = ()
     item_type_refs: tuple["TypeRef", ...] = field(
         default=(), repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    # Set by the typechecker when an item has an effect: the items then lower as operands.
+    effectful_items: bool = field(
+        default=False, repr=False, compare=False, hash=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
 
@@ -268,6 +279,11 @@ class ListMapExpr:
         repr=False,
         compare=False,
         hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
+    # Set by the typechecker when the source has an effect: it then lowers as an operand.
+    effectful_source: bool = field(
+        default=False, repr=False, compare=False, hash=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
 
@@ -301,6 +317,11 @@ class ListMapEffectExpr:
     )
     parallel_count: int | None = field(default=None, metadata={"json_omit_if_none": True})
     workspace_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+    # Set by typecheck on a parallel map whose source holds an effect (surface coherence E1).
+    effectful_source: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
     # A serial map's computed `:max`; None for a literal, so existing identities stay.
     max_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
     # Typing's verdict on a parallel body: exactly one call with pure arguments (false until typed).
@@ -329,6 +350,11 @@ class PathJoinUnderExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    # Set by the typechecker when the child has an effect: it then lowers as an operand.
+    effectful_child: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -411,6 +437,12 @@ class UnionVariantExpr:
     expansion_stack: ExpansionStack = ()
     resolved_type: "TypeRef | None" = field(
         default=None, repr=False, hash=False, metadata={"json_omit_if_none": True}
+    )
+    # Set by the typechecker when a field holds an effect; every field is then simple
+    # (frontend specification 16.3) and the fields lower as ordered operands.
+    effectful_fields: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
 
 
@@ -1074,6 +1106,12 @@ class LoopRecurExpr:
             "json_omit_always": True,
             "semantic_identity_omit": True,
         },
+    )
+    # Set by typecheck when `:on-exhausted`, or the source of the serial map this loop is,
+    # holds an effect: the code that place gave before surface coherence E1 admitted it.
+    effect_place_code: str | None = field(
+        default=None, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
     )
 
 

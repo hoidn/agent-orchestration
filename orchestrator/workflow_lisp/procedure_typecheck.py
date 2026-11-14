@@ -76,7 +76,7 @@ from .type_env import (
     type_refs_compatible,
 )
 from .syntax import target_dsl_supports_local_hook_inference
-from .typecheck_context import raise_error as _raise_error
+from .typecheck_context import raise_error as _raise_error, refuse_effect_place_in
 from .typecheck_proofs import BindingIdentity, _allocate_binding_identity
 
 
@@ -1508,6 +1508,10 @@ def _typecheck_let_proc_expr_impl(
             form_path=expr.binding.local_body.form_path,
             expansion_stack=expr.binding.local_body.expansion_stack,
         )
+    # Nothing new is admitted in a local's body: a place there that holds an effect keeps its refusal.
+    refuse_effect_place_in(
+        [typed_local_body.expr], where="the body of a `let-proc` local",
+        advice="bind the effect with `let*` in the body first, or make the local a top-level `defproc`")
     session_state.generated_local_procedures[generated_name] = TypedProcedureDef(
         definition=generated_definition,
         signature=generated_signature,
@@ -1843,7 +1847,7 @@ def _typecheck_local_hook_group(expr, **creator):
     finally:
         session.proc_ref_value_env, session.pending_local_hook_preparer = previous
     if incomplete.keys() - completed:
-        binding = incomplete[next(iter(incomplete.keys() - completed))]
+        binding = next(binding for name, binding in incomplete.items() if name not in completed)
         _raise_error("local hook signature was not completed", code="let_proc_expected_signature_missing",
             span=binding.span, form_path=binding.form_path)
     final_body = _rewrite_local_proc_references(expr.body, local_bindings=rewrites)

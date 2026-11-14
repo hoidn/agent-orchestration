@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .effects import (
-    EMPTY_EFFECT_SUMMARY,
     EffectSummary,
     effect_summary_contains_runs_ref,
     merge_effect_summaries,
@@ -22,6 +21,7 @@ from .typecheck_context import (
     raise_run_ref_placement_invalid,
 )
 from .typecheck_proofs import ProofScope, _allocate_binding_identity
+from .typecheck_structural_values import place_effect
 
 
 def typecheck_loop_recur_expr(
@@ -106,6 +106,7 @@ def typecheck_loop_recur_expr(
     )
     exhaustion_summaries: list[EffectSummary] = []
     typed_exhausted_expr = None
+    effect_place_code = expr.effect_place_code
     if expr.on_exhausted_result_expr is not None:
         typed_exhausted = check(
             expr.on_exhausted_result_expr,
@@ -136,13 +137,12 @@ def typecheck_loop_recur_expr(
                 span=expr.on_exhausted_result_expr.span,
                 form_path=expr.on_exhausted_result_expr.form_path,
             )
-        if typed_exhausted.effect_summary != EMPTY_EFFECT_SUMMARY:
-            raise_error(
-                "`loop/recur` exhaustion projection must be pure",
-                code="loop_recur_contract_invalid",
-                span=expr.on_exhausted_result_expr.span,
-                form_path=expr.on_exhausted_result_expr.form_path,
-            )
+        _, effectful_exhaustion = place_effect(
+            [typed_exhausted.effect_summary], [typed_exhausted.expr], context=context,
+            place="this `:on-exhausted` value", code="loop_recur_contract_invalid",
+            advice="do the work in a workflow and `call` it here")
+        if effectful_exhaustion:
+            effect_place_code = "loop_recur_contract_invalid"
         exhaustion_summaries.append(typed_exhausted.effect_summary)
         typed_exhausted_expr = typed_exhausted.expr
     return typed_factory(
@@ -153,6 +153,7 @@ def typecheck_loop_recur_expr(
             body_expr=typed_body.expr,
             on_exhausted_result_expr=typed_exhausted_expr,
             binding_identity=binding_identity,
+            effect_place_code=effect_place_code,
         ),
         type_ref=typed_body.type_ref.result_type_ref,
         effect=merge_effect_summaries(
