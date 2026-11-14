@@ -4655,7 +4655,7 @@ def _validate_procedure_effects_and_cycles(
         procedure = typed_by_name[name]
         transitive_effects = set(procedure.direct_effect_summary.transitive_effects)
         procedure_edges = set(procedure.direct_effect_summary.procedure_edges)
-        for callee in call_graph.get(name, frozenset()):
+        for callee in sorted(call_graph.get(name, frozenset())):
             callee_summary = visit(callee)
             transitive_effects.update(callee_summary.transitive_effects if reference_calls is None else
                 _callee_effect_identities(callee_summary, typed_by_name[callee],

@@ -394,7 +394,7 @@ def _elaboration_procedure_return_types(typed_body, procedure_edges_by_site, pro
 
 
 def _procedure_edges_by_site(typed_body):
-    """Map each call site (span, form path, macro expansion stack) to its one recorded callee.
+    """Map each call site (span, form path, expansion stack) to its one recorded callee.
 
     A site of this body's own calls that records two callees is a compiler defect, never a
     choice. A summary that includes callees' edges (a workflow's at 2.39 and later) may record
