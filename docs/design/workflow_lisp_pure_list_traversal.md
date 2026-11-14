@@ -159,8 +159,8 @@ expected list type fails with `list_empty_type_context_required`.
 
 The binder list must contain exactly one `(symbol expression)` pair.
 `list-expr` has an eligible `List[T]` type and is evaluated exactly once;
-it may hold effects, which run once before the first item
-([surface coherence](workflow_lisp_surface_coherence.md) E1). The body is checked with the binder at type `T`, must be pure,
+it may hold an effect in a simple value, which runs once before the first item
+([surface coherence](workflow_lisp_surface_coherence.md) E1, §4). The body is checked with the binder at type `T`, must be pure,
 and is evaluated once for each element in input order. The output is an
 eligible `List[R]`.
 
@@ -242,7 +242,7 @@ state remain unchanged and unsupported by this tranche.
 ```
 
 The binder/source rules match `list/map`; the source expression is
-evaluated exactly once and may hold effects. In this first tranche the body is one existing
+evaluated exactly once and may hold an effect in a simple value. In this first tranche the body is one existing
 effectful provider, command, workflow, or procedure call expression after
 specialization. Its arguments may be arbitrary already-supported pure
 expressions over the binder and enclosing lexical bindings. Nested

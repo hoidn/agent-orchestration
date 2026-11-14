@@ -385,9 +385,9 @@ known failures.
   workflow parameter with `workflow_return_not_exportable` ("must lower from a
   literal integer"); both point into `std/improve.orc`.
 - No generic records and no explicit procedure type arguments (§6).
-- Record and variant fields and the `:on-exhausted` value may hold effects,
-  which run once in written order
-  ([surface coherence](workflow_lisp_surface_coherence.md) E1).
+- Record and variant fields and the `:on-exhausted` value may hold an effect
+  in a simple value, which runs once in written order
+  ([surface coherence](workflow_lisp_surface_coherence.md) E1, §4).
 - The workflow return boundary rejects a union inside a returned variant with
   `workflow_boundary_type_invalid`.
 
