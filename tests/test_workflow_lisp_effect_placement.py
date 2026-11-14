@@ -962,7 +962,8 @@ def test_defect_inside_a_continue_value_is_not_reported_as_a_refusal_to_bind(tmp
 
     compiled = cli(tmp_path, "compile", "main.orc")
 
-    assert (compiled.returncode != 0, "[effect_not_permitted]" in compiled.stderr) == (True, False), compiled.stderr
+    assert (compiled.returncode != 0, "[effect_not_permitted]" in compiled.stderr, "[compiler_defect]" in compiled.stderr) == (
+        True, False, True), compiled.stderr
 
 
 def test_serial_map_in_a_continue_value_keeps_the_code_of_its_source(tmp_path: Path) -> None:

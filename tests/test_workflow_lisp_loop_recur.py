@@ -529,6 +529,25 @@ def test_continue_value_whose_branch_is_an_if_calling_an_effectful_callee_is_ref
     assert (done.returncode, "[effect_not_permitted]" in done.stderr, command_log(tmp_path)) == (2, True, []), done.stderr
 
 
+LOCAL_VALUES = {"if": "(if (> n 0) (if (> n 0) (g n) 0) 0)", "cond": "(cond ((> n 5) 0) ((> n 0) (g n)) (else 0))"}
+
+
+@pytest.mark.parametrize("value", LOCAL_VALUES)
+def test_continue_value_whose_branch_calls_an_effectful_local_is_refused(tmp_path: Path, value: str) -> None:
+    step = f"(let-proc ((g ((k Int)) -> Int {E})) (continue {LOCAL_VALUES[value]}))"
+
+    done = cli_run(tmp_path, f"((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) {step}))", "n=1")
+
+    assert (done.returncode, "[effect_not_permitted]" in done.stderr, command_log(tmp_path)) == (2, True, []), done.stderr
+
+
+def test_continue_value_whose_branch_calls_a_pure_local_runs(tmp_path: Path) -> None:
+    step = f"(let-proc ((g ((k Int)) -> Int (+ k 1))) (continue {LOCAL_VALUES['if']}))"
+
+    assert run_workflow(tmp_path, f"((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) {step}))",
+                        "n=1") == (2, [])
+
+
 def test_continue_value_whose_branch_is_an_if_calling_a_pure_workflow_runs(tmp_path: Path) -> None:
     run = ("((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 "
            "(if (> s 0) (done s) (continue (if (> n 0) (if (> n 0) (call wp :n n) 0) 0))))")

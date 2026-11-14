@@ -527,7 +527,8 @@ def elaborate_typed_workflow_body(
 
 
 def _effectful_callees(procedures, workflows) -> frozenset[str]:
-    """The procedures and workflows of the program whose effects, transitively, are more than workflow calls."""
+    """The procedures (`defproc` and lifted `let-proc` locals) and workflows of the program whose effects,
+    transitively, are more than workflow calls."""
 
     summaries = [(name, row.transitive_effect_summary) for name, row in (procedures or {}).items()]
     summaries += [(name, row.effect_summary) for name, row in (workflows or {}).items()]
@@ -1736,7 +1737,8 @@ def _select_runs_effect(value, effectful: frozenset[str]) -> bool:
 def _runs_effect(bound, effectful: frozenset[str]) -> bool:
     if isinstance(bound, WccPerform):
         return bound.perform_kind != "workflow_call" or bound.target_name in effectful
-    return isinstance(bound, WccCall) and bound.callee_name in effectful
+    # A `let-proc` local is called by its source name; its lifted procedure is the specialized callee.
+    return isinstance(bound, WccCall) and not effectful.isdisjoint((bound.callee_name, bound.specialized_callee_name))
 
 
 def _bound_first(consumer, attr: str, *, scope: WccIdentityFactory, value_env, compile_time_bindings, role: str) -> LetStarExpr:
@@ -3294,12 +3296,13 @@ def _bind_effectful_loop_operands(
 
 
 def _elaborate_loop_operand_to_value(operand, *, scope: WccIdentityFactory, **inputs):
-    """A loop's `:state` or `:max` as (prefix, value). A `match` there, or a pure value with a `match` in it,
-    is elaborated as an operand is, which makes a pure one a block value; an effectful one was bound with
-    `let*` before (`_bind_effectful_loop_operands`)."""
+    """A loop's `:state` or `:max` as (prefix, value). A pure value with a `match` in it that does not elaborate
+    as a value (a `match` the value route does not take, or one that lowers to a join) is elaborated as an
+    operand is, which makes it a block value; every other value takes the value route, as it did before. An
+    effectful `match` was bound with `let*` before (`_bind_effectful_loop_operands`)."""
 
-    if isinstance(operand, MatchExpr) or (
-        not _contains_effect(operand) and any(isinstance(node, MatchExpr) for node in walk_expr(operand))
+    if any(isinstance(node, MatchExpr) for node in walk_expr(operand)) and _fails_as_a_value(
+        operand, scope=scope, **inputs, answers=("non_linear_value_body", "unsupported_match")
     ):
         prefix, (value,) = _elaborate_operands_to_values(((operand, scope),), **inputs)
         return prefix, value
@@ -4206,7 +4209,9 @@ def _elaborate_expr_to_value(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
-    raise TypeError(f"unsupported WCC elaboration node: {type(expr).__name__}")
+    error = TypeError(f"unsupported WCC elaboration node: {type(expr).__name__}")
+    error.unsupported_match = isinstance(expr, MatchExpr)
+    raise error
 
 
 def _elaborate_list_to_value(
@@ -4773,23 +4778,26 @@ def _elaborate_match_to_body(
     return _wrap_prefix_lets(subject_prefix, case_body)
 
 
-def _subject_needs_binding(subject, *, compile_time_bindings, **inputs) -> bool:
+def _subject_needs_binding(subject, **inputs) -> bool:
     """Whether an effectful subject, such as a `let*` (written, or left by an inlined procedure call) or an `if`
-    choosing one, lowers to a join, which a subject value cannot hold: it lowers as its `let*`-bound spelling.
+    choosing one, lowers to a join, which a subject value cannot hold: it lowers as its `let*`-bound spelling."""
 
-    Decided by elaborating the subject as a value without the command scope context, whose demands only the
-    real elaboration may record; that is side-effect free and gives the same answer in both passes of the
-    command scope analysis. Only the non-linear body error answers yes: every other outcome leaves the
-    subject to the route it took before, so a program that built keeps its program and one that failed
-    otherwise fails as before."""
+    return _contains_effect(subject) and _fails_as_a_value(subject, **inputs, answers=("non_linear_value_body",))
 
-    if not _contains_effect(subject):
-        return False
+
+def _fails_as_a_value(expr, *, compile_time_bindings, answers: tuple[str, ...], **inputs) -> bool:
+    """Whether elaborating `expr` as a value raises a `TypeError` marked with one of `answers`.
+
+    Elaborated without the command scope context, whose demands only the real elaboration may record; that is
+    side-effect free and gives the same answer in both passes of the command scope analysis. Every other
+    outcome answers no and leaves the value to the route it took before, so a program that built keeps its
+    program and one that failed otherwise fails as before."""
+
     probe_bindings = {key: value for key, value in compile_time_bindings.items() if key is not _COMMAND_SCOPE_CONTEXT}
     try:
-        _elaborate_expr_to_value(subject, compile_time_bindings=probe_bindings, **inputs)
+        _elaborate_expr_to_value(expr, compile_time_bindings=probe_bindings, **inputs)
     except TypeError as exc:  # the probe's answer; the real elaboration raises any other error itself
-        return getattr(exc, "non_linear_value_body", False)
+        return any(getattr(exc, mark, False) for mark in answers)
     return False
 
 
