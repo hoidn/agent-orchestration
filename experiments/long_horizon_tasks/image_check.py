@@ -14,6 +14,7 @@ Free space on / and /home is checked before each step; under 25 GB the run stops
 
 Usage (from the repository root; LH is the cache directory, by default ~/lh-cache):
   python -I experiments/long_horizon_tasks/image_check.py measure <task> <role> <scratch dir>
+  python -I experiments/long_horizon_tasks/image_check.py recheck <task> <scratch dir>   (withholding again)
   python -I experiments/long_horizon_tasks/image_check.py totals
 Needs: podman (rootless), taskset, ionice; the task packages unpacked at $LH/tasks41/<task>/x.
 """
@@ -96,7 +97,7 @@ def totals(lines, task_order):
 
 def package_index(files):
     """Index a task package from (relative path, sha256) pairs."""
-    index = {"answers": {}, "answer_names": set(), "env_sha": set(), "env_names": set()}
+    index = {"answers": {}, "answer_names": set(), "env_sha": set(), "env_by_name": {}}
     for rel, sha in files:
         top, _, rest = rel.partition("/")
         name = rel.rsplit("/", 1)[-1]
@@ -105,8 +106,48 @@ def package_index(files):
             index["answer_names"].add(name)
         elif top == "environment":
             index["env_sha"].add(sha)
-            index["env_names"].add(name)
+            index["env_by_name"].setdefault(name, []).append(rel)
     return index
+
+
+def closest_env(path, rels):
+    """Of the environment files sharing a base name, the one whose path ends most like the image path."""
+    parts = path.split("/")[::-1]
+
+    def common(rel):
+        return next((i for i, (a, b) in enumerate(zip(parts, rel.split("/")[:0:-1])) if a != b),
+                    min(len(parts), rel.count("/")))
+    return max(sorted(rels), key=common)
+
+
+def canary_bucket(path, sha, index):
+    """Where a file holding the canary comes from: a byte-identical environment copy, a name only, or neither."""
+    if sha in index["env_sha"]:
+        return "canary_env_sha", path
+    rels = index["env_by_name"].get(path.rsplit("/", 1)[-1])
+    if rels:
+        return "canary_name_only", {"path": path, "env": closest_env(path, rels)}
+    return "canary_other", path
+
+
+def compare_texts(image, env, needle):
+    """What a name-only canary file shares with the environment file of that name (non-empty lines)."""
+    a, b = ({line.strip() for line in raw.splitlines() if line.strip()} for raw in (image, env))
+    shared = a & b
+    other = {line for line in shared if needle not in line}
+    return {"image_size": len(image), "env_size": len(env), "identical": image == env,
+            "shared_lines": len(shared), "shared_non_canary_lines": len(other), "canary_only_shared": not other,
+            "image_only_lines": len(a - b), "env_only_lines": len(b - a)}
+
+
+def canary_verdict(found, needle):
+    if needle is None:
+        return "no identifier in package"
+    if found["canary_other"]:
+        return "found outside environment files"
+    if found["canary_name_only"]:
+        return "needs a look"
+    return "environment copies only" if found["canary_env_sha"] else "not found"
 
 
 def _answer_paths(path, index):
@@ -124,7 +165,7 @@ def classify(members, index):
         if sha != EMPTY_SHA and sha not in index["env_sha"]:
             answer_sha.setdefault(sha, []).append(rel)
     found = {"path_hits": [], "digest_hits": [], "name_matches": 0, "name_samples": [],
-             "canary_env": [], "canary_other": [], "files": 0}
+             "canary_env_sha": [], "canary_name_only": [], "canary_other": [], "files": 0}
     for path, sha, canary in members:
         found["files"] += 1
         found["path_hits"] += [{"path": path, "matches": rel} for rel in _answer_paths(path, index)]
@@ -136,9 +177,10 @@ def classify(members, index):
             if len(found["name_samples"]) < SAMPLE:
                 found["name_samples"].append(path)
         if canary:
-            env = sha in index["env_sha"] or name in index["env_names"]
-            found["canary_env" if env else "canary_other"].append(path)
+            bucket, item = canary_bucket(path, sha, index)
+            found[bucket].append(item)
     found["withheld"] = not found["path_hits"] and not found["digest_hits"]
+    found["canary_counts"] = {k: len(found["canary_" + k]) for k in ("env_sha", "name_only", "other")}
     return found
 
 
@@ -232,6 +274,16 @@ def tar_members(tar_path, needle):
                 yield member.name.removeprefix("./").lstrip("/"), sha, hit
 
 
+def describe_name_only(tar_path, pkg, items, needle):
+    """Add to each name-only canary file how it differs from its environment namesake."""
+    wanted = {item["path"]: item for item in items}
+    with tarfile.open(tar_path, "r:") as tar:
+        for member in tar:
+            item = wanted.get(member.name.removeprefix("./").lstrip("/"))
+            if item and member.isreg():
+                item |= compare_texts(tar.extractfile(member).read(), (pkg / item["env"]).read_bytes(), needle)
+
+
 def withholding(image_id, task, scratch, pkg, unpacked):
     if not pkg.is_dir():
         index, needle, package = package_index([]), None, "not cached: path patterns only"
@@ -244,11 +296,11 @@ def withholding(image_id, task, scratch, pkg, unpacked):
         _run(NICE + ["podman", "export", "-o", str(tar_path), name], check=True)
         free = _check_room()
         found = classify(tar_members(tar_path, needle), index)
+        describe_name_only(tar_path, pkg, found["canary_name_only"], needle)
     finally:  # the tar and the container never outlive the check, whatever fails
         tar_path.unlink(missing_ok=True)
         _run(["podman", "rm", "-f", name])
-    found["canary"] = "no identifier in package" if needle is None else (
-        "not found" if not found["canary_env"] + found["canary_other"] else "found")
+    found["canary"] = canary_verdict(found, needle)
     return found | {"package": package, "free_during_export": free}
 
 
@@ -264,8 +316,7 @@ def measure(task, role, scratch):
             line["shared"] = shared_with(line["layers"], _lines())
             line["free_pulled"] = _check_room()
             if role == "agent":
-                pkg = Path(os.environ.get("LH", Path.home() / "lh-cache")) / "tasks41" / task / "x"
-                line["withholding"] = withholding(got["image_id"], task, scratch, pkg, line["unpacked"])
+                line["withholding"] = withholding(got["image_id"], task, scratch, _package(task), line["unpacked"])
         finally:  # the image never outlives its measurement, whatever fails
             _run(["podman", "rmi", "-f", got["image_id"]])
     else:
@@ -277,6 +328,27 @@ def measure(task, role, scratch):
     return line
 
 
+def recheck(task, scratch):
+    """Pull an agent image again and replace the withholding result of its line in place."""
+    lines = _lines()
+    line = next(x for x in lines if x["task"] == task and x["role"] == "agent")
+    _check_room()
+    got = pull(line["ref"])
+    if not got["ok"]:
+        raise RuntimeError(f"re-pull of {task} failed: {got['errors'][-1:]}")
+    try:
+        found = withholding(got["image_id"], task, scratch, _package(task), line["unpacked"])
+    finally:  # the image never outlives its check, whatever fails
+        _run(["podman", "rmi", "-f", got["image_id"]])
+    line["withholding"] = found | {"pass": 2, "pull_seconds": got["seconds"]}
+    RESULT.write_text("".join(json.dumps(x, sort_keys=True) + "\n" for x in lines))
+    return line
+
+
+def _package(task):
+    return Path(os.environ.get("LH", Path.home() / "lh-cache")) / "tasks41" / task / "x"
+
+
 def _lines():
     return [json.loads(x) for x in RESULT.read_text().splitlines() if x.strip()] if RESULT.exists() else []
 
@@ -285,6 +357,14 @@ def main(argv):
     if argv[:1] == ["totals"]:
         order = [t["name"].split("/")[-1] for t in json.loads(TASKS.read_text())["tasks"]]
         print(json.dumps(totals(_lines(), order) | {"free_now": _free()}, indent=1))
+        return 0
+    if len(argv) == 3 and argv[0] == "recheck":
+        try:
+            wh = recheck(argv[1], Path(argv[2]))["withholding"]
+        except LowDisk as stop:
+            print(f"stopped at {argv[1]} recheck: {stop}", file=sys.stderr)
+            return 3
+        print(json.dumps({"task": argv[1], "withheld": wh["withheld"], "canary": wh["canary"]} | wh["canary_counts"]))
         return 0
     if len(argv) != 4 or argv[0] != "measure" or argv[2] not in ("agent", "verifier"):
         print(__doc__, file=sys.stderr)

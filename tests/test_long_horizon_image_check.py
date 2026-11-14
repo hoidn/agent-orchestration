@@ -96,10 +96,39 @@ def test_files_the_environment_also_ships_and_empty_files_are_not_digest_hits():
     assert image_check.classify(members, _index())["digest_hits"] == []
 
 
-def test_canary_hits_are_split_by_whether_the_file_comes_from_the_environment():
-    members = [("app/main.py", _sha(b"edited"), True), ("opt/notes.txt", _sha(b"n"), True)]
+def test_canary_files_are_split_into_environment_copies_name_only_matches_and_others():
+    members = [("srv/main.py", _sha(b"main"), True), ("app/main.py", _sha(b"edited"), True),
+               ("opt/notes.txt", _sha(b"n"), True)]
     found = image_check.classify(members, _index())
-    assert (found["canary_env"], found["canary_other"]) == (["app/main.py"], ["opt/notes.txt"])
+    assert (found["canary_env_sha"], found["canary_name_only"], found["canary_other"], found["canary_counts"]) == (
+        ["srv/main.py"], [{"path": "app/main.py", "env": "environment/app/main.py"}], ["opt/notes.txt"],
+        {"env_sha": 1, "name_only": 1, "other": 1})
+
+
+def test_a_name_only_match_is_paired_with_the_environment_file_whose_path_ends_alike():
+    rels = ["environment/a/__init__.py", "environment/pkg/sub/__init__.py", "environment/pkg/__init__.py"]
+    assert image_check.closest_env("app/pkg/sub/__init__.py", rels) == "environment/pkg/sub/__init__.py"
+
+
+def test_a_name_only_match_that_shares_only_the_canary_line_says_so():
+    marker = b"# harbor-canary GUID " + GUID
+    got = image_check.compare_texts(marker + b"\nnew body\n", marker + b"\nold body\nmore\n", GUID)
+    assert (got["identical"], got["shared_lines"], got["canary_only_shared"], got["image_only_lines"],
+            got["env_only_lines"], got["image_size"]) == (False, 1, True, 1, 2, len(marker) + 10)
+
+
+def test_a_name_only_match_that_shares_other_lines_counts_them():
+    marker = b"# harbor-canary GUID " + GUID
+    got = image_check.compare_texts(marker + b"\nimport os\nx = 1\n", marker + b"\nimport os\nx = 2\n", GUID)
+    assert (got["shared_non_canary_lines"], got["canary_only_shared"]) == (1, False)
+
+
+@pytest.mark.parametrize(("sha", "name_only", "other", "verdict"), [
+    (0, 0, 0, "not found"), (2, 0, 0, "environment copies only"), (2, 1, 0, "needs a look"),
+    (2, 1, 1, "found outside environment files")])
+def test_the_canary_verdict_never_calls_a_name_only_match_clean(sha, name_only, other, verdict):
+    found = {"canary_env_sha": ["x"] * sha, "canary_name_only": [{}] * name_only, "canary_other": ["y"] * other}
+    assert image_check.canary_verdict(found, GUID) == verdict
 
 
 def test_the_canary_identifier_is_read_from_the_package_texts():
