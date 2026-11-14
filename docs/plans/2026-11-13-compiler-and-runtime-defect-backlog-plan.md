@@ -1,65 +1,58 @@
 # Compiler And Runtime Defect Backlog: Implementation Plan
 
-**Status: Plan, proposed 2026-11-13; not reviewed, not accepted.** It plans the fixes for the open
-defect list of
+**Status: Plan, revised 2026-11-13 after the owner's scope cut, an independent review (accept after
+fixes: no blocker, six majors, ten minors) and the coordinator's rulings on both; not yet
+accepted.** It plans the fixes for the open defect list of
 [Lane D, stage 5](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#lane-d-delete-and-unify-background-time-boxed)
-("Compiler and runtime defects found by probes on the way", eight dated batches). It is a plan, not
+("Compiler and runtime defects found by probes on the way", nine dated batches). It is a plan, not
 a contract and not copy-safe guidance. Behavior is owned by `specs/`, the
 [frontend specification](../design/workflow_lisp_frontend_specification.md) and
 [evaluated execution](../design/workflow_lisp_evaluated_execution.md); until a task lands, those
 documents and the code describe the checkout. No task makes or authorizes a provider or model call.
-Planned against `main` at `59f727db` (the first probe pass ran on `a58e5b17`; `main` moved while
-planning, when I1 merged as `624ff688`, and every probe was run again; `main` at `801bd6d2`, merged
-into this branch, differs from `59f727db` in three documents only).
+Planned against `main` at `59f727db` and revised against `e112aa0f`, which differs from it in
+documents only (no file under `orchestrator/` or `tests/` changed), so every probe result stands.
 
-**Goal:** no known program makes a paid call it should not, launches a child a guard forbids, or
-gets a wrong answer from the effect analysis; a program the language admits does not crash the
-compiler; and every reproduction lives in the repository as a test, not in a scratch file.
+**Goal:** no known program pays for a provider call whose result is certain to be refused, or
+commits one file for two outputs; the crashes a short staged seed or a mechanical mutant of one
+would plausibly write are fixed or become coded outcomes; and every reproduction, fixed or not,
+lives in the repository as a test.
 
-**Approach:** first put the reproductions and the three invariant checks into the repository. Then
-fix by cause, not by item: 51 rows reduce to 16 fixes here, plus the cut's. Order: class A
-(spends or launches), C (unsound analysis), B (silent wrong value), D (crash), E (no effect,
-misleading, absent). What this makes harder is listed [below](#what-this-makes-harder).
+**Approach:** eight tasks, 48 hours. First the reproductions go into one test module with a
+known-defect list that can only shrink, and it merges before any fix starts. Then the output-slot
+checks before launch, the typecheck crashes inside the defect boundary, and four crash fixes
+(a field read on a `match` subject, control forms as operands, a `let-proc` local with a loop, a
+`let-proc` local that captures a reference or a bound role). Everything else on the list keeps its
+row and its reproduction and is [dropped](#dropped-by-the-owners-cut). What this makes harder is
+listed [below](#what-this-makes-harder).
 
 **Not in this plan, only listed:** the nine changes of the
 [one-target cut](2026-11-12-lane-d-stage-4-one-target-plan.md#changes-assigned-to-the-cuts-release-on-2026-11-13-not-yet-sized)
 (they refuse or change source that compiles, or move identity); the missing prompt file (branch
-`fix/missing-prompt-file`, another agent); the defects owned by
+`fix/missing-prompt-file`, in review); the defects owned by
 [Task 0b](2026-11-13-staged-workflow-authoring-revisions-plan.md#task-0b-the-defects-the-seeds-meet-10-h)
-of the staged-authoring plan; the crashes that `feat/coherence-e1` closes.
+of the staged-authoring plan.
 
-## Scope Cut (owner, 2026-11-13)
+## Scope (owner's cut, 2026-11-13)
 
-The owner read the size below (120 hours, two and a half to three weeks) and said: "cut it down by
-removing the ones i dont care about (like effect analysis". The coordinator's reading, recorded as
-a ruling: a task stays when its defect can spend provider money or commit a wrong output, or when a
-short staged seed or a mechanical mutant of one would plausibly write the shape and crash the
-compiler. Every other task is dropped from this plan. A dropped defect keeps its row in the table
+The first version of this plan had 20 tasks and 120 hours. The owner read that size and said: "cut
+it down by removing the ones i dont care about (like effect analysis". The coordinator's reading,
+recorded as a ruling: **a task stays when its defect can spend provider money or commit a wrong
+output, or when a short staged seed or a mechanical mutant of one would plausibly write the shape
+and crash the compiler.** Every other task is dropped. A dropped defect keeps its row in the table
 and its reproduction in Task T0's known-defect list, so it stays visible and tested as known; it
 returns only when the mutant generator of the roadmap (Phase 6, R3) or a real workflow hits it.
 
-| Task | Hours | Decision | Reason |
-| --- | ---: | --- | --- |
-| T0 Reproductions and invariants | 5 | Keep | It is the record of every row, kept or dropped |
-| TA2 Output slots before launch | 5 | Keep | A paid call that is then refused; two outputs served by one file |
-| TP1 Typecheck in the boundary | 2 | Keep | Turns every remaining crash into a coded outcome, which a search needs |
-| TD2 Subject read in an arm | 6 | Keep | A natural thing to write; passes the typechecker, then crashes |
-| TD1 Control forms as operands | 5 | Keep | Mostly pins what E1 closes; fixes `:max (match …)` |
-| TD5 Local with a loop | 4 | Keep | A natural shape in a staged seed; ends in a traceback |
-| TF Closeout | 2 | Keep, reduced | |
-| TC1 Imported summaries | 10 | **Dropped** | Effect analysis: named by the owner. The one consumer a probe showed wrong is the declared `:effects` ceiling |
-| TA3 P12 through references | 8 | **Dropped** (borderline) | Needs a run reference reached through a procedure reference inside a map body; no tracked source has it. What goes wrong at run time was not established |
-| TD3 Binder scope | 10 | **Dropped** (borderline) | Binding the inner form with `let*` first builds; the seed's own instance is fixed by Task 0b of the staged-authoring plan |
-| TD6 Local capturing a reference | 8 | **Dropped** (borderline) | Returns if the role binding of the staged-authoring plan meets it |
-| TD4, TD7, TD8 | 13 | **Dropped** | Contrived shapes or a crash where a refusal is meant |
-| TE1 to TE4 | 23 | **Dropped** | Refusals of good source with a known rewrite, or a misleading code |
-| TE5 Dead code | 10 | **Dropped** | No behaviour; a deletion that can ride any later change to those files |
-| TP2 Grid | 8 | **Dropped** | Prevention for positions nobody is fixing now |
-
-Kept: 29 hours in seven tasks (about 50 agent-hours with reviews), against 120. The missing prompt
-file (A1) is fixed on its own branch and is not in either figure. Of open decision O1's three
-changes only the two-slot alias check (in TA2) remains. The sections below are the plan as written
-before the cut; the tasks marked dropped here are not executed.
+| Kept task | Hours | Why it stays |
+| --- | ---: | --- |
+| T0 Reproductions and the invariant scripts | 10 | The record of every row, kept or dropped |
+| TA2 Output slots before launch | 9 | A paid call that is then refused; two outputs served by one file |
+| TP1 Typecheck in the defect boundary | 4 | Turns a traceback into a coded outcome, which a search needs |
+| TD2 Subject read in an arm | 6 | A natural thing to write; passes the typechecker, then crashes |
+| TD1 Control forms as operands | 5 | Mostly pins what E1 closes; fixes `:max (match …)` |
+| TD5 Local with a loop | 4 | A natural shape in a staged seed; ends in a traceback |
+| TD6 Local capturing a reference | 8 | Returned by the review: the staged role idiom (a role bound with `bind-proc`, called from a `let-proc` step) crashes here |
+| TF Closeout | 2 | |
+| **Total** | **48** | |
 
 ## How To Read The Reproductions
 
@@ -68,7 +61,11 @@ and run through the public command line (`python -m orchestrator compile|run m.o
 m::run --command-boundaries-file commands.json`). `commands.json` binds `c` to `python c.py`; the
 stand-in `c.py LABEL VALUE` appends `LABEL` to a log and writes `VALUE` to
 `$ORCHESTRATOR_OUTPUT_BUNDLE_PATH`. Subprocesses get a closed `PATH` (`closed_path` in
-`tests/agent_session_shims.py`, with `experiments/thread_m/no_provider` first). Shorthand:
+`tests/agent_session_shims.py`, with `experiments/thread_m/no_provider` first). Three kinds of row
+need more than this harness and say so: the provider rows (A1, A3, A4, B1, E15) use the fixture of
+`tests/test_workflow_evaluated_providers.py`; A2 uses the confined controller of
+`tests/test_workflow_lisp_run_ref_workflow_program.py`; C1 and E24 have two modules and
+`--source-root .`. Shorthand:
 
 ```lisp
 E(label, v, T) = (command-result c :argv ("python" "c.py" "label" "v") :returns T)
@@ -78,109 +75,123 @@ DBL  = (defproc dbl ((value Int)) -> Int (* value 2))
 AP   = (defproc apply1 ((f ProcRef[Int -> Int]) (v Int)) -> Int (f v))
 STEP = (defproc step ((n Int)) -> Int E(step, 1, Int))
 CHK  = (defproc check ((n Int)) -> Bool E(check, true, Bool))
+ADD  = (defproc add ((n Int) (x Int)) -> Int (+ n x))
+ADDE = (defproc add ((n Int) (x Int)) -> Int E(add, 3, Int))
+EACH = (defproc each ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int
+         (list/length (list/map-effect ((x xs)) :max 2 (f x))))
 ```
 
-"Today" is the result on `59f727db`. "Crash" means exit 2 with `compiler_defect`, the internal
-exception in brackets; "traceback" means exit 1 with an uncaught Python traceback.
+"Today" is the result on `59f727db` or, where the row says so, on `e112aa0f` (the same code).
+"Crash" means exit 2 with `compiler_defect`, the internal exception in brackets; "traceback" means
+exit 1 with an uncaught Python traceback.
 
 ## Classes
 
-| Class | Harm | Rows | Re-run on `59f727db` | Still open after the re-run |
-| --- | --- | ---: | ---: | ---: |
-| A | Spends money or launches work it should not | 3 | 3 | 3 |
-| B | Silent wrong value or wrong callee | 6 | 6 | 6 |
-| C | Unsound analysis that other checks rely on | 1 | 1 | 1 |
-| D | Crash on source the language admits | 18 | 16 | 13 open (3 of them closed on the E1 branch), 2 closed, 1 not reproduced; 2 not re-run |
-| E | Accepted form with no effect, misleading message, documented thing that does not exist | 23 | 20 | 16 open, 4 closed or not defects; 3 not re-run |
-| **Total** | | **51** | **46** | |
+| Class | Harm | Rows | Re-run by the planner | State after the re-run |
+| --- | --- | ---: | ---: | --- |
+| A | Spends money or launches work it should not | 4 | 4 | 4 open |
+| B | Silent wrong value or wrong callee | 6 | 6 | 6 open |
+| C | Unsound analysis that other checks rely on | 1 | 1 | 1 open |
+| D | Crash on source the language admits | 20 | 19 | 15 open (3 of them closed on the E1 branch), 2 closed, 2 not reproduced; 1 not re-run |
+| E | Accepted form with no effect, misleading message, documented thing that does not exist | 26 | 25 | 20 open, 4 closed or not defects, 1 not reproduced; 1 not re-run |
+| **Total** | | **57** | **55** | |
 
-The roadmap's list has about 40 items; the 51 rows come from splitting items that hold several
-programs, from nine defects that the reviews, the rule ledger and the staged-authoring design
-recorded and the roadmap did not copy (D1, D4, D17, D18, E3, E7, E8, E16, E23), and from one
-found while planning (E9).
+The roadmap's list has about 45 items in nine batches. The 57 rows come from splitting items that
+hold several programs, from defects that the reviews, the rule ledger, the cut's table and the
+staged-authoring design recorded and the roadmap did not copy (D1, D4, D17, D18, E3, E7, E8, E16,
+E20 to E23), and from one found while planning (E9). The independent review re-ran 33 of the rows
+on `main` at `801bd6d2` and four on the E1 tip; all matched.
 
 ## Defect Table
 
 "Cut" in the identity column means: the fix refuses or changes source that compiles today, or moves
 an identity, so by [the versioning rule](2026-11-12-lane-d-stage-4-one-target-plan.md#the-versioning-rule)
 it belongs to the cut's list and is not planned here. "None" means the fix only turns a crash or a
-wrong refusal into a refusal or a correct result, or acts at run time before launch.
+wrong refusal into a refusal or a correct result, or acts at run time before launch. The task
+column names a kept task (T0, TA2, TP1, TD1, TD2, TD5, TD6), a task
+[dropped by the owner's cut](#dropped-by-the-owners-cut), the one-target cut, or another plan.
 
 ### Class A
 
 | Id | Defect | Status | Identity | Task | Pinning test |
 | --- | --- | --- | --- | --- | --- |
-| A1 | A prompt whose `input_file` is missing does not fail; the provider runs with no authored prompt | Reproduced on `59f727db`: exit 0, one launch, the prompt holds only "Typed Prompt Input" and "Output Contract" | None (run time, before launch) | Listed only: `fix/missing-prompt-file` (uncommitted edits to `workflow/prompting.py`, `workflow/evaluated/providers.py`, `tests/test_workflow_evaluated_prompt_files.py`) | That branch's |
-| A2 | The guard that forbids a confined run-reference site in a map body (ruling P12) does not see one reached through a procedure-reference parameter or a `let-proc` local, serial and parallel | Reproduced on `59f727db`: C, G and M build; the named control is refused `run_ref_placement_invalid` | Refuses three program shapes that build today: needs [decision O1](#open-decisions-for-the-coordinator) | TA3 | `tests/test_workflow_lisp_run_ref_workflow_program.py::test_confined_site_behind_a_reference_in_a_map_frame_is_refused[param,let-proc,parallel]` |
-| A3 | An output slot named like a field of the structured result is found only after the provider has run | Reproduced on `59f727db`: compile exit 0; run launches the provider once, then `provider_result_invalid` (`duplicate_artifact_name`) | None if refused at run time before launch; the compile-time refusal is a cut candidate (O2) | TA2 | `tests/test_workflow_evaluated_providers.py::test_output_slot_named_like_a_result_field_is_refused_before_launch` |
+| A1 | A prompt whose `input_file` is missing does not fail; the provider runs with no authored prompt | Reproduced on `59f727db`: exit 0, one launch, the prompt holds only "Typed Prompt Input" and "Output Contract" | None (run time, before launch) | Not in this plan: `fix/missing-prompt-file` (in review; it adds `input_file_read_failed` and `asset_file_read_failed`) | That branch's |
+| A2 | The guard that forbids a confined run-reference site in a map body (ruling P12) does not see one reached through a procedure-reference parameter or a `let-proc` local, serial and parallel. It **launches**, it does not spend: a command-only confined child is started in each iteration; a provider child is refused before any run state | Reproduced on `59f727db`: C, G and M build; the named control is refused `run_ref_placement_invalid` | Refuses three program shapes that build today | Dropped (TA3) | Backlog module, known rows `A2-C`, `A2-G`, `A2-M` with the named-call control |
+| A3 | An output slot named like a field of the structured result, of any type, is found only after the provider has run | Reproduced on `59f727db`: compile exit 0; run launches the provider once, then `provider_result_invalid` (`duplicate_artifact_name`); the same with a `String` field of that name | None: refused at run time before a fresh launch; a committed row replays. The compile-time refusal is a cut candidate (O2) | TA2 | `tests/test_workflow_evaluated_output_slot_collisions.py` (TA2) |
+| A4 | A prompt `input_file` that leaves the workspace (an absolute path, `..`, a symlink out) is read and its text sent to the provider; `asset_file` refuses all three (roadmap, ninth batch) | Reproduced on `e112aa0f`: exit 0 and one launch in each of the three, with the outside file's text in the prompt; the `asset_file` controls exit 1 with no launch | None (run time, before launch) | Dropped by default; [decision O6](#open-decisions-for-the-coordinator) | Backlog module, known rows `A4-abs`, `A4-dotdot`, `A4-symlink` with the `asset_file` control |
 
 ### Class B
 
 | Id | Defect | Status | Identity | Task | Pinning test |
 | --- | --- | --- | --- | --- | --- |
-| B1 | Two `:out` slots filled with the same path commit; one file serves both outputs | Reproduced on `59f727db`: exit 0, committed | None (run time, before launch); a run that commits today fails after the fix (O1 covers it) | TA2 | `::test_two_output_slots_with_one_destination_are_refused_before_launch` |
-| B2 | An inner binding that is not a procedure reference does not hide an outer procedure reference of the same name (`let*`, a `match` arm binder, loop state) | Reproduced on `59f727db`: `let*` gives 2 (calls `increment` though `g` is 5); the arm binder gives 2 | Cut (row 2) | Cut | The cut's |
-| B3 | A `let-proc` local named like a `defun` or a form: the by-name call reaches the function or form | Reproduced on `59f727db`: 100 (the `defun`), and 1 for a local named `print` | Cut (row 1) | Cut | The cut's |
-| B4 | Macro hygiene in head position: a template-bound name at the head of a list is not renamed, so a caller's binding answers the template's call | Reproduced on `59f727db`: 10, intended 6; without the caller's binding `procedure_call_unknown` | Cut (row 4) | Cut | The cut's |
-| B5 | Macro hygiene never renames a template's `let-proc` binder; caller code passed to the macro calls the template's local | Reproduced on `59f727db`: builds, 6, by name and by `(proc-ref bump)` | Cut (row 3) | Cut | The cut's |
+| B1 | Two `:out` slots filled with the same path commit; one file serves both outputs | Reproduced on `59f727db`: exit 0, committed | None: run time, fresh launch only; a run that committed the alias still resumes (versioning rule 3, proven by a recorded run root) | TA2 | `tests/test_workflow_evaluated_output_slot_collisions.py` (TA2) |
+| B2 | An inner binding that is not a procedure reference does not hide an outer procedure reference of the same name (`let*`, a `match` arm binder, loop state) | Reproduced on `59f727db`: `let*` gives 2 (calls `increment` though `g` is 5); the arm binder gives 2 | Cut (row 2) | Cut | The cut's; today's value is a known row of the backlog module |
+| B3 | A `let-proc` local named like a `defun` or a form: the by-name call reaches the function or form | Reproduced on `59f727db`: 100 (the `defun`), and 1 for a local named `print` | Cut (row 1) | Cut | The cut's; today's value is a known row of the backlog module |
+| B4 | Macro hygiene in head position: a template-bound name at the head of a list is not renamed, so a caller's binding answers the template's call | Reproduced on `59f727db`: 10, intended 6; without the caller's binding `procedure_call_unknown` | Cut (row 4) | Cut | The cut's; today's value is a known row of the backlog module |
+| B5 | Macro hygiene never renames a template's `let-proc` binder; caller code passed to the macro calls the template's local | Reproduced on `59f727db`: builds, 6, by name and by `(proc-ref bump)` | Cut (row 3) | Cut | The cut's; today's value is a known row of the backlog module |
 | B6 | A `Bool` result accepts the JSON strings `"true"` and `"false"` in any case | Reproduced on `59f727db`: the string `"TRUE"` commits `true` | Refusing it changes what a run accepts | **Not fixed**: see [Not Worth Fixing](#not-worth-fixing) | Specification §8.10 states it |
 
 ### Class C
 
 | Id | Defect | Status | Identity | Task | Pinning test |
 | --- | --- | --- | --- | --- | --- |
-| C1 | Effect summaries are unsound for imported workflows: the fixpoint keeps an imported workflow's summary for its first round only, and a missing summary reads as "no effects" | Reproduced on `59f727db` through the declared ceiling: a procedure declared `:effects ((calls-workflow lib-w))` over an imported workflow that runs command `c` builds and runs; the same with a local workflow is refused `procedure_effect_ceiling_exceeded` | No digest moved in four sample programs; it refuses under-declared ceilings that build today: O1 | TC1 | `tests/test_workflow_lisp_effect_ceilings.py::test_ceiling_counts_the_effects_of_an_imported_workflow`; `::test_a_workflow_call_without_a_summary_is_not_read_as_pure` |
+| C1 | Effect summaries are unsound for imported workflows: the fixpoint keeps an imported workflow's summary for its first round only, and a missing summary reads as "no effects" | Reproduced on `59f727db` through the declared ceiling: a procedure declared `:effects ((calls-workflow lib-w))` over an imported workflow that runs command `c` builds and runs; the same with a local workflow is refused `procedure_effect_ceiling_exceeded` | No digest moved in four sample programs; it refuses under-declared ceilings that build today | Dropped (TC1) | Backlog module, known row `C1` with the local-workflow control |
 
 ### Class D
 
 | Id | Defect | Status | Identity | Task | Pinning test |
 | --- | --- | --- | --- | --- | --- |
-| D1 | A pure `match` under a shadowing `let*`, used as an operand | Crash on `59f727db`; **builds on `feat/coherence-e1` (`94236abf`)** | None | TD1 pins it after E1 | Grid row `operand x match` |
-| D2 | A loop's `continue` value holding an effectful `if` inside an operand | Crash on `59f727db`; on E1 refused `effect_not_permitted` (fn form probed; E1 is 49 commits behind `main` and has no binder form) | None | TD1 pins | E1's grid, `continue` rows |
-| D3 | A map inside a `continue` argument of a procedure specialized by a reference | Crash on `59f727db`; on E1 refused `effect_not_permitted` | None | TD1 pins | Grid row `continue x nested-map`, specialized |
-| D4 | `:max (match …)` on a loop | Crash on `59f727db` **and on E1** | None | TD1 fixes | Grid row `:max x match` |
-| D5 | Reading a variant field on the `match` subject instead of the arm's binder passes typecheck | Crash on `59f727db` | None | TD2 | `tests/test_workflow_lisp_match_subject_calls.py::test_field_read_on_the_subject_inside_its_arm` |
-| D6 | A variant-only field read when the tested name is rebound in one operand while a sibling operand tests it | Crash on `59f727db` | None | TD4 | `tests/test_workflow_lisp_if_variant_field_lowering.py::test_sibling_operand_rebinds_the_tested_name[both orders]` |
-| D7 | A nested loop with commands used directly as an operand, with or without a macro | Crash on `59f727db` (both); bound with `let*` first it builds | None | TD3 | `tests/test_workflow_lisp_loop_recur.py::test_nested_loop_is_an_operand` |
-| D8 | A `list/map` with a `match` body used directly as an `if` condition inside a loop body | Crash on `59f727db`, both loop forms | None | TD3 owns the cause; Task 0b (its D1) pins the seed's program | Task 0b's `test_map_with_a_match_body_is_a_condition_inside_a_loop` |
-| D9 | A `let-proc` local whose body is a loop with a `loop-state` | Traceback on `59f727db` (exit 1), fn form, binder form, called by name or by reference | None | TD5 | `tests/test_workflow_lisp_let_proc_bindings.py::test_local_whose_body_is_a_loop_with_state` |
-| D10 | A `let-proc` local that forwards a captured outer procedure reference | Crash on `59f727db` | None | TD6 | `::test_local_forwards_a_captured_reference` |
-| D11 | A one-call map body that is such a local | Crash on `59f727db` (a different site from D10) | None | TD6 | `::test_local_capturing_a_reference_is_a_map_body` |
-| D12 | A `defworkflow` with a workflow-reference parameter, used as the entry or called | Crash on `59f727db`, three sites; declared and never called it builds | None if refused at the use, which crashes today | TD7 | `tests/test_workflow_lisp_workflow_refs.py::test_workflow_formal_reference_is_refused_at_its_use[entry,literal,bare]` |
-| D13 | An `Int` literal beyond 64 bits | Crash on `59f727db`; folded arithmetic of the same size is refused `pure_expr_overflow` | None | TD8 | `tests/test_workflow_pure_expr.py::test_int_literal_beyond_64_bits_is_refused` |
-| D14 | An empty `(list)` in a `match` arm (Task 0b's D2) | **Not reproduced** as a crash in twelve shapes, on `59f727db` or on the tree the design was written against: it builds where the position states the type and is refused `list_empty_type_context_required` where it does not | — | Task 0b | Task 0b's |
+| D1 | A pure `match` under a shadowing `let*`, used as an operand | Crash on `59f727db`; **builds on `feat/coherence-e1`** (the review re-ran it on that branch's tip `10965cda`, which has `main` merged: 1005) | None | TD1 pins it after E1 | Grid row `operand x match` |
+| D2 | A loop's `continue` value holding an effectful `if` inside an operand | Crash on `59f727db`; on the E1 tip refused `effect_not_permitted`, fn form and binder form | None | TD1 pins | E1's grid, `continue` rows |
+| D3 | A map inside a `continue` argument of a procedure specialized by a reference | Crash on `59f727db`; on the E1 tip refused `effect_not_permitted` | None | TD1 pins | Grid row `continue x nested-map`, specialized |
+| D4 | `:max (match …)` on a loop; `:max (if …)` and `:max (cond …)` build | Crash on `59f727db` **and on the E1 tip**. For a serial map's `:max` the reviewer's probe crashes and the planner's builds; TD1 tests both | None | TD1 fixes | Grid row `:max x match` |
+| D5 | Reading a variant field on the `match` subject instead of the arm's binder passes typecheck | Crash on `59f727db` | None | TD2 | `tests/test_workflow_lisp_match_subject_calls.py::test_field_read_on_the_subject_inside_its_arm` (TD2) |
+| D6 | A variant-only field read when the tested name is rebound in one operand while a sibling operand tests it | Crash on `59f727db` | None | Dropped (TD4) | Backlog module, known row |
+| D7 | A nested loop with commands used directly as an operand, with or without a macro | Crash on `59f727db` (both); bound with `let*` first it builds | None | Dropped (TD3); **no owner** | Backlog module, known row |
+| D8 | A `list/map` with a `match` body used directly as an `if` condition inside a loop body | Crash on `59f727db`, both loop forms | None | Task 0b of the staged-authoring plan (its D1); TD3, which owned the cause, is dropped | Task 0b's `test_map_with_a_match_body_is_a_condition_inside_a_loop` |
+| D9 | A `let-proc` local whose body is a loop with a `loop-state` | Traceback on `59f727db` (exit 1): fn form, binder form, called by name or by reference, and a serial map inside a local. A local whose loop has no `loop-state` builds | None | TD5 | `tests/test_workflow_lisp_let_proc_bindings.py::test_local_whose_body_is_a_loop_with_state` (TD5) |
+| D10 | A `let-proc` local that forwards a captured outer procedure reference; so also a role bound with `bind-proc` and called from a local step (shape R1) | Crash on `e112aa0f`, for a plain reference and for a pure bound role | None | TD6 | `::test_local_forwards_a_captured_reference` |
+| D11 | Such a local as a one-call map body or passed by `proc-ref` to a mapping procedure (shapes R2, R5); with an effectful role also the direct call R1 | Crash on `e112aa0f` (a different site from D10). The role called directly in the map body (R3) or passed itself (R4) builds and runs two commands | None | TD6 | `::test_local_capturing_a_reference_is_a_map_body` |
+| D12 | A `defworkflow` with a workflow-reference parameter, used as the entry or called | Crash on `59f727db`, three sites; declared and never called it builds | None if refused at the use, which crashes today | Dropped (TD7) | Backlog module, three known rows |
+| D13 | An `Int` literal beyond 64 bits | Crash on `59f727db`; folded arithmetic of the same size is refused `pure_expr_overflow` | None | Dropped (TD8) | Backlog module, known row |
+| D14 | An empty `(list)` in a `match` arm (Task 0b's D2) | **Not reproduced** as a crash in twelve shapes, on `59f727db` or on the tree the design was written against: it builds where the position states the type and is refused `list_empty_type_context_required` where it does not | — | Task 0b; no program, listed only | Task 0b's |
 | D15 | A parallel map written directly in a `loop/recur` body | **No longer reproduces**: closed by I1 (`624ff688`); crashed on `a58e5b17` | — | T0 pins | Backlog module, row `D15` |
 | D16 | A procedure reference chosen with `if` | **No longer reproduces**: closed by C1 (`b6646fde`), `proc_ref_literal_required` | — | T0 pins | Backlog module, row `D16` |
-| D17 | A `bind-proc` value that holds a serial map | **Not re-run** (I1 first review: crash on its base and tip, "typed list/map expression is missing its result element type") | None | TD6 re-runs it first | — |
-| D18 | A provider extern used as a value in reached code | **Not re-run** (staged-authoring design §2, D7) | None | Staged-authoring P1 and P2 | Theirs |
+| D17 | A `bind-proc` value that holds a serial map | **Does not reproduce** on `e112aa0f`: a `bind-proc` over a procedure whose body is a serial map, effectful or pure, builds and runs. The I1 first review saw a crash on its base | — | T0 pins | Backlog module, row `D17` |
+| D18 | A provider extern used as a value in reached code | **Not re-run** (staged-authoring design §2, D7) | None | Staged-authoring P1 and P2; no program here, listed only | Theirs |
+| D19 | `(continue (if c (if c E 0) 0))`: an effect under a nested conditional as a `continue` value (ninth batch) | Crash on `e112aa0f` (`SiteAssignmentError`); also on the E1 tip, per its third review. The same value as a `done` value runs | None | Dropped by default; same cause family as TD1 (O7) | Backlog module, known row |
+| D20 | A procedure call holding a conditional effect, used as a `match` subject (ninth batch) | Crash on `e112aa0f` (D1's site); bound with `let*` first it runs | None | Dropped by default; same cause family as TD1 (O7) | Backlog module, known row |
 
 ### Class E
 
 | Id | Defect | Status | Identity | Task | Pinning test |
 | --- | --- | --- | --- | --- | --- |
-| E1 | `(and (= u.variant A) …)` and the `or` mirror grant no proof in a module compile, though the expression typechecker grants it | Reproduced on `59f727db`: `variant_ref_unproved` | None (admits refused source) | TE1 | `tests/test_workflow_lisp_variant_proofs.py::test_compound_test_proves_a_read_in_a_module` |
-| E2 | A discriminant proof reaches a parallel `list/map-effect` body and a pure `list/map` body, not a serial `list/map-effect` body | Reproduced on `59f727db` | None | TE1 | `::test_proof_reaches_a_serial_map_body` |
-| E3 | The `variant_ref_unproved` message says a proof does not reach into a map | Reproduced (the message of E1 and E2) | None | TE1 | Code only; no message assertion |
-| E4 | In a generic procedure a discriminant test on a value of a type parameter is refused `variant_tag_union_mismatch`, naming two "incompatible unions" | Reproduced on `59f727db` | None (a code on a refused program) | TE4 | `::test_discriminant_test_on_a_type_parameter_has_its_own_code` |
+| E1 | `(and (= u.variant A) …)` and the `or` mirror grant no proof in a module compile, though the expression typechecker grants it | Reproduced on `59f727db`: `variant_ref_unproved` | None (admits refused source) | Dropped (TE1) | Backlog module, known row |
+| E2 | A discriminant proof reaches a parallel `list/map-effect` body and a pure `list/map` body, not a serial `list/map-effect` body | Reproduced on `59f727db` | None | Dropped (TE1) | Backlog module, known row |
+| E3 | The `variant_ref_unproved` message says a proof does not reach into a map | Reproduced (the message of E1 and E2) | None | Dropped (TE1) | None: a message is not asserted |
+| E4 | In a generic procedure a discriminant test on a value of a type parameter is refused `variant_tag_union_mismatch`, naming two "incompatible unions" | Reproduced on `59f727db` | None (a code on a refused program) | Dropped (TE4) | Backlog module, known row |
 | E5 | `cond`, `if` and `match` can be bound as names | Reproduced on `59f727db`: all three build and run | Reserving them refuses source that compiles | **Not fixed** | — |
-| E6 | A `defproc` parameter of procedure-reference type forwarded through `let*` | Reproduced on `59f727db`: `name_unknown`; the uncalled procedure builds | None | TE2 | `tests/test_workflow_lisp_callables_coherence.py::test_reference_parameter_forwarded_through_let` |
+| E6 | A `defproc` parameter of procedure-reference type forwarded through `let*` | Reproduced on `59f727db`: `name_unknown`; the uncalled procedure builds | None | Dropped (TE2) | Backlog module, known row |
 | E7 | A generic procedure called in a `list/map-effect` body | Reproduced on `59f727db`: `procedure_call_unknown` naming `%parametric-call.m.gstep.…` | None | Task 0b (its D3) | Task 0b's |
 | E8 | A `bind-proc` over a procedure's own parameter, passed to a `ProcRef` parameter | Reproduced on `59f727db`: `procedure_lowering_unresolved` | None | Task 0b (its D5) | Task 0b's |
-| E9 | **Found while planning.** A pure procedure whose body is a loop, passed by `proc-ref` to a pure procedure that calls it | Reproduced on `59f727db`: `procedure_call_unknown`, "unknown procedure callee `f`"; it builds when either procedure has an effect, and when called directly | None | TE3 | `::test_pure_loop_procedure_is_called_through_a_reference` |
+| E9 | **Found while planning.** A pure procedure whose body is a loop, passed by `proc-ref` to a pure procedure that calls it | Reproduced on `59f727db`: `procedure_call_unknown`, "unknown procedure callee `f`"; it builds when either procedure has an effect, and when called directly | None | Dropped (TE3) | Backlog module, known row |
 | E10 | A free name in a macro template binds to the caller's local | Reproduced on `59f727db` (6 for `y = 5`) | Changing it changes meaning | **Not fixed**: specification §34 now states it | — |
 | E11 | A workflow defined by a macro gets its parameters renamed and cannot be called or used as an entry | Reproduced on `59f727db`: `workflow_signature_mismatch` | Cut (row 5) | Cut | The cut's |
 | E12 | `defpath` ignores an unknown keyword | Reproduced on `59f727db` | Cut (row 6) | Cut | The cut's |
 | E13 | Return guidance on a workflow, procedure or function is checked and discarded | Reproduced on `59f727db`: equal digests with and without | Cut (row 7) | Cut | The cut's |
 | E14 | `TimestampNs` was documented as a type | `type_unknown` on `59f727db`; **closed by the documentation** (corpus T3a removed it from specification §7.1) | — | None | — |
 | E15 | A prompt extern's path is checked when the call runs, not at compile | Reproduced on `59f727db`: a missing or outside `asset_file` compiles; the run fails before launch | A compile refusal refuses source that compiles: cut candidate (O2) | Not planned | — |
-| E16 | A missing prompt file is reported as a bare `[Errno 2]` | Reproduced (E15's run) | None | With A1's branch if it takes it; else TA2 | — |
-| E17 | Dead code: the prompt snapshot and attempt-identity builders, the fragment-identity projection, `render_prompt_fragment_base`, `structural_bootstrap_plan`, two lints that nothing raises, inert remnants of `requires_variant` | Confirmed by `grep` on `59f727db`: no caller in `orchestrator/` | None expected; TE5 proves it | TE5 | The removal test (`tests/test_retired_executors_removed.py`), extended |
+| E16 | A missing prompt file is reported as a bare `[Errno 2]` | Reproduced on `e112aa0f`; closed by `fix/missing-prompt-file` when it merges (`asset_file_read_failed`) | None | Not in this plan: that branch | That branch's |
+| E17 | Dead code: the prompt snapshot and attempt-identity builders, the fragment-identity projection, `render_prompt_fragment_base`, `structural_bootstrap_plan`, two lints that nothing raises, inert remnants of `requires_variant` | Confirmed by `grep` on `59f727db`: no caller in `orchestrator/` | None expected; TE5 proves it | Dropped (TE5) | None |
 | E18 | `list/map` inside a macro template | **Not a defect**: `list_map_binder_invalid` only when the binder has the name of a template local, which the same program written in place also gets | — | T0 pins both | Backlog module |
 | E19 | A call to a `let-proc` local inside a macro template | **No longer reproduces**: closed by C1 (4 on `59f727db`); the reference-local half is B4 | — | T0 pins | Backlog module |
-| E20 | A template's `cond` test captured by the caller | **No longer reproduces**: closed by I2a (`bdf49443`), 1 on `59f727db` | — | T0 pins | Backlog module |
-| E21 | A pure operand of an operator renames the effects beside it | Not re-run (E1's second review) | Cut (row 8) | Cut | — |
-| E22 | Local and generated names are part of the program digest | Not re-run | Cut (row 9), with roadmap R2 | Cut | — |
-| E23 | `bind-proc :fixed tmp` over a local `tmp` | Not re-run (I2a's second re-review, minor 10: `name_unknown`) | None | TE2 re-runs it first | — |
+| E20 | A template's `cond` test captured by the caller (I2a's first re-review, N2, first program) | **No longer reproduces**: closed by I2a (`bdf49443`), 1 on `59f727db` | — | T0 pins | Backlog module |
+| E21 | A pure operand of an operator renames the effects beside it (the cut's table, from E1's second review) | Not re-run; no program in the reviews' summaries | Cut (row 8) | Cut | None: listed only |
+| E22 | Local and generated names are part of the program digest (the cut's table, from search readiness) | Reproduced on `e112aa0f`: two spellings of one program, two digests | Cut (row 9), with roadmap R2 | Cut | None: a property the cut decides, listed only |
+| E23 | A `bind-proc` written in argument position whose bound operand is a name (a local or a workflow input) | Reproduced on `e112aa0f`: `name_unknown`; bound with `let*` first and then passed or called, it builds (2) | None | Dropped (TE2) | Backlog module, known row with the `let*` control |
+| E24 | `path/join-under` looks up its path type in the caller's scope: a procedure called from a module that does not import that type is refused (ninth batch) | Reproduced on `e112aa0f`: `path_join_under_type_invalid`; with the type imported by the caller, or module-qualified, it builds | None (admits refused source) | Dropped by default | Backlog module, known row |
+| E25 | A parallel map in an `if` condition is refused with a message saying its body must be one call (ninth batch) | **Does not reproduce** in the planner's shape on `e112aa0f`: it builds (the E1 third review saw `list_map_effect_body_unsupported` before I1 merged) | — | T0 pins | Backlog module, row `E25` |
+| E26 | A `bind-proc` argument that holds an effect is refused `procedure_call_unknown`, naming a callee the author did not write (ninth batch) | Reproduced on `e112aa0f` (callee `f`) | None (a code on a refused program) | Dropped by default | Backlog module, known row |
 
 Not defects, for the record: result guidance on a provider or command effect is part of program
 identity (a specification correction, made); a computed `:max` below 1 over an empty list fails by
@@ -192,30 +203,34 @@ design.
 | --- | --- | --- | --- |
 | A1 | Fixture `_fixture`/`_cli` of `tests/test_workflow_evaluated_providers.py`, its `SOURCE` at 2.40, prompt manifest `{"prompts.base": {"input_file": "nope.md"}}`, stand-in `codex` | Exit 0; one request | `workflow/prompting.py:read_prompt_source_with_sha256`, the `input_file` branch (`if input_path.exists()`) |
 | A2 | The `CONFINED` controller of `tests/test_workflow_lisp_run_ref_workflow_program.py` at 2.40 with `MAP_CALLEES`, plus `(defproc hide1r ((n Int)) -> Int (call one :seed n :revision "r"))`, `(defproc viaparam1 ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int (list/length (list/map-effect ((x xs)) :max 2 (f x))))`, `(defproc par1 ((f ProcRef[Int -> Int])) -> Int (list/length (list/map-effect ((repo (list "a"))) :max 1 :parallel 1 :workspace repo (f 1))))`. Bodies replacing `MAP_RUN_BODY`: **C** `(let* ((xs (viaparam1 (proc-ref hide1r) (list 1 2)))) 1)`; **G** `(let* ((xs (let-proc ((h ((n Int)) -> Int (call one :seed n :revision "r"))) (viaparam1 (proc-ref h) (list 1 2))))) 1)`; **M** `(let* ((xs (par1 (proc-ref hide1r)))) 1)`; control `(list/length (list/map-effect ((x (list 1 2))) :max 2 (hide1r x)))` | C, G, M build; the control is refused | `typecheck_run_ref.py:_refuse_confined_site_in_map_frame` and `_callees`: a `ProcedureCallExpr` is followed only when its name is in `program.procedures`; a reference parameter `f` is not, and the `proc-ref` literal sits in the caller, outside the frame |
-| A3 | Same provider fixture. `(defpath Report :kind relpath :under "artifacts" :must-exist false) (defrecord Result (ok Bool) (report Report)) (defprompt review (:fills (report :path :out Report)) -> Result "Report={report}") (defworkflow run ((message String) (report Report)) -> Result (provider-result providers.review :prompt (review :report report)))`, input `report=artifacts/report.txt` (the file exists), stand-in result `{"ok":true,"report":"artifacts/report.txt"}` | One launch, then exit 1 | `workflow/evaluated/providers.py:provider_result` (the overlap check runs after the result is read); `resolve_provider_input` knows both name sets before launch |
+| A3 | Same provider fixture. `(defpath Report :kind relpath :under "artifacts" :must-exist false) (defrecord Result (ok Bool) (report Report)) (defprompt review (:fills (report :path :out Report)) -> Result "Report={report}") (defworkflow run ((message String) (report Report)) -> Result (provider-result providers.review :prompt (review :report report)))`, input `report=artifacts/report.txt` (the file exists), stand-in result `{"ok":true,"report":"artifacts/report.txt"}`. Second program: the field is `(report String)`, result `{"ok":true,"report":"x"}` | One launch, then exit 1 | `workflow/evaluated/providers.py:provider_result` (the overlap check runs after the result is read, over every top-level field of the result); the names are static |
+| A4 | The provider fixture with its `SOURCE` at 2.40 and a file `outside.md` beside the workspace directory. Manifest `{"prompts.base": {"input_file": X}}` with X = `"../outside.md"`, the absolute path, or `"link.md"` (a symlink in the workspace to the outside file). Control: the same three under `asset_file` | Exit 0, one launch, the outside text in the prompt. Controls: exit 1, no launch | `workflow/prompting.py:read_prompt_source_with_sha256` (`self.workspace / step["input_file"]`, no containment check); `specs/io.md` lists `input_file` under workspace-relative runtime reads |
 | B1 | Same, with `(defrecord Result (ok Bool))` and `(defprompt review (:fills (a :path :out Report) (b :path :out Report)) -> Result "A={a} B={b}")`, called `(review :a report :b report)` | Exit 0, committed | `contracts/output_contract.py:validate_prompt_output_position_destinations` has no caller outside `tests/test_output_contract.py` |
 | B2 | `INC`; `() -> Int (let* ((g (proc-ref increment))) (let* ((g 5)) (g 1)))`. Arm binder: `U INC`; `((u U)) -> Int (let* ((g (proc-ref increment))) (match u ((A g) (g 1)) ((B b) 0)))` | 2; 2 | `typecheck_dispatch.py:_typecheck`, the `let*` branch (`local_proc_ref_env` is never cleared by a binding that is not a reference) |
 | B3 | `(defun f ((n Int)) -> Int (* n 100))`; `() -> Int (let-proc ((f ((x Int)) -> Int (+ x 1))) (f 1))` | 100 | `expressions.py:_elaborate_local_hooks` (the collision set lacks function names and form heads); `_elaborate_list` resolves forms and functions before locals |
 | B4 | `INC DBL (defmacro mm (x) (let* ((f (proc-ref increment))) (f x)))`; `() -> Int (let* ((f (proc-ref dbl))) (+ 0 (mm 5)))` | 10 | `macros.py:_apply_hygiene`, `_hygienic_generic_list` (item 0 of a list is not renamed); what a head names is known only to the resolver |
 | B5 | `(defmacro with-bump (k body) (let-proc ((bump ((x Int)) -> Int (+ x k))) body))`; `((n Int)) -> Int (with-bump 5 (bump n))` | 6 for `n = 1` | `macros.py:_hygienic_let_proc` |
 | B6 | `() -> Bool E(strb, TRUE, Bool)` with a stand-in that writes the JSON string `"TRUE"` | `true` | `contracts/output_contract.py:_parse_output_bundle_value` (`value_type == "bool"`) |
-| C1 | `lib.orc`: `(defmodule lib) (export lib-w) (defworkflow lib-w ((n Int)) -> Int E(libw, 7, Int))`. `m.orc`: `(import lib :only (lib-w))`, `(defproc p ((n Int)) -> Int :effects ((calls-workflow lib-w)) (call lib-w :n n))`, `(defworkflow run () -> Int (p 1))`. Control: `lib-w` defined in `m` | Builds, runs `libw`, 7. Control: `procedure_effect_ceiling_exceeded`, "does not cover (uses-command(c))". With `:effects ()` the imported case reports `(calls-workflow(lib::lib-w))` only, the local one also `uses-command(c)` | `compiler.py:_infer_stage3_effect_summaries` (`next_workflow_effects` is rebuilt from the module's own `typed_workflows`; imported procedures have `imported_procedure_effects`, workflows have no counterpart); `typecheck_calls.py:typecheck_call_expr` (`workflow_effects_by_name.get(name, EMPTY_EFFECT_SUMMARY)`) |
+| C1 | `lib.orc`: `(defmodule lib) (export lib-w) (defworkflow lib-w ((n Int)) -> Int E(libw, 7, Int))`. `m.orc`, beside it, compiled with `--source-root .`: `(defmodule m) (import lib :only (lib-w)) (export run)` (the import before the export), `(defproc p ((n Int)) -> Int :effects ((calls-workflow lib-w)) (call lib-w :n n))`, `(defworkflow run () -> Int (p 1))`. Control: `lib-w` defined in `m` | Builds, runs `libw`, 7. Control: `procedure_effect_ceiling_exceeded`, "does not cover (uses-command(c))". With `:effects ()` the imported case reports `(calls-workflow(lib::lib-w))` only, the local one also `uses-command(c)` | `compiler.py:_infer_stage3_effect_summaries` (`next_workflow_effects` is rebuilt from the module's own `typed_workflows`; imported procedures have `imported_procedure_effects`, workflows have no counterpart); `typecheck_calls.py:typecheck_call_expr` (`workflow_effects_by_name.get(name, EMPTY_EFFECT_SUMMARY)`) |
 | D1 | `(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))`; `() -> Int (let* ((c 1000)) (+ c (let* ((c 5)) (match (variant Shape SQUARE :side 2) ((CIRCLE k) k.r) ((SQUARE s) c)))))` | Crash (`TypeError: expected linear WCC value body, found WccCase`) | `wcc/elaborate.py:_body_to_prefix_and_value`, from `_elaborate_operands_to_values` |
 | D2 | `((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (continue (+ (if (> n 0) E(e, 1, Int) 0) 9))))` | Crash (`… found WccIf`) | Same |
 | D3 | `STEP (defproc via-cont ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int (loop/recur :max 3 :state 0 :on-exhausted 0 (fn (s) (if (= s 0) (continue (list/length (list/map-effect ((x xs)) :max 2 (f x)))) (done s)))))`; `() -> Int (via-cont (proc-ref step) (list 1 2))` | Crash (`… found WccRecJoin`) | Same |
-| D4 | `U`; `((u U)) -> Int (loop/recur ((s 0)) :max (match u ((A a) a.n) ((B b) 1)) :on-exhausted 0 (done s))` | Crash (`TypeError: unsupported WCC elaboration node: MatchExpr`) | `wcc/elaborate.py:_elaborate_loop_recur_to_body` to `_elaborate_expr_to_value` |
-| D5 | `U`; `((u U)) -> Int (match u ((A a) u.n) ((B b) 0))` | Crash (`TypeError: expected record type while resolving u.n`) | `wcc/elaborate.py:_elaborate_match_case_with_subject` to `_infer_expr_type` |
+| D4 | `U`; `((u U)) -> Int (loop/recur ((s 0)) :max (match u ((A a) a.n) ((B b) 1)) :on-exhausted 0 (done s))`. Controls that build: `:max (if (> n 0) 1 2)`. Serial map, planner's shape (builds): `(list/length (list/map-effect ((x (list 1 2))) :max (match u ((A a) a.n) ((B b) 1)) E(m, 1, Int)))` | Crash (`TypeError: unsupported WCC elaboration node: MatchExpr`) | `wcc/elaborate.py:_elaborate_loop_recur_to_body` to `_elaborate_expr_to_value` |
+| D5 | `U`; `((u U)) -> Int (match u ((A a) u.n) ((B b) 0))`. Controls: `(match u ((A a) u.why) ((B b) "x"))` is refused `variant_ref_wrong_variant`; `(match u ((A u) u.n) ((B b) 0))` gives 3; `(if (= u.variant A) u.n 0)` gives 3 | Crash (`TypeError: expected record type while resolving u.n`) | `wcc/elaborate.py:_elaborate_match_case_with_subject` to `_infer_expr_type` |
 | D6 | `U`; `((u U)) -> Int (+ (let* ((u (variant U A :n 1))) (if (= u.variant A) u.n 0)) (if (= u.variant A) u.n 0))` | Crash (`CheckedFormError: union field 'n' is absent or has variant-dependent types`) | Raised in `contracts/closed_program/check.py:_field_type`; cause in `wcc/hygiene.py` (it renames the hoisted binding and its atoms, not the `(binding, union, tag)` proof triples of `WccIf`/`WccSelect`) |
 | D7 | `STEP CHK`; `() -> Int (let* ((tmp (step 3))) (+ tmp (let* ((tmp (step 1))) (loop/recur :max 2 :state tmp :on-exhausted s (fn (s) (if (check s) (done s) (continue (loop/recur :max 1 :state (+ s tmp) :on-exhausted u (fn (u) (done (step u)))))))))))` | Crash (`KeyError: 'u'`); with the inner `let*` hoisted into the outer binding list it builds | `wcc/elaborate.py:_infer_expr_type`, reached from `_elaborate_atomic_value` |
 | D8 | `U`; `((u U)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (= (list/length (list/map ((v (list u u))) (match v ((A a) a.n) ((B b) 0)))) 2) (done 1) (continue (+ s 1))))` | Crash (`KeyError: 'v'`) | `wcc/elaborate.py:_infer_expr_type`, reached from `closed/command_templates.py:_effectful_binding_control_fact` through `binding_type_for_elaboration` |
-| D9 | `AP`; `((n Int)) -> Int (let-proc ((h ((v Int)) -> Int (loop/recur ((s (loop-state (i Int 0)))) :max 1 :on-exhausted 0 (done s.i)))) (h n))` | Traceback (`RuntimeError: typed loop-state carrier has no retained expanded-declaration family`) | `loop_state.py:_typecheck_loop_state_seed`; raised in typecheck, outside `diagnostics.py:compiler_defect_boundary` |
-| D10 | `INC`; `() -> Int (let* ((p (proc-ref increment))) (let-proc ((f ((x Int)) -> Int (p x))) (f 1)))` | Crash (`ValueError: command capture has no retained binder in its lexical frame`) | `closed/command_templates.py:bind`, from `wcc/elaborate.py:_command_bound_bindings` |
-| D11 | `STEP (defproc via ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int (list/length (list/map-effect ((x xs)) :max 2 (f x))))`; `() -> Int (let* ((g (proc-ref step))) (let-proc ((h ((n Int)) -> Int (g n))) (via (proc-ref h) (list 1 2))))` | Crash (`TypeError: unhashable type: 'list'`) | `workflow/evaluated/provider_io.py:bind`, from `closed/build.py:_bind_provider_io` |
+| D9 | `AP`; `((n Int)) -> Int (let-proc ((h ((v Int)) -> Int (loop/recur ((s (loop-state (i Int 0)))) :max 1 :on-exhausted 0 (done s.i)))) (h n))`. Also: `(apply1 (proc-ref h) n)`; the `fn` form; a local whose body is `(list/length (list/map-effect ((x (list 1 2))) :max 2 E(m, 1, Int)))`. Control that builds: the same local with `((s 0))` | Traceback (`RuntimeError: typed loop-state carrier has no retained expanded-declaration family`) | `loop_state.py:_typecheck_loop_state_seed`; raised in typecheck, outside `diagnostics.py:compiler_defect_boundary` |
+| D10 | `INC`; `() -> Int (let* ((p (proc-ref increment))) (let-proc ((f ((x Int)) -> Int (p x))) (f 1)))`. **R1**, with `ADD = (defproc add ((n Int) (x Int)) -> Int (+ n x))`: `() -> Int (let* ((role (bind-proc (proc-ref add) :n 1))) (let-proc ((step ((x Int)) -> Int (role x))) (step 1)))` | Crash (`ValueError: command capture has no retained binder in its lexical frame`) | `closed/command_templates.py:bind`, from `wcc/elaborate.py:_command_bound_bindings` |
+| D11 | `STEP (defproc via ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int (list/length (list/map-effect ((x xs)) :max 2 (f x))))`; `() -> Int (let* ((g (proc-ref step))) (let-proc ((h ((n Int)) -> Int (g n))) (via (proc-ref h) (list 1 2))))`. With `ADDE = (defproc add ((n Int) (x Int)) -> Int E(add, 3, Int))` and `EACH = (defproc each ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int (list/length (list/map-effect ((x xs)) :max 2 (f x))))`, each inside `(let* ((role (bind-proc (proc-ref add) :n 1))) (let-proc ((step ((x Int)) -> Int (role x))) BODY))`: **R1** `BODY = (step 1)`; **R2** `BODY = (list/length (list/map-effect ((x (list 1 2))) :max 2 (step x)))`; **R5** `BODY = (each (proc-ref step) (list 1 2))`. Controls without the local: **R3** `(list/length (list/map-effect ((x (list 1 2))) :max 2 (role x)))`; **R4** `(each role (list 1 2))` | Crash (`TypeError: unhashable type: 'list'`) for the first program and for R1, R2, R5 with the effectful role. R3 and R4: 2, two `add` calls | `workflow/evaluated/provider_io.py:bind`, from `closed/build.py:_bind_provider_io` |
 | D12 | `(defrecord Box (n Int)) (defworkflow helper ((b Box)) -> Box b) (defworkflow invoke ((runner WorkflowRef[Box -> Box])) -> Box (record Box :n 1))`. (a) `invoke` as the entry; (b) `() -> Box (call invoke :runner (workflow-ref helper))`; (c) `:runner helper` | (a) `CanonicalNameError: canonical identity is missing owner facts`; (b) `TypeError: unsupported WCC elaboration node: WorkflowRefLiteralExpr`; (c) `KeyError: 'helper'` | (a) `closed/names.py:canonical_type_descriptor`; (b) `wcc/elaborate.py:_elaborate_expr_to_value`; (c) `wcc/elaborate.py:_infer_expr_type`, both from `_elaborate_workflow_call_binding_value` |
 | D13 | `() -> Int 9223372036854775808` | Crash (`CheckedFormError: literal does not match its descriptor`) | Raised in `contracts/closed_program/check.py:_value`; the typechecker accepts the literal |
 | D14 | Tried: the arm in a result, a record field, a procedure argument, an `if` arm, a command subject, a `let*` binding, a loop `done`, both orders of arms | Builds, or `list_empty_type_context_required` | The crash text of the design ("typed list is missing its resolved child types") is at `wcc/elaborate.py:_elaborate_expr_to_value`, the `ListExpr` branch |
 | D15 | `() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (done (list/length (list/map-effect ((r (list "a" "b"))) :max 2 :parallel 2 :workspace r E(p, 1, Int)))))` | Builds | — |
 | D16 | `INC`; `((n Int)) -> Int (let* ((g (if (> n 0) (proc-ref increment) (proc-ref increment)))) (g 1))` | `proc_ref_literal_required` | — |
+| D17 | `(defproc total ((n Int) (xs List[Int])) -> Int (list/length (list/map-effect ((x xs)) :max 2 E(m, 1, Int))))`; `() -> Int (let* ((r (bind-proc (proc-ref total) :n 1))) (r (list 1 2)))`; the same with a pure `list/map` body | 2, two `m` calls; 2 | — |
+| D19 | `((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (continue (if (> n 0) (if (> n 0) E(e, 1, Int) 0) 0))))`. Control: the same value in `(done …)` | Crash (`SiteAssignmentError: effectful select appears outside a binding`), at lowering. Control: 1, one command | Not traced to a function; E1's guard converts only the non-linear-body error into `effect_not_permitted` |
+| D20 | `(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int))) (defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))`; `((n Int)) -> Int (match (mkshape (if (> n 0) E(e1, 1, Int) E(e2, 2, Int))) ((CIRCLE c) c.r) ((SQUARE s) 0))`. Control: the subject bound with `let*` first | Crash (`TypeError: expected linear WCC value body, found WccJoin`). Control: 1, `e1` | `wcc/elaborate.py:_body_to_prefix_and_value` (D1's site) |
 | E1 | `U`; `((u U) (r Bool)) -> Int (if (and (= u.variant A) r) u.n 0)`; mirror `(if (or (!= u.variant A) r) 0 u.n)` | `variant_ref_unproved` | `conditionals.py:_normalize_short_circuit` hoists the condition into a generated binding; the final `if` is checked on a bare name with no facts |
 | E2 | `U`; `((u U)) -> List[Int] (if (= u.variant A) (list/map-effect ((y (list 1 2))) :max 2 (command-result c :argv ("python" "c.py" "m" u.n) :returns Int)) (list 0))`. Controls: the same with `:parallel 1 :workspace y` over `(list "a")`; `(list/map ((y (list 1 2))) (+ y u.n))` | Refused; both controls build | `typecheck_structural_values.py:typecheck_structural_value_expr` types a serial map as a synthetic loop, and a proof does not enter a loop body (`typecheck_loop_recur.py:typecheck_loop_recur_expr`) |
 | E4 | `(defunion U (OK (n Int)) (BAD (why String))) (defproc pick :forall (T) ((x T)) :where ((T has-union-variant OK (n Int)) (T has-union-variant BAD (why String))) -> Int (if (= x.variant OK) 1 0))`; `((u U)) -> Int (pick u)` | `variant_tag_union_mismatch` | `typecheck_pure_ops.py:_typecheck_ordinary_equality` |
@@ -233,21 +248,27 @@ design.
 | E18 | `(defmacro mm (x) (let* ((v (list x x))) (list/length (list/map ((v v)) (+ v 1)))))`; in place `(let* ((v (list 1 1))) (list/length (list/map ((v v)) (+ v 1))))` | Both `list_map_binder_invalid`; with a different binder name the macro gives 2 | — |
 | E19 | `(defmacro twice (a) (let-proc ((h ((x Int)) -> Int (+ x 1))) (+ (h a) (h a))))`; `() -> Int (twice 1)` | 4 | — |
 | E20 | `(defmacro mm (x) (let* ((flag true)) (cond (flag 1) (true 0))))`; `() -> Int (let* ((flag false)) (mm 1))` | 1 | — |
+| E22 | `() -> Int (let* ((a 1)) a)` against `() -> Int (let* ((b 1)) b)` | Two `program_digest` values | — |
+| E23 | `AP ADD`; `() -> Int (let* ((tmp 1)) (apply1 (bind-proc (proc-ref add) :n tmp) 1))`; the same over a workflow input `k`. Control: `(let* ((tmp 1) (role (bind-proc (proc-ref add) :n tmp))) (apply1 role 1))` | `name_unknown` (`tmp`, `k`). Control: 2 | Not traced |
+| E24 | `m/lib.orc`: `(defmodule m/lib) (export P Box mk) (defpath P :kind relpath :under "artifacts/work" :must-exist false) (defrecord Box (p P)) (defproc mk () -> Box (record Box :p (path/join-under P "x.json")))`. `m/direct.orc`: `(defmodule m/direct) (import m/lib :only (Box mk)) (export run) (defworkflow run () -> Box (mk))`, entry `m/direct::run`, `--source-root .` | `path_join_under_type_invalid`, "unresolved or non-path type `P`". Builds when `m/direct` also imports `P`, or with `(path/join-under m/lib/P …)` | Not traced; the type name is resolved where the call is inlined |
+| E25 | `() -> Int (if (= (list/length (list/map-effect ((r (list "a"))) :max 1 :parallel 1 :workspace r E(p, 1, Int))) 1) 1 0)` | Builds | — |
+| E26 | `(defproc add2 ((n Int) (x Int)) -> Int (+ n x))`, `AP`; `() -> Int (apply1 (bind-proc (proc-ref add2) :n E(e, 1, Int)) 1)` | `procedure_call_unknown`, callee `f` | Message at `procedure_typecheck.py:typecheck_procedure_call_expr` |
 
 ## Common Causes
 
 | Cause | Rows | One fix |
 | --- | --- | --- |
-| K1. A check on prompt outputs exists and nothing calls it before launch | A3, B1 | TA2 |
-| K2. A call through a procedure reference has no name the typed walk can follow; only the specialized program knows the callee | A2 (and it was I1's blocker, fixed there by scanning the closed tree) | TA3: scan the closed tree, as `closed/build.py:refuse_map_bodies_beside_run_refs` does |
-| K3. Imported workflows have no kept summary, and a missing summary is the empty one | C1; it was I1's third-review blocker | TC1 |
-| K4. A control form (`if`, `cond`, `match`, a loop, a map) reaches an operand position that expects a linear value body | D1, D2, D3, D4; E1 (the branch) fixes the cause for fields, operands and `continue` | TD1: pin what E1 closes, fix `:max` |
-| K5. Type re-inference at elaboration runs outside the scope of a binder (a loop's state name, a map's item name) | D7, D8, the macro spelling of D7 | TD3 |
-| K6. Variant proof facts are keyed to a surface name or shape that a later pass rewrites: the hoisted condition binding, the serial map's synthetic loop, the hygiene rename | E1, E2, E3, D6 | TE1 (the two refusals) and TD4 (the crash): two tasks, because TD4's obvious fix gives a wrong value unless the read is keyed too |
-| K7. A `let-proc` local is typed in a context that lacks what a named procedure has: the loop-state declaration family, a retained binder for a captured reference | D9, D10, D11, D17 | TD5 (loop state), TD6 (captured reference) |
+| K1. A check on prompt outputs exists and nothing calls it before launch | A3, B1 | TA2 (kept) |
+| K2. A call through a procedure reference has no name the typed walk can follow; only the specialized program knows the callee | A2 (and it was I1's blocker, fixed there by scanning the closed tree) | TA3 (dropped): scan the closed tree, as `closed/build.py:refuse_map_bodies_beside_run_refs` does |
+| K3. Imported workflows have no kept summary, and a missing summary is the empty one | C1; it was I1's third-review blocker | TC1 (dropped) |
+| K4. A control form (`if`, `cond`, `match`, a loop, a map) reaches an operand position that expects a linear value body | D1, D2, D3, D4, D19, D20; E1 (the branch) fixes the cause for fields, operands and `continue` | TD1 (kept): pin what E1 closes, fix `:max`. D19 and D20 are outside it by default (O7) |
+| K5. Type re-inference at elaboration runs outside the scope of a binder (a loop's state name, a map's item name) | D7, D8, the macro spelling of D7 | TD3 (dropped); D8's program is Task 0b's |
+| K6. Variant proof facts are keyed to a surface name or shape that a later pass rewrites: the hoisted condition binding, the serial map's synthetic loop, the hygiene rename | E1, E2, E3, D6 | TE1 (the two refusals) and TD4 (the crash), both dropped: two tasks, because TD4's obvious fix gives a wrong value unless the read is keyed too |
+| K7. A `let-proc` local is typed in a context that lacks what a named procedure has: the loop-state declaration family, a retained binder for a captured reference | D9, D10, D11, and the role shapes R1, R2, R5 | TD5 (loop state) and TD6 (captured reference), both kept |
 | K8. Hygiene is syntactic and resolution is not: binders in head position, `let-proc` binders, workflow parameters, non-reference bindings that should hide a reference | B2, B3, B4, B5, E11 | The cut: one resolver-aware change. Two attempts inside the hygiene pass were withdrawn |
 | K9. A form is parsed and its content dropped or ignored | E12, E13 | The cut |
-| K10. A reference to a procedure is resolved only in some binding shapes | E6, E8, E9, E23 | TE2, TE3; E8 is Task 0b's |
+| K10. A reference to a procedure is resolved only in some binding shapes | E6, E8, E9, E23, E26 | TE2 and TE3 (dropped); E8 is Task 0b's |
+| K11. A prompt file kind reads the path it is given without confining it to its root | A4 | One containment check in the `input_file` read, as `asset_file` has (dropped by default, O6) |
 
 ## Global Constraints
 
@@ -255,393 +276,439 @@ design.
   `git stash`. One worktree per lane; `PYTHONPATH` set to the working tree;
   `experiments/thread_m/no_provider` first on `PATH`; `mkdir -m 700` for any basetemp.
 - Tests assert behavior, diagnostic codes and values, never message text. New `.orc` test sources
-  declare `(:target-dsl "2.40")`. A new test fails first for its stated reason. Function complexity
-  at most 12 for added code.
-- **Identity check, for every task that touches `orchestrator/`:** the three invariant files of
-  Task T0 are byte-identical between the task's base and its tip, or the task's ledger entry names
-  every row that differs and why. A task that only admits refused source or turns a crash into a
-  result expects no row to differ among sources that build.
+  declare `(:target-dsl "2.40")`. A new test fails first for its stated reason; a test that passes
+  today is named a control.
+- **Smallest correct diff.** A fix adds no abstraction, parameter or helper that its own tests do
+  not need. Function complexity at most 12 for added code, and no touched function rises.
+- **T0 merges first.** No fix task starts before the backlog module is on `main`, because every fix
+  removes a row of it.
+- **The command-line check of TD1, TD2, TD5 and TD6 is the backlog module.** It builds each program
+  through the public build and runs each value row through the public command line; removing the
+  known row is the end-to-end check, and the task's own tests sit beside it.
+- **Identity check, for every task that touches `orchestrator/workflow_lisp/`:** the two invariant
+  files of Task T0 (the compile of every tracked `.orc`, the corpus snapshot) are byte-identical
+  between the task's base and its tip, or the ledger names every row that differs and why. A kept
+  task only turns a crash into a result, so none expects a difference among sources that build.
 - **Gate:** the task's narrow run, then `pytest -q -n 16 --dist=worksteal --sample 10`;
   `pytest --collect-only` on each test module added or edited; before each merge to `main` the
   whole suite, run by the coordinator, which may batch several of these branches on one integration
   branch.
 - A fix that would refuse source that builds today, or move a digest, stops at that point and goes
-  to the coordinator; it is not merged under this plan except by decision O1.
+  to the coordinator.
 
 ## Order And File Ownership
 
-Order of priority: T0; class A (TA2, TA3); class C (TC1); class B has no task of its own (B1 rides
-TA2, B2 to B5 are the cut's, B6 is not fixed); class D by how likely an ordinary workflow meets it
-(TD2, TD1, TD3, TD5, TD6, TD4, TD8, TD7); class E (TE1, TE2, TE3, TE4, TE5); TP2; TF.
+T0 first, alone. Then lanes 1, 2 and 3 in parallel. Lane 4 waits for `feat/coherence-e1`. TF last.
 
 | Lane | Tasks, in order | Files | Waits on |
 | --- | --- | --- | --- |
-| 0 | T0, then TP1 | new `tests/test_workflow_lisp_defect_backlog.py`, new `scripts/invariants/`; `diagnostics.py`, `compiler.py` (the boundary only) | — |
-| 1 Provider run time | TA2, TE5 | `workflow/evaluated/providers.py`, `contracts/output_contract.py`; then the dead prompt modules | `fix/missing-prompt-file` merged (same two files); staged-authoring Task T edits `providers.py` too: one after the other |
-| 2 Run references | TA3 | `closed/build.py`, `typecheck_run_ref.py` | Decision O1 |
-| 3 Effect summaries | TC1 | `compiler.py` (the fixpoint), `typecheck_calls.py` | Decision O1; after TP1 (same file) |
-| 4 Elaboration | TD2, TD1, TD3, TD7, TP2 | `wcc/elaborate.py`, `closed/names.py`, `closed/command_templates.py` | `feat/coherence-e1` merged (it rewrites 378 lines of `wcc/elaborate.py`); one task at a time, the file is shared |
-| 5 Locals and proofs | TD5, TD6, TD4, TD8 | `loop_state.py`, `closed/command_templates.py` (`bind`), `workflow/evaluated/provider_io.py`, `wcc/hygiene.py`, `typecheck_pure_ops.py` | TD6 after lane 4's TD3 if both edit `command_templates.py` |
-| 6 Typecheck | TE1, TE2, TE3, TE4 | `conditionals.py`, `typecheck_proofs.py`, `typecheck_dispatch.py`, `typecheck_loop_recur.py`, `procedure_typecheck.py`, `functions.py` | E1 merged (it edits `typecheck_dispatch.py`, `typecheck_proofs.py`, `typecheck_loop_recur.py`, `typecheck_structural_values.py`); Task 0b edits `procedure_typecheck.py`: TE3 before or after it, not beside |
+| 0 | T0 | new `tests/test_workflow_lisp_defect_backlog.py`, new `scripts/invariants/` | — |
+| 1 Provider run time | TA2 | `workflow/evaluated/effect_inputs.py`, `workflow/evaluated/providers.py`, `contracts/output_contract.py`; new `tests/test_workflow_evaluated_output_slot_collisions.py`, new `tests/fixtures/output_alias_pre_change/`; `specs/cli.md`, `specs/versioning.md` | T0; `fix/missing-prompt-file` merged. The review found that branch edits other functions, so the wait is for its coded pre-start route and its `specs/cli.md` row, which TA2 copies, not for a conflict |
+| 2 Boundary | TP1 | `workflow_lisp/diagnostics.py`, `workflow_lisp/closed/frontend.py`; the frontend specification §72, the middle-end design | T0 |
+| 3 Locals | TD5, then TD6 | `workflow_lisp/loop_state.py`; then `workflow_lisp/closed/command_templates.py` (`bind`), `workflow/evaluated/provider_io.py` (`bind`); `tests/test_workflow_lisp_let_proc_bindings.py` | T0. If TD6's fix has to edit `wcc/elaborate.py`, it waits for E1 like lane 4 |
+| 4 Elaboration | TD2, then TD1 | `workflow_lisp/wcc/elaborate.py` | T0; E1 merged (it rewrites 378 lines of that file). The staged-authoring tasks O and 0b edit it too: one after the other |
+| — | TF | this plan, the roadmap paragraph, `docs/index.md` | all |
 
-Lanes 0, 1, 2, 3 and 5 can start now and run in parallel. Lanes 4 and 6 wait for E1. The
-staged-authoring plan's tasks start after E1 too and share lanes 4 and 6's files; the coordinator
-interleaves them.
+TP1 and TD5 do not depend on each other (TP1 has its own reproducer). Whichever merges second
+rebases one line of the known list: see TP1.
 
 ## Tasks
 
-### Task T0: Reproductions and invariant checks into the repository (5 h)
+### Task T0: Reproductions and the invariant scripts into the repository (10 h)
 
-- [ ] `tests/test_workflow_lisp_defect_backlog.py`: every program of the Reproductions table that
-      this plan fixes or that is closed, through the public command line with the stand-in command
-      and `closed_path`. Each row states the outcome wanted (a value, a refusal code, "builds").
-      Rows that fail today are in a dictionary `KNOWN` (id to today's outcome kind: `crash`,
-      `traceback`, a refusal code, a value); the test asserts a known row still fails that way and
-      every other row gives the wanted outcome. `KNOWN` may only shrink: a fix removes its row. The
-      closed rows (D15, D16, E18, E19, E20) are regression pins from the start. The cut's rows (B2
-      to B5, E11 to E13) are not in the module; the cut owns their tests.
-- [ ] `scripts/invariants/`: `compile_all.py`, `digests.py`, `program_digests.py`, the normalizer
-      and one wrapper, taken from `experiments/authoring_revisions/inv/` on
-      `spike/authoring-revisions` (`4aca9f81`), which generates provider externs so that sources
-      naming a provider reach the build (staged-authoring ruling M4). They exist today only there
-      and in session scratch. The wrapper takes a revision and an output directory and hard-codes
-      no path. A `README` states the three cautions: never run the compile check inside the
-      repository (it writes `.orchestrate/build/`); run the run-reference tests serially with a
-      fixed `--basetemp`; drop `compiler_runtime_identity_digest` and `resolved_commit_sha`.
-- [ ] Record in the ledger, for `main`: the three SHA-256 values, files compiled and built (635 and
-      34 without generated externs on `59f727db`), corpus rows, run-reference programs.
-- [ ] The staged-authoring plan's Task 0 uses the same kit: do it once, here or there.
-- Failing first: the module's `KNOWN` starts empty and the test fails on each open row; then the
-  rows are entered.
-- Reviewer: that a `KNOWN` row cannot pass by failing in a new way (the outcome kind is compared,
-  for a crash also the exception class); that the module takes under a minute at `-n 8`, else it
-  is sampled.
+- [ ] `tests/test_workflow_lisp_defect_backlog.py`, one row per program of the Reproductions table,
+      controls included. A row is built in process through
+      `closed/artifact.py:build_closed_program_bundle`, the function the command line calls, so
+      that a crash's cause can be read; a row that states a value is also run through the public
+      command line with the stand-in command and `closed_path`. The provider rows use `_fixture`
+      and `_cli` of `tests/test_workflow_evaluated_providers.py`; the A2 rows use `CONFINED`,
+      `MAP_CALLEES`, `MAP_RUN_BODY`, `NESTED_HELPER`, `install`, `BOUNDARIES` and `PROMPTS` of
+      `tests/test_workflow_lisp_run_ref_workflow_program.py`, and replace that module's comment
+      that says the gap is not pinned.
+- [ ] Each row states the outcome wanted: a value with its command log, a refusal code, or
+      "builds". A row that does not give it today is in the dictionary `KNOWN`, keyed by row id,
+      whose value is today's **signature**:
+      - a crash or a traceback: the kind, the exception class, and the innermost function under
+        `orchestrator/` in the cause's traceback (`module.py:function`). Seven crash rows are
+        `TypeError`; the class alone would let a crash move unnoticed;
+      - a wrong refusal: the diagnostic code;
+      - a wrong value or a build where a refusal is wanted: the value, or `builds`.
+- [ ] The rules of the list, each enforced by the module:
+      - a known row must still fail with exactly its signature; a row that now gives the wanted
+        outcome fails the module until it is removed (so a fix removes its row);
+      - a row whose outcome changes to a **different** wrong outcome fails the module. It may be
+        re-entered only with a row in this plan's ledger that names the commit that moved it, and
+        only as a refusal code; never as a value and never as another crash;
+      - `test_known_list_only_shrinks`: the ids of `KNOWN` are a subset of the frozen tuple
+        `KNOWN_AT_T0` in the module. A new defect is added to both, with a ledger row;
+      - every known row whose signature is `builds` or a value, where the wanted outcome is a
+        refusal, has a **control row** in the module that exercises the guard it shadows and is
+        not in `KNOWN`: A2 has the named-call control (`run_ref_placement_invalid`) and the
+        path-mode control (builds); C1 the local-workflow control
+        (`procedure_effect_ceiling_exceeded`); A3 and B1 the two-names and two-paths controls
+        (commit); A4 the `asset_file` controls (no launch); B2 `(let* ((g 5)) (g 1))` (refused);
+        B4 the macro without the caller's binding (`procedure_call_unknown`); D5 the `if`
+        spelling (3); D9 the local without `loop-state` (builds); D11 the shapes R3 and R4.
+        `test_every_shadowing_row_has_a_control` checks the pairing.
+- [ ] What T0 does with the rows that are not an `m.orc` program:
 
-### Task TA2: Output slots are checked before launch (A3, B1, E16) (5 h)
+| Row | T0 does |
+| --- | --- |
+| A1, E16 | No row. `fix/missing-prompt-file` has their tests; a row here would couple the two branches |
+| A2 | Three known rows (C, G, M) and two controls, on the run-reference fixture |
+| C1, E24 | Two files and `--source-root .`; in C1 the import stands before the export |
+| B2 to B5, E11 to E13 (the cut's) | Known rows with today's outcome and no wanted outcome: the cut decides it and removes the row |
+| D8, E7, E8 (Task 0b's) | Known rows; Task 0b removes them |
+| D14, D18, E21 | No reproduction: listed in the module's docstring as "no program, listed only" |
+| D15, D16, D17, E18, E19, E20, E25 | Regression pins from the start (closed, not a defect, or not reproduced) |
+| E3 | No row: a message is not asserted |
+| E22 | No row: the two digests are a property the cut decides, not an outcome |
+| E23 | Known row (`name_unknown`) with the `let*` control |
+| D12 | Three known rows (entry, literal, bare name) |
 
-- [ ] In `workflow/evaluated/providers.py:resolve_provider_input`, after the expected outputs are
-      known: refuse when a slot name equals a field of the structured result that publishes an
-      artifact, and when two slots resolve to one destination. Use
-      `validate_prompt_output_position_destinations`, or delete it and write the five lines if its
-      signature does not fit; do not keep both.
-- [ ] Tests (fail today): the two named in the table; each asserts exit 1, the violation type, and
-      **no request received by the stand-in provider**. A control with two slots and two paths
-      still commits.
-- [ ] If `fix/missing-prompt-file` did not give a missing `asset_file` a coded failure with the
-      source kind, do it here (E16); else drop this item.
-- [ ] `specs/providers.md` and `specs/io.md`: the two refusals, in the change list.
-- Identity: invariants identical (no compile path changes). Reviewer: an agent turn and a phased
-  provider call (`phased_providers.py`) take the same check; a slot on a path that does not exist
-  yet; resume of a run that committed under the old behavior (it must replay, not re-validate).
+- [ ] `scripts/invariants/`: two scripts and one wrapper, the ones the kept tasks need.
+      `compile_all.py` (the compile of every tracked `.orc` from an export, about one minute a
+      side) and `digests.py` (the corpus snapshot, seconds) are copied from
+      `experiments/authoring_revisions/inv/` on `spike/authoring-revisions` (`4aca9f81`). The
+      wrapper is written new, about fifteen lines: it takes a revision and an output directory,
+      exports the revision, runs both and prints the two SHA-256 values; the spike's `inv.sh`
+      hard-codes a worktree and `/tmp/lr-tmp` and is not copied. **Not ported:** the
+      run-reference half (`program_digests.py` and its serial test run, 15 to 25 minutes a side:
+      no kept task edits run-reference code, and TD6 runs the run-reference test modules as its
+      behavior check) and the generated provider externs (the staged-authoring plan's Task 0
+      keeps its own kit; this plan does not take it over). A `README` states that the compile
+      check is never run inside the repository (it writes `.orchestrate/build/`).
+- [ ] Record in the ledger, for `main`: the two SHA-256 values, files compiled and built (635 and
+      34 on `59f727db`), corpus rows; the content of `KNOWN_AT_T0`.
+- Failing first: with `KNOWN` empty the module fails on each open row; then the rows are entered.
+- Reviewer: that each signature was read from a run, not typed from this plan; that the module
+  takes under two minutes at `-n 8`, else its value rows are sampled; that a control fails when
+  its guard is switched off (try A2's and C1's).
 
-### Task TA3: Ruling P12 holds through references (A2) (8 h)
+### Task TA2: Output slots are checked before a fresh launch (A3, B1) (9 h)
 
-- [ ] Refuse a confined site reached from a `list/map-effect` iteration by scanning the final
-      closed tree, where references are resolved, beside
-      `closed/build.py:refuse_map_bodies_beside_run_refs`. Keep the typed walk
-      (`typecheck_run_ref.py`) for the cases it sees, because its message points at the body.
-- [ ] Tests (fail today): programs C, G, M refuse `run_ref_placement_invalid`; a reference to a
-      procedure with a path-mode (not confined) run reference in a one-call body still builds; a
-      confined site in a procedure that is passed by reference and never reaches a map still
-      builds.
-- Identity: the run-reference digests and the compile check identical; no tracked source has the
-  shape (the I1 reviews searched). Needs O1 before merge.
-- Reviewer: a reference passed through two procedures, through `bind-proc`, and from an imported
-  module; that the scan does not refuse a confined site beside a map (only inside its iteration);
-  how a confined site is marked in the closed tree (not verified while planning).
+`specs/io.md` ("Before provider launch, artifact names across both contracts must be disjoint,
+resolved output-position destinations must be pairwise distinct, and every output-position
+destination must differ from the structured bundle destination") and `specs/providers.md` ("Before
+provider launch, the runtime resolves every output-position and structured-bundle destination,
+rejects duplicate artifact names, pairwise output-position aliases, and output-position/bundle
+aliases") already require all three checks. The runtime does the first after the provider has run
+and the other two never. No tracked `.orc` or fixture fills two `:out` slots of one prompt.
 
-### Task TC1: Imported workflows keep their summaries (C1) (10 h)
+- [ ] One function in `workflow/evaluated/providers.py`, given a resolved provider input, raises
+      `ProviderPerformerError` (the route `fix/missing-prompt-file` uses for a prompt file that
+      cannot be read: a coded failure before `started`, with no attempt directory and no launch):
+      1. a slot name equal to **any** top-level field name of the structured result, whatever the
+         field's type: code `duplicate_artifact_name`;
+      2. two slots that resolve to one destination: code
+         `prompt_output_position_destination_collision`;
+      3. a slot whose destination is the result bundle's destination: the same code.
+- [ ] It is called **only where there is no commit**: in
+      `workflow/evaluated/effect_inputs.py:_resolve_provider_effect_input` and
+      `_resolve_turn_effect_input`, when `commit is None`. Not in
+      `providers.py:resolve_provider_input`, which a committed row also passes on replay and whose
+      exceptions become `effect_input_diverged` there. A pending start is not a commit: its
+      relaunch is checked.
+- [ ] `contracts/output_contract.py:validate_prompt_output_position_destinations` does checks 2
+      and 3 and has no caller. The implementer uses it if a resolved provider input supplies its
+      arguments without new plumbing; else writes the checks in the new function and deletes the
+      validator with its tests in `tests/test_output_contract.py`. Not both. The checks that run
+      after the provider (`providers.py:provider_result`, `phased_providers.py:validate_result`)
+      stay as they are.
+- [ ] Tests in `tests/test_workflow_evaluated_output_slot_collisions.py`. Each of the first seven
+      fails today, and asserts the code, exit 1, and **zero requests received by the stand-in**:
 
-- [ ] `compiler.py:_infer_stage3_effect_summaries`: keep the summaries of workflows compiled in
-      earlier modules in every round, as `imported_procedure_effects` does for procedures. A
-      scratch patch of four lines made the reproduction refuse with the full effect set and left
-      the digests of four building programs equal.
-- [ ] `typecheck_calls.py:typecheck_call_expr`: a workflow call whose callee has no summary is not
-      read as pure. Where the summary is legitimately absent (the first round, for a local workflow
-      not yet typed) keep the provisional path that exists for procedures; anywhere else raise.
-- [ ] Audit by test, one case per consumer, each with an imported workflow two modules deep:
-
-| Consumer | Site | Can it be wrong today? |
+| Caller | Program | Harness |
 | --- | --- | --- |
-| Declared `:effects` ceiling | `compiler.py:_validate_procedure_effects_and_cycles` | **Yes, shown**: an under-declared ceiling builds |
-| Inferred-effects display | `procedures.py:procedure_effect_inspection`; the REPL (`repl_expr.py`, `repl_inspect.py`) | Yes, from the code: it prints the incomplete set |
-| Run reference in a live-provider member | `typecheck_effects.py:typecheck_with_live_providers_expr`, `typecheck_with_live_provider_peers_expr` (the member loop) | Yes, from the code: no "any effect" check follows; not probed |
-| Summary exported to an importing module | `compiler.py`, `workflow.effect_summary` | Yes, from the code: the hole compounds across modules |
-| Run reference in `:on-exhausted`, a map source, a pure function, a guidance example, a settlement body | `typecheck_loop_recur.py`, `typecheck_structural_values.py`, `functions.py:rewrite`, `result_guidance.py`, `typecheck_effects.py` | Only the code: an "any effect" check follows and the call itself is a direct effect, so the program is still refused, with the general code |
-| Purity checks (`defun`, `list/map` body, agent policy, provider dependencies) | `functions.py`, `typecheck_structural_values.py`, `typecheck_agents.py`, `typecheck_effects.py` | No: probed for `defun` and `list/map`; the call is a direct effect |
-| Confined child effects | `typecheck_run_ref.py:_child_refusal` | No: it walks each imported program with that program's own summaries |
-| Map bodies beside run references (I1) | `closed/build.py:refuse_map_bodies_beside_run_refs` | No: it scans the closed tree |
+| Plain provider | A3 with the path-typed field; A3 with the `String` field; B1 | `_fixture`, `_cli`, `_requests` of `tests/test_workflow_evaluated_providers.py` |
+| Agent turn | A turn whose prompt has B1's two slots on one path; a turn with A3's slot name | The scripted `claude` of `tests/agent_session_shims.py` (`install_agent_shims`, `shim_requests`) |
+| Phased provider | B1's prompt and A3's prompt under `:delivery :phased` (both build at 2.40: checked while revising, on the source of `tests/test_workflow_lisp_phased_239.py`) | `public_case` of `tests/workflow_evaluated_phased_helpers.py`; asserts no process and no turn started |
+| The function alone | A slot destination equal to the bundle destination (check 3: the bundle path holds the run id, so the command line cannot aim at it) | A direct call with a resolved input |
+| Controls (pass today) | Two slots on two paths commit; a slot and a field with different names commit | Plain provider |
+| Replay | `resume` of a run root recorded **before** this change, in which the first step committed B1's alias and the second step failed: it completes, and the stand-in receives no request for the first step | `tests/fixtures/output_alias_pre_change/`, recorded once by the task's base build with the stand-in; its `README` names the build, the command and the date, as `tests/fixtures/declaration_pre_change/` does |
 
-- Identity: all three invariants. Measured while planning with the scratch patch: the compile of
-  every tracked `.orc` is byte-identical to the base (635 rows, 34 build, without generated provider
-  externs). The other two were not run. Needs O1.
-- Reviewer: an import cycle of summaries; a module that imports a workflow and shadows its name;
-  whether any stored field of the closed program is derived from a summary (four samples say no).
+- [ ] `specs/cli.md`, diagnostics table: one row beside the prompt-file row of
+      `fix/missing-prompt-file`, for `duplicate_artifact_name` and
+      `prompt_output_position_destination_collision`: a reached provider, phased provider or agent
+      turn whose output slots collide, before its `started`; the exit codes of that row; no
+      `started`, directory or launch; not checked against an active commit. `specs/versioning.md`:
+      one change-list line (a run-time correction to a rule the specs already state; no target;
+      recorded runs resume, by the fixture). `specs/io.md` and `specs/providers.md` need no new
+      rule; correct any sentence that says where the check runs.
+- Identity: no compile path changes, so the invariant files are not run. Decision O1 is settled
+  for this task: it merges with the task.
+- Reviewer: the exit code at a pending start in `resume` preflight (the prompt-file row says 2);
+  that `duplicate_artifact_name` as an outward code does not collide with its use as a violation
+  type inside `provider_result_invalid`; a slot on a path that does not exist yet; a turn that
+  continues a conversation (its committed predecessor is not re-checked).
 
-### Task TP1: Typecheck failures inside the defect boundary (2 h)
+### Task TP1: Typecheck failures inside the defect boundary (4 h)
 
-- [ ] An internal exception raised during typecheck (D9's `RuntimeError`) is reported as
-      `compiler_defect` with stage `typecheck`, by `diagnostics.py:compiler_defect_boundary`,
-      instead of a traceback and exit 1. Diagnostics pass unchanged.
-- [ ] Test: D9's program exits 2 with `compiler_defect`; its `KNOWN` row changes from `traceback`
-      to `crash`.
-- Reviewer: that no test relies on a typecheck exception escaping; `MemoryError` and
-  `KeyboardInterrupt` still pass.
+Today `diagnostics.py:compiler_defect_boundary` is applied once, in `closed/build.py` (the closed
+build, after typecheck). An internal exception raised during typecheck leaves the command line as
+a traceback with exit 1 (D9).
 
-### Task TD2: A field read on the `match` subject inside its arm (D5) (6 h)
+- [ ] Apply the boundary a second time in `closed/frontend.py:compile_typed_program_with_result`,
+      around the call of `compiler.compile_stage3_entrypoint`, with a stage argument. The
+      diagnostic keeps the code `compiler_defect`; its phase is `typecheck`, and its message no
+      longer says that the program passed typecheck. Diagnostics, `MemoryError` and an
+      `AssertionError` raised outside the package pass as they do today.
+- [ ] Its own reproducer, which no fix removes:
+      `tests/test_workflow_lisp_closed_preparation_integrity.py::test_internal_typecheck_failure_is_a_compiler_defect`
+      replaces one typecheck function with one that raises `RuntimeError` (the fault-injection
+      device that module already uses for the closed check) and builds a one-line program: the
+      result is `compiler_defect` with phase `typecheck` and the `RuntimeError` as its cause.
+      Fails today: the `RuntimeError` escapes.
+- [ ] The audit, sized: 31 `tests/test_workflow_lisp*.py` modules hold 131
+      `pytest.raises(ValueError|TypeError|KeyError|RuntimeError)`. Run those 31 modules with the
+      boundary in place; each new failure is a test that relied on an exception escaping the
+      public build. For each: the test asserts `compiler_defect` and the cause's class, or, if it
+      calls an internal function below the boundary, it is untouched. The ledger lists the tests
+      changed. Most call internal functions and are not expected to change.
+- [ ] Documents: the frontend specification §72 ("`compiler_defect`: an internal exception raised
+      after typecheck by elaboration, normalization, defunctionalization or lowering") gains
+      "during typecheck or"; the middle-end design's paragraph ("an internal exception raised
+      after typecheck … It says that the program passed typecheck, names the stage … applied in
+      `orchestrator/workflow_lisp/closed/build.py`") states both stages and both call sites;
+      the docstring of `compiler_defect_boundary`.
+- [ ] The known list: if D9 is still in it, its kind changes from `traceback` to `crash`, same
+      class and function, with a ledger row (the one edit of an entry this plan foresees). If TD5
+      merged first, nothing changes.
+- Reviewer: a diagnostic raised inside typecheck must not be wrapped; `KeyboardInterrupt` passes;
+  the language server and the REPL, which call the typechecker by other routes, are unchanged.
 
-- [ ] Decide by reading the typechecker which it means: if it narrows the subject in the arm (it
-      accepts the read), elaboration reads the field from the arm's binder; if the acceptance is an
-      accident, the typechecker refuses with `variant_ref_unproved`. The first is consistent with
-      `(if (= u.variant A) u.n 0)`, which works.
-- [ ] Tests: the read gives the binder's value; a read of the other variant's field is refused;
-      the subject rebound inside the arm reads the new binding.
-- Identity: invariants identical. Reviewer: a subject that is an effect result, a subject shadowed
-  by the arm binder of the same name, nested `match` on the same subject.
+### Task TD2: A field read on the `match` subject inside its arm (D5) (6 h; after E1)
+
+The frontend specification §7.5 settles what is meant: "Match refines its exact selector", and a
+field read is refused only "outside an arm or a branch". The typechecker agrees: it narrows the
+subject in the arm and refuses the other variant's field there. Only elaboration disagrees.
+
+- [ ] `wcc/elaborate.py:_elaborate_match_case_with_subject`: a field read on the subject inside
+      its arm is elaborated through the arm's narrowing, as a read on the arm's binder is.
+- [ ] Test that fails today: `(match u ((A a) u.n) ((B b) 0))` gives `a.n`'s value. Controls that
+      pass today and must keep passing: `(match u ((A a) u.why) …)` is refused
+      `variant_ref_wrong_variant`; `(match u ((A u) u.n) …)`, the arm binder shadowing the
+      subject, gives 3.
+- Identity: invariants identical. Reviewer: a subject that is an effect result bound by `let*`; a
+  subject rebound by a `let*` inside the arm (the read is of the new binding); nested `match` on
+  the same subject; the read inside an effect's `:argv` in the arm.
 
 ### Task TD1: Control forms as operands, the rest (D1 to D4) (5 h; after E1)
 
-- [ ] After E1 merges, re-run D1, D2, D3 on `main` in both loop forms; move them out of `KNOWN`
-      with the outcome E1 gives (D1 builds; D2 and D3 are refused `effect_not_permitted`).
-- [ ] D4: `:max` takes a `match` or `cond` by the route E1 gives other operands, or is refused with
-      `loop_recur_contract_invalid`. Tests for a loop and for a serial map's `:max`.
-- Identity: invariants identical. Reviewer: `:on-exhausted` and `:state` with the same shapes.
-
-### Task TD3: Binder scope in type re-inference (D7, D8) (10 h; after E1)
-
-- [ ] Find the cause first (four hours at most): both crashes are a `KeyError` on a binder name in
-      `wcc/elaborate.py:_infer_expr_type`, reached while an expression that holds the binder is
-      typed again outside it. If one fix serves both, make it; if not, fix D7 here and report D8's
-      cause to Task 0b.
-- [ ] Tests: D7 in place and through a macro gives the value of the `let*` spelling; D8 builds and
-      runs to the value the `let*` spelling gives.
-- Identity: invariants identical. Reviewer: the same shapes inside a `let-proc` local and a
-  specialized procedure; a `cond` test and an `and` operand in D8's position.
+- [ ] After E1 merges, re-run D1, D2, D3 on `main` in both loop forms and remove their known rows
+      with the outcome E1 gives (D1 builds and gives 1005; D2 and D3 are refused
+      `effect_not_permitted`). The review confirmed these on the E1 tip `10965cda`.
+- [ ] D4: `:max (match …)` builds, as `:max (if …)` and `:max (cond …)` already do, in a loop and
+      in a serial map. **The implementer decides between fix and refusal by one criterion:** if a
+      `match` can take, in `_elaborate_loop_recur_to_body`, the route an `if` takes there, with
+      no function rising above complexity 12, it is fixed; otherwise it is refused with
+      `loop_recur_contract_invalid` and the ledger says why.
+- [ ] Tests: `:max (match …)` on a loop (fails today) and on a serial map (the reviewer's probe
+      crashes, the planner's builds: both programs are tests); controls `:max (if …)` and
+      `:max (cond …)`.
+- Identity: invariants identical. Reviewer: `:state` and `:on-exhausted` with a `match`.
+- D19 and D20 (ninth batch) have this cause family and are not in this task unless decision O7
+  adds them.
 
 ### Task TD5: A `let-proc` local whose body is a loop with state (D9) (4 h)
 
-- [ ] `loop_state.py:_typecheck_loop_state_seed` finds the declaration family for a seed inside a
-      local, or the local is typed where the family is retained. Tests: by name, by reference,
-      both loop forms, and a serial map inside a local (it lowers to the same seed).
-- Identity: invariants identical. Reviewer: two locals with loops in one `let-proc`.
+- [ ] Two hours at most to find why `loop_state.py:_typecheck_loop_state_seed` finds no
+      declaration family for a seed inside a local. If found, the seed resolves as it does in a
+      `defproc`. **If not found in two hours:** the typechecker refuses a `loop-state` inside a
+      `let-proc` local with `loop_recur_contract_invalid`, the row leaves `KNOWN` as that refusal,
+      and the ledger records it.
+- [ ] Tests that fail today (traceback): the local called by name; passed by `proc-ref`; the `fn`
+      form; a serial map inside a local (it lowers to the same seed). Control that passes today:
+      a local whose loop state is a scalar.
+- Identity: invariants identical. Reviewer: two locals with loops in one `let-proc`; a local with
+  a loop inside a macro template.
 
-### Task TD6: A `let-proc` local that captures a procedure reference (D10, D11, D17) (8 h)
+### Task TD6: A `let-proc` local that captures a procedure reference or a bound role (D10, D11) (8 h)
 
-- [ ] Re-run D17 first and record it. Then: a captured outer reference is a compile-time binding of
-      the local, not a command capture (`closed/command_templates.py:bind`) and not a provider
-      input (`workflow/evaluated/provider_io.py:bind`). If the two crashes have two causes, fix
-      D10 and return D11 with its cause.
-- [ ] Tests: D10 gives 2; D11 runs two commands; the alias spelling gives the same digest as the
-      by-name spelling.
-- Identity: invariants identical. Reviewer: a captured `bind-proc` value; capture across two
-  nested locals; run references behind the captured reference (TA3's rule must still hold).
+The staged-authoring design's role is a `bind-proc` value bound by `let*`. A seed that wraps a
+role in a local step, and maps that step over work items, meets this crash.
 
-### Task TD4: Proof names under the hygiene rename (D6) (6 h)
+- [ ] Tests first, in this order; each fails today with the crash named in the Reproductions
+      table:
+      1. **R1**: a role bound with `bind-proc` and called from a `let-proc` step, pure role and
+         effectful role (two crash sites);
+      2. **R2**: that step as a `list/map-effect` body; **R5**: that step passed by `proc-ref` to
+         a mapping procedure. Wanted: 2, two `add` calls, the value and log of the controls R3
+         and R4;
+      3. D10 and D11 as written (a plain reference instead of a bound role).
+- [ ] The fix: a captured outer reference or bound role is a compile-time binding of the local,
+      not a command capture (`closed/command_templates.py:bind`) and not a provider input
+      (`workflow/evaluated/provider_io.py:bind`). Three hours at most to decide whether the two
+      crash sites have one cause. If they have two and the second does not fit the hours, fix the
+      one R2 and R5 meet (the map body) and return the other with its cause.
+- [ ] The by-name spelling and the alias spelling of each program give one digest.
+- Identity: invariants identical; plus the narrow run of `tests/test_workflow_lisp_run_ref*.py`
+  and `tests/test_workflow_evaluated_run_ref*.py` as a behavior check (the run-reference digests
+  are not compared).
+- Reviewer: capture across two nested locals; a role bound over a workflow input; a run reference
+  behind the captured reference (ruling P12's present behavior must not widen).
+- **Note for Task 0b of the staged-authoring plan** (the coordinator copies it there): TD6 owns
+  D10, D11 and the shapes R1, R2, R5. Two neighbouring shapes stay refusals and are not fixed
+  here: a `bind-proc` over a procedure's own parameter passed on (Task 0b's D5, E8 here), and a
+  `bind-proc` written in argument position over a name (E23: `name_unknown`; bound with `let*`
+  first it builds). The role idiom's tests should bind the role with `let*`.
 
-- [ ] `wcc/hygiene.py`: rename the proof triples when the binding is renamed, **and** key the
-      narrowed reads by the field-access atom, not by the shared base atom. The variant-fix
-      re-review tried the first half alone: its program `join_rebound_effect2` changed digest and
-      returned `[5, 5, 0]` for `[10, 0, 0]`.
-- [ ] Tests: D6 in both operand orders and nested in a proven branch; the re-review's
-      `hyg_sibling_plain`; a renamed binding used as a whole value in the narrowed branch.
-- Identity: invariants identical, and the digests of the variant-fix tests' programs unchanged.
-- Reviewer: a wrong value is worse than this crash; if the second half cannot be made safe, turn
-  the crash into a coded refusal and stop.
+### Task TF: Closeout (2 h)
 
-### Task TD8: The `Int` literal range (D13) (2 h)
+- [ ] The roadmap's paragraph points to this plan for every row; `docs/index.md` gets the plan's
+      row; the ledger states for each row: fixed (commit), refused (commit and code), dropped, or
+      the cut's, with the final content of `KNOWN`.
 
-- [ ] The typechecker refuses an `Int` literal outside signed 64 bits with `pure_expr_overflow`.
-      The frontend specification gets the sentence (no owner states the range today).
-- Reviewer: the negative bound; a literal in a `defun` default and in a workflow input default.
+## Dropped By The Owner's Cut
 
-### Task TD7: A workflow-reference parameter of a workflow (D12) (5 h; after E1)
+These tasks are not executed. Each defect keeps its row above and its known row in T0's module.
+A task returns when the mutant generator (R3) or a real workflow hits its row, or by the
+coordinator's decision; its hours are the first plan's and were not re-sized.
 
-- [ ] Refuse at the use, where it crashes today: selecting such a workflow as the entry, and a
-      `call` that binds the parameter. One code. A workflow that declares the parameter and is
-      never called keeps building (refusing the declaration would refuse source that compiles).
-- [ ] The frontend specification's section 108 says such parameters are supported; correct it. The
-      fixture `tests/fixtures/workflow_lisp/valid/workflow_refs_same_file.orc` has the crashing
-      shape; see what reads it.
-- Identity: invariants identical. Reviewer: the `defproc` form, which works, is untouched.
-
-### Task TE1: Variant proofs survive desugaring (E1, E2, E3) (10 h; after E1)
-
-- [ ] `conditionals.py:_normalize_short_circuit`: the facts `analyze_condition` grants travel with
-      the generated binding, so the final `if` is checked with them. The test that pins the
-      refusal today, `test_compound_boolean_proof_is_refused_by_the_typechecker`
-      (`tests/test_workflow_lisp_strict_boolean_control_flow.py`), is replaced by the new one.
-- [ ] A serial `list/map-effect` body is checked with the proofs of its enclosing branch, as the
-      parallel body and the pure map body are; an authored `loop/recur` body is not (its state can
-      rebind the name between rounds).
-- [ ] The message no longer names "map"; `specs/versioning.md` v2.26 and specification §12.2 are
-      corrected.
-- Identity: invariants identical (both programs are refused today). Reviewer: a proof must not
-  survive a rebinding inside the map body or an `or` whose other operand leaves the variant open;
-  the effect order of the hoisted condition is unchanged.
-
-### Task TE2: A reference parameter forwarded through `let*` (E6, E23) (5 h; after E1)
-
-- [ ] `(let* ((g p)) (g x))` over a `ProcRef` parameter builds in the specialized procedure, as the
-      uncalled procedure already does. Re-run E23 first; fix it here only if the cause is the same.
-- Identity: invariants identical. Reviewer: the forward must not reopen B2 (a non-reference
-  binding of the same name).
-
-### Task TE3: A pure loop procedure through a reference (E9) (6 h)
-
-- [ ] Find the cause (three hours at most), then make the program build, or refuse it with a code
-      that names the loop. Tests: the four spellings of the reproduction row.
-- Reviewer: whether the pure-call path inlines what it cannot inline, and what else it meets (a
-  pure `match`, a pure map).
-
-### Task TE4: The code of a discriminant test on a type parameter (E4) (2 h)
-
-- [ ] Its own code; the specification's §12.2 already states the limit. Lowest priority.
-
-### Task TE5: Delete the dead prompt identity code and the other remnants (E17) (10 h)
-
-- [ ] Remove what the row lists, keeping `_attempt` and `_validate_attempt` (moved beside their one
-      caller) and the tests of live behavior. About 3,500 production lines. Extend the removal test
-      (`tests/test_retired_executors_removed.py`) with the module names.
-- Identity: all three invariants; the fragment-identity projection is computed onto the typed
-  prompt application and must be shown to reach no stored field.
-- Reviewer: every deleted test names the code it covered; nothing under
-  `provider_phased_delivery/` changes behavior.
-
-### Task TP2: The placement grid, generalised (8 h; after E1)
-
-- [ ] Extend `tests/test_workflow_lisp_effect_placement_grid.py` (E1) from "places E1 opens by
-      shapes of effect" to every operand position by every control shape, pure and effectful. New
-      positions: `:max`, `:state`, `:on-exhausted`, a loop or `if` condition, a `continue` and
-      `done` value, a map source and body, a `let-proc` local's body, a procedure specialized by a
-      reference, a macro template. New shapes: a pure `match`, a pure `cond`, a nested loop, a
-      map with a `match` body, a discriminant read. A cell runs with the right value and log, or is
-      refused with a code; a crash or a traceback fails it. Cells that fail today carry a backlog
-      id in a list that may only shrink.
-- [ ] The default suite runs a seeded sample of cells; the whole grid runs under a marker.
-- Reviewer: that a refused cell names a code this plan or the specification accepts as intended.
-
-### Task TF: Closeout (3 h)
-
-- [ ] The roadmap's paragraph is replaced by a pointer to this plan; `docs/index.md` gets the row;
-      the specification's change lists get one line per admitted or refused shape; the ledger
-      states for each row: fixed (commit), moved to the cut, or left, with `KNOWN`'s final content.
+| Task | What it would do | Hours | Why dropped | What the review or the probes established |
+| --- | --- | ---: | --- | --- |
+| TA3 (A2) | Refuse a confined run-reference site reached from a map iteration through a procedure reference, by scanning the final closed tree beside `closed/build.py:refuse_map_bodies_beside_run_refs`; keep the typed walk for its message | 8 | No tracked source has the shape; a staged seed is unlikely to write it | **The program reaches the child launch and nothing at run time stops it.** With a command-only confined child, program C creates run state and enters the first map iteration, then fails `run_ref_environment_unavailable` (`image_admission_refused`), the same point as an admitted site: on a host that has the sealed image it would launch a confined child in each iteration that ruling P12 forbids. With a provider child both C and M are refused before any run state (`run_ref_provider_transport_unavailable`), so no provider money is spent today. `specs/dsl.md` forbids the placement ("except inside any `list/map-effect` frame, serial or parallel"). What P12 protects at run time was not established |
+| TC1 (C1) | Keep imported workflows' summaries in every round of `compiler.py:_infer_stage3_effect_summaries`; make a workflow call without a summary not read as pure (`typecheck_calls.py:typecheck_call_expr`) | 10 | Effect analysis: named by the owner | **A declared `:effects` ceiling over an imported workflow is not enforced**: the procedure spends or runs commands its declaration says it cannot, against the frontend specification §16.1. Also wrong, from the code: the inferred-effects display, the run-reference refusal for a live-provider member, and every summary exported to an importing module. Wrong code only: run references in `:on-exhausted`, a map source, a pure function, a guidance example. Not affected: purity checks, confined-child effects, I1's map-body rule. A four-line scratch patch fixes the ceiling and leaves the compile of all 635 tracked `.orc` byte-identical. It refuses under-declared ceilings that build today (O1 if it returns) |
+| TD3 (D7, D8) | Find why `wcc/elaborate.py:_infer_expr_type` re-types an expression outside the scope of its loop or map binder; four hours for the cause | 10 | Binding the inner form with `let*` first builds | D8's program is Task 0b's (its D1 requires "builds and runs"). **D7 has no owner.** The review judges the shape plausible in a loop of implement-and-check steps |
+| TD4 (D6) | In `wcc/hygiene.py`, rename the proof triples with the binding **and** key the narrowed reads by the field-access atom | 6 | A contrived shape | The first half alone returns a wrong value (`[5, 5, 0]` for `[10, 0, 0]`, measured by the variant-fix re-review). If it returns and the second half cannot be made safe: a coded refusal |
+| TD7 (D12) | Refuse a `defworkflow` with a workflow-reference parameter at its use (entry, or a `call` that binds it), not at its declaration | 5 | A crash where a refusal is meant | The frontend specification §7.7 already says such a workflow "is refused with `compiler_defect`", which states a crash as the contract, while §108 says the parameters are supported |
+| TD8 (D13) | Refuse an `Int` literal outside signed 64 bits with `pure_expr_overflow` at typecheck | 2 | Contrived | — |
+| TE1 (E1, E2, E3) | Carry the proof facts through the hoisted condition binding (`conditionals.py:_normalize_short_circuit`); check a serial map body with its branch's proofs | 10 | A refusal of good source with a known rewrite (nest the `if`) | — |
+| TE2 (E6, E23) | Admit a reference parameter forwarded through `let*`; find E23's cause | 5 | Refusals with a rewrite | The review judges both plausible role-forwarding shapes: friction, no harm |
+| TE3 (E9) | Find why a pure loop procedure passed by reference to a pure procedure is refused | 6 | A refusal; it builds when either procedure has an effect | — |
+| TE4 (E4) | Give the generic discriminant test its own code | 2 | A misleading code only | — |
+| TE5 (E17) | Delete about 3,500 lines of prompt identity code with no caller | 10 | No behavior; rides any later change to those files | — |
+| TP2 | Generalise E1's placement grid to every operand position by every control shape | 8 | Prevention for positions nobody is fixing now | — |
+| Ninth batch: A4 | One containment check in the `input_file` read | about 3 | Dropped by default; O6 | Reproduced: the outside file's text reaches the provider |
+| Ninth batch: D19, D20 | Take the nested conditional `continue` value and the `match` subject call through E1's bound-first route, or refuse them | about 3 | Dropped by default; O7 | E1's third review: the subject case "would be covered for free" by its trigger |
+| Ninth batch: E24, E26 | Resolve `path/join-under`'s type where the procedure is defined; a code that names the effectful `bind-proc` argument | not sized | Refusals with a rewrite | E25 does not reproduce |
 
 ## Prevention
 
 | What would have caught these | As a task or pointer |
 | --- | --- |
-| Positions crossed with shapes. D1 to D8 are one table with holes; E1's grid found eleven of them in review instead of in use | TP2 |
-| A fuzz of mechanical mutants | Roadmap Phase 6, readiness item R3. Until it exists, T0's module is the fixed corpus. See below for how R3 orders this backlog |
-| The whole suite before each merge. The coordinator's brief records that it caught one real bug two reviews missed | Already a rule (`AGENTS.md`); no task. The sampled run is not a substitute, and a batch of branches gets one run on an integration branch |
+| A fixed corpus of every known shape, run on every change | T0 |
 | A crash that is not reported as one | TP1 |
-| A default that reads "missing" as "none" | TC1 removes this one. Its reviewer greps for other `.get(…, EMPTY_EFFECT_SUMMARY)` and `or {}` defaults on analysis results and lists them in the ledger |
-| A check that only its tests call | TA2. TE5's reviewer lists every public function of `contracts/` with no caller in `orchestrator/` |
+| A check that only its tests call | TA2 |
+| A fuzz of mechanical mutants | Roadmap Phase 6, readiness item R3; see below |
+| Positions crossed with shapes | TP2, dropped. E1's own grid (`tests/test_workflow_lisp_effect_placement_grid.py`) arrives with E1 |
+| The whole suite before each merge | Already a rule (`AGENTS.md`); no task. A batch of branches gets one run on an integration branch |
 
 **How R3's generator orders this backlog.** Each mutant that ends in `compiler_defect` or a
-traceback gives a signature: the exception class and the innermost `orchestrator/` function. The
-Reproductions table gives the signature of every D row. R3's readout is a count per signature; the
-D and E tasks not yet started are re-ordered by that count, a signature with no row becomes a new
-row, and a row no mutant hits in a few hundred mutants over the declared dimensions drops below
-every row that is hit. Classes A and C are not re-ordered by it: a mutant that spends wrongly does
-not crash.
+traceback gives a signature: the exception class and the innermost `orchestrator/` function. T0's
+`KNOWN` holds the same signature for every crash row. R3's readout is a count per signature. A
+dropped task whose signature is hit returns, ordered by count; a signature with no row becomes a
+new row; a row no mutant hits in a few hundred mutants stays dropped. Classes A and C are not
+ordered by it: a mutant that spends wrongly does not crash.
 
 ## Size
 
 | Task | Hours | Class | Starts |
 | --- | ---: | --- | --- |
-| T0 Reproductions and invariants | 5 | — | Now |
-| TA2 Output slots before launch | 5 | A, B | After `fix/missing-prompt-file` |
-| TA3 P12 through references | 8 | A | Now; merge needs O1 |
-| TC1 Imported summaries | 10 | C | Now; merge needs O1 |
-| TP1 Typecheck in the boundary | 2 | Prevention | After T0 |
-| TD2 Subject read in an arm | 6 | D | After E1 |
-| TD1 Control forms as operands | 5 | D | After E1 |
-| TD3 Binder scope | 10 | D | After E1 |
-| TD5 Local with a loop | 4 | D | Now |
-| TD6 Local capturing a reference | 8 | D | Now |
-| TD4 Proof names under rename | 6 | D | Now |
-| TD8 `Int` literal | 2 | D | Now |
-| TD7 Workflow-reference parameter | 5 | D | After E1 |
-| TE1 Proofs through desugaring | 10 | E | After E1 |
-| TE2 Forwarded reference | 5 | E | After E1 |
-| TE3 Pure loop through a reference | 6 | E | Now |
-| TE4 Generic test code | 2 | E | Any time |
-| TE5 Dead code | 10 | E | After `fix/missing-prompt-file` |
-| TP2 Grid | 8 | Prevention | After E1 |
-| TF Closeout | 3 | — | Last |
-| **Total** | **120** | | 20 tasks, 19 code changes |
+| T0 Reproductions and invariant scripts | 10 | — | Now |
+| TA2 Output slots before a fresh launch | 9 | A, B | After T0 and `fix/missing-prompt-file` |
+| TP1 Typecheck in the boundary | 4 | Prevention | After T0 |
+| TD5 Local with a loop | 4 | D | After T0 |
+| TD6 Local capturing a reference or a role | 8 | D | After TD5 |
+| TD2 Subject read in an arm | 6 | D | After T0 and E1 |
+| TD1 Control forms as operands | 5 | D | After TD2 |
+| TF Closeout | 2 | — | Last |
+| **Total** | **48** | | 8 tasks, 7 code changes |
 
-The 120 hours are implementation and its own tests. At this repository's pace each code change
-also gets an independent review and one or two fix rounds (C1, I2a and I1 each took two or three
-rounds and merged one to two days after they started), which adds about three quarters: about 210
-agent-hours. With three or four worktrees in parallel that is **two and a half to three weeks**
-elapsed, set by lane 4 (26 hours on one file and 8 for the grid, after E1) and by one
-whole-suite run per merge or batch. Classes A and C fit in the first three or four days. Three tasks open with a search for the
-cause (TD3, TD6, TE3) and may return a refusal instead of a fix. The cut's nine changes and Task
-0b's ten hours are not in the total.
+The first cut said 29 hours for seven tasks. The review re-sized three of them from comparable
+merges (the variant-field fix and C1 each took about half a day for some 300 lines with tests):
+T0 from 5 to 10 (57 rows on three harnesses, signatures, controls, the wrapper written new), TP1
+from 2 to 4 (its own reproducer, two documents, the audit of 31 modules), TA2 from 5 to 9 (the
+fresh-launch placement, three callers, a recorded run root, the diagnostics row). TD6 adds 8.
+
+The 48 hours are implementation and its own tests. Each code change also gets an independent
+review and one or two fix rounds, which at this repository's pace adds about three quarters:
+**about 85 agent-hours**. Elapsed: T0 alone first, a day or a day and a half with its review; then
+three lanes in parallel for about two days; then TD2 and TD1 one after the other once E1 is on
+`main`. **About one week, and longer by however long E1 takes to merge**; one whole-suite run per
+merge or batch. TD5 and TD6 open with a capped search for the cause and may return a refusal
+instead of a fix. The dropped tasks (82 hours of the first plan, the ninth batch not sized), the
+cut's nine changes and Task 0b's ten hours are not in the total.
 
 ## Not Worth Fixing
+
+These are not dropped for the cut; the planner recommends never fixing them.
 
 | Row | Why |
 | --- | --- |
 | B6 `Bool` strings | A provider that writes `"true"` means true; refusing it fails runs for no gain. Specification §8.10 states the behavior |
-| E5 `cond`, `if`, `match` as binding names | Harmless (the form still works) and reserving them refuses source that compiles |
+| E5 `cond`, `if`, `match` as binding names | Harmless (the forms still work: the review probed three bindings) and reserving them refuses source that compiles |
 | E10 free names in a template | Specification §34 states call-site resolution; definition-site resolution is a language change, not a fix |
 | E14 `TimestampNs` | The documentation was the defect, and it is corrected |
-| E15 extern path at compile | The run fails before launch at no cost; a compile check would have to know which `input_file` a run creates. Add a row to the cut only if an author is bitten |
+| E15 extern path at compile | The run fails before launch at no cost, with a code once `fix/missing-prompt-file` merges |
 | E18 `list/map` in a template | Not a defect |
-| D12, as an implementation | A workflow-reference parameter on a `defproc` works; build the `defworkflow` form when a workflow needs it. Refuse at the use (TD7) |
-| E4 | Worth two hours only because the code names the wrong thing; drop it first if time is short |
-
-Deleting is the fix for E17, and for `validate_prompt_output_position_destinations` if TA2 does not
-use it.
+| D12, as an implementation | A workflow-reference parameter on a `defproc` works; refuse the `defworkflow` form at its use if TD7 returns |
 
 ## What This Makes Harder
 
-- **Programs that build today stop building** under TA3 (a confined site behind a reference in a
-  map body) and TC1 (a ceiling that does not list what an imported workflow does). A run recorded
-  from such a program cannot be rebuilt for `resume`.
-- **A provider call that commits today fails before launch** under TA2 when two slots share a
-  destination.
-- **A second place to edit.** Each fix removes a `KNOWN` row and adds its behavior test; a fix that
-  forgets the row fails the backlog module.
-- **Suite time.** The backlog module and the grid are command-line runs; both must be sampled in
-  the default suite.
+- **A provider call that commits today fails before launch** when two slots share a destination
+  (TA2). A run that already committed one still resumes; a run killed with such a call pending is
+  refused when it relaunches.
+- **A second place to edit.** Each fix removes a known row and adds its behavior test; parallel
+  lanes each delete a line of one dictionary, a small recurring merge conflict.
+- **The known list pins wrong behavior.** A change that moves a dropped defect to a different
+  wrong outcome fails the module, and its author must stop and record it; that is the intent, and
+  it will cost unrelated changes time.
+- **Suite time.** The backlog module builds some eighty programs with their controls and runs
+  about twenty; it must stay under two minutes or be sampled.
 - **Typecheck failures change exit code** from 1 to 2 (TP1); a script that tells a crash from a
   refusal by exit code no longer can, and must read the code.
-- **Rebuilding a prompt-snapshot or prompt-identity feature** starts from the archive tag after
-  TE5, not from the checkout.
-- **Admitting compound proofs (TE1)** widens what a mutant can write and what R3 must cover.
-- **Lane 4 is serial.** Every elaboration fix edits `wcc/elaborate.py`; the staged-authoring tasks
-  O and 0b do too.
+- **Two invariant checks, not three.** A kept task that moved the digest of a run-reference
+  program, or of a program that builds only with provider externs, would not be seen by the
+  ported scripts.
+- **Dropped rows stay live.** A confined child can still be launched per map iteration through a
+  reference (A2), a declared ceiling over an imported workflow is still not enforced (C1), and a
+  prompt `input_file` can still leave the workspace (A4), until one returns.
+- **Lane 4 is serial** and shares `wcc/elaborate.py` with E1 and the staged-authoring tasks.
 
 ## Not Verified While Planning
 
-- No fix was written except the four-line scratch patch for C1. With it the compile of every
-  tracked `.orc` is byte-identical to the base (635 files, 34 build, 601 refuse; SHA-256
-  `de1dcb27…065d52` on both sides), run without generated provider externs, so the sources that
-  name a provider did not reach the build. The corpus snapshot and the run-reference digests were
-  not run for it, and no test was run on the patched tree.
-- The causes of D7 and D8 (assumed one), of D10 and D11 (assumed related), and of E9.
-- D14 was not reproduced; the exact program of the staged-authoring design was not found in
-  scratch or on the spike branch.
-- D17, D18, E21, E22 and E23 were not re-run.
-- How a confined site is marked in the closed tree, and that TA3's scan can tell an iteration body
-  from its surroundings there.
-- The live-provider rows of TC1's audit are from reading the code; no live-provider program was
-  compiled.
-- That E1 closes D1 to D3 on `main`: probed on the branch tip `94236abf`, which is 49 commits
-  behind `main` and lacks the binder form, with fn-form programs for D2 and D3.
-- That no tracked source or test depends on A2's, B1's or C1's present behavior: no search was run
-  beyond the I1 reviews' note that the P12 gap is not pinned.
-- That the kit on `spike/authoring-revisions` runs unchanged on `main`.
-- The hours. They are read from the size of the crash sites and of the reviews' prototypes, not
+- No fix was written. The four-line scratch patch for C1 (now dropped) was compiled against every
+  tracked `.orc` only; no test ran on it.
+- The causes behind TD5 and TD6; whether D10's and D11's sites have one cause.
+- The agent-turn and phased-provider cases of TA2 were not run: a phased program with two `:out`
+  slots on one path, and one with a slot named like a result field, **build** at 2.40; that they
+  reach a launch and commit as the plain provider does was not run (the phased harness needs
+  `tmux`).
+- The exit codes of TA2's refusals at a pending start, and that `ProviderPerformerError` raised
+  from `effect_inputs.py` takes the same pre-`started` route as the prompt-file branch's, which is
+  not merged.
+- That the fixture of TA2's replay test can be recorded with a failing second step in one
+  command.
+- That TP1's boundary at `compile_typed_program_with_result` covers every public route to the
+  typechecker; how many of the 131 `pytest.raises` sites pass through it (the task measures it).
+- D4 on a serial map: the reviewer's program crashes and the planner's builds; the difference was
+  not found.
+- D14 was not reproduced; its exact program was not found. D17 and E25 do not reproduce in the
+  planner's shapes; the reviews' exact programs for them were not found either.
+- D18 and E21 were not re-run. E24's and E23's sites were not traced to a function.
+- That E1 closes D1 to D3: taken from the review's run on the E1 tip `10965cda`; the planner's own
+  run was on an older tip with fn-form programs.
+- That the two scripts on `spike/authoring-revisions` run unchanged on `main`.
+- The hours of TD2, TD1, TD5 and TD6 are read from the crash sites and the comparable merges, not
   from a trial.
-- The bug the whole suite caught and two reviews missed: taken from the coordinator's brief; its
-  ledger entry was not located.
 - The whole suite and the sampled suite were not run; this change is one document.
 
 ## Rulings
+
+Coordinator's rulings on the review and the cut, 2026-11-13:
+
+| # | Ruling | Applied as |
+| --- | --- | --- |
+| A | The plan reads as the cut plan; dropped tasks in one section; the defect table whole | Scope, Tasks, Dropped By The Owner's Cut, Size, Order |
+| B | TD6 returns to the kept set (review M6); the role shapes are its first tests | Task TD6 and its note for Task 0b |
+| C | TA2 runs only on a fresh launch, with a replay test, named codes, the `specs/cli.md` row, any result field, the third check, a failing-first test per caller. O1 is settled for TA2: it merges with the task | Task TA2 |
+| D | TP1 has a reproducer TD5 does not remove, its spec edits, its call site and its audit | Task TP1 |
+| E | T0 keys entries by signature, enforces the shrink rule and the controls, merges first, and says what it does with each unusual row; the planner decides the invariant kit | Task T0: two scripts ported, the run-reference half and the generated externs not |
+| F | Minors m1, m3, m4, m5, m8, m10 | Sources of E20 to E22 in their rows; TD2; TD1; TD5; Global Constraints; A2's row |
+| G | Estimates re-sized from the review's evidence | Size: 48 hours, about 85 with reviews, about a week after E1 |
+| H | The ninth batch as rows, dropped by default | A4, D19, D20, E24, E25, E26; O6 and O7 |
+| I | What the review established for the dropped ones | Dropped By The Owner's Cut |
 
 Planner's rulings, with the cost if wrong:
 
@@ -649,25 +716,30 @@ Planner's rulings, with the cost if wrong:
 | --- | --- | --- | --- |
 | 1 | A row's class is the worst thing the program does today, not the size of its fix | The order is by harm | A cheap E fix waits behind a dear D one |
 | 2 | A3 is class A: a provider call whose result is certain to be refused is money spent | The name clash is static | It moves one place down |
-| 3 | A refusal at run time before launch is not a change to what source means | It moves no digest and no compile outcome; A1's fix sets the precedent | TA2 goes to the cut's list |
-| 4 | One fix per cause; K6 is split in two because the obvious fix of D6 returns a wrong value | The variant-fix re-review measured it | TD4 folds into TE1 |
-| 5 | The reproductions live in one test module with a list that may only shrink | Scratch files do not survive; the one-target guard test uses the same device | A fix forgets the row and the module fails: cheap |
-| 6 | TD3 owns the cause of D8; Task 0b keeps its test | One owner per cause | Whichever lands second pins only |
-| 7 | D12 is refused at its use, not built | No workflow needs it; the `defproc` form works | Five hours spent on a refusal that a later implementation removes |
+| 3 | A refusal at run time before a fresh launch is not a change to what source means; a committed row is never re-checked | It moves no digest and no compile outcome; versioning rule 3 is kept by the replay test | TA2 goes to the cut's list |
+| 4 | A4 is class A: the launch carries content the workspace rule forbids | `specs/io.md` calls `input_file` workspace-relative; `asset_file` refuses | It is class E and stays dropped without a decision |
+| 5 | The reproductions live in one test module; a known row is keyed by signature and the list only shrinks | Scratch files do not survive; the class alone hides a moved crash | A fix forgets the row and the module fails: cheap |
+| 6 | T0 carries the cut's rows and Task 0b's rows as known | It is the one record; the owner of a row removes it | Two other plans edit this module |
+| 7 | Two invariant scripts, not three | No kept task edits run-reference code; the third costs 15 to 25 minutes a side | A moved run-reference digest goes unseen until someone runs the spike's kit |
 | 8 | The cut's rows are listed and not re-planned, though four of them are class B | The versioning rule; two patches inside the hygiene pass were withdrawn | Silent wrong callees stay until the cut |
 
 ## Open Decisions For The Coordinator
 
 | # | Decision | Planner's recommendation |
 | --- | --- | --- |
-| O1 | TA3, TC1 and B1 (in TA2) each make something that builds or commits today stop. Versioning rule 2 sends "source that stops compiling" to the cut | Merge at once. Each enforces a rule the specification already states (ruling P12; the `:effects` ceiling; one destination per output), through a hole in the checker; no tracked source changes; each gets an entry in the specification's change list and a row in the cut's table marked "taken early". If rule 2 is applied strictly, the three ride Task 4b and their tests stay as `KNOWN` rows until then |
-| O2 | Add rows to the cut's table: a compile-time refusal of an output slot named like a result field (A3's static half); the `asset_file` check at compile (E15); reserving `cond`, `if`, `match` as binder names (E5) | The first: yes. The other two: no |
-| O3 | Whether TE5's deletion runs under this plan or with the stage 4 leftovers | Here: it removes the uncalled check that K1 is about |
+| O1 | Whether a fix that refuses what builds or commits today, to enforce a rule the specification already states, merges at once or rides the cut | **Settled for TA2** (ruling C: it merges with the task). It comes back only if TA3 or TC1 returns |
+| O2 | Add a row to the cut's table: a compile-time refusal of an output slot named like a result field (A3's static half) | Yes; TA2 makes it cheap, since the run-time refusal is then only a backstop |
 | O4 | E9 goes on the roadmap's list | Yes |
 | O5 | Task 0b's D2 (D14 here) does not reproduce as a crash | Task 0b re-runs its own program before spending on it |
+| O6 | A4, the prompt `input_file` that leaves the workspace: keep or leave dropped | Under the cut's rule as written it does not qualify: the call is the one the author asked for, nothing wrong is committed and nothing crashes. The planner would keep it all the same, as about three hours beside TA2, because it is the one row where the runtime sends a file from outside the workspace to a provider, `specs/io.md` already calls the path workspace-relative, and `asset_file` has the check |
+| O7 | D19 and D20 into TD1 (about three hours) | Yes if E1's merged code leaves them crashing: they are TD1's cause family, and a mutant of a seed that puts a conditional effect in a call argument writes D20 |
+
+O3 of the first plan (where the dead-code deletion runs) fell with TE5.
 
 ## Ledger
 
 | Date | Entry |
 | --- | --- |
-| 2026-11-13 | Plan written as proposed, against `main` at `59f727db`; `main` at `801bd6d2` merged into the branch afterwards (three documents changed, no code, so the probes stand). 51 rows; 46 re-run on that commit through the public command line with stand-in commands and a stand-in `codex` on a closed `PATH`; no provider or model call. First pass on `a58e5b17`; I1 merged meanwhile (`624ff688`) and closed D15, the only row whose result changed. Found while planning: E9 (a pure loop procedure through a reference); C1 shown on `main` through the declared ceiling, with its cause confirmed by a four-line scratch patch that leaves the compile of all 635 tracked `.orc` files byte-identical; D14 not reproduced; D1 closed by the E1 branch, D4 not. No code change, no spend |
+| 2026-11-13 | Plan written as proposed, against `main` at `59f727db` (`5a92e5f4`, `976dd4ee`). 51 rows; 46 re-run through the public command line with stand-in commands and a stand-in `codex` on a closed `PATH`; no provider or model call. First pass on `a58e5b17`; I1 merged meanwhile (`624ff688`) and closed D15. Found while planning: E9; C1 shown on `main` through the declared ceiling, its cause confirmed by a four-line scratch patch that leaves the compile of all 635 tracked `.orc` files byte-identical; D14 not reproduced; D1 closed by the E1 branch, D4 not. 20 tasks, 120 hours |
+| 2026-11-13 | Owner's scope cut, recorded by the coordinator (`a5a5941d`): seven tasks, 29 hours; a task stays when its defect can spend provider money or commit a wrong output, or when a short staged seed or a mutant of one would plausibly write the shape and crash the compiler |
+| 2026-11-13 | Independent review: accept after fixes, no blocker, six majors, ten minors; 33 rows re-run on `main` at `801bd6d2` and four on the E1 tip `10965cda`, all matching. Coordinator's rulings A to I recorded above and applied in this revision, on `main` at `e112aa0f` merged into the branch (documents only since `59f727db`). Kept set: T0, TA2, TP1, TD2, TD1, TD5, TD6, TF, 48 hours. Rows added: the ninth batch (A4, D19, D20, E24, E25, E26). Probed while revising, no provider or model call: A4 reproduces in all three spellings with the outside text in the prompt; D19, D20, E24, E26 reproduce; E25 does not; D17 does not reproduce in two shapes; E23 now has a program (`name_unknown`); E22 reproduces; the role shapes R1, R2, R5 crash and R3, R4 run; a phased provider program with TA2's two shapes builds; D4 on a serial map builds in the planner's shape. Not applied as ruled: nothing |
