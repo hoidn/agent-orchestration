@@ -217,7 +217,7 @@ def _walk_lowered_steps(steps: list[dict[str, object]]):
 
 
 def test_typed_effect_inference_descends_through_phase_inside_same_file_procedure(tmp_path: Path) -> None:
-    path = _write_module(tmp_path / "phase_procedure.orc", '(workflow-lisp\n  (:language "0.1") (:target-dsl "2.35")\n  (defrecord RunCtx (run-id RunId) (state-root Path.state-root) (artifact-root Path.artifact-root))\n  (defrecord PhaseCtx (run RunCtx) (phase-name Symbol) (state-root Path.state-root) (artifact-root Path.artifact-root))\n  (defproc helper ((ctx PhaseCtx)) -> Bool\n    :effects ((uses-provider providers.execute)) :lowering inline\n    (with-phase ctx implementation\n      (provider-result providers.execute :prompt prompts.execute :inputs () :returns Bool)))\n  (defworkflow run ((ctx PhaseCtx)) -> Bool (helper ctx)))\n')
+    path = _write_module(tmp_path / "phase_procedure.orc", '(workflow-lisp\n  (:language "0.1") (:target-dsl "2.40")\n  (defmodule phase_procedure)\n  (import std/phase :only (with-phase))\n  (defrecord RunCtx (run-id RunId) (state-root Path.state-root) (artifact-root Path.artifact-root))\n  (defrecord PhaseCtx (run RunCtx) (phase-name Symbol) (state-root Path.state-root) (artifact-root Path.artifact-root))\n  (defproc helper ((ctx PhaseCtx)) -> Bool\n    (with-phase ctx implementation\n      (provider-result providers.execute :prompt prompts.execute :inputs () :returns Bool)))\n  (defworkflow run ((ctx PhaseCtx)) -> Bool (helper ctx)))\n')
     result = compile_stage3_module(path, provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.execute": "prompt.md"}, workspace_root=tmp_path)
     effects = result.typed_workflows[0].typed_body.effect_summary.transitive_effects
@@ -394,7 +394,7 @@ def test_typed_root_guidance_covers_record_union_and_private_procedures(
 def test_shared_root_contracts_preserve_transportable_return_types() -> None:
     span = SourceSpan(start=SourcePosition(path="contracts.orc", line=1, column=1, offset=0),
         end=SourcePosition(path="contracts.orc", line=1, column=2, offset=1))
-    type_env = FrontendTypeEnvironment({}, target_dsl_version="2.35")
+    type_env = FrontendTypeEnvironment({}, target_dsl_version="2.40")
     for type_ref, kind, wire_type in ((PrimitiveTypeRef(name="Bool"), "scalar", "bool"),
         (PrimitiveTypeRef(name="Int"), "scalar", "integer"),
         (PrimitiveTypeRef(name="String"), "scalar", "string"),
@@ -865,7 +865,7 @@ def test_build_workflow_catalog_reconstructs_imported_param_defaults_from_typed_
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     "  (defenum Status",
                     "    ready",
                     "    blocked)",
@@ -889,7 +889,7 @@ def test_build_workflow_catalog_reconstructs_imported_param_defaults_from_typed_
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    assert compiled.typed_program.target == "2.35"
+    assert compiled.typed_program.target == "2.40"
     assert compiled.typed_program.entry_module == "entry"
     caller_types = _write_module(
         tmp_path / "caller_types.orc",
@@ -897,7 +897,7 @@ def test_build_workflow_catalog_reconstructs_imported_param_defaults_from_typed_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defenum Status",
                 "    ready",
                 "    blocked)",
@@ -1165,7 +1165,7 @@ def test_build_workflow_catalog_reconstructs_imported_typed_rich_union_return_at
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Task (task_id String))",
                 "  (defunion TaskOutcome",
                 "    (PENDING (task Task))",
@@ -1187,7 +1187,7 @@ def test_build_workflow_catalog_reconstructs_imported_typed_rich_union_return_at
         validate_shared=True,
         workspace_root=tmp_path,
     )
-    assert imported.typed_program.target == "2.35"
+    assert imported.typed_program.target == "2.40"
     assert imported.typed_program.entry_module == "entry"
     caller_types = _write_module(
         tmp_path / "caller_rich_union_return_types.orc",
@@ -1195,7 +1195,7 @@ def test_build_workflow_catalog_reconstructs_imported_typed_rich_union_return_at
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Task (task_id String))",
                 "  (defunion TaskOutcome",
                 "    (PENDING (task Task))",
@@ -1657,7 +1657,7 @@ def test_stage3_entrypoint_coexists_with_explicit_imported_typed_program(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',

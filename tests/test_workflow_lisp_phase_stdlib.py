@@ -238,7 +238,9 @@ def test_typecheck_accepts_generic_phase_ctx_for_phase_target(tmp_path: Path) ->
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
+                "  (defmodule generic_phase_target_ok)",
+                "  (import std/phase :only (with-phase))",
                 "  (defpath WorkReportTarget",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -810,8 +812,9 @@ def test_typecheck_accepts_generic_phase_scoped_provider_result_record(tmp_path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule generic_phase_provider_result)",
+                "  (import std/phase :only (with-phase))",
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',

@@ -110,7 +110,7 @@ def _diagnostics_for_private_rejection(path: Path, root: Path):
 )
 def test_target_239_refuses_direct_private_expansion_heads(expression: str) -> None:
     with pytest.raises(LispFrontendCompileError) as caught:
-        _elaborate(expression, "2.39")
+        _elaborate(expression, "2.40")
 
     diagnostic = caught.value.diagnostics[0]
     assert diagnostic.code == "private_form_not_admitted"
@@ -178,7 +178,7 @@ def test_completion_hides_private_and_fallback_heads_only_for_target_239(
 
 def test_target_239_refuses_bare_compatibility_heads() -> None:
     with pytest.raises(LispFrontendCompileError) as caught:
-        _elaborate('(with-phase ctx implementation "body")', "2.39")
+        _elaborate('(with-phase ctx implementation "body")', "2.40")
 
     diagnostic = caught.value.diagnostics[0]
     assert diagnostic.code == "stdlib_import_route_required"
@@ -189,7 +189,7 @@ def test_target_239_accepts_packaged_phase_template_nested_under_user_macro(
     tmp_path: Path,
 ) -> None:
     source = PHASE_SCOPE_FIXTURE.read_text(encoding="utf-8").replace(
-        '(:target-dsl "2.40")', '(:target-dsl "2.40")'
+        '(:target-dsl "2.35")', '(:target-dsl "2.40")'
     )
     source = source.replace(
         "  (export PhaseScopeSurface phase-scope-demo)",
@@ -216,7 +216,7 @@ def test_target_239_with_phase_build_readback_and_phase_target_runtime(
     from tests.test_workflow_lisp_closed_phase_target import _context, _source
     from tests.workflow_lisp_closed_program_helpers import build
 
-    source = _source().replace("TARGET", "2.39")
+    source = _source().replace("TARGET", "2.40")
     if nested:
         source = source.replace(
             "(export run)",

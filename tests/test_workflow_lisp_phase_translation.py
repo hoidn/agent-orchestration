@@ -4,7 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import _definition_only_syntax_module, _validate_definition_module
+from orchestrator.workflow_lisp.compiler import (
+    _definition_only_syntax_module,
+    _validate_definition_module,
+    compile_stage3_module,
+)
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
@@ -76,6 +80,17 @@ def _expression_syntax(source: str) -> SyntaxNode:
     )
 
 
+def _compile_module(path: Path):
+    """Compile through the module graph, so the source's `std/phase` import of `with-phase` resolves."""
+    return compile_stage3_module(
+        path,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=path.parent,
+    )
+
+
 def _typecheck_fixture(path: Path):
     module = _compile_definition_module(path)
     type_env = FrontendTypeEnvironment.from_module(module)
@@ -144,7 +159,9 @@ def test_typecheck_rejects_phase_context_report_targets_that_are_not_target_path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
+                "  (defmodule phase_context_target_contract_invalid)",
+                "  (import std/phase :only (with-phase))",
                 "  (defpath DesignDocPath",
                 "    :kind relpath",
                 '    :under "docs/design"',
@@ -183,7 +200,7 @@ def test_typecheck_rejects_phase_context_report_targets_that_are_not_target_path
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(path)
+        _compile_module(path)
 
     _assert_diagnostic_code(excinfo, "phase_context_invalid")
 
@@ -195,7 +212,9 @@ def test_typecheck_rejects_phase_target_unknown(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
+                "  (defmodule phase_target_unknown)",
+                "  (import std/phase :only (with-phase))",
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -225,7 +244,7 @@ def test_typecheck_rejects_phase_target_unknown(tmp_path: Path) -> None:
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(path)
+        _compile_module(path)
 
     _assert_diagnostic_code(excinfo, "phase_target_unknown")
 
@@ -250,14 +269,16 @@ def test_elaborate_phase_target_rejects_malformed_target_names(source: str) -> N
 
 def test_typecheck_rejects_nested_with_phase(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(
+        _compile_module(
             _write_module(
                 tmp_path / "tmp_nested_with_phase.orc",
                 "\n".join(
                     [
                         "(workflow-lisp",
                         '  (:language "0.1")',
-                        '  (:target-dsl "2.35")',
+                        '  (:target-dsl "2.40")',
+                        "  (defmodule tmp_nested_with_phase)",
+                        "  (import std/phase :only (with-phase))",
                         "  (defpath DesignDocPath",
                         "    :kind relpath",
                         '    :under "docs/design"',
@@ -302,14 +323,16 @@ def test_typecheck_rejects_nested_with_phase(tmp_path: Path) -> None:
 
 def test_typecheck_rejects_non_implementation_phase_name_for_bounded_slice(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(
+        _compile_module(
             _write_module(
                 tmp_path / "phase_name_invalid.orc",
                 "\n".join(
                     [
                         "(workflow-lisp",
                         '  (:language "0.1")',
-                        '  (:target-dsl "2.35")',
+                        '  (:target-dsl "2.40")',
+                        "  (defmodule phase_name_invalid)",
+                        "  (import std/phase :only (with-phase))",
                         "  (defenum BlockerClass",
                         "    missing_resource)",
                         "  (defenum ImplementationStateTag",
@@ -387,14 +410,16 @@ def test_typecheck_rejects_non_implementation_phase_name_for_bounded_slice(tmp_p
 
 def test_typecheck_rejects_non_implementation_attempt_provider_result_inside_with_phase(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _typecheck_fixture(
+        _compile_module(
             _write_module(
                 tmp_path / "phase_provider_result_scope_leak.orc",
                 "\n".join(
                     [
                         "(workflow-lisp",
                         '  (:language "0.1")',
-                        '  (:target-dsl "2.35")',
+                        '  (:target-dsl "2.40")',
+                        "  (defmodule phase_provider_result_scope_leak)",
+                        "  (import std/phase :only (with-phase))",
                         "  (defpath DesignDocPath",
                         "    :kind relpath",
                         '    :under "docs/design"',
