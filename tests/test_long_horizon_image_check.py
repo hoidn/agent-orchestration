@@ -232,9 +232,10 @@ def test_a_loose_git_object_is_opened_as_a_blob():
 def test_archives_too_large_unreadable_or_nested_are_reported_not_opened():
     big = image_check.Entry("opt/big.tar", "file", 10**9, _sha(b"x"), False, None, None)
     nested = _file("opt/outer.zip", _zip({"inner.whl": b"PK"}))
-    found = image_check.classify([big, _file("opt/bad.tar.gz", b"not gzip"), nested], _index())
+    pack = _file("srv/repo/.git/objects/pack/pack-1.pack", b"PACK")
+    found = image_check.classify([big, _file("opt/bad.tar.gz", b"not gzip"), nested, pack], _index())
     assert ([n["why"] for n in found["not_opened"]], found["near_copy"]) == (
-        ["larger than MAX_READ", "ReadError", "archive inside an archive"], "needs a look")
+        ["larger than MAX_READ", "ReadError", "archive inside an archive", "git pack"], "needs a look")
 
 
 def test_a_git_directory_outside_system_paths_needs_a_look():

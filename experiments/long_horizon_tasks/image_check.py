@@ -69,6 +69,7 @@ LANG_DIRS = ("/site-packages/", "/dist-packages/", "/node_modules/", "/.cargo/re
              "/go/pkg/mod/", "/gems/", "/.npm/", "/.cache/pip/", "/.local/share/uv/python/")
 ARCHIVE = re.compile(r"\.(tar|tgz|txz|tbz2|tar\.(gz|xz|bz2|zst)|zip|whl|gz)$")
 GIT_OBJECT = re.compile(r"(^|/)\.git/objects/[0-9a-f]{2}/[0-9a-f]{38}$")
+GIT_PACK = re.compile(r"(^|/)\.git/objects/pack/[^/]+\.pack$")
 ARCHIVE_ERRORS = (zipfile.BadZipFile, tarfile.TarError, OSError, zlib.error, EOFError, ValueError)
 
 
@@ -294,6 +295,9 @@ def _note_name(found, path, index):
 
 
 def _open_archive(found, entry, index, depth):
+    if GIT_PACK.search(entry.path) and not is_system(entry.path):
+        found["not_opened"].append({"path": entry.path, "size": entry.size, "why": "git pack"})
+        return
     if is_system(entry.path) or not (ARCHIVE.search(entry.path) or GIT_OBJECT.search(entry.path)):
         return
     if depth:
