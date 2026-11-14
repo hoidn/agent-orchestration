@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule imported_stdlib_macro_payload_helper_variant_unproved/std_payload_helpers)
   (export SelectionPayload
           GapPayload

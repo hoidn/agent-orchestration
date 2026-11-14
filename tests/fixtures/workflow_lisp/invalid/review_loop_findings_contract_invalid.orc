@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule review_loop_findings_contract_invalid)
   (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult review-revise-loop with-phase))
   (defpath WorkReport
@@ -25,8 +25,6 @@
     ((completed CompletedAttempt)
      (inputs ReviewInputs))
     -> ReviewDecision
-    :effects ()
-    :lowering inline
     (variant ReviewDecision REVISE
       :review_report "artifacts/review/review-report.md"
       :findings (record ReviewFindings
@@ -37,8 +35,6 @@
      (inputs ReviewInputs)
      (findings ReviewFindings))
     -> CompletedAttempt
-    :effects ()
-    :lowering inline
     completed)
   (defworkflow invalid-review-loop
     ((phase-ctx PhaseCtx)

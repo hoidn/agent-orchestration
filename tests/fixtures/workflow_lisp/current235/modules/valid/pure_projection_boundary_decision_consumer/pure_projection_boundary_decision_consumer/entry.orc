@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule pure_projection_boundary_decision_consumer/entry)
   (import pure_projection_boundary_decision_consumer/helper :only
     (project-path-decision project-shared-decision))
@@ -12,8 +12,6 @@
     ((decision PathDecision)
      (fallback_path ConsumerPath))
     -> ConsumerPath
-    :effects ()
-    :lowering inline
     (match decision
       ((READY ready)
        ready.bundle_path)
@@ -23,8 +21,6 @@
   (defproc project-path-detail
     ((decision PathDecision))
     -> String
-    :effects ()
-    :lowering inline
     (match decision
       ((READY ready)
        "READY")
@@ -34,8 +30,6 @@
   (defproc project-shared-detail
     ((decision SharedDecision))
     -> String
-    :effects ()
-    :lowering inline
     (match decision
       ((APPROVE approve)
        approve.reason)

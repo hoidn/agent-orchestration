@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule guide_shapes/record_fields_adapter_input)
   (export run)
   (defrecord Box (n Int))

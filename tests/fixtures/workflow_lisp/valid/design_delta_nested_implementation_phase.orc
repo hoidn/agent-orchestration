@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule nested/implementation-phase)
   (import std/phase :only (BlockerClass ReviewDecision ReviewFindings ReviewReportPath review-revise-loop))
   (defpath WorkReport
@@ -44,8 +44,6 @@
     ((completed CompletedAttempt)
      (inputs ReviewInputs))
     -> ReviewDecision
-    :effects ((uses-provider providers.review))
-    :lowering inline
     (provider-result providers.review
       :prompt prompts.implementation.review
       :inputs (completed.execution_report
@@ -58,8 +56,6 @@
      (inputs ReviewInputs)
      (findings ReviewFindings))
     -> CompletedAttempt
-    :effects ((uses-provider providers.fix))
-    :lowering inline
     (provider-result providers.fix
       :prompt prompts.implementation.fix
       :inputs (completed.execution_report
