@@ -1672,6 +1672,19 @@ def _branch_is_effectful_if(state) -> bool:
         for branch in (state.then_expr, state.else_expr))
 
 
+def _elaborate_continue_state(expr: ContinueExpr, **inputs):
+    """Elaborate a `continue` value to (prefix, value), or refuse with `effect_not_permitted` a value that
+    cannot lower: an effect under control below its top. Only such a value is refused, so no program that
+    builds changes."""
+
+    if _branch_is_effectful_if(expr.state_expr):
+        raise _continue_value_needs_binding(expr)
+    try:
+        return _elaborate_expr_to_value(expr.state_expr, **inputs)
+    except NonLinearValueBodyError as exc:
+        raise _continue_value_needs_binding(expr) from exc
+
+
 def _bound_first(consumer, attr: str, *, scope: WccIdentityFactory, value_env, compile_time_bindings, role: str) -> LetStarExpr:
     """`(let* ((g <operand>)) <consumer reading g>)`, the operand being `consumer.<attr>`.
 
@@ -1907,24 +1920,18 @@ def _elaborate_expr_to_body(
                 compile_time_bindings=compile_time_bindings,
                 active_phase_scope=active_phase_scope,
             )
-        if _branch_is_effectful_if(expr.state_expr):
-            raise _continue_value_needs_binding(expr)
-        try:
-            prefix, state_value = _elaborate_expr_to_value(
-                expr.state_expr,
-                scope=scope.child_scope("loop-continue", authored_binding_name="state"),
-                type_env=type_env,
-                value_env=value_env,
-                workflow_return_types=workflow_return_types,
-                procedure_return_types=procedure_return_types,
-                effect_summary=effect_summary,
-                procedure_edges_by_site=procedure_edges_by_site,
-                compile_time_bindings=compile_time_bindings,
-                active_phase_scope=active_phase_scope,
-            )
-        except NonLinearValueBodyError as exc:
-            # Only a state that cannot lower reaches here, so no program that builds changes.
-            raise _continue_value_needs_binding(expr) from exc
+        prefix, state_value = _elaborate_continue_state(
+            expr,
+            scope=scope.child_scope("loop-continue", authored_binding_name="state"),
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
         continue_node = WccLoopContinue(
             metadata=scope.body_metadata(
                 role="loop:continue",

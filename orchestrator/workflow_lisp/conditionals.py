@@ -378,8 +378,6 @@ def _normalize_operand(
     path: tuple[int, ...],
     closed_program: bool = False,
 ) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
-    if isinstance(expr, MatchExpr) and _PURE_MATCH_STAYS.get() and not _contains_effect(expr):
-        return (), expr
     if isinstance(expr, PureOpExpr) and expr.operator in {"and", "or"}:
         return _normalize_short_circuit(expr, path=path, closed_program=closed_program)
     if isinstance(expr, PureOpExpr) and expr.operator == "not":
@@ -568,6 +566,8 @@ def _normalize_match_value(
     path: tuple[int, ...],
     closed_program: bool = False,
 ) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
+    if _PURE_MATCH_STAYS.get() and not _contains_effect(expr):
+        return (), expr
     subject_prefix, subject_terminal = _normalize_operand(expr.subject, path=path + (0,), closed_program=closed_program)
     arms: list[MatchArm] = []
     for index, arm in enumerate(expr.arms):
@@ -964,6 +964,19 @@ def _normalize_effect_operand(
     return (*child_prefix, (binding_name, rebuilt)), _name_expr(binding_name, expr)
 
 
+def _child_normalization(expr: ExprNode):
+    """Return how a composite normalizes its children: the normalizer and which children it normalizes.
+
+    A constructor, list or path child that holds an effect (only since surface coherence E1) normalizes
+    only its effectful operands, with `normalize_value_operand`: a pure `match` beside them or among
+    their operands stays a value and moves no effect's name.
+    """
+
+    if any(getattr(expr, flag, False) for flag in ("effectful_fields", "effectful_items", "effectful_child")):
+        return normalize_value_operand, _contains_effect
+    return _normalize_operand, lambda child: True
+
+
 def _normalize_composite(
     expr: ExprNode,
     *,
@@ -987,13 +1000,10 @@ def _normalize_composite(
         return (), expr
     hoisted: list[tuple[str, ExprNode]] = []
     replacements: dict[int, ExprNode] = {}
-    # A constructor, list or path child that holds an effect (only since surface coherence E1) binds
-    # only its effectful operands: a pure `match` beside them stays a value and moves no effect's name.
-    effect_operands_only = any(getattr(expr, flag, False) for flag in ("effectful_fields", "effectful_items", "effectful_child"))
+    normalize, keep = _child_normalization(expr)
     for index, child in enumerate(children):
-        if not isinstance(child, ExprNode) or (effect_operands_only and not _contains_effect(child)):
+        if not isinstance(child, ExprNode) or not keep(child):
             continue
-        normalize = normalize_value_operand if effect_operands_only else _normalize_operand
         child_prefix, child_terminal = normalize(child, path=path + (index,), closed_program=closed_program)
         hoisted.extend(child_prefix)
         replacements[id(child)] = child_terminal

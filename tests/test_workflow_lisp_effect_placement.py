@@ -96,6 +96,9 @@ PLACEMENTS = {
     "serial-map-source-list": (
         "List[Int]", f"(list/map-effect ((x (list {E(1)} {E(2)}))) :max 5 {ITEM})", "", [1, 2], ["1", "2", "1", "2"]),
     "pure-map-source": ("List[Int]", f'(list/map ((x {E("[1,2,3]", "List[Int]")})) (+ x 1))', "", [2, 3, 4], ["[1,2,3]"]),
+    "parallel-map-source": (
+        "List[Int]", f'(list/map-effect ((x {E("[4]", "List[Int]")})) :max 1 :parallel 1 :workspace "ws/w" {ITEM})', "",
+        [4], ["[4]", "4"]),
     "path-child": ("Report", f'(path/join-under Report {E("s", "String")})', "", "artifacts/work/s", ["s"]),
     "list-in-continue": (
         "Int", f"(loop/recur :max 3 :state (list 0) :on-exhausted 0 (fn (s) (if (> (list/length s) 1) (done (list/length s)) (continue (list {E(1)} {E(2)})))))",
@@ -145,6 +148,7 @@ PLACEMENTS = {
 @pytest.mark.parametrize("case", PLACEMENTS)
 def test_admitted_placement_runs_each_effect_once_in_written_order(tmp_path: Path, case: str) -> None:
     returns, body, decls, expected, log = PLACEMENTS[case]
+    (tmp_path / "ws" / "w").mkdir(parents=True)
     write(tmp_path, returns, body, decls)
 
     result = run(tmp_path)
