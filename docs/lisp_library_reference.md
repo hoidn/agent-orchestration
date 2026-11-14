@@ -428,7 +428,7 @@ binding comes from the command manifest below.
 ```lisp
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule mlevolve_pair/evaluate_one)
   (export evaluate-one)
 
