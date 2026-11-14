@@ -438,6 +438,9 @@ def ask(question, *, returns, timeout_sec=None, show=(), name=None):
 
 
 def _boolean_thunks(kind, thunks, options):
+    if len(thunks) == 1 and not options and not callable(thunks[0]):
+        # One list of booleans, not thunks: the pure reduction `list/all` or `list/any`.
+        return declaration_expression("op", ("list/all" if kind == "all_of" else "list/any", thunks[0]), bool)
     trace = active_trace()
     if options:
         raise PythonFrontendError("python_binder_name_unsupported",
@@ -452,6 +455,7 @@ def any_of(*thunks, **options): return _boolean_thunks("any_of", thunks, options
 
 
 def length(value): return declaration_expression("op", ("list/length", value), int)
+def take(value, count): return declaration_expression("op", ("list/take", value, count), getattr(value, "_annotation", None))
 def concat(*values): return declaration_expression("op", ("string/concat", *values), str)
 def not_(value): return declaration_expression("op", ("not", value), bool)
 

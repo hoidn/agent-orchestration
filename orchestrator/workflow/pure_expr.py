@@ -250,6 +250,27 @@ PURE_EXPR_OPERATOR_CATALOG = MappingProxyType(
             max_arity=1,
             min_schema_version=2,
         ),
+        "list/take": PureOperatorSpec(
+            name="list/take",
+            group="list",
+            min_arity=2,
+            max_arity=2,
+            min_schema_version=2,
+        ),
+        "list/all": PureOperatorSpec(
+            name="list/all",
+            group="list",
+            min_arity=1,
+            max_arity=1,
+            min_schema_version=2,
+        ),
+        "list/any": PureOperatorSpec(
+            name="list/any",
+            group="list",
+            min_arity=1,
+            max_arity=1,
+            min_schema_version=2,
+        ),
         "print": PureOperatorSpec(
             name="print",
             group="observation",
@@ -1743,6 +1764,7 @@ def _derive_static_operator_type(
                 metadata={"observed_type": list_type},
             )
         item_type = list_type["item"]
+        _require_take_or_reduction_operands(operator, item_type, arg_types)
         if operator == "list/append":
             _require_matching_descriptor(
                 arg_types[1],
@@ -1759,9 +1781,9 @@ def _derive_static_operator_type(
             return list_type
         if operator == "list/head":
             return {"kind": "optional", "item": item_type}
-        if operator == "list/rest":
+        if operator in {"list/rest", "list/take"}:
             return list_type
-        if operator == "list/empty?":
+        if operator in {"list/empty?", "list/all", "list/any"}:
             return _bool_type()
         return _int_type()
 
@@ -1770,6 +1792,29 @@ def _derive_static_operator_type(
         f"unsupported pure operator `{operator}`",
         metadata={"operator": operator},
     )
+
+
+def _require_take_or_reduction_operands(
+    operator: str,
+    item_type: Mapping[str, Any],
+    arg_types: Sequence[Mapping[str, Any]],
+) -> None:
+    """`list/take` counts with an `Int`; `list/all` and `list/any` reduce a `List[Bool]`."""
+
+    if operator == "list/take":
+        _require_matching_descriptor(
+            arg_types[1],
+            _int_type(),
+            message="operator `list/take` count must be an Int",
+            metadata={"observed_type": arg_types[1]},
+        )
+    elif operator in {"list/all", "list/any"}:
+        _require_matching_descriptor(
+            item_type,
+            _bool_type(),
+            message=f"operator `{operator}` requires a List[Bool] operand",
+            metadata={"element_type": item_type},
+        )
 
 
 def _require_matching_descriptor(
@@ -2190,6 +2235,8 @@ def evaluate_pure_operator(
         source = arg_values[0]
         if operator == "list/empty?":
             return result_type, not source
+        if operator in {"list/take", "list/all", "list/any"}:
+            return result_type, _evaluate_take_or_reduction(operator, item_type, arg_values)
         if operator == "list/head":
             return (
                 result_type,
@@ -2235,6 +2282,23 @@ def evaluate_pure_operator(
         f"unsupported pure operator `{operator}`",
         metadata={"operator": operator},
     )
+
+
+def _evaluate_take_or_reduction(
+    operator: str,
+    item_type: Mapping[str, Any],
+    arg_values: Sequence[Any],
+) -> Any:
+    """The first `n` items (none when `n` is below 1), or whether every or some item is true."""
+
+    source = arg_values[0]
+    if operator == "list/take":
+        return [
+            _coerce_value(item, item_type, context="list/take result item")
+            for item in source[: max(arg_values[1], 0)]
+        ]
+    items = [_coerce_value(item, item_type, context=f"{operator} operand item") for item in source]
+    return all(items) if operator == "list/all" else any(items)
 
 
 def _coerce_value(

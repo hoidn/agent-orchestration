@@ -288,14 +288,15 @@ def typecheck_pure_expr(
                     form_path=expr.form_path,
                     expansion_stack=expr.expansion_stack,
                 )
-            if operator == "list/empty?":
+            _require_take_or_reduction_operands(expr, list_type, arg_types)
+            if operator in {"list/empty?", "list/all", "list/any"}:
                 result_type = PrimitiveTypeRef(name="Bool")
             elif operator == "list/head":
                 result_type = OptionalTypeRef(
                     name=f"Optional[{list_type.item_type_ref.name}]",
                     item_type_ref=list_type.item_type_ref,
                 )
-            elif operator == "list/rest":
+            elif operator in {"list/rest", "list/take"}:
                 result_type = list_type
             elif operator == "list/append":
                 if not type_refs_compatible(
@@ -464,6 +465,14 @@ def _is_primitive(type_ref: TypeRef, name: str) -> bool:
 
 def _is_union_like(type_ref: TypeRef) -> bool:
     return type(type_ref).__name__ in {"UnionTypeRef", "VariantCaseTypeRef"}
+
+
+def _require_take_or_reduction_operands(expr: PureOpExpr, list_type: ListTypeRef, arg_types) -> None:
+    """`list/take` counts with an `Int`; `list/all` and `list/any` reduce a `List[Bool]`."""
+    if expr.operator == "list/take":
+        _require_primitive(expr=expr, type_ref=arg_types[1], name="Int", operator=expr.operator)
+    elif expr.operator in {"list/all", "list/any"} and not _is_primitive(list_type.item_type_ref, "Bool"):
+        _raise_operand_mismatch(expr=expr, message=f"operator `{expr.operator}` requires a List[Bool] operand")
 
 
 def _require_primitive(*, expr, type_ref: TypeRef, name: str, operator: str) -> None:

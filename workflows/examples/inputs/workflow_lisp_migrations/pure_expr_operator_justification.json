@@ -100,6 +100,18 @@
     "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
   },
   {
+    "operator": "list/take",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "list/all",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
+    "operator": "list/any",
+    "fixture_path": "tests/fixtures/workflow_lisp/pure_expr/golden_vectors.json"
+  },
+  {
     "operator": "/",
     "fixture_path": "tests/fixtures/workflow_lisp/numeric_surface/branch_score.orc"
   },
