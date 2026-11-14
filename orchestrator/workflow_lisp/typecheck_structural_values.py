@@ -36,7 +36,7 @@ from .expressions import (
     ProviderResultExpr,
     PureOpExpr,
 )
-from .type_env import ListTypeRef, PathTypeRef, PrimitiveTypeRef, TypeRef
+from .type_env import ListTypeRef, PathTypeRef, PrimitiveTypeRef, TypeParamRef, TypeRef
 
 from .typecheck_context import (
     TypecheckContext,
@@ -170,15 +170,14 @@ def _register_map_run_ref_types(type_env, *, context):
 def _written_list_type(expr: ListExpr, expected_list: ListTypeRef | None, *, context: TypecheckContext) -> ListTypeRef:
     """The type `(list :of T …)` states, which must be the type its position expects, if any.
 
-    `T` resolves as a `loop-state` field type does, so it may name a type parameter in scope.
+    `T` is a type name, or the name of a type parameter in scope; a value's name is not a type.
     """
 
-    from .loop_state import _resolve_authored_field_type
-
-    item_type, _ = _resolve_authored_field_type(
-        expr.element_type_ref, context=context, span=expr.span, form_path=expr.form_path,
-        expansion_stack=expr.expansion_stack,
-    )
+    name = expr.element_type_ref
+    in_scope = context.value_env.get(name)
+    item_type = (in_scope if isinstance(in_scope, TypeParamRef) and in_scope.name == name
+                 else context.type_env.resolve_type(name, span=expr.span, form_path=expr.form_path,
+                                                    expansion_stack=expr.expansion_stack))
     written = ListTypeRef(name=f"List[{item_type.name}]", item_type_ref=item_type)
     if expected_list is not None and not _type_refs_compatible(expected_list, written):
         raise_error(

@@ -1502,6 +1502,14 @@ _TYPED_LIST_REFUSALS = {
     "unknown_type": ("Int", "", "(list/length (list :of Nope))", "type_unknown"),
     "no_type": ("Int", "", "(list/length (list :of))", "list_item_type_invalid"),
     "type_not_a_name": ("Int", "", "(list/length (list :of 3))", "list_item_type_invalid"),
+    "value_name": ("Int", "", "(let* ((n 3)) (list/length (list :of n 4)))", "type_unknown"),
+    "value_named_like_a_primitive_type": (
+        "List[String]", "", '(let* ((Int "s")) (list :of Int "a"))', "pure_expr_operand_type_mismatch",
+    ),
+    "value_named_like_a_record_type": (
+        "Int", "(defrecord R (v String))", "(let* ((R 1)) (list/length (list :of R 1)))",
+        "pure_expr_operand_type_mismatch",
+    ),
 }
 
 
@@ -1511,6 +1519,17 @@ def test_typed_list_checks_its_items_and_its_context(tmp_path: Path, case: str) 
 
     assert _typed_list_outcome(tmp_path, _typed_list_module(body, returns=returns, extra=extra)) == (
         "refused", code)
+
+
+@pytest.mark.parametrize(
+    "value", ("(list 1)", "(list :of Int)", "(list/map ((x s)) 1)"),
+    ids=("untyped_items", "typed_empty", "map"),
+)
+def test_wrongly_typed_continue_list_keeps_the_continue_refusal(tmp_path: Path, value: str) -> None:
+    body = f'(loop/recur ((s (list "a"))) :max 2 (if (list/empty? s) (done 1) (continue {value})))'
+
+    assert _typed_list_outcome(tmp_path, _typed_list_module(body, returns="Int")) == (
+        "refused", "loop_recur_continue_type_mismatch")
 
 
 @pytest.mark.parametrize(
