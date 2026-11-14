@@ -195,8 +195,8 @@ def _write_command_source(
         for index, (boundary, command) in enumerate(entry_sites)
     ]
     unreachable_source = "\n".join(
-        f"(defproc {name} () -> Int :effects ((uses-command {boundary})) "
-        f":lowering inline (command-result {boundary} :argv "
+        f"(defproc {name} () -> Int "
+        f" (command-result {boundary} :argv "
         f"({' '.join(json.dumps(token) for token in command)}) :returns Int))"
         for name, boundary, command in unreachable_sites
     )
@@ -207,7 +207,7 @@ def _write_command_source(
     )
 
     source_parts = (
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35")',
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40")',
         "  (defmodule authority/commands) (export run)",
         unreachable_source,
         "  (defworkflow run () -> Int",

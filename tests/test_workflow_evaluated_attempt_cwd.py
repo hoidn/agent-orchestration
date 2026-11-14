@@ -26,7 +26,7 @@ Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']).write_text(json.dumps({'seen
 
 
 def command_program(root, *, command=('python', 'probe.py', 'data.txt'), closure=()):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
         (defmodule cwd) (export run)
         (defrecord Seen (seen String) (place String) (root String))
         (defworkflow run () -> Seen (command-result fetch :argv (%s) :returns Seen)))'''

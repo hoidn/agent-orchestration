@@ -292,7 +292,6 @@ def test_inserted_step_before_step_two_reruns_steps_two_to_four(installed: dict[
     four_steps(workspace, "import json, os, sys\nfrom pathlib import Path\nPath('log.txt').open('a').write('s3\\n')\n"
                           "Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']).write_text(json.dumps(int(sys.argv[1]) + 1))\n")
     main = workspace / "main.orc"
-    main.write_text(main.read_text().replace('(:target-dsl "2.35")', '(:target-dsl "2.40")'))
     (workspace / "x.py").write_text((workspace / "s1.py").read_text().replace('"s1\\n"', '"x\\n"'))
     manifest = json.loads((workspace / "commands.json").read_text())
     (workspace / "commands.json").write_text(json.dumps({**manifest, "sx": {"stable_command": ["python", "x.py"],

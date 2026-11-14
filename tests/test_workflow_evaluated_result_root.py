@@ -46,7 +46,7 @@ NESTED = ".orchestrate/runs/custom"
 _SENTINEL = "x4-result-root-sentinel"
 _MANIFESTS =("providers.json", "prompts.json", "commands.json", "inputs.json", "requests.jsonl")
 
-TWO_PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+TWO_PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defpath ResultBundle :kind relpath :under ".orchestrate/runs" :must-exist false)
   (defrecord Result (ok Bool))
@@ -58,7 +58,7 @@ TWO_PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
                :inputs (a) :model "chosen-model" :effort "low" :returns Result)))
       (record Projection :bundle (provider-bundle-path b :as ResultBundle)))))'''
 
-ECHO_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+ECHO_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defpath ResultBundle :kind relpath :under ".orchestrate/runs" :must-exist false)
   (defrecord Result (ok Bool))
@@ -461,7 +461,7 @@ def test_absent_result_root_fails_x4_reached_after_continuation(tmp_path, monkey
 
 def test_path_mode_child_publishes_result_root(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(caller, "_build_path_fixture", lambda root: _build_path_fixture(
-        root, target_dsl_version="2.35"))
+        root, target_dsl_version="2.40"))
     with caller._checked_launch_fixture(tmp_path) as (_request, fixture, document, owner):
         assert child.main(["--path-request", fixture.request_path.as_posix(),
                            "--parent-root-fd", str(owner.root_fd)]) == 0, capsys.readouterr().err

@@ -135,7 +135,7 @@ def test_frontend_analysis_and_executable_build_refuse_pre_floor_source(tmp_path
     assert tree(tmp_path) == before
 
 
-@pytest.mark.parametrize("target", ["2.35"])
+@pytest.mark.parametrize("target", ["2.40"])
 def test_explain_flat_views_refuse_without_build_or_export_writes(tmp_path, target):
     source = tmp_path / "retired.orc"
     source.write_text(PROGRAM.format(target=target))
@@ -152,7 +152,7 @@ def test_frontend_publication_checks_the_compiled_source_target(tmp_path, monkey
     from orchestrator.workflow_lisp.closed import artifact
     from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
     source = tmp_path / "retired.orc"
-    source.write_text(PROGRAM.format(target="2.35"))
+    source.write_text(PROGRAM.format(target="2.40"))
     compile_typed = artifact.compile_typed_program_with_result
 
     def change_before_compile(source_path, **kwargs):

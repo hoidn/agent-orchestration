@@ -171,7 +171,7 @@ def test_public_nested_union_return_boundary_keeps_whole_native_value(tmp_path, 
         helper.write_text(source.read_text()
                           .replace("(defmodule grt/entry)", "(defmodule grt/helper)")
                           .replace("(export run)", "(export Carry run)"))
-        source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule grt/entry) (import grt/helper :as old) (export run)
           (defworkflow run () -> old.Carry (call old.run)))''')
     value = {"variant": "HOLD", "v": native_cell_value(form, "workflow-tail")}

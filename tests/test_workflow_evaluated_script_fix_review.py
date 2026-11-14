@@ -151,7 +151,7 @@ def test_writer_left_by_an_earlier_step_makes_a_later_failure_changed(tmp_path: 
     refuses_without_writes(tmp_path, "effect_input_diverged")
 
 
-AFTER_PROVIDER_AND_MAP = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+AFTER_PROVIDER_AND_MAP = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> Int
@@ -183,7 +183,7 @@ def test_failure_after_a_provider_step_and_a_completed_map_records_unchanged(tmp
         ("workflow:main::run / c", "unchanged")]
 
 
-AFTER_AGENT_TURNS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+AFTER_AGENT_TURNS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Draft (text String))
   (defprompt draft (:fills (task :text)) -> Draft "Draft: {task}")
@@ -234,7 +234,7 @@ def test_accept_changes_after_invalidate_prints_the_unreached_attempts_it_accept
 
 
 MANY = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow run () -> List[Int]
     (list/map-effect ((repo (list {items}))) :max 22 :parallel 4

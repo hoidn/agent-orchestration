@@ -520,7 +520,7 @@ def test_k3_missing_receipt_revalidates_owner_after_negative_read(tmp_path, monk
 
 
 def test_sequential_helper_in_bounded_loop_commits_each_activation(tmp_path, monkeypatch):
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule phased239) (export run)
       (defpath Note :kind relpath :under "docs" :must-exist true)
       (defpath Report :kind relpath :under "outputs" :must-exist false)
@@ -530,12 +530,11 @@ def test_sequential_helper_in_bounded_loop_commits_each_activation(tmp_path, mon
         (provider-result providers.review :prompt (review :subject subject)
           :delivery :phased :timeout-sec 60))
       (defworkflow run ((subject String) (note Note) (report Report)) -> Int
-        (loop/recur :max 2 :state (loop-state (i Int 0)) :on-exhausted state.i
-          (fn (state)
-            (let* ((review (call worker :subject subject)))
-              (if (= state.i 1)
-                (done (+ state.i 1))
-                (continue (loop-state :like state :i (+ state.i 1)))))))))'''
+        (loop/recur ((state (loop-state (i Int 0)))) :max 2 :on-exhausted state.i
+          (let* ((review (call worker :subject subject)))
+            (if (= state.i 1)
+              (done (+ state.i 1))
+              (continue (loop-state :like state :i (+ state.i 1))))))))'''
     with _run(tmp_path, monkeypatch, source_text=source) as (authority, inputs):
         script = tmp_path / "local-terminal.py"
         lines = script.read_text().replace("if output.exists() or bundle.exists():", "if bundle.exists():").splitlines()

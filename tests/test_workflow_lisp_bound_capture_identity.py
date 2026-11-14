@@ -11,16 +11,15 @@ from tests.test_workflow_lisp_closed_command_requests import _prepared_entry
 from tests.workflow_evaluated_consumer_sources import install_shims, requests
 
 
-HEADER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+HEADER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
 (defmodule bound_identity) (export run)
 (defrecord Pair (left String) (right String))
 (defprompt label (:fills (value :text)) -> String "{value}")
 (defproc hook ((n Int) (label String)) -> String
- :effects ((uses-provider providers.test)) :lowering inline
  (provider-result providers.test :prompt (label :value label) :model "gpt-6-sol"))
 (defproc apply :forall (T)
  ((n T) (left ProcRef[T -> String]) (right ProcRef[T -> String]))
- -> Pair :effects () :lowering inline
+ -> Pair
  (let* ((l (left n)) (r (right n))) (record Pair :left l :right r)))
 '''
 NAMED = '(let* ((left (bind-proc (proc-ref hook) :label a)) '
@@ -79,10 +78,10 @@ def test_created_hook_delivers_original_binding_after_shadow(tmp_path, monkeypat
 DIRECT = '(apply 1 (bind-proc (proc-ref hook) :label a) '
 DIRECT += '(bind-proc (proc-ref hook) :label b))'
 FORWARD = '(defproc forward ((n Int) (left ProcRef[Int -> String]) '
-FORWARD += '(right ProcRef[Int -> String])) -> Pair :effects () :lowering inline '
+FORWARD += '(right ProcRef[Int -> String])) -> Pair '
 FORWARD += '(apply n left right))'
 PROXY = '(defproc proxy ((callback ProcRef[Int -> String]) (n Int)) -> String '
-PROXY += ':effects () :lowering inline (callback n))'
+PROXY += ' (callback n))'
 PARTITIONS = [
     pytest.param(DIRECT, "", 2, id="direct-distinct"),
     pytest.param(NAMED.replace(":label b", ":label a"), "", 1, id="named-shared"),
@@ -122,7 +121,7 @@ def test_distinct_hook_inputs_reach_the_provider_separately(tmp_path, monkeypatc
 def test_shadow_retention_belongs_to_the_reconstructed_body(tmp_path, monkeypatch, owner):
     if owner == "procedure":
         declarations = '(defproc owner ((a String) (b String)) -> Pair '
-        declarations += ':effects ((uses-provider providers.test)) :lowering inline ' + SHADOW + ')'
+        declarations += ' ' + SHADOW + ')'
         body = '(owner a b)'
     else:
         declarations = '(defworkflow owner ((a String) (b String)) -> Pair ' + SHADOW + ')'

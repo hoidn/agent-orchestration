@@ -42,9 +42,9 @@ def _checked_parent_program(root, fixture, structure="direct", returns="String")
         definitions += f'(defworkflow helper ((payload String)) -> String {body})'
         body = '(call helper :payload payload)'
     elif structure == "loop":
-        body = f'''(loop/recur :max 2 :state (loop-state (current String payload))
-          :on-exhausted "exhausted" (fn (state) (done {body})))'''
-    source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        body = f'''(loop/recur ((state (loop-state (current String payload)))) :max 2
+          :on-exhausted "exhausted" (done {body}))'''
+    source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule parent) (export run) {definitions}
       (defworkflow run ((payload String)) -> String {body}))''')
     build = FrontendBuildRequest(source_path=source, workspace_root=root)

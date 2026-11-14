@@ -142,7 +142,7 @@ def test_preparation_and_serial_pure_faults_do_not_reserve_parallel_attempts(tmp
     _install_launcher(monkeypatch, lambda event: 0, calls)
     from tests.workflow_lisp_closed_program_helpers import build
     from tests.test_workflow_evaluated_command_lifecycle import _publish
-    program = build(tmp_path, f'(workflow-lisp (:language "0.1") (:target-dsl "2.37") '
+    program = build(tmp_path, f'(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         f'(defmodule parallel) (export run) (defworkflow run ((denominator Float)) -> List[Int] {body}))')
     with _publish(tmp_path, program, inputs={'denominator': 0.0}) as authority:
         before = authority.memo_path.read_bytes()
@@ -194,7 +194,7 @@ def test_resume_workspace_fault_is_not_reclassified_by_later_body_fault(tmp_path
     body = mapped('(call worker :repo repo :denominator denominator)').replace('(string/concat repo "/work")', cwd)
     command = COMMAND.replace(':returns Int', ':returns Float')
     definitions = f'(defworkflow worker ((repo String) (denominator Float)) -> Float (if (= repo "b") (/ 1.0 denominator) {command}))'
-    program = build(tmp_path, f'(workflow-lisp (:language "0.1") (:target-dsl "2.37") '
+    program = build(tmp_path, f'(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         f'(defmodule parallel) (export run) {definitions} (defworkflow run ((denominator Float)) -> List[Float] {body}))')
     for item in 'abcd':
         (tmp_path / item / 'work').mkdir(parents=True)

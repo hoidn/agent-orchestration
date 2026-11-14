@@ -16,7 +16,7 @@ import pytest
 from tests.test_cli_run_output import cli, effect_rows, env
 
 PIPELINE = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow run ((n Int)) -> Int
     (let* ((a (command-result s1 :argv ("python" "s1.py" n) :returns Int))
@@ -243,7 +243,7 @@ def test_accept_changes_with_nothing_to_accept_is_refused(tmp_path: Path) -> Non
 
 
 PARALLEL = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow run () -> List[Int]
     (list/map-effect ((repo (list "alpha" "beta" "gamma"))) :max 3 :parallel 2
