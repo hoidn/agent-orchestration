@@ -122,7 +122,7 @@ KNOWN: dict[str, tuple] = {
     "D5": crash("TypeError", f"{ELABORATE}:_infer_expr_type"),
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
-    "D9-name": LOCAL_LOOP_STATE, "D9-ref": LOCAL_LOOP_STATE, "D9-fn": LOCAL_LOOP_STATE, "D9-map": LOCAL_LOOP_STATE,
+    "D9-ref": LOCAL_LOOP_STATE,
     "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
     "D11": CAPTURED_PROVIDER_INPUT, "D11-R1": CAPTURED_PROVIDER_INPUT, "D11-R2": CAPTURED_PROVIDER_INPUT,
     "D11-R5": CAPTURED_PROVIDER_INPUT,
