@@ -3372,8 +3372,13 @@ and error list are [preserved in the history file](../reports/documentation-hist
   (`m0001`, ...), the call site and the definition site.
 - A procedure call is identified by its span, form path and expansion stack
   together, so each expansion of a template calls the target resolved for that
-  expansion. A call whose identity still records two targets stops the build
-  with `compiler_defect` naming the call; the compiler never chooses one.
+  expansion; a call cloned into its caller when a pure procedure is inlined
+  keeps its own span. A call site that records two targets stops the build
+  with `compiler_defect` naming the site. Known exception: a `(workflow-ref w)`
+  bound by `bind-proc` in a template is identified by its position alone, so
+  two expansions that bind a procedure to different workflows share one
+  specialization ([versioning](../../specs/versioning.md), exceptions to
+  target stability).
 
 ## 34. Hygiene
 

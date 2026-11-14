@@ -717,27 +717,37 @@ own delivery status and captured evidence.
     evaluated route's `resume_program_changed` refusal without writes. No new runtime policy,
     representation or target is introduced. The [correction report](../docs/reports/2026-10-07-workflow-lisp-pure-capture-correction.md)
     records the bounded evidence and original failed gates.
-  - A procedure call's target no longer depends on the hash seed or on the
-    source directory. Two calls that share a span and form path (two
-    expansions of one macro template in one owner, at every target; at
-    targets 2.39 and 2.40 also a procedure specialized more than once in one
-    chain of bound procedure references) were given one target, chosen in an
-    order that varied with `PYTHONHASHSEED` and the absolute source path. Such
-    a program built on one run and stopped with `compiler_defect` on the next,
-    or built a program that skipped or repeated a procedure and computed a
-    wrong value. A call is now identified by its span, form path and expansion
-    stack, and a procedure's body records only its own calls, so each call
-    reaches the target its source means and the program has one digest. That
-    digest may differ from the one an earlier build recorded, so a run
-    recorded by such a build resumes only through the edited-program route
-    (`resume_program_changed`, then `--accept-changes=TOKEN`). A call whose
-    identity still records two targets stops the build with `compiler_defect`
-    naming the call; the compiler never chooses one. The remaining known case:
-    an inlined pure procedure gives every node of its body the span of its
-    call, so two calls in that body to different `let-proc` locals (written
-    directly or by a macro) stop with `compiler_defect`, where they built
-    before with one local called twice. A program without such a collision
-    keeps its closed program, digest and effect identities.
+  - A procedure call is identified by its span, form path and expansion
+    stack together, and a call cloned into the caller when a pure procedure
+    is inlined keeps its own span. Before, calls that shared a span and form
+    path shared one target. Four kinds of program are corrected:
+    - two expansions of one macro template in one owner that call different
+      targets (every target);
+    - two calls in the body of an inlined pure procedure to different
+      `let-proc` locals, written directly or by a macro (every target);
+    - a procedure specialized more than once in one chain of bound procedure
+      references (targets 2.39 and 2.40);
+    - two expansions of a macro whose template calls a procedure specialized
+      by a `WorkflowRef` (targets 2.39 and 2.40).
+
+    In the first three the shared target was chosen in an order that varied
+    with `PYTHONHASHSEED` and the absolute source path: one source built on one
+    run and stopped with `compiler_defect` on the next, built a program that
+    called the wrong procedure and computed a wrong value, or built the right
+    value under several digests. In the fourth every expansion called the last
+    expansion's workflow. Each such program now builds one program, the one
+    its source means, with one digest, and some that stopped with
+    `compiler_defect` now build. A program without such a collision keeps its
+    closed program, digest and effect identities. A run recorded by a build
+    whose digest changes meets a changed program at `resume`, because the
+    compiler changed, not the source; it resumes through the edited-program
+    route (`resume_program_changed`, then `--accept-changes=TOKEN`), and a
+    completed run keeps its recorded result. During elaboration a call site
+    that records two targets stops the build with `compiler_defect` naming the
+    site; no lookup reads such a site. Not corrected: a `(workflow-ref w)`
+    bound by `bind-proc` is identified by its source position, so two
+    expansions of one template that bind a procedure to different workflows
+    share one specialization and compute a wrong value.
   - The refusal of an integer overflow keeps its code, `pure_expr_overflow`,
     its stage and its exit code at every target. Its message, which a failed
     run records in `state.json`, now names the operator and prints its
