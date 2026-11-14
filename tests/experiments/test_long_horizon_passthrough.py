@@ -812,9 +812,9 @@ def probe(short):
            "LH_PROBE_COMMIT": head, "LH_PROBE_STATE": str(short / "probe-state"),
            "LH_TRANSCRIPTS": str(lh / "transcripts")}
 
-    def run(scenario="normal", **extra):
+    def run(scenario="normal", out="live-probe", **extra):
         env_run = {**env, "LH_PROBE_STAND_IN": scenario, **extra}
-        return subprocess.run(["bash", str(PROBE), str(lh / "recordings" / "live-probe")], env=env_run,
+        return subprocess.run(["bash", str(PROBE), str(lh / "recordings" / out)], env=env_run,
                               capture_output=True, text=True, timeout=600)
     run.lh, run.state = lh, short / "probe-state"
     return run
@@ -834,15 +834,16 @@ def test_a_stand_in_probe_refuses_a_token_file_and_another_commit(probe, short):
 def test_the_live_probe_against_the_stub_passes_and_records_each_session_and_runs_once(probe):
     result = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
     record = json.loads((probe.lh / "recordings" / "live-probe" / "probe.json").read_text())
-    again = probe(LH_PROBE_SPEND_AUTHORIZED="yes")
+    again = probe(LH_PROBE_SPEND_AUTHORIZED="yes", out="live-probe-again")
     sessions = record["sessions"]
     inspected = sorted(p.name for p in (probe.lh / "recordings" / "live-probe" / "low" / "containers").iterdir())
     assert (result.returncode, record["pass"], record["failures"], [s["effort"] for s in sessions],
             [len(s["requests"]) for s in sessions], [s["first_request_prompt_tokens"] for s in sessions],
-            record["file_set_scan"][-2:], [name.split(".")[0] for name in inspected], again.returncode) == (
+            record["file_set_scan"][-2:], [name.split(".")[0] for name in inspected],
+            (again.returncode, "has run" in again.stderr)) == (
         0, True, [], ["low", "medium", "high"], [2, 2, 2], [1000, 1000, 1000], ["canary: pass", "exit 0"],
         ["recording-task__abcdef1__env_harbor-docker-egress-control-sidecar_1"] * 2
-        + ["recording-task__abcdef1__env_main_1"] * 2, 3)
+        + ["recording-task__abcdef1__env_main_1"] * 2, (3, True))
 
 
 def test_the_live_probe_stops_at_the_first_answer_that_is_not_200(probe):

@@ -280,7 +280,7 @@ def failures(out, pt, rec, credential):
         bad.append("no egress log")
     bad += [f"allowed connection to {h}" for h in connections(out, effort) if h != RELAY]
     checks = [line for line in rec["runtime_check"] if line.startswith("exit")]
-    if not checks or any(line != "exit 0" for line in checks):
+    if checks != ["exit 0", "exit 0"]:  # the containers' configuration and environments, then the agent's file system
         bad.append(f"runtime check {checks}")
     return [f"{effort}: {b}" for b in bad]
 
