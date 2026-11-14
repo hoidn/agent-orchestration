@@ -304,10 +304,28 @@ def _spend_cap_unmetered(exc, context: _Context) -> list[str]:
     return [f"cause {cause}: {fix}", "to continue this run without a cap:", context.resume()]
 
 
+def _earliest(identities: list[str], snapshot) -> str:
+    """The first committed of `identities` in journal order (a value's dependencies include the steps sequenced
+    before it); invalidating it runs it and every later step again."""
+    commits = getattr(snapshot, "active_commits", None) or {}
+    return min(identities, key=lambda identity: (identity not in commits, getattr(commits.get(identity), "offset", 0)))
+
+
 def _timeout_nonpositive(exc, context: _Context) -> list[str]:
-    """`resume` would reach the same value: a new run with the input corrected, or an edit of the source."""
-    return [*context.fresh_run("nothing was launched; when the timeout comes from an input, start a new run with it corrected:"),
-            "when it is written in the source, edit it: resume then prints the plan and its --accept-changes command"]
+    """`resume` would reach the same value. From a step's result: correct what that step reads and invalidate it;
+    otherwise a new run with the input (or its default) corrected, or an edit of the source and its plan."""
+    step = getattr(exc, "identity", None) or "the step"
+    producers = getattr(exc, "producers", None) or []
+    if producers:
+        first = _earliest(producers, context.snapshot)
+        return [f"{step}: this step launched nothing; its timeout comes from the result of an earlier step",
+                f"correct what {first} reads, then invalidate it and resume ({_REPEAT_WARNING}):",
+                context.command("invalidate", context.run_id, first), context.resume()]
+    return [f"{step}: this step launched nothing",
+            *context.fresh_run("when the timeout comes from an input, its :default included, start a new run "
+                               "with it corrected:"),
+            "when it is written at or before the step in the source and is not an input's :default, edit it: "
+            "resume then prints the plan and its --accept-changes command"]
 
 
 _RECOVERY = {

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -50,9 +51,13 @@ def _workspace(root: Path, timeout: str) -> Path:
     return root
 
 
-def _orchestrator(root: Path, *argv: str, hang: bool = False) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "PATH": closed_path(root / "bin"), "PYTHONPATH": str(Path(__file__).parents[1]),
+def _env(root: Path) -> dict[str, str]:
+    return {**os.environ, "PATH": closed_path(root / "bin"), "PYTHONPATH": str(Path(__file__).parents[1]),
            "PYTHONDONTWRITEBYTECODE": "1"}
+
+
+def _orchestrator(root: Path, *argv: str, hang: bool = False) -> subprocess.CompletedProcess[str]:
+    env = _env(root)
     env.pop("SHIM_HANG", None)
     if hang:
         env["SHIM_HANG"] = "1"
@@ -108,6 +113,66 @@ def test_nonpositive_timeout_recovery_offers_a_new_run_or_an_edit_not_resume(tmp
     fresh = [line for line in lines if line.startswith("    ") and " run main.orc " in line]
     assert (len(fresh), "--input limit=0" in fresh[0], any("--accept-changes" in line for line in lines),
             [line for line in lines if line.startswith("resume ") or "about [" in line]) == (1, True, True, []), lines
+
+
+def _printed(lines: list[str], word: str) -> list[str]:
+    """The indented commands of a refusal's recovery lines whose subcommand is `word`."""
+    return [line for line in lines if line.startswith("    ") and f" -m orchestrator {word} " in line]
+
+
+def _shell(root: Path, line: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(shlex.split(line), cwd=root, env=_env(root), capture_output=True, text=True,
+                          check=False, timeout=120)
+
+
+def test_nonpositive_default_continues_by_the_printed_run_after_the_edit(tmp_path):
+    root = _workspace(tmp_path, "limit")
+    source = root / "main.orc"
+    source.write_text(source.read_text().replace("(limit Int)", "(limit Int :default 0)"), encoding="utf-8")
+
+    lines = _orchestrator(root, "run", "main.orc", "--provider-externs-file", "providers.json",
+                          "--input", "message=hi").stderr.splitlines()
+    source.write_text(source.read_text().replace(":default 0", ":default 5"), encoding="utf-8")
+    (fresh,) = _printed(lines, "run")
+
+    assert ([line for line in lines if "--accept-changes" in line and ":default" not in line],
+            _shell(root, fresh).returncode, _launches(root)) == ([], 0, 1), lines
+
+
+LIMIT_FROM_A_STEP = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule main) (export run)
+  (defrecord Result (ok Bool))
+  (defrecord Limits (sec Int))
+  (defprompt ask (:fills (q :text)) -> Result "Answer {q}.")
+  (defworkflow run ((message String)) -> List[Result]
+    (let* ((limits (command-result read-limits :argv ("python" "limits.py") :returns Limits)))
+      (list/map-effect ((x (list 5 limits.sec))) :max 2
+        (provider-result providers.review :model "m" :timeout-sec x :prompt (ask :q message))))))'''
+READ_LIMITS = '''import json, os
+from pathlib import Path
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps({"sec": int(Path("sec.txt").read_text())}))
+'''
+
+
+def test_nonpositive_value_from_a_step_names_both_steps_and_continues_by_invalidate(tmp_path):
+    root = _workspace(tmp_path, "x")
+    (root / "main.orc").write_text(LIMIT_FROM_A_STEP, encoding="utf-8")
+    (root / "limits.py").write_text(READ_LIMITS, encoding="utf-8")
+    (root / "sec.txt").write_text("0", encoding="utf-8")
+    (root / "commands.json").write_text(json.dumps(
+        {"read-limits": {"stable_command": ["python", "limits.py"], "closure": ["limits.py"]}}), encoding="utf-8")
+
+    lines = _orchestrator(root, "run", "main.orc", "--provider-externs-file", "providers.json",
+                          "--command-boundaries-file", "commands.json", "--input", "message=hi").stderr.splitlines()
+    (invalidate,) = _printed(lines, "invalidate")
+    (resume,) = _printed(lines, "resume")
+    (root / "sec.txt").write_text("5", encoding="utf-8")
+    continued = [_shell(root, line).returncode for line in (invalidate, resume)]
+
+    # The first item launched before the refusal and runs again after `invalidate`, with the second.
+    refused_step = [line for line in lines if line.startswith("workflow:main::run / ") and "launched nothing" in line]
+    assert (len(refused_step), invalidate.endswith("'workflow:main::run / limits'"), continued, _launches(root)) \
+        == (1, True, [0, 0], 3), lines
 
 
 def test_run_recorded_with_a_literal_timeout_resumes_unchanged(tmp_path):
