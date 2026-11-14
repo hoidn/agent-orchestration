@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule imported_private_helper_unknown_type/helper)
   (export HelperInput PublicDecision run-helper)
 
@@ -14,8 +14,6 @@
   (defproc route-decision
     ((input HelperInput))
     -> MissingDecision
-    :effects ()
-    :lowering private-workflow
     (if input.approved
       (variant MissingDecision ALLOW)
       (variant MissingDecision REJECT)))

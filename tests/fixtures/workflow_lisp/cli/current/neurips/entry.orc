@@ -1,7 +1,7 @@
 ; Current evaluated consumer; imported producer source stays historical.
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule neurips/entry)
   (import neurips/types :only (ChecksResult ImplementationSummary WorkReport))
   (import neurips/helper :as helper :only (provider-attempt))

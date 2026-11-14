@@ -1,11 +1,9 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule guide_shapes/bind_proc_renamed)
   (export run)
   (defproc add-leading ((leading Int) (value Int)) -> Int
-    :effects ()
-    :lowering inline
     (+ leading value))
   (defworkflow run () -> Int
     (let* ((b 1)

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule neurips/entry)
   (import neurips/types :only (HiddenSummary WorkReport))
   (export orchestrate)

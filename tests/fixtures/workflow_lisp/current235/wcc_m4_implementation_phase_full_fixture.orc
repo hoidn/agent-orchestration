@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule wcc_m4_implementation_phase_full_fixture)
   (import std/phase :only (BlockerClass ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop with-phase))
   (export run)
@@ -36,8 +36,6 @@
     ((completed CompletedAttempt)
      (inputs ReviewInputs))
     -> ReviewDecision
-    :effects ((uses-provider providers.review))
-    :lowering inline
     (provider-result providers.review
       :prompt prompts.implementation.review
       :inputs (completed.execution_report_path
@@ -50,8 +48,6 @@
      (inputs ReviewInputs)
      (findings ReviewFindings))
     -> CompletedAttempt
-    :effects ((uses-provider providers.fix))
-    :lowering inline
     (provider-result providers.fix
       :prompt prompts.implementation.fix
       :inputs (completed.execution_report_path
