@@ -55,7 +55,8 @@ No program, listed only (plan row id):
     | E21  | a pure operand renames the effects beside it: not re-run, no program              |
     | E22  | local names are part of the program digest: a property the cut decides            |
 
-Rows D21, D22 and E27 are the roadmap's tenth batch; the plan's Defect Table does not hold them yet.
+Rows D21, D22 and E27 are the roadmap's tenth batch; the plan's Defect Table does not hold them yet. Rows
+B7-*, D23, D24 and D25 (the eleventh batch, found by the call-site fix) are in the Defect Table.
 """
 
 from __future__ import annotations
@@ -116,6 +117,7 @@ KNOWN: dict[str, tuple] = {
     "B2-let": value(2), "B2-arm": value(2), "B3": value(100), "B3-print": value(1), "B4": value(10),
     "B5": value(6), "B5-ref": value(6),
     "B7-chain": value(104104), "B7-ref": value(103103), "B7-deep": value(105105), "B7-let": value(103103),
+    "B7-int": value(404),
     "B7-same-written": refused("procedure_lowering_unresolved"),
     "C1": value(7, "libw"),
     "D1": OPERAND, "D2": OPERAND, "D3": OPERAND, "D20": OPERAND,
@@ -133,6 +135,8 @@ KNOWN: dict[str, tuple] = {
     "D19": crash("SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
     "D21": crash("TypeError", f"{ELABORATE}:_replace_halts_with_jump"),
     "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
+    "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
+    "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
@@ -170,6 +174,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "B5-ref": ("value", 6),
     "B7-chain": ("value", 104104),
     "B7-deep": ("value", 105105),
+    "B7-int": ("value", 404),
     "B7-let": ("value", 103103),
     "B7-ref": ("value", 103103),
     "B7-same-written": ("refused", "procedure_lowering_unresolved"),
@@ -205,6 +210,8 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D22": ("traceback", "AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D23": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
     "D23-macro": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
+    "D24": ("crash", "ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
+    "D25": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "E1-and": ("refused", "variant_ref_unproved"),
     "E1-or": ("refused", "variant_ref_unproved"),
     "E2": ("refused", "variant_ref_unproved"),
@@ -255,6 +262,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "B6": ("value", True, "strb"),
     "B7-chain": ("value", 204104),
     "B7-deep": ("value", 205105),
+    "B7-int": ("value", 1004),
     "B7-let": ("value", 203103),
     "B7-ref": ("value", 203103),
     "B7-same-macro": ("value", 104104),
@@ -311,6 +319,8 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D22": None,
     "D23": ("value", 34),
     "D23-macro": ("value", 705),
+    "D24": None,
+    "D25": None,
     "E1-and": None,
     "E1-or": None,
     "E2": None,
@@ -498,6 +508,10 @@ B7_CH = "(defmacro ch (w v) (inc1 (bind-proc (proc-ref foo) :runner (workflow-re
 B7_RUN = ("((n Int)) -> Int (let* ((input (record Box :n n)) (a (CALL c1 input)) (b (CALL c2 input))) "
           "(+ a.n (* 1000 b.n)))")
 B7_WRITTEN = "(inc1 (bind-proc (proc-ref foo) :runner (workflow-ref W)) input)"
+B7_HELPER = "(defproc helper ((fixed Int) (y Int)) -> Int (+ fixed y))"
+B7_APPLYI = "(defproc applyi ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))"
+B7_BF = "(defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (+ k 0)) x))"
+LOOP_LOCAL_ADDING = "(let-proc ((h ((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted s (done (+ s ADDEND))))) (h x))"
 D23_LOCAL = "((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted s (done BODY))"
 D23_BOTH = ("(defproc both ((n Int)) -> Int (let-proc ((f " + D23_LOCAL.replace("BODY", "(+ s 1)") + ")\n"
             "    (g " + D23_LOCAL.replace("BODY", "(* s 10)") + ")) (+ (f n) (g n))))")
@@ -559,6 +573,8 @@ ROWS: dict[str, Row] = {
     # spelling `B7-same-written` does today: two equal bindings at two sites are an ambiguous specialization row.
     "B7-same-macro": row(value(104104), B7_RUN.replace("c2", "c1").replace("CALL", "ch"), *B7_BOX, B7_INC1, B7_CH,
                          inputs=("n=3",)),
+    "B7-int": row(value(1004), "((n Int)) -> Int (+ (bf 1 n) (* 100 (bf 7 n)))", B7_HELPER, B7_APPLYI, B7_BF,
+                  inputs=("n=3",)),
     "B7-same-written": row(value(104104), B7_RUN.replace("(CALL c1 input)", B7_WRITTEN.replace("W", "c1"))
                            .replace("(CALL c2 input)", B7_WRITTEN.replace("W", "c1")), *B7_BOX, B7_INC1, inputs=("n=3",)),
 
@@ -647,6 +663,11 @@ ROWS: dict[str, Row] = {
     "D22": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (list (done 1)))"),
     # Eleventh batch: an inlined pure procedure gave every node of its body the site of its call, so two calls in
     # that body to different lifted locals shared one site and one target, chosen in hash-seed order.
+    # Found by the call-site review; not collisions: they crash in a single use too.
+    "D24": row(None, "((n Int)) -> Int (let* ((x n) (r (record R :k 1))) "
+               + LOOP_LOCAL_ADDING.replace("ADDEND", "r.k") + ")", "(defrecord R (k Int))", inputs=("n=3",)),
+    "D25": row(None, "((n Int)) -> Int (both n 1)", "(defproc both ((x Int) (k Int)) -> Int (let* ((kk (+ k 0))) "
+               + LOOP_LOCAL_ADDING.replace("ADDEND", "kk") + "))", inputs=("n=3",)),
     "D23": row(value(34), "((n Int)) -> Int (both n)", D23_BOTH, inputs=("n=3",)),
     "D23-macro": row(value(705), "((n Int)) -> Int (both n)", D23_MACRO,
                      "(defproc both ((n Int)) -> Int (+ (with-loop n 5) (* 100 (with-loop n 7))))", inputs=("n=3",)),

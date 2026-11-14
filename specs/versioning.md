@@ -740,14 +740,18 @@ own delivery status and captured evidence.
     `compiler_defect` now build. A program without such a collision keeps its
     closed program, digest and effect identities. A run recorded by a build
     whose digest changes meets a changed program at `resume`, because the
-    compiler changed, not the source; it resumes through the edited-program
-    route (`resume_program_changed`, then `--accept-changes=TOKEN`), and a
-    completed run keeps its recorded result. During elaboration a call site
-    that records two targets stops the build with `compiler_defect` naming the
-    site; no lookup reads such a site. Not corrected: a `(workflow-ref w)`
-    bound by `bind-proc` is identified by its source position, so two
-    expansions of one template that bind a procedure to different workflows
-    share one specialization and compute a wrong value.
+    compiler changed, not the source. Without acceptance the recorded result
+    stands and `resume` refuses with `resume_program_changed` and the
+    edited-program plan; accepting the plan (`--accept-changes=TOKEN`)
+    re-runs what the plan cancels and the code between effects, so the
+    result, also of a completed run, can change. During elaboration a call
+    site that records two targets stops the build with `compiler_defect`
+    naming the site; no lookup reads such a site. Not corrected: a value bound
+    by `bind-proc` that is not a literal, a name or a field access (a
+    `(workflow-ref w)`, or a computed value such as `(+ k 0)`) is identified
+    by its source position, so two expansions of one template that bind
+    different values share one specialization, and the first expansion's
+    value is used.
   - The refusal of an integer overflow keeps its code, `pure_expr_overflow`,
     its stage and its exit code at every target. Its message, which a failed
     run records in `state.json`, now names the operator and prints its
