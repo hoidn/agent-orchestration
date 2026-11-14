@@ -18,6 +18,7 @@ from ..expression_traversal import (
     first_effect_place_code,
     holds_effect_in_a_value,
     is_pure_projection_expr,
+    iter_child_exprs,
     map_command_operands,
     map_expr,
     walk_expr,
@@ -5018,14 +5019,33 @@ def _is_variant_read(node, name: str) -> bool:
             and not (node.shared_field_types and node.shared_field_types[0] is not None))
 
 
+def _unnarrowed_variant_reads(expr, name: str):
+    """The variant field reads of `name` in `expr` that nothing below the arm narrows: not in a branch of an
+    `if` whose test proves the variant of `name`, nor in a nested `match` on `name`. Those already type and
+    lower on their own, so their programs stay as they were."""
+    if _is_variant_read(expr, name):
+        yield expr
+        return
+    if isinstance(expr, MatchExpr) and isinstance(expr.subject, NameExpr) and expr.subject.name == name:
+        return
+    children = iter_child_exprs(expr)
+    if isinstance(expr, IfExpr):
+        children = (expr.condition_expr, *(branch for branch, proof in (
+            (expr.then_expr, expr.true_proof_context), (expr.else_expr, expr.false_proof_context))
+            if not any(getattr(identity, "name", None) == name for identity in proof or ())))
+    for child in children:
+        yield from _unnarrowed_variant_reads(child, name)
+
+
 def _arm_body(match_expr: MatchExpr, arm):
     """The arm's body, with each variant field read of a name subject made a read of the arm's binder: a
-    `match` refines its exact selector (frontend specification §11). Kept as written where a binding inside
-    the arm hides the binder's name at such a read."""
+    `match` refines its exact selector (frontend specification §11). Only reads that would not type
+    otherwise move (`_unnarrowed_variant_reads`), and none where a binding inside the arm hides the binder's
+    name, so a program that built before keeps its program."""
     subject, binder = match_expr.subject, arm.binding_name
     if not isinstance(subject, NameExpr) or subject.name == binder:
         return arm.body
-    bases = {id(node.base) for node in walk_expr(arm.body) if _is_variant_read(node, subject.name)}
+    bases = {id(node.base) for node in _unnarrowed_variant_reads(arm.body, subject.name)}
     moved: list[NameExpr] = []
 
     def on_binder(node: NameExpr) -> NameExpr:
