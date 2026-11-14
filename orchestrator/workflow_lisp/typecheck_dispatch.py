@@ -102,14 +102,17 @@ from .typecheck_run_ref import typecheck_run_ref_expr
 from .typecheck_structural_values import _is_pure_or_provisional_procedure_call, typecheck_structural_value_expr
 
 
-def _effectful_field(summaries, context) -> bool:
-    """Whether a constructor field holds an effect.
+def _effectful_fields(fields, summaries, context, *, place: str) -> bool:
+    """Whether a constructor field holds an effect; every field must then be simple.
 
     Pure fields and provisional procedure calls do not count, so a constructor
     that compiled while fields had to be pure keeps its lowering.
     """
 
-    return any(not _is_pure_or_provisional_procedure_call(summary, context=context) for summary in summaries)
+    effectful = any(not _is_pure_or_provisional_procedure_call(summary, context=context) for summary in summaries)
+    if effectful:
+        require_simple_parts([field_expr for _, field_expr in fields], place=place, code="effect_not_permitted")
+    return effectful
 from .typecheck_proofs import (
     BindingIdentity,
     ProofScope,
@@ -709,12 +712,9 @@ def _typecheck(
                 span=expr.span,
                 form_path=expr.form_path,
             )
-        effectful_fields = _effectful_field(field_summaries, context)
-        if effectful_fields:
-            require_simple_parts(
-                [field_expr for _, field_expr in rewritten_fields], place="this record", code="effect_not_permitted")
         return _typed(
-            expr=replace(expr, fields=tuple(rewritten_fields), effectful_fields=effectful_fields),
+            expr=replace(expr, fields=tuple(rewritten_fields), effectful_fields=_effectful_fields(
+                rewritten_fields, field_summaries, context, place="this record")),
             type_ref=record_type,
             effect=merge_effect_summaries(*field_summaries),
         )
@@ -801,12 +801,9 @@ def _typecheck(
                 span=expr.span,
                 form_path=expr.form_path,
             )
-        effectful_fields = _effectful_field(field_summaries, context)
-        if effectful_fields:
-            require_simple_parts(
-                [field_expr for _, field_expr in rewritten_fields], place="this variant", code="effect_not_permitted")
         return _typed(
-            expr=replace(expr, fields=tuple(rewritten_fields), effectful_fields=effectful_fields),
+            expr=replace(expr, fields=tuple(rewritten_fields), effectful_fields=_effectful_fields(
+                rewritten_fields, field_summaries, context, place="this variant")),
             type_ref=union_type,
             effect=merge_effect_summaries(*field_summaries),
         )

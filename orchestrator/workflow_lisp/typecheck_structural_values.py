@@ -68,14 +68,17 @@ def _is_pure_or_provisional_procedure_call(summary, *, context: TypecheckContext
     )
 
 
-def _effect_of(summaries, *, context: TypecheckContext):
-    """The merged summary of operands that may hold an effect, and whether one does.
+def _effect_of(summaries, parts, *, context: TypecheckContext, place: str, code: str, **advice):
+    """The merged summary of the parts of `place`, and whether one holds an effect.
 
-    Operands that are pure, or provisional procedure calls, keep the summary
-    and lowering they had when these operands had to be pure.
+    Parts that are pure, or provisional procedure calls, keep the summary and
+    lowering they had when the place took no effect. A place that holds an effect
+    takes simple parts only, and is refused with `code` otherwise.
     """
 
     effectful = any(not _is_pure_or_provisional_procedure_call(summary, context=context) for summary in summaries)
+    if effectful:
+        require_simple_parts(parts, place=place, code=code, **advice)
     return (merge_effect_summaries(*summaries) if effectful else EMPTY_EFFECT_SUMMARY), effectful
 
 
@@ -93,16 +96,19 @@ def _first_direct_effect(expr):
     return next((found for child in iter_child_exprs(expr) if (found := _first_direct_effect(child)) is not None), None)
 
 
-def _refuse_effectful_source_of_template_binder(expr: ListMapEffectExpr, typed_source) -> None:
-    """Refuse a parallel map whose binder a macro template introduces and whose source holds an effect.
+def _map_effect_source_place_code(expr: ListMapEffectExpr, typed_source, effectful: bool) -> str | None:
+    """The code a `list/map-effect` source gave before it took effects, when it holds one, else None.
 
-    Such a binder has no authored label, which the parallel lowering needs (an older defect: the same
-    map with a pure source does not build). The program was refused before effects were admitted in
-    sources, and keeps that code.
+    Refuses a parallel map whose binder a macro template introduces and whose source holds an
+    effect: such a binder has no authored label, which the parallel lowering needs (an older defect:
+    the same map with a pure source does not build). The program was refused before effects were
+    admitted in sources, and keeps that code.
     """
 
     from .expression_traversal import first_effect_place_code
 
+    if not effectful:
+        return None
     if expr.parallel_count is not None and expr.binding_label is None:
         raise_error(
             "a parallel `list/map-effect` whose binder a macro template introduces cannot take a source "
@@ -112,6 +118,7 @@ def _refuse_effectful_source_of_template_binder(expr: ListMapEffectExpr, typed_s
             form_path=expr.source_expr.form_path,
             expansion_stack=expr.source_expr.expansion_stack,
         )
+    return "list_map_effect_body_unsupported"
 
 
 def _typecheck_serial_map_max(expr, recurse):
@@ -280,9 +287,8 @@ def typecheck_structural_value_expr(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
-        effect, effectful = _effect_of([item.effect_summary for item in typed_item_values], context=context)
-        if effectful:
-            require_simple_parts(typed_items, place="this list", code="effect_not_permitted")
+        effect, effectful = _effect_of([item.effect_summary for item in typed_item_values], typed_items,
+                                       context=context, place="this list", code="effect_not_permitted")
         return typed_factory(
             expr=replace(
                 expr,
@@ -309,9 +315,9 @@ def typecheck_structural_value_expr(
                 typed_source.expr,
                 reason="is not permitted in a `list/map` source",
             )
-        if not _is_pure_or_provisional_procedure_call(typed_source.effect_summary, context=context):
-            require_simple_parts([typed_source.expr], place="this `list/map` source", code="list_map_body_effect_forbidden",
-                                 advice="bind the source with `let*` before the map")
+        effect, effectful = _effect_of(
+            [typed_source.effect_summary], [typed_source.expr], context=context, place="this `list/map` source",
+            code="list_map_body_effect_forbidden", advice="bind the source with `let*` before the map")
         if not _is_transportable_result_type(
             typed_source.type_ref,
             type_env=type_env,
@@ -383,7 +389,6 @@ def typecheck_structural_value_expr(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
-        effect, effectful = _effect_of([typed_source.effect_summary], context=context)
         return typed_factory(
             expr=replace(
                 expr,
@@ -455,11 +460,10 @@ def typecheck_structural_value_expr(
                 form_path=expr.source_expr.form_path,
                 expansion_stack=expr.source_expr.expansion_stack,
             )
-        source_has_effect = typed_source.effect_summary != EMPTY_EFFECT_SUMMARY
-        if source_has_effect:
-            require_simple_parts([typed_source.expr], place="this `list/map-effect` source",
-                                 code="list_map_effect_body_unsupported", advice="bind the source with `let*` before the map")
-            _refuse_effectful_source_of_template_binder(expr, typed_source.expr)
+        source_effect, effectful_source = _effect_of(
+            [typed_source.effect_summary], [typed_source.expr], context=context, place="this `list/map-effect` source",
+            code="list_map_effect_body_unsupported", advice="bind the source with `let*` before the map")
+        source_place_code = _map_effect_source_place_code(expr, typed_source.expr, effectful_source)
         typed_max = _typecheck_serial_map_max(expr, recurse)
         body_env = {
             **value_env,
@@ -531,7 +535,6 @@ def typecheck_structural_value_expr(
                 expr, context=context, recurse=recurse,
                 value_env=body_env, binding_env=body_binding_env,
             )
-            source_effect, effectful_source = _effect_of([typed_source.effect_summary], context=context)
             return typed_factory(
                 expr=replace(expr, source_expr=typed_source.expr, body_expr=typed_body.expr,
                              workspace_expr=workspace_expr, binding_identity=binding_identity,
@@ -753,7 +756,7 @@ def typecheck_structural_value_expr(
             # Written order: the source, then `:max` (an effect in a literal
             # `:max` cannot exist, so existing programs keep their bindings).
             operand_evaluation_order=(":state", ":max"),
-            effect_place_code="list_map_effect_body_unsupported" if source_has_effect else None,
+            effect_place_code=source_place_code,
         )
         _register_map_run_ref_types(type_env, context=context)
         return recurse(synthetic_loop, expected_type=result_type)
@@ -798,9 +801,8 @@ def typecheck_structural_value_expr(
                 form_path=expr.child_expr.form_path,
                 expansion_stack=expr.child_expr.expansion_stack,
             )
-        effect, effectful = _effect_of([typed_child.effect_summary], context=context)
-        if effectful:
-            require_simple_parts([typed_child.expr], place="this `path/join-under` child", code="effect_not_permitted")
+        effect, effectful = _effect_of([typed_child.effect_summary], [typed_child.expr], context=context,
+                                       place="this `path/join-under` child", code="effect_not_permitted")
         return typed_factory(
             expr=replace(
                 expr,
