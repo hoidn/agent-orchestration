@@ -196,7 +196,7 @@ def test_compile_stage1_reports_schema_used_as_nested_collection_type(tmp_path: 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -234,7 +234,7 @@ def test_compile_stage1_allows_forward_type_references(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord ChecksResult",
                 "    (report WorkReport))",
                 "  (defpath WorkReport",
