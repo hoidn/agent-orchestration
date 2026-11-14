@@ -15,6 +15,8 @@ from ..conditionals import (
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..expression_traversal import (
+    first_effect_place_code,
+    holds_effect_in_a_value,
     is_pure_projection_expr,
     map_command_operands,
     walk_expr,
@@ -329,8 +331,8 @@ def _select_elaboration_procedure_edges(typed_body, procedure_edges_by_site, res
         for node in walk_expr(typed_body.expr):
             if not isinstance(node, ProcedureCallExpr):
                 continue
-            site = (node.span, node.form_path)
-            edge_name = procedure_edges_by_site.get(site)
+            site = (node.span, node.form_path, node.expansion_stack)
+            edge_name = _site_callee(procedure_edges_by_site, node)
             edge_procedure = (
                 None
                 if edge_name is None
@@ -359,9 +361,7 @@ def _elaboration_procedure_return_types(typed_body, procedure_edges_by_site, pro
     for node in walk_expr(typed_body.expr):
         if not isinstance(node, ProcedureCallExpr):
             continue
-        specialized_name = procedure_edges_by_site.get(
-            (node.span, node.form_path)
-        )
+        specialized_name = _site_callee(procedure_edges_by_site, node)
         complete = _complete_named_reference_procedure(
             node, {}, resolved_procedures_by_name or {})
         if complete is not None:
@@ -393,6 +393,44 @@ def _elaboration_procedure_return_types(typed_body, procedure_edges_by_site, pro
     return resolved_procedure_return_types
 
 
+@dataclass(frozen=True)
+class _AmbiguousSite:
+    """A call site that records more than one callee: reading it is a compiler defect."""
+
+    callees: tuple[str, ...]
+
+
+def _site_callee(procedure_edges_by_site, node, default=None):
+    """The callee recorded at `node`'s call site (span, form path, expansion stack), else `default`."""
+    callee = procedure_edges_by_site.get((node.span, node.form_path, node.expansion_stack), default)
+    if isinstance(callee, _AmbiguousSite):
+        start = node.span.start
+        raise ValueError(f"call site {start.path}:{start.line}:{start.column} {'/'.join(node.form_path)} "
+            f"records {len(callee.callees)} callees: {', '.join(callee.callees)}")
+    return callee
+
+
+def _procedure_edges_by_site(typed_body):
+    """Map each call site (span, form path, expansion stack) to its one recorded callee.
+
+    A site that records two callees maps to `_AmbiguousSite`, which no lookup returns: reading it
+    is a compiler defect, never a choice. Every call of this body is read here first. A summary
+    that includes callees' edges (a workflow's at 2.39 and later) may record two callees at a
+    site inside a callee's body, which no call of this body reads.
+    """
+    callees_by_site = {}
+    for edge in typed_body.effect_summary.procedure_edges:
+        if edge.span is not None:
+            site = (edge.span, edge.form_path, edge.expansion_stack)
+            callees_by_site.setdefault(site, set()).add(edge.callee_name)
+    sites = {site: next(iter(callees)) if len(callees) == 1 else _AmbiguousSite(tuple(sorted(callees)))
+        for site, callees in callees_by_site.items()}
+    for node in walk_expr(typed_body.expr):
+        if isinstance(node, ProcedureCallExpr):
+            _site_callee(sites, node)
+    return sites
+
+
 def _prepare_elaboration_body(typed_body):
     return replace(typed_body, expr=prepare_closed_condition_expr(typed_body.expr))
 
@@ -402,11 +440,7 @@ def prepare_elaboration_call_types(
 ):
     """Use the elaboration owner's selected call edges and return types."""
     typed_body = _prepare_elaboration_body(typed_body)
-    procedure_edges_by_site = {
-        (edge.span, edge.form_path): edge.callee_name
-        for edge in typed_body.effect_summary.procedure_edges
-        if edge.span is not None
-    }
+    procedure_edges_by_site = _procedure_edges_by_site(typed_body)
     _select_elaboration_procedure_edges(typed_body, procedure_edges_by_site,
         resolved_procedures_by_name)
     returns = _elaboration_procedure_return_types(typed_body, procedure_edges_by_site,
@@ -1613,6 +1647,18 @@ def _wcc_route_schema_version(metadata) -> str:
     return WccIdentityFactory.route_schema_version
 
 
+def _non_linear_value_body(body: WccBody) -> TypeError:
+    """The error of a value needed as bindings then a value whose body branches or joins.
+
+    A plain `TypeError` with the message it always had, so a defect that ends here keeps its recorded
+    signature; the mark lets the `continue` lowering refuse such a value by name.
+    """
+
+    error = TypeError(f"expected linear WCC value body, found `{type(body).__name__}`")
+    error.non_linear_value_body = True
+    return error
+
+
 def _body_to_prefix_and_value(body: WccBody) -> tuple[tuple[WccLet, ...], WccValue]:
     prefix: list[WccLet] = []
     current = body
@@ -1620,8 +1666,71 @@ def _body_to_prefix_and_value(body: WccBody) -> tuple[tuple[WccLet, ...], WccVal
         prefix.append(current)
         current = current.body
     if not isinstance(current, WccHalt):
-        raise TypeError(f"expected linear WCC value body, found `{type(current).__name__}`")
+        raise _non_linear_value_body(current)
     return tuple(prefix), current.result
+
+
+def _continue_value_needs_binding(expr: ContinueExpr) -> LispFrontendCompileError:
+    """The refusal of a `continue` value with a conditional, a loop or a map below its top."""
+
+    return LispFrontendCompileError((LispFrontendDiagnostic(
+        # A place inside the value that took no effect before keeps the code it had.
+        code=first_effect_place_code(expr.state_expr) or "effect_not_permitted",
+        message=(
+            "this `continue` value has a conditional, a loop or a map below its top, which cannot be "
+            "evaluated in place; bind the value with `let*` first: `(let* ((next <value>)) (continue next))`"
+        ),
+        span=expr.state_expr.span,
+        form_path=expr.state_expr.form_path,
+        expansion_stack=expr.state_expr.expansion_stack,
+    ),))
+
+
+def _elaborate_continue_state(expr: ContinueExpr, **inputs):
+    """Elaborate a `continue` value to (prefix, value), or refuse with `effect_not_permitted` a value whose
+    body branches or joins below its top. Such a value had no lowering before either (a `compiler_defect`),
+    so no program that builds is refused."""
+
+    try:
+        return _elaborate_expr_to_value(expr.state_expr, **inputs)
+    except TypeError as exc:
+        if not getattr(exc, "non_linear_value_body", False):
+            raise
+        raise _continue_value_needs_binding(expr) from exc
+
+
+def _bound_first(consumer, attr: str, *, scope: WccIdentityFactory, value_env, compile_time_bindings, role: str) -> LetStarExpr:
+    """`(let* ((g <operand>)) <consumer reading g>)`, the operand being `consumer.<attr>`.
+
+    The one normalization for a value the consumer needs whole (a `continue` state,
+    a `match` subject, a parallel map's source) when a constructor, list, path child
+    or map source in it holds an effect, or, for a parallel map, when its source holds
+    any effect: no earlier program has one. Bound by `let*`, the value lowers as an
+    authored binding does, a join when its effects sit under `if`, `cond`, `match`,
+    `and`, `or`, a loop or a map, and the consumer reads a plain name. `g` is named
+    by `scope` and `role` and differs from every name in scope and in `consumer`, so
+    it captures nothing.
+    """
+
+    operand = getattr(consumer, attr)
+    reserved = reserved_identifiers(consumer, value_env=value_env, compile_time_bindings=compile_time_bindings)
+    name = fresh_name(_generated_effect_binding_name_from_scope(generated_name_scope(scope), role=role), reserved)
+    reference = NameExpr(name=name, span=operand.span, form_path=operand.form_path, expansion_stack=operand.expansion_stack)
+    return LetStarExpr(
+        bindings=((name, operand),),
+        body=replace(consumer, **{attr: reference}),
+        span=consumer.span,
+        form_path=consumer.form_path,
+        expansion_stack=consumer.expansion_stack,
+    )
+
+
+def _is_constructor_with_match_field(expr) -> bool:
+    """Whether `expr` is a record or variant with a `match` field; none of its fields holds an effect,
+    since a constructor that holds one has only simple fields (frontend specification 16.3)."""
+
+    return isinstance(expr, (RecordExpr, UnionVariantExpr)) and any(
+        isinstance(field_expr, MatchExpr) for _, field_expr in expr.fields)
 
 
 def _wrap_prefix_lets(prefix: tuple[WccLet, ...], tail: WccBody) -> WccBody:
@@ -1833,8 +1942,8 @@ def _elaborate_expr_to_body(
                 compile_time_bindings=compile_time_bindings,
                 active_phase_scope=active_phase_scope,
             )
-        prefix, state_value = _elaborate_expr_to_value(
-            expr.state_expr,
+        prefix, state_value = _elaborate_continue_state(
+            expr,
             scope=scope.child_scope("loop-continue", authored_binding_name="state"),
             type_env=type_env,
             value_env=value_env,
@@ -1994,9 +2103,7 @@ def _elaborate_expr_to_body(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
-    if isinstance(expr, (RecordExpr, UnionVariantExpr)) and any(
-        isinstance(field_expr, MatchExpr) for _, field_expr in expr.fields
-    ):
+    if _is_constructor_with_match_field(expr):
         return _elaborate_constructor_field_matches_to_body(
             expr,
             scope=scope,
@@ -2081,35 +2188,27 @@ def _bind_effectful_loop_state_fields(
     it captures no authored reference. It returns None when no field has an
     effect; the loop lowerer then projects the state as pure.
 
-    An effect or a `match` given directly as the state, ``(continue e)``,
-    becomes ``(let* ((g e)) (continue g))``; a `match` state, pure or not, has
-    no other lowering. Other effectful states (``if``, ``let*``, arithmetic)
+    An effect or a `match` given directly as the state, ``(continue e)``, or a
+    state whose constructor, list, path child or map source holds an effect,
+    becomes ``(let* ((g e)) (continue g))`` (`_bound_first`); a `match` state, pure
+    or not, has no other lowering. Other effectful states (``if``, ``let*``, arithmetic)
     are left alone: they already lower, and binding them would change their
     program digest.
     """
 
     state = expr.state_expr
     # `request-input` is an effect here but not in the shared `_EFFECT_NODE_TYPES`.
-    direct_effect = isinstance(state, (*_EFFECT_NODE_TYPES, RequestInputExpr, MatchExpr))
+    direct_effect = isinstance(state, (*_EFFECT_NODE_TYPES, RequestInputExpr, MatchExpr)) or holds_effect_in_a_value(state)
     if not (
         direct_effect
         or (isinstance(state, LoopStateUpdateExpr) and any(_contains_effect(field_expr) for _, field_expr in state.overrides))
     ):
         return None
+    if direct_effect:
+        return _bound_first(expr, "state_expr", scope=scope, value_env=value_env,
+                            compile_time_bindings=compile_time_bindings, role="state")
     reserved = reserved_identifiers(expr, value_env=value_env, compile_time_bindings=compile_time_bindings)
     naming_scope = generated_name_scope(scope)
-    if direct_effect:
-        binding_name = fresh_name(_generated_effect_binding_name_from_scope(naming_scope, role="state"), reserved)
-        state_name = NameExpr(
-            name=binding_name, span=state.span, form_path=state.form_path, expansion_stack=state.expansion_stack
-        )
-        return LetStarExpr(
-            bindings=((binding_name, state),),
-            body=replace(expr, state_expr=state_name),
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
     bindings: list[tuple[str, object]] = []
     overrides: list[tuple[str, object]] = []
     for field_name, field_expr in state.overrides:
@@ -2217,8 +2316,16 @@ def _elaborate_parallel_map_to_body(
         procedure_return_types=procedure_return_types, effect_summary=effect_summary,
         procedure_edges_by_site=procedure_edges_by_site, active_phase_scope=active_phase_scope)
     source_scope = scope.child_scope("parallel-source")
-    prefix, source = _elaborate_expr_to_value(expr.source_expr, scope=source_scope,
-        value_env=value_env, compile_time_bindings=compile_time_bindings, **inputs)
+    if expr.effectful_source:
+        # The source's effects run once, before any item; the map then reads a name.
+        bound_scope = scope.child_scope("parallel-source-bound")
+        return _elaborate_let_star(_bound_first(replace(expr, effectful_source=False), "source_expr",
+            scope=bound_scope, value_env=value_env,
+            compile_time_bindings=compile_time_bindings, role="source"),
+            scope=bound_scope, value_env=value_env, compile_time_bindings=compile_time_bindings, **inputs)
+    # A pure source lowers to the same value by either route.
+    prefix, source = _body_to_prefix_and_value(_elaborate_expr_to_body(expr.source_expr,
+        scope=source_scope, value_env=value_env, compile_time_bindings=compile_time_bindings, **inputs))
     prefix, source = hoist_without_capture(prefix, source,
         over=((expr.workspace_expr, frozenset({expr.binder_name})),
               (expr.body_expr, frozenset({expr.binder_name}))),
@@ -3702,42 +3809,10 @@ def _elaborate_expr_to_value(
             source=source,
         )
     if isinstance(expr, ListExpr):
-        from .anf import normalize_wcc_body_to_anf
-
-        if len(expr.items) != len(expr.item_type_refs):
-            raise TypeError("typed list is missing its resolved child types")
-        items = []
-        for index, (item, item_type) in enumerate(zip(expr.items, expr.item_type_refs, strict=True)):
-            item_scope = scope.child_scope(f"list-item:{index}")
-            body = normalize_wcc_body_to_anf(_elaborate_expr_to_body(
-                item,
-                scope=item_scope,
-                type_env=type_env,
-                value_env=value_env,
-                workflow_return_types=workflow_return_types,
-                procedure_return_types=procedure_return_types,
-                effect_summary=EMPTY_EFFECT_SUMMARY,
-                procedure_edges_by_site=procedure_edges_by_site,
-                compile_time_bindings=compile_time_bindings,
-                active_phase_scope=active_phase_scope,
-            ))
-            metadata = item_scope.value_metadata(
-                role="list-item", type_ref=item_type, source_span=item.span,
-                form_path=item.form_path, expansion_stack=item.expansion_stack,
-            )
-            items.append(replace(body.result, metadata=replace(body.result.metadata, type_ref=item_type))
-                if isinstance(body, WccHalt) else WccBlock(metadata=metadata, body=body))
-        return (), WccList(
-            metadata=scope.atom_metadata(
-                role="list", type_ref=_infer_expr_type(
-                    expr, type_env=type_env, value_env=value_env,
-                    workflow_return_types=workflow_return_types,
-                    procedure_return_types=procedure_return_types,
-                ),
-                source_span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
-            ),
-            items=tuple(items),
-        )
+        return _elaborate_list_to_value(expr, scope=scope, type_env=type_env, value_env=value_env,
+            workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope)
     if isinstance(expr, (LoopStateSeedExpr, LoopStateUpdateExpr, CompilerListNonemptyHeadExpr, PathJoinUnderExpr)):
         from .anf import normalize_wcc_body_to_anf
 
@@ -3773,8 +3848,15 @@ def _elaborate_expr_to_value(
                 item_type_ref=expr.element_type_ref)
             return (), WccPureOp(metadata=metadata, operator="compiler-list-nonempty-head",
                 args=(prepare_child(expr.source_expr, source_type, "head-source"),))
-        return (), WccPureOp(metadata=metadata, operator="path/join-under",
-            args=(prepare_child(expr.child_expr, PrimitiveTypeRef(name="String"), "path-child"),))
+        if not expr.effectful_child:
+            return (), WccPureOp(metadata=metadata, operator="path/join-under",
+                args=(prepare_child(expr.child_expr, PrimitiveTypeRef(name="String"), "path-child"),))
+        prefix, (child,) = _elaborate_operands_to_values(((expr.child_expr, scope.child_scope("path-child")),),
+            type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope)
+        return prefix, WccPureOp(metadata=metadata, operator="path/join-under", args=(child,))
     if isinstance(expr, ListMapExpr):
         from .anf import normalize_wcc_body_to_anf
 
@@ -3785,16 +3867,24 @@ def _elaborate_expr_to_value(
         result_type = ListTypeRef(name=f"List[{expr.result_item_type_ref.name}]",
             item_type_ref=expr.result_item_type_ref)
         source_scope = scope.child_scope("map-source")
-        source_body = normalize_wcc_body_to_anf(_elaborate_expr_to_body(expr.source_expr,
-            scope=source_scope, type_env=type_env, value_env=value_env,
-            workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types,
-            effect_summary=EMPTY_EFFECT_SUMMARY, procedure_edges_by_site=procedure_edges_by_site,
-            compile_time_bindings=compile_time_bindings, active_phase_scope=active_phase_scope))
-        source = (replace(source_body.result, metadata=replace(source_body.result.metadata, type_ref=source_type))
-            if isinstance(source_body, WccHalt) else WccBlock(
-                metadata=source_scope.value_metadata(role="map-source", type_ref=source_type,
-                    source_span=expr.source_expr.span, form_path=expr.source_expr.form_path,
-                    expansion_stack=expr.source_expr.expansion_stack), body=source_body))
+        source_prefix: tuple[WccLet, ...] = ()
+        if expr.effectful_source:
+            source_prefix, source = _elaborate_effectful_map_source(expr, scope=source_scope, source_type=source_type,
+                type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope)
+        else:
+            source_body = normalize_wcc_body_to_anf(_elaborate_expr_to_body(expr.source_expr,
+                scope=source_scope, type_env=type_env, value_env=value_env,
+                workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types,
+                effect_summary=EMPTY_EFFECT_SUMMARY, procedure_edges_by_site=procedure_edges_by_site,
+                compile_time_bindings=compile_time_bindings, active_phase_scope=active_phase_scope))
+            source = (replace(source_body.result, metadata=replace(source_body.result.metadata, type_ref=source_type))
+                if isinstance(source_body, WccHalt) else WccBlock(
+                    metadata=source_scope.value_metadata(role="map-source", type_ref=source_type,
+                        source_span=expr.source_expr.span, form_path=expr.source_expr.form_path,
+                        expansion_stack=expr.source_expr.expansion_stack), body=source_body))
         body_scope = scope.child_scope("map-body", authored_binding_name=expr.binder_name)
         body = normalize_wcc_body_to_anf(_elaborate_expr_to_body(expr.body_expr, scope=body_scope,
             type_env=type_env, value_env={**value_env, expr.binder_name: expr.source_item_type_ref},
@@ -3802,7 +3892,7 @@ def _elaborate_expr_to_value(
             effect_summary=EMPTY_EFFECT_SUMMARY, procedure_edges_by_site=procedure_edges_by_site,
             compile_time_bindings={name: value for name, value in compile_time_bindings.items()
                 if name != expr.binder_name}, active_phase_scope=active_phase_scope))
-        return (), WccListMap(metadata=scope.atom_metadata(role="opaque:ListMapExpr", type_ref=result_type,
+        return source_prefix, WccListMap(metadata=scope.atom_metadata(role="opaque:ListMapExpr", type_ref=result_type,
                 source_span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack),
             source=source, binder_name=expr.binder_name, binder_type_ref=expr.source_item_type_ref,
             body=body, body_metadata=body_scope.body_metadata(role="map-body", type_ref=expr.result_item_type_ref,
@@ -4046,6 +4136,96 @@ def _elaborate_expr_to_value(
     raise TypeError(f"unsupported WCC elaboration node: {type(expr).__name__}")
 
 
+def _elaborate_list_to_value(
+    expr: ListExpr,
+    *,
+    scope: WccIdentityFactory,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary,
+    procedure_edges_by_site: Mapping[tuple[object, tuple[str, ...]], str],
+    compile_time_bindings: Mapping[str, object],
+    active_phase_scope: WccPhaseScope | None = None,
+) -> tuple[tuple[WccLet, ...], WccValue]:
+    """A list value: effect-free items as values or blocks; items with effects as ordered operands."""
+
+    from .anf import normalize_wcc_body_to_anf
+
+    if len(expr.items) != len(expr.item_type_refs):
+        raise TypeError("typed list is missing its resolved child types")
+    list_metadata = scope.atom_metadata(
+        role="list", type_ref=_infer_expr_type(
+            expr, type_env=type_env, value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+        ),
+        source_span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
+    )
+    if expr.effectful_items:
+        # Items with effects are operands: their effects run in order, before the list.
+        prefix, values = _elaborate_operands_to_values(
+            tuple((item, scope.child_scope(f"list-item:{index}")) for index, item in enumerate(expr.items)),
+            type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        )
+        return prefix, WccList(metadata=list_metadata, items=tuple(
+            replace(value, metadata=replace(value.metadata, type_ref=item_type))
+            for value, item_type in zip(values, expr.item_type_refs, strict=True)))
+    items = []
+    for index, (item, item_type) in enumerate(zip(expr.items, expr.item_type_refs, strict=True)):
+        item_scope = scope.child_scope(f"list-item:{index}")
+        body = normalize_wcc_body_to_anf(_elaborate_expr_to_body(
+            item,
+            scope=item_scope,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=EMPTY_EFFECT_SUMMARY,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
+        ))
+        metadata = item_scope.value_metadata(
+            role="list-item", type_ref=item_type, source_span=item.span,
+            form_path=item.form_path, expansion_stack=item.expansion_stack,
+        )
+        items.append(replace(body.result, metadata=replace(body.result.metadata, type_ref=item_type))
+            if isinstance(body, WccHalt) else WccBlock(metadata=metadata, body=body))
+    return (), WccList(metadata=list_metadata, items=tuple(items))
+
+
+def _elaborate_effectful_map_source(
+    expr: ListMapExpr,
+    *,
+    scope: WccIdentityFactory,
+    source_type: TypeRef,
+    type_env: FrontendTypeEnvironment,
+    value_env: Mapping[str, TypeRef],
+    workflow_return_types: Mapping[str, TypeRef],
+    procedure_return_types: Mapping[str, TypeRef],
+    effect_summary: EffectSummary,
+    procedure_edges_by_site: Mapping[tuple[object, tuple[str, ...]], str],
+    compile_time_bindings: Mapping[str, object],
+    active_phase_scope: WccPhaseScope | None = None,
+) -> tuple[tuple[WccLet, ...], WccValue]:
+    """A `list/map` source with effects: they run once, before the pure map, and the body cannot see their bindings."""
+
+    prefix, source = _body_to_prefix_and_value(_elaborate_expr_to_body(expr.source_expr,
+        scope=scope, type_env=type_env, value_env=value_env,
+        workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types,
+        effect_summary=effect_summary, procedure_edges_by_site=procedure_edges_by_site,
+        compile_time_bindings=compile_time_bindings, active_phase_scope=active_phase_scope))
+    prefix, source = hoist_without_capture(prefix, source,
+        over=((expr.body_expr, frozenset({expr.binder_name})),), scope=scope,
+        value_env=value_env, compile_time_bindings=compile_time_bindings)
+    return prefix, replace(source, metadata=replace(source.metadata, type_ref=source_type))
+
+
 def _elaborate_operands_to_values(
     operands: tuple[tuple[object, WccIdentityFactory], ...],
     *,
@@ -4065,24 +4245,36 @@ def _elaborate_operands_to_values(
     at every target.
     """
 
-    parts = tuple(
-        (
-            *_body_to_prefix_and_value(
-                _elaborate_expr_to_body(
-                    operand,
-                    scope=operand_scope,
-                    type_env=type_env,
-                    value_env=value_env,
-                    workflow_return_types=workflow_return_types,
-                    procedure_return_types=procedure_return_types,
-                    effect_summary=effect_summary,
-                    procedure_edges_by_site=procedure_edges_by_site,
-                    compile_time_bindings=compile_time_bindings,
-                    active_phase_scope=active_phase_scope,
-                )
-            ),
-            operand_scope,
+    def prefix_and_value(operand, operand_scope):
+        body = _elaborate_expr_to_body(
+            operand,
+            scope=operand_scope,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types,
+            effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site,
+            compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope,
         )
+        if _is_linear_value_body(body) or _contains_effect(operand):
+            return _body_to_prefix_and_value(body)
+        # An effect-free operand with control, such as a pure `match`, is a block value, as a list item is.
+        from .anf import normalize_wcc_body_to_anf
+
+        return (), WccBlock(
+            metadata=operand_scope.value_metadata(
+                role="local-value",
+                type_ref=_infer_expr_type(operand, type_env=type_env, value_env=value_env,
+                    workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types),
+                source_span=operand.span, form_path=operand.form_path, expansion_stack=operand.expansion_stack,
+            ),
+            body=normalize_wcc_body_to_anf(body),
+        )
+
+    parts = tuple(
+        (*prefix_and_value(operand, operand_scope), operand_scope)
         for operand, operand_scope in operands
     )
     return hoist_parts_without_capture(parts, value_env=value_env, compile_time_bindings=compile_time_bindings)
@@ -4473,18 +4665,15 @@ def _elaborate_match_to_body(
             active_phase_scope=active_phase_scope,
         )
     subject_scope = scope.child_scope("match-subject", authored_binding_name="subject")
-    subject_prefix, subject = _elaborate_expr_to_value(
-        expr.subject,
-        scope=subject_scope,
-        type_env=type_env,
-        value_env=value_env,
-        workflow_return_types=workflow_return_types,
-        procedure_return_types=procedure_return_types,
-        effect_summary=effect_summary,
-        procedure_edges_by_site=procedure_edges_by_site,
-        compile_time_bindings=compile_time_bindings,
-        active_phase_scope=active_phase_scope,
-    )
+    inputs = dict(type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+        procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+        active_phase_scope=active_phase_scope)
+    if holds_effect_in_a_value(expr.subject):
+        bound_scope = scope.child_scope("match-subject-bound")
+        return _elaborate_let_star(_bound_first(expr, "subject", scope=bound_scope, value_env=value_env,
+            compile_time_bindings=compile_time_bindings, role="subject"), scope=bound_scope, **inputs)
+    subject_prefix, subject = _elaborate_expr_to_value(expr.subject, scope=subject_scope, **inputs)
     # From target 2.33 the subject's bindings run before the case, as `let*` would,
     # under names the arms cannot see.
     subject_prefix, subject = hoist_without_capture(
@@ -6214,7 +6403,7 @@ def _elaborate_effect_expr_to_binding_value(
             command_context.prepare_call(expr, call, variants=scope.enclosing_variants)
         return call
     if isinstance(expr, ProcedureCallExpr):
-        specialized_name = procedure_edges_by_site.get((expr.span, expr.form_path), expr.callee_name)
+        specialized_name = _site_callee(procedure_edges_by_site, expr, expr.callee_name)
         select_edge = compile_time_bindings.get(_CLOSED_PROCEDURE_SELECTION)
         if select_edge is not None:
             specialized_name = select_edge(expr, specialized_name, compile_time_bindings)

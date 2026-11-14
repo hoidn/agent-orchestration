@@ -158,8 +158,9 @@ expected list type fails with `list_empty_type_context_required`.
 ```
 
 The binder list must contain exactly one `(symbol expression)` pair.
-`list-expr` is pure, has an eligible `List[T]` type, and is evaluated
-exactly once. The body is checked with the binder at type `T`, must be pure,
+`list-expr` has an eligible `List[T]` type and is evaluated exactly once;
+it may hold an effect in a simple value, which runs once before the first item
+([surface coherence](workflow_lisp_surface_coherence.md) E1, §4). The body is checked with the binder at type `T`, must be pure,
 and is evaluated once for each element in input order. The output is an
 eligible `List[R]`.
 
@@ -240,8 +241,8 @@ state remain unchanged and unsupported by this tranche.
   <effectful-call-expr>)
 ```
 
-The binder/source rules match `list/map`; the source expression is pure and
-evaluated exactly once. In this first tranche the body is one existing
+The binder/source rules match `list/map`; the source expression is
+evaluated exactly once and may hold an effect in a simple value. In this first tranche the body is one existing
 effectful provider, command, workflow, or procedure call expression after
 specialization. Its arguments may be arbitrary already-supported pure
 expressions over the binder and enclosing lexical bindings. Nested
@@ -254,8 +255,8 @@ The first-tranche rule above describes target 2.18 and its legacy route.
 The accepted target-2.35 evaluated placement contract additionally admits
 direct path-mode `run-ref` and an already-admitted call containing it in the
 one-effect body; see [evaluated execution §1.2](workflow_lisp_evaluated_execution.md#12-ordinary-path-run-reference-placement-at-235).
-The source remains pure, and so do the call's arguments in any map of a
-program that holds a run reference, with the existing collection,
+The call's arguments remain pure in any map of a program that holds a run
+reference, with the existing collection,
 serial-order and bound rules. That placement is implemented for target-2.35
 entries: the Task 9 frontend cut with its public 9F/9G gates
 (`tests/test_workflow_evaluated_run_ref.py`, two-iteration K7 repetition with

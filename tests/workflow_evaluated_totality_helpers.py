@@ -70,11 +70,12 @@ def cell_refusal(form, position):
     value = form_value(form, FORMS, "probe.py")
     if position == "match-subject" and value.type in ("Int", "Float", "Box"):
         return "match_subject_not_union"
-    if position in ("record-field", "variant-field") and value.calls:
+    # An effect behind a procedure call is not a simple value (frontend specification 16.3); the
+    # command forms written inline are the command itself, which is.
+    behind_a_call = value.calls and not (locality == "inline" and base in ("command-call", "command-call-field"))
+    if position in ("record-field", "variant-field") and behind_a_call:
         return "effect_not_permitted"
-    if position == "on-exhausted-value" and value.calls:
-        return "loop_recur_contract_invalid"
-    if position == "on-exhausted-value" and base == "pure-proc-call" and locality != "inline":
+    if position == "on-exhausted-value" and behind_a_call:
         return "loop_recur_contract_invalid"
     return None
 
