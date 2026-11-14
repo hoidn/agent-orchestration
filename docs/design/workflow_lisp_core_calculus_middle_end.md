@@ -31,7 +31,7 @@ Authority:
 - `docs/design/workflow_lisp_frontend_specification.md` remains the umbrella
   Workflow Lisp frontend contract; this document refines its compilation
   pipeline, not its language surface or authority rule.
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
+- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md` (historical record)
   records completed migration history; it is not a current tranche selector.
 - Normative DSL/runtime behavior remains in `specs/`.
 - Shared typed checking and checked-program validation preserve semantic
@@ -44,15 +44,15 @@ Authority:
 Related docs:
 
 - `docs/design/workflow_lisp_frontend_specification.md`
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-- `docs/design/workflow_lisp_runtime_migration_foundation.md`
-- `docs/design/workflow_lisp_unified_frontend_design.md`
-- `docs/design/workflow_lisp_stdlib_lowering.md`
-- `docs/design/workflow_lisp_semantic_workflow_ir.md`
-- `docs/design/workflow_lisp_executable_ir.md`
-- `docs/design/workflow_lisp_state_layout.md`
+- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md` (historical record)
+- [Step IO](../../specs/io.md#evaluated-command-and-provider-io-target-235) and [frontend specification §17.1](workflow_lisp_frontend_specification.md#171-private-frontend-lowered-value-lane) (`docs/design/workflow_lisp_runtime_migration_foundation.md` is the historical record)
+- `docs/design/workflow_lisp_unified_frontend_design.md` (historical record)
+- `docs/design/workflow_lisp_stdlib_lowering.md` (historical record)
+- `docs/design/workflow_lisp_semantic_workflow_ir.md` (historical record)
+- `docs/design/workflow_lisp_executable_ir.md` (historical record)
+- `docs/design/workflow_lisp_state_layout.md` (historical record)
 - `docs/design/workflow_lisp_proc_refs_partial_application.md`
-- `docs/design/workflow_lisp_compile_time_parametric_specialization.md`
+- `docs/design/workflow_lisp_compile_time_parametric_specialization.md` (historical record)
 - `docs/design/workflow_lisp_runtime_closures_boundary.md`
 - `docs/design/workflow_language_design_principles.md`
 - `docs/design/workflow_lisp_executor_retirement.md`

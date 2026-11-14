@@ -633,6 +633,31 @@ every effect of the three maintained programs are owned by
 [`tests/test_workflow_evaluated_recovery.py`](../tests/test_workflow_evaluated_recovery.py)
 (Phase 3 Task 15, integrated).
 
+### Edit a workflow mid-run: what is kept
+
+After an edit, `resume RUN_ID` prints a plan and an
+`--accept-changes=plan-…` command that continues the same run under the
+edited source ([the lifecycle guide](runtime_execution_lifecycle.md#edit-the-workflow-and-continue)
+shows both). A committed step is kept while every step before it is kept
+and its identity and inputs are unchanged; from the first one that is not,
+every later commit runs again. Write the workflow so that edits keep what
+you want kept:
+
+- **Python-built runs.** A run started from a Python workflow records the
+  generated `.orc` copy, and `resume` rebuilds that copy. An edit of the
+  `.py` file is not seen and nothing refuses: `resume` continues under the
+  program the run started with. Start a new run to use the edited file.
+- **Parallel maps.** The cut is one journal offset. An edit to one item's
+  step cancels that step's commit and every commit after it in the journal,
+  so the other items' steps that committed later run again too, and a kept
+  item's step may have committed while the cancelled one was running and
+  read its files. Put a step you expect to edit after the map, not inside it,
+  when its siblings are costly.
+- **Workspace files are not rolled back.** A step that runs again sees the
+  files the cancelled steps wrote, and repeats its own writes. A step that
+  appends to a file appends again; write results to fresh paths, or have the
+  step overwrite what it writes.
+
 ### Print a value during a run
 
 At target 2.35, `(print value)` writes the value's compact JSON line to the

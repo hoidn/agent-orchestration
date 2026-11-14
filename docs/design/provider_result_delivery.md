@@ -15,7 +15,7 @@
   [follow-up prompt review](../reports/2026-10-13-provider-prompt-review.md),
   [design principle 30](workflow_language_design_principles.md#30-provider-attention-is-a-bounded-resource-the-language-conserves),
   [evaluated execution](workflow_lisp_evaluated_execution.md),
-  [prompt calculus](workflow_lisp_prompt_calculus.md),
+  [frontend specification §8.7.1](workflow_lisp_frontend_specification.md#871-defprompt-target-220) ([prompt calculus](workflow_lisp_prompt_calculus.md), historical record),
   [executor retirement](workflow_lisp_executor_retirement.md),
   `specs/providers.md`, `specs/io.md`, `specs/state.md`;
   plan: [provider result delivery plan](../plans/2026-10-13-provider-result-delivery-plan.md)

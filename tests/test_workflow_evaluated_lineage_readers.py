@@ -86,15 +86,17 @@ def test_fresh_view_and_report_of_a_run_without_a_record_carry_no_lineage_keys(s
     assert "Programs" not in _report(workspace, run_root, "md")
 
 
-def test_a_start_a_range_retired_keeps_its_status_in_a_run_without_a_record(serial_base, tmp_path):
-    """Only a run with a `rebased` record shows a retired start as `invalidated`; without one the view stays
-    as earlier builds wrote it (`running`), so existing runs read byte for byte as before."""
+def test_a_start_a_range_retired_shows_invalidated_in_a_run_without_a_record(serial_base, tmp_path):
+    """A start an `invalidate` range retired never resumes: the view, and so `report`, the dashboard and the
+    monitor, show it `invalidated`, not `running`, with or without a `rebased` record."""
     workspace, run_root = _copy(serial_base, tmp_path)
     journal = run_root / "memo.jsonl"
     journal.write_bytes(journal.read_bytes()[:fx.offset_of(run_root, "committed", "s4")])   # killed in s4
     assert cli_inprocess(workspace, "invalidate", run_root.name, P + "s3").returncode == 0
     rows = _view(run_root)["steps"]
-    assert (rows[P + "s3"]["status"], rows[P + "s4"]["status"]) == ("invalidated", "running")
+    progress = _report(workspace, run_root)["progress"]
+    assert (rows[P + "s3"]["status"], rows[P + "s4"]["status"]) == ("invalidated", "invalidated")
+    assert (progress["running"], progress["invalidated"]) == (0, 2)
     assert not any("program" in row for row in rows.values())
 
 

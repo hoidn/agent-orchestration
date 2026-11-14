@@ -61,7 +61,7 @@ dashboard read evaluated runs only and refuse historical ones. See
     [W3 contract](../docs/design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
     own the rules.
   - Target 2.37 parallel map is qualified through the public command line
-    with stand-in providers and commands, not yet with a real provider
+    with stand-in providers and commands, and has run once with a real provider
     ([addendum](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification)).
     Copy it from the [drafting guide recipe](../docs/lisp_workflow_drafting_guide.md#173-parallel-map-target-237),
     which states its limits; [versioning](versioning.md#version-gating-summary)

@@ -1859,33 +1859,6 @@ _SHADOWED_ATTEMPT_MODULE = "\n".join(
 
 
 
-_VALUE_IF_MODULE = "\n".join(
-    [
-        "(workflow-lisp",
-        '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
-        "  (defmodule value_if_lowering)",
-        "  (export gate)",
-        '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
-        "  (defunion ImplementationState",
-        "    (COMPLETED (execution_report WorkReport))",
-        "    (BLOCKED (progress_report WorkReport)))",
-        "  (defworkflow gate () -> Bool",
-        "    (let* ((attempt (command-result probe",
-        "              :argv (\"python\" \"scripts/probe.py\")",
-        "              :returns ImplementationState))",
-        "           (chosen (if (= attempt.variant COMPLETED)",
-        "                       attempt.execution_report",
-        "                       attempt.progress_report)))",
-        "      (command-result send",
-        "        :argv (\"python\" \"scripts/send.py\" chosen)",
-        "        :returns Bool))))",
-    ]
-)
-
-
-
-
 _NESTED_IF_CONDITION_MODULE = "\n".join(
     [
         "(workflow-lisp",

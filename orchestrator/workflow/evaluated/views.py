@@ -196,15 +196,15 @@ def _effect_rows(snapshot):
         rows[identity] = {"name": identity, "identity": identity, "status": "running", "effect_class": kind,
                           "attempt": row["attempt"], "result_path": row["result_path"],
                           "started_at": _timestamp(row["time"])}
-        if (kind == "request_input" and identity not in snapshot.pending_starts
-                and identity not in snapshot.active_commits):
-            rows[identity]["status"] = "invalidated"
     for entry in snapshot.entries:
         row = entry.data
         identity = row.get("identity")
         if identity not in rows or row.get("attempt") != rows[identity]["attempt"]:
             continue
         _update_effect_row(rows[identity], row, snapshot)
+    for identity, target in rows.items():      # a latest start with no outcome that is not pending was retired
+        if target["status"] == "running" and identity not in snapshot.pending_starts:
+            target["status"] = "invalidated"
     if snapshot.lineage.record_offsets:
         _lineage_rows(rows, snapshot)
     return rows
@@ -219,8 +219,7 @@ def _programs(header, snapshot):
 
 
 def _lineage_rows(rows, snapshot):
-    """A run with several programs: each row's `program` (in force at its latest start); a start a cut or range
-    retired shows `invalidated`; a row whose attempts have more than one class lists its provider-class ones."""
+    """A run with several programs: each row's `program` (in force at its latest start); a row whose attempts have more than one class lists its provider-class ones."""
     lineage, metered = snapshot.lineage, {}
     for entry in snapshot.entries:
         row = entry.data
@@ -228,8 +227,6 @@ def _lineage_rows(rows, snapshot):
             metered.setdefault(row["identity"], []).append(row["attempt"])
     for identity, target in rows.items():
         target["program"] = bisect.bisect_right(lineage.record_offsets, snapshot.latest_starts[identity].offset)
-        if target["status"] == "running" and identity not in snapshot.pending_starts:
-            target["status"] = "invalidated"
         attempts = metered.get(identity, [])
         if attempts != (list(range(1, target["attempt"] + 1)) if target["effect_class"] in PROVIDER_CLASSES else []):
             target["metered_attempts"] = attempts

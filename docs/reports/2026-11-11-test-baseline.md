@@ -75,3 +75,4 @@ minutes): they were mostly fast.
 The final run had stub `claude` and `codex` executables first on `PATH` that
 log and refuse every call (`experiments/thread_m/no_provider/`). The log
 stayed empty: no test in the suite starts a real provider CLI.
+- `tests/test_p2_smoke_kit.py` (whole module: 31 errors at once in a full run on 2026-11-13, from its one module-scoped rehearsal fixture; the traceback was not kept; the module passed five times when rerun at `-n 4` and `-n 16`. If it recurs, capture the fixture's error before rerunning).

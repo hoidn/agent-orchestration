@@ -451,6 +451,8 @@ def _apply_hygiene(
         return _hygienic_letstar(datum, macro_name=macro_name, expansion_id=expansion_id, env=active_env)
     if head_name == "match":
         return _hygienic_match(datum, macro_name=macro_name, expansion_id=expansion_id, env=active_env)
+    if head_name in _BINDING_FORMS:
+        return _BINDING_FORMS[head_name](datum, macro_name=macro_name, expansion_id=expansion_id, env=active_env)
     if head_name == "defworkflow":
         return _hygienic_defworkflow(datum, macro_name=macro_name, expansion_id=expansion_id, env=active_env)
     if head_name == "with-live-providers":
@@ -575,6 +577,143 @@ def _hygienic_generic_list(
             for index, item in enumerate(datum.items)
         ),
     )
+
+
+def _bind_introduced(
+    node: SyntaxDatum,
+    env: dict[str, str],
+    *,
+    macro_name: str,
+    expansion_id: str,
+) -> SyntaxDatum:
+    """Rename a binder this expansion introduced and bind it in `env`; a caller's binder stays."""
+    if not isinstance(node, SyntaxIdentifier) or node.introduced_by_expansion_id != expansion_id:
+        return node
+    renamed = introduced_identifier(node, macro_name=macro_name, expansion_id=expansion_id)
+    env[node.resolved_name] = renamed.resolved_name
+    return renamed
+
+
+def _is_loop_binder(node: SyntaxDatum) -> bool:
+    return (
+        isinstance(node, SyntaxList)
+        and len(node.items) == 1
+        and isinstance(node.items[0], SyntaxList)
+        and len(node.items[0].items) == 2
+    )
+
+
+def _hygienic_loop_recur(
+    datum: SyntaxList,
+    *,
+    macro_name: str,
+    expansion_id: str,
+    env: Mapping[str, str],
+) -> SyntaxList:
+    """The loop state, a binder `((s init))` or the `fn` parameter, binds in the body and `:on-exhausted`.
+
+    The initial state and the other options are read in the enclosing scope.
+    """
+    hygiene = dict(macro_name=macro_name, expansion_id=expansion_id)
+    items = list(datum.items)
+    state_env = dict(env)
+    start = 1
+    if len(items) > 1 and _is_loop_binder(items[1]):
+        pair = items[1].items[0]
+        initial = _apply_hygiene(pair.items[1], env=env, **hygiene)
+        name = _bind_introduced(pair.items[0], state_env, **hygiene)
+        items[1] = replace(items[1], items=(replace(pair, items=(name, initial)),))
+        start = 2
+    fn_index = next((index for index in range(start, len(items)) if syntax_head_name(items[index]) == "fn"), None)
+    if fn_index is not None:
+        items[fn_index] = _hygienic_fn(items[fn_index], state_env, **hygiene)
+    index = start
+    while index < len(items):
+        item = items[index]
+        if isinstance(item, SyntaxKeyword) and index + 1 < len(items) and index + 1 != fn_index:
+            scope = state_env if item.value == ":on-exhausted" else env
+            items[index + 1] = _apply_hygiene(items[index + 1], env=scope, **hygiene)
+            index += 2
+            continue
+        if index != fn_index:
+            items[index] = _apply_hygiene(item, env=state_env, **hygiene)
+        index += 1
+    return replace(datum, items=tuple(items))
+
+
+def _hygienic_fn(fn: SyntaxList, env: dict[str, str], *, macro_name: str, expansion_id: str) -> SyntaxList:
+    """`(fn (params) body)`: binds the parameters in `env`, then renames the body in it."""
+    if len(fn.items) < 2 or not isinstance(fn.items[1], SyntaxList):
+        return _hygienic_generic_list(fn, macro_name=macro_name, expansion_id=expansion_id, env=env)
+    params = fn.items[1]
+    bound = tuple(_bind_introduced(param, env, macro_name=macro_name, expansion_id=expansion_id) for param in params.items)
+    body = tuple(_apply_hygiene(item, macro_name=macro_name, expansion_id=expansion_id, env=env) for item in fn.items[2:])
+    return replace(fn, items=(fn.items[0], replace(params, items=bound), *body))
+
+
+def _hygienic_let_proc(
+    datum: SyntaxList,
+    *,
+    macro_name: str,
+    expansion_id: str,
+    env: Mapping[str, str],
+) -> SyntaxList:
+    """`(let-proc binding-or-bindings consumer)`: each local binds its parameters in its own body.
+
+    The local names stay as written, as on `main`; captures and the consumer are read in the
+    enclosing scope.
+    """
+    if len(datum.items) != 3 or not isinstance(datum.items[1], SyntaxList) or not datum.items[1].items:
+        return _hygienic_generic_list(datum, macro_name=macro_name, expansion_id=expansion_id, env=env)
+    container = datum.items[1]
+    several = isinstance(container.items[0], SyntaxList)
+    nodes = container.items if several else (container,)
+    locals_ = tuple(_hygienic_local_proc(node, macro_name=macro_name, expansion_id=expansion_id, env=env) for node in nodes)
+    consumer = _apply_hygiene(datum.items[2], macro_name=macro_name, expansion_id=expansion_id, env=env)
+    return replace(datum, items=(datum.items[0], replace(container, items=locals_) if several else locals_[0], consumer))
+
+
+def _hygienic_local_proc(
+    node: SyntaxDatum,
+    *,
+    macro_name: str,
+    expansion_id: str,
+    env: Mapping[str, str],
+) -> SyntaxDatum:
+    """`(name (params) [-> Type] [:captures (names)] body)`; a parameter is `p` or `(p Type)`."""
+    if not isinstance(node, SyntaxList) or len(node.items) < 3 or not isinstance(node.items[1], SyntaxList):
+        return _apply_hygiene(node, macro_name=macro_name, expansion_id=expansion_id, env=env)
+    hygiene = dict(macro_name=macro_name, expansion_id=expansion_id)
+    local_env = dict(env)
+    params = tuple(
+        replace(param, items=(_bind_introduced(param.items[0], local_env, **hygiene), *param.items[1:]))
+        if isinstance(param, SyntaxList) and param.items
+        else _bind_introduced(param, local_env, **hygiene)
+        for param in node.items[1].items
+    )
+    rest = list(node.items[2:])
+    for index, item in enumerate(rest[:-1]):
+        if isinstance(item, SyntaxKeyword) and item.value == ":captures" and isinstance(rest[index + 1], SyntaxList):
+            captures = rest[index + 1]
+            rest[index + 1] = replace(captures, items=tuple(_apply_hygiene(name, env=env, **hygiene) for name in captures.items))
+    rest[-1] = _apply_hygiene(rest[-1], env=local_env, **hygiene)
+    return replace(node, items=(node.items[0], replace(node.items[1], items=params), *rest))
+
+
+def _hygienic_cond(
+    datum: SyntaxList,
+    *,
+    macro_name: str,
+    expansion_id: str,
+    env: Mapping[str, str],
+) -> SyntaxList:
+    """Every item of a `cond` clause is an expression, its test first, even a bare local."""
+    def clause(item: SyntaxDatum) -> SyntaxDatum:
+        if not isinstance(item, SyntaxList):
+            return _apply_hygiene(item, macro_name=macro_name, expansion_id=expansion_id, env=env)
+        return replace(item, items=tuple(
+            _apply_hygiene(part, macro_name=macro_name, expansion_id=expansion_id, env=env) for part in item.items))
+    return replace(datum, items=(datum.items[0], *(clause(item) for item in datum.items[1:])))
 
 
 def _hygienic_list_binder_form(
@@ -978,6 +1117,9 @@ def _hygienic_defworkflow(
     )
     return replace(datum, items=tuple(updated))
 
+
+
+_BINDING_FORMS = {"loop/recur": _hygienic_loop_recur, "let-proc": _hygienic_let_proc, "cond": _hygienic_cond}
 
 def _replace_list_item_range(datum: SyntaxList, replacements: Mapping[int, SyntaxDatum]) -> SyntaxList:
     items = list(datum.items)

@@ -17,7 +17,7 @@ backend or admitting live-provider/peer effects.
 - **Last material update:** 2026-08-20
 - **Related:**
   [`workflow_lisp_frontend_specification.md`](workflow_lisp_frontend_specification.md),
-  [`workflow_lisp_proof_graph.md`](workflow_lisp_proof_graph.md),
+  [frontend specification §11 and §12](workflow_lisp_frontend_specification.md#11-pattern-matching) ([`workflow_lisp_proof_graph.md`](workflow_lisp_proof_graph.md), historical record),
   [`workflow_language_design_principles.md`](workflow_language_design_principles.md),
   [`specs/versioning.md`](../../specs/versioning.md)
 - **Original implementation target:** Workflow Lisp target DSL 2.26; state schema 2.1
@@ -636,7 +636,7 @@ Implementation updates:
 
 - `docs/design/workflow_lisp_frontend_specification.md` condition and proof
   sections;
-- `docs/design/workflow_lisp_proof_graph.md` proof sources and flow rules;
+- [frontend specification §11 and §12](workflow_lisp_frontend_specification.md#11-pattern-matching) proof sources and flow rules (`docs/design/workflow_lisp_proof_graph.md` is the historical record);
 - `docs/lisp_workflow_drafting_guide.md` normal authoring guidance;
 - `docs/capability_status_matrix.md` status and copy-safety evidence;
 - `specs/versioning.md` and `specs/index.md` target-2.26 routing; and
