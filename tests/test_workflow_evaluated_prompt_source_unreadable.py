@@ -10,8 +10,11 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
+import signal
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -24,12 +27,14 @@ SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
     (provider-result providers.review :prompt prompts.one :inputs (message)
       :model "m" :effort "low" :returns Result)))'''
 
-# Stand-in provider: records each launch in calls.log, then returns {"ok": true}.
-SHIM = r"""import os, sys
+# Stand-in provider: records each launch in calls.log, then hangs when SHIM_HANG is set, else returns {"ok": true}.
+SHIM = r"""import os, sys, time
 from pathlib import Path
 sys.stdin.buffer.read()
 with Path("calls.log").open("a") as stream:
     stream.write("launched\n")
+if os.environ.get("SHIM_HANG"):
+    time.sleep(60)
 Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text('{"ok": true}')
 """
 
@@ -134,6 +139,69 @@ def test_deleting_a_committed_prompt_file_refuses_resume_without_a_launch(tmp_pa
     refused = _orchestrator(tmp_path, "resume", _report(tmp_path)["run"]["run_id"])
     assert (refused.returncode, "[effect_input_diverged]" in refused.stderr, _launches(tmp_path)) == (2, True, 1), \
         refused.stderr
+
+
+def _kill_while_the_provider_runs(root: Path) -> None:
+    """Start a run whose stand-in hangs; SIGKILL the orchestrator once the stand-in has launched."""
+    env = {**os.environ, "PATH": closed_path(root / "bin"), "SHIM_HANG": "1",
+           "PYTHONPATH": str(Path(__file__).parents[1]), "PYTHONDONTWRITEBYTECODE": "1"}
+    process = subprocess.Popen(
+        [sys.executable, "-B", "-m", "orchestrator", "run", "main.orc", "--provider-externs-file", "providers.json",
+         "--prompt-externs-file", "prompts.json", "--input", "message=hi"],
+        cwd=root, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    try:
+        deadline = time.monotonic() + 30
+        while _launches(root) == 0 and process.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert _launches(root) == 1
+    finally:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=10)
+
+
+def test_resume_at_a_pending_start_with_the_prompt_file_deleted_refuses_in_preflight(tmp_path):
+    path = _fixture(tmp_path, "input_file")
+    path.write_text("Authored prompt.\n", encoding="utf-8")
+    _kill_while_the_provider_runs(tmp_path)
+    path.unlink()
+    refused = _orchestrator(tmp_path, "resume", _report(tmp_path)["run"]["run_id"])
+    assert (refused.returncode, "[input_file_read_failed]" in refused.stderr, _launches(tmp_path)) == (2, True, 1), \
+        refused.stderr
+
+
+PRE_CHANGE = Path(__file__).parent / "fixtures" / "prompt_file_absent_pre_change"
+
+
+def _pre_change_run(root: Path) -> str:
+    """A run the package recorded before the read check: step `one` committed with `one.md` absent, `two` failed."""
+    for name in ("main.orc", "providers.json", "prompts.json", "two.md"):
+        shutil.copy2(PRE_CHANGE / name, root / name)
+    shim = root / "bin" / "codex"
+    shim.parent.mkdir()
+    shim.write_text(f"#!{sys.executable}\n" + (PRE_CHANGE / "codex_shim.py").read_text(encoding="utf-8"),
+                    encoding="utf-8")
+    shim.chmod(0o700)
+    shutil.copytree(PRE_CHANGE / "runs", root / ".orchestrate" / "runs")
+    (run_id,) = [path.name for path in (root / ".orchestrate" / "runs").iterdir()]
+    return run_id
+
+
+@pytest.mark.parametrize("prompt_file", ["absent", "created"])
+def test_resume_refuses_a_step_committed_with_its_prompt_file_absent(tmp_path, prompt_file):
+    run_id = _pre_change_run(tmp_path)
+    if prompt_file == "created":
+        (tmp_path / "one.md").write_bytes(b"")
+    refused = _orchestrator(tmp_path, "resume", run_id)
+    assert (refused.returncode, "[effect_input_diverged]" in refused.stderr, _launches(tmp_path)) == (2, True, 0), \
+        refused.stderr
+
+
+def test_invalidate_create_and_resume_recovers_a_step_committed_with_its_prompt_file_absent(tmp_path):
+    run_id = _pre_change_run(tmp_path)
+    assert _orchestrator(tmp_path, "invalidate", run_id, "workflow:main::run / one").returncode == 0
+    (tmp_path / "one.md").write_bytes(b"")
+    resumed = _orchestrator(tmp_path, "resume", run_id)
+    assert (resumed.returncode, _launches(tmp_path)) == (0, 2), resumed.stderr
 
 
 def test_empty_prompt_file_is_still_a_prompt(tmp_path):

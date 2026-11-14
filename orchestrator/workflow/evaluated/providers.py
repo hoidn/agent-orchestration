@@ -209,9 +209,7 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
     if delivery_name is not None:
         parts["delivery"] = canonical_sha256(delivery_name)
     if reads.source_kind is not None:
-        parts[f"source:{reads.source_kind}:{reads.source_path}"] = (
-            reads.source_sha256 or canonical_sha256(None)
-        )
+        parts[f"source:{reads.source_kind}:{reads.source_path}"] = reads.source_sha256
     parts.update({
         f"dependency:{path}": digest
         for path, digest in reads.dependency_sha256s.items()
