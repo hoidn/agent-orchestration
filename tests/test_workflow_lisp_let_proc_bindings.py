@@ -12,6 +12,9 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.procedures import GeneratedLocalProcedure
 from tests.test_workflow_lisp_procedures import _write_module
 from tests import test_workflow_lisp_defect_backlog as backlog
+from tests.workflow_lisp_closed_program_helpers import build_outcome
+from orchestrator.workflow_lisp.build import FrontendBuildRequest
+from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 
 
 W3_TARGET = "2.36"
@@ -683,10 +686,9 @@ def _local(body, call="(h n)"):
     return f"((n Int)) -> Int (let-proc ((h ((v Int)) -> Int {body})) {call})"
 
 
-def _run_local(tmp_path, run, *definitions):
+def _run_local(tmp_path, run, *definitions, inputs=("n=3",)):
     path = backlog._install(tmp_path, {"m.orc": backlog.module(run, *definitions)})
-    observed, detail = backlog._run(tmp_path, path, "m::run", ("n=3",))
-    return observed, detail
+    return backlog._run(tmp_path, path, "m::run", inputs)
 
 
 @pytest.mark.parametrize(
@@ -710,3 +712,82 @@ def test_local_whose_loop_state_is_a_scalar_runs(tmp_path):
     """Control: a local loop without a `loop-state` built before the fix."""
     observed, detail = _run_local(tmp_path, _local(COUNT_SCALAR))
     assert observed == backlog.value(30), detail
+
+
+# A role bound with `bind-proc` over `add` and called from a `let-proc` step, and a captured procedure reference:
+# the captured value is a compile-time binding of the local. `ADDE` is `add` backed by a command that returns 3.
+ROLE_STEP_CALLED = backlog.ROLE_STEP.replace("BODY", "(step 1)")
+ROLE_STEP_MAP_BODY = backlog.ROLE_STEP.replace("BODY", backlog.MAP_12.replace("CALL", "(step x)"))
+ROLE_STEP_PASSED = backlog.ROLE_STEP.replace("BODY", "(each (proc-ref step) (list 1 2))")
+CAPTURED_INCREMENT = "(let* ((p (proc-ref increment))) (let-proc ((f ((x Int)) -> Int (p x))) (f 1)))"
+CAPTURED_STEP = "(let* ((g (proc-ref step))) (let-proc ((h ((n Int)) -> Int (g n))) (via (proc-ref h) (list 1 2))))"
+
+
+@pytest.mark.parametrize(
+    ("body", "definitions", "wanted"),
+    [(ROLE_STEP_CALLED, (backlog.ADD,), (2,)), (ROLE_STEP_CALLED, (backlog.ADDE,), (3, "add"))],
+    ids=["pure-role", "effectful-role"],
+)
+def test_role_bound_with_bind_proc_is_called_from_a_local_step(tmp_path, body, definitions, wanted):
+    observed, detail = _run_local(tmp_path, f"() -> Int {body}", *definitions, inputs=())
+    assert observed == backlog.value(*wanted), detail
+
+
+@pytest.mark.parametrize(
+    ("body", "definitions"),
+    [
+        (ROLE_STEP_MAP_BODY, (backlog.ADDE,)),
+        (ROLE_STEP_PASSED, (backlog.ADDE, backlog.EACH)),
+        (backlog.ROLE.replace("BODY", "(let-proc ((step (x) (role x))) (each (proc-ref step) (list 1 2)))"),
+         (backlog.ADDE, backlog.EACH)),
+    ],
+    ids=["map-body", "passed-to-a-mapping-procedure", "inferred-signature-passed"],
+)
+def test_local_capturing_a_reference_is_a_map_body(tmp_path, body, definitions):
+    observed, detail = _run_local(tmp_path, f"() -> Int {body}", *definitions, inputs=())
+    assert observed == backlog.value(2, "add", "add"), detail
+
+
+@pytest.mark.parametrize(
+    ("body", "definitions", "wanted"),
+    [(CAPTURED_INCREMENT, (backlog.INC,), (2,)), (CAPTURED_STEP, (backlog.STEP, backlog.D11_VIA), (2, "step", "step"))],
+    ids=["called", "passed-to-a-mapping-procedure"],
+)
+def test_local_forwards_a_captured_reference(tmp_path, body, definitions, wanted):
+    observed, detail = _run_local(tmp_path, f"() -> Int {body}", *definitions, inputs=())
+    assert observed == backlog.value(*wanted), detail
+
+
+@pytest.mark.parametrize(
+    ("alias", "by_name", "definitions"),
+    [
+        (CAPTURED_INCREMENT, "(let-proc ((f ((x Int)) -> Int (increment x))) (f 1))", (backlog.INC,)),
+        (CAPTURED_STEP, "(let-proc ((h ((n Int)) -> Int (step n))) (via (proc-ref h) (list 1 2)))",
+         (backlog.STEP, backlog.D11_VIA)),
+        (ROLE_STEP_MAP_BODY, "(let-proc ((step ((x Int)) -> Int (add 1 x))) "
+         + backlog.MAP_12.replace("CALL", "(step x)") + ")", (backlog.ADDE,)),
+        (ROLE_STEP_PASSED, "(let-proc ((step ((x Int)) -> Int (add 1 x))) (each (proc-ref step) (list 1 2)))",
+         (backlog.ADDE, backlog.EACH)),
+    ],
+    ids=["captured-reference-called", "captured-reference-passed", "role-step-map-body", "role-step-passed"],
+)
+def test_captured_reference_and_the_procedure_name_give_one_digest(tmp_path, alias, by_name, definitions):
+    digests = {backlog._build(tmp_path / name, backlog.module(f"() -> Int {body}", *definitions)).program.digest
+               for name, body in (("alias", alias), ("by-name", by_name))}
+    assert len(digests) == 1
+
+
+def test_role_bound_over_a_workflow_input_is_a_map_body(tmp_path):
+    run = "((k Int)) -> Int " + ROLE_STEP_MAP_BODY.replace(":n 1", ":n k")
+    observed, detail = _run_local(tmp_path, run, backlog.ADDE, inputs=("k=1",))
+    assert observed == backlog.value(2, "add", "add"), detail
+
+
+def test_role_reading_a_name_a_local_parameter_shadows_is_refused(tmp_path):
+    run = ("((x Int)) -> Int (let* ((role (bind-proc (proc-ref add) :n x))) "
+           "(let-proc ((step ((x Int)) -> Int (role x))) (step 2)))")
+    path = backlog._install(tmp_path, {"m.orc": backlog.module(run, backlog.ADD)})
+    outcome = build_outcome(lambda: build_closed_program_bundle(FrontendBuildRequest(source_path=path,
+        source_roots=(tmp_path,), entry_workflow="m::run", command_boundaries_path=tmp_path / "commands.json",
+        workspace_root=tmp_path)))
+    assert outcome == ("refused", "let_proc_capture_duplicate")

@@ -1226,6 +1226,8 @@ def _typecheck_let_proc_expr_impl(
 
     if procedure_catalog is None:
         raise TypeError("procedure_catalog is required for let-proc expressions")
+    expr = _bind_captured_references(expr, type_env=type_env, value_env=value_env,
+        value_exprs=session_state.value_expr_env)
 
     if (
         expr.binding.local_name in value_env
@@ -1780,7 +1782,66 @@ def _prepare_local_hook_call(call, bindings, *, creator, signature, recurse):
     return completed
 
 
+def _reference_value_names(expr) -> frozenset[str] | None:
+    """The value names a compile-time reference reads: none for a `proc-ref` literal, the bound value names of a
+    `bind-proc` over one whose bound values are literals, names or such references; `None` for anything else."""
+    if isinstance(expr, ProcRefLiteralExpr):
+        return frozenset()
+    if not isinstance(expr, BindProcExpr):
+        return None
+    names = [_reference_value_names(expr.base_expr)]
+    for binding in expr.bindings:
+        value = binding.value_expr
+        names.append(frozenset() if isinstance(value, LiteralExpr) else frozenset({value.name})
+            if isinstance(value, NameExpr) else _reference_value_names(value))
+    return None if None in names else frozenset().union(*names)
+
+
+def _bind_captured_references(expr, *, type_env, value_env, value_exprs):
+    """A captured name that holds a compile-time procedure reference is bound by `let*` in the local's own body,
+    instead of becoming a capture parameter of the local; the values that reference reads are captured. Applied
+    from the target where locals lower inline; an earlier target keeps the capture parameter and the identity
+    it has. A reference that reads a reference name stays a capture; one that reads a name a local parameter
+    shadows is refused, as a capture of that name would be."""
+    if not target_dsl_supports_effect_ceilings(type_env.target_dsl_version):
+        return expr
+    params = {param.name for param in expr.binding.params}
+    held, read = [], []
+    for name in expr.binding.capture_names:
+        names = _reference_value_names(value_exprs.get(name))
+        if not isinstance(value_env.get(name), ProcRefTypeRef) or names is None or not all(
+                read_name in value_env and not isinstance(value_env[read_name], ProcRefTypeRef) for read_name in names):
+            continue
+        if names & params:
+            _raise_error(
+                f"`let-proc` capture `{name}` reads `{sorted(names & params)[0]}`, which a local parameter shadows",
+                code="let_proc_capture_duplicate",
+                span=expr.binding.span,
+                form_path=expr.binding.form_path,
+                expansion_stack=expr.binding.expansion_stack,
+            )
+        held.append((name, value_exprs[name]))
+        read.extend(sorted(names))
+    if not held:
+        return expr
+    body = expr.binding.local_body
+    kept = tuple(name for name in expr.binding.capture_names if name not in dict(held))
+    return replace(expr, binding=replace(expr.binding,
+        capture_names=kept + tuple(dict.fromkeys(name for name in read if name not in kept)),
+        local_body=LetStarExpr(bindings=tuple(held), body=body, span=body.span, form_path=body.form_path,
+            expansion_stack=body.expansion_stack)))
+
+
+def _bind_group_reference_captures(expr, creator):
+    """`_bind_captured_references` for each local of a group, before any is typed."""
+    bindings = tuple(_bind_captured_references(replace(expr, binding=binding, additional_bindings=()),
+        type_env=creator["type_env"], value_env=creator["value_env"],
+        value_exprs=creator["session_state"].value_expr_env).binding for binding in expr.bindings)
+    return replace(expr, binding=bindings[0], additional_bindings=bindings[1:])
+
+
 def _typecheck_local_hook_group(expr, **creator):
+    expr = _bind_group_reference_captures(expr, creator)
     _validate_local_hook_sites(expr.body, expr.bindings)
     session = creator["session_state"]
     creator = dict(creator, value_env=dict(creator["value_env"]), binding_env=dict(creator["binding_env"]))

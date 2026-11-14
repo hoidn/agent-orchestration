@@ -103,8 +103,6 @@ ELABORATE = "workflow_lisp/wcc/elaborate.py"
 OPERAND = crash("TypeError", f"{ELABORATE}:_body_to_prefix_and_value")
 NO_ELABORATION = crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value")
 BINDER_OUT_OF_SCOPE = crash("KeyError", f"{ELABORATE}:_infer_expr_type")
-CAPTURED_COMMAND = crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind")
-CAPTURED_PROVIDER_INPUT = crash("TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind")
 LAUNCHED_WITH_OUTSIDE_TEXT = ("ran", 0, 1, 1)
 
 KNOWN: dict[str, tuple] = {
@@ -122,9 +120,6 @@ KNOWN: dict[str, tuple] = {
     "D5": crash("TypeError", f"{ELABORATE}:_infer_expr_type"),
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
-    "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
-    "D11": CAPTURED_PROVIDER_INPUT, "D11-R1": CAPTURED_PROVIDER_INPUT, "D11-R2": CAPTURED_PROVIDER_INPUT,
-    "D11-R5": CAPTURED_PROVIDER_INPUT,
     "D12-entry": crash("CanonicalNameError", "workflow_lisp/closed/names.py:canonical_type_descriptor.<locals>.build"),
     "D12-literal": NO_ELABORATION,
     "D12-name": BINDER_OUT_OF_SCOPE,
