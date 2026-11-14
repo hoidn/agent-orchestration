@@ -329,27 +329,47 @@ rebases one line of the known list: see TP1.
       "builds". A row that does not give it today is in the dictionary `KNOWN`, keyed by row id,
       whose value is today's **signature**:
       - a crash or a traceback: the kind, the exception class, and the innermost function under
-        `orchestrator/` in the cause's traceback (`module.py:function`). Seven crash rows are
-        `TypeError`; the class alone would let a crash move unnoticed;
+        `orchestrator/` in the cause's traceback that is not a raising helper, as
+        `path/under/orchestrator.py:qualified.name` (`crash_signature` in
+        `tests/workflow_lisp_closed_program_helpers.py`; `RAISING_HELPERS` lists the functions
+        that only raise, whose caller is named instead). Many crash rows are `TypeError`; the
+        class alone would let a crash move unnoticed;
       - a wrong refusal: the diagnostic code;
       - a wrong value or a build where a refusal is wanted: the value, or `builds`.
 - [ ] The rules of the list, each enforced by the module:
       - a known row must still fail with exactly its signature; a row that now gives the wanted
-        outcome fails the module until it is removed (so a fix removes its row);
-      - a row whose outcome changes to a **different** wrong outcome fails the module. It may be
-        re-entered only with a row in this plan's ledger that names the commit that moved it, and
-        only as a refusal code; never as a value and never as another crash;
-      - `test_known_list_only_shrinks`: the ids of `KNOWN` are a subset of the frozen tuple
-        `KNOWN_AT_T0` in the module. A new defect is added to both, with a ledger row;
+        outcome fails the module until it is removed. A fix removes the row's entry from `KNOWN`
+        and only that, states the wanted outcome where the row had none (never as the signature
+        it was known by), and removes the row's `AMENDED` entry if it has one;
+      - the frozen tables: `KNOWN_AT_T0` holds the signature of every known row at T0 and
+        `WANTED_AT_T0` the wanted outcome of every row, known, control or pin. Neither is
+        edited except to add a row. The ids of `KNOWN` are in `KNOWN_AT_T0`
+        (`test_known_list_only_shrinks`), and every row is in `WANTED_AT_T0`, so no row is
+        deleted silently. A new defect is added to `KNOWN`, `KNOWN_AT_T0` and `WANTED_AT_T0`,
+        with a ledger row;
+      - the amendment route, the one way a frozen fact changes: an entry in the module's
+        `AMENDED` table (`row id: (new signature, reason)`, or `None` for a deleted row) or
+        `AMENDED_WANTED` table (`row id: (new wanted outcome, reason)`), whose reason names the
+        date of a row in this plan's ledger. A signature is amended only for the same defect
+        under a moved key: another function of a crash or traceback of the same exception class,
+        a traceback that became a coded crash (TP1), another code of a refusal. A refusal that
+        became a crash, a crash of another class, or any other different wrong outcome fails
+        the module and is not amended. Fourteen known rows key on four functions of
+        `wcc/elaborate.py`, which E1 rewrites: a rename there costs one amendment per row and
+        one ledger row;
+      - a wanted outcome may be made stricter freely (an outcome stated where there was none,
+        a value where there was `builds`); loosening it or changing it otherwise needs an
+        `AMENDED_WANTED` entry;
       - every known row whose signature is `builds` or a value, where the wanted outcome is a
-        refusal, has a **control row** in the module that exercises the guard it shadows and is
-        not in `KNOWN`: A2 has the named-call control (`run_ref_placement_invalid`) and the
-        path-mode control (builds); C1 the local-workflow control
-        (`procedure_effect_ceiling_exceeded`); A3 and B1 the two-names and two-paths controls
-        (commit); A4 the `asset_file` controls (no launch); B2 `(let* ((g 5)) (g 1))` (refused);
-        B4 the macro without the caller's binding (`procedure_call_unknown`); D5 the `if`
-        spelling (3); D9 the local without `loop-state` (builds); D11 the shapes R3 and R4.
-        `test_every_shadowing_row_has_a_control` checks the pairing.
+        refusal, and every row of the module's `PAIRED` list, has a **control row** in the
+        module that exercises the guard it shadows and is not in `KNOWN`: A2 has the named-call
+        control (`run_ref_placement_invalid`) and the path-mode control (builds); C1 the
+        local-workflow control (`procedure_effect_ceiling_exceeded`); A3 and B1 the two-names
+        and two-paths controls (commit); A4 the `asset_file` controls (no launch); B2
+        `(let* ((g 5)) (g 1))` (refused); B4 the macro without the caller's binding
+        (`procedure_call_unknown`); D5 the `if` spelling (3); D9 the local without `loop-state`
+        (builds); D11 the shapes R3 and R4. `test_every_paired_or_shadowing_row_has_a_control`
+        checks the pairing, and every key of the pairing tables must be a row.
 - [ ] What T0 does with the rows that are not an `m.orc` program:
 
 | Row | T0 does |
@@ -379,7 +399,9 @@ rebases one line of the known list: see TP1.
       keeps its own kit; this plan does not take it over). A `README` states that the compile
       check is never run inside the repository (it writes `.orchestrate/build/`).
 - [ ] Record in the ledger, for `main`: the two SHA-256 values, files compiled and built (635 and
-      34 on `59f727db`), corpus rows; the content of `KNOWN_AT_T0`.
+      46 on `59f727db`, measured with the kit as ported, no provider externs supplied:
+      `scripts/invariants/inv.sh 59f727db OUT`; the figure 34 that stood here had no command
+      behind it and could not be reproduced), corpus rows; the content of `KNOWN_AT_T0`.
 - Failing first: with `KNOWN` empty the module fails on each open row; then the rows are entered.
 - Reviewer: that each signature was read from a run, not typed from this plan; that the module
   takes under two minutes at `-n 8`, else its value rows are sampled; that a control fails when
@@ -471,15 +493,18 @@ a traceback with exit 1 (D9).
       after typecheck … It says that the program passed typecheck, names the stage … applied in
       `orchestrator/workflow_lisp/closed/build.py`") states both stages and both call sites;
       the docstring of `compiler_defect_boundary`.
-- [ ] The known list: if D9 is still in it, its kind changes from `traceback` to `crash`, same
-      class and function, with a ledger row (the one edit of an entry this plan foresees). If TD5
-      merged first, nothing changes.
+- [ ] The known list: the boundary moves every row that is a `traceback` today. That is the four
+      D9 rows, if TD5 has not merged, and D22 (`(list (done 1))` in a loop body, an uncaught
+      `AttributeError` in typecheck): the kind changes from `traceback` to `crash`, same class
+      and function. The fixer sets the new signatures in `KNOWN`, enters one `AMENDED` entry per
+      moved row with a reason naming the date of this task's ledger row, and writes that ledger
+      row. Nothing else in the module changes. If TD5 merged first, only D22 moves.
 - Reviewer: a diagnostic raised inside typecheck must not be wrapped; `KeyboardInterrupt` passes;
   the language server and the REPL, which call the typechecker by other routes, are unchanged.
 
 ### Task TD2: A field read on the `match` subject inside its arm (D5) (6 h; after E1)
 
-The frontend specification §7.5 settles what is meant: "Match refines its exact selector", and a
+The frontend specification §11 settles what is meant: "Match refines its exact selector", and a
 field read is refused only "outside an arm or a branch". The typechecker agrees: it narrows the
 subject in the arm and refuses the other variant's field there. Only elaboration disagrees.
 
@@ -595,8 +620,11 @@ coordinator's decision; its hours are the first plan's and were not re-sized.
 | The whole suite before each merge | Already a rule (`AGENTS.md`); no task. A batch of branches gets one run on an integration branch |
 
 **How R3's generator orders this backlog.** Each mutant that ends in `compiler_defect` or a
-traceback gives a signature: the exception class and the innermost `orchestrator/` function. T0's
-`KNOWN` holds the same signature for every crash row. R3's readout is a count per signature. A
+traceback gives a signature, computed by `crash_signature` in
+`tests/workflow_lisp_closed_program_helpers.py`, which R3 imports: the exception class and
+`path/under/orchestrator.py:qualified.name` of the innermost function of the package in the
+traceback that is not a raising helper (`RAISING_HELPERS`, functions that only raise, whose caller
+is named instead). T0's `KNOWN` holds the same signature for every crash row. R3's readout is a count per signature. A
 dropped task whose signature is hit returns, ordered by count; a signature with no row becomes a
 new row; a row no mutant hits in a few hundred mutants stays dropped. Classes A and C are not
 ordered by it: a mutant that spends wrongly does not crash.
@@ -745,4 +773,6 @@ O3 of the first plan (where the dead-code deletion runs) fell with TE5.
 | 2026-11-13 | Independent review: accept after fixes, no blocker, six majors, ten minors; 33 rows re-run on `main` at `801bd6d2` and four on the E1 tip `10965cda`, all matching. Coordinator's rulings A to I recorded above and applied in this revision, on `main` at `e112aa0f` merged into the branch (documents only since `59f727db`). Kept set: T0, TA2, TP1, TD2, TD1, TD5, TD6, TF, 48 hours. Rows added: the ninth batch (A4, D19, D20, E24, E25, E26). Probed while revising, no provider or model call: A4 reproduces in all three spellings with the outside text in the prompt; D19, D20, E24, E26 reproduce; E25 does not; D17 does not reproduce in two shapes; E23 now has a program (`name_unknown`); E22 reproduces; the role shapes R1, R2, R5 crash and R3, R4 run; a phased provider program with TA2's two shapes builds; D4 on a serial map builds in the planner's shape. Not applied as ruled: nothing |
 | 2026-11-13 | Plan accepted by the coordinator | The review's six majors and ten minors are applied in the revision (`e28045af`); the kept set is T0, TA2, TP1, TD2, TD1, TD5, TD6 and TF (48 hours). Rulings: O1 is settled for TA2 (merge with the task: `specs/io.md` and `specs/providers.md` already require the check, and no tracked source fills two slots of one prompt); O7 accepted (the two ninth-batch crashes join TD1 if the merged effects change leaves them crashing); O6 (a prompt `input_file` that leaves the workspace) stays dropped until the owner answers, because refusing it changes what runs today. T0 starts now and merges before any fix task. |
 | 2026-11-13 | A1 and E16 closed: `fix/missing-prompt-file` merged to `main` (`f004a59c`) after a review, one fix round, a scoped re-review and the full suite | TA2 may start once T0 is on `main`; it raises its refusals before `started` on the route that branch established (exit 1 on a first run, exit 2 at `resume` preflight on a pending start). |
-
+| 2026-11-13 | Task T0 (branch `test/defect-backlog-t0`). `tests/test_workflow_lisp_defect_backlog.py` holds 101 rows: 83 programs on the public build (the value rows also through the command line), 5 on the confined run-reference controller, 13 on the provider fixture; 54 are in `KNOWN` and 47 pass as controls or regression pins. Every signature was read from a run on `main` (`faf575ab`, re-run after merging `8a61b143`); every row reproduces at target 2.40 and gives the outcome of the Reproductions table. Four signatures name a function this plan does not: D6 and D13 are `contracts/closed_program/check.py:fail` (the raising helper called by `_field_type` and `_value`), D12 as the entry is `workflow_lisp/closed/names.py:build` (nested in `canonical_type_descriptor`), D19 is `contracts/closed_program/sites.py:_value_has_effect`. A provider row's signature is the exit code, the launches, the launches that carried outside text and, after a launch, the printed code; a refusal before launch is recorded without its code, which `fix/missing-prompt-file` renames. **Invariants on `main` at `8a61b143`** (`scripts/invariants/inv.sh`): `compile.json` `0aa704bfef102697474f5041ed0f3ed4e59b61c5de2a669a61d3fa9f832308d1`, 635 files compiled, 46 built; `digests.json` `810baec5c6db3bf8fb22989a4c2cdc2fdff076c71ca5416f0c44b6f9df2a1ce0`, 55 corpus rows, 11 built. The same kit on `59f727db` also gives 635 and 46 (not the 34 stated in Task T0; the difference was not traced) and the same `digests.json`; its `compile.json` differs from `main`'s in 83 files, none in its exit code (the fixtures moved to target 2.40 since). **`KNOWN_AT_T0`** (54): A2-C, A2-G, A2-M, A3-path, A3-string, A4-abs, A4-dotdot, A4-symlink, B1, B2-arm, B2-let, B3, B4, B5, C1, D1, D2, D3, D4-loop, D5, D6, D7, D8, D9-fn, D9-map, D9-name, D9-ref, D10, D10-R1, D11, D11-R1, D11-R2, D11-R5, D12-entry, D12-literal, D12-name, D13, D19, D20, E1-and, E1-or, E2, E4, E6, E7, E8, E9, E11, E12, E13, E23-input, E23-local, E24, E26. No provider or model call |
+| 2026-11-13 | Task T0, fix round 1 after the independent review (accept after fixes; `main` at `a9f9e410` merged, so the prompt-file fix is in). **Key of a crash:** `crash_signature` in `tests/workflow_lisp_closed_program_helpers.py` (with `build_outcome`; the mutant generator imports both): the exception class and `path/under/orchestrator.py:qualified.name` of the innermost package function that is not a raising helper (`RAISING_HELPERS`: `check.py:_Checker.fail`, `preparation_check.py:_fail`). D6 is now `contracts/closed_program/check.py:_Checker._field_type` and D13 `…:_Checker._value`, the functions this plan names. **Amendment route:** `KNOWN_AT_T0` freezes each known signature and `ROWS_AT_T0` every row id; a known signature differs from its frozen one, or a row is deleted, only through an entry in the module's `AMENDED` table whose reason names the date of a row in this ledger. This is the route for TP1's edit of D9 (traceback to coded crash) and for a function renamed under a crash key by another branch; it replaces "re-entered only as a refusal code" in Task T0's rules. A row that left `KNOWN` cannot state the outcome it was known by as wanted. **Rows:** 112 (93 programs, 5 run-reference, 12 provider, 2 on a recorded run), 62 known. Added to `KNOWN_AT_T0`: D4-map-value and D4-map-bound (a serial map's `:max (match …)` crashes where the map is the workflow's value or a `let*` binding and builds where it is an operand, the planner's shape, kept as the control `D4-map`), B3-print, B5-ref, D7-hoisted (this plan's wording "hoisted into the outer binding list" still crashes; "bound with `let*` first" builds and is the control `D7-bound`), and the roadmap's tenth batch, reproduced on `main` and not yet in the Defect Table: D21 (`done` as a `let*` binding value in a loop body: `TypeError` in `wcc/elaborate.py:_replace_halts_with_jump`), D22 (`(list (done 1))` in a loop body: an uncaught `AttributeError` in `typecheck_structural_values.py:typecheck_structural_value_expr`), E27 (after `invalidate`, the `resume … --accept-changes` that the refusal prints is refused `resume_preflight_failed`; a plain `resume` recovers). Controls added: D4-cond, D7-bound, E6-uncalled, E27-plain-resume. Removed: E15-outside, the same program as A4-asset-dotdot. Wanted values now stated for D6 (4), D7 and D7-hoisted (2; `step step check`), D8 (1), E1 (3), E2, E7, E8, E9, E24; D4-loop and D9 finish with a value other than their `:on-exhausted` value. A provider row that fails records its printed code before a launch too: A3 wants `duplicate_artifact_name`, B1 `prompt_output_position_destination_collision`, A4 `input_file_read_failed`; the `asset_file` controls give `asset_file_read_failed`. **Corrected in this plan:** Task T0's "34 built" (46, with the command) and TD2's citation (§11, not §7.5). **Invariants on `main` at `e0a978ad`** (the prompt-file fix added one fixture source): `compile.json` `587ff58e7239ee5315129c2d0beed630afc6dbba72cfa9dd772498ccc9c76c0a`, 636 files compiled, 47 built; `digests.json` unchanged, `810baec5c6db3bf8fb22989a4c2cdc2fdff076c71ca5416f0c44b6f9df2a1ce0`, 55 rows, 11 built. No provider or model call |
+| 2026-11-13 | Task T0, fix round 2 after the scoped re-review (`main` at `1e090cc8` merged). **Wanted outcomes withdrawn:** E1-and, E1-or and E2 state none, because the frontend specification §12.2 lists those reads (under a test combined with `and` or `or`; in the body of a serial `list/map-effect`) as refused with `variant_ref_unproved`; the Defect Table calls them defects, and whether the rule or the rows are right is a design question for TE1 if it returns. The three A4 `input_file` rows state none: containment is the owner's open decision O6 and no specification gives a code. **Mechanism:** `WANTED_AT_T0` freezes the wanted outcome of every row and replaces `ROWS_AT_T0`; a wanted outcome is made stricter freely and otherwise changes only through `AMENDED_WANTED` with a dated reason; an `AMENDED` signature must be the same defect under a moved key (same kind, same exception class; a traceback may become a crash); every key of `PAIRED` and `CONTROLS` must be a row. **This plan's text:** Task T0's rule bullets and signature bullet now describe the frozen tables, the amendment route and the helper rule; Task TP1 names the five rows it moves (four D9 and D22) and what the fixer amends; the Prevention paragraph names `crash_signature`. 112 rows, 62 known, 25 of them without a wanted outcome; 14 known rows key on `wcc/elaborate.py`. No provider or model call |
