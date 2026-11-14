@@ -4,9 +4,12 @@ Source: `docs/plans/2026-11-13-compiler-and-runtime-defect-backlog-plan.md` (its
 Reproductions). A row is one program with the outcome wanted for it. A row that does not give that
 outcome today is in `KNOWN` with today's signature, read from a run:
 
-    ("crash", class, "file.py:function")      `compiler_defect`; the class of its cause and the innermost
-                                              function under `orchestrator/` in the cause's traceback
-    ("traceback", class, "file.py:function")  the exception left the build uncaught (exit 1 on the command line)
+    ("crash", class, "file.py:qualified.name")
+                                              `compiler_defect`: the class of its cause and the innermost
+                                              function under `orchestrator/` in the cause's traceback that
+                                              is not a raising helper (`crash_signature`)
+    ("traceback", class, "file.py:qualified.name")
+                                              the exception left the build uncaught (exit 1 on the command line)
     ("refused", code, ...)                    the diagnostic codes
     ("builds",)                               the public build wrote a closed program
     ("value", value, command labels...)       the result of the public `run` and its command log
@@ -14,19 +17,21 @@ outcome today is in `KNOWN` with today's signature, read from a run:
     ("ran", exit code, launches, leaks, code...)
                                               a provider row: requests the stand-in received, how many of
                                               them carried the text of a file outside the workspace, and
-                                              the codes printed after a launch (a refusal before any launch
-                                              is recorded without its code: `fix/missing-prompt-file`
-                                              renames that code)
+                                              the diagnostic codes a failed run prints
 
 Rules, each enforced here:
 - a known row must still give exactly its signature. A fix makes its row fail: delete the row from
-  `KNOWN` (and state the wanted outcome, where the row has none);
-- a known row that moves to a different wrong outcome fails. It is re-entered only with a row in the
-  plan's ledger naming the commit that moved it, and only as a refusal code;
-- `KNOWN` only shrinks: its ids are a subset of `KNOWN_AT_T0`. A new defect is added to both, with a
-  ledger row;
-- a known row that builds, commits or gives a value where a refusal is wanted names a control row,
-  not in `KNOWN`, that exercises the guard it gets past (`CONTROLS`).
+  `KNOWN` and state the wanted outcome, where the row has none. The wanted outcome of a row that left
+  `KNOWN` is never the signature it was known by;
+- `KNOWN` only shrinks: its ids are in `KNOWN_AT_T0`, which also freezes each signature. A known row's
+  signature differs from the frozen one only through `AMENDED` (new signature and a reason naming the
+  date of the plan's ledger row): the route for a defect that stayed while its signature moved, such
+  as a renamed function or a traceback that became a coded crash. A row that moved to a different
+  wrong outcome is not amended without that ledger row;
+- no row is deleted: every id is in `ROWS_AT_T0`. Deleting one is an `AMENDED` entry too. A new defect
+  is added to `KNOWN`, `KNOWN_AT_T0` and `ROWS_AT_T0`, with a ledger row;
+- a known row that builds, commits or gives a value where a refusal is wanted, and every row of
+  `PAIRED`, names a control row, not in `KNOWN`, that exercises the guard it gets past (`CONTROLS`).
 
 A row whose wanted outcome is `None` is owned by another decision (the one-target cut, or a fix that
 chooses a code): only today's outcome is recorded.
@@ -44,6 +49,8 @@ No program, listed only (plan row id):
     | E17  | dead prompt identity code: a `grep`, not a program                                |
     | E21  | a pure operand renames the effects beside it: not re-run, no program              |
     | E22  | local names are part of the program digest: a property the cut decides            |
+
+Rows D21, D22 and E27 are the roadmap's tenth batch; the plan's Defect Table does not hold them yet.
 """
 
 from __future__ import annotations
@@ -53,22 +60,21 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
-import traceback
 
 import pytest
 
-import orchestrator
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from tests import test_workflow_evaluated_prompt_source_unreadable as prompt_file_fixture
 from tests import test_workflow_evaluated_providers as provider_fixture
 from tests import test_workflow_lisp_run_ref_workflow_program as run_ref_fixture
 from tests.agent_session_shims import closed_path
+from tests.workflow_lisp_closed_program_helpers import build_outcome
 
 REPO = Path(__file__).resolve().parents[1]
-PACKAGE = Path(orchestrator.__file__).resolve().parent
 BUILDS = ("builds",)
 
 
@@ -89,10 +95,11 @@ def crash(error: str, where: str) -> tuple:
 
 ELABORATE = "workflow_lisp/wcc/elaborate.py"
 OPERAND = crash("TypeError", f"{ELABORATE}:_body_to_prefix_and_value")
+NO_ELABORATION = crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value")
+BINDER_OUT_OF_SCOPE = crash("KeyError", f"{ELABORATE}:_infer_expr_type")
 LOCAL_LOOP_STATE = ("traceback", "RuntimeError", "workflow_lisp/loop_state.py:_typecheck_loop_state_seed")
-CAPTURED_COMMAND = crash("ValueError", "workflow_lisp/closed/command_templates.py:bind")
-CAPTURED_PROVIDER_INPUT = crash("TypeError", "workflow/evaluated/provider_io.py:bind")
-CLOSED_CHECK = crash("CheckedFormError", "contracts/closed_program/check.py:fail")
+CAPTURED_COMMAND = crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind")
+CAPTURED_PROVIDER_INPUT = crash("TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind")
 LAUNCHED_THEN_REFUSED = ("ran", 1, 1, 0, "provider_result_invalid")
 LAUNCHED_WITH_OUTSIDE_TEXT = ("ran", 0, 1, 1)
 
@@ -102,23 +109,26 @@ KNOWN: dict[str, tuple] = {
     "A4-abs": LAUNCHED_WITH_OUTSIDE_TEXT, "A4-dotdot": LAUNCHED_WITH_OUTSIDE_TEXT,
     "A4-symlink": LAUNCHED_WITH_OUTSIDE_TEXT,
     "B1": ("ran", 0, 1, 0),
-    "B2-let": value(2), "B2-arm": value(2), "B3": value(100), "B4": value(10), "B5": value(6),
+    "B2-let": value(2), "B2-arm": value(2), "B3": value(100), "B3-print": value(1), "B4": value(10),
+    "B5": value(6), "B5-ref": value(6),
     "C1": value(7, "libw"),
     "D1": OPERAND, "D2": OPERAND, "D3": OPERAND, "D20": OPERAND,
-    "D4-loop": crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value"),
+    "D4-loop": NO_ELABORATION, "D4-map-value": NO_ELABORATION, "D4-map-bound": NO_ELABORATION,
     "D5": crash("TypeError", f"{ELABORATE}:_infer_expr_type"),
-    "D6": CLOSED_CHECK,
-    "D7": crash("KeyError", f"{ELABORATE}:_infer_expr_type"),
-    "D8": crash("KeyError", f"{ELABORATE}:_infer_expr_type"),
+    "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
+    "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
     "D9-name": LOCAL_LOOP_STATE, "D9-ref": LOCAL_LOOP_STATE, "D9-fn": LOCAL_LOOP_STATE, "D9-map": LOCAL_LOOP_STATE,
     "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
     "D11": CAPTURED_PROVIDER_INPUT, "D11-R1": CAPTURED_PROVIDER_INPUT, "D11-R2": CAPTURED_PROVIDER_INPUT,
     "D11-R5": CAPTURED_PROVIDER_INPUT,
-    "D12-entry": crash("CanonicalNameError", "workflow_lisp/closed/names.py:build"),
-    "D12-literal": crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value"),
-    "D12-name": crash("KeyError", f"{ELABORATE}:_infer_expr_type"),
-    "D13": CLOSED_CHECK,
-    "D19": crash("SiteAssignmentError", "contracts/closed_program/sites.py:_value_has_effect"),
+    "D12-entry": crash("CanonicalNameError", "workflow_lisp/closed/names.py:canonical_type_descriptor.<locals>.build"),
+    "D12-literal": NO_ELABORATION,
+    "D12-name": BINDER_OUT_OF_SCOPE,
+    "D13": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._value"),
+    "D19": crash("SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
+    "D21": crash("TypeError", f"{ELABORATE}:_replace_halts_with_jump"),
+    "D22": ("traceback", "AttributeError",
+            "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
@@ -132,17 +142,104 @@ KNOWN: dict[str, tuple] = {
     "E23-local": refused("name_unknown"), "E23-input": refused("name_unknown"),
     "E24": refused("path_join_under_type_invalid"),
     "E26": refused("procedure_call_unknown"),
+    "E27": ("ran", 2, 0, 0, "resume_preflight_failed"),
 }
 
-KNOWN_AT_T0: tuple[str, ...] = (
-    "A2-C", "A2-G", "A2-M", "A3-path", "A3-string", "A4-abs", "A4-dotdot", "A4-symlink",
-    "B1", "B2-arm", "B2-let", "B3", "B4", "B5", "C1",
-    "D1", "D2", "D3", "D4-loop", "D5", "D6", "D7", "D8", "D9-fn", "D9-map", "D9-name", "D9-ref",
-    "D10", "D10-R1", "D11", "D11-R1", "D11-R2", "D11-R5", "D12-entry", "D12-literal", "D12-name",
-    "D13", "D19", "D20",
-    "E1-and", "E1-or", "E2", "E4", "E6", "E7", "E8", "E9", "E11", "E12", "E13",
-    "E23-input", "E23-local", "E24", "E26",
+# Frozen at T0, spelled out and never edited: the signature each known row had when it was entered. A row
+# added later for a new defect is entered here too, with a row in the plan's ledger.
+KNOWN_AT_T0: dict[str, tuple] = {
+    "A2-C": ("builds",),
+    "A2-G": ("builds",),
+    "A2-M": ("builds",),
+    "A3-path": ("ran", 1, 1, 0, "provider_result_invalid"),
+    "A3-string": ("ran", 1, 1, 0, "provider_result_invalid"),
+    "A4-abs": ("ran", 0, 1, 1),
+    "A4-dotdot": ("ran", 0, 1, 1),
+    "A4-symlink": ("ran", 0, 1, 1),
+    "B1": ("ran", 0, 1, 0),
+    "B2-arm": ("value", 2),
+    "B2-let": ("value", 2),
+    "B3": ("value", 100),
+    "B3-print": ("value", 1),
+    "B4": ("value", 10),
+    "B5": ("value", 6),
+    "B5-ref": ("value", 6),
+    "C1": ("value", 7, "libw"),
+    "D1": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
+    "D2": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
+    "D3": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
+    "D4-loop": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
+    "D4-map-bound": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
+    "D4-map-value": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
+    "D5": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D6": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
+    "D7": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D7-hoisted": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D8": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D9-fn": ("traceback", "RuntimeError", "workflow_lisp/loop_state.py:_typecheck_loop_state_seed"),
+    "D9-map": ("traceback", "RuntimeError", "workflow_lisp/loop_state.py:_typecheck_loop_state_seed"),
+    "D9-name": ("traceback", "RuntimeError", "workflow_lisp/loop_state.py:_typecheck_loop_state_seed"),
+    "D9-ref": ("traceback", "RuntimeError", "workflow_lisp/loop_state.py:_typecheck_loop_state_seed"),
+    "D10": ("crash", "ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
+    "D10-R1": ("crash", "ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
+    "D11": ("crash", "TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind"),
+    "D11-R1": ("crash", "TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind"),
+    "D11-R2": ("crash", "TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind"),
+    "D11-R5": ("crash", "TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind"),
+    "D12-entry": ("crash", "CanonicalNameError", "workflow_lisp/closed/names.py:canonical_type_descriptor.<locals>.build"),
+    "D12-literal": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
+    "D12-name": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D13": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._value"),
+    "D19": ("crash", "SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
+    "D20": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
+    "D21": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"),
+    "D22": ("traceback", "AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
+    "E1-and": ("refused", "variant_ref_unproved"),
+    "E1-or": ("refused", "variant_ref_unproved"),
+    "E2": ("refused", "variant_ref_unproved"),
+    "E4": ("refused", "variant_tag_union_mismatch"),
+    "E6": ("refused", "name_unknown"),
+    "E7": ("refused", "procedure_call_unknown"),
+    "E8": ("refused", "procedure_lowering_unresolved"),
+    "E9": ("refused", "procedure_call_unknown"),
+    "E11": ("refused", "workflow_signature_mismatch"),
+    "E12": ("builds",),
+    "E13": ("digests", 1),
+    "E23-input": ("refused", "name_unknown"),
+    "E23-local": ("refused", "name_unknown"),
+    "E24": ("refused", "path_join_under_type_invalid"),
+    "E26": ("refused", "procedure_call_unknown"),
+    "E27": ("ran", 2, 0, 0, "resume_preflight_failed"),
+}
+
+# Every row id, frozen: a row is never deleted silently. A new row is entered here too.
+ROWS_AT_T0: tuple[str, ...] = (
+    "A2-C", "A2-G", "A2-M", "A2-named", "A2-path", "A3-path", "A3-string", "A3-two-names", "A4-abs",
+    "A4-asset-abs", "A4-asset-dotdot", "A4-asset-symlink", "A4-dotdot", "A4-symlink", "B1", "B1-two-paths",
+    "B2-arm", "B2-let", "B2-no-reference", "B3", "B3-print", "B4", "B4-no-caller-binding", "B5", "B5-ref", "B6",
+    "C1", "C1-local", "D1", "D2", "D3", "D4-cond", "D4-if", "D4-loop", "D4-map", "D4-map-bound", "D4-map-value",
+    "D5", "D5-arm-binder", "D5-if", "D5-other-variant", "D6", "D7", "D7-bound", "D7-hoisted", "D8", "D9-fn",
+    "D9-map", "D9-name", "D9-ref", "D9-scalar-state", "D10", "D10-R1", "D11", "D11-R1", "D11-R2", "D11-R3",
+    "D11-R4", "D11-R5", "D12-declared", "D12-entry", "D12-literal", "D12-name", "D13", "D13-folded", "D15",
+    "D16", "D17-effect", "D17-pure", "D19", "D19-done", "D20", "D20-bound", "D21", "D22", "E1-and", "E1-or",
+    "E2", "E2-parallel", "E2-pure", "E4", "E5-cond", "E5-if", "E5-match", "E6", "E6-uncalled", "E7", "E8", "E9",
+    "E9-direct", "E9-effect-callee", "E9-effect-caller", "E10", "E11", "E12", "E13", "E15-missing",
+    "E18-in-place", "E18-macro", "E18-other-binder", "E19", "E20", "E23-bound", "E23-input", "E23-local", "E24",
+    "E24-imported", "E24-qualified", "E25", "E26", "E27", "E27-plain-resume",
 )
+
+# The one way a frozen fact changes. Row id -> (signature, reason); the reason names the date of the row in
+# the plan's ledger that records the change.
+# - A known row whose signature moved while its defect stayed (a renamed function or code, a traceback that
+#   became a coded crash): its new signature, which `KNOWN` then holds.
+# - A deleted row: `None` as the signature.
+# An entry whose row is fixed (no longer in `KNOWN`) is removed.
+AMENDED: dict[str, tuple[tuple | None, str]] = {}
+
+# Rows the plan names as needing a control whatever their signature.
+PAIRED = frozenset({"A2-C", "A2-G", "A2-M", "A3-path", "A3-string", "A4-abs", "A4-dotdot", "A4-symlink", "B1",
+                    "B2-let", "B2-arm", "B4", "C1", "D5", "D9-name", "D9-ref", "D9-fn", "D9-map",
+                    "D11-R1", "D11-R2", "D11-R5"})
 
 # Known row -> the control rows that exercise the guard it gets past (or, for a crash, the nearest
 # spelling that works). A control is never in `KNOWN`.
@@ -154,7 +251,8 @@ CONTROLS: dict[str, tuple[str, ...]] = {
     "B2-let": ("B2-no-reference",), "B2-arm": ("B2-no-reference",),
     "B4": ("B4-no-caller-binding",),
     "C1": ("C1-local",),
-    "D4-loop": ("D4-if",),
+    "D4-loop": ("D4-if", "D4-cond"), "D4-map-value": ("D4-map",), "D4-map-bound": ("D4-map",),
+    "D7": ("D7-bound",), "D7-hoisted": ("D7-bound",),
     "D5": ("D5-if", "D5-arm-binder", "D5-other-variant"),
     "D9-name": ("D9-scalar-state",), "D9-ref": ("D9-scalar-state",), "D9-fn": ("D9-scalar-state",),
     "D9-map": ("D9-scalar-state",),
@@ -163,9 +261,11 @@ CONTROLS: dict[str, tuple[str, ...]] = {
     "D13": ("D13-folded",),
     "D19": ("D19-done",), "D20": ("D20-bound",),
     "E2": ("E2-parallel", "E2-pure"),
+    "E6": ("E6-uncalled",),
     "E9": ("E9-direct", "E9-effect-callee", "E9-effect-caller"),
     "E23-local": ("E23-bound",), "E23-input": ("E23-bound",),
     "E24": ("E24-imported", "E24-qualified"),
+    "E27": ("E27-plain-resume",),
 }
 
 
@@ -187,7 +287,7 @@ ADD = "(defproc add ((n Int) (x Int)) -> Int (+ n x))"
 ADDE = f"(defproc add ((n Int) (x Int)) -> Int {E('add', 3, 'Int')})"
 EACH = ("(defproc each ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int\n"
         "    (list/length (list/map-effect ((x xs)) :max 2 (f x))))")
-A3 = ('u={"variant":"A","n":3}',)
+U_IS_A_3 = ('u={"variant":"A","n":3}',)
 
 COMMAND = '''import os, sys
 from pathlib import Path
@@ -224,8 +324,13 @@ C1_P = "(defproc p ((n Int)) -> Int :effects ((calls-workflow lib-w)) (call lib-
 D3_VIA = ("(defproc via-cont ((f ProcRef[Int -> Int]) (xs List[Int])) -> Int\n"
           "    (loop/recur :max 3 :state 0 :on-exhausted 0\n"
           "      (fn (s) (if (= s 0) (continue (list/length (list/map-effect ((x xs)) :max 2 (f x)))) (done s)))))")
-D9_STATE = "(loop/recur ((s (loop-state (i Int 0)))) :max 1 :on-exhausted 0 (done s.i))"
-D9_FN = "(loop/recur :max 1 :state (loop-state (i Int 0)) :on-exhausted 0 (fn (s) (done s.i)))"
+D4_MAP = f"(list/map-effect ((x (list 1 2))) :max (match u ((A a) a.n) ((B b) 1)) {E('m', 1, 'Int')})"
+D7_LOOP = ("(loop/recur :max 2 :state tmp :on-exhausted s (fn (s) (if (check s) (done s) "
+           "(continue (loop/recur :max 1 :state (+ s tmp) :on-exhausted u (fn (u) (done (step u))))))))")
+D7_RUNS = ("step", "step", "check")
+# The state starts at 5 and `:on-exhausted` is 0: a fix that exhausts the loop instead of finishing it shows.
+D9_STATE = "(loop/recur ((s (loop-state (i Int 5)))) :max 1 :on-exhausted 0 (done s.i))"
+D9_FN = "(loop/recur :max 1 :state (loop-state (i Int 5)) :on-exhausted 0 (fn (s) (done s.i)))"
 D9_MAP = f"(list/length (list/map-effect ((x (list 1 2))) :max 2 {E('m', 1, 'Int')}))"
 
 
@@ -257,6 +362,7 @@ E9_H = "(defproc h ((v Int)) -> Int (loop/recur ((s v)) :max 1 :on-exhausted 0 (
 E9_RUN = "((n Int)) -> Int (apply1 (proc-ref h) n)"
 E18_MM = "(defmacro mm (x) (let* ((v (list x x))) (list/length (list/map ((BINDER v)) (+ BINDER 1)))))"
 E23_BIND = "(apply1 (bind-proc (proc-ref add) :n NAME) 1)"
+E24_VALUE = {"p": "artifacts/work/x.json"}
 E24_LIB = ('(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n  (defmodule m/lib) (export P Box mk)\n'
            '  (defpath P :kind relpath :under "artifacts/work" :must-exist false)\n  (defrecord Box (p P))\n'
            '  (defproc mk () -> Box (record Box :p (path/join-under P "x.json"))))\n')
@@ -269,20 +375,22 @@ def c1(*definitions: str, head: str) -> dict[str, str]:
 
 def e24(imports: str, lib: str = E24_LIB) -> Row:
     direct = module("() -> Box (mk)", name="m/direct", head=f"(import m/lib :only ({imports})) (export run)")
-    return Row(BUILDS, {"m/direct.orc": direct, "m/lib.orc": lib}, entry="m/direct::run")
+    return Row(value(E24_VALUE), {"m/direct.orc": direct, "m/lib.orc": lib}, entry="m/direct::run")
 
 
 ROWS: dict[str, Row] = {
     # Class B: a silent wrong value or wrong callee. B2 to B5 are the one-target cut's.
     "B2-let": row(None, "() -> Int (let* ((g (proc-ref increment))) (let* ((g 5)) (g 1)))", INC),
     "B2-arm": row(None, "((u U)) -> Int (let* ((g (proc-ref increment))) (match u ((A g) (g 1)) ((B b) 0)))",
-                  U, INC, inputs=A3),
+                  U, INC, inputs=U_IS_A_3),
     "B2-no-reference": row(refused("procedure_call_unknown"), "() -> Int (let* ((g 5)) (g 1))"),
     "B3": row(None, "() -> Int (let-proc ((f ((x Int)) -> Int (+ x 1))) (f 1))",
               "(defun f ((n Int)) -> Int (* n 100))"),
+    "B3-print": row(None, "() -> Int (let-proc ((print ((x Int)) -> Int (+ x 100))) (print 1))"),
     "B4": row(None, "() -> Int (let* ((f (proc-ref dbl))) (+ 0 (mm 5)))", INC, DBL, MM_B4),
     "B4-no-caller-binding": row(refused("procedure_call_unknown"), "() -> Int (+ 0 (mm 5))", INC, DBL, MM_B4),
     "B5": row(None, "((n Int)) -> Int (with-bump 5 (bump n))", WITH_BUMP, inputs=("n=1",)),
+    "B5-ref": row(None, "((n Int)) -> Int (with-bump 5 (apply1 (proc-ref bump) n))", AP, WITH_BUMP, inputs=("n=1",)),
     # Not fixed: specification 8.10 states that a `Bool` result accepts the strings.
     "B6": row(value(True, "strb"), "() -> Bool " + E("strb", r'\"TRUE\"', "Bool")),
 
@@ -298,31 +406,43 @@ ROWS: dict[str, Row] = {
               "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) "
               f"(continue (+ (if (> n 0) {E('e', 1, 'Int')} 0) 9))))", inputs=("n=1",)),
     "D3": row(refused("effect_not_permitted"), "() -> Int (via-cont (proc-ref step) (list 1 2))", STEP, D3_VIA),
+    # `:on-exhausted` is 9 and the loop finishes with 0: a fix that exhausts instead of finishing shows.
     "D4-loop": row(value(0), "((u U)) -> Int (loop/recur ((s 0)) :max (match u ((A a) a.n) ((B b) 1)) "
-                   ":on-exhausted 0 (done s))", U, inputs=A3),
-    "D4-if": row(value(0), "((n Int)) -> Int (loop/recur ((s 0)) :max (if (> n 0) 1 2) :on-exhausted 0 (done s))",
+                   ":on-exhausted 9 (done s))", U, inputs=U_IS_A_3),
+    "D4-if": row(value(0), "((n Int)) -> Int (loop/recur ((s 0)) :max (if (> n 0) 1 2) :on-exhausted 9 (done s))",
                  inputs=("n=1",)),
-    "D4-map": row(value(2, "m", "m"), "((u U)) -> Int (list/length (list/map-effect ((x (list 1 2))) "
-                  f":max (match u ((A a) a.n) ((B b) 1)) {E('m', 1, 'Int')}))", U, inputs=A3),
-    "D5": row(value(3), "((u U)) -> Int (match u ((A a) u.n) ((B b) 0))", U, inputs=A3),
+    "D4-cond": row(value(0), "((n Int)) -> Int (loop/recur ((s 0)) :max (cond ((> n 0) 1) (true 2)) "
+                   ":on-exhausted 9 (done s))", inputs=("n=1",)),
+    # A serial map's `:max (match …)` crashes where the map is a value of its own (the workflow's result, a
+    # `let*` binding) and builds where the map is an operand, here of `list/length`: the control.
+    "D4-map-value": row(value([1, 1], "m", "m"), f"((u U)) -> List[Int] {D4_MAP}", U, inputs=U_IS_A_3),
+    "D4-map-bound": row(value(2, "m", "m"), f"((u U)) -> Int (let* ((ys {D4_MAP})) (list/length ys))",
+                        U, inputs=U_IS_A_3),
+    "D4-map": row(value(2, "m", "m"), f"((u U)) -> Int (list/length {D4_MAP})", U, inputs=U_IS_A_3),
+    "D5": row(value(3), "((u U)) -> Int (match u ((A a) u.n) ((B b) 0))", U, inputs=U_IS_A_3),
     "D5-other-variant": row(refused("variant_ref_wrong_variant"),
                             '((u U)) -> String (match u ((A a) u.why) ((B b) "x"))', U),
-    "D5-arm-binder": row(value(3), "((u U)) -> Int (match u ((A u) u.n) ((B b) 0))", U, inputs=A3),
-    "D5-if": row(value(3), "((u U)) -> Int (if (= u.variant A) u.n 0)", U, inputs=A3),
-    "D6": row(BUILDS, "((u U)) -> Int (+ (let* ((u (variant U A :n 1))) (if (= u.variant A) u.n 0)) "
-              "(if (= u.variant A) u.n 0))", U),
-    "D7": row(BUILDS, "() -> Int (let* ((tmp (step 3))) (+ tmp (let* ((tmp (step 1))) "
-              "(loop/recur :max 2 :state tmp :on-exhausted s (fn (s) (if (check s) (done s) "
-              "(continue (loop/recur :max 1 :state (+ s tmp) :on-exhausted u (fn (u) (done (step u)))))))))))",
+    "D5-arm-binder": row(value(3), "((u U)) -> Int (match u ((A u) u.n) ((B b) 0))", U, inputs=U_IS_A_3),
+    "D5-if": row(value(3), "((u U)) -> Int (if (= u.variant A) u.n 0)", U, inputs=U_IS_A_3),
+    # 4: the inner `u` is `A 1`, the workflow's is `A 3`. A fix of the crash alone returns a wrong value.
+    "D6": row(value(4), "((u U)) -> Int (+ (let* ((u (variant U A :n 1))) (if (= u.variant A) u.n 0)) "
+              "(if (= u.variant A) u.n 0))", U, inputs=U_IS_A_3),
+    "D7": row(value(2, *D7_RUNS), f"() -> Int (let* ((tmp (step 3))) (+ tmp (let* ((tmp (step 1))) {D7_LOOP})))",
               STEP, CHK),
+    # The inner `let*` bound first builds; hoisted into the outer binding list, as the plan words it, it crashes.
+    "D7-bound": row(value(2, *D7_RUNS),
+                    f"() -> Int (let* ((tmp (step 3)) (r (let* ((tmp (step 1))) {D7_LOOP}))) (+ tmp r))", STEP, CHK),
+    "D7-hoisted": row(value(2, *D7_RUNS),
+                      f"() -> Int (let* ((tmp0 (step 3)) (tmp (step 1))) (+ tmp0 {D7_LOOP}))", STEP, CHK),
     # Task 0b of the staged-authoring plan removes D8, E7 and E8.
-    "D8": row(BUILDS, "((u U)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (= (list/length "
-              "(list/map ((v (list u u))) (match v ((A a) a.n) ((B b) 0)))) 2) (done 1) (continue (+ s 1))))", U),
-    "D9-name": row(value(0), d9(D9_STATE), inputs=("n=1",)),
-    "D9-ref": row(value(0), d9(D9_STATE, "(apply1 (proc-ref h) n)"), AP, inputs=("n=1",)),
-    "D9-fn": row(value(0), d9(D9_FN), inputs=("n=1",)),
+    "D8": row(value(1), "((u U)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (= (list/length "
+              "(list/map ((v (list u u))) (match v ((A a) a.n) ((B b) 0)))) 2) (done 1) (continue (+ s 1))))",
+              U, inputs=U_IS_A_3),
+    "D9-name": row(value(5), d9(D9_STATE), inputs=("n=1",)),
+    "D9-ref": row(value(5), d9(D9_STATE, "(apply1 (proc-ref h) n)"), AP, inputs=("n=1",)),
+    "D9-fn": row(value(5), d9(D9_FN), inputs=("n=1",)),
     "D9-map": row(value(2, "m", "m"), d9(D9_MAP), inputs=("n=1",)),
-    "D9-scalar-state": row(value(0), d9("(loop/recur ((s 0)) :max 1 :on-exhausted 0 (done s))"), inputs=("n=1",)),
+    "D9-scalar-state": row(value(5), d9("(loop/recur ((s 5)) :max 1 :on-exhausted 0 (done s))"), inputs=("n=1",)),
     "D10": row(value(2), "() -> Int (let* ((p (proc-ref increment))) "
                "(let-proc ((f ((x Int)) -> Int (p x))) (f 1)))", INC),
     "D10-R1": row(value(2), "() -> Int " + ROLE_STEP.replace("BODY", "(step 1)"), ADD),
@@ -354,12 +474,18 @@ ROWS: dict[str, Row] = {
     "D20": row(None, f"((n Int)) -> Int (match {D20_SUBJECT} {D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
     "D20-bound": row(value(1, "e1"), f"((n Int)) -> Int (let* ((shape {D20_SUBJECT})) (match shape {D20_ARMS}))",
                      SHAPE, D20_MK, inputs=("n=1",)),
+    # Tenth batch: `done` where the loop body's value is not the control form itself. Specification 13.1
+    # wants a refusal; its code is not chosen.
+    "D21": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (let* ((x (done 1))) x))"),
+    "D22": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (list (done 1)))"),
 
     # Class E: a refusal of good source, a misleading code, an accepted form with no effect.
-    "E1-and": row(BUILDS, "((u U) (r Bool)) -> Int (if (and (= u.variant A) r) u.n 0)", U),
-    "E1-or": row(BUILDS, "((u U) (r Bool)) -> Int (if (or (!= u.variant A) r) 0 u.n)", U),
-    "E2": row(BUILDS, "((u U)) -> List[Int] (if (= u.variant A) "
-              f"(list/map-effect ((y (list 1 2))) :max 2 {E2_COMMAND}) (list 0))", U),
+    "E1-and": row(value(3), "((u U) (r Bool)) -> Int (if (and (= u.variant A) r) u.n 0)", U,
+                  inputs=(*U_IS_A_3, "r=true")),
+    "E1-or": row(value(3), "((u U) (r Bool)) -> Int (if (or (!= u.variant A) r) 0 u.n)", U,
+                 inputs=(*U_IS_A_3, "r=false")),
+    "E2": row(value([3, 3], "m", "m"), "((u U)) -> List[Int] (if (= u.variant A) "
+              f"(list/map-effect ((y (list 1 2))) :max 2 {E2_COMMAND}) (list 0))", U, inputs=U_IS_A_3),
     "E2-parallel": row(BUILDS, "((u U)) -> List[Int] (if (= u.variant A) "
                        f'(list/map-effect ((y (list "a"))) :max 2 :parallel 1 :workspace y {E2_COMMAND}) (list 0))', U),
     "E2-pure": row(BUILDS, "((u U)) -> List[Int] (if (= u.variant A) (list/map ((y (list 1 2))) (+ y u.n)) (list 0))", U),
@@ -370,11 +496,13 @@ ROWS: dict[str, Row] = {
     "E5-match": row(value(1), "((x Int)) -> Int (let* ((match 1)) match)", inputs=("x=0",)),
     "E6": row(value(2), "() -> Int (fw (proc-ref increment) 1)", INC,
               "(defproc fw ((p ProcRef[Int -> Int]) (x Int)) -> Int (let* ((g p)) (g x)))"),
-    "E7": row(BUILDS, "() -> Int (list/length (list/map-effect ((x (list 1 2))) :max 2 (gstep x)))",
+    "E6-uncalled": row(BUILDS, "() -> Int 1", INC,
+                       "(defproc fw ((p ProcRef[Int -> Int]) (x Int)) -> Int (let* ((g p)) (g x)))"),
+    "E7": row(value(2, "g", "g"), "() -> Int (list/length (list/map-effect ((x (list 1 2))) :max 2 (gstep x)))",
               f"(defproc gstep :forall (T) ((v T)) -> T (let* ((x {E('g', 1, 'Int')})) v))"),
-    "E8": row(BUILDS, "() -> Int (outer 2)", AP, ADD,
+    "E8": row(value(3), "() -> Int (outer 2)", AP, ADD,
               "(defproc outer ((k Int)) -> Int (apply1 (bind-proc (proc-ref add) :n k) 1))"),
-    "E9": row(BUILDS, E9_RUN, AP, E9_H),
+    "E9": row(value(1), E9_RUN, AP, E9_H, inputs=("n=1",)),
     "E9-direct": row(BUILDS, "((n Int)) -> Int (h n)", AP, E9_H),
     "E9-effect-callee": row(BUILDS, E9_RUN, AP, E9_H.replace("(done s)", f"(done {E('e', 4, 'Int')})")),
     "E9-effect-caller": row(BUILDS, E9_RUN, E9_H, AP.replace("(f v)", f"(let* ((w {E('w', 1, 'Int')})) (f v))")),
@@ -461,59 +589,52 @@ class ProviderRow:
 
 REPORT = ("--input", "report=artifacts/report.txt")
 ONE_SLOT = "(report :path :out Report)"
-REFUSED_BEFORE_LAUNCH = ("ran", 1, 0, 0)
 COMMITTED = ("ran", 0, 1, 0)
+
+
+def refused_before_launch(code: str) -> tuple:
+    return ("ran", 1, 0, 0, code)
+
+
+SLOT_NAMES_A_FIELD = refused_before_launch("duplicate_artifact_name")
+SLOTS_SHARE_A_PATH = refused_before_launch("prompt_output_position_destination_collision")
+INPUT_LEAVES_WORKSPACE = refused_before_launch("input_file_read_failed")
+ASSET_LEAVES_SOURCE_TREE = refused_before_launch("asset_file_read_failed")
 PROVIDER_ROWS: dict[str, ProviderRow] = {
-    "A3-path": ProviderRow(REFUSED_BEFORE_LAUNCH, slots("(ok Bool) (report Report)", ONE_SLOT, "Report={report}",
+    "A3-path": ProviderRow(SLOT_NAMES_A_FIELD, slots("(ok Bool) (report Report)", ONE_SLOT, "Report={report}",
                            ":report report"), inputs=REPORT, payload='{"ok":true,"report":"artifacts/report.txt"}'),
-    "A3-string": ProviderRow(REFUSED_BEFORE_LAUNCH, slots("(ok Bool) (report String)", ONE_SLOT, "Report={report}",
+    "A3-string": ProviderRow(SLOT_NAMES_A_FIELD, slots("(ok Bool) (report String)", ONE_SLOT, "Report={report}",
                              ":report report"), inputs=REPORT, payload='{"ok":true,"report":"x"}'),
     "A3-two-names": ProviderRow(COMMITTED, slots("(ok Bool) (summary String)", ONE_SLOT, "Report={report}",
                                 ":report report"), inputs=REPORT, payload='{"ok":true,"summary":"x"}'),
-    "B1": ProviderRow(REFUSED_BEFORE_LAUNCH, slots("(ok Bool)", "(a :path :out Report) (b :path :out Report)",
+    "B1": ProviderRow(SLOTS_SHARE_A_PATH, slots("(ok Bool)", "(a :path :out Report) (b :path :out Report)",
                       "A={a} B={b}", ":a report :b report"), inputs=REPORT),
     "B1-two-paths": ProviderRow(COMMITTED, slots("(ok Bool)", "(a :path :out Report) (b :path :out Report)",
                                 "A={a} B={b}", ":a report :b other", "(message String) (report Report) (other Report)"),
                                 inputs=(*REPORT, "--input", "other=artifacts/other.txt")),
-    "A4-abs": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("input_file", "OUTSIDE")),
-    "A4-dotdot": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("input_file", "../outside.md")),
-    "A4-symlink": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("input_file", "link.md")),
-    "A4-asset-abs": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("asset_file", "OUTSIDE")),
-    "A4-asset-dotdot": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("asset_file", "../outside.md")),
-    "A4-asset-symlink": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("asset_file", "link.md")),
-    # Not planned (E15): the extern's path is checked when the call runs; the build does not read it.
-    "E15-missing": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("asset_file", "missing.md")),
-    "E15-outside": ProviderRow(REFUSED_BEFORE_LAUNCH, prompt=("asset_file", "../outside.md")),
+    "A4-abs": ProviderRow(INPUT_LEAVES_WORKSPACE, prompt=("input_file", "OUTSIDE")),
+    "A4-dotdot": ProviderRow(INPUT_LEAVES_WORKSPACE, prompt=("input_file", "../outside.md")),
+    "A4-symlink": ProviderRow(INPUT_LEAVES_WORKSPACE, prompt=("input_file", "link.md")),
+    "A4-asset-abs": ProviderRow(ASSET_LEAVES_SOURCE_TREE, prompt=("asset_file", "OUTSIDE")),
+    "A4-asset-dotdot": ProviderRow(ASSET_LEAVES_SOURCE_TREE, prompt=("asset_file", "../outside.md")),
+    "A4-asset-symlink": ProviderRow(ASSET_LEAVES_SOURCE_TREE, prompt=("asset_file", "link.md")),
+    # Not planned (E15): the extern's path is checked when the call runs; the build does not read it. Its
+    # second spelling, an `asset_file` outside the source tree, is the row `A4-asset-dotdot`.
+    "E15-missing": ProviderRow(ASSET_LEAVES_SOURCE_TREE, prompt=("asset_file", "missing.md")),
 }
+
+# E27 (tenth batch): `resume` of a run whose committed step has other inputs prints two commands "to run this
+# step and every later one again": `invalidate`, then `resume … --accept-changes`. Run as printed, the second
+# is refused; with a plain `resume` in its place (the control) the run recovers with two launches.
+REMEDY_ROWS = {"E27": ("ran", 0, 2, 0), "E27-plain-resume": ("ran", 0, 2, 0)}
 
 WANTED = {**{name: entry.wanted for name, entry in ROWS.items()},
           **{name: wanted for name, (wanted, _body) in A2_ROWS.items()},
-          **{name: entry.wanted for name, entry in PROVIDER_ROWS.items()}}
+          **{name: entry.wanted for name, entry in PROVIDER_ROWS.items()}, **REMEDY_ROWS}
 
 
 # ---------------------------------------------------------------------------------------------
 # Observation.
-
-def _signature(error: BaseException) -> tuple[str, str]:
-    """The class of `error` and the innermost function under `orchestrator/` in its traceback."""
-    frames = [frame for frame in traceback.extract_tb(error.__traceback__)
-              if PACKAGE in Path(frame.filename).resolve().parents]
-    return type(error).__name__, f"{Path(frames[-1].filename).resolve().relative_to(PACKAGE).as_posix()}:{frames[-1].name}"
-
-
-def _build_outcome(build) -> tuple:
-    """The outcome of the in-process public build `build()`, with the cause of a crash."""
-    try:
-        build()
-    except LispFrontendCompileError as stopped:
-        codes = [diagnostic.code for diagnostic in stopped.diagnostics]
-        if codes == ["compiler_defect"]:
-            return ("crash", *_signature(stopped.diagnostics[0].cause))
-        return refused(*codes)
-    except Exception as escaped:  # what the command line prints as a traceback: recorded, not hidden
-        return ("traceback", *_signature(escaped))
-    return BUILDS
-
 
 def _env(*bin_dirs: Path) -> dict[str, str]:
     path = closed_path(REPO / "experiments" / "thread_m" / "no_provider", *bin_dirs)
@@ -547,7 +668,7 @@ def _run(root: Path, entry_file: Path, entry: str, inputs: tuple[str, ...]) -> t
     log = (root / "log.txt").read_text(encoding="utf-8").split() if (root / "log.txt").exists() else []
     if done.returncode:
         return ("exit", done.returncode, *log), done.stderr
-    return value(json.loads(done.stdout), *log), done.stderr
+    return value(json.loads(done.stdout.splitlines()[-1]), *log), done.stderr  # the last line: a program may print
 
 
 def observe(row_id: str, root: Path) -> tuple[tuple, str]:
@@ -557,7 +678,7 @@ def observe(row_id: str, root: Path) -> tuple[tuple, str]:
                                 for name, text in (("a", entry.source), ("b", entry.versus))})), ""
     files = entry.source if isinstance(entry.source, dict) else {"m.orc": entry.source}
     path = _install(root, files)
-    outcome = _build_outcome(lambda: build_closed_program_bundle(FrontendBuildRequest(
+    outcome = build_outcome(lambda: build_closed_program_bundle(FrontendBuildRequest(
         source_path=path, source_roots=(root,), entry_workflow=entry.entry,
         command_boundaries_path=root / "commands.json", workspace_root=root)))
     stated = {(WANTED[row_id] or ("",))[0], KNOWN.get(row_id, ("",))[0]}
@@ -581,14 +702,41 @@ def observe_provider(row_id: str, tmp_path: Path) -> tuple[tuple, str]:
         kind, path = entry.prompt
         fixture[2].write_text(json.dumps({"prompts.base": {kind: str(outside) if path == "OUTSIDE" else path}}),
                               encoding="utf-8")
-    built = _build_outcome(lambda: build_closed_program_bundle(fixture[3]))
+    built = build_outcome(lambda: build_closed_program_bundle(fixture[3]))
     if built != BUILDS:
         return built, ""
     done = provider_fixture._cli(root, fixture, extra=entry.inputs, payload=entry.payload)
     requests = provider_fixture._requests(root)
-    codes = re.findall(r"^\[([a-z_0-9]+)\]", done.stderr, re.MULTILINE) if requests else []
     leaks = sum(OUTSIDE in request["prompt"] for request in requests)
-    return ("ran", done.returncode, len(requests), leaks, *codes), done.stderr
+    return _ran(done, len(requests), leaks), done.stderr
+
+
+def _ran(done: subprocess.CompletedProcess, launches: int, leaks: int) -> tuple:
+    """A provider row's outcome; a run that fails adds the diagnostic codes it prints."""
+    codes = re.findall(r"^\[([a-z_0-9]+)\]", done.stderr, re.MULTILINE) if done.returncode else []
+    return ("ran", done.returncode, launches, leaks, *codes)
+
+
+def observe_printed_remedy(row_id: str, root: Path) -> tuple[tuple, str]:
+    """E27: the last two commands a refused `resume` prints (`invalidate`, `resume`), run on a recorded run as
+    printed; the control runs the `resume` without its flag."""
+    run_id = prompt_file_fixture._pre_change_run(root)
+    (root / "one.md").write_bytes(b"")
+    refused_resume = prompt_file_fixture._orchestrator(root, "resume", run_id)
+    invalidate, resume = [shlex.split(line)[3:] for line in refused_resume.stderr.splitlines()
+                          if line.startswith("    ") and " -m orchestrator " in line][-2:]
+    if row_id == "E27-plain-resume":
+        resume.remove("--accept-changes")
+    prompt_file_fixture._orchestrator(root, *invalidate)
+    done = prompt_file_fixture._orchestrator(root, *resume)
+    return _ran(done, prompt_file_fixture._launches(root), 0), refused_resume.stderr + done.stderr
+
+
+ROUTE = ("The route for a signature that moved while its defect stayed (a renamed function or code, a traceback "
+         "that became a coded crash) and for deleting a row is an entry in AMENDED: `row id: (the new signature, or "
+         "None for a deleted row, a reason)`, where the reason names the date of the row in the plan's ledger that "
+         "records the change; KNOWN then holds the new signature. KNOWN_AT_T0 and ROWS_AT_T0 are not edited, "
+         "except to add a new row.")
 
 
 def settle(row_id: str, observed: tuple, detail: str = "") -> None:
@@ -601,9 +749,8 @@ def settle(row_id: str, observed: tuple, detail: str = "") -> None:
     assert observed != wanted, (
         f"{row_id} now gives its wanted outcome {wanted}: the defect is fixed, delete its row from KNOWN")
     assert observed == KNOWN[row_id], (
-        f"{row_id} moved from its known signature {KNOWN[row_id]} to {observed}. If this is the fix, delete "
-        "its row from KNOWN and state the wanted outcome. If it is a different wrong outcome, stop: it is "
-        f"re-entered only as a refusal code, with a row in the plan's ledger naming the commit.\n{detail}")
+        f"{row_id} moved from its known signature {KNOWN[row_id]} to {observed}. If the defect is fixed, delete "
+        f"its row from KNOWN and state the wanted outcome. If it is a different wrong outcome, stop. {ROUTE}\n{detail}")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -619,7 +766,7 @@ def test_confined_site_reached_from_a_map_body_row(row_id, tmp_path, monkeypatch
     controller = run_ref_fixture.CONFINED.replace('"2.38"', '"2.40"').replace("EXTRA", "EXTRA " + A2_ROUTES)
     monkeypatch.setattr(run_ref_fixture, "CONFINED", controller)
 
-    settle(row_id, _build_outcome(
+    settle(row_id, build_outcome(
         lambda: run_ref_fixture._built(run_ref_fixture._map_program(tmp_path, A2_ROWS[row_id][1]))))
 
 
@@ -628,21 +775,61 @@ def test_provider_row(row_id, tmp_path):
     settle(row_id, *observe_provider(row_id, tmp_path))
 
 
+@pytest.mark.parametrize("row_id", sorted(REMEDY_ROWS))
+def test_printed_remedy_row(row_id, tmp_path):
+    settle(row_id, *observe_printed_remedy(row_id, tmp_path))
+
+
 def test_known_list_only_shrinks():
     assert set(KNOWN) <= set(KNOWN_AT_T0)
 
 
 def test_every_known_row_is_a_row():
-    assert set(KNOWN_AT_T0) <= set(WANTED)
+    assert set(KNOWN) <= set(WANTED)
 
 
-def test_every_shadowing_row_has_a_control():
-    """A known row that builds, commits or gives a value where a refusal is wanted names a live control."""
+def test_a_known_signature_differs_from_its_frozen_one_only_by_amendment():
+    moved = {row_id: signature for row_id, signature in KNOWN.items() if row_id in KNOWN_AT_T0
+             and signature != (AMENDED[row_id][0] if row_id in AMENDED else KNOWN_AT_T0[row_id])}
+
+    assert moved == {}, ROUTE
+
+
+def test_every_amendment_is_of_a_known_or_a_deleted_row_and_gives_a_dated_reason():
+    """An amendment of a row that was fixed since is removed: only a known row has a signature to amend."""
+    wrong = {row_id for row_id, (signature, reason) in AMENDED.items()
+             if (signature is None) != (row_id not in WANTED) or (signature is not None and row_id not in KNOWN)
+             or not re.search(r"\b\d{4}-\d{2}-\d{2}\b", reason)}
+
+    assert wrong == set(), ROUTE
+
+
+def test_no_row_is_deleted_or_added_outside_the_frozen_list():
+    deleted = {row_id for row_id, (signature, _reason) in AMENDED.items() if signature is None}
+
+    assert set(WANTED) == set(ROWS_AT_T0) - deleted, ROUTE
+
+
+def test_a_row_that_left_the_known_list_does_not_want_its_defect():
+    pinned = {row_id for row_id in set(KNOWN_AT_T0) - set(KNOWN) if WANTED.get(row_id) == KNOWN_AT_T0[row_id]}
+
+    assert pinned == set(), (
+        "a row that left KNOWN wants the outcome it was known by. If that outcome was decided to be right, delete "
+        f"the row and enter the decision as a pin under a new id. {ROUTE}")
+
+
+def test_no_row_wants_a_crash():
+    assert {row_id for row_id, wanted in WANTED.items() if wanted and wanted[0] in ("crash", "traceback")} == set()
+
+
+def test_every_paired_or_shadowing_row_has_a_control():
+    """A known row that builds, commits or gives a value where a refusal is wanted, and every known row the
+    plan names (`PAIRED`), names a live control."""
     shadowing = {row_id for row_id, signature in KNOWN.items()
                  if signature[0] in ("builds", "value", "ran")
                  and WANTED[row_id] is not None and WANTED[row_id][0] in ("refused", "ran")}
 
-    assert {row_id for row_id in shadowing if not CONTROLS.get(row_id)} == set()
+    assert {row_id for row_id in shadowing | (PAIRED & set(KNOWN)) if not CONTROLS.get(row_id)} == set()
 
 
 def test_no_control_is_a_known_row():
