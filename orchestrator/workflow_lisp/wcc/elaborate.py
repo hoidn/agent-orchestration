@@ -4148,14 +4148,14 @@ def _elaborate_if_to_value(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
-    _, then_value_env = _branch_proof_narrowing(
+    then_proof, then_value_env = _branch_proof_narrowing(
         expr.true_proof_context,
         type_env=type_env,
         value_env=value_env,
         span=expr.span,
         form_path=expr.form_path,
     )
-    _, else_value_env = _branch_proof_narrowing(
+    else_proof, else_value_env = _branch_proof_narrowing(
         expr.false_proof_context,
         type_env=type_env,
         value_env=value_env,
@@ -4228,6 +4228,8 @@ def _elaborate_if_to_value(
             condition=condition,
             then_arm=then_arm,
             else_arm=else_arm,
+            then_proof_context=then_proof,
+            else_proof_context=else_proof,
         ),
     )
 

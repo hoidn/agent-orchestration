@@ -333,6 +333,9 @@ class Definition:
     command_indexes: frozenset[str] = frozenset()
     command_variants: tuple[str, ...] = ()
     prepared_request: Any = None
+    # id() of a WCC field read of a variant-only field -> the wire name of
+    # the closed `case` binder that proves its variant (closed/variant_proof.py).
+    narrowed_reads: Mapping[int, str] | None = None
 
     def with_names(
         self,
@@ -1983,12 +1986,7 @@ class Builder:
         elif isinstance(node, WccLoopDone):
             result = {"k": "done", "value": self.value(node.result, d, env)}
         elif isinstance(node, WccIf):
-            result = {
-                "k": "if",
-                "cond": self.value(node.condition, d, env),
-                "then": self.body(node.then_body, d.with_names(dict(d.names)), dict(env)),
-                "else": self.body(node.else_body, d.with_names(dict(d.names)), dict(env)),
-            }
+            result = self._if(node, d, env)
         elif isinstance(node, WccCase):
             arms = []
             subject = self.value(node.subject, d, env)
@@ -2045,6 +2043,21 @@ class Builder:
         else:
             raise ValueError(f"WCC body {type(node).__name__} has no closed translation")
         return {**result, **self.provenance(node)}
+
+    def _if(self, node: WccIf, d: Definition, env: Mapping[str, TypeRef]) -> dict[str, Any]:
+        from .variant_proof import variant_case
+
+        branches = (node.then_body, node.else_body)
+
+        def branch(side, local, local_env):
+            return self.body(branches[side], local.with_names(dict(local.names)), dict(local_env))
+
+        def both(scopes):
+            return {"k": "if", "cond": self.value(node.condition, d, env),
+                    "then": branch(0, *scopes[0]), "else": branch(1, *scopes[1])}
+
+        case = variant_case(self, node, branches, d, env, branch=branch, both=both)
+        return both(((d, env), (d, env))) if case is None else case
 
     def _parallel_map(self, node, d, env):
         from .command_templates import command_parallel_index_name

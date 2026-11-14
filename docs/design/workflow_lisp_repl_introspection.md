@@ -32,7 +32,7 @@ design; it does not provision an extensible command framework for them.
 commands, diagnostics and output compatibility. The [capability matrix](../capability_status_matrix.md)
 and [design index](README.md) record implemented availability; this accepted
 design owns the bounded introspection contract. The [frontend baseline](workflow_lisp_frontend_specification.md)
-owns names, imports, types, effects and prompt contracts; the [source-map design](workflow_lisp_source_map.md)
+owns names, imports, types, effects and prompt contracts; the [core calculus](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts) ([source-map design](workflow_lisp_source_map.md), historical record)
 owns provenance, not a complete symbol catalog or historical source archive.
 The [language principles](workflow_language_design_principles.md) require views
 to follow compiler authority and avoid a second semantic implementation.

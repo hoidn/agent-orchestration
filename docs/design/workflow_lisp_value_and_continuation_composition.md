@@ -24,9 +24,9 @@ boundaries, and the historical minimal human-input target. Current target-2.40
 [host input](workflow_lisp_durable_host_input.md) is a separate evaluated contract
 using generic `HostReply[A]`; portable context capture remains excluded. It consumes, rather than replaces,
 the existing [pure-call design](workflow_lisp_pure_call_composition.md) and
-[provider-context design](workflow_lisp_provider_context_values.md). Consumer
+[provider-context design](workflow_lisp_provider_context_values.md) (historical record). Consumer
 rendering remains owned by the
-[value-flow architecture](workflow_lisp_private_runtime_state_and_consumer_value_flow.md).
+[frontend specification §22.4 and §17.1](workflow_lisp_frontend_specification.md#224-call-local-provider-policy) ([value-flow architecture](workflow_lisp_private_runtime_state_and_consumer_value_flow.md), historical record).
 The [frontend baseline](workflow_lisp_frontend_specification.md) and `specs/`
 continue to own implemented behavior. None of these increments changes roadmap
 selection or research allocations.

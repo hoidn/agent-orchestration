@@ -23,8 +23,8 @@ Pre-2.35 introduction gates below are historical; data readers remain separate.
     pure-expression surface and §10.3 bounded list traversal)
   - `docs/design/workflow_language_design_principles.md` (principles 17,
     27, 28, and 29)
-  - `docs/design/workflow_lisp_state_layout.md` (loop state)
-  - `docs/design/workflow_lisp_native_transportable_returns.md`
+  - `docs/design/workflow_lisp_state_layout.md` (loop state; historical record)
+  - [Frontend specification §8.10](workflow_lisp_frontend_specification.md#810-return-types-and-result-guidance) (`docs/design/workflow_lisp_native_transportable_returns.md` is the historical record)
 
 ## Decision summary
 

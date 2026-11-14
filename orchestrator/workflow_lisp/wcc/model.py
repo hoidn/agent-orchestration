@@ -372,6 +372,14 @@ class WccSelect:
     condition: "WccValue"
     then_arm: WccSelectArm
     else_arm: WccSelectArm
+    # Branch proof triples, as on ``WccIf``: closed lowering turns a narrowed
+    # variant-only field read into a ``case`` (closed/variant_proof.py).
+    then_proof_context: tuple[object, ...] = field(
+        default=(), compare=False, repr=False
+    )
+    else_proof_context: tuple[object, ...] = field(
+        default=(), compare=False, repr=False
+    )
 
 
 WccValue = WccAtom | WccInject | WccPureOp | WccSelect | WccList | WccBlock | WccResultPath | WccListMap
