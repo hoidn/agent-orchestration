@@ -345,17 +345,33 @@ build and no task carries a different configuration label. Pull times were 3 to 
 this repository or in `image_measure.json`.
 - **Not found** in 9 images: vf2-speedup-networkx, production-planning, gsea-proteomics, lake-temp-glm,
   hof-topology-interpenetration, shadow-relay, rs-archive-clone, retro-console-soc and roy-polymorph-cn.
-- **Found** in 7 images, and in each of them only in files that come from the task's `environment/`
-  directory (same SHA-256 or same base name): vba-userform-port 1 file, wal-recovery-ordering 15,
-  session-window-debug 8, vpp-loss-divergence 2, batched-eval-parity 17, pretrain-shard-corruption 4,
-  sound-change-cascade 1. **No canary was found in any other file.**
+- **Found** in 7 images. In each, every file holding it is a **byte-identical copy** of a file in the
+  task's own `environment/` folder (same SHA-256). No file shares only a name with an environment file
+  ("needs a look": 0), and no other file holds it.
+
+  | Task | Canary files, byte-identical copies | Name-only matches | Other |
+  | --- | --- | --- | --- |
+  | vba-userform-port | 1 | 0 | 0 |
+  | wal-recovery-ordering | 15 | 0 | 0 |
+  | session-window-debug | 8 | 0 | 0 |
+  | vpp-loss-divergence | 2 | 0 | 0 |
+  | batched-eval-parity | 17 | 0 | 0 |
+  | pretrain-shard-corruption | 4 | 0 | 0 |
+  | sound-change-cascade | 1 | 0 | 0 |
+
 - **Why the environment files carry it.** The benchmark marks its source files with the canary, and all
   16 packages carry it in `environment/` too (in 1 to 18 files each). Where a Dockerfile copies those
   files in, the agent sees them by design.
-- **This is for the coordinator to decide.** D1 says "a hit drops the task". Read literally, that rule
-  would drop seven tasks for files the agent is meant to see. Read as a test of withholding, the evidence
-  is no solution or test content and no canary outside the environment's own files. This record does not
-  drop any task and does not reinterpret the rule.
+- **The coordinator's ruling (2026-11-14).** A canary in a byte-identical copy of an environment file is
+  not a withholding hit and drops no task. So none of the 16 is dropped by this check.
+- **Second pass.** The first pass classed a canary file by "SHA-256 or base name". To test the ruling's
+  byte-identity condition, all 16 agent images were pulled again, one at a time, under the same 25 GB
+  stop, and checked again (`image_check.py recheck`). Each line's `withholding` holds the result,
+  marked `pass: 2`.
+- **How a name-only match would be reported.** It would get the verdict "needs a look", never "clean".
+  The record would hold its path, the environment file of that name, both sizes, whether they are
+  identical, and the shared non-empty lines other than the canary line.
+- **Unchanged in the second pass:** the path and digest results, the file count, and the canary counts.
 
 **Sizes** (GB = 10^9 bytes).
 - *Unpacked* is the store's size of the layers: Podman's image size, and per layer the diff size in the
@@ -367,27 +383,27 @@ this repository or in `image_measure.json`.
 
 | Task | Role | Digest | Compressed GB | Unpacked GB | Layers | Shared before: layers, GB unpacked | Pull by digest | Pull s | Withholding |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| vba-userform-port | agent | `104fb670ee58` | 0.12 | 0.41 | 8 | 0, 0.00 | yes | 9 | clean; canary in 1 environment file(s) |
+| vba-userform-port | agent | `104fb670ee58` | 0.12 | 0.41 | 8 | 0, 0.00 | yes | 9 | clean; canary only in 1 byte-identical environment copies |
 | vba-userform-port | verifier | `ce013facbe7c` | 0.55 | 1.54 | 17 | 6, 0.12 | yes | 28 | n/a |
 | vf2-speedup-networkx | agent | `b90a92781095` | 0.54 | 2.11 | 6 | 0, 0.00 | yes | 34 | clean; canary not found |
 | vf2-speedup-networkx | verifier | `a84e6fc87075` | 0.17 | 0.51 | 7 | 1, 0.08 | yes | 10 | n/a |
-| wal-recovery-ordering | agent | `71d215eab08b` | 0.04 | 0.13 | 6 | 0, 0.00 | yes | 4 | clean; canary in 15 environment file(s) |
+| wal-recovery-ordering | agent | `71d215eab08b` | 0.04 | 0.13 | 6 | 0, 0.00 | yes | 4 | clean; canary only in 15 byte-identical environment copies |
 | wal-recovery-ordering | verifier | `627bc7812cd0` | 0.17 | 0.50 | 10 | 4, 0.13 | yes | 9 | n/a |
-| session-window-debug | agent | `62d159cb3a81` | 0.09 | 0.23 | 10 | 4, 0.12 | yes | 3 | clean; canary in 8 environment file(s) |
+| session-window-debug | agent | `62d159cb3a81` | 0.09 | 0.23 | 10 | 4, 0.12 | yes | 3 | clean; canary only in 8 byte-identical environment copies |
 | session-window-debug | verifier | `ae6248a5d486` | 0.17 | 0.50 | 11 | 4, 0.12 | yes | 6 | n/a |
 | production-planning | agent | `51110ff01e23` | 0.07 | 0.19 | 12 | 0, 0.00 | yes | 4 | clean; canary not found |
 | production-planning | verifier | `0f3eb5e73654` | 0.16 | 0.47 | 11 | 4, 0.13 | yes | 6 | n/a |
-| vpp-loss-divergence | agent | `81611f7fdd8d` | 0.73 | 2.42 | 14 | 0, 0.00 | yes | 37 | clean; canary in 2 environment file(s) |
+| vpp-loss-divergence | agent | `81611f7fdd8d` | 0.73 | 2.42 | 14 | 0, 0.00 | yes | 37 | clean; canary only in 2 byte-identical environment copies |
 | vpp-loss-divergence | verifier | `460f7e259689` | 0.86 | 2.79 | 17 | 8, 0.57 | yes | 42 | n/a |
-| batched-eval-parity | agent | `f00c28880710` | 0.09 | 0.25 | 11 | 1, 0.08 | yes | 5 | clean; canary in 17 environment file(s) |
+| batched-eval-parity | agent | `f00c28880710` | 0.09 | 0.25 | 11 | 1, 0.08 | yes | 5 | clean; canary only in 17 byte-identical environment copies |
 | batched-eval-parity | verifier | `6b04e7760112` | 0.19 | 0.56 | 12 | 1, 0.08 | yes | 10 | n/a |
-| pretrain-shard-corruption | agent | `ff18338c6eeb` | 0.34 | 1.14 | 18 | 4, 0.13 | yes | 20 | clean; canary in 4 environment file(s) |
+| pretrain-shard-corruption | agent | `ff18338c6eeb` | 0.34 | 1.14 | 18 | 4, 0.13 | yes | 20 | clean; canary only in 4 byte-identical environment copies |
 | pretrain-shard-corruption | verifier | `336d1e81ebfa` | 0.39 | 1.30 | 11 | 4, 0.12 | yes | 22 | n/a |
 | gsea-proteomics | agent | `e400f6486197` | 0.36 | 0.73 | 9 | 0, 0.00 | yes | 14 | clean; canary not found |
 | gsea-proteomics | verifier | `43e108555adb` | 0.14 | 0.40 | 10 | 4, 0.13 | yes | 11 | n/a |
 | lake-temp-glm | agent | `8f1f182ad639` | 0.44 | 1.46 | 10 | 1, 0.08 | yes | 31 | clean; canary not found |
 | lake-temp-glm | verifier | `496fb5526ea1` | 0.52 | 1.69 | 14 | 2, 0.08 | yes | 34 | n/a |
-| sound-change-cascade | agent | `95bd365954df` | 0.08 | 0.23 | 8 | 4, 0.12 | yes | 4 | clean; canary in 1 environment file(s) |
+| sound-change-cascade | agent | `95bd365954df` | 0.08 | 0.23 | 8 | 4, 0.12 | yes | 4 | clean; canary only in 1 byte-identical environment copies |
 | sound-change-cascade | verifier | `8980723c9498` | 0.14 | 0.41 | 10 | 4, 0.12 | yes | 9 | n/a |
 | hof-topology-interpenetration | agent | `a758f32e5d39` | 0.06 | 0.17 | 5 | 0, 0.00 | yes | 6 | clean; canary not found |
 | hof-topology-interpenetration | verifier | `cc54700dda4c` | 0.14 | 0.40 | 9 | 4, 0.13 | yes | 11 | n/a |
