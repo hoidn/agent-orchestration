@@ -14,7 +14,7 @@ from tests.workflow_evaluated_totality_helpers import _write_probe, _write_sourc
 from tests.workflow_evaluated_totality_helpers import public_files
 
 
-PROJECTED = [(form, position) for form, position in cells() if axes(form)[0] == "2.35"]
+PROJECTED = [(form, position) for form, position in cells() if axes(form)[0] == "2.40"]
 # Inline defun/pure-proc calls generate the same source as plain-variant, so they are not run twice.
 ADMITTED = [(form, position) for form, position in PROJECTED if cell_refusal(form, position) is None
             and form not in ("inline:defun-call", "inline:pure-proc-call")]
