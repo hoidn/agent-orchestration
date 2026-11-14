@@ -1386,6 +1386,28 @@ change of the [surface-coherence design](../docs/design/workflow_lisp_surface_co
   first or written in place. Every program that compiled before keeps its closed program, digest
   and identities, and its recorded runs resume.
 
+- **Defect backlog, crashes made to build or refused by name.** Source that passed typecheck and
+  then stopped with `compiler_defect` now builds, or is refused with a named code
+  ([defect backlog plan](../docs/plans/2026-11-13-compiler-and-runtime-defect-backlog-plan.md)):
+  - a `let-proc` local whose body is a loop with state, or a serial map, in the binding-list
+    spelling, builds and runs (Task TD5);
+  - a variant field read of a name subject inside its arm, `(match u ((A a) u.n) …)`, builds
+    and reads the arm's variant (TD2; frontend specification §11);
+  - a pure `match`, or a pure value with a `match` in it, as a loop's `:max` or `:state` or a
+    serial map's `:max` builds and runs (TD1, D4);
+  - a `match` subject whose effect lowers to a join (a procedure call or a `let*` whose argument
+    or binding holds an effect under a conditional, a loop or beside a pure `match`, or a `cond`
+    choosing one) builds and runs as its `let*`-bound spelling (TD1, D20; §16.3);
+  - a `continue` value that is an `if` whose branch is an `if` or `cond` holding a command or an
+    effectful workflow or procedure call is refused with `effect_not_permitted` (TD1, D19; §16.3);
+  - a `done` or `continue` as the value of a `let*` binding is refused by the build with
+    `loop_recur_contract_invalid` (D21; §13.1).
+
+  Every program that compiled before keeps its closed program, digest and identities, and its
+  recorded runs resume; a differential corpus test over the shapes around these fixes holds the
+  digests read on `main` before them
+  (`tests/test_workflow_lisp_td21_differential.py`).
+
 ### Run-time corrections without a new target
 
 - **Output slots checked before a fresh launch.** A provider, phased provider or agent turn about

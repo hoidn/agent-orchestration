@@ -55,8 +55,10 @@ No program, listed only (plan row id):
     | E21  | a pure operand renames the effects beside it: not re-run, no program              |
     | E22  | local names are part of the program digest: a property the cut decides            |
 
-Rows D21, D22 and E27 are the roadmap's tenth batch; the plan's Defect Table does not hold them yet. Rows
+Rows D21, D21-continue, D22 and E27 are the roadmap's tenth batch; the plan's Defect Table does not hold them yet. Rows
 B7-*, D23, D24 and D25 (the eleventh batch, found by the call-site fix) are in the Defect Table.
+Rows D5-binder-hidden, D5-binder-hidden-match, D5-if-whole and D5-if-whole-return, found by the review of
+TD2, are not in it either.
 """
 
 from __future__ import annotations
@@ -102,6 +104,7 @@ def crash(error: str, where: str) -> tuple:
 ELABORATE = "workflow_lisp/wcc/elaborate.py"
 NO_ELABORATION = crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value")
 BINDER_OUT_OF_SCOPE = crash("KeyError", f"{ELABORATE}:_infer_expr_type")
+NO_NARROWING = crash("TypeError", f"{ELABORATE}:_infer_expr_type")
 CAPTURED_COMMAND = crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind")
 CAPTURED_PROVIDER_INPUT = crash("TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind")
 LAUNCHED_WITH_OUTSIDE_TEXT = ("ran", 0, 1, 1)
@@ -116,6 +119,8 @@ KNOWN: dict[str, tuple] = {
     "B7-int": value(404),
     "B7-same-written": refused("procedure_lowering_unresolved"),
     "C1": value(7, "libw"),
+    "D5-binder-hidden": NO_NARROWING, "D5-binder-hidden-match": NO_NARROWING,
+    "D5-if-whole": NO_NARROWING, "D5-if-whole-return": NO_NARROWING,
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
     "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
@@ -177,6 +182,10 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D4-map-bound": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
     "D4-map-value": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"),
     "D5": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D5-binder-hidden": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D5-binder-hidden-match": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D5-if-whole": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D5-if-whole-return": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D6": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D7-hoisted": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
@@ -274,6 +283,10 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D5": ("value", 3),
     "D5-arm-binder": ("value", 3),
     "D5-if": ("value", 3),
+    "D5-binder-hidden": ("value", 8),
+    "D5-binder-hidden-match": ("value", 33),
+    "D5-if-whole": ("value", 3),
+    "D5-if-whole-return": ("builds",),
     "D5-other-variant": ("refused", "variant_ref_wrong_variant"),
     "D6": ("value", 4),
     "D7": ("value", 2, "step", "step", "check"),
@@ -601,6 +614,15 @@ ROWS: dict[str, Row] = {
                             '((u U)) -> String (match u ((A a) u.why) ((B b) "x"))', U),
     "D5-arm-binder": row(value(3), "((u U)) -> Int (match u ((A u) u.n) ((B b) 0))", U, inputs=U_IS_A_3),
     "D5-if": row(value(3), "((u U)) -> Int (if (= u.variant A) u.n 0)", U, inputs=U_IS_A_3),
+    # Found by the review of TD2: a read of the subject where a binding in the arm hides the arm's binder, and a
+    # name a discriminant test proves used whole.
+    "D5-binder-hidden": row(value(8), "((u U)) -> Int (match u ((A a) (let* ((a 5)) (+ a u.n))) ((B b) 0))",
+                            U, inputs=U_IS_A_3),
+    "D5-binder-hidden-match": row(value(33), "((u U) (v U)) -> Int (match u ((A a) (match v ((A a) "
+                                  "(+ u.n (* 10 a.n))) ((B b) 0))) ((B b) 0))", U, inputs=(*U_IS_A_3, 'v={"variant":"A","n":3}')),
+    "D5-if-whole": row(value(3), "((u U)) -> Int (if (= u.variant A) (f u) 0)", U,
+                       "(defproc f ((x U)) -> Int (match x ((A a) a.n) ((B b) 0)))", inputs=U_IS_A_3),
+    "D5-if-whole-return": row(BUILDS, "((u U)) -> U (if (= u.variant A) u u)", U),
     # 4: the inner `u` is `A 1`, the workflow's is `A 3`. A fix of the crash alone returns a wrong value.
     "D6": row(value(4), "((u U)) -> Int (+ (let* ((u (variant U A :n 1))) (if (= u.variant A) u.n 0)) "
               "(if (= u.variant A) u.n 0))", U, inputs=U_IS_A_3),
