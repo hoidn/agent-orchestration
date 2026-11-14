@@ -972,7 +972,7 @@ def test_compile_stage3_entrypoint_keeps_native_analysis_for_old_source(tmp_path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (export run)",
                 "  (defpath EscapedReport",
@@ -1004,7 +1004,7 @@ def test_compile_stage3_entrypoint_keeps_native_analysis_for_old_source(tmp_path
         validate_shared=False,
         workspace_root=tmp_path,
     )
-    assert result.entry_result.typed_program.target == "2.35"
+    assert result.entry_result.typed_program.target == "2.40"
     assert "demo/entry::run" in result.entry_result.typed_program.workflows
 
 
