@@ -1,6 +1,9 @@
 # Seed-Set Calibration Plan
 
-**Status: Plan; zero-spend preparation in progress, no spend yet.** This page plans the scaled-down research step
+**Status: Plan; zero-spend preparation on `feat/seed-set-prep`, no spend yet.** Built: the kit, the usage-limit
+pause, the priced ceiling and the CLI pin (2026-11-14). Owed before the first call: the scoped re-review, the
+freeze with `criterion.json` (its priced ceilings, worst cases and CLI pin), the owner's credential decision and
+meter reading. This page plans the scaled-down research step
 the owner set on 2026-11-11: calibrate a small task set and a judge, then find
 two to four simple workflow programs that run reliably and do at least as well
 as one direct call at acceptable cost, and package them as seeds for a later
@@ -31,13 +34,79 @@ below differs, these hold:
   zero in the runner. A probe run that ends in a provider incident is resumed
   once from the remaining redraw Haiku allowance and is never counted as a
   task failure.
-- The five programs declare `(:target-dsl "2.40")` (they build the same
-  program as at 2.39).
+- The four programs and `common.orc` declare `(:target-dsl "2.40")` (they
+  build the same program as at 2.39).
 - Blinding: candidates and anchors are built in random order; every pooled
   patch is scanned for model, arm and program names before any judge call and
   a hit refuses the pool; each rating is bound to the digest of the patch the
   judge read.
 - A readout that ends in a stop prints no quality figure.
+
+**Changes since review 2 (2026-11-13 and 2026-11-14; the [ledger](#ledger) has each
+ruling).** Where the text below differs, these hold:
+
+- *Usage limits (rulings R1 and R2).* A call the vendor answers with a usage
+  limit (the result event's `api_error: usage_limit_reached`, status 429) cuts
+  its unit. A cut unit is not an incident and not an observation: it is
+  recorded `cut`, never pooled or scored, and not counted by the 10% incident
+  stop. The first cut writes a `pause` event that closes every start; calls in
+  flight finish or are cut. Starts reopen only by `study.py resume-after-limit`
+  with the reset the vendor's answer named and the owner's meter reading (the
+  five-hour and weekly meters in percent and the time read); it refuses before
+  that reset. Each planned slot whose run was cut runs again once, as a new
+  unit, from the same cap; a pool with a judge cut is rebuilt once from the
+  same run records and judged again by both judges.
+- *Concurrency (R3):* two runs at a time.
+- *Priced ceiling (R4).* Candidates and judges run the metered template (the
+  judges through the study's own `programs/judge.providers.json`). Each unit
+  is settled at its metered tokens times the frozen price table, whose sha256
+  `criterion.json` names; a call with missing usage counts at the per-call
+  worst case and is flagged. A start is refused when the tranche's priced total
+  plus its worst case would pass the tranche's ceiling. Ceilings and per-call
+  worst cases are read from `criterion.json`, with no default; the unit's worst
+  case also goes to the runtime as `--max-cost-usd`.
+- *CLI pin (R5).* Every start checks that the unit's Claude CLI is the
+  criterion's pinned absolute path and answers `--version` with the pinned
+  version, and records both in its ledger row; a mismatch refuses the start.
+- *Sonnet judge only on a Haiku failure (R6):* not built. It needs a redesign of
+  pool storage and of the summary and readout flow (the [ledger](#ledger) row
+  says what); both judges still judge every pool, as the 2026-11-11 ruling set.
+- *Credential (R7):* unchanged. Each unit's private home gets a copy of the
+  subscription login file, removed when the unit ends; whether that copy
+  satisfies the subscription-only rule is the owner's decision.
+- *Re-runs and the caps.* "From the same cap" means a cut slot runs again only
+  where its cap has room. The smoke's caps (10/1 candidates, 1/1 judges), the
+  calibration's Sonnet candidates (20 of 20) and both judges' calibration caps
+  (30 of 30) are fully planned, so a cut there is not run again: a smoke cut
+  fails the smoke, and a calibration judge cut costs its task's pool.
+- *Tasks rejected on 2026-11-13* (anchor stability under high load):
+  `1fd10ab4c3`, both forms (its reference fails
+  `tests/test_run_lock.py` under load, 3 of 3); `9a7547ed4c` (T1) and
+  `9a7547ed4c-t0` (T0), whose anchors are unstable. `a8ffc5997a` had already
+  left for the leak audit. Usable: T0 9, T1 11, T2 11 plus the smoke task, T3 19
+  drawn, T4 6, T5 5.
+- *Rehearsal 4* (2026-11-13) ran to the end and its readout stopped on an anchor
+  failure: the reference of `1fd10ab4c3` passed 0.667 of its hidden tests. That
+  is the runner's anchor check finding a real defect, which the rejection above
+  removed. Its rerun on the merged tree with four calibration tasks (the
+  independent status assessment, 65 minutes at load 57 to 170) ended with exit
+  0: the smoke check passed, the probe chose T3 and drew 20 tasks, no anchor
+  failed, and the decision was `stop: no judge passed its gate`, the expected
+  result with 16 of the 20 tasks missing by construction.
+- *Rehearsal 5* (2026-11-14, the code with R1 to R5, four calibration tasks, 54
+  minutes): exit 0, smoke check passed, one injected usage limit in the probe
+  was cut, closed starts and ran again after `resume-after-limit`, one start
+  beyond the redraw ceiling was refused, and the priced totals equal the
+  stand-in's known usage; decision `stop: no judge passed its gate`, as
+  expected with 16 of 20 tasks missing. A 20-task rehearsal is still owed.
+- *Found while building R1:* the harness's model scan counted a session row
+  answered by `<synthetic>` (the CLI's own message at an API error or a usage
+  limit) as a forbidden model, which would have stopped the study at its first
+  usage limit. It no longer counts (`experiments/compare/scan.py`).
+- *Text corrections:* Step 1c named a `calibration/direct_sonnet.orc`; there is
+  none, and the `direct_sonnet` arm of `arms.json` runs `direct.orc` with the
+  Sonnet model. The summary above said "the five programs"; there are four plus
+  `common.orc`. Both are corrected in place.
 
 **Headline exit test (fails today):** `experiments/seed_set/results/seeds.json`
 exists, names its criterion and task-list hashes, and lists either two to four
@@ -139,15 +208,15 @@ The four programs are 22, 31, 40 and 45 lines.
 | `implement_review_revise.orc` | 2–3 | New, from the catalog's three-round version. Implement, one review, one revision if asked |
 
 Plus `common.orc`, `dev_check.py`, `providers.json`, `commands.json` and
-`calibration/direct_sonnet.orc`, which differs from `direct.orc` in the model
-literal only. Compile each and run each once through the public CLI behind
-the shims with a scripted provider.
+`arms.json`, whose `direct_sonnet` arm runs `direct.orc` with the model bound
+to `claude-sonnet-5-5` (there is no separate Sonnet program). Compile each and
+run each once through the public CLI behind the shims with a scripted provider.
 
 **1d. Runner and readout (1.5 days), `experiments/seed_set/study.py`.** One
 run: `prepare.run_arm(spec=ArmSpec(...))` with `COMPARE_CLAUDE_MODELS` and
 `COMPARE_MAX_CALLS` set, launch, `collect`, `scan --hash <fix>`,
 `check_first_attempt` on the final patch (the visible result, stored with the
-run record), then delete the run's `cand-*` trees; four runs at a time. One
+run record), then delete the run's `cand-*` trees; two runs at a time. One
 task: build its pool, run the judges, `verify-pool`, `scan --pool --judge`,
 `summarize.py`, then delete the pool's clones and keep its records; at most
 two pools on disk (a pool is 1 to 3 GB). `tests/experiments/test_seed_set.py`
@@ -295,8 +364,8 @@ Pass: sessions show only the bound models, the scans are clean, and
 clone. Whether token receipts are complete is recorded.
 
 **Candidates (80 Haiku, 20 Sonnet):** on the 20 drawn tasks, `direct.orc` four
-times (so a task's Haiku mean does not rest on one or two draws) and
-`direct_sonnet.orc` once.
+times (so a task's Haiku mean does not rest on one or two draws) and the
+`direct_sonnet` arm (`direct.orc` on Sonnet) once.
 
 **Judging (30 Haiku and 30 Sonnet judge calls).** The route is the harness's:
 one pool per task, `prepare.py pool` with `judge-calibration.json`,
@@ -506,6 +575,16 @@ A Sonnet token lists at about 20 times a Haiku token (vendor table cached
 2026-11-03; re-read at freeze). Tokens per call are unknown until the smoke.
 Allowance does not move between tranches; there is no top-up after a null.
 
+Each tranche also has a priced-token ceiling in USD (metered tokens times the
+frozen `orchestrator/providers/price_table.json`), and each model a per-call
+worst case. Both are set by the coordinator in `criterion.json` at the freeze
+and written to the ledger before the first call; the kit has no default and
+refuses a start without them. A start is refused when the tranche's committed
+priced total (settled units at their metered price, open ones at their worst
+case) plus its own worst case would pass the ceiling. A call cut by a usage
+limit counts like any other call; a slot run again after it takes its calls
+from the same cap, so a re-run is possible only where the cap has room.
+
 ## Stop rules
 
 - Fewer than 20 tasks admitted after the one widening: stop before spend. The
@@ -517,6 +596,10 @@ Allowance does not move between tranches; there is no top-up after a null.
   run or judgment is contaminated; three such tasks stop the study.
 - A forbidden-model hit, over 10% of a tranche's runs excluded as incidents,
   a cap reached, or under 20 GB free: stop.
+- A usage limit is not a stop and not an incident: every start closes until the
+  vendor's named reset has passed and the owner has given a meter reading
+  (`study.py resume-after-limit`); the cut runs are no observations, and each
+  cut slot runs again once from the same cap.
 - Only `direct` passes the rule: record "no workflow qualified at this size".
 
 ## What this plan makes harder
@@ -567,3 +650,11 @@ Allowance does not move between tranches; there is no top-up after a null.
 | 2026-11-13 | Owner direction: mutate model and effort per role | "for mutations of that seed, consider using a combination of model choice (haiku sonnet) and effort level for different agent roles". Recorded as a search dimension beside model per role: each present role (planner, implementer or coder, reviewer) has its own model (`claude-haiku-5-5` or `claude-sonnet-5-5`) and its own effort level. Consequences: a seed's entry takes a model and an effort per role (the long-horizon seed has one shared effort input today); cost stays priced tokens, since effort changes tokens per call and calls stop being comparable even within one model; the equal-price re-roll curve remains the bar. Reason recorded for using Sonnet in experiments under the Haiku default: model placement per role is itself the variable. Public figures (not ours) suggest effort is a large lever for Haiku: a benchmark write-up reports an aggregate from about 13 percent at `low` to 39 percent at `max`. Only `high` has been observed accepted for Haiku on this machine; the other levels are verified in the first probe. Spend to date: 0. |
 | 2026-11-13 | Owner direction: if the space is too large, one model and effort per role | "consider just one model (haiku) and different effort levels (assuming performance of haiku increases monotonically with increasing effort level)". Recorded as the first space to search: all roles on `claude-haiku-5-5`, effort per role varied (27 points at three levels); Sonnet placement deferred to a later extension. The monotonicity assumption is measured, not assumed: an effort ladder on the direct call, which also serves as the difficulty calibration (effort is the varied quantity) and places each task relative to the 10 to 30 percent band. Public figures, not ours, show the aggregate rising with every level for this model on one benchmark. With a monotone ladder the search walks one role's effort at a time from the cheapest point (seven points plus one corner) rather than the full grid. No Sonnet call is needed for this space. Spend to date: 0. |
 | 2026-11-14 | Correction to the row "mutate model and effort per role": a role's model and effort are literals at its call sites, not entry inputs | That row says "a seed's entry takes a model and an effort per role". It does not. The mutant generator's measurements showed that `resume` gives no plan when an input, or a default that takes effect, changes, so two points that differ only in inputs share no recorded work. The ruling of the [mutant generator plan](2026-11-13-phase-6-mutant-generator-plan.md#the-first-space-is-programs-not-bindings) holds: a point of the search space is a program, effort and model per role are string literals at each of the role's call sites, and a mutation rewrites them. The earlier row is kept as written. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R1: a call cut by a usage limit | Not an incident and not an observation. The unit is recorded `cut`, does not count toward the 10% incident stop and never scores 0; its slot runs again once, as a new unit id, from the same cap, so total calls never pass the cap and every unit still launches once. A judge pool cut by a limit is rebuilt once as a new pool from the same kept run records, judged by both judges. Built: `units.usage_limit` recognises the vendor's answer from the stream-json result event (`api_error: usage_limit_reached`, status 429, shape of the long-horizon fixture `token-usage-limit-NonZeroAgentExitCodeError`); `study.cut_reruns`, `layout.current_pool`, `probing.allowed`. Found while building it: the harness's model scan counted the CLI's `<synthetic>` session rows (its own error and usage-limit messages) as a forbidden model, which would have stopped the study at the first limit; fixed in `experiments/compare/scan.py`. Consequence recorded: re-runs fit only where the cap has room; the smoke's caps, the calibration's Sonnet candidates and both judges' calibration caps have none. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R2: starts close at a usage limit | At the first usage-limit answer the runner writes a `pause` event that `spend.reserve` honours: nothing more starts, calls in flight finish or are cut. Starts reopen only by `study.py resume-after-limit --reset T --five-hour P --weekly P --read-at T`: the reset named by the vendor's answer and the owner's meter reading (two percentages and the time read), recorded in the spend ledger; it refuses before the latest named reset and a reading taken before it. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R3: concurrency two | Two runs at a time, not four, so that a usage limit cuts at most two calls in flight. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R4: a priced-token ceiling per tranche, enforced by the kit | Candidates and judges use `claude_unrestricted_workspace_metered` (the judges through the study's own `programs/judge.providers.json`; the shared `experiments/compare/score.providers.json` is unchanged). Each unit is settled after it ends at its metered tokens times `orchestrator/providers/price_table.json` (per call, the larger of the table's ordinary-rate price of `modelUsage` and the CLI's reported cost); the table's sha256 is named in `criterion.json` and recorded in the freeze event. `spend.reserve` refuses a start when the tranche's committed total (settled units at their price, open ones at their worst case) plus its own worst case would pass the ceiling. A call with missing usage counts at the per-call worst case and is flagged. Ceilings per tranche and worst cases per model are read from `criterion.json` (`"spend"`), with no default: the coordinator sets the figures at freeze. The unit's worst case (its calls times the per-call figure) goes to the runtime as `--max-cost-usd`; the runtime prices at a model's highest tier, so the per-call figure must cover a call at Haiku's long-context rate, or a later call of a multi-call unit is refused and the run ends as an incident. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R5: the CLI pinned by path and version | Before every start the unit's declared Claude CLI must be the criterion's pinned absolute path and answer `--version` (run with an empty home) with the pinned version; both go into the start's ledger row, and a mismatch refuses the start before anything is reserved. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R6: the Sonnet judge only on a Haiku judge failure | Not built: it exceeds the bound the ruling set (about three hours, no redesign of pool storage). What it takes: (1) the same frozen pools for the later Sonnet judge, so either every pool's clones stay on disk until both judges are decided (30 pools of 1 to 3 GB; at most two fit today) or the harness gains a rebuild of a pool's clones under its recorded clone ids from the kept patches and mapping; (2) a summary per judge: `summarize.py` writes one `results.json` per pool with every judge of the mapping and runs the hidden tests on the clones, so a Haiku-only summary marks Sonnet excluded and a later Sonnet pass needs the clones again and a merge of ratings by clone id; (3) a two-phase readout: Haiku's gate (V1 to V4, and G3's insensitivity switch, which also hands over to the other judge) decides whether the Sonnet phase opens; (4) rulings for the early judge look and the smoke check, which require both judges today. Estimate 6 to 10 hours with tests and a rehearsal. Both judges keep judging every pool, as the 2026-11-11 ruling set. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R7: the credential route is the owner's | `sandbox.prepare_unit` is unchanged: each unit's private home gets a copy of the subscription login file, removed when the unit ends. Whether that copy satisfies the subscription-only rule is for the owner. No API-key route exists in the kit. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R8: records | The status line and the section "Changes since review 2" record rulings R1 to R7, the tasks rejected on 2026-11-13 (`1fd10ab4c3` in both forms, its reference failing `tests/test_run_lock.py` under load 3 of 3; `9a7547ed4c` and `9a7547ed4c-t0` with unstable anchors; `a8ffc5997a` earlier, for the leak audit), rehearsal 4 (stopped by its anchor check on `1fd10ab4c3`) and its rerun on the merged tree after the rejections (exit 0, decision `stop: no judge passed its gate` with 16 of 20 tasks missing by construction), and two text corrections (no `calibration/direct_sonnet.orc` exists; four programs, not five). Rehearsal 5 on the code with R1 to R5 (`426031e2`, stand-ins only, its own ledger, four calibration tasks, 54 minutes at load 56 to 100): exit 0; the smoke check passed on all nine checks; one usage limit injected into the ladder probe on T1 task `2aaf1ecc8e` cut its run, closed every start, was lifted, and after `resume-after-limit` the slot ran again and completed (redraw 21 of 40 Haiku calls, 0 incidents); the probe chose T3 and drew 20 tasks; a start of 12 calls whose worst case (USD 3) would pass the redraw ceiling of USD 3 (USD 0.0756 committed) was refused and wrote nothing; the priced totals equal the stand-in's known usage (smoke USD 0.1664, redraw 0.0756, calibration 0.876, none open, no missing usage); no anchor failure, every identity scan 0 hits; decision `stop: no judge passed its gate`, as with 16 of 20 tasks missing by construction; the check-withheld run completed in 2 calls. Spend to date: 0. |
