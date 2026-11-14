@@ -58,7 +58,7 @@ No program, listed only (plan row id):
 Rows D21, D21-continue, D22 and E27 are the roadmap's tenth batch; the plan's Defect Table does not hold them yet. Rows
 B7-*, D23, D24 and D25 (the eleventh batch, found by the call-site fix) are in the Defect Table.
 Rows D5-binder-hidden, D5-binder-hidden-match, D5-if-whole and D5-if-whole-return, found by the review of
-TD2, are not in it either.
+TD2, and D5-if-match and D20-map-argument, found by its re-review, are not in it either.
 """
 
 from __future__ import annotations
@@ -120,7 +120,8 @@ KNOWN: dict[str, tuple] = {
     "B7-same-written": refused("procedure_lowering_unresolved"),
     "C1": value(7, "libw"),
     "D5-binder-hidden": NO_NARROWING, "D5-binder-hidden-match": NO_NARROWING,
-    "D5-if-whole": NO_NARROWING, "D5-if-whole-return": NO_NARROWING,
+    "D5-if-whole": NO_NARROWING, "D5-if-whole-return": NO_NARROWING, "D5-if-match": NO_NARROWING,
+    "D20-map-argument": NO_NARROWING,
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
     "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
@@ -186,6 +187,8 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D5-binder-hidden-match": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D5-if-whole": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D5-if-whole-return": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D5-if-match": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
+    "D20-map-argument": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D6": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
     "D7-hoisted": ("crash", "KeyError", "workflow_lisp/wcc/elaborate.py:_infer_expr_type"),
@@ -287,6 +290,8 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D5-binder-hidden-match": ("value", 33),
     "D5-if-whole": ("value", 3),
     "D5-if-whole-return": ("builds",),
+    "D5-if-match": ("value", 3),
+    "D20-map-argument": ("value", 2),
     "D5-other-variant": ("refused", "variant_ref_wrong_variant"),
     "D6": ("value", 4),
     "D7": ("value", 2, "step", "step", "check"),
@@ -615,7 +620,8 @@ ROWS: dict[str, Row] = {
     "D5-arm-binder": row(value(3), "((u U)) -> Int (match u ((A u) u.n) ((B b) 0))", U, inputs=U_IS_A_3),
     "D5-if": row(value(3), "((u U)) -> Int (if (= u.variant A) u.n 0)", U, inputs=U_IS_A_3),
     # Found by the review of TD2: a read of the subject where a binding in the arm hides the arm's binder, and a
-    # name a discriminant test proves used whole.
+    # name a discriminant test proves used whole. The E1 placement test of a defect inside a `continue` value uses
+    # D5-binder-hidden's shape as its vehicle: a fix of this row needs another one there.
     "D5-binder-hidden": row(value(8), "((u U)) -> Int (match u ((A a) (let* ((a 5)) (+ a u.n))) ((B b) 0))",
                             U, inputs=U_IS_A_3),
     "D5-binder-hidden-match": row(value(33), "((u U) (v U)) -> Int (match u ((A a) (match v ((A a) "
@@ -623,6 +629,13 @@ ROWS: dict[str, Row] = {
     "D5-if-whole": row(value(3), "((u U)) -> Int (if (= u.variant A) (f u) 0)", U,
                        "(defproc f ((x U)) -> Int (match x ((A a) a.n) ((B b) 0)))", inputs=U_IS_A_3),
     "D5-if-whole-return": row(BUILDS, "((u U)) -> U (if (= u.variant A) u u)", U),
+    # Found by the re-review of TD1, beside the rows above and with their key, but other defects: a `match` on a
+    # name a discriminant test proves; a map in a `match` subject's argument, whose result element type the
+    # subject carried as written lacks.
+    "D5-if-match": row(value(3), "((u U)) -> Int (if (= u.variant A) (match u ((A a) a.n) ((B b) 0)) 0)", U,
+                       inputs=U_IS_A_3),
+    "D20-map-argument": row(value(2), "((n Int)) -> Int (match (mkshape (list/length (list/map ((x (list 1 2))) x))) "
+                            f"{D20_ARMS})", SHAPE, D20_MK, inputs=("n=1",)),
     # 4: the inner `u` is `A 1`, the workflow's is `A 3`. A fix of the crash alone returns a wrong value.
     "D6": row(value(4), "((u U)) -> Int (+ (let* ((u (variant U A :n 1))) (if (= u.variant A) u.n 0)) "
               "(if (= u.variant A) u.n 0))", U, inputs=U_IS_A_3),

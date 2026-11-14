@@ -2092,8 +2092,9 @@ Rules:
   read where a binding inside the arm hides the arm's binder, as in
   `((A a) (let* ((a 5)) (+ a u.n)))`, ends in `compiler_defect`; read the
   field through the binder. So does a name that a discriminant test proves
-  passed or returned whole, `(if (= u.variant A) (f u) 0)` (rows D5-if-whole
-  and D5-if-whole-return).
+  passed, returned or matched whole, `(if (= u.variant A) (f u) 0)` or
+  `(if (= u.variant A) (match u …) 0)` (rows D5-if-whole, D5-if-whole-return
+  and D5-if-match).
 - Outside an arm or a branch a discriminant test proves (§12.2), a field read on a union value
   of a concrete union type is refused, also when
   every variant declares that field with one type; `variant` is always read. Inside a generic
@@ -2600,13 +2601,16 @@ exceptions below.
   `(continue (record-update s :a (fetch)))` runs. The same values are admitted
   as a `done` value, a loop `:state`, a `let*` binding or a workflow or
   procedure result. A `continue` value that is an `if` with a branch that is
-  an `if` or `cond` holding a command, or a call of a workflow or procedure
-  that holds an effect, is refused with `effect_not_permitted` too; a call of
-  a workflow or procedure without effects there runs. A `match` subject whose
-  effect lowers to a join, such as a procedure call or a `let*` whose argument
-  or binding holds an effect under a conditional, a loop or beside a pure
-  `match` (`(match (mk (+ E M)) …)`), or a `cond` choosing such a value, runs
-  as its `let*`-bound spelling does: the same value, and its effects run once.
+  an `if` or `cond` holding a command, or a call of a workflow, a `defproc`
+  or a `let-proc` local that holds an effect, is refused with
+  `effect_not_permitted` too; such a call without effects there runs. A
+  `match` subject whose effect lowers to a join, such as a procedure call or a
+  `let*` whose argument or binding holds an effect under a conditional, a loop
+  or beside a pure `match` (`(match (mk (+ E M)) …)`), or a `cond` choosing
+  such a value, runs as its `let*`-bound spelling does: the same value, and
+  its effects run once. Open defect (defect backlog row D20-map-argument): a
+  subject whose argument holds a `list/map` or `list/map-effect`, pure or not,
+  ends in `compiler_defect`; bind the subject first.
 - *A parallel map whose binder a macro template introduces takes a pure
   source.* With an effect in its source it is refused as before
   (`effect_not_permitted`, or `list_map_effect_body_unsupported` when the

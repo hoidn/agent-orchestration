@@ -1,8 +1,8 @@
 """Differential corpus for defect backlog TD2, TD1 and D21: every program of
-`tests/workflow_lisp_td21_differential_cases.py` against its outcome on `main` at `99726a3d`, before the fixes.
+`tests/workflow_lisp_td21_differential_cases.py` against its outcome on `main` at `e2cbc14c`, before the fixes.
 
 The expectations in `tests/fixtures/workflow_lisp/td21_differential_main.json` were written by the cases module's
-`__main__` run on an export of that commit, never by hand. A program that built there builds with the same
+`__main__` run on an export of that commit (the command is in that module's docstring), never by hand. A program that built there builds with the same
 closed program digest; a refusal keeps its codes; a program that crashes crashes only with the signature of a
 row in the defect backlog's `KNOWN`.
 """
