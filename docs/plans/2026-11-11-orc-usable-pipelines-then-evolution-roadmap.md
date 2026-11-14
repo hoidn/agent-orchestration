@@ -632,6 +632,26 @@ Phase 3 is larger than the table says: the accepted plan for 3b alone estimates
 | Lane D | 7–11 |
 | Total | 21–32 |
 
+**Whole-roadmap weights (coordinator's estimate, 2026-11-13; the owner asked that progress
+figures cover every part).** The table above covers Phases 0 to 4 and Lane D as first scoped.
+Lane D has since gained stages 5 and 6, the documentation consolidation and a defect backlog, and
+four parts had no weight. Midpoints in engineer-weeks, from each plan's hours where one exists and
+from judgment where none does; a progress figure is done weeks over this total and says so.
+
+| Part | Weeks | Basis |
+| --- | --- | --- |
+| Phase 0 | 0.75 | Table above |
+| Phase 1 | 2.5 | Table above |
+| Phase 2 | 4 | Table above |
+| Phase 3 | 6 | Table above |
+| Phase 4 | 4 | Table above |
+| Lane D | 17 | 9 as first scoped; stage 5 about 3; stage 6 about 2 (79 hours); documentation consolidation about 3 (112 hours); defect backlog and the changes assigned to the cut about 2 (judgment, unsized) |
+| Consumer thread | 3 | Judgment: one pipeline written, run to a used result, and its friction log |
+| Phase 5, seed set | 4 | Judgment: tasks, programs and runner (built), calibration, seed evaluation |
+| Phase 5b, long-horizon | 4 | 93 hours for the ladder and the freeze, plus the staged comparison (judgment) |
+| Phase 6, program evolution | 8 | Judgment: the three readiness items, a search harness and its runs; the least certain row |
+| **Total** | **about 53** | |
+
 ## Dispositions
 
 | Existing record | Proposed disposition |
