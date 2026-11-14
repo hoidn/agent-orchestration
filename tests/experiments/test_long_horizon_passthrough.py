@@ -258,7 +258,13 @@ class _CannedHandler(socketserver.StreamRequestHandler):
         length = next((int(line.split(b":")[1]) for line in head.split(b"\r\n")
                        if line.lower().startswith(b"content-length:")), 0)
         self.server.received.append(head + self.rfile.read(length))
-        self.wfile.write(self.server.responses.pop(0))
+        response = self.server.responses.pop(0)
+        if isinstance(response, tuple):  # (head, gate, body): the body waits for the test's signal
+            self.wfile.write(response[0])
+            self.wfile.flush()
+            response[1].wait(WAIT)
+            response = response[2]
+        self.wfile.write(response)
 
 
 @pytest.fixture
@@ -559,12 +565,11 @@ def test_at_its_start_the_passthrough_reads_the_token_file_and_writes_its_finger
 
 def test_with_the_rehearsal_switch_no_token_file_is_opened(short, stub):
     upstream, _ = stub("normal")
-    fifo = short / "secret" / "token"
-    fifo.parent.mkdir(mode=0o700)
-    os.mkfifo(fifo, 0o600)  # opening it to read would block: a refusal proves it was not opened
-    proc, _, _, out = _start(short, _slots(short / "slots.json", {}), *_rehearsal(short, upstream),
-                             "--token-file", fifo)
-    assert (proc.wait(timeout=WAIT), "refused" in out.read_text()) == (2, True)
+    token_file = _secret_file(short, _token())
+    proc, _, state, out = _start(short, _slots(short / "slots.json", {}), *_rehearsal(short, upstream),
+                                 "--token-file", token_file)
+    assert (proc.wait(timeout=WAIT), "refused" in out.read_text(), "listening" in out.read_text(),
+            (state / "fingerprint.json").exists()) == (2, True, False, False)
 
 
 def test_core_dumps_are_off_and_its_memory_and_environment_are_closed_to_other_processes(short, stub):
@@ -666,14 +671,17 @@ def test_a_vendor_401_is_passed_on_and_stops_the_tranche(short, stub, inproc):
 
 
 def test_a_paid_usage_header_stops_the_tranche_before_the_response_is_passed_on(short, canned, inproc):
-    upstream = canned(_http(200, [("content-type", "application/json"), ("x-made-up-overage", "in-use")],
-                            json.dumps(_message(USAGE)).encode()))
+    body = json.dumps(_message(USAGE)).encode()
+    head = _http(200, [("content-type", "application/json"), ("x-made-up-overage", "in-use")], body)[:-len(body)]
+    gate = threading.Event()
+    upstream = canned((head, gate, body))
     sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}),
                          paid_usage=[("x-made-up-overage", "in-use")])
     conn = _Unix(sock)
     conn.request("POST", MESSAGES, json.dumps(_request(stream=False)), {"authorization": "Bearer lh-fake-a"})
-    resp = conn.getresponse()
+    resp = conn.getresponse()  # its headers have reached the client while the vendor still holds the body
     at_headers = [(e["event"], e["reason"]) for e in _events(state)]
+    gate.set()
     resp.read()
     after, _, refusal = _post(sock, "lh-fake-a", _request())
     assert (resp.status, at_headers, after, _error(refusal)[1]) == (
