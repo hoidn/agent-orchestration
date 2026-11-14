@@ -4,18 +4,26 @@
 [roadmap Phase 6](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-6-program-evolution):
 a search over workflow programs stops a candidate at a named stage, takes
 the workspace as it stands there, and continues a child program from it, so
-that the child pays for its changed suffix. The design has two parts with
-separate acceptance. Part 1 is to be built: a stop at a named effect site,
-and a harness procedure that copies a stopped run whole. Part 2 is designed
-and deferred: a snapshot store, a fork at an earlier step, the container
-route and the pause at a usage limit.
+that the child pays for its changed suffix. The design has two parts. Part 1
+is one flag, `--stop-after SITE`, with its contract, and a documented harness
+procedure that copies a stopped run whole, with its preconditions. Part 2 is
+designed and deferred: a snapshot store, a fork at an earlier step, the
+container route and the pause at a usage limit.
 
 **Status.** Draft; in review, not accepted, not implemented. In the terms of
 the [documentation conventions](../documentation_conventions.md#status-labels)
-this is `Planned`: a roadmap position exists, the governing design is not
-accepted, and implementation must not begin. Nothing here is available in
-the checkout. Hypothesis H-E2 of the roadmap is what the design serves; it
-makes no claim that H-E2 holds.
+this is `Planned`. Nothing here is available in the checkout. Hypothesis H-E2
+of the roadmap is what the design serves; it makes no claim that H-E2 holds.
+
+**When to build.** Nothing of this design is built until two things are
+known. The first is where a staged seed's workspace lives when it drives a
+container task, which the design of the comparison step decides
+([roadmap Phase 5b](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-5b-long-horizon-task-family-and-staged-seed),
+step 9): the copy procedure copies a directory on the host, and on the
+long-horizon tasks the agent's work is inside a container. The second is
+whether stage signals predict the final result, which the first paid seed
+runs show: stopping weak candidates early pays if they do and not otherwise.
+Part 1 is then about 27 hours ([§17](#17-increment-note-for-the-planner)).
 
 **What owns the behavior today.** [Evaluated execution](workflow_lisp_evaluated_execution.md)
 (the journal, rules C8 and C10, §8.1 to §8.5), the
@@ -30,42 +38,41 @@ search may do with a run. The
 (task T3) owns the measurement of how much a mutation reuses: steps,
 provider calls and, where a run has them, priced tokens. Where this page and
 those documents differ, they win until this design is accepted and they are
-amended as [§10](#10-contracts-to-amend) lists.
+amended as [§10](#10-contracts-to-amend-when-part-1-is-built) lists.
 
-**Copy safety.** Nothing here is a recipe. The flag, the file names, the
-fields and the codes are proposals. The probe commands ran on one machine
-and are evidence, not examples.
+**Copy safety.** Nothing here is a recipe. The flag, the fields and the
+codes are proposals. The probe commands ran on one machine and are evidence,
+not examples.
 
 **Terms.** *Journal:* the run's `memo.jsonl`. *Site key:* an effect identity
 as the checked site table spells it, with `[*]` in place of each loop or map
-index (`machine.site_classes`). *Stage:* a point of a workflow that a search
-names, mapped per candidate to site keys ([§3.3](#33-naming-a-stage-across-the-edits-a-search-makes)).
-*Stop:* the end of an invocation at a named site, with nothing in flight.
-*Cut:* a journal byte offset immediately after a `committed` record at which
-no attempt is pending. *Copy:* a whole copy of a stopped run's workspace and
-run root. *Fork:* a new run root made from a stored snapshot (Part 2).
-*Prefix:* the journal bytes before a cut. *Stand-in:* a local script that
-plays a provider; no model is called. A campaign `checkpoint` in the
+index (`machine.site_classes`). *Stage:* a point of a workflow that a study
+names by a site key ([§3.4](#34-naming-a-stage)). *Stop:* the end of an
+invocation at a named site. *Cut:* a journal byte offset immediately after a
+`committed` record at which no attempt is pending. *Copy:* a whole copy of a
+stopped run's workspace and run root. *Fork:* a new run root made from a
+stored snapshot (Part 2). *Prefix:* the journal bytes before a cut.
+*Stand-in:* a local script that plays a provider; no model is called. A
+campaign `checkpoint` in the
 [cumulative campaigns design](orc_structural_search_cumulative_campaigns.md)
 is a different object.
 
 ## 1. Conclusion
 
-**Part 1 meets the three R1 gates at stage boundaries with one flag, one
-small file and no new module.** Probes with stand-ins showed each
-([§14](#14-probes)).
+**Part 1 is one flag and one procedure, with no new file, record or module.**
+Probes with stand-ins showed each claim ([§14](#14-probes)).
 
 1. `--stop-after SITE` ends an invocation before the next new attempt once
    an effect at that site has committed in it. It writes no journal row and
-   no terminal, exits with a code of its own, and `resume` continues. A run
-   driven this way dispatched every step once.
-2. A requested stop must not read as a crash. Today it does: `report` and
-   the dashboard say `interrupted` and the monitor's classifier says
-   `CRASHED`. The journal still gets no row. The stopping writer leaves a
-   mark, `stop.json`, in the run root; the one function every reader calls
-   reads it and reports `stopped` while the journal has the length the mark
-   names. `resume`, plan tokens and identities do not read it
-   ([§3.4](#34-a-requested-stop-is-not-a-crash)).
+   no terminal and exits with status 3; `resume` continues. A run driven this
+   way dispatched every step once.
+2. The caller recognises a requested stop by the exit status. Anyone else
+   recognises it from the journal alone: no terminal, nothing pending, the
+   last commit at one of the stage's keys. `report`, the dashboard and the
+   monitor do not: they show such a run as `interrupted`, and the monitor's
+   classifier labels it `CRASHED`, as they do today for a run stopped by the
+   spend cap. That is a known limit, and a harness filters by exit status
+   ([§3.3](#33-recognising-a-requested-stop)).
 3. A copy of the stopped run made with `cp -a` is a copy of the workspace
    and of the journal at that stop. In the probe it equalled the parent in
    content, modes, times, hard links, a named pipe and a nested repository;
@@ -73,27 +80,33 @@ small file and no new module.** Probes with stand-ins showed each
    was dispatched in the copy; the parent then continued.
 4. A child's own attempts are those started at or after the journal length
    the harness logged when it copied. Search cost sums own attempts over
-   every run root. A copied run yields a tagged estimate of deployed cost
-   and is not promotion evidence ([§4.7](#47-the-cost-rule)).
+   every run root. A copy continued under another program is tagged
+   `inherited` and no readout that selects may use it
+   ([§4.7](#47-the-cost-rule-and-the-evidence-tag)).
 
-**Part 2 is not built before the first search space.** A fork at an earlier
-step saves a fixed number of calls there (90 of the 27-point grid's calls:
-42 percent at the measured two-milestone run, 28 at four milestones, 17 at
-eight), and copies made at stops serve that tree. The snapshot store, the
-fork, the container route and the usage-limit pause are specified so that
-they can be built without changing Part 1; [§9](#9-what-brings-part-2-forward)
-says what evidence brings them forward.
+**What the copy procedure does not reach.** It copies a directory on the
+host. On the long-horizon tasks the agent works inside the task container
+with nothing mounted, so the procedure does not copy that work. Until the
+comparison step's design says where a staged seed's workspace lives, a study
+on those tasks gets stops and resumes and no copies, and this page does not
+claim that copies at stops serve the first search tree
+([§4.1](#41-where-it-applies)).
 
-**Hazards the harness must close, each with a probe:** a copy can write into
-its parent's workspace when a committed value holds the parent's absolute
-path; a stop is a copy point only when the workspace is quiet; copies share
-a run id, which blunts the runtime's liveness check between live siblings.
+**Three preconditions carry the procedure,** each from a probed hazard: the
+parent and the copy see the workspace at the same absolute path, or the copy
+names the parent's path nowhere; the harness ends every process the run's
+steps left before it copies; and copies share a run id, so the harness keeps
+its own lineage log and does not retry a failed candidate in place.
+
+**Part 2 is specified so that Part 1 does not change when it is built:** the
+snapshot store and a fork at an earlier step, the container route, and the
+pause at a usage limit. [§9](#9-what-brings-part-2-forward) says what
+evidence brings each forward.
 
 ## 2. What exists today
 
 Rows E1 to E18 were established at `b399076b`, and E19 and E20 on `main` at
 `e0a978ad`, each by the command shown, with stand-ins on a closed `PATH`.
-The independent review reproduced E7, E8, E9, E13 and E14 at `a9f9e410`.
 "Read" marks a fact taken from code or a contract and not run.
 
 | # | Finding | Command | Outcome |
@@ -116,7 +129,7 @@ The independent review reproduced E7, E8, E9, E13 and E14 at `a9f9e410`.
 | E16 | The run id is a value a program can read, and the header fixes the run root's place | Read: evaluated execution §4.4 (X1, X4) and §8.4; `host_input._request_id` | X1 gives a program its run id; `result_root` ends in the run id; a host request id binds the run id and the header digest |
 | E17 | Serial steps run in the workspace directory | The probes' stand-ins logged their working directory. Read: the drafting guide documents a launch directory (`:workspace`) for parallel-map items, and no serial form was found in it | Every serial stand-in ran in the workspace root |
 | E18 | The locks belong to a workspace and a run root, and a copy has its own | Start a run with a slow step; during it start a second `run` in the same workspace, and a `run` in a copy of the workspace | Same workspace: `workspace_run_already_active`. The copy: runs to its value while the first is still running |
-| E19 | A stop without a terminal reads as a crash in every reader | Stop a run after its first commit through the probe gate; call `load_evaluated_view`, `report`, the dashboard's `RunScanner` and the monitor's `classify_run`; read `state.json` | View, `report` and dashboard: `interrupted`. Monitor: `CRASHED`, reason `evaluated_writer_lock_released_interrupted`. `state.json`: `running` |
+| E19 | A stop without a terminal reads as a crash in every reader | Stop a run after a commit through the probe gate; call `load_evaluated_view`, `report`, the dashboard's `RunScanner` and the monitor's `classify_run`; read `state.json` | View, `report` and dashboard: `interrupted`. Monitor: `CRASHED`, reason `evaluated_writer_lock_released_interrupted`. `state.json`: `running` |
 | E20 | A run stopped by the spend cap reads the same | `run … --max-cost-usd 0.000005`; `report` | Exit 1, `spend_cap_reached`; `report` says `interrupted` |
 
 What ties a run to its place, taken together: the run root's name is the run
@@ -129,9 +142,9 @@ they were reused at another path (E4, E5). A committed value can hold one
 (probe C6). A step's workspace effects live in the workspace directory
 itself, and no record says what they were (E6, E12).
 
-## Part 1: built now
+## Part 1: the flag and the copy procedure
 
-Sections 3 to 5. Their acceptance is §5.
+Sections 3 to 5.
 
 ## 3. `--stop-after SITE`
 
@@ -146,17 +159,15 @@ Sections 3 to 5. Their acceptance is §5.
   site key is named lies at or after the journal length the invocation found
   at its start. An effect reused from the memo is not stopped, and a retry of
   a failed attempt is a new attempt and runs.
-- **What a stop leaves.** No journal row and no terminal; the mark of
-  [§3.4](#34-a-requested-stop-is-not-a-crash); the `resume` line. A later
-  `resume` continues, with or without the flag.
-- **Exit status 3,** which no other outcome uses: 0 is a completed or
-  waiting run, 1 a failed run or a stop at the spend cap, 2 a refusal before
-  execution. A harness branches on the status and reads the mark; it does
-  not parse standard error.
+- **What a stop leaves.** No journal row, no terminal, no other file. The
+  `resume` line is printed. A later `resume` continues, with or without the
+  flag.
+- **Exit status 3.**
 - **Completion.** A run whose last effect is the named site completes with
   its terminal and exits 0. A loop site stops the invocation after the next
   matching commit, so a caller that wants the third round counts.
-- The flag is not stored and is checked before the spend cap.
+- The flag is not stored and is checked before the spend cap. The spend cap
+  is unchanged.
 
 **Place in the code.** One check beside `check_spend_cap`
 (`evaluated/spend_cap.py`), called where that one is called
@@ -169,157 +180,163 @@ stored.
 
 | Point | Rule | Evidence |
 | --- | --- | --- |
-| An unknown site | Refused with `stop_after_unknown_site`, exit 2, before any write. `run`: after the build and before `publish_run_authority` (`cli/commands/evaluated.py::run_evaluated_workflow`), so no run root exists and `--dry-run` reports it too. `resume`: after the fresh build of preflight step 7, against the program that will execute (the candidate when a plan token is given), before step 11 stores an artifact or appends a record | The site table is available at both places (read). Probe S4 matched a misspelt site against the table; the probe gate refused at the first effect, not before publication |
+| An unknown site | Refused with `stop_after_unknown_site`, exit 2, before any run state is written. `run`: after the build, before the workspace lock is taken and the run root is published (`cli/commands/evaluated.py::run_evaluated_workflow`). The build directory under `.orchestrate/build/` is written first, as for every `run` and `run --dry-run`. `resume`: after the in-memory build of preflight step 7, against the program that will execute (the candidate when a plan token is given), before step 10 compares a token and before step 11 stores an artifact or appends a record | Probe S4: a `run --dry-run` leaves `closed_program.json` and `manifest.json` under `.orchestrate/build/` and no run root; a misspelt site is found against the site table. The placement is read, not probed |
 | A parallel map | The flag does not refuse it. Items in flight finish and no new item starts, so an invocation ends after up to `:parallel` matching commits, with nothing pending | Probe S7: five items at `:parallel 2`; 2, 4 and 5 commits after three invocations; each item dispatched once |
 | A host request | A request after the boundary is not issued: the stop precedes it. `resume` issues it | Probe S6: the journal holds the commit before the request and nothing else; `resume` then appends `started` and `suspended` and prints the `waiting` line, as a run without the flag does |
 | A run-reference child | The stop set is not passed to a child run. A child executes whole inside its parent's effect, and a site inside a child is not in the parent's table, so naming one is an unknown site | Read |
 | `py run` | Does not take the flag. A Python-built run is continued with `resume`, which takes it; its site keys are those of the generated `.orc` | Decision |
-| The exit status | 3, as above | Decision; no command returns 3 today (read) |
+| The exit status | 3 means that the command line's own stop was reached. The command line documents 0, 1 and 2, and the monitor's 130; none of them is 3. In the code the confined run-reference helper subprocess exits 3 to its parent (`run_ref/confined_session.py`), which is not a status of the command line. Without the status a caller would read standard error to tell a requested stop from a stop at the cap | Read |
 
-### 3.3 Naming a stage across the edits a search makes
+### 3.3 Recognising a requested stop
 
-A site key is an effect identity: the path of authored labels, call frames
-and loop segments to the effect (evaluated execution §6). The flag takes
-exact keys. A search names a *stage* by the authored label of its effect,
-the last segment of the key, and the harness maps the stage to each
-candidate's keys:
+**The caller** has the exit status: 3 is a requested stop, 0 a completed or
+waiting run, 1 a failed run or a stop at the spend cap, 2 a refusal before
+execution.
 
-- the keys of a stage are the keys of the candidate's site table that end in
-  ` / <label>`. There can be several: one definition called from two places
-  has two;
-- a literal edit (the first search space) changes no key. A structural edit
-  (the mutant plan's `graft` and `conversation`) changes activation paths,
-  and the label survives where the labelled binding does;
-- a candidate with no key for a stage is refused at admission
-  (`stage_site_missing`), before spend;
-- a generated ordinal is not a name. `#1` moves when an unnamed effect is
-  inserted before it (rule I4).
+**Anyone else** reads the journal. A run stands at a stage when all three
+hold:
 
-**Required of the seed before it is frozen.** The two typed verdicts of
-`milestones.orc` are unnamed effects whose keys end in `#1`: the milestone
-review and the acceptance review. Each is bound to a name. Probe L1: with
-the bindings `verdict` and `acceptance` the seed compiles on `main` and the
-two keys end in ` / verdict` and ` / acceptance`; the file grows from 49
-lines to 51. The path before the label still holds generated segments
-(`loop:#1[*] / else / #1=…`, from the map form), which is why a stage is
-matched by its label and not by a whole key.
+1. the journal has no terminal;
+2. it has no pending start and no unsettled coordinator;
+3. the site key of its last `committed` record is one of the stage's keys.
 
-### 3.4 A requested stop is not a crash
+Probe S8: the predicate is true after a requested stop at the site and false
+for another site, false after a kill in the middle of the next step (a
+pending start) and false for a completed run. It is also true for a run that
+the spend cap, or a kill, left immediately after that commit: the bytes are
+the same and so is the state, which is an equally valid copy point. The
+predicate says where the run stands, not why the invocation ended; a harness
+that needs the reason has the exit status and its own log row for the
+invocation.
 
-**Finding (E19).** Every reader derives a run's status from the header, the
-program, the journal and whether a writer holds `run.lock`
-(`views.load_evaluated_view`). A run stopped on request has no terminal and
-no writer, so it reads `interrupted`, and the monitor reports `CRASHED`. A
-run stopped by the spend cap reads the same today (E20); a search makes it
-the normal state of every candidate. After the invocation exits, the journal of a stopped run,
-of a capped run and of a run killed after a commit are the same bytes.
+**What the readers show, and the limit.** For a run stopped by the flag
+(E19), as for one stopped by the spend cap (E20):
 
-**Decision: no journal row; one mark file.** The invocation that ends on an
-invocation limit writes `stop.json` in the run root, atomically, under the
-run writer lock:
+| Reader | Shows |
+| --- | --- |
+| `report`, and the view's `status` that `report --format json` and the dashboard read | `interrupted` |
+| The monitor's classifier | `CRASHED`, reason `evaluated_writer_lock_released_interrupted` |
+| `state.json` on disk | `running`: no record is appended at a stop, so the file holds the last published view |
 
-```json
-{"code": "stop_after_reached", "site": "<site key or null>", "identity": "<identity or null>",
- "memo_bytes": 2235, "time": 1794623875.19}
+This design changes none of them. A harness filters its runs by exit status
+and by the predicate, and a study's workspaces are not registered with the
+monitor. An author who uses the flag by hand sees `interrupted` and continues
+with `resume`, as after a stop at the cap.
+
+### 3.4 Naming a stage
+
+**A stage is named by a full site key.** The last label of a key is not a
+name. The seed `milestones.orc` (branch `spike/long-horizon-seed` at
+`c93a6954`, 50 lines, compiled on `main`; probe K2) has these eight keys:
+
+```text
+workflow:milestones::run / ready
+workflow:milestones::run / spec
+workflow:milestones::run / loop:state[*] / plan
+workflow:milestones::run / loop:state[*] / report
+workflow:milestones::run / loop:state[*] / else / acceptance
+… / built / body / loop:#1[*] / else / each=workflow:milestones::milestone / loop:state[*] / change
+… / built / body / loop:#1[*] / else / each=workflow:milestones::milestone / loop:state[*] / report
+… / built / body / loop:#1[*] / else / each=workflow:milestones::milestone / loop:state[*] / verdict
 ```
 
-- `code` is an open set. This design writes it for `stop_after_reached`,
-  `spend_cap_reached` and `spend_cap_unmetered`; `site` and `identity` are
-  null for a code that names no site.
-- The mark is valid while the journal file has exactly `memo_bytes` bytes.
-  Any later record, or a torn tail, makes it stale; nothing removes it.
-- `load_evaluated_view` reads it after its capture of the three authority
-  files. When the status would be `interrupted` and the mark is valid, the
-  view has `status: "stopped"` and `stopped: {code, site, identity}`. A
-  missing, unreadable or stale mark changes nothing.
-- The mark is evidence of how the last writer left. `resume`, `invalidate`,
-  plan tokens, effect identities and input digests do not read it.
+Two keys end in `report`: the round's check and each milestone's check. They
+are two stages. The verdict sites carry authored labels (`acceptance`,
+`verdict`) and the milestone call frame is named (`each`); the effort of each
+role is a literal at its call forms. The seeds `staged.orc` and
+`designed.orc` have the same shape of keys; `roles.orc` has `agent` and
+`agent_turn` sites from its first effect.
 
-**What each reader shows** (probe S8, with the reader change patched onto
-`load_evaluated_view` in the probe process):
+**A harness maps stages per candidate from the candidate's own closed
+program.** A study declares each stage as a site key of the seed. For a
+candidate the harness reads the candidate's site table and maps each stage:
 
-| Reader | Today | With the mark |
+1. to the stage's key, when the candidate's table holds it;
+2. otherwise to the key that the mutation which moved the site recorded for
+   it: an operator that moves a site emits the old key and the new one;
+3. the mapped key is in the candidate's table with the same effect class,
+   and no two stages map to one key. A stage without a key is
+   `stage_site_missing`, and one key for two stages is
+   `stage_site_ambiguous`: the candidate is refused at admission, before
+   spend.
+
+**Which edits keep a key** (probe K1, the key `workflow:main::run / review`
+of a four-step program):
+
+| Edit | Key afterwards | Stage found by |
 | --- | --- | --- |
-| The view's `status` (`report --format json`, the dashboard, the monitor all read it) | `interrupted` | `stopped`, with `stopped: {code, site, identity}` |
-| `report` | `- status: interrupted` | `- status: stopped`, and one line naming the code, the site and the `resume` command |
-| Dashboard run record | `interrupted` | `stopped` |
-| Monitor classifier | `CRASHED` | No event: its table has no row for `stopped`, and a requested stop is not notified |
-| `state.json` on disk | `running` | `running`. No record is appended at a stop, so the file is not rewritten; it holds the last published view, as after any writer that exits without a terminal, and no reader trusts its status |
-| The same run after a later record, with the old mark left in place | | `interrupted` and `CRASHED` again when no writer runs: the mark is stale |
-| A run killed in the middle of a step | `interrupted`, `CRASHED` | The same |
-| A run whose writer is alive | `running` | `running` |
+| An effort literal; a model literal | `run / review` | Rule 1 |
+| Earlier bindings reordered | `run / review` | Rule 1 |
+| Prompt wording in the prompt asset | The key does not hold it (read) | Rule 1 |
+| The effect wrapped in a `let*` whose inner binding has the same label | `run / review` | Rule 1 |
+| The effect wrapped in a `let*` whose inner binding is `r` | `run / r` | Rule 2, or refused |
+| The binding renamed | `run / check` | Rule 2, or refused |
+| The call moved into a sub-workflow, inner effect labelled `review` | `run / review=workflow:main::judge / review` | Rule 2, or refused |
+| The call moved into a sub-workflow, inner effect unlabelled | `run / review=workflow:main::judge / #1` | Rule 2, or refused |
 
-A study's workspaces are not registered with the monitor; the row above is
-for an author who uses the flag by hand.
+A key that ends in a generated ordinal is admitted for that candidate. It
+moves when an unnamed effect is inserted before it (rule I4 of evaluated
+execution), so a study prefers labelled sites for its stages. In the first
+search space every edit is a literal edit and every map is the identity.
 
-**Why not a journal row.** A `stopped` record would make the reducer accept
-a new kind, so every strict reader changes and an older build answers
-`memo_inconsistent` for the run, as it does for a `rebased` record (Edit And
-Continue §4, "Older builds"). It would put a fact about one invocation into
-the authority for results: the flag is not stored, and the stopped journal
-is today exactly what a kill after that commit leaves, which is what a copy
-relies on. The mark needs none of this: probe S9 computed the plan token of a
-child program with the mark present and with it moved away and got the same
-token, and resumed with the mark present.
+## 4. The copy procedure
 
-**Rejected marks.** A field in `state.json` read back by readers: the view
-would then depend on an earlier view, against "a view is reconstructed from
-the header, the program and the journal". A line in `run.lock`: every writer
-would have to truncate it on acquisition, which touches each lock path.
+This section is a procedure for a search harness. Its code lives with the
+harness; the runtime's part is `resume`, the plan and the flag.
 
-### 3.5 What the stop reason must allow
+### 4.1 Where it applies
 
-How a subscription usage limit appears in a provider attempt is not known
-yet; a recording task of the long-horizon work is finding out. Part 1 does
-not change when it is known, because of four choices:
+The procedure copies a directory on the host: the *evaluation directory*.
+That is the workspace itself when the run root lies inside it (the default
+`.orchestrate/runs/RUN_ID`), or one directory that holds the workspace and
+the run root at fixed relative places, such as `clone/` and `runs/` with
+`--state-dir ../runs` (probe C4).
 
-- a limit is not a requested stop. Exit status 3 and `stop_after_reached`
-  mean that the command line's own stop was reached, and nothing else;
-- `code` in the mark is an open set, and `site` and `identity` may be null.
-  If the runtime ever refuses a call cleanly at a limit, that is one more
-  preflight code with the same mark and the same readers;
-- a call that a limit cuts off is an ordinary failed attempt today: a
-  `failed` row and a failed terminal, exit 1 (probe C10). The harness's
-  stop reason is a record `{reason, code, site, identity, attempt_dir, exit}`
-  whose `reason` is an open set: `boundary`, `completed`, `cap`, `failed`,
-  `waiting`, `refused`, with `paused` reserved. A classifier that the study
-  supplies turns a `failed` reason and its attempt's evidence into `paused`
-  once the recorded form of a limit exists; until then every provider
-  failure pauses the study for a ruling;
-- a pause is the absence of the next invocation. It is not a flag and not a
-  journal row.
+**It does not reach a container task's workspace.** On the long-horizon
+tasks the agent runs inside the task's container and nothing is mounted
+([long-horizon plan](../plans/2026-11-13-long-horizon-task-family-and-seed-plan.md),
+D2). A copy of a host directory then holds the run root and not the agent's
+work. Where a staged seed's workspace lives when it drives such a task is
+decided by the design of the comparison step (roadmap Phase 5b, step 9). The
+procedure needs one of two things from that design:
 
-## 4. The harness procedure: stop, copy, continue either
+- the workspace reachable from the host as a directory, mounted at one fixed
+  path in every container, with what a step writes outside it either
+  refused or accepted as not copied; or
+- the container route of Part 2 ([§7](#7-the-container-route)), a commit of
+  the container at the stop.
 
-### 4.1 The procedure
+Until then a study on those tasks has stops and resumes and no copies.
 
-The unit that is copied is the *evaluation directory*: the workspace itself
-when the run root lies inside it (the default `.orchestrate/runs/RUN_ID`),
-or one directory that holds the workspace and the run root at fixed relative
-places, such as `clone/` and `runs/` with `--state-dir ../runs` (probe C4).
-The second layout keeps the driver's placement of run records outside the
-clone.
+### 4.2 The procedure
 
-1. **Advance** the candidate with `--stop-after` for the stage's keys. Exit
-   status 3 and a valid mark mean the stage is reached.
-2. **Check** that the run is stopped and the workspace quiet
-   ([§4.2](#42-when-a-copy-at-a-stop-is-valid), [§4.3](#43-quiet)).
+1. **Advance** the candidate with `--stop-after` for the stage's key. Exit
+   status 3 means the stage is reached.
+2. **End what the steps left** ([§4.4](#44-ending-what-the-steps-left)) and
+   check the preconditions ([§4.3](#43-preconditions)).
 3. **Copy** with `cp -a` to a temporary name beside the destination, then
    rename. The destination must not exist.
-4. **Check the copy** ([§4.4](#44-the-parents-path)) and **log** it outside
-   every workspace ([§4.5](#45-one-run-id-several-roots)).
+4. **Log** the copy outside every workspace
+   ([§4.5](#45-one-run-id-several-roots)).
 5. **Continue either.** The original continues with plain `resume`. A copy
    continues under the same program with plain `resume`, or under a child
    program: the harness writes the child's program files into the copy,
    reads the plan (`rebase.plan_resume`), accepts it when it cancels nothing
    and runs `resume --accept-changes=plan-<token>`.
 
-A copy that is kept untouched is a fork point for as long as it exists: a
-copy of it is as valid tomorrow as at the stop. The harness keeps one
-untouched copy per candidate and stage that a later child or a clean retry
-may start from, and works in copies of it.
+A copy that is kept untouched is a fork point for as long as it exists. The
+harness keeps one untouched copy per candidate and stage that a later child
+or a clean retry may start from, and works in copies of it. A completed run
+is copied the same way, for a child that appends a step (probe C5).
 
-### 4.2 When a copy at a stop is valid
+`cp -a` is the copier. The repository has another,
+`orchestrator/workflow/run_ref/checkpoint.py`, a descriptor-pinned copier
+with a tree manifest for confined run-reference workspaces. It is not reused:
+it leaves out `.git` and `.orchestrate` at the root, which are the task
+repository and the run root that a copy here must carry, and it is bounded
+and coded for that confinement profile.
+
+### 4.3 Preconditions
 
 The harness refuses a copy, or the continuation of one, with these codes.
 Each is a row of its log.
@@ -327,8 +344,8 @@ Each is a row of its log.
 | Condition | Code |
 | --- | --- |
 | A writer holds `run.lock`, or the journal has a pending start or an unsettled coordinator | `copy_not_stopped` |
-| The workspace is not quiet (§4.3) | `copy_unquiet` |
-| The parent's absolute path occurs in the copy's header or journal, or a link in the workspace points into the parent by absolute path (§4.4) | `copy_names_parent_path` |
+| A process the steps left could not be ended, or the tree still changes afterwards (§4.4) | `copy_unquiet` |
+| The copy does not see the workspace at the parent's absolute path, and its header or journal, or a link in the workspace, names that path | `copy_names_parent_path` |
 | The source, a manifest or the input file of the header's recipe lies outside the copied directory, so its locator is absolute | `copy_program_outside` |
 | The program of the source run, or the program that is to continue in a copy, holds a run reference | `copy_run_ref_unsupported` |
 | The same, a host request | `copy_host_request_unsupported` |
@@ -337,97 +354,98 @@ Each is a row of its log.
 | A child program's plan in the copy has a cut or does not keep every commit | `copy_plan_cancels` |
 | The destination exists | `copy_destination_exists` |
 
-- The class checks read the whole program, not the prefix: the site table
-  of each program (`machine.site_classes`) holds `command` and `provider`
-  sites alone. E10 and E11 show the prefix cases; the suffix cases are read,
-  not probed (§4.5).
-- A candidate that fails a class check still gets the stop and the resume.
-  It gets no copy, and under an edit it reuses nothing
-  (`invalidate_coordinator_committed`; the mutant plan's P10). The seed
-  `roles.orc` is such a candidate: its first binding is an `agent` form.
-- A copy is made on the machine and by the user that ran the parent: the
-  header pins interpreters by absolute path.
-- State outside the copied directory is shared, not copied: an environment
-  a step installs into, files under the home directory, remote services.
-- A copy made with `cp -a` carries what the next step can observe in the
-  directory: content, every mode bit, modification times, link targets and
-  hard links within the copy, empty directories, named pipes and nested
-  repositories (probe C1). It does not carry inode numbers or change times.
+**The path.** A copy is supported where the parent and the copy see the
+workspace at the same absolute path, as two containers do. Elsewhere it is
+refused with `copy_names_parent_path` when the parent's path occurs in the
+copy's `run.json` or `memo.jsonl`, as given or as resolved, or a link in the
+workspace has an absolute target under it. The hazard behind the rule (probe
+C6): a provider step returned `<workspace>/notes.txt` and a command appended
+to the file it named; the copy's run then wrote `notes.txt` into the parent,
+and the copy had no such file. Nothing is rewritten, since the journal's
+bytes are covered by its digests. The search does not read file content in
+the workspace, so a virtual environment or a build cache that embeds its own
+path is the same hazard and is not seen. On the host the refusal is expected
+to meet most runs of a real agent, whose file tools take absolute paths and
+whose free text feeds later prompts; no provider was called to observe it. The seed's scripted runs also bind the
+repository's absolute path as the `repo` input, which puts it in the header.
 
-### 4.3 Quiet
+**The classes.** The class checks read the whole program, not the prefix:
+the site table of each program holds `command` and `provider` sites and no
+other. E10 and E11 show the prefix cases; the suffix cases are read, not
+probed. A candidate that fails a class check still gets the stop and the
+resume. It gets no copy, and under an edit it reuses nothing
+(`invalidate_coordinator_committed`; the mutant plan's P10). The seed
+`roles.orc` is such a candidate.
 
-A stop makes the journal quiet, not the workspace: a committed step can
-leave a writer behind (probe C7). Before it copies, the harness checks:
+**What else holds for a copy.** It is made on the machine and by the user
+that ran the parent, since the header pins interpreters by absolute path.
+State outside the copied directory is shared, not copied: an environment a
+step installs into, files under the home directory, remote services. `cp -a`
+carries what a step can observe in the directory: content, every mode bit,
+modification times, link targets and hard links within the copy, empty
+directories, named pipes and nested repositories (probe C1). It does not
+carry inode numbers or change times.
 
-1. no process of this user has its working directory inside the copied
-   directory. Directories are compared by device and inode, climbing from the
-   process's working directory, because under a mount namespace the spelling
-   differs (probe C6);
-2. two walks of the directory taken at least one second apart agree on every
-   path, type, size and modification time;
-3. after the copy, a third walk of the source agrees with the second, and
-   the copy's walk agrees with it.
+### 4.4 Ending what the steps left
 
-The runtime's `attempt_processes.run_process_alive(run_id)` is not used
-alone: it is true while any root with the same run id has a live attempt
-(probe C8).
+A stop makes the journal quiet, not the workspace, and a copy does not carry
+processes: a parent that keeps a writer and a copy that has none diverge
+whatever the tree looked like at the copy. So quiet is enforced, not
+observed. **At every stop, before a copy and before either side continues,
+the harness ends every process the run's steps left.**
 
-When a check fails the harness waits and repeats it, for at most a bound the
-study fixes. A stop that stays unquiet is not a copy point: the candidate
-may continue in place, no sibling starts from that stop, and the candidate's
-last earlier copy stays its retry point. Where the study's design needs a
-copy at that stage, the candidate is an incident there: it is not weak and
-it is not scored.
+**How they are found.** The harness starts each invocation as the leader of
+a new session, with a variable in its environment that names the root. After
+the invocation exits it kills every process in that session and process
+group, and every process of the user whose environment carries the variable.
+For a container task it ends every process of the task container but its
+first, or stops the container. What the runtime does on its own, and what
+the two searches find (probe C7):
 
-### 4.4 The parent's path
+| Leftover | The runtime | Found by session or group | Found by the variable |
+| --- | --- | --- | --- |
+| A child that a provider step leaves in the step's own process group | The attempt fails: `provider_exit_nonzero`, error `provider_process_cleanup_failed` | | |
+| A child that a command step leaves | The step commits | Yes | Yes |
+| A daemon left by either kind of step: its own session, working directory `/`, writing into the workspace by absolute path | The step commits | No | Yes |
 
-**Hazard (probe C6).** A committed value can hold the parent workspace's
-absolute path. A later step that uses the value then acts on the parent's
-files from inside the copy. In the probe a provider step returned
-`<workspace>/notes.txt` and a command appended to the file it named: the
-copy's run wrote `notes.txt` into the parent, and the copy had no such file.
+In the probe a search by working directory found the command's child and
+neither daemon; the variable found all of them; after the kill two walks of
+the tree one second apart agreed, and agreed again two seconds later; the
+run then resumed and completed.
 
-**Refused.** Before anything continues in a copy, the harness searches the
-copy's `run.json` and `memo.jsonl` for the parent directory's absolute path,
-as given and as resolved, and walks the workspace for links with an absolute
-target under it. A hit is `copy_names_parent_path`. Nothing is rewritten:
-the journal's bytes are covered by its digests. The search does not cover
-file content in the workspace; a virtual environment or a build cache that
-embeds its own absolute path is the same hazard and is not seen.
+**Then the harness walks the tree** twice, at least one second apart, and
+once more after the copy. The walks confirm that the kill worked. A
+difference is `copy_unquiet`: no copy is made at that stop.
 
-**How the harness avoids the refusal: one fixed path.** Each candidate runs
-with its evaluation directory bound at one path, the same for every
-candidate, through a mount namespace (`bwrap --bind <directory> <fixed
-path>`). Values, caches and environments then hold the fixed path, which in
-each namespace is that candidate's own directory. In the probe the parent's
-value was `<fixed path>/notes.txt`, the search of the copy found nothing,
-the copy's run wrote into the copy, and the parent later wrote into itself.
-This is hygiene, not isolation: the real directories stay reachable to a
-process that looks for them.
+**Not found:** a process that left the session and scrubbed its environment,
+and work handed to a service that was already running, which is the limit
+`specs/state.md` states for the `closure` proof. Rootless container
+processes run under subordinate user ids and are ended through the
+container.
 
-**The seed.** Its scripted runs bind the repository's absolute path as the
-`repo` input, so the header holds it and a copy at another path is refused.
-`repo` becomes `.` or is dropped, and the harness places the program, the manifests
-and the inputs inside the workspace.
+**What is lost.** A background server or watcher that a later step expected
+is gone after the first stop. A program whose later steps depend on a
+process an earlier step left running is not copyable, and under this
+procedure it is not stoppable either: a study runs it whole.
+
+The parent's leftovers are ended before the copy and a copy starts with
+none, so both sides continue from the same state.
 
 ### 4.5 One run id, several roots
 
 A copy keeps the parent's run id and header, byte for byte. A new id is not
-an option today: the independent review rewrote the id of a fork and found
-that the first provider step diverges (`input parts changed: ['prompt']`),
-because the rendered prompt carries the result path and the result path
-carries the run id. A new id would need a change to the input identity of
-provider steps. Programs can also read the run id (X1, X4), and a host
-request id binds it (E16).
+an option today: with the id of a fork rewritten, the first provider step
+diverges (`input parts changed: ['prompt']`), because the rendered prompt
+carries the result path and the result path carries the run id (review
+probe, §14). Programs can also read the run id (X1, X4), and a host request
+id binds it (E16).
 
-What the shared id does, and what the harness does about it:
-
-| Effect | Evidence | The harness |
+| Effect of the shared id | Evidence | The harness |
 | --- | --- | --- |
-| A root's identity by location is not durable: a workspace is moved or deleted after scoring | Read | Gives each copy a **copy id** and logs, outside every workspace: copy id, evaluation id, the parent's copy id and path, the run id, the cut (the journal's byte length at the copy), the digest of those bytes, the stage. The log is the lineage record and the accounting authority; the driver's join key for a copied run is the copy id |
-| The plan tokens of two siblings are equal | E4 and the review: the token binds the run id, the journal and the programs, which siblings share | Reads the plan in the root it accepts in. A token is not a root's name |
-| The runtime's liveness check counts every root with the id. A command that fails while a sibling's step is alive records `closure: changed` where a lone run records `unchanged`, and a later in-place `resume` is refused where the lone run retries | Probe C8. The direction is safe: a refusal, not a wrong reuse | Does not retry a failed candidate in place. It continues from the candidate's kept copy, which needs no `closure` proof. Its own quiet check is scoped to the directory |
-| A run reference derives its child's run id from the parent's, under one absolute root shared by every copy; a host request id binds the run id; an agent binding holds it | Read, not probed: whether two siblings collide on disk | Refuses those classes and parallel maps in the whole program (§4.2) |
+| A root's identity by location is not durable: a workspace is moved or deleted after scoring | Read | Gives each copy a **copy id** and logs, outside every workspace: copy id, evaluation id, the candidate program's digest, the parent's copy id and path, the run id, the cut (the journal's byte length at the copy), the digest of those bytes, the stage. The log is the lineage record and the accounting authority; the driver's join key for a copied run is the copy id |
+| The plan tokens of two siblings are equal | E4: the token binds the run id, the journal and the programs, which siblings share | Reads the plan in the root it accepts in. A token is not a root's name |
+| The runtime's liveness check counts every root with the id. A command that fails while a sibling's step is alive records `closure: changed` where a lone run records `unchanged`, and a later in-place `resume` is refused where the lone run retries | Probe C8. The direction is safe: a refusal, not a wrong reuse | Does not retry a failed candidate in place. It continues from the candidate's kept copy, which needs no `closure` proof |
+| A run reference derives its child's run id from the parent's, under one absolute root shared by every copy; a host request id binds the run id; an agent binding holds it | Read, not probed: whether two siblings collide on disk | Refuses those classes and parallel maps in the whole program (§4.3) |
 | Attempt directories have the same run-relative paths in every copy | Read | Reads attempts through the copy's own root and the logged cut |
 
 ### 4.6 The controller
@@ -436,20 +454,20 @@ The loop over candidates and the rule that stops the weak live in the search
 harness. The runtime knows sites and invocation limits; it does not know
 candidates, scores or selection (boundary invariant 3).
 
-- **Advancing.** One invocation per stage with the stage's keys. The harness
-  reads the outcome from the exit status, the mark and the journal.
+- **Advancing.** One invocation per stage with the stage's key. The harness
+  reads the outcome from the exit status and the journal.
 - **How "weak" is decided.** The rule is an input of the study. Its unit is
   the candidate over its whole matched task set at the stage, not a run: a
   candidate stopped on some tasks and kept on others would have a mean over
   the tasks it survived. The rule is applied when every run of the candidate
   set has reached the stage or has failed. An observation is a run's
-  committed typed values at the stage, its cost so far and its stop reason,
-  read from the view. No rule ships; the default keeps every candidate. A
-  rule may be used when the stage-signal readout of roadmap Phase 5b (step
-  9) shows that the signal predicts the end, with its threshold frozen in
-  the study's criterion before spend. A stopped candidate has no
-  whole-program result: it leaves the comparison, is not scored zero, and
-  its spend stays in the search cost.
+  committed typed values at the stage, its cost so far and how its
+  invocation ended, read from the view. No rule ships; the default keeps
+  every candidate. A rule may be used when the stage-signal readout of
+  roadmap Phase 5b (step 9) shows that the signal predicts the end, with its
+  threshold frozen in the study's criterion before spend. A stopped
+  candidate has no whole-program result: it leaves the comparison, is not
+  scored zero, and its spend stays in the search cost.
 - **An invocation's cap.** The spend cap counts every attempt directory
   under the run root at its own conservative price, so in a copy it counts
   the inherited calls, at about five times `report`'s figure for
@@ -469,61 +487,67 @@ candidates, scores or selection (boundary invariant 3).
   waits is not weak for that reason.
 - **A call that is cut off.** The attempt fails, its partial files stay, and
   a capped resume in place is refused (E14). The harness copies the
-  candidate's kept copy and continues there under the same program (probe
-  C10: each remaining step dispatched once, no partial file). The new root
-  carries the same evaluation id: it continues the evaluation and is not a
-  replicate. The abandoned root is kept as the incident's evidence, and its
-  cut-off attempt is search cost. Whether a study may instead retry in place
-  without a cap, in the dirty workspace, is a choice of its plan; this
-  design recommends against it.
+  evaluation's own kept copy and continues there under the same program
+  (probe C10: each remaining step dispatched once, no partial file). That is
+  the same evaluation: it keeps its evaluation id and is not a replicate.
+  The abandoned root is kept as the incident's evidence, and its cut-off
+  attempt is search cost.
 
-### 4.7 The cost rule
+### 4.7 The cost rule and the evidence tag
 
-- **Own attempts** of a root are those whose `started` record lies at or
-  after the cut that the harness logged for it outside the workspace, or all
-  of them for a root that is not a copy. The cut is not read from a file in
-  the run root, which an agent can edit.
-- **Search cost** is the sum of own attempts over every run root of the
-  study: failed, cut-off and abandoned ones included.
-- **No figure is the sum of `report` over several roots.** `report` counts
-  every attempt directory of one root, so a parent and two copies report
-  nine attempts for five dispatched calls (review probe).
-- **A copied or forked run yields a deployed-cost estimate,** inherited plus
-  own, which is what `report` prints for it. The estimate is valid when the
-  root's journal has no cancelled commit and no failed or cut-off attempt.
-  It is tagged `inherited` (the amendment of §10), grouped by prefix digest,
-  and read as differences among siblings.
-- **Finalist selection and promotion use independent whole runs,** whose
-  cost is `report`'s total. A copied or forked run is not such evidence
-  ([§10](#10-contracts-to-amend), the amendment).
-- Runs that share a prefix digest are one observation of that prefix
-  (roadmap, H-E2: comparisons are reported over several independent parent
-  prefixes).
+**Cost.**
+
+- *Own attempts* of a root are those whose `started` record lies at or after
+  the cut that the harness logged for it outside the workspace, or all of
+  them for a root that is not a copy. The cut is not read from a file in the
+  run root, which an agent can edit.
+- *Search cost* is the sum of own attempts over every run root of the study,
+  failed, cut-off and abandoned ones included. It is priced as deployed cost
+  is: metered tokens times the study's frozen price table
+  ([driver](orc_structural_search_driver.md#objective-selection-and-local-observations)),
+  which is `report`'s pricing and not the spend cap's figure.
+- *No figure is the sum of `report` over several roots.* `report` counts
+  every attempt directory of one root. In probe C3 the copy's `report` counts
+  three attempts and the parent, continued, holds three as well, for four
+  calls dispatched in all.
+- *Deployed cost* of an execution is `report`'s total for its root, valid
+  when the root's journal has no cancelled commit and no failed or cut-off
+  attempt.
+
+**The tag.** Every evaluation row carries one, from its lineage record.
+
+| Execution | Tag | Use |
+| --- | --- | --- |
+| A run from its first step, not a copy | `whole` | Every readout |
+| A continuation of a copy of the same evaluation's own earlier state, under the same program and the same evaluation id, after an incident, with the abandoned root kept as the incident's evidence | `whole` | Every readout. Its deployed cost is `report`'s total for the root it finished in; the incident's attempts are search cost |
+| A continuation of a copy under a different candidate program, or under a different evaluation id. A copy of a completed run that a child continues is one | `inherited` | Search guidance. Its cost is an estimate, inherited plus own, read as differences among siblings and grouped by prefix digest |
+
+No readout that selects uses an `inherited` execution: the frontier
+computation, finalist selection and promotion each refuse an `inherited`
+row, and a row without a lineage record, and do not skip it silently
+([§10](#10-contracts-to-amend-when-part-1-is-built), the amendment).
+Executions that share a prefix digest are one observation of that prefix
+(roadmap, H-E2: comparisons are reported over several independent parent
+prefixes).
 
 ## 5. Acceptance of Part 1
 
 Through the public command line with stand-ins, each run built live at
 target 2.40, with no recorded journal fixture.
 
-| Requirement | Measure |
-| --- | --- |
-| A stopped candidate resumes with no step dispatched twice (R1) | Three candidates advanced to a stage; one dropped by a rule the test supplies; the others advanced to the end. Every identity has one `started` record and the dispatch log one line per step |
-| The copy reproduces the parent's workspace at the stop (R1, at stage boundaries) | A walk of type, mode, modification time, link count, content and link target, in the stopped parent and in the copy, is equal; the workspace holds tracked, untracked and ignored files, a private file, a read-only file, a hard link pair, a link, an empty directory and a commit made by a step |
-| The cost of a child equals its changed suffix (R1) | The child dispatches exactly the effects its plan lists; its own attempts by the logged cut are those dispatches; no prefix identity has a new attempt; the parent's journal is unchanged and the parent then completes |
-| Sites | A loop key with `[*]`; a key of an agent turn; a host request after the boundary; a parallel map; an unknown key refused with exit 2 and no run root, and under `--accept-changes=TOKEN` with no artifact and no record written |
-| Readers | For a run stopped by the flag and for one stopped by the cap: the view, `report` and the dashboard record say `stopped` and the monitor emits no event; with a stale mark, after a kill and with no mark they say what they say today |
-| The mark is not authority | The plan token and the outcome of `resume` are the same with the mark, without it and with a damaged one |
-| Hazards | Each code of §4.2 on a fixture that triggers it, including the value that names the parent and the writer left behind |
-| Unchanged behavior | The spend-cap, edited-program resume and kill suites pass unchanged except where they assert `interrupted` for a capped run; a run without the flag writes the same bytes as before |
-
-The tests of the flag, the mark and the readers belong to the default suite.
-The test of the procedure plays the harness with `cp -a` and the command
-line and imports no harness code.
+| Requirement | Measure | Where |
+| --- | --- | --- |
+| A stopped candidate resumes with no step dispatched twice (R1) | Three runs advanced to a site; one left there; the others advanced to the end. Every identity has one `started` record and the dispatch log one line per step | Default suite |
+| Sites | A loop key with `[*]`; a key of an agent turn; a host request after the boundary; a parallel map; an unknown key refused with exit 2 and no run root, and under `--accept-changes=TOKEN` with no artifact and no record written | Default suite |
+| Exit status and predicate | Status 3 for a requested stop and for nothing else; the predicate of §3.3 true at the site and false after a kill mid-step, for a completed run and for another site | Default suite |
+| A copy at a stop continues (R1, on a host directory) | The run stopped by the flag, the directory copied with `cp -a`: a walk of type, mode, modification time, link count, content and link target is equal; a child program's plan in the copy cancels nothing; the child dispatches exactly the effects its plan lists; no prefix identity has a new attempt; the parent's journal is unchanged and the parent then completes | Default suite; the test plays the harness with `cp -a` and the command line and imports no harness code |
+| The cost of a child equals its changed suffix (R1) | The child's own attempts by the journal length at the copy are its dispatches | The same test |
+| The procedure's refusals | Each code of §4.3 on a fixture that triggers it, the value that names the parent and the processes of §4.4 included | The harness's own tests, beside its code |
+| Unchanged behavior | The spend-cap, edited-program resume, kill and reader suites pass unchanged; a run without the flag writes the same bytes as before | Default suite |
 
 ## Part 2: designed, deferred
 
-Sections 6 to 9. Part 2 keeps Part 1's flag, mark, log and cost rule. It
-replaces the whole copy by a stored snapshot where that pays.
+Sections 6 to 9. Part 2 keeps Part 1's flag, log, cost rule and tag.
 
 ## 6. A snapshot store and a fork at an earlier step
 
@@ -535,14 +559,12 @@ the journal with the runtime's readers and is not imported by the runtime.
 
 A checkpoint is a cut together with a snapshot taken there. A cut can lie
 after the last commit of a completed run, before its terminal: a child that
-appends a step forks there (review probe; probe C5 does the same with a
-copy). `advance` drives a run one commit at a time (`--stop-after` for every
-site of the program), and after each invocation that ended at a cut with the
-workspace quiet (§4.3) it stores a snapshot and logs the row (cut, snapshot
-id) outside the workspace, with a copy of the row in `checkpoints.jsonl` in
-the run root as evidence. The runtime does not read that file (review probe:
-garbage in it and its absence both resume). No row is written after a failed
-or interrupted attempt.
+appends a step forks there. `advance` drives a run one commit at a time
+(`--stop-after` for every site of the program), and after each invocation
+that ended at a cut, with the leftovers of §4.4 ended, it stores a snapshot
+and logs the row (cut, snapshot id) outside the workspace, with a copy of
+the row in `checkpoints.jsonl` in the run root as evidence. The runtime does
+not read that file. No row is written after a failed or interrupted attempt.
 
 ### 6.2 What a snapshot must keep
 
@@ -551,8 +573,8 @@ The contract is what the next step can observe, not bytes alone:
 | Property | Why a step sees it | Whole copy (`cp -a`) | Git store |
 | --- | --- | --- | --- |
 | Paths, file content, link targets, empty directories, ignored and untracked files | Directly | Kept | Kept: two trees (the work tree without `.git` and `.orchestrate`; the `.git` directory as plain files) and a list of empty directories |
-| Every permission bit | A private key that becomes group-readable; a read-only file that becomes writable | Kept | The executable bit alone; a manifest blob (path, mode) applied at restore keeps the rest |
-| Modification-time order | A build tool compares times: in the review's probe `make` rebuilt a target in the parent and called it up to date in the restore, because files are written in path order | Kept | Not kept by git; the manifest carries the time in nanoseconds and restore applies it |
+| Every permission bit | A private key that becomes group-readable; a read-only file that becomes writable | Kept | The executable bit and no other; a manifest blob (path, mode) applied at restore keeps the rest |
+| Modification-time order | A build tool compares times: `make` rebuilt a target in the parent and called it up to date in the restore, because files are written in path order | Kept | Not kept by git; the manifest carries the time in nanoseconds and restore applies it |
 | Hard links | Two names of one file diverge after restore | Kept within the copy | Not kept; a workspace with a hard link pair is refused |
 | Named pipes, sockets, devices | A step opens them | Kept by `cp -a` for pipes | Not stored by git; refused |
 | A nested repository, and any other entry named `.git` | The agent's own repository inside the task | Kept | A nested repository is stored as a link without content; a file or directory named `.git` elsewhere is left out without an error; refused |
@@ -562,8 +584,7 @@ So the git store serves a workspace of regular files, links and directories,
 and a whole copy is required for everything the table marks refused. The
 harness falls back to Part 1's copy for a stop the store refuses.
 
-**Silent losses, and what closes each** (review probes at `a9f9e410`; this
-revision did not rerun them):
+**Silent losses, and what closes each:**
 
 | Loss | Handling |
 | --- | --- |
@@ -572,11 +593,13 @@ revision did not rerun them):
 | An entry named `.git`, a pipe, a nested repository: dropped or reduced without an error | One completeness check at snapshot time: the path set of the two trees, the empty directories and the manifest equals the path set of a walk. A difference is `snapshot_incomplete`: the step has no checkpoint |
 | An unreadable file, or a nested repository without a commit: `git add` fails | `snapshot_failed` with git's message: the step has no checkpoint. It is not a crash of `advance` |
 
+The second, third and fourth rows, the `make` case and the hard links rest
+on the independent review's probes (§14).
+
 Other rules of the store: one index file per workspace, since two workspaces
-that snapshot into one store through one index fail on git's index lock
-(review probe); git 2.40 or later, for `--attr-source`; the store lies
-outside every workspace, so an agent does not see snapshots of its future or
-of its siblings.
+that snapshot into one store through one index fail on git's index lock; git
+2.40 or later, for `--attr-source`; the store lies outside every workspace,
+so an agent does not see snapshots of its future or of its siblings.
 
 **Cost,** on a 250 MB clone of this repository (4,691 work-tree files), same
 ext4 disk (probe F5):
@@ -594,11 +617,11 @@ ext4 disk (probe F5):
 **Disk is bound by workspaces, not by the store.** A restored fork is a full
 copy, as a Part 1 copy is. With 56 GB free and a floor of 20 GB, 36 GB hold
 about 144 workspaces of that clone; the 27-point tree needs up to 39 per
-task and prefix. The floor applies to a restore and to a copy, not only to a
-snapshot. A finished candidate's workspace is deleted once its final result
-and its cost rows are in the log, keeping its run root; a kept copy is
-deleted once every child planned from it has started and its own successor
-copy exists.
+task and prefix. The floor applies to a restore and to a copy as well as to
+a snapshot. A finished candidate's workspace is deleted once its final
+result and its cost rows are in the log, keeping its run root; a kept copy
+is deleted once every child planned from it has started and its own
+successor copy exists.
 
 ### 6.3 `fork_run`
 
@@ -607,19 +630,20 @@ snapshot into a new directory and copies the run root cut at that byte: the
 header, the program artifacts the prefix names, the journal bytes before the
 cut, and the attempt directory of each `started` record of the prefix. It
 reads bytes that do not change once written, takes no lock, and builds under
-a temporary name. The review forked while the parent was running past the
-cut, forked a fork, and ran two forks beside their parent.
+a temporary name. A fork made while the parent was running past the cut, a
+fork of a fork, and two forks running beside their parent all worked (review
+probes, §14).
 
-A fork is continued as a copy is (§4.1, step 5). The fork point for a child
+A fork is continued as a copy is (§4.2, step 5). The fork point for a child
 is found in the fork: fork at the latest checkpoint, read the plan there,
 and when it has a cut, discard the fork and fork again at the last
 checkpoint before the cut.
 
-Everything of §4 applies to a fork: the quiet check before a snapshot, the
-search for the parent's path, the class checks on the whole program, the
-cost rule. A fork has a copy id as a copy has; it is recorded in the search
-log and in the first row of the fork's `checkpoints.jsonl`, with the cut,
-the prefix digest and the snapshot id. `fork_run` adds these refusals:
+Everything of §4 applies to a fork: the preconditions, the ending of
+leftovers before a snapshot, the class checks on the whole program, the cost
+rule and the tag. A fork has a copy id as a copy has; it is recorded in the
+search log and in the first row of the fork's `checkpoints.jsonl`, with the
+cut, the prefix digest and the snapshot id. `fork_run` adds these refusals:
 
 | Condition | Code |
 | --- | --- |
@@ -632,9 +656,6 @@ the prefix digest and the snapshot id. `fork_run` adds these refusals:
 
 ## 7. The container route
 
-A long-horizon task runs in a task container under rootless Podman through
-the Harbor harness, with the agent inside it
-([long-horizon plan](../plans/2026-11-13-long-horizon-task-family-and-seed-plan.md), D2).
 Measured with Podman 4.9.3, rootless, overlay storage, on a local 8 MB image
 (probe F8):
 
@@ -654,19 +675,38 @@ Measured with Podman 4.9.3, rootless, overlay storage, on a local 8 MB image
   container requires root". `podman commit` pauses the container when
   `--pause` is given (its manual page: the default is false).
 - A path inside a container is the same in every container, which is the
-  fixed path of §4.4 by construction.
+  same-path precondition of §4.3 by construction.
 - Open prerequisites: how a workflow's steps run inside a task container
-  (long-horizon plan, step 9); a fresh network sidecar and relay for a
-  forked container (the launcher of its step 5).
+  (roadmap Phase 5b, step 9); a fresh network sidecar and relay for a forked
+  container (the launcher of the long-horizon plan's step 5).
 
-## 8. The pause at a usage limit
+## 8. The pause at a usage limit, and two options
 
-The harness's classifier of §3.5 gains its rule when the long-horizon
-recordings show the form of a limit: which exit status, stream fields or
-passthrough log lines mark an attempt as cut by a limit and when the limit
-resets. The harness then stops launching until the reset and continues each
-cut candidate from its kept copy or checkpoint (§4.6). Nothing in the flag,
-the mark or the procedure changes.
+**The pause.** How a subscription usage limit appears in a provider attempt
+is not recorded yet. A call that a limit cuts off is an ordinary failed
+attempt today: a `failed` row and a failed terminal, exit 1 (probe C10).
+Part 1 does not change when the form is known: exit status 3 means the
+command line's own stop and nothing else, and a pause is the absence of the
+next invocation, not a flag and not a journal row. Part 2 adds, in the
+harness:
+
+- a stop-reason record `{reason, code, site, identity, attempt_dir, exit}`
+  whose `reason` is an open set: `boundary`, `completed`, `cap`, `failed`,
+  `waiting`, `refused`, with `paused` reserved;
+- a classifier, supplied by the study, that turns a `failed` reason and its
+  attempt's evidence into `paused` once the recorded form of a limit exists.
+  Until then every provider failure pauses the study for a ruling;
+- the wait until the limit resets, and the continuation of each cut
+  evaluation from its kept copy (§4.6).
+
+**A durable mark for readers.** If Part 2 adds a mark that lets `report` and
+the monitor show a requested stop as such, it is written at the end of the
+invocation, after the last append, and it is valid when nothing is pending.
+
+**Copies on the host without a refusal.** A harness can keep one path per
+lineage tree and rename copies into and out of it, running the siblings of a
+tree in turn; a stopped candidate holds no process, and the route needs no
+privilege.
 
 ## 9. What brings Part 2 forward
 
@@ -674,37 +714,37 @@ the mark or the procedure changes.
 | --- | --- |
 | A fork point is needed after the fact: a child whose first changed step lies before its parent's latest kept copy, in a space where the mutant plan's T3 measures a saving in priced tokens that a study states as worth the work | §6: per-step checkpoints and `fork_run` |
 | Whole copies cost too much disk or time: the kept copies of a study exceed the disk budget of §6.2, or a copy takes longer than a stage's start-up budget | §6: the store shares blocks between snapshots; forks are still full copies |
-| A measured saving: T3's figures for the space being searched, times the number of evaluations, exceed the copy-at-stage tree's by the margin the study's plan sets | §6 |
-| The long-horizon launcher exists and step 9's design is accepted | §7 |
-| The recordings show a limit's form | §8 |
+| A measured saving: T3's figures for the space being searched, times the number of evaluations, exceed what copies at stages save by the margin the study's plan sets | §6 |
+| The comparison step's design puts the workspace in the container, and the long-horizon launcher exists | §7 |
+| The recordings show a limit's form | §8, the pause |
+| A study on the host needs copies of real agent runs | §8, the renamed path |
 
-For the first space the saving of a fork at an earlier step over nothing is
-fixed: 72 planner calls and 18 first coder calls of the 27-point grid, 90 in
-all. With one round and M milestones a run makes 4 + 2M provider calls, so
-the share is 90 / (27 × (4 + 2M)): 42 percent at M = 2 (the measured
-stand-in run of eight calls), 28 percent at M = 4, 17 percent at M = 8, and
-less with a second round. Copies at the stages after the planner's last call
-and after the coder's first call give the same tree.
+For the first space the saving of sharing prefixes is fixed: 72 planner
+calls and 18 first coder calls of the 27-point grid, 90 in all. With one
+round and M milestones a run makes 4 + 2M provider calls, so the share is
+90 / (27 × (4 + 2M)): 42 percent at M = 2 (the measured stand-in run of
+eight calls), 28 percent at M = 4, 17 percent at M = 8, and less with a
+second round. Whether stops and copies deliver that saving on the first
+study's tasks waits for §4.1's prerequisite.
 
 ## Both parts
 
 Sections 10 to 17.
 
-## 10. Contracts to amend
-
-On acceptance of Part 1:
+## 10. Contracts to amend when Part 1 is built
 
 | Contract | Change |
 | --- | --- |
-| [`specs/cli.md`](../../specs/cli.md) | The flag on `run` and `resume`; exit status 3; `stop_after_reached` and `stop_after_unknown_site` in the diagnostics tables; the unknown-site refusal in the resume preflight (step 7); the parallel-map and host-request rules; `report`'s line for a stopped run; "Spend cap": its refusals write the mark and the run reads `stopped` |
-| [`specs/state.md`](../../specs/state.md) | The run-root table gains `stop.json` (evidence of how the last writer left; not authority). The derived view gains `status: stopped` and the field `stopped`. The `closure` proof says that a live attempt of any run root that carries the same run id counts |
-| [`specs/observability.md`](../../specs/observability.md) | The monitor emits no event for `stopped`; `CRASHED` stays the view's `interrupted` |
-| [Evaluated execution](workflow_lisp_evaluated_execution.md) | §8.1: the stop beside the spend cap, and the liveness sentence above. §10: the view's `stopped` |
-| [Structural search driver](orc_structural_search_driver.md), Execution Contract | "Cross-candidate provider or effect reuse is disabled initially" gains the copy at a stop as the admitted form. "The logged run id and state dir are the join key" gains: for a copied run the copy id. "`resume` … continues the same pinned evaluation after an incident … never as a replicate" gains: so does a continuation from a kept copy, and the abandoned root is kept as the incident's evidence |
+| [`specs/cli.md`](../../specs/cli.md) | The flag on `run` and `resume`; exit status 3; `stop_after_reached` and `stop_after_unknown_site` in the diagnostics tables; the unknown-site refusal after preflight step 7; the parallel-map and host-request rules; one sentence that a run stopped by the flag reads `interrupted` in `report`, as one stopped by the cap does |
+| [Lifecycle guide](../runtime_execution_lifecycle.md) | One section: stopping at a site; the run reads `interrupted`; `resume` continues it |
+| [Evaluated execution](workflow_lisp_evaluated_execution.md) | §8.1: the stop beside the spend cap |
+| [`specs/observability.md`](../../specs/observability.md) | One sentence: a run stopped by an invocation limit has the view's `interrupted` status and is classified `CRASHED` in a registered workspace. No rule changes |
+| [`specs/state.md`](../../specs/state.md) | The `closure` proof says that a live attempt of any run root that carries the same run id counts. No file and no view field is added |
+| [Structural search driver](orc_structural_search_driver.md), Execution Contract | "Cross-candidate provider or effect reuse is disabled initially" gains the copy at a stop as the admitted form. "The logged run id and state dir are the join key" gains: for a copied run the copy id. "`resume` … continues the same pinned evaluation after an incident … never as a replicate" gains: so does a continuation from that evaluation's kept copy, and the abandoned root is kept as the incident's evidence |
 | [Program-search boundaries](workflow_lisp_program_search_boundaries.md), invariant 1 | The text below |
-| [Capability matrix](../capability_status_matrix.md), [lifecycle guide](../runtime_execution_lifecycle.md) | One row; one section on stopping at a site |
+| [Capability matrix](../capability_status_matrix.md) | One row |
 
-On acceptance of Part 2: `specs/state.md` gains `checkpoints.jsonl` in the
+When Part 2 is built, `specs/state.md` gains `checkpoints.jsonl` in the
 run-root table (evidence, not read by the runtime).
 
 **Amendment to boundary invariant 1,** to be applied as written. It replaces
@@ -719,33 +759,41 @@ run … executing code.":
 >   2. as a child where an admitted child route exists;
 >   3. for search, as the continuation of a copy: a copy of a registered
 >      run's workspace and run root, taken while that run is stopped after a
->      committed effect (a whole copy, or a fork restored from a snapshot of
->      that moment), and continued by public `resume` under the candidate
->      program. The candidate program passes the ordinary compiler in
->      `resume`'s fresh build, and each inherited result is reused only where
->      rule C10 of evaluated execution admits it. The continuation does not
->      write the source run's workspace or run root. A copy keeps the
->      source's run id, so its lineage record holds a copy id of its own,
->      the source's copy id and state root, the journal byte length at which
->      the copy was taken, and the digest of the journal bytes before it.
+>      committed effect or is completed (a whole copy, or a fork restored
+>      from a snapshot of that moment), and continued by public `resume`. A
+>      candidate program passes the ordinary compiler in `resume`'s fresh
+>      build, and each inherited result is reused only where rule C10 of
+>      evaluated execution admits it. The continuation does not write the
+>      source run's workspace or run root. A copy keeps the source's run id,
+>      so its lineage record holds a copy id of its own, its evaluation id
+>      and candidate program, the source's copy id and state root, the
+>      journal byte length at which the copy was taken, and the digest of
+>      the journal bytes before it.
 > - A copy imports committed results as data. It imports no program text and
 >   no policy. No `eval`, hot swap, dynamic linking or checkpoint import
 >   turns candidate data into executing code.
-> - An execution whose lineage record holds a source copy, or whose journal
->   holds a `rebased` or `invalidated` record, is search evidence under
->   invariant 4. It does not establish frontier membership, finalist
->   selection or promotion. Every evaluation row carries a tag: `inherited`
->   for such an execution, `whole` for every other. A readout refuses an
->   `inherited` row, and a row without a lineage record, where it selects
->   finalists or promotes, and does not skip it silently. Executions that
->   share a prefix digest count as one observation of that prefix.
+> - An execution is `inherited` when its journal holds results that were
+>   produced under another candidate program or under another evaluation id:
+>   a copy continued under a different candidate program or a different
+>   evaluation id. An `inherited` execution is search evidence under
+>   invariant 4. No readout that selects uses it: the frontier computation,
+>   finalist selection and promotion each refuse an `inherited` row, and a
+>   row without a lineage record, and do not skip it silently.
+> - An execution continued from a copy of its own evaluation's earlier
+>   state, under the same candidate program and the same evaluation id,
+>   after an incident, is `whole`, provided the abandoned root is kept as
+>   the incident's evidence.
+> - Executions that share a prefix digest count as one observation of that
+>   prefix.
 > - The runtime has no path that is specific to a candidate. A limit of one
 >   invocation that any run may use (the spend cap, a stop after a named
 >   effect site) is part of the public `run` and `resume` contract and knows
 >   nothing of candidates, populations or selection.
 
 The last item replaces "The runtime is not changed." The boundaries
-document's change note records the amendment.
+document's change note records the amendment. A run continued in place under
+an accepted edit also holds results produced under another program; by the
+definition above it is `inherited`.
 
 ## 11. Soundness and its limits
 
@@ -753,12 +801,13 @@ document's change note records the amendment.
 one that an uninterrupted run of the child program could have written, with
 the reused effects returning their recorded results: the replay equivalence
 of C10, checked by the unchanged strict replay at acceptance. The workspace
-at the first new effect is the parent's at the stop, in the sense of §4.2
-for a copy and of §6.2 for a fork.
+at the first new effect is the parent's at the stop, in the sense of §4.3
+for a copy and of §6.2 for a fork, with no process left from earlier steps
+on either side.
 
 **What does not.**
 
-- State outside the copied directory is shared (§4.2).
+- State outside the copied directory is shared (§4.3).
 - An effect of the prefix can have read something C5 lists as undeclared
   (clock, network, a file opened by computed name). The copy reuses its
   result as `resume` does.
@@ -768,15 +817,13 @@ for a copy and of §6.2 for a fork.
   root, to its patterns.
 - A stage that lasts longer than the provider's prompt-cache lifetime may
   pay cache-write where an uninterrupted run pays cache-read, which would
-  bias a deployed-cost estimate taken under staged evaluation. This is the
-  review's hypothesis; nothing here tests it.
+  bias a deployed cost taken under staged evaluation. This is a hypothesis;
+  nothing here tests it.
 
 ## 12. What this makes harder
 
-- A stop on request reads as a crash to any reader that does not go through
-  `load_evaluated_view`, and to an older build.
-- `stop.json` is a second file beside the journal that tools may come to
-  trust. It is evidence, valid for one journal length.
+- A stop on request reads as a crash in `report`, the dashboard and the
+  monitor. A harness filters by exit status; an author reads `interrupted`.
 - Several run roots carry one run id. The liveness check is no longer per
   run root; plan tokens do not name a root; a registry or a run-reference
   root keyed by run id would confuse them.
@@ -784,11 +831,12 @@ for a copy and of §6.2 for a fork.
 - Every copy and every restored fork is a full workspace on disk.
 - The program lives in the copied directory, where an agent can read and
   edit it. The harness writes it again before each invocation.
-- Stages are labels. A search space must keep the labels of its stages, and
-  the seed spends two lines on them.
-- A value, a link or a file that holds the workspace's absolute path ends
-  copying for that run unless the fixed path is used, and the fixed path
-  puts the orchestrator inside a mount namespace.
+- A stage is a full site key. A mutation that moves a site must say where it
+  went, and a study keeps its stages on labelled sites.
+- Copies of real agent runs on the host are mostly refused, because values
+  hold the workspace's path. Copies wait for a same-path workspace.
+- Every process a step leaves is ended at every stop. A program that keeps a
+  server between steps cannot be stopped or copied.
 - Every copy shares its ancestors' luck. An analysis that treats siblings as
   independent overstates what it knows.
 - In Part 2: modes and times need a manifest; one `git init` in a
@@ -799,6 +847,9 @@ for a copy and of §6.2 for a fork.
 
 ## 13. Deliberately left out
 
+- A mark, a record or a reader change for a requested stop.
+- Any change to the spend cap.
+- A mount namespace, or any other way to give two host directories one path.
 - Part 2 as a whole, until §9.
 - Copies of candidates with run references, host requests, Agent Sessions or
   parallel maps. They get the stop and the resume.
@@ -807,44 +858,40 @@ for a copy and of §6.2 for a fork.
 - A public `orchestrator copy` or `fork` command.
 - A cache of effect results across runs keyed by input digest.
 - Any stopping rule.
-- A change to the spend cap's exit status.
 
 ## 14. Probes
 
-Stand-ins only; no provider was called. S1 and the F probes ran at
-`b399076b`, S1 again on `main` at `8a61b143`; the other S probes, the C
-probes and L1 ran on `main` at `e0a978ad`. The stop was patched into the
-probe process at the three call sites of §3.1, with the matching rule of
-§3.1; on a stop the probe wrapper wrote `stop.json` and exited 3 (S1 used an
-earlier form of the patch, which stopped after any commit). The reader
-change was patched onto `load_evaluated_view` in the probe process. The
-program under test had four steps (`plan`, a command `built`, `work`,
-`review`; three metered provider stand-ins and one command) in a git
-workspace.
+Stand-ins only; no provider was called. The stop was patched into the probe
+process at the call sites of §3.1 with the matching rule of §3.1, and the
+process exited 3 on a stop. The program under test had four steps (`plan`, a
+command `built`, `work`, `review`; three metered provider stand-ins and one
+command) in a git workspace. S1 and the F probes ran at `b399076b`; S3 to
+S7 and the C probes other than C7 on `main` at `e0a978ad`; S2, S8, K1, K2,
+C7 and the build files of S4 on `main` at `1e090cc8`.
 
 | # | Question | Result |
 | --- | --- | --- |
 | S1 | Does a stopped run resume with no step dispatched twice? | One commit per invocation: four invocations, four dispatches, every one at attempt 1, no journal row for a stop |
-| S2 | Does a named site stop the run there? | `--stop-after 'workflow:main::run / plan'`: the journal holds `plan`'s start and commit; the mark names the site, the identity and 2,235 journal bytes |
+| S2 | Does a named site stop the run there? | `--stop-after 'workflow:main::run / built'`: exit 3; the journal ends with `built`'s commit |
 | S3 | A loop site | Key `workflow:main::run / loop:pads[*] / padded`: the first invocation ends after the commit of `loop:pads[1] / padded`, the second after `loop:pads[2] / padded`, the third completes; no attempt above 1 |
-| S4 | An unknown site | Found against the site table of the built program |
+| S4 | An unknown site, and what a build writes | A misspelt site is found against the site table of the built program. `run --dry-run` leaves `.orchestrate/build/<key>/closed_program.json` and `manifest.json` and no run root |
 | S5 | An agent-turn site | Stop after turn `a1` (allocation, start, commit, `settled`); `resume` runs `a2`; two calls of the stand-in in all |
 | S6 | A host request after the site | With the stop: the commit before the request and nothing else. `resume`: `started`, `suspended`, the `waiting` line, as in a run without the flag |
 | S7 | A parallel map | Five items, `:parallel 2`, every site named: 2, 4 and 5 commits after three invocations, nothing pending at each stop, no attempt above 1 |
-| S8 | What do readers show? | The table of §3.4 |
-| S9 | Does the mark enter a plan or a resume? | The child program's plan token is the same with `stop.json` present and moved away; `resume` with the mark present continues |
+| S8 | Does the journal predicate tell where a run stands? | Requested stop after `built`: true for `built`, false for `work`. Killed in the middle of `work`: false. Completed: false. Stopped by the cap after `built`'s commit: true for `built`, exit 1. `report` of the requested stop: `interrupted`; `state.json`: `running` |
+| K1 | Which edits keep a site key? | The table of §3.4. An effect without an authored label has the key `run / #1` |
+| K2 | The seeds' keys | `milestones`, `staged`, `designed` and `roles` at `c93a6954` compile on `main`; the keys of §3.4; 50, 40, 49 and 50 lines |
 | C1 | What does `cp -a` at a stop carry? | 144 entries, run root included: type, mode, modification time, link count, content and link target all equal; the hard link pair shares an inode; modes 600 and 444; the named pipe; the nested repository without a commit; a file dated 2020. 0.03 s for this small workspace |
 | C2 | Does a child program in the copy reuse the prefix? | Plan: kept three, cancelled none, no cut. One dispatch, `review` at the child's effort, in the copy; the parent's journal unchanged. The parent then resumed and ran its own `review` |
-| C3 | What are the cost figures of the copy? | Own attempts by the cut: one, USD 0.00035. Inherited: two, 0.0007. `report`: three, 0.00105. The cap's figure for the three: 0.00525 |
+| C3 | What are the cost figures of the copy? | Own attempts by the cut: one, USD 0.00035. Inherited: two, 0.0007. `report` of the copy: three, 0.00105. The parent, continued, made three provider attempts too; four calls were dispatched in all. The cap's figure for the copy's three: 0.00525 |
 | C4 | Does the layout with the run root beside the clone copy? | `--state-dir ../runs`, `result_root: ../runs/<id>`; the evaluation directory copied; plan kept three, cancelled none; one dispatch in the copy's clone |
 | C5 | A copy of a completed run, for a child that appends a step | Plan: kept four, cancelled none; the new step dispatched once |
-| C6 | Can a copy write into its parent? | Yes: §4.4. The search of the copy's journal finds the parent's path. Under one fixed path through `bwrap --bind` it finds nothing and the copy writes into itself. A process inside the namespace shows the fixed spelling as its working directory and the real directory's device and inode |
-| C7 | Is a stopped run's workspace quiet? | With a writer left by the committed step: nothing pending in the journal; two walks one second apart differ; one process has its working directory in the workspace. After the writer ended: equal, none |
-| C8 | Do copies of one run affect each other? | A command fails in a copy with no sibling alive: `closure: unchanged`. The same while a sibling's provider step is alive: `closure: changed`; no process has its working directory in the failing copy while `run_process_alive` is true |
+| C6 | Can a copy write into its parent? | Yes: §4.3. The search of the copy's journal finds the parent's path |
+| C7 | What do steps leave, and what finds it? | The table of §4.4. Before the kill two walks one second apart differed; after it they agreed, and again two seconds later; the run resumed and completed |
+| C8 | Do copies of one run affect each other? | A command fails in a copy with no sibling alive: `closure: unchanged`. The same while a sibling's provider step is alive: `closure: changed` |
 | C9 | Which figure does a cap need? | `report` 0.0007, the cap's 0.0035 for two inherited calls. `--max-cost-usd` at `report`'s figure plus 0.0005: `spend_cap_reached` before the stage's call. At `spent()` plus 0.0005: the stage runs |
 | C10 | Is a copy of the kept copy a clean retry? | The call is cut off: a `failed` row, a failed terminal, exit 1, a partial file. Capped resume in place: `spend_cap_unmetered`. In a copy of the copy kept at the last stop: `work` and `review` once each at attempt 1, exit 0, no partial file |
-| L1 | Do labels name the seed's verdicts? | §3.3 |
-| F1 | Does a fork from the git store reproduce the workspace? | Content, executable bit, link targets and empty directories equal: 59 entries, 42 under `.git`. The review found the same with 63 entries and found modes, times and hard links not kept |
+| F1 | Does a fork from the git store reproduce the workspace? | Content, executable bit, link targets and empty directories equal: 59 entries, 42 under `.git` |
 | F2 | Edited-program resume on a fork | Kept three, cancelled none; one dispatch at attempt 1; the journal is the prefix, one `rebased` record with a null cut, the step, the terminal |
 | F3 | A fork's cost | Own: one attempt, the changed call. `report`: the whole program |
 | F4 | A fork as a clean retry | As C10, from a checkpoint |
@@ -853,53 +900,54 @@ workspace.
 | F7 | What does the git store not keep? | Mode 600 came back 664; a nested repository is a link entry without content |
 | F8 | The container route | The table and list of §7 |
 
-Probes of the independent review that this page relies on and did not rerun
-are marked "review probe" where they are used: the new run id (§4.5), the
-`make` case and the silent losses (§6.2), the index lock (§6.2), the nine
-attempts (§4.7), and the forks of §6.3.
+**Probes of the independent reviews that this page relies on and that were
+not rerun for it:** a new run id diverges the first provider step (§4.5);
+the `make` case, the user-level git configuration, the entries git drops and
+the failing `git add` cases, the index lock (§6.2); forks beside a running
+parent and a fork of a fork (§6.3); a daemon that changes its working
+directory passes a check by working directory and by two walks (§4.4; probe
+C7 found the same for the working directory).
 
 ## 15. Not verified and open prerequisites
 
 | Item | State | Needed for |
 | --- | --- | --- |
-| The placement of the unknown-site refusal before publication and before an accepted plan is written | Read in `run_evaluated_workflow` and the resume preflight; the probe gate refused later | Part 1; the first test of the flag |
-| The reader change inside `load_evaluated_view`, the dashboard's pages and `report`'s extra line | The view, the dashboard's run record and `report`'s status line were probed through a patch; the pages and the extra line were not | Part 1 |
-| The mark written under the writer lock, and for the spend cap's refusals | Specified; the probe wrapper wrote it after the command returned, for the stop alone | Part 1 |
-| A run reference, a host request, an agent or a parallel map in the suffix of a copy | Read, not probed; refused | Lifting a refusal of §4.2 |
-| The fixed path with a real provider CLI, and the dashboard or monitor reading through it | One stand-in probe (C6) | Using the fixed path in a study |
-| File content in a workspace that embeds the workspace's path | Not searched (§4.4) | A study without the fixed path |
+| Where a staged seed's workspace lives on a container task | Open: the design of roadmap Phase 5b, step 9 | Any copy on the long-horizon tasks (§4.1) |
+| Whether stage signals predict the final result | Open: the first paid seed runs | Stopping weak candidates early (§4.6) |
+| The placement of the unknown-site refusal | Read in `run_evaluated_workflow` and the resume preflight; the probe gate refused at the first effect | The first test of the flag |
+| A run reference, a host request, an agent or a parallel map in the suffix of a copy | Read, not probed; refused | Lifting a refusal of §4.3 |
+| Whether real agent runs put the workspace's path into typed values | Not observed: no provider was called. The expectation rests on how the CLI's file tools take paths | How often `copy_names_parent_path` fires |
+| File content in a workspace that embeds the workspace's path | Not searched (§4.3) | A copy at another path |
+| Ending the processes of a task container | Not probed | §4.4 on a container task |
 | How a subscription usage limit appears in a provider attempt | Not recorded; the long-horizon recordings are finding out | §8 |
-| Whether a long stop changes metered cost through the prompt cache | A hypothesis (§11) | Reading deployed-cost estimates of staged runs |
+| Whether a long stop changes metered cost through the prompt cache | A hypothesis (§11) | Reading the cost of staged runs |
 | A program that reads its run id (X1) or a provider's result path (X4) in a copy | Read, not probed | Stating what such a program reuses |
-| The manifest of modes and times, the completeness check and the hardened git configuration | Specified from the review's probes; not run here | Part 2 |
-| How a workflow's steps run inside a task container; a sidecar and relay for a forked container | Open design work of the long-horizon plan | §7 |
+| The manifest of modes and times, the completeness check and the hardened git configuration | Specified from the reviews' probes; not run for this page | Part 2 |
+| A sidecar and relay for a forked container | Open: the long-horizon launcher | §7 |
 
 ## 16. Open questions for the coordinator
 
 | # | Question | Recommendation |
 | --- | --- | --- |
-| 1 | Do the spend cap's refusals write the mark, so that a capped run reads `stopped`? | Yes. It is one code path, and a study caps every invocation. It changes what `report` says for a capped run, which `specs/cli.md` must state |
-| 2 | The two labels that §3.3 requires put today's seed at 51 lines, against its limit of fewer than 50 | No change to the limit: the seed is expected at 46 lines after the surface-coherence rewrite, so 48 with the labels. If it is frozen before that rewrite, the limit needs a ruling |
-| 3 | Is the fixed path part of the first study's harness, or does the study accept `copy_names_parent_path` refusals? | The fixed path. Agents report absolute paths in free text readily, so without it most copies of real runs would be refused |
-| 4 | May a study retry a cut-off call in place without a cap? | No: the workspace is dirty and `report` turns partial. Continue from the kept copy |
-| 5 | Where does the procedure's code live? | With the search harness under `experiments/`; the acceptance test of §5 pins the runtime's side without importing it |
+| 1 | The seed's `repo` input holds the repository's absolute path in its scripted runs, which a copy at another path refuses | `repo` becomes `.` or is dropped when the seed is frozen, and the harness places program, manifests and inputs inside the workspace. With a same-path workspace the refusal does not arise |
+| 2 | Does the comparison step's design mount the task's work at a fixed path, or keep it in the container? | A mounted directory at one path, if the task's verifier allows it: Part 1's procedure then applies as written and Part 2's container route is not needed for the first study |
+| 3 | May a study retry a cut-off call in place without a cap? | No: the workspace holds the cut call's partial files and `report` turns partial. Continue from the evaluation's kept copy |
+| 4 | Where does the procedure's code live? | With the search harness under `experiments/`; the default suite pins the runtime's side without importing it |
 
 ## 17. Increment note for the planner
 
 This note is planning input, not contract; the plan owns sizes and order.
+Nothing is started before the two conditions of "When to build" hold.
 
 | Increment | Contents | Hours |
 | --- | --- | --- |
-| Part 1, the flag | The check at three call sites, the field, the flag on `run` and `resume`, the unknown-site refusal at both places, exit status 3, tests of §5's "Sites" row | 12 |
-| Part 1, the mark and the readers | `stop.json` under the writer lock for the three codes, the reader rule in `load_evaluated_view`, `report`'s line, the three specs, tests of §5's "Readers" and "not authority" rows | 8 |
-| Part 1, the procedure | The copy with its checks and codes, the log row, the fixed path, the acceptance test of the three R1 rows and the hazards | 12 |
-| Part 1, contracts | The amendment and the other rows of §10 | 3 |
-| Part 1, review and fixes | | 6 |
-| Part 2, when selected | Snapshot and restore with manifest and completeness check 12; `advance` and checkpoint rows 6; `fork_run` and its refusals 10; tests 6; the container route 16 to 24; the limit classifier 6 | |
+| The flag | The check at three call sites, the field, the flag on `run` and `resume`, the unknown-site refusal at both places, exit status 3, the tests of §5 marked "Default suite" | 11 |
+| The procedure | The copy with its preconditions and codes, the log row, the ending of leftover processes, the harness's tests | 9 |
+| Contracts | The amendment and the other rows of §10 | 2 |
+| Review and fixes | | 5 |
+| Part 2, when selected | Snapshot and restore with manifest and completeness check 12; `advance` and checkpoint rows 6; `fork_run` and its refusals 10; tests 6; the container route 16 to 24; the stop-reason record and the limit classifier 6 | |
 
-The flag edits `specs/cli.md` and `orchestrator/cli/main.py`, which the
-one-target cut also edits. No increment needs the cut, provided the tests
-record no journal fixture. The measurement of how much each mutation reuses
-belongs to the mutant plan's task T3 and is not an increment of this design.
-The container route and the limit classifier need the long-horizon launcher
-and its recordings.
+Part 1 is 27 hours. The flag edits `specs/cli.md` and
+`orchestrator/cli/main.py`. No increment needs a recorded journal fixture.
+The measurement of how much each mutation reuses belongs to the mutant
+plan's task T3 and is not an increment of this design.
