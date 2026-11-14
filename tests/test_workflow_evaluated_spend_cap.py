@@ -17,7 +17,7 @@ from tests.test_workflow_evaluated_provider_usage import _attempts, _env, _memo,
 # One stand-in Claude call reports 0.25 USD (above its highest-tier price); a cap of 5e-6 is reached after one call.
 BELOW_ONE_CALL = "0.000005"
 
-TWO_CALLS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+TWO_CALLS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Result (ok Bool))
   (defworkflow run ((message String)) -> Result
