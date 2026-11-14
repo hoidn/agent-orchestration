@@ -9,7 +9,7 @@
   compile. Where this page and the merged behaviour differ, the
   [frontend specification](workflow_lisp_frontend_specification.md) and
   `specs/versioning.md` ("Source admitted without a new target") state what
-  compiles.
+  compiles; §13 lists where the merged changes depart from the accepted text.
 - **Owns, until retired (§11):** where an effect may be written; the shape of
   the iteration forms; how each kind of callable is called.
 - **Consumes:** [evaluated execution](workflow_lisp_evaluated_execution.md)
@@ -58,10 +58,18 @@ in `loop/recur`.
   then fails with `list_map_effect_cap_exceeded`; a parallel map fails with
   that code before any item. A serial map is a loop whose budget is `:max`;
   failing earlier would stop a run recorded past that point from resuming.
-- *A map body that holds a run reference is exactly one call.*
+  A computed `:max` below 1 fails with that code before any item when the
+  list has one; an empty list gives the empty list whatever its `:max`.
+- *Beside a run reference a map body is one call:* in a program that contains
+  a run reference anywhere, every `list/map-effect` iteration is exactly one
+  call with pure arguments, whether or not it reaches the run reference. The
+  program is the final closed program, so a definition that nothing calls
+  does not count. A later change may admit more bodies by analysing each
+  iteration (§5).
 - *A parallel map* runs items concurrently, so order holds within an item
   only; its body admits no `Agent` crossing the item boundary, no phased
-  provider, no host input and no confined run reference.
+  provider, no host input and no confined run reference (the guard for the
+  last has an open defect, §2.2).
 - *The `fn` form,* `(loop/recur :max n :state init (fn (state) body))`, builds
   the same program and is accepted until the release that removes the older
   targets; its two operands run in the order written.
@@ -76,16 +84,29 @@ can be passed and bound but not stored, chosen at run time or returned.
   `let-proc` body, not from another local or itself; `let-proc` does not nest.
 - *A local called by name declares its signature;* one without can only be
   passed, once, to a consumer whose parameter type supplies it.
+- *A local does not shadow a function or a form:* `(f …)` calls the `defun`
+  or the built-in form named `f`, not a local of that name. Refusing such a
+  local at its definition stops source that compiles, so only the release
+  that removes the older targets may do it (§13).
+- *A bound reference is a literal or a forwarded one:* a `let*` binding of a
+  reference chosen by `if`, `cond` or `match`, or returned by a procedure, is
+  refused at the binding, also in a procedure that nothing calls (§6).
 - *A `defun`* takes no procedure parameter and is not a `proc-ref` target.
-- *No recursion:* no function, procedure or workflow may reach itself.
+- *No recursion:* no function or procedure may reach itself, nor may a
+  workflow that the entry reaches.
 - *A workflow reference parameter* is called like a workflow, `(call w :x v)`.
 - *A macro is not a callable:* its use is expanded before any call exists and
   has the shape its definition gives it (not assessed here).
 - *Defect, not a rule (§12):* a `bind-proc` over a pure procedure cannot carry
   a computed value into another procedure.
+- *Defects, not rules (the roadmap's open list, §13):* a procedure-reference
+  parameter forwarded through `let*` fails with `name_unknown` when its
+  procedure is called; an inner binding that is not a reference does not hide
+  an outer reference of the same name.
 
 No program that compiles today changes its closed program, program digest,
-effect identities or behavior (§8).
+effect identities or behavior (§8), with the two exceptions that C1 and I2a
+made and §13 records.
 
 ## 2. Verified Findings
 
@@ -100,7 +121,9 @@ one-call map body and literal `:max` the "first tranche" of 2.18
 name "deferred" ([let-proc](workflow_lisp_let_proc_local_proc_refs.md) §7.3).
 `tsv` is `typecheck_structural_values.py`; paths are under
 `orchestrator/workflow_lisp/`, or `orchestrator/` if they start with
-`workflow/` or `contracts/`.
+`workflow/` or `contracts/`. "Today" in the tables is `main` on 2026-11-12,
+before any change of §3; C1, I1 and I2a have since changed the rows they
+address.
 
 ### 2.1 Effect placement
 
@@ -136,7 +159,7 @@ Not probed (probes use commands only): a provider's `:inputs`, which share
 | A `list/map-effect` body must be exactly one call | Reproduced, and stricter: an inlined procedure body must hold exactly one effect | `tsv:_check_map_effect_body`; `closed/build.py:_check_loop_effect_cardinality` | (c). Not an invariant: a workflow-call body runs two effects per item, a procedure holding a nested loop or map passes, and a parallel map accepts a procedure with `let*`, `if` and two effects |
 | `:max` takes a variable in `loop/recur`, a literal in `list/map-effect` | Reproduced; a loop takes even an effect there; `:parallel` is literal too | `expressions.py:_elaborate_list_map_effect`; `parallel_map.py:_positive_literal` | (c) serial: a loop budget is a value (`workflow/evaluated/machine.py:_loop`). Parallel: the `par-map` node holds integers, checked by `contracts/closed_program/check.py:_parallel_map_body` and read at run time |
 | (New) A serial map over a list longer than `:max` | Runs `:max` items, then fails `list_map_effect_cap_exceeded`; a parallel map fails before any item | `machine.py:_loop`, `_parallel_source` | Kept: rule 2, the long-list exception |
-| (New) Ruling P12: no confined run-reference site in a map body | Kept | `typecheck_run_ref.py:_refuse_confined_site_in_map_frame` walks the body and every callee it reaches, whatever the body's shape | (a) |
+| (New) Ruling P12: no confined run-reference site in a map body | Kept | `typecheck_run_ref.py:_refuse_confined_site_in_map_frame` walks the body and every callee it reaches, whatever the body's shape. Open defect: it does not follow a call of a procedure-reference parameter, so a confined site passed in as a reference, a `let-proc` local's included, is not seen | (a) |
 
 ### 2.3 Callables
 
@@ -146,7 +169,7 @@ Not probed (probes use commands only): a provider's `:inputs`, which share
 | `defworkflow` only through `(call w :x n)` | Reproduced: `(w n)` gives `procedure_call_unknown`, `(call p :x n)` on a procedure gives `workflow_call_unknown`; neither message names the other convention | `expressions.py:_elaborate_list`; `typecheck_calls.py` | By design: workflow inputs are named, may be omitted when defaulted, and are the names `--input` uses |
 | A `let-proc` local cannot be called by name | Reproduced (`let_proc_bare_name_invalid`), yet `(let* ((g (proc-ref f))) (g 1))` compiles when `f` has a signature | `expressions.py:_elaborate_list` | (b) |
 | (New) A local calling another local, or a nested `let-proc` | Refused: `let_proc_bare_name_invalid`, `let_proc_nested_unsupported` | [Write once](workflow_lisp_write_once.md) §6.3: "do not permit sibling calls" | By design |
-| Procedure references cannot be stored or returned | Partly wrong: a reference can be bound by `let*`, forwarded and called. Refused in a record, a list, a workflow input or result, as a procedure's result, or as the value of an `if` | `type_env.py`, `workflows.py`, `typecheck_calls.py` | (a) no runtime closures |
+| Procedure references cannot be stored or returned | Partly wrong: a reference can be bound by `let*`, forwarded and called. Refused in a record, a list, a workflow input or result, as a procedure's result, or as the value of an `if` (the last by a `compiler_defect` when probed; C1 refuses it with a code, §6) | `type_env.py`, `workflows.py`, `typecheck_calls.py` | (a) no runtime closures |
 | Recursion is refused | Reproduced (`proc_lowering_cycle`, `function_cycle`); a workflow that calls itself is refused as `compiler_defect` (`RecursionError`) | `closed/build.py` | (a) bounded execution; the workflow diagnostic is a defect |
 
 ## 3. Decision
@@ -157,9 +180,9 @@ are measured on the prototype or estimated from it (2026-11-12).
 | # | Change | Requires | Compiler | Tests |
 | --- | --- | --- | --- | --- |
 | E1 | Admit effects in record fields, variant fields, list elements, `:on-exhausted` and a map's source; then `list/map` source and `path/join-under` child. A pure `match` is a value as an operand | The capture fix; the refused forms deleted (§12) | 5 files, about +95 −70 | 6 refusal test functions flip (13 cases); 38 matrix cells move from refused to admitted |
-| I1 | A `list/map-effect` body is any expression, one call if it holds a run reference; a serial `:max` is any `Int` expression; a serial map evaluates its source, then `:max` | — | 5 files, about +45 −15 | 2 refusal test functions flip (6 cases) |
-| C1 | A `let-proc` local with a signature is called by name; five diagnostics name the cause (§6); a recursive workflow gets a cycle diagnostic | — | 5 files, about +55 −10 | 1 flips; 6 new |
-| I2 | `loop/recur` takes the map forms' binder. I2a: accepted beside the `fn` form, building the same program. I2b: `fn` and `:state` are refused | I2b: the release that removes the older targets, and the rewrite (§5) | I2a 2 files, about +50; I2b about −230 | 15 source files (15 loops), 154 test files (277 loops), 22 documents (27) rewritten by the migration script |
+| I1 | A `list/map-effect` body is any expression in a program that contains no run reference, and one call with pure arguments in a program that contains one; a serial `:max` is any `Int` expression; a serial map evaluates its source, then `:max` | — | 5 files, about +45 −15 | 2 refusal test functions flip (6 cases) |
+| C1 | A `let-proc` local with a signature is called by name; five diagnostics name the cause (§6); a recursive workflow gets a cycle diagnostic; a reference bound after being chosen at run time is refused with a code | — | 5 files, about +55 −10 | 1 flips; 6 new |
+| I2 | `loop/recur` takes the map forms' binder. I2a: accepted beside the `fn` form, building the same program, with the migration tool. I2b: `fn` and `:state` are refused and the Python frontend emits the binder | I2b: the release that removes the older targets, and the rewrite (§5) | I2a 2 files, about +50; I2b about −230 | 15 source files (15 loops), 154 test files (277 loops), 22 documents (27) rewritten by the migration tool, or by hand where it lists a loop or does not read the file (§5) |
 
 Not done at all: the rows of §7. Rejected: *documenting the refusals instead*
 (eleven positions, and `(record R :a (command-result …))`, the first thing a
@@ -225,18 +248,23 @@ shows only in which of two failing pure expressions is reported; (4) the
 rounds. Neither the source nor `:max` sees the binder. `:on-exhausted` is
 evaluated only when `:max` rounds pass without `done`, with the last state
 bound; where it is written among the options changes nothing. `:workspace` is
-evaluated per item and is pure. A `:max` below 1 gives a loop no round, and a
-serial map then fails with `list_map_effect_cap_exceeded`; a literal below 1
-on a map stays a compile error. Existing programs are unaffected: a serial
-map's `:max` is a literal today, so running its source first reorders nothing
-and digests stay while `:max` is pure; a `:max` with an effect exists only in
-new programs, where it follows the source's effects (measured: `ints, 7, 1, 2,
-3`); a `fn`-form loop keeps its keyword order while that form compiles.
+evaluated per item and is pure. A `:max` below 1 gives a loop no round. A
+serial map whose computed `:max` is below 1 fails with
+`list_map_effect_cap_exceeded` before any item when its list has one, and
+returns the empty list when the list is empty, as a literal `:max` over an
+empty list always did; a literal below 1 on a map stays a compile error.
+Existing programs are unaffected: a serial map's `:max` is a literal today,
+so running its source first reorders nothing and digests stay while `:max`
+is pure; a `:max` with an effect exists only in new programs, where it
+follows the source's effects (measured: `ints, 7, 1, 2, 3`; a map source
+holds an effect only with E1, so I1 alone gives `:max` nothing to follow); a
+`fn`-form loop keeps its keyword order while that form compiles.
 
 **Becomes legal:**
 
 ```lisp
 ;; today: list_map_effect_body_unsupported and list_map_effect_max_invalid
+;; (legal where the program contains no run reference)
 (list/map-effect ((repo repos)) :max limit
   (let* ((checked (check repo)))
     (if checked.passed checked (fix repo checked))))
@@ -248,11 +276,22 @@ new programs, where it follows the source's effects (measured: `ints, 7, 1, 2,
 **What the body restriction protected.** Nothing, for provider, command and
 call bodies: item identity comes from the frame (`loop:#k[i]`,
 `par-map:<binder>[i]`), the item workspace applies to every direct effect, and
-P12 and the parallel `Agent` boundary walk the whole body and its callees. One
-dependency is real, hence rule 2's run-reference exception: for a body with a
-run reference, `closed/build.py:_bind_map_run_ref_result` binds the map's
-result to a single producer, and evaluated execution §1.2 admits only "the
-one-effect body".
+P12 and the parallel `Agent` boundary walk the whole body and its callees
+(P12 with the open defect of §2.2). One dependency is real, hence rule 2's
+run-reference exception: for a body with a run reference,
+`closed/build.py:_bind_map_run_ref_result` binds the map's result to a single
+producer, and evaluated execution §1.2 admits only "the one-effect body".
+
+**Why the exception is drawn around the program.** Nothing available decides
+soundly whether one iteration reaches a run reference. An effect summary
+describes a whole definition, not an iteration, and an imported workflow's
+summary is lost after the first round of the effect fixpoint and then reads
+as "no effects" (open defect). So the closed build looks for a run-reference
+effect in the final closed program, entry and definitions, and when it finds
+one holds every map to the one-call shape that every such program had before
+I1. This refuses general bodies that reach no run reference; admitting them
+needs an analysis of each iteration that is sound for imported workflows
+(§12, item 6). What compiles: specification §10.3.
 
 **The binder form of `loop/recur`: contract.** Both forms build the same
 program. The `fn` form is removed in the release that removes the older
@@ -263,15 +302,38 @@ Evidence: 17 loop programs here, and in the review the 27 tracked programs
 with loops and the four packaged library modules with their importers, keep
 digest and site list when rewritten; a run of the tutorial's `grow.orc`,
 stopped at a failed step under the `fn` form, resumed from the rewritten
-source and reused its committed step.
+source and reused its committed step. What the binder form refuses:
+specification §13.1.
+
+**In a macro template.** The loop state is a binding of the template in both
+forms: it is renamed for the expansion and bound in the body and in
+`:on-exhausted`, while the initial state and the other options are read in
+the enclosing scope. Without this a binder loop in a template read a
+caller's value or failed with `name_unknown`. The same pass treats a
+`let-proc` parameter as a binding and every item of a `cond` clause as an
+expression. A template that bound such a name itself compiled before with
+the wrong binding, and its value and digest change (§13). A name at the head
+of a list is not renamed: what a head names is the resolver's knowledge, and
+renaming it in the hygiene pass let a template local beat a function, a
+macro or a form. So a caller's binding can still answer a call a template
+meant for its own local (open defect).
 
 **The rewrite.** One case changes order: a `fn` loop written `:max E1 :state
 E2` with an effect in both runs `E1` first, and the binder form runs `E2`
 first. No loop outside `tests/` has a non-atomic `:max` (15 loops, read with
-the compiler's reader); 15 loops in 6 test files do. The migration script
-therefore compares the program hash before and after each loop it rewrites.
-Equal, as for every loop with a pure `:max`: done. Different: it leaves that
-loop in the `fn` form and lists it. A listed test whose subject is the keyword
+the compiler's reader); 15 loops in 6 test files do. The migration tool,
+`scripts/migrate_orc_sources.py`, therefore rewrites a loop without compiling
+it only where the order cannot change: `:state` is written before `:max`, or
+`:max` is an atom, or the initial state is an atom or a constant constructor.
+Any other loop it compiles before and after, and rewrites only when every
+exported workflow of the source builds and keeps its program hash and the
+loop sits inside one of them or in a template the source uses: a hash proves
+nothing about a loop that no built workflow reaches, and most test sources
+(fragments, formatted strings, library modules) do not build alone. Every
+loop it does not rewrite stays in
+the `fn` form and is listed with its reason, as is text it does not treat as
+source: strings assembled or matched by a test, and Python outside `tests/`
+and `experiments/`. A listed test whose subject is the keyword
 order goes with the `fn` form and `operand_evaluation_order`. Any other is
 rewritten by hand with the budget bound first, `(let* ((budget E1))
 (loop/recur ((s E2)) :max budget …))`: the effects keep their order and the
@@ -288,7 +350,12 @@ two steps `#1`, `#2` become `budget`, `#1`, an expected structure change.
 The call is positional, as rule 3 requires. It reverses the syntax the
 let-proc design deferred, `(call run-impl :selected selected)` (§27.2 there),
 and stays compile-time: it is the alias form `(let* ((g (proc-ref f))) (g a))`
-that compiles today.
+that compiles today, and builds that form's program. The one case where it
+is not the alias call is a local named like a `defun` or a built-in form:
+those names resolved to the function or the form before C1, so `(f …)` keeps
+reaching them and the local is not called. An inner binding of the local's
+name wins over the local, as lexical scope says. The specification's §7.8
+table says what `(f …)` reaches for every collision.
 
 | Source | Diagnostic |
 | --- | --- |
@@ -297,7 +364,17 @@ that compiles today.
 | `(w n)` on a workflow | "`w` is a workflow; call it as `(call w :x …)`" |
 | `(call p …)` on a procedure | "`p` is a procedure; call it as `(p …)`" |
 | A keyword in a positional call | The same message, instead of a traceback |
-| A workflow that reaches itself | A cycle diagnostic, as procedures and functions have |
+| A workflow that reaches itself | A cycle diagnostic, as procedures and functions have, for a workflow the entry reaches; a cycle that passes through a procedure or a workflow reference parameter is reported as that procedure's cycle |
+| A `let*` binding of a reference chosen by `if`, `cond` or `match`, or returned by a procedure | "a procedure reference is a compile-time name", at the binding (`proc_ref_literal_required`), instead of a `compiler_defect` |
+
+The last row is the one refusal of C1 that reaches source which compiled
+before. The check runs where the procedure is defined, so a procedure that
+binds such a reference is refused even when nothing calls it; before, it
+compiled exactly when nothing called it, and every call of it was refused or
+crashed. A reference forwarded unchanged (`(let* ((h g)) …)`, or a
+procedure-reference parameter) passes this check. Codes, and where each
+message is not yet given (a module-qualified workflow name, a compile with
+imported workflow bundles): specification §7.8 and §14.
 
 ## 7. What Stays, And Why
 
@@ -334,8 +411,8 @@ is evidence, not the implementation: no tests, no capture fix.
 | --- | --- | --- |
 | Does a program that compiles today change its closed program, digest, an effect identity or its behavior? | No | Of the 294 probe programs, 113 compile on `main`: none changes digest on the prototype, 101 more compile, none is newly refused. The closed-program corpus (55 rows, 11 built) has identical digests. All 690 tracked `.orc` files, compiled by the prototype's base and by the prototype: the 42 that build without generated externs keep their digest, and the only other differences are the four fixtures of §12, item 2. The review, generating externs, built 88 on the prototype as reviewed: same digest and site list. Of 1,210 tests in 25 files that pin elaboration, sites, loops, maps, procedures and run-reference placement, 1,189 pass and 1 is an expected failure; the 20 failures are 9 functions asserting a refusal this design removes |
 | Kill and failure inside one expression? | As the `let*` spelling | The review killed a run between two field effects, between list elements, between two effects of one map item and in `:on-exhausted`: the first effect is reused and the second runs once on resume; `must_not_repeat` still refuses re-dispatch |
-| Is anything legal today refused? | The `fn` form and `:state`, with I2b | §5 |
-| Which diagnostics retire? | `effect_not_permitted` for fields, elements and the path child; `list_map_effect_body_unsupported` except for run-reference bodies and malformed clauses; `loop_recur_contract_invalid` for an effectful exhaustion; `let_proc_bare_name_invalid`; with I2b, `loop_recur_fn_invalid` and `loop_recur_fn_outside_loop` | `list_map_effect_max_invalid` remains for a missing or non-`Int` `:max` and a literal below 1 |
+| Is anything legal today refused? | The `fn` form and `:state`, with I2b; with C1, a procedure that nothing calls and that binds a reference chosen at run time | §5, §6 |
+| Which diagnostics retire? | `effect_not_permitted` for fields, elements and the path child; `list_map_effect_body_unsupported` except in a program that contains a run reference and for malformed clauses; `loop_recur_contract_invalid` for an effectful exhaustion; `let_proc_bare_name_invalid`; with I2b, `loop_recur_fn_invalid` and `loop_recur_fn_outside_loop` | `list_map_effect_max_invalid` remains for a missing or non-`Int` `:max` and a literal below 1 |
 
 ## 9. Verification
 
@@ -349,6 +426,8 @@ pytest -q tests/test_workflow_lisp_closed_program_{corpus,elaboration,sites}.py
 pytest -q tests/test_workflow_lisp_loop_recur.py tests/test_workflow_evaluated_loops.py tests/test_workflow_lisp_parallel_map{,_closed}.py
 pytest -q tests/test_workflow_evaluated_parallel.py tests/test_workflow_evaluated_parallel_kill_resume.py
 pytest -q tests/test_workflow_lisp_closed_run_ref_placement.py tests/test_workflow_lisp_run_ref_workflow_program.py
+pytest -q tests/test_workflow_lisp_callables_coherence.py tests/test_workflow_lisp_map_effect_{general,run_ref}_body.py
+pytest -q tests/test_workflow_lisp_loop_recur_binder.py tests/test_workflow_lisp_macro_hygiene_bindings.py tests/test_migrate_orc_sources.py
 pytest -q -n 16 --dist=worksteal --sample 10   # the whole suite before merging
 ```
 
@@ -358,9 +437,9 @@ Scenarios each change adds, through the public CLI with stand-in commands:
 | --- | --- |
 | Capture fix, before E1 | `(let* ((y 1)) (record Tri :a (let* ((y 7)) y) :b y :c (match (variant Shape CIRCLE :r n) ((CIRCLE c) c.r) ((SQUARE s) 0))))` returns `b = 1`, also with `:c` written first, and with an effect bound in `:a` once E1 admits it; that effect has the same identity with and without the `match` field |
 | E1 | `(record R :b E2 :a E1)` logs `E2` then `E1`; an `and` in a field skips its second effect; the same record in a `defun` or `list/map` body refuses; a run killed between the two field effects resumes with one dispatch; `(+ 1 (match …))` builds; `(+ (print 1) E (print 3))` prints after `E` |
-| I1 | A map body of two bound effects, killed after the first effect of item 2, resumes with one dispatch; a body holding a run reference in a `let*` refuses; `:max` from a workflow input runs; with an effect in the source and in `:max`, the source's runs first; a list of 3 under `:max 2` logs two calls and fails, and a run recorded before the change that failed there resumes to the same code |
-| I2 | Every rewritten source keeps its recorded digest; a run started before the rewrite resumes after it; a loop with an effect in both `:max` and `:state` is listed, not reordered |
-| C1 | A local called twice has two frames; each row of §6's table gets its message |
+| I1 | A map body of two bound effects, killed after the first effect of item 2, resumes with one dispatch; a body that is not one call refuses when a run reference reaches it by any route (written in it, a procedure reference, `bind-proc`, a local, a generic procedure, a macro, an imported workflow), and also when it reaches none and the program holds a run reference elsewhere; `:max` from a workflow input runs; with an effect in the source and in `:max`, the source's runs first (once E1 admits the first); a list of 3 under `:max 2` logs two calls and fails, and a run recorded before the change that failed there resumes to the same code; a computed `:max` of 0 returns the empty list over an empty list and fails over one item |
+| I2 | Every rewritten source keeps its recorded digest; a run started before the rewrite resumes after it; a loop with an effect in both `:max` and `:state`, `:max` first, is listed, not reordered; in a template whose local has the loop state's name both forms read the state and build one program; a frozen Python build pinned before I2a still builds |
+| C1 | A local called twice has two frames; each row of §6's table gets its message; an inner binding of the local's name is what `(f …)` calls; a local named like a `defun` calls the function; a procedure that forwards a reference parameter through `let*` and is never called still compiles |
 
 ## 10. Changes And Their Dependencies
 
@@ -372,10 +451,10 @@ move a digest in the corpus comparison of §9.
 | E1a, after the capture fix | `typecheck_dispatch.py`: delete the two field purity checks. `typecheck_loop_recur.py`: delete the exhaustion purity check, keep the run-reference guard | The three matching rules leave `cell_refusal` (`tests/workflow_evaluated_totality_helpers.py`) and `RULES` (`tests/workflow_lisp_totality_matrix_sources.py`) |
 | E1b | `expressions.py` (`ListExpr`, `ListMapExpr`, `PathJoinUnderExpr`): one typechecker-set flag each, outside semantic identity as `item_type_refs` is. `typecheck_structural_values.py`: set it instead of refusing; delete the map-source check. `wcc/elaborate.py:_elaborate_expr_to_value`: when set, lower through `_elaborate_operands_to_values` | Select by the flag, not by `conditionals._contains_effect`, which counts every procedure call and would change the lowering of pure lists |
 | E1c | `wcc/elaborate.py:_elaborate_operands_to_values`: an effect-free operand whose body is not linear becomes a block value | Only programs that are `compiler_defect` today change |
-| I1 | `typecheck_structural_values.py`: apply `_check_map_effect_body`, the argument-purity check and `single_iteration_effect_kinds` only when the typed body's summary contains a run reference; pass a typed `:max` as the synthetic loop's budget, in the order source then `:max`. `expressions.py` (`ListMapEffectExpr`): an optional `max_expr` child, handled as `workspace_expr` is in `expression_traversal.py`, `procedure_typecheck.py` and `closed/names.py` | Keep the synthetic loop's `list_map_effect_cap_exceeded` code, which P12 reads; report a non-`Int` `:max` as `list_map_effect_max_invalid`. The runtime does not change |
-| C1 | `expressions.py` (`_elaborate_list`, `_elaborate`) and `compiler_session.py`: the local call and the second, third and fifth messages of §6. `procedure_typecheck.py`: the first. `typecheck_calls.py`: the fourth. `closed/build.py`: the cycle diagnostic | A local calling itself keeps `let_proc_recursive_unsupported` |
-| I2a | `expressions.py`: the binder form beside `fn`. `orchestrator/py/emit.py`: emit it. The one-target plan's migration script gains the loop rewrite of §5, for `.orc` files and for sources inside test strings | One pass then rewrites headers and loops |
-| I2b, with the removal of the older targets | Delete the `fn` route, `LoopBodyFnExpr`, `:state`, `operand_evaluation_order` and the `fn` registry row | Under a recorded owner ruling (§12); the refusal names the rewrite |
+| I1 | `typecheck_structural_values.py`: refuse at typing a body that is not one call with pure arguments when its own summary contains a run reference, and record for every other map whether it has that shape; pass a typed `:max` as the synthetic loop's budget, in the order source then `:max`. `closed/build.py`: when the assembled closed program holds a run-reference effect, refuse the first map that is not one call with pure arguments or whose iteration runs more than one effect (§5). `expressions.py` (`ListMapEffectExpr`): an optional `max_expr` child, handled as `workspace_expr` is in `expression_traversal.py`, `procedure_typecheck.py` and `closed/names.py`. `closed/command_templates.py`: a parallel map written directly in a serial map or loop body is lowered as it is behind a procedure call | Keep the synthetic loop's `list_map_effect_cap_exceeded` code, which P12 reads; report a non-`Int` `:max` as `list_map_effect_max_invalid`. The runtime changes only where no program that compiled before reaches it (`workflow/evaluated/machine.py`): a serial map whose `:max` is below 1 and whose list is empty gets the one round that finds the list empty, and the cap failure says which bound the list passed |
+| C1 | `expressions.py` (`_elaborate_list`, `_elaborate`), `compiler_session.py` and `workflows.py` (which names the module's workflows to elaboration): the local call and the second, third and fifth messages of §6. `procedure_typecheck.py`: the first. `typecheck_calls.py`: the fourth. `closed/build.py`: the cycle diagnostic. `typecheck_dispatch.py`: the refusal of a `let*` binding of a reference that is neither a literal nor forwarded | A local calling itself keeps `let_proc_recursive_unsupported`. The call by name is elaborated as the alias call under a reserved binding name, so it adds no route and no identity |
+| I2a | `expressions.py`: the binder form beside `fn`. `macros.py`: the loop state, `let-proc` parameters and `cond` clause items as bindings or expressions of a template (§5). `scripts/migrate_orc_sources.py`: the one-target plan's header and clause migration with the loop rewrite of §5, for `.orc` files and for sources in Python strings under `tests/` and `experiments/` | One pass rewrites headers and loops and lists what it leaves. The Python frontend keeps emitting the `fn` form (I2b) |
+| I2b, with the removal of the older targets | Delete the `fn` route, `LoopBodyFnExpr`, `:state`, `operand_evaluation_order` and the `fn` registry row. `orchestrator/py/emit.py`: emit the binder form | Under a recorded owner ruling (§12); the refusal names the rewrite. The emitter changes here, not in I2a, because a frozen Python build hashes the emitted text: a pin made before the change refuses (`python_frozen_changed`) until it is rebuilt, although the program digest is the same |
 
 ## 11. Where The Rules Live
 
@@ -383,21 +462,32 @@ This document is retired to Historical when the receiving sections below
 carry the rules with their exception lists, the listed text is gone, and each
 change of §10 is implemented or dropped; nothing may then cite it as authority.
 
+Three things keep it current. Rule 1 has no receiving section until E1 is
+merged. Rule 2's `fn` form, with its text in the specification's §13.1,
+stands until I2b lands in the release that removes the older targets. The
+guide carries none of the three rules. Rules 2 and 3 are in the
+specification with their exception lists (§10.3 and §13.1; §7.8 and §14),
+and `specs/versioning.md` has the entries of C1, I1 and I2a; where those
+sections and this page differ, they state what compiles. Of the text listed
+under rule 1 below, the two sentences of the specification's §10.3 left with
+I1, and the guide's two serial-map sentences will state rule 2's
+run-reference exception instead of leaving.
+
 | Rule | [Frontend specification](workflow_lisp_frontend_specification.md) | [Guide](../lisp_workflow_drafting_guide.md) | Text that leaves |
 | --- | --- | --- | --- |
 | 1 | A new subsection of §16 "Effect System": the sentence, its exceptions, §4's order and identity | §18 "Effects", one paragraph | Specification: §9's list of where pure expressions "may appear"; §10.3's "exactly one supported effectful call" bullet and "general effectful map bodies … remain outside"; §13.1 from "This adds neither an exhaustion evaluator" through the "Required behavior" list. Guide: the §2A rows "Pure contexts" (loses `:on-exhausted`) and "Serial `list/map-effect`"; §17.2's restriction paragraph |
-| 2 | §13.1 "Bounded Loop": the form, the order, the `fn` form until removed. §10.3: the map forms and their exceptions | §17 "Loops" opens with it; its two loop examples use the binder | Specification: §13.1's `fn` block and "Lowering options". Guide: nothing more; §17.3's literal sentence stays true |
-| 3 | §14 "Workflow Calls": the two conventions. §7.8 "Procedure References": locals called by name, the exceptions | §6 opens with it | Specification: §7.8's paragraph on V1 `let-proc` and `(proc-ref local-name)`. Guide: §16's two paragraphs on references become a pointer to §6 |
+| 2 | §13.1 "Bounded Loop": the form, the order, the `fn` form until removed. §10.3: the map forms and their exceptions | §17 "Loops" opens with it; its two loop examples use the binder; §17.2 and the §2A row on serial maps state the run-reference exception | Specification: §13.1's `fn` block and "Lowering options", with I2b. Guide: nothing more; §17.3's literal sentence stays true |
+| 3 | §14 "Workflow Calls": the two conventions. §7.8 "Procedure References": locals called by name, the exceptions, what a local's name reaches | §6 opens with it | Specification: §7.8's paragraph on V1 `let-proc` and `(proc-ref local-name)`. Guide: §16's two paragraphs on references become a pointer to §6 |
 
 | Document | Change | Becomes Historical |
 | --- | --- | --- |
 | `specs/dsl.md` | It has no section for these forms and gains none. In "Workflow Lisp rich loop values": "not an exhaustion-time evaluator" and "arbitrary computed/effectful exhaustion expressions remain unsupported" become "`:on-exhausted` is an expression evaluated on exhaustion with the last state in scope; top-level Optional/Map state remains unsupported". In the run-reference placement note: "exhaustion guards and other pure contexts stay pure" becomes "a run reference stays refused in `:on-exhausted`, a map source and the pure places" | No |
-| `specs/versioning.md` | The same run-reference sentence; one compatibility entry per change, none moving an identity | No |
-| [List traversal](workflow_lisp_pure_list_traversal.md) | Loses "Bounded effectful binder" with its subsections | When the specification's §10.3, which defers to it today, carries its operator, constructor-typing, `list/map` and `path/join-under` rules |
+| `specs/versioning.md` | The same run-reference sentence; one compatibility entry per change under "Source admitted without a new target (surface coherence)", none moving an identity of source that still compiles; C1's entry states its one refusal; the macro templates of §13 are not in I2a's entry | No |
+| [List traversal](workflow_lisp_pure_list_traversal.md) | I1 corrected the body, `:max` and code sentences of "Bounded effectful binder" in place; the section leaves with the document | When the specification's §10.3, which defers to it today, carries its operator, constructor-typing, `list/map` and `path/join-under` rules |
 | [let-proc](workflow_lisp_let_proc_local_proc_refs.md) | §7.3 and §27.2 are reversed by §6 here | When the release that removes the older targets removes the V1 form it specifies; write once §6.3 and the specification's §7.8 are then the contract |
 | [Composition first](workflow_lisp_composition_first.md) | Loses §11.1's rule on pure fields and `:on-exhausted` and §11.3's `on-exhausted-call-edge` row | No |
-| [Evaluated execution](workflow_lisp_evaluated_execution.md) | §1.2's "`:on-exhausted` remains a pure projection" keeps only the run-reference guard; §4.3's argument-position bullet points to the specification's §16; with I2b the keyword-order sentences of its last bullet go | No |
-| [Tutorial](../tutorial_first_pipeline.md) | With I2, `grow.orc` uses the binder form; the rewrite does not move its digest | No |
+| [Evaluated execution](workflow_lisp_evaluated_execution.md) | §1.2's map-body sentence states rule 2's run-reference exception (done with I1); §1.2's "`:on-exhausted` remains a pure projection" keeps only the run-reference guard; §4.3's argument-position bullet points to the specification's §16; with I2b the keyword-order sentences of its last bullet go | No |
+| [Tutorial](../tutorial_first_pipeline.md) | With the rewrite of I2 (the one-target plan's sweep), `grow.orc` uses the binder form; the rewrite does not move its digest | No |
 
 ## 12. Prerequisites And Open Decisions
 
@@ -408,4 +498,32 @@ change of §10 is implemented or dropped; nothing may then cite it as authority.
 | 3 | A recorded reading of the versioning rule's "a change … to whether it compiles adds a target". E1, I1 and C1 admit source that is refused today and change no source that compiles; this design reads the rule as protecting source that compiles, so they add no target. Under the literal reading each adds one. **Ruled 2026-11-12: this reading holds;** the one-target plan's rule 2 is worded accordingly | E1, I1, C1 |
 | 4 | The owner ruling that the release removing the older targets also removes the `fn` form. Without it both forms stay and rule 2's `fn`-form exception has no end. **Coordinator default, 2026-11-12: removed in that release;** the owner may keep both forms until it lands | I2b |
 | 5 | The `bind-proc` defect of §2.1; it belongs to pure-call composition, not to this design | Nothing; rule 3 names it until fixed |
-| 6 | A run-reference map body with several producers; owner: evaluated execution §1.2 | Only rule 2's run-reference exception |
+| 6 | A run-reference map body with several producers; owner: evaluated execution §1.2. Before it, an analysis of each map iteration that is sound for imported workflows (their effect summaries are an open defect), so that a program holding a run reference may use general bodies where no run reference is reached | Only rule 2's run-reference exception |
+
+## 13. Departures From The Accepted Text (2026-11-13)
+
+C1, I1 and I2a merged on 2026-11-13 after their reviews. Each row is a place
+where the merged change differs from the text accepted on 2026-11-12, with
+the ruling that decided it; the sections above state the rule as merged.
+
+| Change | Departure | Decided by |
+| --- | --- | --- |
+| C1 | A local named like a `defun` or a built-in form does not shadow it, and its call by name is then not its alias call (rule 3, §6) | Coordinator ruling on finding M1 of the first callables review: keep and state it; refusing such a local at its definition goes to the release that removes the older targets |
+| C1 | A `let*` binding of a reference that is neither a literal nor forwarded is refused with `proc_ref_literal_required`, also in a procedure that nothing calls: the one place where C1 refuses source that compiled (rule 3, §6, §8) | Finding M3 of the first callables review for the refusal; coordinator ruling MA2 on the second review for the never-called procedure, stated in C1's versioning entry |
+| C1 | A workflow cycle is refused only for workflows the entry reaches, and a cycle through a procedure or a workflow reference parameter is reported as that procedure's cycle; the message for `(w n)` is not given for a module-qualified name or in a compile with imported workflow bundles (rule 3, §6) | First callables review, minors m4 to m6, applied in the round the coordinator ruled on and stated in the specification's §14 |
+| C1 | Caller code passed to a macro can call the template's `let-proc` local by name: hygiene does not rename that binder, and the alias form already reached it | Coordinator ruling MA1 on the second callables review: accepted; the fix changes macro programs that compile and goes to the release that removes the older targets |
+| I1 | The run-reference exception covers the program, not the body: general bodies only in a program that contains no run reference (rule 2, §3, §5, §10) | Coordinator ruling after the third map-bodies review (its findings R2-B1 and R2-M1): the per-iteration decision was unsound for imported workflows |
+| I1 | The runtime changes for a serial map with a `:max` below 1 over an empty list, and the cap failure names the bound passed (§5, §10) | Coordinator ruling 4 on the first map-bodies review |
+| I1 | A parallel map may be written directly in a serial map or loop body | Finding M1 of the first map-bodies review, fixed instead of refused; it was a `compiler_defect`, so no program that compiled moves |
+| I2a | The Python frontend's emitter change moved to I2b (§3, §10) | Coordinator ruling on concern 1 of the loop-binder report: a frozen pin hashes emitted text |
+| I2a | The migration tool rewrites by a syntactic rule first and by a hash comparison only inside an exported workflow of a source that builds; it reads Python only under `tests/` and `experiments/` (§5) | Coordinator rulings 1 to 7 on the first tool report; finding R3 of the third loop-binder review |
+| I2a | Macro hygiene for the loop state (both forms), `let-proc` parameters and `cond` clause items; a template that bound such a name itself changes value and digest (§1, §5) | Kept by the coordinator at the merge (one-target plan ledger, 2026-11-13: the three kept classes). No ruling on record reads versioning rule 2 for the templates that compiled before |
+| I2a | No rename of a name at the head of a list in a template | The coordinator withdrew its own round-2 ruling after the third loop-binder review; head-position hygiene is an open defect |
+
+Changes that the reviews assigned to the release that removes the older
+targets, because each stops source from compiling, changes its meaning or
+moves an identity, are listed in the
+[one-target plan](../plans/2026-11-12-lane-d-stage-4-one-target-plan.md#changes-assigned-to-the-cuts-release-on-2026-11-13-not-yet-sized);
+they are not changes of this design. The open defects these rules meet are on
+the [roadmap's list](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#lane-d-delete-and-unify-background-time-boxed);
+a sentence here that one of them contradicts says so where it stands.
