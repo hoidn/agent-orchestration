@@ -15,9 +15,9 @@
   (defprompt review (:fills (repo :text) (scope :value Milestone) (spec :path DocPath) (report :value CheckReport)) -> Verdict
     "Review the git repository at {repo}. Read the code; change nothing. Under review:\n{scope}\nThe visible check just reported:\n{report}\nMET if the goal is reached and each of its targets, as {spec} states them, holds; give the evidence per target. NOT_MET otherwise; each reason names the target or the gap, the input or scenario that goes wrong, and the check output that shows it.")
 
-  (defworkflow milestone ((m Milestone) (repo String) (spec DocPath) (coder String) (reviewer String) (effort String)) -> Verdict
-    (let* ((coding (agent providers.coder :model coder :effort effort))
-           (reviewing (agent providers.reviewer :model reviewer :effort effort)))
+  (defworkflow milestone ((m Milestone) (repo String) (spec DocPath) (coder String) (reviewer String)) -> Verdict
+    (let* ((coding (agent providers.coder :model coder :effort "medium"))
+           (reviewing (agent providers.reviewer :model reviewer :effort "medium")))
       (loop/recur :max 2 :state (loop-state (notes List[String] (list)))
         :on-exhausted (variant Verdict NOT_MET :reasons state.notes)
         (fn (state)
@@ -27,10 +27,9 @@
               ((MET met) (done (variant Verdict MET :evidence met.evidence)))
               ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons)))))))))
 
-  (defworkflow run ((task String) (intent String) (repo String)
-                    (planner String) (coder String) (reviewer String) (effort String)) -> Outcome
-    (let* ((planning (agent providers.planner :model planner :effort effort))
-           (accepting (agent providers.reviewer :model reviewer :effort effort))
+  (defworkflow run ((task String) (intent String) (repo String) (planner String) (coder String) (reviewer String)) -> Outcome
+    (let* ((planning (agent providers.planner :model planner :effort "medium"))
+           (accepting (agent providers.reviewer :model reviewer :effort "medium"))
            (ready (provider-result planning :timeout-sec 1200 :prompt (guides :task task :repo repo)))
            (spec (provider-result planning :timeout-sec 1200 :prompt (specify :task task :repo repo)))
            (whole (record Milestone :id "all" :goal intent :targets spec.targets)))
@@ -39,7 +38,7 @@
         (fn (state)
           (let* ((plan (provider-result planning :timeout-sec 1200 :prompt (plan :repo repo :spec spec.doc :notes state.notes)))
                  (built (list/map-effect ((m plan.milestones)) :max 8
-                          (call milestone :m m :repo repo :spec spec.doc :coder coder :reviewer reviewer :effort effort)))
+                          (call milestone :m m :repo repo :spec spec.doc :coder coder :reviewer reviewer)))
                  (report (command-result dev-check :returns CheckReport)))
             (if (not report.passed)
               (continue (loop-state :like state :notes (list/append report.failing report.excerpt)))

@@ -25,11 +25,10 @@
             ((MET met) (done (variant Verdict MET :evidence met.evidence)))
             ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons))))))))
 
-  (defworkflow run ((task String) (intent String) (repo String)
-                    (planner String) (coder String) (reviewer String) (effort String)) -> Outcome
-    (let* ((planning (agent providers.planner :model planner :effort effort))
-           (coding (agent providers.coder :model coder :effort effort))
-           (reviewing (agent providers.reviewer :model reviewer :effort effort))
+  (defworkflow run ((task String) (intent String) (repo String) (planner String) (coder String) (reviewer String)) -> Outcome
+    (let* ((planning (agent providers.planner :model planner :effort "medium"))
+           (coding (agent providers.coder :model coder :effort "medium"))
+           (reviewing (agent providers.reviewer :model reviewer :effort "medium"))
            (ready (provider-result planning :timeout-sec 1200 :prompt (guides :task task :repo repo)))
            (spec (provider-result planning :timeout-sec 1200 :prompt (specify :task task :repo repo)))
            (whole (record Milestone :id "all" :goal intent :targets spec.targets)))

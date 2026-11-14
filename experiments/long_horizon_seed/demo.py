@@ -111,7 +111,7 @@ def run(base, program, scenario):
     shutil.copy(ROOT / "experiments" / "orc_structural_search" / "seeds" / "dev_check.py", repo)
     (repo / "dev-check.json").write_text(json.dumps({"argv": [sys.executable, "-c", CHECK], "timeout_sec": 30}))
     (world / "inputs.json").write_text(json.dumps({"task": "make src/m1.txt and src/m2.txt hold ok", "intent": "both files hold ok",
-                                                  "repo": str(repo), "effort": "medium",
+                                                  "repo": str(repo),
                                                   **dict.fromkeys(("planner", "coder", "reviewer"), "claude-haiku-5-5")}))
     proc = orchestrator(world, "run", str(source), "--entry-workflow", f"{program}::run",
                         "--source-root", str(source.parent), "--source-root", str(HERE),

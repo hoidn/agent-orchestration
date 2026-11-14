@@ -17,24 +17,23 @@
   (defprompt review (:fills (repo :text) (scope :value Milestone) (spec :path DocPath) (report :value CheckReport)) -> Verdict
     "Review the git repository at {repo}. Read the code; change nothing. Under review:\n{scope}\nThe visible check just reported:\n{report}\nMET if the goal is reached and each of its targets, as {spec} states them, holds; give the evidence per target. NOT_MET otherwise; each reason names the target or the gap, the input or scenario that goes wrong, and the check output that shows it.")
 
-  (defworkflow run ((task String) (intent String) (repo String)
-                    (planner String) (coder String) (reviewer String) (effort String)) -> Outcome
-    (let* ((ready (provider-result providers.planner :model planner :effort effort :timeout-sec 1200
+  (defworkflow run ((task String) (intent String) (repo String) (planner String) (coder String) (reviewer String)) -> Outcome
+    (let* ((ready (provider-result providers.planner :model planner :effort "medium" :timeout-sec 1200
                     :prompt (guides :task task :repo repo)))
-           (spec (provider-result providers.planner :model planner :effort effort :timeout-sec 1200
+           (spec (provider-result providers.planner :model planner :effort "medium" :timeout-sec 1200
                    :prompt (specify :task task :repo repo)))
-           (plan (provider-result providers.planner :model planner :effort effort :timeout-sec 1200
+           (plan (provider-result providers.planner :model planner :effort "medium" :timeout-sec 1200
                    :prompt (plan :repo repo :spec spec.doc)))
            (whole (record Milestone :id "all" :goal intent :targets spec.targets)))
       (loop/recur :max 4 :state (loop-state (notes List[String] (list)))
         :on-exhausted (variant Outcome BLOCKED :reason "round limit reached")
         (fn (state)
-          (let* ((change (provider-result providers.coder :model coder :effort effort :timeout-sec 3600
+          (let* ((change (provider-result providers.coder :model coder :effort "medium" :timeout-sec 3600
                            :prompt (work :repo repo :plan plan.doc :notes state.notes)))
                  (report (command-result dev-check :returns CheckReport)))
             (if (not report.passed)
               (continue (loop-state :like state :notes (list/append report.failing report.excerpt)))
-              (match (provider-result providers.reviewer :model reviewer :effort effort :timeout-sec 1200
+              (match (provider-result providers.reviewer :model reviewer :effort "medium" :timeout-sec 1200
                        :prompt (review :repo repo :scope whole :spec spec.doc :report report))
                 ((MET met) (done (variant Outcome DONE :summary "accepted")))
                 ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons)))))))))))
