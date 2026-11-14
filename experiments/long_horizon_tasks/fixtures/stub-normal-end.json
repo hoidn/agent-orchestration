@@ -1,5 +1,5 @@
 {
- "source": "local recording normal-low (stub_api.py scenario normal, CLI 2.1.311, effort low)",
+ "source": "local recording s3-normal-low (stub_api.py scenario normal, CLI 2.1.311, three tools, via the relay)",
  "harness_exception": null,
  "cli_exit_code": null,
  "agent_result": {
@@ -22,28 +22,11 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "c86e2861-ca65-4fb4-bafd-09e74374af9b",
+  "session_id": "6c1e4c60-69c7-4235-ba8a-863ad79ace0f",
   "tools": [
-   "Task",
    "Bash",
-   "CronCreate",
-   "CronDelete",
-   "CronList",
    "Edit",
-   "EnterWorktree",
-   "ExitWorktree",
-   "ListAgents",
-   "Monitor",
-   "NotebookEdit",
-   "Read",
-   "ReportFindings",
-   "ScheduleWakeup",
-   "SendMessage",
-   "Skill",
-   "TaskStop",
-   "ToolSearch",
-   "Workflow",
-   "Write"
+   "Read"
   ],
   "mcp_servers": [],
   "model": "claude-haiku-5-5",
@@ -157,13 +140,9 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "3712fe0a-d5ab-43ab-81a9-bf9903010e3b",
-  "memory_paths": {
-   "auto": "/logs/agent/sessions/projects/-app/memory/"
-  },
+  "uuid": "63824414-bedf-4bd9-a410-f9e7a0622246",
   "original_cwd": "/app",
   "additional_directories": [],
-  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
@@ -174,7 +153,7 @@
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-13T23:21:24.038Z",
+   "timestamp": "2026-11-14T01:23:23.305Z",
    "message": {
     "model": "claude-haiku-5-5",
     "stop_reason": null,
@@ -202,7 +181,7 @@
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-13T23:21:24.695Z",
+   "timestamp": "2026-11-14T01:23:23.513Z",
    "message": {
     "model": "claude-haiku-5-5",
     "stop_reason": null,
@@ -220,9 +199,9 @@
    }
   },
   {
-   "duration_api_ms": 305,
+   "duration_api_ms": 134,
    "stop_reason": "end_turn",
-   "session_id": "c86e2861-ca65-4fb4-bafd-09e74374af9b",
+   "session_id": "6c1e4c60-69c7-4235-ba8a-863ad79ace0f",
    "total_cost_usd": 0.00030000000000000003,
    "usage": {
     "input_tokens": 2000,
@@ -298,13 +277,13 @@
    "subtype": "success",
    "api_error_status": null,
    "result": "<cut: model text>",
-   "ttft_ms": 342,
+   "ttft_ms": 145,
    "type": "result",
-   "duration_ms": 1034,
-   "uuid": "286c0635-ac9b-428f-abb6-5cbe332634df",
-   "ttft_stream_ms": 335,
-   "time_to_request_ms": 258,
-   "first_content_frame_ms": 337,
+   "duration_ms": 360,
+   "uuid": "1a83ebbe-ec94-4da8-8ee2-83617e04a3bb",
+   "ttft_stream_ms": 141,
+   "time_to_request_ms": 113,
+   "first_content_frame_ms": 142,
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {

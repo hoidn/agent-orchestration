@@ -50,7 +50,7 @@ def fixture(trial, source):
             "harness_exception": exc.get("exception_type"),
             "cli_exit_code": _exit_code(exc.get("exception_message")),
             "agent_result": result.get("agent_result"),
-            "init": cut_event(events[0]) if events and events[0].get("subtype") == "init" else None,
+            "init": next((cut_event(e) for e in events if e.get("subtype") == "init"), None),
             "n_events": len(events),
             "stream_tail": [cut_event(e) for e in events[-TAIL:]]}
 

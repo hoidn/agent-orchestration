@@ -1,5 +1,5 @@
 {
- "source": "local recording context-low (stub_api.py scenario context, CLI 2.1.311)",
+ "source": "local recording s3-context-low (stub_api.py scenario context, CLI 2.1.311, three tools, via the relay)",
  "harness_exception": "NonZeroAgentExitCodeError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -22,28 +22,11 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "44165c35-9a65-4199-92d7-b610cd2baeb8",
+  "session_id": "3f56c849-2677-498b-a9dd-f9c09262d395",
   "tools": [
-   "Task",
    "Bash",
-   "CronCreate",
-   "CronDelete",
-   "CronList",
    "Edit",
-   "EnterWorktree",
-   "ExitWorktree",
-   "ListAgents",
-   "Monitor",
-   "NotebookEdit",
-   "Read",
-   "ReportFindings",
-   "ScheduleWakeup",
-   "SendMessage",
-   "Skill",
-   "TaskStop",
-   "ToolSearch",
-   "Workflow",
-   "Write"
+   "Read"
   ],
   "mcp_servers": [],
   "model": "claude-haiku-5-5",
@@ -157,46 +140,32 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "0976be14-6e1a-4b24-a7e2-d103d8707e67",
-  "memory_paths": {
-   "auto": "/logs/agent/sessions/projects/-app/memory/"
-  },
+  "uuid": "989073ca-9b1a-455e-8650-6cde5b0ba4d5",
   "original_cwd": "/app",
   "additional_directories": [],
-  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
   "view_mode": "default"
  },
- "n_events": 3,
+ "n_events": 4,
  "stream_tail": [
+  {
+   "type": "system",
+   "subtype": "ui_invalidate",
+   "event": "ui.render",
+   "uuid": "bd7c7cd1-197d-414e-aed2-8c742b1dc5e8",
+   "session_id": "3f56c849-2677-498b-a9dd-f9c09262d395"
+  },
   {
    "type": "system",
    "subtype": "init",
    "cwd": "/app",
-   "session_id": "44165c35-9a65-4199-92d7-b610cd2baeb8",
+   "session_id": "3f56c849-2677-498b-a9dd-f9c09262d395",
    "tools": [
-    "Task",
     "Bash",
-    "CronCreate",
-    "CronDelete",
-    "CronList",
     "Edit",
-    "EnterWorktree",
-    "ExitWorktree",
-    "ListAgents",
-    "Monitor",
-    "NotebookEdit",
-    "Read",
-    "ReportFindings",
-    "ScheduleWakeup",
-    "SendMessage",
-    "Skill",
-    "TaskStop",
-    "ToolSearch",
-    "Workflow",
-    "Write"
+    "Read"
    ],
    "mcp_servers": [],
    "model": "claude-haiku-5-5",
@@ -310,13 +279,9 @@
    ],
    "analytics_disabled": true,
    "product_feedback_disabled": true,
-   "uuid": "0976be14-6e1a-4b24-a7e2-d103d8707e67",
-   "memory_paths": {
-    "auto": "/logs/agent/sessions/projects/-app/memory/"
-   },
+   "uuid": "989073ca-9b1a-455e-8650-6cde5b0ba4d5",
    "original_cwd": "/app",
    "additional_directories": [],
-   "messaging_socket_path": "/tmp/cc-socks/7240.sock",
    "fast_mode_state": "off",
    "fast_mode_disabled_reason": "sdk_opt_in_required",
    "per_turn_effort_active": true,
@@ -325,7 +290,7 @@
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-13T23:46:52.921Z",
+   "timestamp": "2026-11-14T01:43:33.584Z",
    "error": "invalid_request",
    "is_api_error_message": true,
    "api_error_status": 400,
@@ -356,7 +321,7 @@
     "content": [
      {
       "type": "text",
-      "text": "Prompt is too long \u00b7 the request is ~250000 tokens (limit 200000) but this conversation is only ~2489 tokens \u2014 the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context."
+      "text": "Prompt is too long \u00b7 the request is ~250000 tokens (limit 200000) but this conversation is only ~182 tokens \u2014 the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context."
      }
     ]
    }
@@ -364,7 +329,7 @@
   {
    "duration_api_ms": 0,
    "stop_reason": "stop_sequence",
-   "session_id": "44165c35-9a65-4199-92d7-b610cd2baeb8",
+   "session_id": "3f56c849-2677-498b-a9dd-f9c09262d395",
    "total_cost_usd": 0,
    "usage": {
     "output_tokens_details": {
@@ -422,10 +387,10 @@
    "num_turns": 1,
    "subtype": "success",
    "api_error_status": 400,
-   "result": "Prompt is too long \u00b7 the request is ~250000 tokens (limit 200000) but this conversation is only ~2489 tokens \u2014 the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context.",
+   "result": "Prompt is too long \u00b7 the request is ~250000 tokens (limit 200000) but this conversation is only ~182 tokens \u2014 the rest is system prompt, tool definitions, and attachment content. A single-exchange conversation cannot be compacted; reduce attached files/tools or start with less context.",
    "type": "result",
-   "duration_ms": 248,
-   "uuid": "446cc9df-481d-41df-b239-46a15f899dda",
+   "duration_ms": 156,
+   "uuid": "a5779a50-20d1-4724-b002-fe19dbfb38f6",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {}

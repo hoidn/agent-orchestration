@@ -1,5 +1,5 @@
 {
- "source": "local recording budget-medium (stub_api.py scenario budget, CLI 2.1.311)",
+ "source": "local recording s3-budget-medium (stub_api.py scenario budget, CLI 2.1.311, three tools, via the relay)",
  "harness_exception": "NonZeroAgentExitCodeError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -22,28 +22,11 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "6e03ac0e-df38-434e-855f-a5b32c172431",
+  "session_id": "3ff779c8-8f0e-4edb-8f59-d757da0ff841",
   "tools": [
-   "Task",
    "Bash",
-   "CronCreate",
-   "CronDelete",
-   "CronList",
    "Edit",
-   "EnterWorktree",
-   "ExitWorktree",
-   "ListAgents",
-   "Monitor",
-   "NotebookEdit",
-   "Read",
-   "ReportFindings",
-   "ScheduleWakeup",
-   "SendMessage",
-   "Skill",
-   "TaskStop",
-   "ToolSearch",
-   "Workflow",
-   "Write"
+   "Read"
   ],
   "mcp_servers": [],
   "model": "claude-haiku-5-5",
@@ -157,46 +140,32 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "473e71ed-431f-45ff-b708-9cc7a11982ab",
-  "memory_paths": {
-   "auto": "/logs/agent/sessions/projects/-app/memory/"
-  },
+  "uuid": "67c29af2-3322-4e0e-b7e7-f348fccc3c24",
   "original_cwd": "/app",
   "additional_directories": [],
-  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
   "view_mode": "default"
  },
- "n_events": 3,
+ "n_events": 4,
  "stream_tail": [
+  {
+   "type": "system",
+   "subtype": "ui_invalidate",
+   "event": "ui.render",
+   "uuid": "d77abda8-de90-4b1e-a3b7-9aecfb4c0f8f",
+   "session_id": "3ff779c8-8f0e-4edb-8f59-d757da0ff841"
+  },
   {
    "type": "system",
    "subtype": "init",
    "cwd": "/app",
-   "session_id": "6e03ac0e-df38-434e-855f-a5b32c172431",
+   "session_id": "3ff779c8-8f0e-4edb-8f59-d757da0ff841",
    "tools": [
-    "Task",
     "Bash",
-    "CronCreate",
-    "CronDelete",
-    "CronList",
     "Edit",
-    "EnterWorktree",
-    "ExitWorktree",
-    "ListAgents",
-    "Monitor",
-    "NotebookEdit",
-    "Read",
-    "ReportFindings",
-    "ScheduleWakeup",
-    "SendMessage",
-    "Skill",
-    "TaskStop",
-    "ToolSearch",
-    "Workflow",
-    "Write"
+    "Read"
    ],
    "mcp_servers": [],
    "model": "claude-haiku-5-5",
@@ -310,13 +279,9 @@
    ],
    "analytics_disabled": true,
    "product_feedback_disabled": true,
-   "uuid": "473e71ed-431f-45ff-b708-9cc7a11982ab",
-   "memory_paths": {
-    "auto": "/logs/agent/sessions/projects/-app/memory/"
-   },
+   "uuid": "67c29af2-3322-4e0e-b7e7-f348fccc3c24",
    "original_cwd": "/app",
    "additional_directories": [],
-   "messaging_socket_path": "/tmp/cc-socks/7240.sock",
    "fast_mode_state": "off",
    "fast_mode_disabled_reason": "sdk_opt_in_required",
    "per_turn_effort_active": true,
@@ -325,7 +290,7 @@
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-13T23:29:30.024Z",
+   "timestamp": "2026-11-14T01:27:31.782Z",
    "message": {
     "model": "claude-haiku-5-5",
     "stop_reason": null,
@@ -346,7 +311,7 @@
   {
    "duration_api_ms": 0,
    "stop_reason": "tool_use",
-   "session_id": "6e03ac0e-df38-434e-855f-a5b32c172431",
+   "session_id": "3ff779c8-8f0e-4edb-8f59-d757da0ff841",
    "total_cost_usd": 0.052000000000000005,
    "usage": {
     "output_tokens_details": {
@@ -424,8 +389,8 @@
     "Reached maximum budget ($0.05)"
    ],
    "type": "result",
-   "duration_ms": 393,
-   "uuid": "59a0d392-c901-407f-8630-6a474f6f8026",
+   "duration_ms": 76,
+   "uuid": "238af428-a2fd-4af3-876d-2a9b889dd2a5",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {

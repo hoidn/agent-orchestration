@@ -1,5 +1,5 @@
 {
- "source": "local recording refusal-high (stub_api.py scenario refusal, CLI 2.1.311)",
+ "source": "local recording s3-refusal-high (stub_api.py scenario refusal, CLI 2.1.311, three tools, via the relay)",
  "harness_exception": "AgentSafetyRefusalError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -28,28 +28,11 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "21c2401b-869f-4ad2-98e0-5573ddad51f6",
+  "session_id": "f0b1d7cc-51c3-45df-93e0-b188a977683d",
   "tools": [
-   "Task",
    "Bash",
-   "CronCreate",
-   "CronDelete",
-   "CronList",
    "Edit",
-   "EnterWorktree",
-   "ExitWorktree",
-   "ListAgents",
-   "Monitor",
-   "NotebookEdit",
-   "Read",
-   "ReportFindings",
-   "ScheduleWakeup",
-   "SendMessage",
-   "Skill",
-   "TaskStop",
-   "ToolSearch",
-   "Workflow",
-   "Write"
+   "Read"
   ],
   "mcp_servers": [],
   "model": "claude-haiku-5-5",
@@ -163,24 +146,20 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "f44528be-25d3-4d0c-aa1b-880f3abe83f8",
-  "memory_paths": {
-   "auto": "/logs/agent/sessions/projects/-app/memory/"
-  },
+  "uuid": "7e1e40ac-5f9f-4216-881f-e117ecf54375",
   "original_cwd": "/app",
   "additional_directories": [],
-  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
   "view_mode": "default"
  },
- "n_events": 8,
+ "n_events": 9,
  "stream_tail": [
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-13T23:35:38.477Z",
+   "timestamp": "2026-11-14T01:31:59.044Z",
    "message": {
     "model": "claude-haiku-5-5",
     "stop_reason": null,
@@ -200,19 +179,19 @@
   {
    "type": "system",
    "subtype": "model_refusal_no_fallback",
-   "uuid": "04b04031-0483-4b14-a030-e2bc3f0e22c0",
+   "uuid": "19df75e4-7e07-40d5-a416-af0a513fcd95",
    "original_model": "claude-haiku-5-5",
    "request_id": null,
    "api_refusal_category": "bio",
    "api_refusal_explanation": "stub refusal",
-   "refused_user_message_uuid": "ba0a8095-5d29-4bab-864d-45fcb3cb2c48",
+   "refused_user_message_uuid": "3f5193fc-5879-4bb8-b1e0-fbc4f4c01f1d",
    "content": "",
-   "session_id": "21c2401b-869f-4ad2-98e0-5573ddad51f6"
+   "session_id": "f0b1d7cc-51c3-45df-93e0-b188a977683d"
   },
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-13T23:35:38.480Z",
+   "timestamp": "2026-11-14T01:31:59.047Z",
    "error": "invalid_request",
    "is_api_error_message": true,
    "refused_message_id": "msg_stub0002",
@@ -253,9 +232,9 @@
    }
   },
   {
-   "duration_api_ms": 165,
+   "duration_api_ms": 168,
    "stop_reason": "refusal",
-   "session_id": "21c2401b-869f-4ad2-98e0-5573ddad51f6",
+   "session_id": "f0b1d7cc-51c3-45df-93e0-b188a977683d",
    "total_cost_usd": 0.00030000000000000003,
    "usage": {
     "input_tokens": 2000,
@@ -332,8 +311,8 @@
    "api_error_status": null,
    "result": "API Error: Haiku 5.5 can't help with this. Start a new session to continue.\n\nLearn more: https://www.anthropic.com/legal/aup\n\nDetails: `[bio]`\n\nMessage ID: msg_stub0002",
    "type": "result",
-   "duration_ms": 411,
-   "uuid": "140a179c-7c7b-4f7a-92e0-28b9e80457d8",
+   "duration_ms": 256,
+   "uuid": "9983f396-f365-4d9d-9c4a-5e069755b906",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {
