@@ -222,6 +222,13 @@ def _redact(name, value):
     return f"{scheme} <redacted>".strip()
 
 
+def _system(body):
+    """Each system block's size and its first 80 characters (the identity line), not the whole prompt."""
+    system = body.get("system") or []
+    blocks = [{"text": system}] if isinstance(system, str) else system
+    return [{"chars": len(b.get("text", "")), "opening": b.get("text", "")[:80]} for b in blocks]
+
+
 def _record(path, headers, body):
     params = {k: v for k, v in body.items() if k not in ("messages", "system", "tools")}
     return {"path": path, "model": body.get("model"),
@@ -229,7 +236,7 @@ def _record(path, headers, body):
             "server_tools": [t for t in body.get("tools") or [] if "input_schema" not in t],
             "headers": {k.lower(): _redact(k, v) for k, v in headers.items()},
             "params": params, "n_messages": len(body.get("messages", [])), "turn": _turn(body),
-            "subagent": SUB_MARK in _first_user_text(body)}
+            "subagent": SUB_MARK in _first_user_text(body), "system": _system(body)}
 
 
 class Stub(BaseHTTPRequestHandler):

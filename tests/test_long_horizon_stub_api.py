@@ -176,3 +176,9 @@ def test_a_usage_limit_names_the_rejected_window_and_its_reset(tmp_path):
         proc.wait(timeout=10)
     assert (status, headers["anthropic-ratelimit-unified-status"],
             headers["anthropic-ratelimit-unified-representative-claim"]) == (429, "rejected", "five_hour")
+
+
+def test_the_system_prompt_is_recorded_by_block_size_and_opening(stub):
+    port, log = stub
+    _post(port, {**_request(), "system": [{"type": "text", "text": "You are a stand-in. " + "x" * 300}]})
+    assert _log(log)[0]["system"] == [{"chars": 320, "opening": "You are a stand-in. " + "x" * 60}]
