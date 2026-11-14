@@ -210,8 +210,9 @@ def inspect(image_id, ref):
     graph = _run(["podman", "info", "--format", "{{.Store.GraphRoot}}"], check=True).stdout.strip()
     store = json.loads((Path(graph) / "overlay-layers" / "layers.json").read_text())
     digests = data.get("RepoDigests") or []
-    return {"digest_matches": any(d.endswith("@" + ref.split("@")[1]) for d in digests),
-            "unpacked": data["Size"], "layers": layer_sizes(data["RootFS"]["Layers"], store)}
+    layers = layer_sizes(data["RootFS"]["Layers"], store)
+    return {"digest_matches": any(d.endswith("@" + ref.split("@")[1]) for d in digests), "unpacked": data["Size"],
+            "compressed": sum(layer["compressed"] or 0 for layer in layers), "layers": layers}
 
 
 def read_package(pkg):
@@ -242,7 +243,7 @@ def withholding(image_id, task, scratch, pkg, unpacked):
     try:
         _run(NICE + ["podman", "export", "-o", str(tar_path), name], check=True)
         free = _check_room()
-        found = classify(tar_members(tar_path, needle.encode() if needle else None), index)
+        found = classify(tar_members(tar_path, needle), index)
     finally:  # the tar and the container never outlive the check, whatever fails
         tar_path.unlink(missing_ok=True)
         _run(["podman", "rm", "-f", name])
