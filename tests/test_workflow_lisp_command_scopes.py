@@ -13,10 +13,10 @@ from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.model import WCC_M4_ROUTE_SCHEMA_VERSION, WccLet
 
 
-def _compile(tmp_path, body, *, params="", returns="Result", declarations="", prelude=""):
+def _compile(tmp_path, body, *, params="", returns="Result", declarations="", prelude="", target="2.40"):
     path = tmp_path / "entry.orc"
     path.write_text(
-        f'(workflow-lisp (:language "0.1") (:target-dsl "2.40") {prelude}'
+        f'(workflow-lisp (:language "0.1") (:target-dsl "{target}") {prelude}'
         '(defrecord Result (i Int) (s String)) '
         '(defunion Choice (A (i Int)) (B (s String))) '
         + declarations + f' (defworkflow run ({params}) -> {returns} {body}))'
