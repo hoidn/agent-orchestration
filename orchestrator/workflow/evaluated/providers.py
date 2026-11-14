@@ -28,6 +28,7 @@ from orchestrator.providers.usage import usage_from_stdout
 from orchestrator.providers.types import ProviderParams, ProviderSessionMetadataMode
 from orchestrator.contracts.output_contract import (
     ContractViolation, OutputContractError, validate_expected_outputs,
+    validate_prompt_output_position_destinations,
 )
 
 from .commands import CommandPerformerError, validate_effect_result
@@ -223,6 +224,45 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
         prompt, policy, parts, provider_expected_outputs(fills, fill_values),
         cut if node["class"] == "provider_phased" else None,
     )
+
+
+def check_output_slots(node, resolved, *, workspace, result_path):
+    """Refuse, before a fresh launch, output slots that collide (specs/io.md, provider output contracts).
+
+    A slot named like an artifact the structured result has whatever the provider returns is
+    `duplicate_artifact_name`; two slots, or a slot and the result bundle (`result_path`, workspace-relative), on
+    one destination are `prompt_output_position_destination_collision`; a slot whose path leaves the workspace is
+    `prompt_output_position_contract_mismatch`.
+    """
+    slots = {row["name"]: row["path"] for row in resolved.expected_outputs}
+    clashing = sorted(set(slots) & _result_artifact_names(node["contract"]))
+    if clashing:
+        raise ProviderPerformerError(
+            "duplicate_artifact_name", f"output slots named like structured result fields: {', '.join(clashing)}")
+    try:
+        validate_prompt_output_position_destinations(
+            rendered_paths=slots, expected_outputs=resolved.expected_outputs,
+            structured_output={"path": result_path, "contract_name": "__structured_result_bundle__"},
+            workspace=Path(workspace), provider_subject=None,
+        )
+    except OutputContractError as exc:
+        violation = exc.violations[0]
+        context = violation["context"]
+        message = (f"output slot {context['name']} path {context['rendered_path']} leaves the workspace"
+                   if violation["type"] == "prompt_output_position_contract_mismatch"
+                   else f"{violation['message']}: {context}")
+        raise ProviderPerformerError(violation["type"], message) from exc
+
+
+def _result_artifact_names(contract):
+    """The names in every result the contract admits: a variant result's discriminant, its shared fields and the
+    fields every variant has (a field of only some variants collides only when the provider returns one of them)."""
+    payload = contract["payload"]
+    if contract["kind"] != "variant_output":
+        return {field["name"] for field in payload["fields"]}
+    in_every_variant = set.intersection(
+        *({field["name"] for field in variant["fields"]} for variant in payload["variants"].values()))
+    return {payload["discriminant"]["name"], *(field["name"] for field in payload["shared_fields"]), *in_every_variant}
 
 
 def provider_delivery_name_for_template(template) -> str:

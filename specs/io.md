@@ -224,7 +224,10 @@ authoring changes do not introduce a new result-acceptance profile.
       distinct, and every output-position destination must differ from the
       structured bundle destination. The rendered path value and resolved
       expected-output path must be the same canonical workspace-relative POSIX
-      path.
+      path. For a `variant_output` result the names checked before launch are
+      the discriminant, the shared fields and the fields every variant has; a
+      slot named like a field that only some variants have is checked after
+      launch, against the variant returned.
     - Prompt composition emits the output-position contract first and the
       structured-result contract second. After a successful provider process,
       validation uses that same output-position-first order.
