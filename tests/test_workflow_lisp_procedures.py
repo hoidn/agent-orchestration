@@ -161,7 +161,7 @@ def _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(
         "proc_ref_specialization_cycle",
         "proc_ref_specialization_cycle",
     ]
-    assert [diagnostic.span.start.line for diagnostic in diagnostics] == [24, 18]
+    assert [diagnostic.span.start.line for diagnostic in diagnostics] == [20, 16]
     assert [diagnostic.form_path for diagnostic in diagnostics] == [
         ("workflow-lisp", "defproc", "loop-helper"),
         ("workflow-lisp", "defproc", "use-runner"),
