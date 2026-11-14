@@ -1,0 +1,268 @@
+{
+ "root": "/home/ollie/lh-cache/recordings",
+ "recordings": [
+  {
+   "name": "probe-oracle-notty-fail",
+   "source": "local: stub_api.py scenario normal (oracle agent runs allowlist_probe.py) via record.sh",
+   "harbor_args": "--agent oracle --disable-verification (harbor_patient.py before the -T fix)",
+   "cli_version": null,
+   "harness_exception": "RuntimeError",
+   "files_sha256": {
+    "probe-oracle-notty-fail/egress-recording-task__qudeaca__env_harbor-docker-egress-control-sidecar_1.log": "20c01075dd29f7b3ef5205faa4bc618793b8b402e602ec5ebb31dff07d2957b0",
+    "probe-oracle-notty-fail/jobs/2026-11-13__14-59-41/recording-task__QUDEAcA/result.json": "d129c0d7c727d6917a16b053a91ba9fa076d0e74820a671dadfa64810ba525f3",
+    "probe-oracle-notty-fail/jobs/2026-11-13__14-59-41/recording-task__QUDEAcA/exception.txt": "b1e8430a124116040439e91c970cd435a9814dbcfe4fe66908f1b6abb49d1734"
+   }
+  },
+  {
+   "name": "probe-oracle",
+   "source": "local: stub_api.py scenario normal (oracle agent runs allowlist_probe.py) via record.sh",
+   "harbor_args": "--agent oracle --disable-verification",
+   "cli_version": null,
+   "harness_exception": null,
+   "files_sha256": {
+    "probe-oracle/stub.jsonl": "8dd0e82005645620d1f9387d1213aa6db92abe14d04fec72130fa74a5e61ccf0",
+    "probe-oracle/egress-recording-task__ny9fwia__env_harbor-docker-egress-control-sidecar_1.log": "0f48ef97d541ac2b0bcb3c5454e05a479ce36bc1b7e29e03566938db813bab68",
+    "probe-oracle/jobs/2026-11-13__15-02-50/recording-task__Ny9fwiA/result.json": "ec1bcc93c7b9b856126b8cebf63c0c1929003e621990f97a5c68e68583bc6e76",
+    "probe-oracle/jobs/2026-11-13__15-02-50/recording-task__Ny9fwiA/agent/oracle.txt": "3b06fc32ad18c3c0920a401835d6f34f1a20fe4c63fa7a3bab3b7053b79ab39a"
+   }
+  },
+  {
+   "name": "probe-oracle-2",
+   "source": "local: stub_api.py scenario normal (oracle agent runs allowlist_probe.py, with the other-port case) via record.sh",
+   "harbor_args": "--agent oracle --disable-verification",
+   "cli_version": null,
+   "harness_exception": null,
+   "files_sha256": {
+    "probe-oracle-2/stub.jsonl": "8dd0e82005645620d1f9387d1213aa6db92abe14d04fec72130fa74a5e61ccf0",
+    "probe-oracle-2/egress-recording-task__ktxbh9y__env_harbor-docker-egress-control-sidecar_1.log": "3a59f18105ce880e211cade11782bae9be64788804ff88774442b5e05b43c511",
+    "probe-oracle-2/jobs/2026-11-13__16-28-56/recording-task__kTxBh9y/result.json": "f5b616dcea5d127bd6e607eb4a7df1c83bd866a8864ccb2fd43264ed7d0424f4",
+    "probe-oracle-2/jobs/2026-11-13__16-28-56/recording-task__kTxBh9y/agent/oracle.txt": "5dc59ccfdfbbb6bc8e9319325644d8d2f4e266f9d0dbaa159a5b3d91f2e9c071"
+   }
+  },
+  {
+   "name": "install-only-banner-fail",
+   "source": "local: stub_api.py scenario none (install only) via record.sh",
+   "harbor_args": "--install-only --ak version=2.1.311 (before the compose_warning_logs override)",
+   "cli_version": null,
+   "harness_exception": "RuntimeError",
+   "files_sha256": {
+    "install-only-banner-fail/jobs/2026-11-13__15-05-47/recording-task__BjtWbVQ/result.json": "9ad3e58978205cc727a62929c5c8167ace44909925848d32f52a94358b3c9176",
+    "install-only-banner-fail/jobs/2026-11-13__15-05-47/recording-task__BjtWbVQ/exception.txt": "33b3eb48e3fb329c694910186a158ba370c5ac2685afd5850e1e04fa10cda2cc"
+   }
+  },
+  {
+   "name": "install-only",
+   "source": "local: stub_api.py scenario none (install only) via record.sh",
+   "harbor_args": "--install-only --ak version=2.1.311",
+   "cli_version": null,
+   "harness_exception": null,
+   "files_sha256": {
+    "install-only/jobs/2026-11-13__15-08-53/recording-task__PLZTu8D/result.json": "418ee7ea4c136a46868b77ad4cbfeccc91e09ec9d49637a59d60109a2dca0650"
+   }
+  },
+  {
+   "name": "normal-low",
+   "source": "local: stub_api.py scenario normal via record.sh",
+   "harbor_args": "--ak version=2.1.311 --disable-verification --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "normal-low/stub.jsonl": "bc335453aacd10f3d14b3804b9260596e9357bc5729684b535cc476eacba63f7",
+    "normal-low/egress-recording-task__k7x7qwj__env_harbor-docker-egress-control-sidecar_1.log": "e83e8d3e9861c2c25a560bcf0ac1080acc612dafdedc6c5d4b1f60568140f244",
+    "normal-low/jobs/2026-11-13__15-15-18/recording-task__K7X7qWj/result.json": "db90e54bf41da30d9c9e5dd8985df395cea8aec97571b64e31bd0b6e3bd85ece",
+    "normal-low/jobs/2026-11-13__15-15-18/recording-task__K7X7qWj/agent/claude-code.txt": "72e14b07a0531418ac1d2de7c55eb0fce33d29292345718f56e28227643032dd",
+    "normal-low/jobs/2026-11-13__15-15-18/recording-task__K7X7qWj/agent/sessions/projects/-app/c86e2861-ca65-4fb4-bafd-09e74374af9b.jsonl": "73f898adbb42679c06d708c2363fb6a7ece5ea0004e7e7042b254d3043b68979"
+   }
+  },
+  {
+   "name": "budget-medium",
+   "source": "local: stub_api.py scenario budget via record.sh",
+   "harbor_args": "--ak version=2.1.311 --disable-verification --effort medium --ak max_budget_usd=0.05 --agent-timeout-multiplier 0.03",
+   "cli_version": "2.1.311",
+   "harness_exception": "NonZeroAgentExitCodeError",
+   "files_sha256": {
+    "budget-medium/stub.jsonl": "cca0944ec75422084f4db452f28debfdbe614bf4fba710c89b7c19aad1e16ab3",
+    "budget-medium/egress-recording-task__rroxgjz__env_harbor-docker-egress-control-sidecar_1.log": "ac6aeca15e08a6b6b59ffc6652d75b53eb1d4bb4b7a24f4612d73426f23fe84f",
+    "budget-medium/jobs/2026-11-13__15-22-26/recording-task__RroXgjz/result.json": "565ad93741da53ac289f3f500aaaf4bb8159126bfa3cfdbeac1fe95e5ddedb89",
+    "budget-medium/jobs/2026-11-13__15-22-26/recording-task__RroXgjz/agent/claude-code.txt": "8f87c0d737aa889b4dd22b5c951db7eede3a363a0d48848e6a6ce19e27cafe29",
+    "budget-medium/jobs/2026-11-13__15-22-26/recording-task__RroXgjz/agent/sessions/projects/-app/6e03ac0e-df38-434e-855f-a5b32c172431.jsonl": "0c86dcc7871b1e1096d95d4c2ee4edf61be6bc33199f0b832a626f01c44d5b52",
+    "budget-medium/jobs/2026-11-13__15-22-26/recording-task__RroXgjz/exception.txt": "e87fd4bbf662774a1537b5452034f99a25f59ca3986cffa75af20643b54f1631"
+   }
+  },
+  {
+   "name": "refusal-high",
+   "source": "local: stub_api.py scenario refusal via record.sh",
+   "harbor_args": "--ak version=2.1.311 --disable-verification --effort high",
+   "cli_version": "2.1.311",
+   "harness_exception": "AgentSafetyRefusalError",
+   "files_sha256": {
+    "refusal-high/stub.jsonl": "f3b7f129bcb8fc9692228de63592413fff4d607a12d6c216ce9045c169682613",
+    "refusal-high/egress-recording-task__uzi2nqs__env_harbor-docker-egress-control-sidecar_1.log": "47c607fccb596aaa4cbd11884439ae845175fafdc80156f73a88c3d2fd7beb7c",
+    "refusal-high/jobs/2026-11-13__15-30-24/recording-task__UZi2NQS/result.json": "b1be40bcd8dafa82a22ecfad0a21a0301239479362d331ae275c8d4bbbe7d3b3",
+    "refusal-high/jobs/2026-11-13__15-30-24/recording-task__UZi2NQS/agent/claude-code.txt": "209f9ec7558a259394b3f7caae5e3b723242d81984f7a2554e53849babceb0e5",
+    "refusal-high/jobs/2026-11-13__15-30-24/recording-task__UZi2NQS/agent/sessions/projects/-app/21c2401b-869f-4ad2-98e0-5573ddad51f6.jsonl": "633ce244d69effd1dfc0bb73c98deb87ffaafe5a91dceacdb88e30a18a70a85e",
+    "refusal-high/jobs/2026-11-13__15-30-24/recording-task__UZi2NQS/exception.txt": "f5cfcb3a3020689e02c38b5964d7b131c6da87a8fd473c8f892c6ebfba9d0f13"
+   }
+  },
+  {
+   "name": "max-tokens-low",
+   "source": "local: stub_api.py scenario max_tokens via record.sh",
+   "harbor_args": "--ak version=2.1.311 --disable-verification --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "OutputTokenExceededError",
+   "files_sha256": {
+    "max-tokens-low/stub.jsonl": "bf746bdb2ee25fb61c64b1f6a6c058e018b38fd73872db517c9ae38a9c9447cc",
+    "max-tokens-low/egress-recording-task__9cqj8hp__env_harbor-docker-egress-control-sidecar_1.log": "bb87bed9dd1acc7a15ed648799f78098253e8198f915317a4d78264dd41573a9",
+    "max-tokens-low/jobs/2026-11-13__15-36-10/recording-task__9Cqj8HP/result.json": "8de218a023dc3a974d1b07492644f707ed70dc490f99b4291222bd471b6f8314",
+    "max-tokens-low/jobs/2026-11-13__15-36-10/recording-task__9Cqj8HP/agent/claude-code.txt": "61105e5b1f7299de57b03993169a8f9828be078c12771db471c8313c73d662ea",
+    "max-tokens-low/jobs/2026-11-13__15-36-10/recording-task__9Cqj8HP/agent/sessions/projects/-app/73602f4a-5f28-4b9f-b104-8329dda3074e.jsonl": "9edb81559d9868c6806b409bcdb2c21418ba1e1901839aad7e25f732c8894cfa",
+    "max-tokens-low/jobs/2026-11-13__15-36-10/recording-task__9Cqj8HP/exception.txt": "de5e50c716c4935ed18b550d5cc6fc4b03ac4d2a81938127ed8432a32948fb80"
+   }
+  },
+  {
+   "name": "context-low",
+   "source": "local: stub_api.py scenario context via record.sh",
+   "harbor_args": "--ak version=2.1.311 --disable-verification --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "NonZeroAgentExitCodeError",
+   "files_sha256": {
+    "context-low/stub.jsonl": "61805b76930b0f1fd243fe06ae2035839cd289f021580bcff481cde8baba8b0b",
+    "context-low/egress-recording-task__xsyibem__env_harbor-docker-egress-control-sidecar_1.log": "e7aff097cc69971e2062cade21f026fa9072cb107a52786bb38cf0a92ac5af13",
+    "context-low/jobs/2026-11-13__15-41-41/recording-task__XSYiBEM/result.json": "935dfab5efb61696325ffc9f9380a07e5f832b85fb88f0ff2438b1fa5913c5d8",
+    "context-low/jobs/2026-11-13__15-41-41/recording-task__XSYiBEM/agent/claude-code.txt": "4405cdc2579db35f09150146e21385263b7cc47a2c0a00ee10d380196d932895",
+    "context-low/jobs/2026-11-13__15-41-41/recording-task__XSYiBEM/agent/sessions/projects/-app/44165c35-9a65-4199-92d7-b610cd2baeb8.jsonl": "53d1eaf8963210ec6008ad39e37cee55c916e4892a6aaa3f559b8d1e555b10b4",
+    "context-low/jobs/2026-11-13__15-41-41/recording-task__XSYiBEM/exception.txt": "8136e05227a1bacfb704507f4ce6c863e0998d493ad998fefc311644a0fbecf8"
+   }
+  },
+  {
+   "name": "context-late-low",
+   "source": "local: stub_api.py scenario context_late via record.sh",
+   "harbor_args": "--ak version=2.1.311 --disable-verification --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "NonZeroAgentExitCodeError",
+   "files_sha256": {
+    "context-late-low/stub.jsonl": "3e26f50e71ad4de4587e5476cfc8554e9f533c3a0e33befafba800c2ceb8965b",
+    "context-late-low/egress-recording-task__95rkfqo__env_harbor-docker-egress-control-sidecar_1.log": "ef07a1f6fe3d68436629a9c668f56920c553768a1433a951fdc2a198140074bc",
+    "context-late-low/jobs/2026-11-13__16-14-31/recording-task__95rKfqo/result.json": "7f0cad03149f251e9aaf4298987861520ceae429ef569531ff1c9bb47037c93b",
+    "context-late-low/jobs/2026-11-13__16-14-31/recording-task__95rKfqo/agent/claude-code.txt": "523fb3839b83053dc5089985b5268853934664d9e907ba2199c4b4fb38cc52ef",
+    "context-late-low/jobs/2026-11-13__16-14-31/recording-task__95rKfqo/agent/sessions/projects/-app/782759d9-22e9-4426-9def-7b7b8dce67bf.jsonl": "505ad04e77c26c26e790ae7766aa43fcd173d32202c5112a790d4ef2d417c26f",
+    "context-late-low/jobs/2026-11-13__16-14-31/recording-task__95rKfqo/exception.txt": "a2aed49825de6b6f6e69dc4062456e53f7187d81e39c3ba984509561b889708b"
+   }
+  },
+  {
+   "name": "subagent-high",
+   "source": "local: stub_api.py scenario subagent via record.sh",
+   "harbor_args": "--ak version=2.1.311 --disable-verification --effort high --ak max_budget_usd=0.1 --agent-timeout-multiplier 0.03",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "subagent-high/stub.jsonl": "b47cde2e75ca5013c660d00d6e7c55cdc1fe9f7a0e95ff3fb75fca2f2a298c8e",
+    "subagent-high/egress-recording-task__erkniyj__env_harbor-docker-egress-control-sidecar_1.log": "e3e876ba8a5d26fcffb6cde7818f010f371e3bd2200ab6078eb2b2fa4d93efb8",
+    "subagent-high/jobs/2026-11-13__15-47-29/recording-task__ErKniyJ/result.json": "397bb437556c4439f8c034b560aa46cb2bfd0873b195f9f49c0ac9b2863c5c87",
+    "subagent-high/jobs/2026-11-13__15-47-29/recording-task__ErKniyJ/agent/claude-code.txt": "4ef089527c8f129d065c1784089424de44a09cc12f625f82cc98606ece6cc391",
+    "subagent-high/jobs/2026-11-13__15-47-29/recording-task__ErKniyJ/agent/sessions/projects/-app/fd8ba79d-5422-4cd3-b6ac-29b786654ac3/subagents/agent-aaeb526bb2f7da5c7.jsonl": "8ba5c3e4765e57baed3a745d7cf01389e7fc1d3da9da419a0e42b3bcad79c01d",
+    "subagent-high/jobs/2026-11-13__15-47-29/recording-task__ErKniyJ/agent/sessions/projects/-app/fd8ba79d-5422-4cd3-b6ac-29b786654ac3.jsonl": "50f729233486d515ba2bedd092428187bc215d7d5ea2c65d952fd9fd63b6c452"
+   }
+  },
+  {
+   "name": "subagent-override-low",
+   "source": "local: stub_api.py scenario subagent_override via record.sh",
+   "harbor_args": "--ak version=2.1.311 --disable-verification --effort low --ak max_budget_usd=0.1 --agent-timeout-multiplier 0.03",
+   "cli_version": "2.1.311",
+   "harness_exception": "NonZeroAgentExitCodeError",
+   "files_sha256": {
+    "subagent-override-low/stub.jsonl": "d1c66208a4b9ba89721951855c8011c08d9c7a80503b3068b70d5b20e19e6df3",
+    "subagent-override-low/egress-recording-task__8re9x2c__env_harbor-docker-egress-control-sidecar_1.log": "bdb86d9c498ef0b44253d112282fa5206b31cf9f380fcebd390846f9b0720bc7",
+    "subagent-override-low/jobs/2026-11-13__16-19-58/recording-task__8re9X2c/result.json": "0ac1ad1be69f838704daedb954da0febf1c0db5eaf6728988613bee75190ef50",
+    "subagent-override-low/jobs/2026-11-13__16-19-58/recording-task__8re9X2c/agent/claude-code.txt": "c4de00a93170d4e43fb4220611e6c5e5075f8dc1b80808064c29cd41a79e57fb",
+    "subagent-override-low/jobs/2026-11-13__16-19-58/recording-task__8re9X2c/agent/sessions/projects/-app/988d7a6f-224c-4a30-b8ba-69bcb4dacbb8/subagents/agent-a192e9a1dacd75ce2.jsonl": "0d529671b6eeba41b51cd314aa2095a90f528b0f611d8633d344986c4e1c1f86",
+    "subagent-override-low/jobs/2026-11-13__16-19-58/recording-task__8re9X2c/agent/sessions/projects/-app/988d7a6f-224c-4a30-b8ba-69bcb4dacbb8.jsonl": "18f22aca89916aed47f96c0f1200f481bb67c3496884f437bbdeb248b690cbfd",
+    "subagent-override-low/jobs/2026-11-13__16-19-58/recording-task__8re9X2c/exception.txt": "4dc1703cdf61c42a245c62450e7deba7180a170ec290afb48965761d52904020"
+   }
+  },
+  {
+   "name": "web-low",
+   "source": "local: stub_api.py scenario web (before the deferred-tool fix: no web call was made) via record.sh",
+   "harbor_args": "--ak version=2.1.311 --disable-verification --effort low --ak disable_web_search=false",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "web-low/stub.jsonl": "667a305e809c0d1cafdf46eef16917c1776c3c97130566a5a02c171fc2b76122",
+    "web-low/egress-recording-task__4zxvj2z__env_harbor-docker-egress-control-sidecar_1.log": "5ce3fdf4e1cc52e596f93f8a958812677553cb815b1fea21ac2c6308bb444c29",
+    "web-low/jobs/2026-11-13__15-53-25/recording-task__4zXvj2z/result.json": "c5b1a293a6b867ff042afc7a03f218c11db8751bd3a0101c476f5e302c521ff0",
+    "web-low/jobs/2026-11-13__15-53-25/recording-task__4zXvj2z/agent/claude-code.txt": "a3ce4eb54e145d3a86f78212ce388270c93caef652622714f545efda5fe52908",
+    "web-low/jobs/2026-11-13__15-53-25/recording-task__4zXvj2z/agent/sessions/projects/-app/b2a9ea46-1cf0-4e31-a720-28addb572471.jsonl": "b9237591ff538922aa03802b4d2c5531f6850cc0906d5af841ffa6714b5bbc56"
+   }
+  },
+  {
+   "name": "web2-low",
+   "source": "local: stub_api.py scenario web via record.sh",
+   "harbor_args": "--ak version=2.1.311 --disable-verification --effort low --ak disable_web_search=false",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "web2-low/stub.jsonl": "42f6e881e45b5f96bc1eca84c3df3bd3752409a209af5443142eaaede028178b",
+    "web2-low/egress-recording-task__twzvf9a__env_harbor-docker-egress-control-sidecar_1.log": "479020dd4ad0ed1244e68a65e713163eb4dc95e65c36b80d52d6501bc2c78040",
+    "web2-low/jobs/2026-11-13__16-24-27/recording-task__TWZVf9A/result.json": "de2f1bfad7612f993926c4dabd2cc08ab03ddc6a432a676f66a238336385bf3b",
+    "web2-low/jobs/2026-11-13__16-24-27/recording-task__TWZVf9A/agent/claude-code.txt": "98ccbb6df19ffbcdc4f27529d9ea442b982a25cac05b1ad8d32126afcc745319",
+    "web2-low/jobs/2026-11-13__16-24-27/recording-task__TWZVf9A/agent/sessions/projects/-app/c146f877-288f-44df-a81a-6b8c6e603b76.jsonl": "c84de9858fc46c4e32766219495b08d12a9d890d657c95561ae07aeae07720ed"
+   }
+  },
+  {
+   "name": "simple-medium",
+   "source": "local: stub_api.py scenario normal via record.sh",
+   "harbor_args": "--ak version=2.1.311 --disable-verification --effort medium --ae CLAUDE_CODE_SIMPLE=1 --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "simple-medium/stub.jsonl": "7a997206170bcdc194e5d57b928330fc7eae8230c0806292362c1817fd30b527",
+    "simple-medium/egress-recording-task__wqchf6t__env_harbor-docker-egress-control-sidecar_1.log": "ebbc4383c30de0e1aff7aef0568bd0aab7b2c780e5d4b833dbdfd141b5ccbe4d",
+    "simple-medium/jobs/2026-11-13__15-59-40/recording-task__wQchf6t/result.json": "05824748a4769b89e873b64154dcd46d37fb0bf217da7a92345a5a8e4e57ff8e",
+    "simple-medium/jobs/2026-11-13__15-59-40/recording-task__wQchf6t/agent/claude-code.txt": "2c1b529589b7035300794e2e83208d1937f4a23d50dfe84a1ad0dcc67cb3b07b",
+    "simple-medium/jobs/2026-11-13__15-59-40/recording-task__wQchf6t/agent/sessions/projects/-app/ddecf45a-ddb3-4623-bf67-f15f3f41a162.jsonl": "ec9352fd3a4ce279121661875b9a8ea70c22531f4345a49930a32e9b54af313a"
+   }
+  },
+  {
+   "name": "timeout-low",
+   "source": "local: stub_api.py scenario timeout via record.sh",
+   "harbor_args": "--ak version=2.1.311 --effort low --agent-timeout-multiplier 0.005 (verification on)",
+   "cli_version": "2.1.311",
+   "harness_exception": "AgentTimeoutError",
+   "files_sha256": {
+    "timeout-low/stub.jsonl": "3d7292fb13d287b57f485bc1bffef111e8ca0ad42b7fc77f90428d27374fe7b1",
+    "timeout-low/egress-recording-task__su6yeh6__env_harbor-docker-egress-control-sidecar_1.log": "ea752910def5a6821b326a43427e59ba2e7e61374d93444186238a28c84cdbf1",
+    "timeout-low/jobs/2026-11-13__16-05-20/recording-task__sU6YEh6/result.json": "c51ee90da4456b4f3b5f4b747f6f779f754ca6eac8fa9e11ce5ff3cca7ce2978",
+    "timeout-low/jobs/2026-11-13__16-05-20/recording-task__sU6YEh6/agent/claude-code.txt": "cc652220912ce3298d3ee0ce2625d39f15e00f2fcaabdf3fe5a7f4a1e836a857",
+    "timeout-low/jobs/2026-11-13__16-05-20/recording-task__sU6YEh6/agent/sessions/projects/-app/bd646067-17cc-4196-a4c2-4bffc4dc1faa.jsonl": "1ea8ba753e6b4973e73700a6b03b395597a62427b216efe9d28e7d16c8692337",
+    "timeout-low/jobs/2026-11-13__16-05-20/recording-task__sU6YEh6/exception.txt": "ba9f7cca7869bd6f705bfa4aa86ea16b09caef6b9ebd85c7f013502562204319"
+   }
+  },
+  {
+   "name": "public-0c3f7848",
+   "source": "public trial 0c3f7848-a649-5972-9a74-e836f0e5e08b of Terminal-Bench 4.0 leaderboard row f12d32df-b834-4eb5-ba24-cf46cb199742 (Claude Code, Haiku 5.5, effort max)",
+   "cli_version": "2.1.311",
+   "harness_exception": "AgentSafetyRefusalError",
+   "files_sha256": {
+    "archives/0c3f7848-a649-5972-9a74-e836f0e5e08b/trial.tar.gz": "7804f11d46dc28aeb79650c6c5c15a29cd6f9308e00e22f4eb03b26313c08219"
+   }
+  },
+  {
+   "name": "public-434bd1c0",
+   "source": "public trial 434bd1c0-280c-53b4-9230-a0e60c28edf6 of Terminal-Bench 4.0 leaderboard row f12d32df-b834-4eb5-ba24-cf46cb199742 (Claude Code, Haiku 5.5, effort max)",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "archives/434bd1c0-280c-53b4-9230-a0e60c28edf6/trial.tar.gz": "1295dd35d704b99edc08a27ca5bdf3793a5b86385bfe5d09427d9fa05f37c090"
+   }
+  },
+  {
+   "name": "public-be3c3634",
+   "source": "public trial be3c3634-9cca-5081-94c6-ad2dcebc364d of Terminal-Bench 4.0 leaderboard row f12d32df-b834-4eb5-ba24-cf46cb199742 (Claude Code, Haiku 5.5, effort max)",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "archives/be3c3634-9cca-5081-94c6-ad2dcebc364d/trial.tar.gz": "9767e7e00ae1497f78d6c84f5539bdaeb5839f8993ce45cfd01d4391631ba55e"
+   }
+  }
+ ]
+}

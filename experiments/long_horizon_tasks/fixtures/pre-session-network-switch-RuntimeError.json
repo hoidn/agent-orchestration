@@ -1,0 +1,17 @@
+{
+ "source": "local recording probe-oracle-notty-fail (oracle agent; before the -T fix in harbor_patient.py)",
+ "harness_exception": "RuntimeError",
+ "cli_exit_code": null,
+ "agent_result": {
+  "n_input_tokens": null,
+  "n_cache_tokens": null,
+  "n_output_tokens": null,
+  "cost_usd": null,
+  "model_usage": null,
+  "rollout_details": null,
+  "metadata": null
+ },
+ "init": null,
+ "n_events": 0,
+ "stream_tail": []
+}

@@ -1,0 +1,9 @@
+{
+ "source": "local recording install-only-banner-fail (before the compose_warning_logs override)",
+ "harness_exception": "RuntimeError",
+ "cli_exit_code": null,
+ "agent_result": null,
+ "init": null,
+ "n_events": 0,
+ "stream_tail": []
+}
