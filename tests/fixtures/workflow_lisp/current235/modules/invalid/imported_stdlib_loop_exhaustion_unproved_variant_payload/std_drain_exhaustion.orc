@@ -39,15 +39,9 @@
       ()
       -> std_drain_exhaustion/DrainLoopTerminal
       (let* ((progress-report-target
-               (__generated-relpath-seed__
-                 WorkReport
-                 "artifacts/work/imported-stdlib-loop-exhaustion-unproved-variant.json"
-                 "imported_stdlib_loop_exhaustion_unproved_variant_summary_seed"))
+               (path/join-under WorkReport "imported-stdlib-loop-exhaustion-unproved-variant.json"))
              (initial-run-state
-               (__generated-relpath-seed__
-                 StateExisting
-                 "state/imported-stdlib-loop-exhaustion-unproved-variant.json"
-                 "imported_stdlib_loop_exhaustion_unproved_variant_state_seed"))
+               (path/join-under StateExisting "imported-stdlib-loop-exhaustion-unproved-variant.json"))
              (selection-result
                (variant SelectionResult GAP
                  :gap (record GapPayload

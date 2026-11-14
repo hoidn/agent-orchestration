@@ -45,15 +45,9 @@
       ()
       -> DrainTerminalResult
       (let* ((progress-report-target
-               (__generated-relpath-seed__
-                 WorkReport
-                 "artifacts/work/imported-stdlib-loop-exhaustion-effectful-helper.json"
-                 "imported_stdlib_loop_exhaustion_effectful_helper_summary_seed"))
+               (path/join-under WorkReport "imported-stdlib-loop-exhaustion-effectful-helper.json"))
              (initial-run-state
-               (__generated-relpath-seed__
-                 StateExisting
-                 "state/imported-stdlib-loop-exhaustion-effectful-helper.json"
-                 "imported_stdlib_loop_exhaustion_effectful_helper_state_seed")))
+               (path/join-under StateExisting "imported-stdlib-loop-exhaustion-effectful-helper.json")))
         (loop/recur
           :max 1
           :state (loop-state

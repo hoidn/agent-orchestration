@@ -26,16 +26,10 @@
       completed
       completed
       inputs
-      (__generated-relpath-seed__
-        ReviewReportPath
-        "artifacts/review/minimal-initial-review-report.md"
-        "minimal_review_revise_loop_initial_report")
+      (path/join-under ReviewReportPath "minimal-initial-review-report.md")
       (record ReviewFindings
         :schema_version "ReviewFindings.v1"
-        :items_path (__generated-relpath-seed__
-                      ReviewFindingsJsonPath
-                      "artifacts/work/minimal-initial-findings.json"
-                      "minimal_review_revise_loop_initial_findings"))
+        :items_path (path/join-under ReviewFindingsJsonPath "minimal-initial-findings.json"))
       (proc-ref review-minimal)
       (proc-ref fix-minimal)
       1)))

@@ -73,10 +73,7 @@
     -> RenderedSummary
     (record imported_stdlib_macro_payload_helper_composition/std_payload_helpers/RenderedSummary
       :status "SELECTED"
-      :summary-path (__generated-relpath-seed__
-                      SummaryPath
-                      "artifacts/work/imported-stdlib-macro-payload-helper-summary.json"
-                      "imported_stdlib_macro_payload_helper_summary_seed")))
+      :summary-path (path/join-under imported_stdlib_macro_payload_helper_composition/std_payload_helpers/SummaryPath "imported-stdlib-macro-payload-helper-summary.json")))
   (defmacro emit-run-drain-like (name selector consumer)
     (defworkflow name
       ()

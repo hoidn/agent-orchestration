@@ -23,15 +23,9 @@
     ()
     -> DrainTerminalResult
     (let* ((progress-report-target
-             (__generated-relpath-seed__
-               WorkReport
-               "artifacts/work/imported-stdlib-loop-exhaustion-direct-command-result.json"
-               "imported_stdlib_loop_exhaustion_direct_command_result_summary_seed"))
+             (path/join-under WorkReport "imported-stdlib-loop-exhaustion-direct-command-result.json"))
            (initial-run-state
-             (__generated-relpath-seed__
-               StateExisting
-               "state/imported-stdlib-loop-exhaustion-direct-command-result.json"
-               "imported_stdlib_loop_exhaustion_direct_command_result_state_seed")))
+             (path/join-under StateExisting "imported-stdlib-loop-exhaustion-direct-command-result.json")))
       (loop/recur ((state (loop-state
                             (items-processed Int 0)
                             (run-state StateExisting initial-run-state)
