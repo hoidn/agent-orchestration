@@ -8,7 +8,8 @@ grade on this machine without Docker. It selects no work; the
 provider call was made. Every public figure is labelled "reported by"; figures marked "computed"
 are arithmetic on public rows; figures marked "measured" were observed on this machine. The
 working notes, downloaded rows and job directories were session scratch and are not kept in the
-repository.
+repository. Revised the same day: the last oracle row is filled in, and §8 carries the harness
+facts the plan's independent review read from the installed package.
 
 ## 1. Survey: what was found
 
@@ -40,14 +41,14 @@ repository.
 | FeatureBench | Implement a feature in a real repository; 200 tasks (lite 30) | Images of 2 to 8 GB each; 44 tasks need a GPU | Not stated | Best 2025 agents 11 to 12.5%; no Haiku 5.5 figure | Good for its from-scratch level; disk rules it out here |
 | ProgramBench | Rebuild a program from its binary and documentation; 200 tasks; hidden behavioural tests | Docker images per task | MIT | Haiku 5.5: 2.5% resolved, USD 6.83, 73 min (reported by Vals) | Excellent fit; below the band on the binary measure |
 
-Excluded, one line each: SWE-bench Verified, Pro, V2 and Multilingual (saturated or far above
-the band; localized patches); SWE-bench Multimodal (in band in aggregate, but visual front-end
-patches); SWE-Marathon and its extension (far above a Haiku budget; half of the extension is
+Excluded: SWE-bench Verified, Pro, V2 and Multilingual (saturated or far above the band;
+localized patches); SWE-bench Multimodal (in band in aggregate, but visual front-end patches);
+SWE-Marathon and its extension (far above a Haiku budget; half of the extension is
 model-judged); MLE-bench (158 GB minimum data, 24 h runs); PaperBench and ScienceAgentBench
 (graded wholly or mostly by a model); RExBench (10 of 12 tasks withheld); SciCode and
-ResearchCodeBench (function-level); AlgoTune (hardware-sensitive timing); Commit0 (stale and
+ResearchCodeBench (function-level); AlgoTune (hardware-sensitive timing); Commit0 (stale,
 contaminated); Vibe Code Bench and FrontierCode (tasks private). LHTB (46 tasks, continuous
-reward) was not examined: its licence and task content were not established.
+reward) was not examined.
 
 ## 3. The 16 named tasks
 
@@ -83,10 +84,9 @@ lake-temp-glm) declare no internet. Verifier limits run from 120 s to 1,800 s.
 ## 4. Sandboxing on this machine
 
 **Without containers** (tried first). `bwrap` works through its AppArmor profile but maps one
-user id and grants no capabilities; `unshare -Ur` is refused. A daemon-free image export plus
-`bwrap` runs simple images (`apt` needs its sandbox user set to root). It cannot reproduce a task
-that separates users, and it means re-implementing the harness's build and verifier flow. It was
-set aside when Podman became available.
+user id and grants no capabilities. With a daemon-free image export it runs simple images, but
+it cannot reproduce a task that separates users, and it means re-implementing the harness's
+build and verifier flow. It was set aside when Podman became available.
 
 **Rootless Podman** (installed by the owner during the work): Podman 4.9.3, crun, overlay store
 under the user's home, cgroup v2 with `cpu`, `memory` and `pids` delegated, a sub-id range of
@@ -138,14 +138,18 @@ on 32 cores throughout. Task sources: `harbor-framework/terminal-bench` at commi
 | vba-userform-port, unchanged | 123 / 206 | 4 | 401 / 439 | no reward file | no reward file |
 | vba-userform-port, one-line verifier change | 244 / 182 | 15 | 540 / 193 | yes | yes |
 | rdkit-ic-constraints (Science suite) | 104 / 90 | 30 | 945 / 241 | yes | yes |
+| spin-glass-groundstate (Science suite) | 123 / 87 | 5434 | 117 / 54 | yes (6 of 6 instances) | yes |
 
-Summary: 11 of the 16 named tasks were tried. Ten pass both halves with the task files
-unchanged, wal-recovery-ordering in one of two reference runs. Five were not tried
+Summary: 13 tasks were tried, 11 of them from the 16 named. Twelve pass both halves with the
+task logic unchanged, and all 13 with one verifier line changed. Of the 11 named tasks, ten
+pass with the task files unchanged (wal-recovery-ordering in one of two reference runs);
+vba-userform-port needs the wider sub-id range or the verifier change. Both Science-suite tasks
+pass, one after an upstream defect is fixed; the other's reference solver took 91 minutes on
+about 3 of its 4 CPUs at a host load of 165. Five named tasks were not tried
 (vf2-speedup-networkx, vpp-loss-divergence, batched-eval-parity, pretrain-shard-corruption,
-hof-topology-interpenetration); a read of their image and verifier files found none of the
-hazards met so far. Of two Science-suite tasks, one passes after an upstream defect is fixed and
-the other (spin-glass-groundstate) had not finished when this was written. No task was run five
-times, which is what the harness's own guidance asks for.
+hof-topology-interpenetration); their image and verifier files show none of the hazards met so
+far. No task was run five times, as the harness's guidance asks. The checked copies carry their
+own per-task version numbers and were not compared with the published 4.1.0 digests.
 
 **What needed fixing, and where the fix lives.**
 
@@ -153,13 +157,14 @@ times, which is what the harness's own guidance asks for.
 | --- | --- | --- | --- |
 | 10-second harness probes time out under load | "Podman is not responding" | The wrapper above | No |
 | Short image names resolve differently | `manifest unknown` for `fedora`; the sidecar image "did not resolve to an alias" | Pull by full name, or a registries alias | No |
-| vba-userform-port verifier changes ownership to a random user id up to about 10^9 | `OSError: [Errno 22] Invalid argument` | A wider sub-id range (one root command, then `podman system migrate`), or the verifier's upper bound lowered to 55,000 in a local copy | Only the second |
+| vba-userform-port verifier changes ownership to a random user id up to about 10^9 | `OSError: [Errno 22] Invalid argument` | A wider sub-id range: as root, `usermod --add-subuids 165536-1000165535 --add-subgids 165536-1000165535 <user>` (check that no other user's range overlaps), then `podman system migrate` as that user, which stops the user's running containers; not run. Or the verifier's upper bound lowered to 55,000 in a local copy | Only the second |
 | wal-recovery-ordering reference failed 1 of 70 test executions once | A thread-timing test with a 0.2 ms delay; the verifier used 1,106 s of its 1,800 s | None; a quiet host | No |
 | An upstream Science task file is invalid TOML (a key twice) | The harness reports only "Either datasets or tasks must be provided" | Remove the duplicate line | Yes (not one of the 16) |
 
 ## 6. Timing and cost under load
 
-Measured at load 100 to 165; an idle host should roughly halve them.
+Measured at load 100 to 165. That an idle host would roughly halve them is an estimate, not a
+measurement.
 
 - Per attempt, because built images are deleted after each trial: agent environment 38 to 244 s
   (median about 105 s) with a warm layer cache; verifier 105 to 1,106 s (median about 200 s)
@@ -169,7 +174,7 @@ Measured at load 100 to 165; an idle host should roughly halve them.
 - Not measured: the Claude Code install inside a container, and any agent run.
 
 Load changes grading, not only speed: one reference solution failed a timing test under load,
-and a Science-suite task grades against a CPU-time budget.
+and a Science-suite task's reference solver works against a CPU-time budget.
 
 ## 7. Network observations
 
@@ -206,6 +211,24 @@ Read from the harness source at commit `b06002e0`; not run.
   copied out of the container.
 - The harness's retry count defaults to zero.
 
+Read from the installed 0.25.0 package by the plan's independent review; not run:
+
+- **Network.** Hosts given for a run are ignored when the task's agent policy is open, and no
+  run-level setting switches a phase's mode: an allowlist needs the mode and the hosts in the
+  task file. Once any host is given, the harness stops adding the inference host by itself.
+  The sidecar's log lives in the sidecar container, which teardown removes.
+- **Errors.** Every non-zero exit of the CLI becomes one exception family. Provider faults (rate
+  limit, overload, server error) and model-side endings (safety refusal, context window, output
+  tokens) are sibling classes in it; a stop at the CLI's budget limit matches no pattern.
+- **After the agent.** The verifier still runs after an agent timeout or a non-zero exit, and a
+  path that regrades saved artifacts exists.
+- **Credentials.** A custom base URL is one of five supported routes; with it the harness pins
+  every tier alias and the subagent model to the bound model. Environment values reach the
+  container on the container engine's command line, visible to every process of the host user.
+
+Measured afterwards: this user's delegated cgroup controllers are `cpu`, `memory` and `pids`;
+the CPU-set controller is not, so containers cannot be pinned through it without a root change.
+
 ## 9. Arithmetic used by the plan
 
 Exact binomial 95% intervals (Clopper–Pearson; computed):
@@ -231,23 +254,25 @@ figures are an interpolation, not a report.
 - Whether the allowlist mode works under rootless Podman, and which hosts each task needs.
 - Whether the task content at the checked commit equals the published 4.1.0 digests.
 - Oracle results for five named tasks, and repeat stability for all 16.
+- What the real CLI emits in a container (events, endings, usage records): nothing was recorded.
 - The Claude Code install inside these images (time, hosts contacted, whether an old version is
   still served), and whether each effort level is accepted for this model.
 - Compose tasks and GPU tasks were not tried.
 - Licences of the benchmarks marked "not stated".
 - Whether the model's training data includes these tasks. They were published in August 2026
-  with a canary string; the reference solutions are public.
+  with a canary string, and the reference solutions are public. The vendor's help page gives
+  June 2026 as the model's training cutoff (read through a search result, not on the page).
 
 ## 11. Sources (public names; read 2026-11-13)
 
 - Repositories: `harbor-framework/terminal-bench` (tasks, leaderboard submissions, dataset
   digests, licence), `harbor-framework/terminal-bench-science`, `harbor-framework/harbor` (the
   harness, its Podman backend, its Claude Code agent, the benchmark adapters).
-- The benchmark hub's public leaderboards "Terminal-Bench 4.0", "Terminal-Bench 4.1" and
-  "Terminal-Bench-Science 0.1 Evaluation Results", and their public trial rows.
-- The vendor's Haiku 5.5 launch post; a secondary write-up of its benchmarks (effort sweep and
-  per-attempt cost); the Vals benchmark pages for Terminal-Bench 4, Terminal-Bench-Science and
-  ProgramBench.
+- The benchmark hub's public leaderboards for Terminal-Bench 4.0 and 4.1 and
+  Terminal-Bench-Science 0.1, with their public trial rows.
+- The vendor's Haiku 5.5 launch post and its help article on training data (the latter through
+  a search); a secondary write-up of the benchmarks (effort sweep, per-attempt cost); the Vals
+  pages for Terminal-Bench 4, Terminal-Bench-Science and ProgramBench.
 - Papers and repositories of NL2Repo-Bench, FeatureBench, ProgramBench, ReplicationBench,
   SWE-Marathon, SWE-EVO, Commit0, MLE-bench, PaperBench and RE-Bench.
 - Local tools: Podman 4.9.3, podman-compose 1.6.0, Harbor 0.25.0, crane 0.22.1, bwrap 0.9.0.

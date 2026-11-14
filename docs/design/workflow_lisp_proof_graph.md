@@ -1,5 +1,9 @@
 # Workflow Lisp Proof Graph
 
+Status: **Historical — archived in place.** Superseded: its proof rules are now stated, with their diagnostic codes, in the frontend specification; its `VariantProof` entries, `requires_variant` steps and typed-transition proof describe removed code. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [frontend specification §11](workflow_lisp_frontend_specification.md#11-pattern-matching) for `match` proof, the runtime check and workflow calls; [§7.5](workflow_lisp_frontend_specification.md#75-unions) and [§12](workflow_lisp_frontend_specification.md#12-conditionals) for unions and discriminant tests. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#proof_graph).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: current typed proof/analysis contract; historical executable projections
 Depends on: `docs/design/workflow_lisp_reference_catalog.md`
 

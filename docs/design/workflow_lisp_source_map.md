@@ -1,5 +1,9 @@
 # Workflow Lisp Source Map
 
+Status: **Historical — archived in place.** Superseded: the canonical `source_map.json` sidecar, `CompiledFrontendIndex`, the Semantic IR bridge and runtime origin resolution describe removed code; the live provenance rules (union-field subjects, subjects outside identity, no source read at run time) are stated in the compiler middle-end. The complete original record below, including its original status, present-tense descriptions, schedules and acceptance language, is preserved for provenance. It supplies no current execution admission, work selection or copy-safe recipe. Current authority: [middle-end, Pipeline, provenance and private contexts](workflow_lisp_core_calculus_middle_end.md#pipeline-provenance-and-private-contexts); [language server, Compiler Artifact Compatibility](workflow_lisp_language_server.md#compiler-artifact-compatibility) for diagnostics with spans and expansion frames. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#source_map).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Current scope: exact authored spans, macro/procedure/call provenance, source
 subjects and deterministic lineage remain shared typed/LSP and diagnostic
 contracts. The canonical flat build sidecar and classic/WCC executable-node

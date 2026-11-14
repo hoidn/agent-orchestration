@@ -366,6 +366,44 @@ every removed test is listed with the code it covered".
      tests that assert it cannot be reached from a compile); a template-bound
      name in the first position of a list is never renamed by macro expansion
      (being closed with the loop-binder change).
+   - added 2026-11-13 (third batch): an inner binding that is not a procedure
+     reference does not hide an outer procedure reference of the same name
+     (`(let* ((g (proc-ref p))) (let* ((g 5)) (g 1)))` compiles and calls
+     `p`); the fix refuses source that compiles today, so it goes with the
+     one-target cut, beside refusing a `let-proc` local named like a function
+     or a form; a `defproc` parameter of procedure-reference type forwarded
+     through `let*` fails with `name_unknown`; reading a variant field on a
+     `match` subject instead of the arm's binder passes the typechecker and
+     fails with `compiler_defect` (confirmed by a second agent; the
+     variant-field fix branch does not change it).
+   - added 2026-11-13 (fourth batch, each confirmed by an independent probe
+     on `main`): a prompt declared with a missing `input_file` does not fail,
+     and the provider runs with no authored prompt (first in line with the
+     guard hole above: a paid call with no instruction); `defpath` silently
+     ignores unknown keywords; return guidance on a workflow, procedure or
+     function is checked and then discarded (an accepted form with no
+     effect); a `Bool` result accepts the strings "true" and "false";
+     `TimestampNs` is documented as a type and does not exist; a prompt
+     extern's path is checked only when the call runs, not at compile.
+     Not a defect, a spec correction: result guidance on a provider or
+     command effect is part of program identity (the specs said it was not).
+   - added 2026-11-13 (fifth batch, from the second review of the callables
+     change): macro hygiene never renames a template's `let-proc` binder, so
+     caller code passed to the macro can call the template's local (with the
+     alias form on `main` already; by name once the callables change merges);
+     renaming it moves the digest of macro programs that compile today, so it
+     goes with the one-target cut; a `let-proc` local that forwards a captured
+     outer procedure reference fails with `compiler_defect`.
+   - added 2026-11-13 (sixth batch, from the third review of the loop-binder
+     change): macro hygiene in head position. A template-bound name at the
+     head of a list is never renamed, so a caller's binding of the same name
+     answers a call the template meant for its own local (a silent wrong
+     value; reached through a direct procedure reference, an alias, or
+     `bind-proc`). Two attempts to fix it inside the hygiene pass each let a
+     new wrong case through, because what a head names is the resolver's
+     knowledge; it needs one resolver-aware change, not a patch. Also: a
+     workflow defined by a macro gets its parameters renamed, so it cannot be
+     called or used as an entry through its public inputs.
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
@@ -397,8 +435,14 @@ every removed test is listed with the code it covered".
      the first search space needs none of this; what prompt values buy is
      structural edits in one place (conversation scope, adding or splitting a
      role).
-   - Order: independent review of the design and plan (in progress); code only
-     after acceptance. First-class prompts come first, since the timeout and
+   - Reviewed and accepted 2026-11-13 (0 blockers, 8 majors, all applied). A
+     compiler prototype on the spike branch proved the role idiom: the three
+     seeds compile as written and no existing program's identity moves. Scope
+     after the review: about 79 hours in 11 tasks. Deferred, with the designed
+     rule kept: the snapshot fill for living documents, and an agent as a
+     bound argument (so fresh against continued stays an edit at each call
+     site until the conversation dimension is searched).
+   - Order: code starts after the stage 5 branches E1, I1 and C1 are merged. First-class prompts come first, since the timeout and
      document-fill questions meet them (when a fill is read: at the creation
      of the prompt value or at the call). The changes follow the surface
      coherence changes of stage 5 and land before the long-horizon seed is
@@ -470,9 +514,9 @@ until it is, this section is the staging.
 | Step | What | Gate | State (2026-11-13) |
 | --- | --- | --- | --- |
 | 1 | Survey of public benchmarks; choose the candidate tasks | None (no spend) | Done; findings to be carried into the plan |
-| 2 | Build, run and grade the tasks on this machine without Docker (rootless Podman, the published harness unchanged); the oracle check | None (no spend) | Nearly done: 13 tasks tried, 10 of 11 Terminal-Bench 4 tasks pass both halves unchanged; one needs a wider user-id range, one verifier is timing-sensitive under load |
+| 2 | Build, run and grade the tasks on this machine without Docker (rootless Podman, the published harness unchanged); the oracle check | None (no spend) | Done for 13 tasks (11 of the 16, 2 science tasks): 12 pass both halves with task logic unchanged, one needs a wider user-id range or a one-line verifier change; one verifier is timing-sensitive under load. Five of the 16 are untried, and none has been run five times ([report](../reports/2026-11-13-long-horizon-benchmark-survey-and-feasibility.md)) |
 | 3 | Seed design, with scripted runs and kill-and-resume | None (no spend) | Done on the spike branch; not on `main` |
-| 4 | The plan with its ledger: task list, network policy, what is withheld from the agent, metering, stop rules, readout | Independent review | Next |
+| 4 | The [plan](2026-11-13-long-horizon-task-family-and-seed-plan.md) with its ledger: task list, network policy, what is withheld from the agent, metering, stop rules, readout | Independent review | Accepted 2026-11-13 after review and one revision; about 79 hours of work and a quiet machine for 35 to 45 hours |
 | 5 | Guarded launcher: only the approved model and efforts, a reservation before every attempt, the dollar ceiling, reference solutions and verifier tests never in the agent's container | Independent review; a zero-spend rehearsal with stand-ins | Not started |
 | 6 | Effort ladder: direct Haiku at effort low, medium and high, five attempts per task, at most 240 attempts, ceiling USD 200 | Steps 2, 4 and 5; approved (decision 16) | Not started |
 | 7 | Freeze the task set from the ladder: tasks in the band, and the answer on whether success falls as effort rises | Reported to the owner | After step 6 |
@@ -487,6 +531,20 @@ until it is, this section is the staging.
   at 20 percent shows 0 of 5 about a third of the time), so step 7 places
   tasks in bands and makes no fine ranking. No claim about any workflow comes
   from step 6.
+- **Making fitness cheaper to measure (added 2026-11-13, owner direction).**
+  A search over workflows is limited by fitness: one evaluation costs dollars
+  and pass or fail at a 20 percent rate needs about 290 attempts per
+  candidate to tell 20 from 30 percent. These five items raise the chance
+  that a later search finds anything; each is attached to a step above and
+  none adds spend unless marked.
+
+| Lever | What is done | Where | Spend |
+| --- | --- | --- | --- |
+| Graded fitness | Record, for every attempt, the verifier's count of sub-tests passed and total, where the verifier exposes one; prefer tasks with many sub-tests when the set is frozen. Reported beside pass or fail; it places no task and changes no frozen rule of the ladder | Steps 6 and 7 | None |
+| Deterministic stage signals | On the first paid seed runs, record at each stage boundary the visible check's pass fraction and the agents' typed verdicts, beside the final verifier result; report how well each predicts the end. Early stopping is designed only on a signal that does | Step 9 (its smoke first) | None beyond step 9 |
+| Tasks chosen by how the direct session fails | Read the ladder's failed transcripts and label each failure as process (lost track, stopped early, did not verify, broke earlier work) or capability; the frozen set states the mix, and the staged comparison is read per label | Step 7 | None (the transcripts are paid for by step 6) |
+| A cheaper task family for the inner loop | A second, shorter family with the same failure labels, at about a tenth of the cost per attempt, for selection; finalists are validated on the long tasks | A new step after 7 | **New calibration spend; needs an owner approval; not requested** |
+| Exhaust the small space before searching | The first space (one model, an effort per role, three levels) has 27 points: it is evaluated as a grid, or a declared fraction of one, on the frozen tasks, not searched | Phase 6, first run | Part of the Phase 6 request |
 
 ### Phase 6: Program evolution
 
@@ -516,6 +574,32 @@ was not taken. No spend is authorized.
 - The campaign code from the closed search roadmap is kept outside the default
   test suite (`ORCHESTRATE_CAMPAIGN_TESTS=1` runs its tests) until this
   phase decides what it reuses.
+- **Search readiness (added 2026-11-13, owner direction; no spend).** What
+  this system could add to a search is not the rejection of invalid
+  candidates (in October the typed admission rejected nothing). It is:
+  evaluation that can be paused at a stage boundary and resumed, so weak
+  candidates stop early and promising ones continue without paying twice;
+  an identity that recognises the same program respelled; spend bounds the
+  runtime enforces on a generated program; a uniform typed tree to mutate;
+  and typed per-stage records for a proposer. Three pieces of work make
+  those real before any paid search, each with its own plan when it starts:
+
+| Readiness item | What is built or measured | Gate | Depends on |
+| --- | --- | --- | --- |
+| R1 Checkpoint controller and workspace snapshots | A snapshot of the workspace after every committed step (a commit for a repository task, an image layer for a container task), recorded beside the memo; a controller that runs candidates to a named stage boundary, stops the weak ones and resumes the rest; a fork of a run at a step with its workspace. This is the design item H-E2 needs and nobody has assessed: design first | Stand-in runs: a stopped candidate resumes with no step dispatched twice; a fork at step k reproduces the parent's workspace at k byte for byte; cost of a child equals its changed suffix | Phase 3b (done); the stage-signal result of Phase 5b for where to stop |
+| R2 Canonical digest, then a replay of October | Local and generated names leave the program digest, so two spellings of one program share it; then the digests of the October search's recorded candidates are recomputed and the share that collapse is reported | Zero spend. The replay decides whether de-duplication is worth wiring into admission | The one-target cut (a digest change moves identity) |
+| R3 Mutants never crash the compiler | A generator of mechanical mutants of the seeds over the declared dimensions (a few hundred); every mutant compiles or is refused with a code, none ends in `compiler_defect`, and the count of distinct digests is reported. The open defect list of Lane D stage 5 is the backlog it draws on, ordered by what the mutants actually hit | Zero spend; runs in the default suite at a small sample | Stage 5 merges; the mutation operators are the same ones a search uses |
+
+  Order: R3 and the October replay first (days, no design); R1 after its
+  design is reviewed. A zero-spend check of H-E2's reach belongs here too:
+  apply each declared mutation to a stand-in run of the seed and read the
+  plan `resume` prints, which gives the share of steps each dimension keeps.
+- **Estimate these items answer (coordinator's judgment, 2026-11-13, not a
+  measurement):** about a quarter to a third that a search on this system
+  produces a workflow that beats its seed with these mechanisms material to
+  it; the items here and the fitness items of Phase 5b are what could raise
+  that. The cap is whether a staged structure pays for its extra calls on
+  long tasks, which Phase 5b step 9 tests.
 
 ## Effort
 
@@ -632,7 +716,7 @@ is manual. Phase plans are linked here as they start:
   the metering behaved as specified (nine of ten checks); the frozen verdict is fail on the isolation check,
   because the criterion's list of the CLI's built-in agents was incomplete (the plan's ledger has the detail).
 - Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
-  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; its first task proves the design's open claims before any feature code.
+  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; tasks T1 to T7 are merged (2026-11-13): `resume` under an edited program prints a read-only plan with a token, and `resume --accept-changes=plan-<token>` continues the run under the edit. T8 (guides and closeout) remains; after it the lane stops (decision 13).
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Phase 5b, in preparation: staged in this roadmap ([Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed)); survey, machine feasibility and seed design are done on spike branches (`spike/long-horizon-tasks`, `spike/long-horizon-seed`); its plan is being written. The effort ladder is the only approved spend (decision 16).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).

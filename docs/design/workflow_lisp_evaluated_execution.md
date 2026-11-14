@@ -192,7 +192,7 @@ Goals:
   where a value is used.
 - Structured control nests without limit: a loop in a branch, a loop in a
   loop, a branch in a hook.
-- Resume never runs an effect that committed a result.
+- Resume never runs an effect that committed a result, unless an invalidation or an accepted plan cancelled that result (C8, C10).
 - Effect sites and their contracts are known before a run starts.
 - Identity survives formatting edits and moving the repository.
 - Older targets keep their behavior and exact serialized bytes for identical
@@ -1000,7 +1000,7 @@ the ordinal rule's moves are measured against the alternative (gate report,
 | M1 | The memo is an append-only journal of JSON lines under the run root, `memo.jsonl`. One writer holds an exclusive lock on it for the life of a run or resume. A second writer is refused with `memo_busy` |
 | M2 | Each record is written and synchronized to disk before the evaluator proceeds. No record may be appended until the program artifact, header, empty journal and their directory entries have been durably published (§8.4) |
 | M3 | A final line without its newline was never written whole and is not a record. The next writer truncates it before appending |
-| M4 | A result exists only as a `committed` record that no later `invalidated` range covers (C8). A file at a path, however valid and however recent, is not one |
+| M4 | A result exists only as a `committed` record that no later `invalidated` range or `rebased` cut covers (C8, C10). A file at a path, however valid and however recent, is not one |
 | M5 | The `committed` record holds the validated value inline, beside the result locator and digest. The value is the authority; a result file, when the class uses one, is evidence. Target-2.40 host replies use the canonical inline digest without a result file (§9.5) |
 | M6 | A command that writes to the memo from outside a run (the answer of a request for input, an invalidation) takes the writer's lock and appends under it |
 
@@ -1012,6 +1012,7 @@ the ordinal rule's moves are measured against the alternative (gate report,
 | `suspended` | Target-2.40 request waits for host input | identity, attempt ordinal and request ID bound to the complete immutable payload in `started`; no terminal |
 | `settled` | After a coordinator's final commit (`by: settle`), or its reconciliation on a memo hit (`by: reconcile`) | identity, attempt ordinal |
 | `invalidated` | Once for the whole suffix, by the explicit continuation (C8) | `from_commit`: byte offset of the chosen active `committed` record's first byte; time. No per-effect records; affected identities/attempts are reconstructed from the preceding journal prefix |
+| `rebased` | Once per accepted edit, by resume preflight, after the edited program's artifact is durable (C10) | `program_digest`, `from_offset` (the cut, or null), time |
 | `terminal` | `completed` only after `halt`, every reached effect committed and every committed coordinator settled; `failed` after an attempt or evaluation fails, with no pending start or unsettled committed coordinator | no identity; `completed` with the value of `halt`, or `failed` with the code and message |
 
 A failed terminal does not require the failed effect to have committed.
@@ -1023,8 +1024,7 @@ attempt-history guard is `invalidate_agent_session_advanced` (Agent Sessions,
 Persistence)). The record's class must agree with its
 site, and coordinator proof is required, not inferred from an optional field.
 
-A terminal is reopened by `invalidated`, or, after a failed terminal, the
-next `started` record. Preflight refusals and a repeated
+A terminal is reopened by `invalidated` or `rebased`, or, after a failed terminal, the next `started` record. Preflight refusals and a repeated
 pure failure without new journal activity return diagnostics without
 appending another terminal. A clean completed resume returns the existing
 terminal unchanged (§8.4). Adjacent terminal records are inconsistent.
@@ -1053,11 +1053,11 @@ diverges.
 | --- | --- |
 | C1 | Every supplied external-tool and certified-adapter binding (including unused rows), and every used compiler-injected binding retained for emission, declares `closure`, using the common rules below. An empty list is a declaration, not a fallback for unknown implementation files. An absent field is refused at build with `command_boundary_closure_missing`; `null` is not an empty declaration. No build option or builtin exception weakens this rule |
 | C2 | The resolved input of a command binds, by content: each stable-command token selected as a workspace path by the conservative rules below, and each closure entry. The normalized declaration and file evidence use the common encoding below. Modification times are not bound |
-| C3 | The interpreter, the first token of a stable command when it is a bare name, is resolved on `PATH` once, when the run starts. The run header records its resolved path and digest. Every attempt of the run launches the resolved path, not the name. The interpreter does not enter any effect's resolved input: a changed digest at resume is reported as `interpreter_changed` and the run continues on the recorded path; a missing path refuses the resume with `resume_interpreter_missing` |
-| C4 | A command must treat its closure as read-only. Before starting its attempt, check that the concrete runtime destinations for that attempt are disjoint from that command's closure, as below. Rehash before commit and fail the attempt with `command_closure_written` if its declared files changed. Rehash also when a started attempt fails, and record in its `failed` record `closure: unchanged` only when no process of the run is alive and then no declared file differs from its `started` evidence; otherwise `changed`, also when the rehash cannot complete or liveness cannot be checked. A process of the run is a same-user process whose environment carries an `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` under this run's `effects/` (Linux `/proc`), so it covers leftovers of earlier attempts and other steps as well as the failing one. The check does not see a process whose initial environment lacks the variable or whose `/proc` entry this user cannot read: one started with a scrubbed environment (`env -i`), work handed to an already-running service that never inherited the attempt's environment (a `tmux` server, `systemd-run`, `at`, a container runtime, a build daemon), a same-user process that made itself non-dumpable, or a process of another user. Before retrying an uncommitted attempt, compare the current implementation-file evidence with its `started` evidence and refuse a change that §8.1 does not accept (after `closure: unchanged` outside a parallel map, or under `resume --accept-changes`); a missing failure record never counts as acceptance. A resume that finds a committed effect's declared file changed also refuses (C7). The local check does not protect closures from startup, other effects or rejection bookkeeping (§8.2). Commands are launched with `PYTHONDONTWRITEBYTECODE=1` |
+| C3 | The interpreter, the first token of a stable command when it is a bare name, is resolved on `PATH` once, when the run starts. The run header records its resolved path and digest. These pins are the bare interpreters of the run's first program. A later program of the run (C10) may use only pinned interpreters and need not use all of them. Every attempt of the run launches the resolved path, not the name. The interpreter does not enter any effect's resolved input: a changed digest at resume is reported as `interpreter_changed` and the run continues on the recorded path; a missing path refuses the resume with `resume_interpreter_missing` |
+| C4 | A command must treat its closure as read-only. Before starting its attempt, check that the concrete runtime destinations for that attempt are disjoint from that command's closure, as below. Rehash before commit and fail the attempt with `command_closure_written` if its declared files changed. Rehash also when a started attempt fails, and record in its `failed` record `closure: unchanged` only when no process of the run is alive and then no declared file differs from its `started` evidence; otherwise `changed`, also when the rehash cannot complete or liveness cannot be checked. A process of the run is a same-user process whose environment carries an `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` under this run's `effects/` (Linux `/proc`), so it covers leftovers of earlier attempts and other steps as well as the failing one. The check does not see a process whose initial environment lacks the variable or whose `/proc` entry this user cannot read: one started with a scrubbed environment (`env -i`), work handed to an already-running service that never inherited the attempt's environment (a `tmux` server, `systemd-run`, `at`, a container runtime, a build daemon), a same-user process that made itself non-dumpable, or a process of another user. Before retrying an uncommitted attempt, compare the current implementation-file evidence with its `started` evidence and refuse a change that §8.1 does not accept (after `closure: unchanged` outside a parallel map, or under `resume --accept-changes`); a missing failure record never counts as acceptance. A resume that finds a committed effect's declared file changed also refuses (C7), unless the author accepts the printed plan (C10). The local check does not protect closures from startup, other effects or rejection bookkeeping (§8.2). Commands are launched with `PYTHONDONTWRITEBYTECODE=1` |
 | C5 | Outside the promise: modification times; the environment; a process or service that C4's liveness check at failure does not see (a process whose initial environment lacks the variable or whose `/proc` entry this user cannot read: one started with a scrubbed environment (`env -i`), work handed to an already-running service that never inherited the attempt's environment (a `tmux` server, `systemd-run`, `at`, a container runtime, a build daemon), a same-user process that made itself non-dumpable, or a process of another user); a file opened by a computed name or imported without declaration; the network; the clock; the provider template behind a provider id and the model behind it; workspace files no boundary declares; `__pycache__` contents of a declared directory (§7.3), including bytecode Python loads without checking its source bytes (`unchecked-hash`, or timestamp bytecode whose recorded source mtime and size match). A command whose behaviour depends on one of these may be reused with a result no fresh run would give. The promise binds bytes of declared files, nothing else |
 | C6 | A provider's prompt source (`asset_file`, `input_file` or document fill) and its prompt dependency files are always bound by content digest |
-| C7 | A semantically changed manifest or stable command changes the program identity: a fresh build is compared with the header, and resume is refused with `resume_program_changed` before any memo record is read; the plan printed with the refusal is computed afterwards, read-only. A changed bound file diverges only the effects that bind it: preflight checks the active committed prefix in journal order and refuses at the first divergence with `effect_input_diverged`, before any launch or reconciliation (§8.4) |
+| C7 | A semantically changed manifest or stable command changes the program identity: a fresh build is compared with the run's current program (§8.4), and resume is refused with `resume_program_changed` unless the author accepts the printed plan (C10); the plan printed with the refusal is computed afterwards, read-only. A changed bound file diverges only the effects that bind it: preflight checks the active committed prefix in journal order and refuses at the first divergence with `effect_input_diverged`, before any launch or reconciliation (§8.4); an accepted plan instead cancels from that commit as C8 does (C10) |
 
 **Amendment for target 2.38 confined children, C2/C4/C6/C7
 attempt-snapshot binding** (confined profile; provider admission follows [Providers](../../specs/providers.md); [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): clone files
@@ -1395,10 +1395,10 @@ view never invokes reconciliation.
 | Memo holds for `i` | Action |
 | --- | --- |
 | A committed result with input digest equal to the digest of `x`, not invalidated | Return the result. Run nothing. For a coordinator effect, `reconcile` first (K3) |
-| A committed result with another input digest | Stop with `effect_input_diverged`, located at the site, showing both digests, which parts of the input differ and which files; in resume preflight the refusal also prints the plan an acceptance would apply |
+| A committed result with another input digest | Stop with `effect_input_diverged`, located at the site, showing both digests, which parts of the input differ and which files; in resume preflight the refusal prints the plan, and an accepted plan cancels from that commit (C10) |
 | A `started` agent turn with no commit | Classify from receipt and native store ([Agent Sessions](workflow_lisp_agent_sessions.md), Persistence); never the generic retry rule |
 | A `started` or `failed` attempt with no commit | Before retry, enforce C4's implementation-file comparison below. If the boundary declares `must_not_repeat`, stop with `lexical_restore_pending_effect_unsafe` regardless. Otherwise record `effect_rerun`, naming the identity and its earlier attempts (and the declared files that changed, when §8.1 accepted a change), and run the next attempt |
-| An `invalidated` range covers the last commit, with no newer uncommitted attempt | Run the next attempt. No rerun diagnostic |
+| An `invalidated` range or a `rebased` cut covers the last commit, with no newer uncommitted attempt | Run the next attempt. No rerun diagnostic |
 | A `suspended` record and no commit | Stop and report the pending request |
 | Nothing | Run the first attempt |
 
@@ -1428,8 +1428,7 @@ record without the field never counts as `unchanged`. Inside a parallel map
 `unchanged` is not enough, since a sibling item may have written the script
 after the failure: an item's changed files need the flag. The flag accepts,
 for that invocation, every uncommitted command attempt with a retry baseline
-that no such record covers, including a pending start an invalidation
-retired. It is refused with `resume_preflight_failed`, after every other
+that no such record covers, including a pending start an invalidation or a cut retired. With a plan token (`--accept-changes=TOKEN`) the flag also accepts the plan that token names, and nothing else (C10); without one it accepts no edited program and no cancellation. It is refused with `resume_preflight_failed`, after every other
 preflight check and before any write, unless one such attempt needs it: its
 declared files differ from its `started` evidence, or replay does not reach
 it before it runs (so they cannot be rehashed yet). A killed step whose files
@@ -1440,8 +1439,7 @@ evidence under their own. Restoring the original bytes/targets always permits
 it. An invalidation may cancel committed results, but does not accept a newer
 uncommitted attempt's closure change. Providers, agent turns, run references
 and host requests have no closure record and keep their own retry rules; the
-flag is not passed to a run-reference child. A start that did commit and was later
-invalidated does not pin that explicitly authorized re-execution to old bytes.
+flag is not passed to a run-reference child. A start that did commit and was later invalidated, or cancelled by a cut, does not pin that explicitly authorized re-execution to old bytes.
 
 **Amendment for target 2.38 confined children** (confined profile; provider admission follows [Providers](../../specs/providers.md); [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): the attempt retry rules in this table remain unchanged.
 First resolve the confined child's terminal state and
@@ -1535,9 +1533,7 @@ dependency on a child record that has not yet been authorized.
 | After `committed`, before a coordinator's `settle` | `committed` with the proof | Returns the result; `reconcile` completes the coordinator's commit (K3) |
 | After `committed` | `committed` | Returns the result |
 
-Resume is evaluation from the entry with the memo of the run. Because
-evaluation is a function of the program, the inputs and the committed
-results, it reaches the same effects in the same order up to the first effect
+Resume is evaluation from the entry with the memo of the run. Because evaluation is a function of the run's current program, the inputs and the committed results, it reaches the same effects in the same order up to the first effect
 without a commit. Evidence: 168 stops inside the process and 96 kills from
 outside, each resumed to the uninterrupted value with no committed effect
 run twice (gate report, §2, criterion 3).
@@ -1655,7 +1651,7 @@ Initial publication is durable:
 3. Synchronize the empty journal and the run-root directory containing all
    three entries. Only after every operation succeeds may any journal record
    become durable or an attempt be allocated/dispatched. Never replace the
-   header or program after journal activity begins.
+   header or program after journal activity begins. An accepted edit adds a program artifact beside them (C10).
 
 A crash during publication may leave an incomplete initialization, but no
 effect has been dispatched. Resume launches nothing until both authority files
@@ -1680,16 +1676,19 @@ to the fresh build. The complete order and the exit status of each refusal
 are normative in [`specs/cli.md`](../../specs/cli.md#resume-preflight-precedence).
 Resolve the recipe's source, ordered roots and manifests under the effective
 workspace and freshly build the authored entry in memory with their current
-configuration, without publishing or recovering build caches. Compare the
-fresh program digest first; only after program equality read the requested
-input file, apply its explicit overrides, bind against that fresh program and
-compare the input digest. A mismatch refuses with
-`resume_program_changed` or `resume_inputs_changed` before reading any memo record or mutating run
-evidence; the plan printed with the refusal is computed afterwards, read-only. An invalid fresh build is also a preflight refusal. Formatting and
+configuration, without publishing or recovering build caches. The run's
+current program is the header's, or the one named by the last `rebased`
+record; no other memo record is read for this comparison. A different program
+refuses with `resume_program_changed`, printing the plan C10 computes and its
+token, unless the author passes that token; the plan printed with the refusal
+is computed afterwards, read-only. Then read the requested input file, apply
+its explicit overrides, bind against the fresh program and compare the input
+digest with the header's; a difference refuses with `resume_inputs_changed`,
+with or without a token. Neither refusal mutates run evidence. An invalid
+fresh build is also a preflight refusal. Formatting and
 provenance-only changes are allowed by P6, not raw source-byte equality.
 
-Then validate the stored artifact's checked form and header digest; execute
-that stored artifact after equality is established. Rebind the physical
+Then validate every stored program of the lineage, the first against the header digest and each later one against the record that names it; execute the stored current program. Rebind the physical
 provider context derived by the fresh build to this validated stored artifact;
 it is not replacement program authority. Check C3's recorded interpreter paths
 before any memo record. Fresh-build/file/binding errors are public preflight
@@ -1709,10 +1708,10 @@ not reserve/start an attempt, prepare the provider executor, publish evidence
 or check other providers. Readable changed C6 may supply the new retry; there
 is no provider C4 implementation-file baseline comparison. An active
 later commit that replay cannot reach is inconsistent, not permission to
-launch past it. Only
+launch past it. Under a candidate program it is in the plan's cancelled range (C10). Only
 after preflight passes may M3 repair a torn tail and evaluation continue.
 This preflight and evaluation share one interpreter; they are not separate
-resume planners. Fresh-build preparation in memory belongs to resume
+resume planners. Planning an accepted change (C10) uses that interpreter and those checks to find the cut; the strict replay then runs unchanged on the journal as it will be. Fresh-build preparation in memory belongs to resume
 preflight. Run startup retains its publication route above; C4 checks only a command needing an attempt (§7.3).
 Files changed concurrently after preflight remain outside a snapshot guarantee;
 an input is checked again on encounter before reuse.
@@ -1758,7 +1757,7 @@ out-of-band `input` command convention. An old-profile run refuses with
 `memo_inconsistent`. All C8 refusal checks precede tail repair or any write.
 
 A resume that stops with `effect_input_diverged` does not rerun anything.
-For a committed result, the continuation is C8. For an uncommitted attempt's
+For a committed result, the continuation is C8, by `invalidate` or by accepting the plan resume prints. For an uncommitted attempt's
 implementation mismatch, resume accepts the change under §8.1 (after a clean
 failure, or with `resume --accept-changes`) or the author restores its
 `started` evidence; invalidation does not bypass that guard.
@@ -1767,6 +1766,7 @@ failure, or with `resume --accept-changes`) or the author restores its
 | --- | --- |
 | C8 | `invalidate <run> <identity>` atomically cancels the chosen active commit and every later active commit in journal order with **one** synchronized `invalidated` range record. The next resume runs those effects again; every earlier commit stays. Under the writer lock, validate the whole suffix before writing anything. Refuse `memo_busy` for another writer, `invalidate_not_committed` for a chosen identity without an active commit, and `invalidate_coordinator_committed` if the suffix contains any committed coordinator: a committed child run, agent turn or phased provider call is never superseded (K8); at target 2.38 refuse `invalidate_agent_session_advanced` for agent turn attempt history the cut would cancel that was dispatched, advanced or is of uncertain outcome (Agent Sessions, Persistence) |
 | C9 | Each `committed` record keeps `depends_on`: the identities whose results its resolved input read, through names, arguments, results, loop state, join parameters, `case` bindings and the conditions that chose a value; an effect inside a branch does not depend on the branch's condition. `depends_on` is computed per value, not per field: a record, list or loop state carries the union of its parts' dependencies and a field or item taken from it keeps them all (§4.2.3). It is therefore a superset of the identities actually read and never omits one; in a serial `list/map-effect`, whose items pass through a loop state that also accumulates their results, each item depends on every earlier item. Evidence that one effect consumed another's output rests on C6 read digests, not on `depends_on` alone. Narrowing `depends_on` to the parts actually read is an entry condition of the release that scopes invalidation by C9. In the first release this is evidence, not the scope of an invalidation: a dependence through a file, where one effect writes a path that a later one reads, leaves no trace in values, and a shipped workflow has that shape (`workflows/library/verified_iteration_drain/drain.orc`). Narrowing an invalidation to dependents through values and declared files is a later release, entered when command boundaries declare the files they read and write, with the file-dependence fixture of §17 as its evidence |
+| C10 | Resume under an accepted edit replays the edited program against the active journal with stored values (Edit And Continue §3). A commit is reused when the edited program reaches a `perform` at its identity, at a site of the same effect class, in the order of resume replay, with equal `depends_on`, a stored value that fits the site's result type (a host reply's stored request validating against the node, an agent turn's predecessor being the agent's previous replayed turn), and a freshly resolved input equal to the recorded one part by part. The cut is the smallest journal offset among active commits not reused and pending starts not kept, or null; a pending start is kept when the edited program reaches it as the next effect of its thread at a site of the same class, and a pending host request or coordinator attempt must also resolve to the input digest of its `started` record. Everything at or after the cut is cancelled or retired as a C8 range does it; nothing before it changes. Only the order check, the dependency check, the value fit and the host payload check mean "not reusable"; any other `memo_inconsistent` stays a refusal. After storing the edited program's artifact beside the first, one synchronized `rebased` record names the program and the cut. It cancels every active commit and retires every pending start at or after the cut, as a C8 range does, and reopens the terminal. Every C8 refusal applies to that range. A plan never cancels a commit of a step that is `must_not_repeat` under the program that wrote the commit or under the edited program, and is never accepted while such a step has an uncommitted attempt. A plan is accepted only by the token the refusal printed for it, and only when the strict replay of §8.4 passes under the edited program on the journal as it will be. Journal records are validated against the program in force when they were written. The header and the first program are never replaced. Under the run's own program a plan for a committed step's changed input writes the `invalidated` range `invalidate` would write |
 
 The range's `from_commit` names the chosen commit's immutable byte offset in
 `memo.jsonl`. On replay, inspect the complete prefix immediately before the
@@ -2896,7 +2896,8 @@ refuse. The artifact checker independently enforces these limits.
 Before attempt views exist, `started` durably contains the complete immutable
 request: run/header/program/effect/ordinal-bound ID, rendered question, full
 contracts/digests, evidence snapshot, dependencies, creation time and fixed
-deadline. Semantic inputs exclude clock values and show-only file bytes. One
+deadline. The ID's program is the one in force when the request started; a
+later program of the lineage checks the ID against that one. Semantic inputs exclude clock values and show-only file bytes. One
 `suspended` row refers to that payload; intentional suspension stops evaluation
 without terminal/failure and exits `0`. Recovering a start-to-suspension gap
 reuses the payload, ordinal and deadline instead of reissuing the request.
@@ -2941,12 +2942,12 @@ on order. For this profile the runtime derives views by these rules.
 
 | Rule | Statement |
 | --- | --- |
-| V1 | A view is derived from the memo and the program. Rows come from the records. The run's position comes from evaluating the program against the memo without launching anything: a `halt` value leaves no record before the terminal record, so a projection of the memo alone cannot say where the run stands |
+| V1 | A view is derived from the memo and the run's programs: each row is read under the program in force when it was written, and the run's position comes from the current program. Rows come from the records. The run's position comes from evaluating the program against the memo without launching anything: a `halt` value leaves no record before the terminal record, so a projection of the memo alone cannot say where the run stands |
 | V2 | The run's status: `suspended` when the checked memo has an active host request, even while the publishing writer holds the lock; otherwise `completed` or `failed` when the last record is `terminal`; otherwise `settling` when a writer holds the lock and every effect the program reaches is committed; otherwise `running` when a writer holds the lock; otherwise `interrupted`. External host settlement only commits its typed reply and publishes `interrupted`; ordinary resume owns continuation (§9.5) |
 | V3 | A `terminal` record is checked against §7.1: every active coordinator commit, identified by its checked `effect_class`, must have a matching `settled` record for that identity and attempt before the terminal. A completed terminal additionally requires replay to reach the same `halt` with no missing commit; a failed terminal may have an uncommitted failure. Missing proof, class mismatch, missing settlement or adjacent terminals yield `memo_inconsistent`, with no completed outputs |
 | V4 | Liveness comes from the writer's lock, not from a heartbeat: a process that died released it, and the view says `interrupted` at once. The present report says `running` until a heartbeat is 300 seconds old |
-| V5 | `steps`: one row per effect identity, keyed by its canonical text, in order of first `started`. Status, result, error and timing come from the records: `suspended` from an active host suspension, `running` from `started`, `completed` from `committed`, `settling` for a coordinator effect between `committed` and `settled`, `failed` from `failed`, `invalidated` for every commit covered by a range record (C8). `current_step` is the effect in flight; `next_effect` is the first uncommitted effect when nothing is in flight. `workflow_outputs` is the terminal record's value |
-| V6 | Per-attempt files live in the attempt's directory (§8.2): `result.json`, `stdout.txt`, `stderr.txt`, and `prompt.txt` and `usage.json` for a provider. A row's output preview is its committed value from the memo; the view (`load_evaluated_view`) reads nothing under `effects/`. Beyond the view, `report` reads only `attempt-<n>/usage.json` of provider-class steps (a view of usage, not authority), never a recipe, prompt, stdout or result; the dashboard links and serves the attempt's files by path. Nothing is named by step name; nothing is overwritten by a later attempt |
+| V5 | `steps`: one row per effect identity, keyed by its canonical text, in order of first `started`. Status, result, error and timing come from the records: `suspended` from an active host suspension, `running` from `started`, `completed` from `committed`, `settling` for a coordinator effect between `committed` and `settled`, `failed` from `failed`, `invalidated` for every commit a range record or a cut covers and every start one retired (C8, C10). `current_step` is the effect in flight; `next_effect` is the first uncommitted effect when nothing is in flight. `workflow_outputs` is the terminal record's value |
+| V6 | Per-attempt files live in the attempt's directory (§8.2): `result.json`, `stdout.txt`, `stderr.txt`, and `prompt.txt` and `usage.json` for a provider. A row's output preview is its committed value from the memo; the view (`load_evaluated_view`) reads nothing under `effects/`. Beyond the view, `report` reads only `attempt-<n>/usage.json` of provider-class steps, or the attempts a row's `metered_attempts` lists (a view of usage, not authority), never a recipe, prompt, stdout or result; the dashboard links and serves the attempt's files by path. Nothing is named by step name; nothing is overwritten by a later attempt |
 | V7 | The memo does not carry, and the view does not report: `step_visits`, `transition_count`, `call_frames`, the prompt-context audit, judgment views, observability summaries, provider sessions and observation files, the heartbeat. The readers that need them (the resume planner, the projection integrity audit, the dashboard cursor's frame walk, the human-input guard, the prompt session lookup, the monitor email's log lookup by step name) are not used at the new target, or are adapted to V6 when their class enters. Sessions and observation files enter with the classes that need them, named by identity digest and attempt |
 | V8 | A view launches or reconciles nothing and may be taken while the writer holds the lock. Cost is the journal scan plus pure replay of the reached program; no linear bound in memo length covers unbounded pure work. The spike measured 0.17 seconds for its 5,000-effect specimen (gate report, §5) |
 | V9 | `state.json` is an atomically replaced derived view after each synchronized record, with the header keys `schema_version`, `result_persistence_profile`, `run_id`, `workflow_file`, `workflow_checksum`, `started_at`, `updated_at`, `status`, plus `error`, `workflow_outputs`, `bound_inputs` and effect rows. The exact schema/profile pair in §8.4 routes readers to the adapters below; writing old header keys alone does not establish compatibility |
@@ -3032,7 +3033,7 @@ memo ordering remain with their respective handlers.
   never write.
 - When an item fails, the others run to completion and their results are
   committed. The map then fails. Resume reuses each item's committed prefix
-  and executes only missing effects. D3 admits interleaved independent prefixes
+  and executes only missing effects. A cut (C10), like an invalidation, is a whole journal suffix and does not keep a sibling item's later commits. D3 admits interleaved independent prefixes
   while keeping per-item order and C7 input validation in journal-offset order.
 - Direct command/provider effects use the item's working directory, given by
   the map as an expression over the item. A path run reference retains outer
@@ -3102,7 +3103,8 @@ code to its rule here.
 | `undefined_variables` | At reached command input resolution: a missing template binding/dictionary key, `None` or invalid filter; no start/dispatch (§9.1.3) |
 | `effect_input_invalid` | Before reserving a command attempt: a typed input value violates its checked contract, with field/value path and the existing violation code (§9.1.1) |
 | `workflow_input_missing`, `workflow_input_unknown`, `workflow_input_invalid` | Before the run root holds a record (§5). The code does not emit these names: `run` (and `--dry-run`) reports an input binding failure as `Validation error: Workflow input binding failed` (exit 2) and `resume` as `[resume_preflight_failed] …` (exit 2), per [`specs/cli.md`](../../specs/cli.md#diagnostics); named binding codes are a recorded follow-up |
-| `resume_program_changed`, `resume_inputs_changed`, `resume_interpreter_missing` | At resume, before any record is read (§8.4, C3); the plan printed with the refusal is computed afterwards, read-only |
+| `changes_accepted` | A diagnostic at resume, once the record of an accepted plan is durable (C10) |
+| `resume_program_changed`, `resume_inputs_changed`, `resume_interpreter_missing` | At resume, before any record other than `rebased` is read (§8.4, C3); `resume_program_changed` also when a plan cannot be accepted or its token does not match (C10); the plan printed with the refusal is computed afterwards, read-only |
 | `resume_request_missing` | At resume before any memo record or evidence mutation: a previously published evaluated header lacks its durable rebuild recipe (§8.4); read-only projection and invalidation remain permitted |
 | `resume_run_ref_root_changed` | Header/option preflight (exit 2): an explicit resume root differs from the immutable evaluated header root (§8.4); no evidence mutation |
 | `resume_run_ref_root_missing` | Historical evaluated header lacks root: pertinent replay refuses readonly (exit 2); a later reached coordinator after new command/provider continuation refuses locally before start/prepare (exit 1), preserving legitimate earlier commits (§8.4) |
@@ -3110,12 +3112,12 @@ code to its rule here.
 | `result_root_missing` | A reached `provider-bundle-path` in a run whose header lacks `result_root`, historical or a direct publication that names no workspace (§8.4): preflight replay refuses readonly (exit 2); continuation after new commits fails the run through the ordinary failed-terminal guard (exit 1); read-only replay stops at the form |
 | `interpreter_changed` | A diagnostic, not a refusal, at resume (C3) |
 | `memo_busy` | A second writer (M1, C8) |
-| `memo_inconsistent` | Missing authority with journal activity or a present malformed rebuild recipe/run-reference root/result root (§8.4), an invalid range anchor/suffix (C8), or memo/terminal checks failing (V3) |
+| `memo_inconsistent` | Missing authority with journal activity or a present malformed rebuild recipe/run-reference root/result root (§8.4), an invalid range anchor/suffix (C8), an invalid `rebased` record or one whose program artifact is missing or does not verify (C10), or memo/terminal checks failing (V3) |
 | `effect_input_diverged` | At the first committed effect whose input differs, or before retrying an uncommitted command whose implementation evidence differs from `started` (§8.1) |
 | `effect_rerun` | A diagnostic in the run's result and the view, naming the identity and its earlier attempts (§8.1) |
-| `lexical_restore_pending_effect_unsafe` | An uncommitted attempt of a `must_not_repeat` boundary (§8.1); the present code, kept |
+| `lexical_restore_pending_effect_unsafe` | An uncommitted attempt of a `must_not_repeat` boundary (§8.1); the present code, kept; also a plan that would run a `must_not_repeat` step again (C10) |
 | `effect_attempt_path_exists` | Exclusive allocation collides after the ordinal's synchronized `started`; append `failed`, preserve the directory, launch nothing (§8.2) |
-| `invalidate_not_committed`, `invalidate_coordinator_committed` | The explicit continuation (C8) |
+| `invalidate_not_committed`, `invalidate_coordinator_committed` | The explicit continuation (C8); `invalidate_coordinator_committed` also a plan whose cancelled range holds a committed coordinator (C10) |
 | `workflow_execution_profile_retired` | Public resume/restart and invalidation select a retired profile; refusal precedes locks/writes (§13 and CLI cutoff) |
 | `evaluated_execution_unavailable` | `resume --force-restart` on an evaluated run (§8.4; the profile has no force-restart); not raised by `run` or ordinary `resume` of an admitted 2.35 entry ([`specs/cli.md`](../../specs/cli.md#diagnostics)) |
 | `parallel_workspace_shared` | Before any item of a bounded 2.37 `par-map` launches: two items resolve to one working directory (§11) |
@@ -3246,6 +3248,17 @@ records commands, exits, hashes and limits separately from historical evidence.
 | Early divergence | Change a declared file bound by a later committed effect whose inputs depend on earlier results; refuse before launch, reconciliation, tail repair or view replacement, with the first divergent commit in journal order | Public: met for the committed prefix in journal order before any launch, [`tests/test_workflow_evaluated_resume_replay.py`](../../tests/test_workflow_evaluated_resume_replay.py) and [`tests/test_workflow_evaluated_resume_replay_boundary.py`](../../tests/test_workflow_evaluated_resume_replay_boundary.py); divergence detected before reconcile or tail repair is met by Task 15D, [`tests/test_workflow_evaluated_recovery_views.py`](../../tests/test_workflow_evaluated_recovery_views.py), integrated `a84f2769` |
 | Provider destination | A provider at the new target that changes its working directory before writing to R2 commits through the public entry, with no file outside its attempt directory; its R2 value is absolute and its relative spelling against the workspace equals R3, the memo-derived X4 and the command spelling; command environments stay workspace-relative; input parts and memo rows carry no absolute spelling, and `input_parts["prompt"]` is the digest of a prompt whose path line is R3; a provider dispatched after a whole-workspace move receives the absolute value under the moved root, and a committed provider resumes without divergence after that move; old-route provider and command environments are unchanged | Public: met, a stand-in that changes directory commits through the absolute R2 with no stray file and the old route stays relative, [`tests/test_workflow_evaluated_providers.py`](../../tests/test_workflow_evaluated_providers.py) (design `344a6fd3`, product `fd885caa`); the live `best_of_n` of Task 14D round 2 confirmed it with the configured provider. Exact contract in §9.4 R2 |
 | Workspace-relative result path | Public paused and uninterrupted X4 runs return exactly the committed attempt's workspace-relative result path (R3, the command clause of R2); a nested `--state-dir .orchestrate/runs/custom` run returns its actual path, not the default spelling; completed and committed-boundary resumes redispatch nothing; source-free view load opens no recipe or result file; whole-workspace relocation keeps the value and resumes; a run root not under `<workspace>/.orchestrate/runs` fails at the reached form with a failed terminal that read-only loaders report and invalidation can reopen; malformed and absent headers take their §8.4 dispositions; both production publishers (the public entry under a nested `--state-dir`, the path-mode child) publish the fact; old-route and refinement controls are unchanged | Public: met, the §8.4 dispositions (paused and uninterrupted X4, nested `--state-dir`, relocation, historical absence, both publishers) are owned by [`tests/test_workflow_evaluated_result_root.py`](../../tests/test_workflow_evaluated_result_root.py) and [`tests/test_workflow_evaluated_public_context.py`](../../tests/test_workflow_evaluated_public_context.py) (Task 13B-I, X4). Exact contract in §8.4, *Immutable result root* |
+| Insert before step two (C10, exit case b) | A completed four-step run with an effect inserted before step two: plain `resume` refuses and changes no byte; the printed command runs the new step and steps two to four, not step one; one `rebased` record and one artifact; a second `resume` writes nothing and the same token is refused | Public: `tests/test_first_hour_e2e.py` (`test_inserted_step_before_step_two_reruns_steps_two_to_four`) |
+| A file dependence under an edit (C10, exit case c) | `a` writes a file `b` reads by name; `a`'s argument edited and accepted: the value equals a fresh run of the edited program in a clean clone; `a`, `b` and `c` ran again | Public: `tests/test_first_hour_e2e.py` (`test_file_dependence_under_an_edit_never_mixes_old_and_new_results`) |
+| Each edit kind (C10) | Every row of Edit And Continue §3's tables: the kept and cancelled sets; accepted, the value of a fresh run of the edited program and no kept step dispatched again | Public: `tests/test_workflow_evaluated_edit_resume_plan.py` (`test_each_edit_kind_prints_its_kept_and_cancelled_steps`); `tests/test_workflow_evaluated_edit_resume_accept.py` (`test_each_edit_kind_accepted_ends_at_the_value_of_a_fresh_run`) |
+| The printed plan is the accepted plan (C10) | A token whose journal, program, cut or unfinished steps changed since it was printed is refused before any write, names what changed and prints the new plan; the bare flag and another run's token accept nothing; a token with nothing to accept is refused | Public: `tests/test_workflow_evaluated_edit_resume_accept.py` (`test_stale_token_is_refused_and_names_what_changed`, `test_bare_flag_and_a_token_for_another_run_accept_nothing`, `test_token_with_nothing_to_accept_is_refused`) |
+| Positions (C10) | A comment line above a committed provider, with an edit accepted: the provider is not dispatched | Public: `tests/test_workflow_evaluated_edit_resume_accept.py` (`test_comment_line_above_a_committed_provider_dispatches_nothing`) |
+| Record durability (C10) | An acceptance killed at W1 to W5 of Edit And Continue §4 leaves the run under the old program or the new one, dispatches nothing before the record is durable, and the next `resume` does what the table says; an artifact left at W2 is reused after the source is reformatted; a failed sync or a view failure after the record exits 2 and says whether the change is in force | Public: `tests/test_workflow_evaluated_edit_resume_kills.py` |
+| Lineage and old rows (C10) | Three accepted edits, one returning to the first program; `invalidate` reaching back past a record after a rename; a second edit cutting before the first record; a missing or altered artifact is `memo_inconsistent` | Public: `tests/test_workflow_evaluated_lineage_resume.py`; readers: `tests/test_workflow_evaluated_lineage_readers.py` |
+| The flag (C10) | `resume --accept-changes RUN_ID` is a usage error (exit 2) that names the fix; every refusal of Edit And Continue §5 with a token keeps its code, exit 2 and the run tree's bytes | Public: `tests/test_workflow_evaluated_edit_resume_accept.py` (`test_flag_before_the_run_id_is_a_usage_error_that_names_the_fix`, `test_each_refusal_of_section_5_with_a_token`) |
+| `must_not_repeat`, host input and coordinators under an edit (C10) | A committed `must_not_repeat` step in the cancelled range refuses until invalidated, then runs once, also when the edit adds the declaration; a request asked again gets a new ID and the old one is stale; coordinators before the cut are kept, a committed one at or after it refuses | Public: `tests/test_workflow_evaluated_edit_resume_accept.py`; `tests/test_workflow_evaluated_edit_resume_plan.py` |
+| One command (C10) | An edit with a failed step's fixed script takes one resume; a committed step's changed prompt file accepted writes the journal `invalidate` then `resume` writes | Public: `tests/test_workflow_evaluated_edit_resume_accept.py` (`test_edit_and_a_failed_steps_fixed_script_take_one_resume`, `test_committed_prompt_file_change_writes_the_journal_invalidate_would`) |
+| Kills under an edited program; an older build (C10) | Kills after each commit under an accepted edit reach the uninterrupted value with no kept commit dispatched twice; a build without the record kind refuses the run (`memo_inconsistent`) and writes nothing | Public: `tests/test_workflow_evaluated_edit_resume_kills.py` (`test_kills_under_an_edited_program_reach_the_uninterrupted_value`, `test_journal_with_a_record_reduced_without_the_kind_is_memo_inconsistent`) |
 
 ## 18. Feasibility Obligations
 

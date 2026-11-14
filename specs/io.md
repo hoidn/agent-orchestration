@@ -73,8 +73,10 @@ authoring changes do not introduce a new result-acceptance profile.
       changed closure bytes do not change compile identity.
     - `expected_outputs`: file-per-value contract validation (v1.1+).
     - `output_bundle`: JSON-bundled field extraction/validation (v1.3+).
-    - v2.15 guidance is metadata only. Bundle `guidance` and top-level
-      `result_guidance` are closed non-empty objects with any of
+    - v2.15 guidance never changes which values a contract accepts. Guidance on
+      a provider or command result is part of that effect's declaration, so it is
+      part of the program's identity (editing it edits the program). Bundle
+      `guidance` and top-level `result_guidance` are closed non-empty objects with any of
       `description`, `format_hint`, and JSON-compatible `example`. A field may
       carry those keys directly, ordered ancestor rows in `guidance_context`,
       or (for a shared variant field) discriminant-ordered
@@ -172,8 +174,10 @@ authoring changes do not introduce a new result-acceptance profile.
       is guidance. The declared bundle file remains the semantic authority.
     - Effect-boundary `guidance`, field guidance, `guidance_context`, and
       `guidance_by_variant` are rendered as provider output instructions.
-      Workflow-level `result_guidance` is not: it describes the callable's
-      overall return and is carried only in workflow IR/artifact metadata.
+      Workflow-level `result_guidance` is not rendered. In Workflow Lisp, guidance
+      on a `defworkflow`, `defproc` or `defun` return is checked when the module
+      compiles and is not kept: it reaches neither the checked program nor a
+      prompt.
     - If the provider exits `0` but writes the bundle to any other path, the
       step fails as an output-contract failure.
     - On the target-2.35 evaluated route the variable is the absolute path of

@@ -20,6 +20,7 @@ from orchestrator.workflow.evaluated.authority import (
     publish_run_authority, load_run_authority, load_run_header,
 )
 from orchestrator.workflow.evaluated.commands import workspace_relative_path
+from orchestrator.workflow.evaluated.effect_inputs import _PreflightRefusal
 from orchestrator.workflow.evaluated.interpreters import check_command_interpreter
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.evaluated.machine import site_classes
@@ -259,18 +260,19 @@ def _divergence_plan(exc, authority, inputs, workspace, provider_io):
                                                 provider_io=provider_io, diverged=exc))
 
 
-def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False, max_cost_usd: float | None = None, accept_changes: bool = False) -> int:
+def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False, max_cost_usd: float | None = None, accept_changes: bool | str = False) -> int:
     """Rebuild and compare before loading the stored program, pins or memo.
 
     `terminal_lines` (the command line sets it) prints progress, recovery lines and the result;
-    `max_cost_usd` is this invocation's spend cap (never stored).
+    `max_cost_usd` is this invocation's spend cap (never stored). `accept_changes` is the bare flag (True) or a plan
+    token (`--accept-changes=TOKEN`): the plan it names is accepted before anything is evaluated (C10).
     """
     reporter = TerminalReporter(run_root.name, run_root, quiet=quiet, state_dir=state_dir, enabled=terminal_lines)
+    token = accept_changes if isinstance(accept_changes, str) else None
     try:
-        authority, inputs, provider_io = prepare_evaluated_resume(
-            run_root, workspace=workspace, force_restart=force_restart,
-            run_ref_root=run_ref_root, run_files=run_files)
-        authority = replace(authority, accept_changes=accept_changes)
+        authority, inputs, provider_io = _prepared(run_root, workspace, token, reporter, force_restart=force_restart,
+                                                   run_ref_root=run_ref_root, run_files=run_files)
+        authority = replace(authority, accept_changes=bool(accept_changes), plan_accepted=token is not None)
         _warn_changed_interpreters(authority)
         reporter.announce(lazy=True)
         planned = authority
@@ -283,10 +285,38 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
         for diagnostic in exc.diagnostics:
             logger.error(render_diagnostic(diagnostic))
         return 2
-    except (OSError, UnicodeError, ValueError, ReservedRunRootError) as exc:
+    except (OSError, UnicodeError, ValueError, ReservedRunRootError, _PreflightRefusal) as exc:
+        # a coded preflight refusal also comes from the strict pass of an acceptance (rebase.accept_plan)
         logger.error("[%s] %s", getattr(exc, "code", "resume_preflight_failed"), exc)
-        reporter.error(exc, plan=_edit_plan(exc, run_root, workspace, run_files), **_stored_context(exc, run_root, run_files))
+        plan = getattr(exc, "plan", None) or _edit_plan(exc, run_root, workspace, run_files)
+        reporter.error(exc, plan=plan, snapshot=getattr(exc, "snapshot", None),
+                       **_stored_context(exc, run_root, run_files))
         return 2
+
+
+def _prepared(run_root, workspace, token, reporter, *, run_files, **options):
+    """Steps 1 to 10 of resume preflight; with a token, the plan it names accepted first (steps 10 and 11).
+
+    Without a token an edited program refuses at step 7, as before. With one the fresh program is the candidate:
+    `rebase.accept_plan` recomputes the plan, compares the token and writes; the bare flag never reaches it."""
+    from orchestrator.workflow.evaluated.rebase import accept_plan
+    try:
+        authority, inputs, provider_io = prepare_evaluated_resume(run_root, workspace=workspace, run_files=run_files,
+                                                                  **options)
+        candidate = authority.program
+    except ValueError as exc:
+        if token is None or getattr(exc, "code", None) != "resume_program_changed" or not hasattr(exc, "fresh_program"):
+            raise
+        authority, candidate, inputs, provider_io = candidate_preflight(exc, run_root, workspace, run_files)
+    if token is None:
+        return authority, inputs, provider_io
+    try:
+        current = accept_plan(authority, candidate, inputs, token, workspace=workspace, provider_io=provider_io,
+                              report=reporter.accepted)
+    except ValueError as exc:
+        exc.program_edited = candidate is not authority.program     # the recovery lines restore the source first
+        raise
+    return current, inputs, provider_io.bind(current.program)
 
 
 def run_evaluated_workflow(
