@@ -114,29 +114,23 @@ def resolve_provider_io(
 def _read_source(node, prompt, *, workspace, reader):
     source_kind = prompt.get("source_kind")
     source_path = prompt.get("path")
-    if source_kind == "asset_file":
-        if reader is None:
-            raise ValueError("provider file read requires its checked reader")
-        text, digest = WorkflowAssetResolver(reader.workflow_path).read_text_with_sha256(
-            source_path
-        )
-    elif source_kind == "input_file":
-        text, digest, error = PromptComposer(
-            workspace=Path(workspace), asset_resolver=None
-        ).read_prompt_source_with_sha256(
-            {"input_file": source_path},
-            step_name=str(node.get("provider", "provider")),
-            contract_violation_result=lambda message, context: {
-                "message": message,
-                "context": context,
-            },
-        )
-        if error is not None:
-            raise ValueError(error)
-    elif source_kind is None and "template" in prompt:
+    if source_kind is None and "template" in prompt:
         return None, None, None, None
-    else:
+    if source_kind not in {"asset_file", "input_file"}:
         raise ValueError("checked provider has no prompt source")
+    if source_kind == "asset_file" and reader is None:
+        raise ValueError("provider file read requires its checked reader")
+    assets = None if reader is None else WorkflowAssetResolver(reader.workflow_path)
+    # A declared source that cannot be read refuses before `started`: no launch, no attempt.
+    text, digest, error = PromptComposer(
+        workspace=Path(workspace), asset_resolver=assets
+    ).read_prompt_source_with_sha256(
+        {source_kind: source_path},
+        step_name=str(node.get("provider", "provider")),
+        contract_violation_result=lambda _message, context: context,
+    )
+    if error is not None:
+        raise ProviderPerformerError(error["reason"], f"{source_kind} {source_path}: {error['error']}")
     return source_kind, source_path, text, digest
 
 
@@ -215,9 +209,7 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
     if delivery_name is not None:
         parts["delivery"] = canonical_sha256(delivery_name)
     if reads.source_kind is not None:
-        parts[f"source:{reads.source_kind}:{reads.source_path}"] = (
-            reads.source_sha256 or canonical_sha256(None)
-        )
+        parts[f"source:{reads.source_kind}:{reads.source_path}"] = reads.source_sha256
     parts.update({
         f"dependency:{path}": digest
         for path, digest in reads.dependency_sha256s.items()
