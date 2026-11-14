@@ -879,7 +879,7 @@ attempts (§4.7), and the forks of §6.3.
 | # | Question | Recommendation |
 | --- | --- | --- |
 | 1 | Do the spend cap's refusals write the mark, so that a capped run reads `stopped`? | Yes. It is one code path, and a study caps every invocation. It changes what `report` says for a capped run, which `specs/cli.md` must state |
-| 2 | Does the seed label its two verdict effects at the cost of two lines against its limit of fewer than 50? | Yes, before the freeze: labelling changes the keys. The seed is expected at 46 lines after the surface-coherence rewrite |
+| 2 | The two labels that §3.3 requires put today's seed at 51 lines, against its limit of fewer than 50 | No change to the limit: the seed is expected at 46 lines after the surface-coherence rewrite, so 48 with the labels. If it is frozen before that rewrite, the limit needs a ruling |
 | 3 | Is the fixed path part of the first study's harness, or does the study accept `copy_names_parent_path` refusals? | The fixed path. Agents report absolute paths in free text readily, so without it most copies of real runs would be refused |
 | 4 | May a study retry a cut-off call in place without a cap? | No: the workspace is dirty and `report` turns partial. Continue from the kept copy |
 | 5 | Where does the procedure's code live? | With the search harness under `experiments/`; the acceptance test of §5 pins the runtime's side without importing it |
@@ -899,6 +899,7 @@ This note is planning input, not contract; the plan owns sizes and order.
 
 The flag edits `specs/cli.md` and `orchestrator/cli/main.py`, which the
 one-target cut also edits. No increment needs the cut, provided the tests
-record no journal fixture. The reach measurement that an earlier revision
-listed here belongs to the mutant plan's task T3. The container route and
-the limit classifier need the long-horizon launcher and its recordings.
+record no journal fixture. The measurement of how much each mutation reuses
+belongs to the mutant plan's task T3 and is not an increment of this design.
+The container route and the limit classifier need the long-horizon launcher
+and its recordings.
