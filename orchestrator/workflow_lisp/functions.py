@@ -1905,6 +1905,8 @@ def _clone_function_expr(
             expansion_stack=expansion_stack,
         )
     if isinstance(expr, ProcedureCallExpr):
+        # A call inlined from a procedure body keeps its own span and stack, so two calls of that body stay two sites.
+        inlined = bool(expansion_stack) and isinstance(expansion_stack[-1], ProcedureExpansionFrame)
         return replace(
             expr,
             args=tuple(
@@ -1916,9 +1918,9 @@ def _clone_function_expr(
                 )
                 for arg in expr.args
             ),
-            span=expr.span,
+            span=expr.span if inlined else span,
             form_path=form_path,
-            expansion_stack=expansion_stack + expr.expansion_stack,
+            expansion_stack=expansion_stack + expr.expansion_stack if inlined else expansion_stack,
         )
     if isinstance(expr, BindProcExpr):
         return replace(
