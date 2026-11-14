@@ -15,6 +15,7 @@ from ..conditionals import (
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..expression_traversal import (
+    holds_effect_in_a_value,
     is_pure_projection_expr,
     map_command_operands,
     walk_expr,
@@ -1646,18 +1647,44 @@ def _normalize_effectful_fields(expr):
 
 
 def _continue_value_needs_binding(expr: ContinueExpr) -> LispFrontendCompileError:
-    """The refusal of a `continue` value whose effects sit under a conditional inside it."""
+    """The refusal of a `continue` value that holds an effect under control below its top."""
 
     return LispFrontendCompileError((LispFrontendDiagnostic(
         code="effect_not_permitted",
         message=(
-            "this `continue` value holds an effect under a conditional (`if`, `cond`, `match`, `and`, `or`) "
-            "inside a larger value; bind the value with `let*` first: `(let* ((next <value>)) (continue next))`"
+            "this `continue` value holds an effect under a conditional, a loop or a map that is not the whole "
+            "value; bind the value with `let*` first: `(let* ((next <value>)) (continue next))`"
         ),
         span=expr.state_expr.span,
         form_path=expr.state_expr.form_path,
         expansion_stack=expr.state_expr.expansion_stack,
     ),))
+
+
+def _bound_first(consumer, attr: str, *, scope: WccIdentityFactory, value_env, compile_time_bindings, role: str) -> LetStarExpr:
+    """`(let* ((g <operand>)) <consumer reading g>)`, the operand being `consumer.<attr>`.
+
+    The one normalization for a value the consumer needs whole (a `continue` state,
+    a `match` subject, a parallel map's source) when a constructor, list, path child
+    or map source in it holds an effect, or, for a parallel map, when its source holds
+    any effect: no earlier program has one. Bound by `let*`, the value lowers as an
+    authored binding does, a join when its effects sit under `if`, `cond`, `match`,
+    `and`, `or`, a loop or a map, and the consumer reads a plain name. `g` is named
+    by `scope` and `role` and differs from every name in scope and in `consumer`, so
+    it captures nothing.
+    """
+
+    operand = getattr(consumer, attr)
+    reserved = reserved_identifiers(consumer, value_env=value_env, compile_time_bindings=compile_time_bindings)
+    name = fresh_name(_generated_effect_binding_name_from_scope(generated_name_scope(scope), role=role), reserved)
+    reference = NameExpr(name=name, span=operand.span, form_path=operand.form_path, expansion_stack=operand.expansion_stack)
+    return LetStarExpr(
+        bindings=((name, operand),),
+        body=replace(consumer, **{attr: reference}),
+        span=consumer.span,
+        form_path=consumer.form_path,
+        expansion_stack=consumer.expansion_stack,
+    )
 
 
 def _wrap_prefix_lets(prefix: tuple[WccLet, ...], tail: WccBody) -> WccBody:
@@ -2124,35 +2151,27 @@ def _bind_effectful_loop_state_fields(
     it captures no authored reference. It returns None when no field has an
     effect; the loop lowerer then projects the state as pure.
 
-    An effect or a `match` given directly as the state, ``(continue e)``,
-    becomes ``(let* ((g e)) (continue g))``; a `match` state, pure or not, has
-    no other lowering. Other effectful states (``if``, ``let*``, arithmetic)
+    An effect or a `match` given directly as the state, ``(continue e)``, or a
+    state whose constructor, list, path child or map source holds an effect,
+    becomes ``(let* ((g e)) (continue g))`` (`_bound_first`); a `match` state, pure
+    or not, has no other lowering. Other effectful states (``if``, ``let*``, arithmetic)
     are left alone: they already lower, and binding them would change their
     program digest.
     """
 
     state = expr.state_expr
     # `request-input` is an effect here but not in the shared `_EFFECT_NODE_TYPES`.
-    direct_effect = isinstance(state, (*_EFFECT_NODE_TYPES, RequestInputExpr, MatchExpr))
+    direct_effect = isinstance(state, (*_EFFECT_NODE_TYPES, RequestInputExpr, MatchExpr)) or holds_effect_in_a_value(state)
     if not (
         direct_effect
         or (isinstance(state, LoopStateUpdateExpr) and any(_contains_effect(field_expr) for _, field_expr in state.overrides))
     ):
         return None
+    if direct_effect:
+        return _bound_first(expr, "state_expr", scope=scope, value_env=value_env,
+                            compile_time_bindings=compile_time_bindings, role="state")
     reserved = reserved_identifiers(expr, value_env=value_env, compile_time_bindings=compile_time_bindings)
     naming_scope = generated_name_scope(scope)
-    if direct_effect:
-        binding_name = fresh_name(_generated_effect_binding_name_from_scope(naming_scope, role="state"), reserved)
-        state_name = NameExpr(
-            name=binding_name, span=state.span, form_path=state.form_path, expansion_stack=state.expansion_stack
-        )
-        return LetStarExpr(
-            bindings=((binding_name, state),),
-            body=replace(expr, state_expr=state_name),
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
     bindings: list[tuple[str, object]] = []
     overrides: list[tuple[str, object]] = []
     for field_name, field_expr in state.overrides:
@@ -2260,7 +2279,14 @@ def _elaborate_parallel_map_to_body(
         procedure_return_types=procedure_return_types, effect_summary=effect_summary,
         procedure_edges_by_site=procedure_edges_by_site, active_phase_scope=active_phase_scope)
     source_scope = scope.child_scope("parallel-source")
-    # The source's effects run once, before any item; a pure source lowers to the same value either way.
+    if expr.effectful_source:
+        # The source's effects run once, before any item; the map then reads a name.
+        bound_scope = scope.child_scope("parallel-source-bound")
+        return _elaborate_let_star(_bound_first(replace(expr, effectful_source=False), "source_expr",
+            scope=bound_scope, value_env=value_env,
+            compile_time_bindings=compile_time_bindings, role="source"),
+            scope=bound_scope, value_env=value_env, compile_time_bindings=compile_time_bindings, **inputs)
+    # A pure source lowers to the same value by either route.
     prefix, source = _body_to_prefix_and_value(_elaborate_expr_to_body(expr.source_expr,
         scope=source_scope, value_env=value_env, compile_time_bindings=compile_time_bindings, **inputs))
     prefix, source = hoist_without_capture(prefix, source,
@@ -4600,18 +4626,15 @@ def _elaborate_match_to_body(
             active_phase_scope=active_phase_scope,
         )
     subject_scope = scope.child_scope("match-subject", authored_binding_name="subject")
-    subject_prefix, subject = _elaborate_expr_to_value(
-        expr.subject,
-        scope=subject_scope,
-        type_env=type_env,
-        value_env=value_env,
-        workflow_return_types=workflow_return_types,
-        procedure_return_types=procedure_return_types,
-        effect_summary=effect_summary,
-        procedure_edges_by_site=procedure_edges_by_site,
-        compile_time_bindings=compile_time_bindings,
-        active_phase_scope=active_phase_scope,
-    )
+    inputs = dict(type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
+        procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+        procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+        active_phase_scope=active_phase_scope)
+    if holds_effect_in_a_value(expr.subject):
+        bound_scope = scope.child_scope("match-subject-bound")
+        return _elaborate_let_star(_bound_first(expr, "subject", scope=bound_scope, value_env=value_env,
+            compile_time_bindings=compile_time_bindings, role="subject"), scope=bound_scope, **inputs)
+    subject_prefix, subject = _elaborate_expr_to_value(expr.subject, scope=subject_scope, **inputs)
     # From target 2.33 the subject's bindings run before the case, as `let*` would,
     # under names the arms cannot see.
     subject_prefix, subject = hoist_without_capture(

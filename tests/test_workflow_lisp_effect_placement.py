@@ -127,6 +127,16 @@ PLACEMENTS = {
                                       {"a": 7, "b": 1, "c": 1}, ["7"]),
     "and-field-beside-match-field": ("Bool", f"(let* ((w (record Flag :v (and (> n 0) (> {E(1)} 0)) :k {M}))) w.v)", "",
                                      True, ["1"]),
+    # A constructor holding an effect, written as a `match` subject (N2).
+    "variant-subject-if-field": (
+        "Int", f"(match (variant Shape CIRCLE :r (if (> n 0) {E(1)} {E(2)})) ((CIRCLE c) c.r) ((SQUARE q) 0))", "", 1, ["1"]),
+    "variant-subject-two-match-fields": (
+        "Int", f"(match (variant Box RECT :w (match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(7)}) ((SQUARE q) 0)) :h 1"
+               f" :k (match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(8)}) ((SQUARE q) 0))) ((RECT r) (+ r.w r.k)) ((NONE z) 0))",
+        "", 15, ["7", "8"]),
+    "nested-constructor-subject": (
+        "Int", f"(match (variant Held HELD :p (record Pair :a (if (> n 0) {E(3)} 0) :b 1)) ((HELD h) (+ h.p.a h.p.b)) ((EMPTY z) 0))",
+        "(defunion Held (HELD (p Pair)) (EMPTY (z Int)))", 4, ["3"]),
     "pure-match-operand": ("Int", f"(+ 1 {M})", "", 2, []),
     "pure-match-operands": ("Int", f"(+ {M} (* 2 {M}))", "", 3, []),
 }
@@ -204,7 +214,8 @@ SIBLING_RETURNS = {"record": "Tri", "record-match-written-first": "Tri", "varian
                    "nested-record": "Nest", "record-update": "Tri", "if-field-variant-in-let": "Int"}
 
 
-SIBLINGS = {"match": M, "plain": "0", "pure-if": "(if (> n 0) 1 2)", "pure-let": "(let* ((q 3)) q)"}
+SIBLINGS = {"match": M, "plain": "0", "pure-if": "(if (> n 0) 1 2)", "pure-let": "(let* ((q 3)) q)",
+            "pure-cond": "(cond ((> n 5) 0) (else 1))", "pure-map": "(list/length (list/map ((x (list 1 2))) x))"}
 
 
 @pytest.mark.parametrize("case", SIBLING_MATCH)
@@ -219,8 +230,9 @@ def test_field_effect_names_do_not_depend_on_an_effect_free_sibling(tmp_path: Pa
     assert len(set(map(tuple, names.values()))) == 1, names
 
 
-# A `continue` value that holds an effect under a conditional inside a larger value is refused, with the
-# rewrite to bind it first; the same value runs in every other value position and through that rewrite.
+# A `continue` value whose constructor, list, path child or map source holds an effect is bound first and
+# runs; one that holds an effect under control below its top elsewhere (an operator, a `record-update`, a
+# `let*` value) is refused with the rewrite to bind it first. Every one runs in every other value position.
 IFE = f"(if (> n 0) {E(1)} {E(2)})"
 ONE = f"(defproc one ((x Int)) -> Int {E(5)})"
 CONTINUE_SHAPES = {
@@ -241,13 +253,16 @@ CONTINUE_SHAPES = {
                             {"a": 5, "b": 9}, ["5"], ONE),
     "record-if-beside-match": ("Tri", "(record Tri :a 0 :b 0 :c 0)", f"(record Tri :a {IFE} :b 1 :c {M})",
                                {"a": 1, "b": 1, "c": 1}, ["1"], ""),
-    # A `compiler_defect` before effects were admitted in fields, too.
+    "record-effects": ("Pair", "(record Pair :a 0 :b 0)", f"(record Pair :a {E(1)} :b {E(2)})",
+                       {"a": 1, "b": 2}, ["1", "2"], ""),
+    # Refused: a `compiler_defect` before effects were admitted in fields.
     "operator-if": ("Int", "0", f"(+ {IFE} 9)", 10, ["1"], ""),
     "record-update-if": ("Pair", "(record Pair :a 0 :b 0)", f"(record-update (record Pair :a 0 :b 9) :a {IFE})",
                          {"a": 1, "b": 9}, ["1"], ""),
     "let-then-record": ("Pair", "(record Pair :a 0 :b 0)", f"(let* ((v {IFE})) (record Pair :a v :b 9))",
                         {"a": 1, "b": 9}, ["1"], ""),
 }
+REFUSED_IN_CONTINUE = ("operator-if", "record-update-if", "let-then-record")
 ONE_ROUND = "(loop/recur :max 1 :state {seed} :on-exhausted s (fn (s) (if (= n 7) (done s) {step})))"
 VALUE_POSITIONS = {
     "let-then-continue": ONE_ROUND.replace("{step}", "(let* ((next {v})) (continue next))"),
@@ -260,21 +275,41 @@ VALUE_POSITIONS = {
 }
 
 
-@pytest.mark.parametrize("shape", CONTINUE_SHAPES)
-def test_continue_value_with_a_nested_conditional_effect_is_refused(tmp_path: Path, shape: str) -> None:
+@pytest.mark.parametrize("shape", [shape for shape in CONTINUE_SHAPES if shape not in REFUSED_IN_CONTINUE])
+def test_continue_value_holding_an_effect_in_a_value_runs(tmp_path: Path, shape: str) -> None:
+    returns, seed, value_expr, expected, log, decls = CONTINUE_SHAPES[shape]
+    write(tmp_path, returns, ONE_ROUND.format(seed=seed, step=f"(continue {value_expr})"), decls)
+
+    result = run(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert (value(result), calls(tmp_path)) == (expected, log)
+
+
+def refused_at(root: Path, value_expr: str) -> str:
+    """`main.orc:<line>:<column>: [effect_not_permitted]` at `value_expr` in the written program."""
+
+    source = (root / "main.orc").read_text(encoding="utf-8")
+    offset = source.index(value_expr.replace("{probe}", (root / "probe.py").as_posix()))
+    line = source.count("\n", 0, offset) + 1
+    return f"main.orc:{line}:{offset - source.rfind(chr(10), 0, offset)}: [effect_not_permitted]"
+
+
+@pytest.mark.parametrize("shape", REFUSED_IN_CONTINUE)
+def test_continue_value_with_an_effect_under_control_below_its_top_is_refused(tmp_path: Path, shape: str) -> None:
     returns, seed, value_expr, _, _, decls = CONTINUE_SHAPES[shape]
     write(tmp_path, returns, ONE_ROUND.format(seed=seed, step=f"(continue {value_expr})"), decls)
 
     compiled = cli(tmp_path, "compile", "main.orc")
 
-    assert (compiled.returncode, compiled.stderr.count("[effect_not_permitted]"), "(continue next)" in compiled.stderr,
-            "Traceback" in compiled.stderr) == (2, 1, True, False), compiled.stderr
+    assert (compiled.returncode, compiled.stderr.count("[effect_not_permitted]"),
+            refused_at(tmp_path, value_expr) in compiled.stderr) == (2, 1, True), compiled.stderr
 
 
-def test_inner_loop_continue_value_with_a_nested_conditional_effect_is_refused(tmp_path: Path) -> None:
-    inner = ONE_ROUND.format(seed="(record Pair :a 0 :b 0)", step=f"(continue (record Pair :a {IFE} :b 9))")
+def test_inner_loop_continue_value_with_an_effect_under_control_is_refused(tmp_path: Path) -> None:
+    inner = ONE_ROUND.format(seed="0", step=f"(continue (+ {IFE} 9))")
     outer = f"(loop/recur :max 1 :state 0 :on-exhausted {inner} (fn (t) (if (= n 7) (done {inner}) (continue t))))"
-    write(tmp_path, "Pair", outer)
+    write(tmp_path, "Int", outer)
 
     compiled = cli(tmp_path, "compile", "main.orc")
 
@@ -283,7 +318,7 @@ def test_inner_loop_continue_value_with_a_nested_conditional_effect_is_refused(t
 
 @pytest.mark.parametrize("position", VALUE_POSITIONS)
 @pytest.mark.parametrize("shape", CONTINUE_SHAPES)
-def test_refused_continue_value_runs_in_every_other_value_position(tmp_path: Path, shape: str, position: str) -> None:
+def test_continue_value_runs_in_every_other_value_position(tmp_path: Path, shape: str, position: str) -> None:
     returns, seed, value_expr, expected, log, decls = CONTINUE_SHAPES[shape]
     if position == "procedure-return":
         decls += f"(defproc mk ((n Int)) -> {returns} {value_expr})"
@@ -293,6 +328,47 @@ def test_refused_continue_value_runs_in_every_other_value_position(tmp_path: Pat
 
     assert result.returncode == 0, result.stderr
     assert (value(result), calls(tmp_path)) == (expected, log)
+
+
+# A `let*` inside a field or list element of a `done` or `continue` value names no step (§16.3): both give `#k`.
+LET_IN_LOOP_VALUE = {
+    "record-field": ("Pair", "(record Pair :a 0 :b 0)", f"(record Pair :a (let* ((y {E(7)})) y) :b 0)"),
+    "list-element": ("List[Int]", "(list 0)", f"(list (let* ((y {E(7)})) y) 2)"),
+}
+
+
+@pytest.mark.parametrize("case", LET_IN_LOOP_VALUE)
+def test_let_in_a_field_of_a_continue_value_is_named_as_in_done(tmp_path: Path, case: str) -> None:
+    returns, seed, value_expr = LET_IN_LOOP_VALUE[case]
+    write(tmp_path / "continue", returns, ONE_ROUND.format(seed=seed, step=f"(continue {value_expr})"))
+    write(tmp_path / "done", returns, ONE_ROUND.format(seed=seed, step=f"(done {value_expr})"))
+
+    names = [started(run(tmp_path / form).stderr) for form in ("continue", "done")]
+
+    assert names == [["loop:s[1] / else / #1"], ["loop:s[1] / else / #1"]]
+
+
+W = E("w", "String")
+PARALLEL_SOURCES = {
+    "whole-if": (f'(if (> n 0) (list {W}) (list "q"))', ["w", "w"]),
+    "match": (f'(match (variant Shape CIRCLE :r n) ((CIRCLE c) (list {W})) ((SQUARE q) (list "q")))', ["w", "w"]),
+    "cond-element": (f'(list (cond ((> n 5) "q") (else {W})))', ["w", "w"]),
+    "nested-parallel-map": (
+        f'(list/map-effect ((y (list "w"))) :max 1 :parallel 1 :workspace (string/concat "ws/" y) {W})', ["w", "w"]),
+}
+
+
+@pytest.mark.parametrize("case", PARALLEL_SOURCES)
+def test_parallel_map_source_with_an_effect_under_control_runs_once_before_any_item(tmp_path: Path, case: str) -> None:
+    (tmp_path / "ws" / "w").mkdir(parents=True)
+    source, log = PARALLEL_SOURCES[case]
+    item = '(command-result e :argv ("python" "{probe}" x) :returns String)'
+    write(tmp_path, "List[String]", f'(list/map-effect ((x {source})) :max 2 :parallel 1 :workspace (string/concat "ws/" x) {item})')
+
+    result = run(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert (value(result), calls(tmp_path)) == (["w"], log)
 
 
 def test_parallel_map_with_a_pure_conditional_source_runs(tmp_path: Path) -> None:

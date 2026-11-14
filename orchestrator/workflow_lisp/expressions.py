@@ -317,6 +317,11 @@ class ListMapEffectExpr:
     )
     parallel_count: int | None = field(default=None, metadata={"json_omit_if_none": True})
     workspace_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+    # Set by typecheck on a parallel map whose source holds an effect (surface coherence E1).
+    effectful_source: bool = field(
+        default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)

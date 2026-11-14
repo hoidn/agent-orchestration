@@ -307,6 +307,20 @@ def walk_expr(expr: ExprNode) -> Iterator[ExprNode]:
         yield from walk_expr(child)
 
 
+# Set by typecheck on a constructor, list, `list/map` or path form when an operand holds an effect.
+_VALUE_EFFECT_FLAGS = ("effectful_fields", "effectful_items", "effectful_source", "effectful_child")
+
+
+def holds_effect_in_a_value(expr: ExprNode) -> bool:
+    """Whether a typed constructor, list, `list/map` source or path child in `expr` holds an effect.
+
+    These are the places surface coherence E1 opened; no program that built before
+    has one, so a lowering keyed on this changes no earlier program.
+    """
+
+    return any(getattr(node, flag, False) for node in walk_expr(expr) for flag in _VALUE_EFFECT_FLAGS)
+
+
 def map_expr(
     expr: object,
     on_name: Callable[[NameExpr], ExprNode],

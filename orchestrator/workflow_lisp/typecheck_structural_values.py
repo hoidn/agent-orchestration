@@ -496,12 +496,13 @@ def typecheck_structural_value_expr(
                 expr, context=context, recurse=recurse,
                 value_env=body_env, binding_env=body_binding_env,
             )
+            source_effect, effectful_source = _effect_of([typed_source.effect_summary], context=context)
             return typed_factory(
                 expr=replace(expr, source_expr=typed_source.expr, body_expr=typed_body.expr,
                              workspace_expr=workspace_expr, binding_identity=binding_identity,
                              source_item_type_ref=typed_source.type_ref.item_type_ref,
-                             result_item_type_ref=typed_body.type_ref),
-                type_ref=result_type, effect=typed_body.effect_summary,
+                             result_item_type_ref=typed_body.type_ref, effectful_source=effectful_source),
+                type_ref=result_type, effect=merge_effect_summaries(source_effect, typed_body.effect_summary),
             )
         state_name = "__list_map_effect_state"
         next_state_name = "__list_map_effect_next_state"
