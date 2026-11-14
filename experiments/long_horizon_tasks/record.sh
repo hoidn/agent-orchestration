@@ -34,7 +34,15 @@ make_task() {
   printf 'Recording session for a stand-in model API. Follow the tool calls; there is no task.\n' > "$TASK/instruction.md"
   cp "$HERE/allowlist_probe.py" "$TASK/solution/probe.py"
   printf '#!/bin/bash\npython3 /solution/probe.py %s %s %s\n' "$RELAY" "$HOST_IP" "$HOST_PORTS" > "$TASK/solution/solve.sh"
+  grep -q '^\[agent\]' "$TASK/task.toml" || { echo "make_task: no [agent] table in $SRC/task.toml" >&2; exit 2; }
   sed -i '/^\[agent\]/a network_mode = "allowlist"\nallowed_hosts = ["relay", "pypi.org", "files.pythonhosted.org"]' "$TASK/task.toml"
+  check_allowlist
+}
+
+check_allowlist() {  # the agent phase must be on the allowlist that lists the relay and not the vendor's API
+  grep -q '^network_mode = "allowlist"$' "$TASK/task.toml" \
+    && grep -q '^allowed_hosts = \["relay", "pypi.org", "files.pythonhosted.org"\]$' "$TASK/task.toml" \
+    || { echo "record.sh: $TASK/task.toml is not on the recording allowlist; run make_task" >&2; exit 2; }
 }
 
 follow() {  # copy each sidecar's log out while it lives; inspect each container once
@@ -51,9 +59,12 @@ follow() {  # copy each sidecar's log out while it lives; inspect each container
   done
 }
 
-[ "${1:-}" = make_task ] && { make_task; exit; }
-name=$1 scenario=$2 agent=$3; shift 3
+[ "${1:-}" = make_task ] && { set -e; make_task; exit; }
+name=${1:-} scenario=${2:-} agent=${3:-}; shift 3 || exit 2
+[[ $name =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "record.sh: bad recording name '$name'" >&2; exit 2; }
+check_allowlist
 OUT=$LH/recordings/$name
+trap 'kill $(jobs -p) 2>/dev/null' EXIT  # the stub and the log followers stop with the script
 rm -rf "$OUT"; mkdir -p "$OUT"; mkdir -m 700 -p "$SOCKET_DIR"
 python3 -I "$HERE/stub_api.py" --unix "$SOCKET_DIR/passthrough.sock" --model "$MODEL" --scenario "$scenario" \
   --log "$OUT/stub.jsonl" ${STUB_ARGS:-} > "$OUT/stub.out" 2>&1 &
@@ -77,5 +88,5 @@ env -i HOME="$HOME" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" PAT
 harbor=$!
 follow "$harbor"
 wait "$harbor"; echo "harbor rc=$?" > "$OUT/rc"
-sleep 2; kill "$stub" $(jobs -p) 2>/dev/null
+sleep 2
 cat "$OUT/rc"
