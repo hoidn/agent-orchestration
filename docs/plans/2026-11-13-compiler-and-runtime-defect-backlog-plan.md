@@ -9,16 +9,17 @@ a contract and not copy-safe guidance. Behavior is owned by `specs/`, the
 [evaluated execution](../design/workflow_lisp_evaluated_execution.md); until a task lands, those
 documents and the code describe the checkout. No task makes or authorizes a provider or model call.
 Planned against `main` at `59f727db` (the first probe pass ran on `a58e5b17`; `main` moved while
-planning, when I1 merged as `624ff688`, and every probe was run again).
+planning, when I1 merged as `624ff688`, and every probe was run again; `main` at `801bd6d2`, merged
+into this branch, differs from `59f727db` in three documents only).
 
 **Goal:** no known program makes a paid call it should not, launches a child a guard forbids, or
 gets a wrong answer from the effect analysis; a program the language admits does not crash the
 compiler; and every reproduction lives in the repository as a test, not in a scratch file.
 
 **Approach:** first put the reproductions and the three invariant checks into the repository. Then
-fix by cause, not by item: 51 rows reduce to 16 fixes here, plus the cut's. Order: class A (spends or launches), C
-(unsound analysis), B (silent wrong value), D (crash), E (no effect, misleading, absent). What this
-makes harder is listed [below](#what-this-makes-harder).
+fix by cause, not by item: 51 rows reduce to 16 fixes here, plus the cut's. Order: class A
+(spends or launches), C (unsound analysis), B (silent wrong value), D (crash), E (no effect,
+misleading, absent). What this makes harder is listed [below](#what-this-makes-harder).
 
 **Not in this plan, only listed:** the nine changes of the
 [one-target cut](2026-11-12-lane-d-stage-4-one-target-plan.md#changes-assigned-to-the-cuts-release-on-2026-11-13-not-yet-sized)
@@ -61,9 +62,9 @@ exception in brackets; "traceback" means exit 1 with an uncaught Python tracebac
 | **Total** | | **51** | **46** | |
 
 The roadmap's list has about 40 items; the 51 rows come from splitting items that hold several
-programs, from nine defects that the reviews, the rule ledger and the staged-authoring design recorded and
-the roadmap did not copy (D1, D4, D17, D18, E3, E7, E8, E16, E23), and from one found while
-planning (E9).
+programs, from nine defects that the reviews, the rule ledger and the staged-authoring design
+recorded and the roadmap did not copy (D1, D4, D17, D18, E3, E7, E8, E16, E23), and from one
+found while planning (E9).
 
 ## Defect Table
 
@@ -541,8 +542,8 @@ The 120 hours are implementation and its own tests. At this repository's pace ea
 also gets an independent review and one or two fix rounds (C1, I2a and I1 each took two or three
 rounds and merged one to two days after they started), which adds about three quarters: about 210
 agent-hours. With three or four worktrees in parallel that is **two and a half to three weeks**
-elapsed, set by lane 4 (26 hours on one file and 8 for the grid, after E1) and by one whole-suite run per merge or
-batch. Classes A and C fit in the first three or four days. Three tasks open with a search for the
+elapsed, set by lane 4 (26 hours on one file and 8 for the grid, after E1) and by one
+whole-suite run per merge or batch. Classes A and C fit in the first three or four days. Three tasks open with a search for the
 cause (TD3, TD6, TE3) and may return a refusal instead of a fix. The cut's nine changes and Task
 0b's ten hours are not in the total.
 
@@ -636,4 +637,4 @@ Planner's rulings, with the cost if wrong:
 
 | Date | Entry |
 | --- | --- |
-| 2026-11-13 | Plan written as proposed, against `main` at `59f727db`. 51 rows; 46 re-run on that commit through the public command line with stand-in commands and a stand-in `codex` on a closed `PATH`; no provider or model call. First pass on `a58e5b17`; I1 merged meanwhile (`624ff688`) and closed D15, the only row whose result changed. Found while planning: E9 (a pure loop procedure through a reference); C1 shown on `main` through the declared ceiling, with its cause confirmed by a four-line scratch patch that leaves the compile of all 635 tracked `.orc` files byte-identical; D14 not reproduced; D1 closed by the E1 branch, D4 not. No code change, no spend |
+| 2026-11-13 | Plan written as proposed, against `main` at `59f727db`; `main` at `801bd6d2` merged into the branch afterwards (three documents changed, no code, so the probes stand). 51 rows; 46 re-run on that commit through the public command line with stand-in commands and a stand-in `codex` on a closed `PATH`; no provider or model call. First pass on `a58e5b17`; I1 merged meanwhile (`624ff688`) and closed D15, the only row whose result changed. Found while planning: E9 (a pure loop procedure through a reference); C1 shown on `main` through the declared ceiling, with its cause confirmed by a four-line scratch patch that leaves the compile of all 635 tracked `.orc` files byte-identical; D14 not reproduced; D1 closed by the E1 branch, D4 not. No code change, no spend |
