@@ -1,7 +1,7 @@
 """Tabulate oracle-check trials: reward and phase durations per task and agent.
 
 Reads <jobs>/<agent>/<task>/<job>/<trial>/result.json as written by Harbor 0.25.0.
-Usage: python -I summarize.py /home/ollie/lh-cache/jobs
+Usage: python -I summarize.py $LH/jobs   (the cache directory, by default ~/lh-cache)
 """
 
 import json

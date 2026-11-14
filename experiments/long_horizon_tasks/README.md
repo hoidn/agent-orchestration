@@ -35,5 +35,5 @@ pytest -q -n 8 tests/test_long_horizon_stub_api.py tests/test_long_horizon_cut_f
   tests/test_long_horizon_price_check.py
 ```
 
-The price test reproduces the three public archive totals when the archives are in `$LH` (default
-`/home/ollie/lh-cache`). When they are absent, it is skipped with a reason.
+The price test reproduces the three public archive totals when the archives are in the cache directory (`$LH`, by default
+`~/lh-cache`). When they are absent, it is skipped with a reason.

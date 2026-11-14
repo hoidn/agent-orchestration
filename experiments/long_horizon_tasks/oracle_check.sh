@@ -7,9 +7,14 @@
 # Usage: oracle_check.sh <task_dir>...
 # Needs: $LH/hvenv (harbor 0.25.0 + podman-compose 1.6.0), harbor_patient.py beside this file.
 set -uo pipefail
-LH=${LH:-/home/ollie/lh-cache}
+LH=${LH:-$HOME/lh-cache}
 HERE=$(cd "$(dirname "$0")" && pwd)
-export PATH=/home/ollie/Documents/agent-orchestration/experiments/thread_m/no_provider:$LH/hvenv/bin:/usr/local/bin:/usr/bin:/bin
+REPO=$(cd "$HERE/../.." && pwd)  # the repository root, two levels above this script
+[ "$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null)" = "$REPO" ] \
+  || { echo "$(basename "$0"): $REPO is not this script's repository root" >&2; exit 2; }
+NO_PROVIDER=$REPO/experiments/thread_m/no_provider
+[ -x "$NO_PROVIDER/claude" ] || { echo "$(basename "$0"): no provider guard at $NO_PROVIDER" >&2; exit 2; }
+export PATH=$NO_PROVIDER:$LH/hvenv/bin:/usr/local/bin:/usr/bin:/bin
 export HARBOR_TELEMETRY=0 DO_NOT_TRACK=1 PODMAN_COMPOSE_WARNING_LOGS=false
 # A runaway task must not starve the shared host: cap processes per container.
 LIMITS=$LH/logs/limits-compose.yaml

@@ -11,7 +11,7 @@ KIT = Path(__file__).resolve().parents[1] / "experiments" / "long_horizon_tasks"
 _spec = importlib.util.spec_from_file_location("lh_price_check", KIT / "price_check.py")
 price_check = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(price_check)
-ARCHIVES = sorted(glob.glob(os.path.join(os.environ.get("LH", "/home/ollie/lh-cache"), "recordings/archives/*/x")))
+ARCHIVES = sorted(glob.glob(os.path.join(os.environ.get("LH", os.path.expanduser("~/lh-cache")), "recordings/archives/*/x")))
 
 
 def _usage(inp=1000, out=100, read=0, five=0, hour=0):

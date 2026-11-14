@@ -1,5 +1,6 @@
 {
- "root": "/home/ollie/lh-cache/recordings",
+ "root": "$LH/recordings",
+ "root_note": "file paths are relative to $LH/recordings, where $LH is the cache directory (by default ~/lh-cache)",
  "recordings": [
   {
    "name": "probe-oracle-notty-fail",

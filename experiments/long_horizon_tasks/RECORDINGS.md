@@ -10,7 +10,8 @@ vendor's API. Task 2's probes are in their own section after the assumption tabl
 **What is committed and what is not.**
 - **Committed:** the cut fixtures, `fixtures/` (the stream side) and `fixtures/requests/` (the request
   side). The cut rules are in "Fixtures" below.
-- **Local cache only:** the raw recordings stay under `/home/ollie/lh-cache/recordings/` (the stub's
+- **Local cache only:** the raw recordings stay under `$LH/recordings/` in the cache directory
+  (`$LH`, by default `~/lh-cache`) (the stub's
   request logs, egress logs, container inspections, harness jobs, session files and debug logs).
   `recordings.json` holds the SHA-256 of each of their files. **That cache is not backed up**, and a
   local recording cannot be fetched again from anywhere.
@@ -39,7 +40,7 @@ vendor's API. Task 2's probes are in their own section after the assumption tabl
 ## Reproduce
 
 ```
-export LH=/home/ollie/lh-cache        # hvenv with Harbor 0.25.0 + podman-compose 1.6.0
+export LH=${LH:-$HOME/lh-cache}  # the cache directory; hvenv with Harbor 0.25.0 + podman-compose 1.6.0
 printf '[engine]\ncompose_warning_logs = false\n' > $LH/logs/containers-override.conf
 podman pull docker.io/gogost/gost@sha256:afc0137758ab4ce399d47a299f9abbacbf522b52a17e59cbb4b4e7a1a66e9196
 podman tag  docker.io/gogost/gost@sha256:afc0…9196 docker.io/gogost/gost:3.2.7-nightly.20260602

@@ -16,14 +16,18 @@
 # banner on stderr breaks the harness's package-manager probe); $LH/logs/limits-compose.yaml.
 # Output: $LH/recordings/<name>/ (stub.jsonl, egress-*.log, containers.txt, harbor.out, jobs/, rc).
 set -uo pipefail
-LH=${LH:-/home/ollie/lh-cache}
+LH=${LH:-$HOME/lh-cache}
 HERE=$(cd "$(dirname "$0")" && pwd)
+REPO=$(cd "$HERE/../.." && pwd)  # the repository root, two levels above this script
+[ "$(git -C "$HERE" rev-parse --show-toplevel 2>/dev/null)" = "$REPO" ] \
+  || { echo "$(basename "$0"): $REPO is not this script's repository root" >&2; exit 2; }
+NO_PROVIDER=$REPO/experiments/thread_m/no_provider
+[ -x "$NO_PROVIDER/claude" ] || { echo "$(basename "$0"): no provider guard at $NO_PROVIDER" >&2; exit 2; }
 MODEL=claude-haiku-5-5
 RELAY=relay:8080
 SOCKET_DIR=$LH/relay
 SRC=${SRC:-$LH/src/tb/tasks/sound-change-cascade}
 TASK=$LH/scratch/recording-task
-NO_PROVIDER=/home/ollie/Documents/agent-orchestration/experiments/thread_m/no_provider
 CLEAN_PATH=$NO_PROVIDER:$LH/hvenv/bin:/usr/local/bin:/usr/bin:/bin
 # Every TCP port the host listens on, for the probe's scan.
 HOST_PORTS=$(ss -ltnH | awk '{print $4}' | sed 's/.*://' | sort -un | paste -sd, -)
