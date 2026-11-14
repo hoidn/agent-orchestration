@@ -27,6 +27,11 @@ def usd(value: str) -> float:
     return cost
 
 
+def _plan_token(value: str) -> str:
+    from orchestrator.workflow.evaluated.rebase import plan_token_argument
+    return plan_token_argument(value)
+
+
 def _add_spend_cap(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--max-cost-usd',
@@ -502,9 +507,10 @@ def create_parser() -> argparse.ArgumentParser:
     )
     resume_parser.add_argument(
         '--accept-changes',
-        action='store_true',
-        help='Retry unfinished steps whose declared files changed although their last attempt '
-             'was interrupted or changed them itself'
+        nargs='?', const=True, default=False, type=_plan_token, metavar='TOKEN',
+        help='Alone: retry unfinished steps whose declared files changed although their last attempt '
+             'was interrupted or changed them itself. =TOKEN: accept the plan a refusal printed with that '
+             'token (an edited program, or a committed step whose input changed). Write it after the run id'
     )
     resume_parser.add_argument(
         '--quiet',

@@ -394,6 +394,16 @@ every removed test is listed with the code it covered".
      renaming it moves the digest of macro programs that compile today, so it
      goes with the one-target cut; a `let-proc` local that forwards a captured
      outer procedure reference fails with `compiler_defect`.
+   - added 2026-11-13 (sixth batch, from the third review of the loop-binder
+     change): macro hygiene in head position. A template-bound name at the
+     head of a list is never renamed, so a caller's binding of the same name
+     answers a call the template meant for its own local (a silent wrong
+     value; reached through a direct procedure reference, an alias, or
+     `bind-proc`). Two attempts to fix it inside the hygiene pass each let a
+     new wrong case through, because what a head names is the resolver's
+     knowledge; it needs one resolver-aware change, not a patch. Also: a
+     workflow defined by a macro gets its parameters renamed, so it cannot be
+     called or used as an entry through its public inputs.
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
@@ -666,7 +676,7 @@ is manual. Phase plans are linked here as they start:
   the metering behaved as specified (nine of ten checks); the frozen verdict is fail on the isolation check,
   because the criterion's list of the CLI's built-in agents was incomplete (the plan's ledger has the detail).
 - Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
-  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; its first task proves the design's open claims before any feature code.
+  3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; tasks T1 to T7 are merged (2026-11-13): `resume` under an edited program prints a read-only plan with a token, and `resume --accept-changes=plan-<token>` continues the run under the edit. T8 (guides and closeout) remains; after it the lane stops (decision 13).
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Phase 5b, in preparation: staged in this roadmap ([Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed)); survey, machine feasibility and seed design are done on spike branches (`spike/long-horizon-tasks`, `spike/long-horizon-seed`); its plan is being written. The effort ladder is the only approved spend (decision 16).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).

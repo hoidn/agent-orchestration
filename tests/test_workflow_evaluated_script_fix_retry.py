@@ -341,7 +341,8 @@ def test_shared_script_fix_recovers_through_printed_invalidate_and_resume(tmp_pa
 
     refused = refuses_without_writes(tmp_path, "effect_input_diverged")
 
-    invalidate, resume = commands(refused.stderr)
+    accept, invalidate, resume = commands(refused.stderr)
+    assert accept.split()[-1].startswith("--accept-changes=plan-")
     assert invalidate.endswith(f" invalidate {run} '{SHARED[0]}'")
     assert resume.endswith(f" resume {run}" + (" --accept-changes" if how == "killed" else ""))
     assert shell(tmp_path, invalidate).returncode == 0

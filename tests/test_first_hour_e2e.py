@@ -3,8 +3,9 @@
 `test_tutorial_blocks_run_as_written` executes docs/tutorial_first_pipeline.md as written: an HTML comment before
 a fenced block marks it. `<!-- file: NAME -->` writes the block to NAME; `<!-- run -->` runs the block's `$ `
 lines and expects exit 0; `<!-- run: exit N -->` expects N from the last one; `<!-- run: printed -->` says the
-block's commands are the ones the previous block printed (its `resume` line or its indented recovery commands),
-with `<run id>` for the run id, and runs the printed ones. The headline exit test uses only what the CLI printed.
+block's commands are some of the ones the previous block printed, in their printed order (its `resume` line or its
+indented recovery commands), with `<run id>` for the run id, and runs the printed ones. The headline exit test uses
+only what the CLI printed.
 
 The environment (built once per module): a copy of `orchestrator/`, `pyproject.toml` and `LICENSE.md` installed
 non-editable into a virtual environment that sees this interpreter's packages, so no network is needed;
@@ -14,6 +15,7 @@ commands run with its `bin` first on PATH, PYTHONPATH unset, in an empty directo
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import re
@@ -121,10 +123,16 @@ class Step:
     stderr: str
 
 
+def in_order(commands: list[str], printed: list[str]) -> bool:
+    """Whether `commands` are some of `printed`, in the order printed."""
+    remaining = iter(printed)
+    return bool(commands) and all(command in remaining for command in commands)
+
+
 def run_block(block: Block, previous: Step | None, run_id: str | None, cwd: Path, env: dict[str, str]) -> Step:
     commands = [command.replace(RUN_ID, run_id or RUN_ID) for command in block.commands]
     if "printed" in block.options:
-        assert previous is not None and commands == printed_commands(previous.stderr), (commands, previous)
+        assert previous is not None and in_order(commands, printed_commands(previous.stderr)), (commands, previous)
     results = [sh(command, cwd, env) for command in commands]
     for command, result in zip(commands[:-1], results):
         assert result.returncode == 0, (command, result.stderr)
@@ -262,3 +270,111 @@ def test_killed_step_with_an_edited_script_refuses_until_accepted(installed: dic
     (run_root,) = (workspace / ".orchestrate" / "runs").iterdir()
 
     refused_then_accepted(workspace, installed, f"orchestrator resume {run_root.name}")
+
+
+# Phase 3b: an edited program is accepted with the command its refusal printed.
+
+def accept_printed(refused: subprocess.CompletedProcess[str]) -> str:
+    (command,) = [command for command in printed_commands(refused.stderr) if " --accept-changes=plan-" in command]
+    return command
+
+
+def refused_unchanged(root: Path, env: dict[str, str], command: str, code: str) -> subprocess.CompletedProcess[str]:
+    before = runs_tree(root)
+    refused = sh(command, root, env)
+    assert refused.returncode == 2, refused.stderr
+    assert refused.stderr.splitlines()[0].startswith(f"[{code}] "), refused.stderr
+    assert runs_tree(root) == before
+    return refused
+
+
+def test_inserted_step_before_step_two_reruns_steps_two_to_four(installed: dict[str, str], workspace: Path) -> None:
+    four_steps(workspace, "import json, os, sys\nfrom pathlib import Path\nPath('log.txt').open('a').write('s3\\n')\n"
+                          "Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']).write_text(json.dumps(int(sys.argv[1]) + 1))\n")
+    main = workspace / "main.orc"
+    main.write_text(main.read_text().replace('(:target-dsl "2.35")', '(:target-dsl "2.40")'))
+    (workspace / "x.py").write_text((workspace / "s1.py").read_text().replace('"s1\\n"', '"x\\n"'))
+    manifest = json.loads((workspace / "commands.json").read_text())
+    (workspace / "commands.json").write_text(json.dumps({**manifest, "sx": {"stable_command": ["python", "x.py"],
+                                                                             "closure": ["x.py"]}}))
+    first = sh(RUN_FOUR, workspace, installed)
+    assert first.returncode == 0, first.stderr
+    resume = f"orchestrator resume {rows(first.stderr, 'run')[0].split()[0]}"
+    main.write_text(main.read_text().replace(
+        "           (b ", '           (x (command-result sx :argv ("python" "x.py" a) :returns Int))\n           (b '))
+
+    refused = refused_unchanged(workspace, installed, resume, "resume_program_changed")
+    accept = accept_printed(refused)
+    accepted = sh(accept, workspace, installed)
+
+    assert accepted.returncode == 0, accepted.stderr
+    assert rows(accepted.stderr, "start") == ["workflow:main::run / x  attempt 1", f"{STEP_IDS['s2']}  attempt 2",
+                                              f"{STEP_IDS['s3']}  attempt 2", f"{STEP_IDS['s4']}  attempt 2"]
+    assert log(workspace) == ["s1", "s2", "s3", "s4", "x", "s2", "s3", "s4"]
+    assert accepted.stdout.splitlines()[-1] == "5"
+    (run_root,) = (workspace / ".orchestrate" / "runs").iterdir()
+    journal = [json.loads(line) for line in (run_root / "memo.jsonl").read_text().splitlines()]
+    assert [row["record"] for row in journal].count("rebased") == 1
+    assert len(list(run_root.glob("closed_program.*.json"))) == 1
+    before = runs_tree(workspace)
+    again = sh(resume, workspace, installed)
+    assert again.returncode == 0 and runs_tree(workspace) == before, again.stderr
+    refused_unchanged(workspace, installed, accept, "resume_preflight_failed")
+
+
+DEPENDENT = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule main) (export run)
+  (defworkflow run ((n Int)) -> Int
+    (let* ((a (command-result w :argv ("python" "w.py" n) :returns Int))
+           (b (command-result r :argv ("python" "r.py" a) :returns Int))
+           (c (command-result s3 :argv ("python" "s3.py" b) :returns Int)))
+      c)))
+'''
+WRITER = '''import json, os, sys
+from pathlib import Path
+Path("log.txt").open("a").write("a\\n")
+Path("data.txt").write_text(str(int(sys.argv[1]) * 10))
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(int(sys.argv[1])))
+'''
+READER = '''import json, os, sys
+from pathlib import Path
+Path("log.txt").open("a").write("b\\n")
+total = int(Path("data.txt").read_text()) + int(sys.argv[1])
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(total))
+'''
+
+
+def dependent(root: Path) -> None:
+    (root / "main.orc").write_text(DEPENDENT)
+    (root / "w.py").write_text(WRITER)
+    (root / "r.py").write_text(READER)
+    (root / "s3.py").write_text("import json, os, sys\nfrom pathlib import Path\nPath('log.txt').open('a').write('c\\n')\n"
+                                "Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']).write_text(json.dumps(int(sys.argv[1]) + 1))\n")
+    (root / "commands.json").write_text(json.dumps({name: {"stable_command": ["python", f"{script}.py"],
+                                                           "closure": [f"{script}.py"]}
+                                                    for name, script in (("w", "w"), ("r", "r"), ("s3", "s3"))}))
+
+
+def test_file_dependence_under_an_edit_never_mixes_old_and_new_results(installed: dict[str, str],
+                                                                       workspace: Path) -> None:
+    project = workspace / "project"
+    project.mkdir()
+    dependent(project)
+    first = sh(RUN_FOUR, project, installed)
+    assert first.returncode == 0, first.stderr
+    run_id = rows(first.stderr, "run")[0].split()[0]
+    (project / "main.orc").write_text(DEPENDENT.replace('("python" "w.py" n)', '("python" "w.py" (+ n 5))'))
+    clone = workspace / "clone"
+    clone.mkdir()
+    dependent(clone)
+    (clone / "main.orc").write_text((project / "main.orc").read_text())
+    fresh = sh(RUN_FOUR, clone, installed)
+    assert fresh.returncode == 0, fresh.stderr
+    (project / "log.txt").write_text("")
+
+    refused = refused_unchanged(project, installed, f"orchestrator resume {run_id}", "resume_program_changed")
+    accepted = sh(accept_printed(refused), project, installed)
+
+    assert accepted.returncode == 0, accepted.stderr
+    assert accepted.stdout.splitlines()[-1] == fresh.stdout.splitlines()[-1]
+    assert log(project) == ["a", "b", "c"]
