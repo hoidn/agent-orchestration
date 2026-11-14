@@ -20,9 +20,10 @@
       (fn (state)
         (let* ((change (provider-result providers.coder :model coder :effort "medium" :timeout-sec 3600
                          :prompt (work :repo repo :milestone m :notes state.notes)))
-               (report (command-result dev-check :returns CheckReport)))
-          (match (provider-result providers.reviewer :model reviewer :effort "medium" :timeout-sec 1200
-                   :prompt (review :repo repo :scope m :spec spec :report report))
+               (report (command-result dev-check :returns CheckReport))
+               (verdict (provider-result providers.reviewer :model reviewer :effort "medium" :timeout-sec 1200
+                          :prompt (review :repo repo :scope m :spec spec :report report))))
+          (match verdict
             ((MET met) (done (variant Verdict MET :evidence met.evidence)))
             ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons))))))))
 
@@ -38,11 +39,12 @@
           (let* ((plan (provider-result providers.planner :model planner :effort "medium" :timeout-sec 1200
                          :prompt (plan :repo repo :spec spec.doc :notes state.notes)))
                  (built (list/map-effect ((m plan.milestones)) :max 8
-                          (call milestone :m m :repo repo :spec spec.doc :coder coder :reviewer reviewer)))
+                          (let* ((each (call milestone :m m :repo repo :spec spec.doc :coder coder :reviewer reviewer))) each)))
                  (report (command-result dev-check :returns CheckReport)))
             (if (not report.passed)
               (continue (loop-state :like state :notes (list/append report.failing report.excerpt)))
-              (match (provider-result providers.reviewer :model reviewer :effort "medium" :timeout-sec 1200
-                       :prompt (review :repo repo :scope whole :spec spec.doc :report report))
-                ((MET met) (done (variant Outcome DONE :summary "accepted")))
-                ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons)))))))))))
+              (let* ((acceptance (provider-result providers.reviewer :model reviewer :effort "medium" :timeout-sec 1200
+                                   :prompt (review :repo repo :scope whole :spec spec.doc :report report))))
+                (match acceptance
+                  ((MET met) (done (variant Outcome DONE :summary "accepted")))
+                  ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons))))))))))))

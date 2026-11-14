@@ -33,7 +33,8 @@
                  (report (command-result dev-check :returns CheckReport)))
             (if (not report.passed)
               (continue (loop-state :like state :notes (list/append report.failing report.excerpt)))
-              (match (provider-result providers.reviewer :model reviewer :effort "medium" :timeout-sec 1200
-                       :prompt (review :repo repo :scope whole :spec spec.doc :report report))
-                ((MET met) (done (variant Outcome DONE :summary "accepted")))
-                ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons)))))))))))
+              (let* ((acceptance (provider-result providers.reviewer :model reviewer :effort "medium" :timeout-sec 1200
+                                   :prompt (review :repo repo :scope whole :spec spec.doc :report report))))
+                (match acceptance
+                  ((MET met) (done (variant Outcome DONE :summary "accepted")))
+                  ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons))))))))))))
