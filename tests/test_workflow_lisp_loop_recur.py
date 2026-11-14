@@ -438,7 +438,7 @@ def test_typecheck_loop_recur_rich_list_root_record_state_preserves_descriptors(
 
 # A `match` as a loop's `:max` or `:state`, and a `continue` value whose branch is an `if` holding an
 # effect, through the public `run` (defect backlog plan, Task TD1).
-from tests.test_workflow_lisp_match_subject_calls import U, cli_run, command_log, run_workflow  # noqa: E402
+from tests.workflow_lisp_cli_run_helpers import cli_run, command_log, run_workflow  # noqa: E402
 
 MATCH_MAX = "(match u ((A a) a.n) ((B b) 1))"
 A_3 = 'u={"variant":"A","n":3}'
