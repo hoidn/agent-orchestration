@@ -359,6 +359,17 @@ def _allocate_binding_identity(
     return BindingIdentity(path=form_path, kind=kind, name=name, ordinal=ordinal)
 
 
+def _typed_subject_records_more(typed_subject_expr) -> bool:
+    """Whether the typed subject records what its authored form lacks: a field read through a shared
+    field type, or an effect in a constructor, list, `list/map` source or path child."""
+
+    from .expression_traversal import holds_effect_in_a_value, walk_expr
+
+    return holds_effect_in_a_value(typed_subject_expr) or any(
+        isinstance(node, FieldAccessExpr) and node.shared_field_types for node in walk_expr(typed_subject_expr)
+    )
+
+
 def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     """Return the subject the typed `match` node carries.
 
@@ -376,15 +387,12 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     - a subject whose constructor, list, `list/map` source or path child holds an
       effect: only the typechecked form records it, and no earlier program has one.
     """
-    from .expression_traversal import holds_effect_in_a_value, walk_expr
+    from .expression_traversal import walk_expr
     from .expressions import CommandResultExpr, ProviderResultExpr
     from .procedure_typecheck import calls_generic_procedure_through_type_dependent_hook
     from .prompts import PromptApplicationExpr
 
-    if holds_effect_in_a_value(typed_subject_expr) or any(
-        isinstance(node, FieldAccessExpr) and node.shared_field_types
-        for node in walk_expr(typed_subject_expr)
-    ):
+    if _typed_subject_records_more(typed_subject_expr):
         return typed_subject_expr
 
     if any(

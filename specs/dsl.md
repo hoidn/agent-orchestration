@@ -162,9 +162,11 @@ YAML-fenced snippets are structural notation, not authored workflow files.
     - A `continue` value whose record, variant, list, path child or map source
       holds an effect is bound first, as a `done` value is, and runs. Any other
       `continue` value that holds an effect under a conditional (`if`, `cond`,
-      `match`, `and`, `or`), a loop or a map that is not the whole value is
-      refused with `effect_not_permitted`; bind it first,
-      `(let* ((next <value>)) (continue next))`.
+      `match`, `and`, `or`), a loop or a map that is not the whole value, an
+      `if` branch that is an `if` holding an effect included, is refused with
+      `effect_not_permitted`; bind it first,
+      `(let* ((next <value>)) (continue next))`. A `record-update` is not a
+      record here: an effect under a conditional in its field is refused.
     - Top-level Optional/Map state remains unsupported. This does not widen workflow-input
       boundaries merely because a supported provider result can enter a loop.
       Targets through 2.28 retain their previous admission and emitted mappings.

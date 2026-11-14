@@ -10,6 +10,7 @@ from ..conditionals import (
     _contains_effect,
     fold_pure_short_circuit,
     _normalize_operand,
+    normalize_value_operand,
     prepare_closed_condition_expr,
 )
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
@@ -1640,7 +1641,7 @@ def _normalize_effectful_fields(expr):
     fields = []
     for index, (name, field_expr) in enumerate(expr.fields):
         if _contains_effect(field_expr):
-            prefix, field_expr = _normalize_operand(field_expr, path=(index,))
+            prefix, field_expr = normalize_value_operand(field_expr, path=(index,))
             bindings.extend(prefix)
         fields.append((name, field_expr))
     return tuple(bindings), replace(expr, fields=tuple(fields))
@@ -1659,6 +1660,16 @@ def _continue_value_needs_binding(expr: ContinueExpr) -> LispFrontendCompileErro
         form_path=expr.state_expr.form_path,
         expansion_stack=expr.state_expr.expansion_stack,
     ),))
+
+
+def _branch_is_effectful_if(state) -> bool:
+    """Whether a `continue` state is an `if` with a branch that is an `if` holding a provider, command, call,
+    agent or run-reference effect: it has no lowering (a `compiler_defect` before E1) and is refused."""
+
+    return isinstance(state, IfExpr) and any(
+        isinstance(branch, IfExpr) and any(
+            isinstance(node, _EFFECT_NODE_TYPES) and not isinstance(node, ProcedureCallExpr) for node in walk_expr(branch))
+        for branch in (state.then_expr, state.else_expr))
 
 
 def _bound_first(consumer, attr: str, *, scope: WccIdentityFactory, value_env, compile_time_bindings, role: str) -> LetStarExpr:
@@ -1896,6 +1907,8 @@ def _elaborate_expr_to_body(
                 compile_time_bindings=compile_time_bindings,
                 active_phase_scope=active_phase_scope,
             )
+        if _branch_is_effectful_if(expr.state_expr):
+            raise _continue_value_needs_binding(expr)
         try:
             prefix, state_value = _elaborate_expr_to_value(
                 expr.state_expr,

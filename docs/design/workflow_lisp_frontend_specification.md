@@ -2495,9 +2495,12 @@ fields, list elements, `call` and procedure arguments, operator operands,
   `(let* ((g <value>)) …g…)`, as a `done` value is, and runs; so does any
   effectful source of a parallel map. Any other `continue` value that holds an
   effect under a conditional (`if`, `cond`, `match`, `and`, `or`), a loop or a
-  map that is not the whole value, such as `(continue (+ (if c (fetch) 0) 9))`,
-  is refused with `effect_not_permitted`; write
-  `(let* ((next <value>)) (continue next))`. The same value is admitted
+  map that is not the whole value, such as `(continue (+ (if c (fetch) 0) 9))`
+  or `(continue (if c (if d (fetch) 0) 0))`, is refused with
+  `effect_not_permitted`; write `(let* ((next <value>)) (continue next))`. A
+  `record-update` is not a record here: `(continue (record-update s :a (if c
+  (fetch) 0)))` is refused, `(continue (record-update s :a (fetch)))` runs. The
+  same value is admitted
   everywhere else: as a `done` value, a loop `:state`, `:on-exhausted`, a `let*`
   binding or a workflow or procedure result.
 - *A pure operator waits for its value:* it is computed when the value around
@@ -2520,13 +2523,23 @@ ordinal among the unnamed effects of its scope, in evaluation order;
 `loop:<label> / exhausted / …` in `:on-exhausted`. No aggregate position enters
 an identity, so an effect in a field has the same identity whether or not a
 sibling field is a `match`, and a pure edit moves no identity, with one
-exception: a pure `match` written as an operand of an operator application that
-a `let*` binds makes that binding a join, which renames the effects inside it
-and the unnamed effects after it in the same body. `(let* ((w (+ (fetch) M)))
-(+ w (fetch)))`, `M` a pure `match`, names its steps `w / body / #1` and `#1`;
-with `0` for `M` they are `#1` and `#2`. In a field,
-`(record Tri :a (let* ((w (+ (fetch) M))) w) :b 1 :c 2)` names its step
-`#1 / body / w / body / #1`, against `#1`.
+exception, older than effects in fields: a pure `match` among the operands of
+an operator or procedure application that holds an effect (directly, inside a
+nested operator, or in the condition of an `if` whose branch holds the effect)
+renames that application's effects wherever the application stands as a value,
+not as the whole result: a `let*` binding, where the unnamed effects after it
+in the same body move too, a loop `:state`, a `done` value, a procedure argument
+or an operand. With `M` a pure `match`, `(let* ((w (+ (fetch) M))) (+ w
+(fetch)))` names its steps `w / body / #1` and `#1`, against `#1` and `#2` with
+`0` for `M`; `(+ 5 (if (= M 1) (fetch) 0))` names its step
+`#1 / body / #1 / body / then / #1`, against `#1 / body / then / #1`. As the
+whole result, `(+ (fetch) M)` and `(add (fetch) M)` keep `#1`, and
+`(let* ((w (if (= M 1) (fetch) 0))) w)` keeps `w / body / then / #1`. In a
+constructor field, list element, path child or map source that holds an
+effect, only the `if`-condition form moves names
+(`(record Pair :a (if (= M 1) (fetch) 0) :b 0)`); a pure `match` beside the
+effect, or among an operator's operands there, moves nothing, bound by `let*`
+or not.
 
 A `let*` names its step by its binding name when the `let*` is a statement (a
 `let*` body or binding value, a branch of `if`, `cond` or `match`, a loop or

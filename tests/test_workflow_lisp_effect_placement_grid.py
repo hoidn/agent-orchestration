@@ -26,6 +26,9 @@ SHAPES = {
     "match": (f"(match (variant Shape CIRCLE :r n) ((CIRCLE c) {E(1)}) ((SQUARE q) {E(2)}))", 1, ["1"]),
     "and": (f"(if (and (> n 0) (> {E(1)} 0)) 1 0)", 1, ["1"]),
     "or": (f"(if (or (> n 5) (> {E(1)} 0)) 1 0)", 1, ["1"]),
+    # `and` and `or` stop at the operand that decides: the effect after it does not run.
+    "and-skips": (f"(if (and (> n 5) (> {E(1)} 0)) 0 1)", 1, []),
+    "or-skips": (f"(if (or (> n 0) (> {E(1)} 0)) 1 0)", 1, []),
     "let": (f"(let* ((y {E(1)})) y)", 1, ["1"]),
     "loop": (f"(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done {E(1)})))", 1, ["1"]),
     "nested-map": (f"(list/length (list/map-effect ((x (list 1))) :max 1 {E(1)}))", 1, ["1"]),
@@ -38,6 +41,7 @@ SHAPES = {
         3, ["1"]),
 }
 
+PAR = f'(list/map-effect ((x {{source}})) :max 1 :parallel 1 :workspace "ws/w" {E(5)})'
 ONE_ROUND = "(loop/recur :max 1 :state {seed} :on-exhausted s (fn (s) (if (= n 7) (done s) (continue {v}))))"
 
 # A place E1 opens: (returns, template over `{v}`, expected value from the shape's value, log after the shape's, declarations).
@@ -68,6 +72,24 @@ POSITIONS = {
     "parallel-map-source": (
         "List[Int]", f'(list/map-effect ((x (list {{v}}))) :max 1 :parallel 1 :workspace "ws/w" {E(5)})',
         lambda v: [5], ["5"], ""),
+    "parallel-map-in-continue": (
+        "Int", ONE_ROUND.replace("{seed}", "0").replace("{v}", f"(list/length {PAR.replace('{source}', '(list {v})')})"),
+        lambda v: 1, ["5"], ""),
+    "parallel-map-in-done": (
+        "Int", f"(loop/recur :max 1 :state 0 :on-exhausted s (fn (s) (done (list/length {PAR.replace('{source}', '(list {v})')}))))",
+        lambda v: 1, ["5"], ""),
+    # The effect's own place has a pure sibling.
+    "record-field-beside-match": ("Tri", f"(record Tri :a {{v}} :b 9 :c {M})", lambda v: {"a": v, "b": 9, "c": 1}, [], ""),
+    "list-element-beside-cond": ("List[Int]", "(list {v} (cond ((> n 5) 0) (else 1)))", lambda v: [v, 1], [], ""),
+    "variant-field-beside-map": (
+        "Box", "(variant Box RECT :w {v} :h 0 :k (list/length (list/map ((x (list 1 2))) x)))",
+        lambda v: {"w": v, "h": 0, "k": 2, "variant": "RECT"}, [], ""),
+    # The effect decides the whole source.
+    "map-source-whole": ("List[Int]", "(list/map ((x (if (> {v} 0) (list 4) (list 6)))) (+ x 1))", lambda v: [5], [], ""),
+    "serial-map-source-whole": (
+        "List[Int]", f"(list/map-effect ((x (if (> {{v}} 0) (list 4) (list 6)))) :max 1 {E(5)})", lambda v: [5], ["5"], ""),
+    "parallel-map-source-whole": (
+        "List[Int]", PAR.replace("{source}", "(if (> {v} 0) (list 4) (list 6))"), lambda v: [5], ["5"], ""),
     "loop-max": (
         "Int", "(loop/recur :max {v} :state 0 :on-exhausted s (fn (s) (if (= n 7) (done s) (continue (+ s 1)))))",
         lambda v: v, [], ""),
@@ -81,6 +103,8 @@ POSITIONS = {
 REFUSED: dict[tuple[str, str], str] = {
     ("continue", "and"): "effect_not_permitted",
     ("continue", "or"): "effect_not_permitted",
+    ("continue", "and-skips"): "effect_not_permitted",
+    ("continue", "or-skips"): "effect_not_permitted",
     ("continue", "nested-map"): "effect_not_permitted",
 }
 

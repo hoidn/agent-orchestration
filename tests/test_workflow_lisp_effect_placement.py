@@ -255,14 +255,19 @@ CONTINUE_SHAPES = {
                                {"a": 1, "b": 1, "c": 1}, ["1"], ""),
     "record-effects": ("Pair", "(record Pair :a 0 :b 0)", f"(record Pair :a {E(1)} :b {E(2)})",
                        {"a": 1, "b": 2}, ["1", "2"], ""),
+    "record-update-effect": ("Pair", "(record Pair :a 0 :b 0)", f"(record-update (record Pair :a 0 :b 9) :a {E(1)})",
+                             {"a": 1, "b": 9}, ["1"], ""),
+    "match-arm-if": ("Int", "0", f"(match (variant Shape CIRCLE :r n) ((CIRCLE c) {IFE}) ((SQUARE q) 0))", 1, ["1"], ""),
+    "nested-if-pure-procedure": ("Int", "0", "(if (> n 0) (if (> n 0) (add n 0) 0) 0)", 1, [], ""),
     # Refused: a `compiler_defect` before effects were admitted in fields.
     "operator-if": ("Int", "0", f"(+ {IFE} 9)", 10, ["1"], ""),
     "record-update-if": ("Pair", "(record Pair :a 0 :b 0)", f"(record-update (record Pair :a 0 :b 9) :a {IFE})",
                          {"a": 1, "b": 9}, ["1"], ""),
     "let-then-record": ("Pair", "(record Pair :a 0 :b 0)", f"(let* ((v {IFE})) (record Pair :a v :b 9))",
                         {"a": 1, "b": 9}, ["1"], ""),
+    "nested-if": ("Int", "0", f"(if (> n 0) {IFE} 0)", 1, ["1"], ""),
 }
-REFUSED_IN_CONTINUE = ("operator-if", "record-update-if", "let-then-record")
+REFUSED_IN_CONTINUE = ("operator-if", "record-update-if", "let-then-record", "nested-if")
 ONE_ROUND = "(loop/recur :max 1 :state {seed} :on-exhausted s (fn (s) (if (= n 7) (done s) {step})))"
 VALUE_POSITIONS = {
     "let-then-continue": ONE_ROUND.replace("{step}", "(let* ((next {v})) (continue next))"),
@@ -330,6 +335,20 @@ def test_continue_value_runs_in_every_other_value_position(tmp_path: Path, shape
     assert (value(result), calls(tmp_path)) == (expected, log)
 
 
+RECORD_UPDATE_OF_STATE = {"bare-effect": (E(1), 0), "effect-under-if": (IFE, 2)}
+
+
+@pytest.mark.parametrize("case", RECORD_UPDATE_OF_STATE)
+def test_continue_record_update_of_the_state_runs_with_a_bare_effect_and_is_refused_under_if(
+        tmp_path: Path, case: str) -> None:
+    field, exit_code = RECORD_UPDATE_OF_STATE[case]
+    write(tmp_path, "Pair", ONE_ROUND.format(seed="(record Pair :a 0 :b 9)", step=f"(continue (record-update s :a {field}))"))
+
+    result = run(tmp_path)
+
+    assert (result.returncode, "[effect_not_permitted]" in result.stderr) == (exit_code, exit_code == 2), result.stderr
+
+
 # A `let*` inside a field or list element of a `done` or `continue` value names no step (§16.3): both give `#k`.
 LET_IN_LOOP_VALUE = {
     "record-field": ("Pair", "(record Pair :a 0 :b 0)", f"(record Pair :a (let* ((y {E(7)})) y) :b 0)"),
@@ -369,6 +388,98 @@ def test_parallel_map_source_with_an_effect_under_control_runs_once_before_any_i
 
     assert result.returncode == 0, result.stderr
     assert (value(result), calls(tmp_path)) == (["w"], log)
+
+
+# A parallel map whose source holds an effect, inside a loop body (N3).
+PAR_IN_LOOP = (f'(list/map-effect ((x (list {W} "q"))) :max 2 :parallel 1 :workspace (string/concat "ws/" x) '
+               '(command-result e :argv ("python" "{probe}" (string/concat "b" x)) :returns String))')
+LOOP_BODIES = {
+    "continue-length": ("Int", f"(if (= n 7) (done s) (continue (list/length {PAR_IN_LOOP})))", 2),
+    "done-whole": ("List[String]", f"(done {PAR_IN_LOOP})", ["bw", "bq"]),
+    "let-statement": ("Int", f"(let* ((m {PAR_IN_LOOP})) (done (list/length m)))", 2),
+    "done-in-branch": ("Int", f"(if (> n 0) (done (list/length {PAR_IN_LOOP})) (continue s))", 2),
+}
+
+
+@pytest.mark.parametrize("case", LOOP_BODIES)
+def test_parallel_map_with_an_effectful_source_in_a_loop_body_runs(tmp_path: Path, case: str) -> None:
+    for name in ("w", "q"):
+        (tmp_path / "ws" / name).mkdir(parents=True)
+    returns, body, expected = LOOP_BODIES[case]
+    seed = '(list "a")' if returns == "List[String]" else "0"
+    write(tmp_path, returns, f"(loop/recur :max 1 :state {seed} :on-exhausted s (fn (s) {body}))")
+
+    result = run(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert (value(result), calls(tmp_path)) == (expected, ["w", "bw", "bq"])
+
+
+# A pure `match` in a constructor field, list element, path child or map source that holds an effect
+# moves no effect's name, the value bound by `let*` (authored, or by the compiler before a `continue`,
+# a `match` subject or a parallel map) or not (J5).
+NO_MOVE = {
+    "let-bound-list": ("List[Int]", "(let* ((l (list {e1} {e3} {x}))) l)"),
+    "continue-list": ("List[Int]", ONE_ROUND.format(seed="(list 0)", step="(continue (list {e1} {e3} {x}))")),
+    "subject-list-field": (
+        "Int", "(match (variant Held2 HL :ps (list (record Pair :a {e1} :b {e3}) (record Pair :a {x} :b 0)))"
+               " ((HL h) (list/length h.ps)) ((HN z) 0))"),
+    "parallel-source-element": (
+        "List[Int]", '(list/map-effect ((x (list {ew} (if (= {x} 1) "q" "v")))) :max 2 :parallel 1'
+                     ' :workspace (string/concat "ws/" x) {e3})'),
+    "serial-source-element": ("List[Int]", "(list/map-effect ((x (list {e1} (+ {x} 0)))) :max 2 {e3})"),
+    "workflow-argument-list": ("Int", "(call childl :xs (list {e1} {e3} {x}))"),
+    "let-bound-record-list-field": ("Nest", "(let* ((r (record Nest :xs (list {e1} {x}) :p (record Pair :a {e3} :b 0)))) r)"),
+    "let-bound-record-operator-field": ("Pair", "(let* ((r (record Pair :a (+ {e1} {x}) :b 0))) r)"),
+}
+NO_MOVE_DECLS = ("(defunion Held2 (HL (ps List[Pair])) (HN (z Int)))"
+                 "(defworkflow childl ((xs List[Int])) -> Int (list/length xs))")
+
+
+@pytest.mark.parametrize("case", NO_MOVE)
+def test_pure_match_in_a_value_holding_an_effect_moves_no_effect_name(tmp_path: Path, case: str) -> None:
+    returns, body = NO_MOVE[case]
+    names = []
+    for label, x in (("literal", "1"), ("match", M)):
+        root = tmp_path / label
+        for name in ("w", "q", "v"):
+            (root / "ws" / name).mkdir(parents=True)
+        result = run(write(root, returns, body.format(e1=E(1), e3=E(3), ew=E("w", "String"), x=x), NO_MOVE_DECLS))
+        assert result.returncode == 0, result.stderr
+        names.append(started(result.stderr))
+
+    assert names[0] == names[1]
+
+
+# The one exception (frontend specification 16.3), as `main` has it: a pure `match` among the operands of an
+# operator or procedure application holding an effect, or in an `if` condition whose branch holds one,
+# renames those effects where the application stands as a value; whole as a result it does not.
+PURE_MATCH_OPERAND = {
+    "let-bound-operator": (True, "(let* ((w (+ {e1} {x}))) (+ w {e3}))"),
+    "let-bound-procedure-argument": (True, "(let* ((w (add {e1} {x}))) w)"),
+    "let-bound-if-in-operand": (True, "(let* ((w (+ {e1} (if (= {x} 1) 0 0)))) w)"),
+    "operand-if-condition": (True, "(+ 5 (if (= {x} 1) {e1} 0))"),
+    "loop-state-operator": (True, "(loop/recur :max 1 :state (+ {e1} {x}) :on-exhausted s (fn (s) (done s)))"),
+    "procedure-argument-operator": (True, "(add (+ {e1} {x}) 0)"),
+    "field-if-condition": (True, "(+ 0 (let* ((r (record Pair :a (if (= {x} 1) {e1} 0) :b 0))) r.a))"),
+    "whole-operator": (False, "(+ {e1} {x})"),
+    "whole-procedure": (False, "(add {e1} {x})"),
+    "let-bound-if-condition": (False, "(let* ((w (if (= {x} 1) {e1} 0))) w)"),
+    "let-bound-field-operator": (False, "(+ 0 (let* ((r (record Pair :a (+ {e1} {x}) :b 0))) r.a))"),
+    "let-bound-list-element": (False, "(list/length (let* ((l (list {e1} {x}))) l))"),
+}
+
+
+@pytest.mark.parametrize("case", PURE_MATCH_OPERAND)
+def test_pure_match_operand_moves_effect_names_only_where_stated(tmp_path: Path, case: str) -> None:
+    moves, body = PURE_MATCH_OPERAND[case]
+    names = []
+    for label, x in (("literal", "1"), ("match", M)):
+        result = run(write(tmp_path / label, "Int", body.format(e1=E(1), e3=E(3), x=x)))
+        assert result.returncode == 0, result.stderr
+        names.append(started(result.stderr))
+
+    assert (names[0] != names[1]) == moves, names
 
 
 def test_parallel_map_with_a_pure_conditional_source_runs(tmp_path: Path) -> None:
@@ -481,6 +592,12 @@ def test_failed_must_not_repeat_effect_is_not_dispatched_again(tmp_path: Path, f
 
 # The pure places keep one clear refusal for an effect in a newly admitted position.
 REFUSALS = {
+    # The parallel map's body is pure; only its source's command exceeds the procedure's declared effects.
+    "parallel-source-effect-beyond-declared-effects": (
+        "Int", "(bad n)",
+        f'(defproc bad ((k Int)) -> Int :effects () (list/length (list/map-effect ((x (list {E(1)}))) :max 1'
+        f' :parallel 1 :workspace "ws/w" (add x k))))',
+        "procedure_effect_ceiling_exceeded"),
     "defun-body": ("Pair", "(bad n)", f"(defun bad ((x Int)) -> Pair (record Pair :a {E(1)} :b x))",
                    "pure_function_has_effect"),
     "list-map-body": ("List[Pair]", f"(list/map ((x (list 1 2))) (record Pair :a {E(1)} :b x))", "",
