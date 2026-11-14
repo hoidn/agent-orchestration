@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule once_only_hygienic_arguments)
   (export orchestrate)
   (defrecord Result
@@ -10,22 +10,16 @@
   (defproc duplicate
     ((value Int))
     -> Int
-    :effects ()
-    :lowering inline
     (+ value value))
   (defproc ignore-first
     ((ignored Int)
      (value Int))
     -> Int
-    :effects ()
-    :lowering inline
     value)
   (defproc select-second
     ((x Int)
      (y Int))
     -> Int
-    :effects ()
-    :lowering inline
     y)
   (defworkflow orchestrate
     ((x Int))

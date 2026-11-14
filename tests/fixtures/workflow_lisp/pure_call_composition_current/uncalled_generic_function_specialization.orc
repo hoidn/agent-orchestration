@@ -1,14 +1,12 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule uncalled_generic_function_specialization)
   (export orchestrate)
   (defproc identity
     :forall (T)
     ((value T))
     -> T
-    :effects ()
-    :lowering inline
     value)
   (defun unused-specialization
     ((value Int))
