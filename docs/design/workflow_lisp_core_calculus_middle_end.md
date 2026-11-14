@@ -716,14 +716,21 @@ All language-boundary rejection happens at or before typecheck:
   defects unless the workflow violates a contract the typechecker does not
   own (path safety against the live filesystem, for example).
 
-In the current checkout an internal exception raised after typecheck by
-elaboration, normalization or closed-program construction is reported as one
-`compiler_defect` diagnostic (exit 2). It says that the program passed
-typecheck, names the stage, and points at the authored form being handled; the
-diagnostic keeps the exception as its `cause` (no CLI flag prints the
-traceback). An `AssertionError` raised outside the orchestrator package is not
-converted (`compiler_defect_boundary` in `orchestrator/workflow_lisp/diagnostics.py`,
-applied in `orchestrator/workflow_lisp/closed/build.py`). Two internal checks
+In the current checkout an internal exception raised during typecheck, or
+after typecheck by elaboration, normalization or closed-program construction,
+is reported as one `compiler_defect` diagnostic (exit 2). The boundary is
+applied twice (`compiler_defect_boundary` in
+`orchestrator/workflow_lisp/diagnostics.py`): around the typechecker's call of
+`compile_stage3_entrypoint` in `orchestrator/workflow_lisp/closed/frontend.py`,
+where the diagnostic's phase is `typecheck` and it names typecheck, and around
+the closed build in `orchestrator/workflow_lisp/closed/build.py`, where its
+phase is `lowering` and it says that the program passed typecheck and names
+the stage. It points at the authored form being handled where a stage after
+typecheck tagged one, else at the start of the entry module; the diagnostic keeps the exception as its
+`cause` (no CLI flag prints the traceback). Diagnostics, `MemoryError` and an
+`AssertionError` raised outside the orchestrator package are not converted; nor,
+around typecheck, are `OSError` and `UnicodeError`, which reading an imported
+source raises and the command line reports as an I/O error. Two internal checks
 have codes of their own: `compiler_defect_hoisted_binding_rename` and
 `compiler_defect_constructor_type_dropped`; `compiler_defect_loop_control_value`
 and the replay-index code `pure_result_replay_unavailable` were retired with
@@ -847,7 +854,7 @@ not a default flip or retirement of old WCC shapes.
 
 Typed elaboration, normalization, scope/effect/proof summaries and source lineage
 must agree with the checked artifact consumed by the runtime. Internal failures
-after typecheck use the compiler-defect boundary described above; public admission
+during and after typecheck use the compiler-defect boundary described above; public admission
 refusals retain their specific diagnostics. Test current composition through the
 public checked compile/run/resume and totality owners named by
 [evaluated execution](workflow_lisp_evaluated_execution.md). Historical dual-flat

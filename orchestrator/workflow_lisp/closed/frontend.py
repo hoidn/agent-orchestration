@@ -9,7 +9,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from ..command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
-from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, compiler_defect_boundary
 from ..procedures import GeneratedLocalProcedure, TypedProcedureDef, procedure_type_env_for
 from ..reader import SourceReadTrace, read_sexpr_file
 from ..spans import SourceSpan
@@ -562,19 +562,21 @@ def compile_typed_program_with_result(
     target, target_span = _entry_target_header_from_tree(parse_tree)
 
     source_syntax = syntax.build_syntax_module(parse_tree)
-    result = compiler.compile_stage3_entrypoint(
-        entry_path,
-        entry_workflow=entry_workflow,
-        source_roots=source_roots,
-        provider_externs=provider_externs,
-        prompt_externs=prompt_externs,
-        imported_programs=imported_programs,
-        command_boundaries=command_boundaries,
-        validate_shared=True,
-        workspace_root=workspace_root,
-        source_read_trace=trace,
-        _standalone_entry_namespace=(None if source_syntax.module_name is not None else "entry"),
-    )
+    # Reading an imported source raises `OSError` or `UnicodeError`: the command line reports those as I/O errors.
+    with compiler_defect_boundary(entry_path, "typecheck", passes=(OSError, UnicodeError)):
+        result = compiler.compile_stage3_entrypoint(
+            entry_path,
+            entry_workflow=entry_workflow,
+            source_roots=source_roots,
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+            imported_programs=imported_programs,
+            command_boundaries=command_boundaries,
+            validate_shared=True,
+            workspace_root=workspace_root,
+            source_read_trace=trace,
+            _standalone_entry_namespace=(None if source_syntax.module_name is not None else "entry"),
+        )
     refuse_compiled_retired_entry_target(
         entry_path, result.entry_result.module.target_dsl_version, trace.raw_bytes_by_path,
     )

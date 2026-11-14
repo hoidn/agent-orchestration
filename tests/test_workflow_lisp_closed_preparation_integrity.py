@@ -669,3 +669,34 @@ def test_reused_carrier_record_keeps_its_local_nominal_and_run_ref_owner(tmp_pat
     assert diagnostic.code == 'compiler_defect'
     assert isinstance(diagnostic.cause, CanonicalNameError if mutation in {'phantom-producer', 'signature'} else ValueError)
     assert len(seen) == 1
+
+
+_ONE_LINE = ('(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule m) (export run) '
+             '(defworkflow run () -> Int 1))')
+
+
+def test_internal_typecheck_failure_is_a_compiler_defect(tmp_path, monkeypatch):
+    from orchestrator.workflow_lisp import typecheck_dispatch
+    from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("injected typecheck failure")
+
+    monkeypatch.setattr(typecheck_dispatch, "typecheck_structural_value_expr", fail)
+    with pytest.raises(LispFrontendCompileError) as exc:
+        build(tmp_path, _ONE_LINE)
+    (diagnostic,) = exc.value.diagnostics
+    assert (diagnostic.code, diagnostic.phase, type(diagnostic.cause)) == (
+        "compiler_defect", "typecheck", RuntimeError)
+
+
+def test_an_unreadable_imported_source_is_not_a_compiler_defect(tmp_path):
+    """Control: a read error of an imported module passes the typecheck boundary unchanged."""
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    (tmp_path / "m").mkdir()
+    (tmp_path / "m" / "lib.orc").write_bytes(b"\xff(")
+    with pytest.raises(UnicodeDecodeError):
+        build(tmp_path, {"m.orc": _ONE_LINE.replace("(export run)", "(import m/lib) (export run)")},
+              entry_workflow="m::run")

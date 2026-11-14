@@ -102,7 +102,7 @@ ELABORATE = "workflow_lisp/wcc/elaborate.py"
 OPERAND = crash("TypeError", f"{ELABORATE}:_body_to_prefix_and_value")
 NO_ELABORATION = crash("TypeError", f"{ELABORATE}:_elaborate_expr_to_value")
 BINDER_OUT_OF_SCOPE = crash("KeyError", f"{ELABORATE}:_infer_expr_type")
-LOCAL_LOOP_STATE = ("traceback", "RuntimeError", "workflow_lisp/loop_state.py:_typecheck_loop_state_seed")
+LOCAL_LOOP_STATE = crash("RuntimeError", "workflow_lisp/loop_state.py:_typecheck_loop_state_seed")
 CAPTURED_COMMAND = crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind")
 CAPTURED_PROVIDER_INPUT = crash("TypeError", "workflow/evaluated/provider_io.py:ProviderIOContext.bind")
 LAUNCHED_THEN_REFUSED = ("ran", 1, 1, 0, "provider_result_invalid")
@@ -132,8 +132,7 @@ KNOWN: dict[str, tuple] = {
     "D13": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._value"),
     "D19": crash("SiteAssignmentError", "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"),
     "D21": crash("TypeError", f"{ELABORATE}:_replace_halts_with_jump"),
-    "D22": ("traceback", "AttributeError",
-            "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
+    "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
@@ -347,7 +346,11 @@ WANTED_AT_T0: dict[str, tuple | None] = {
 #
 # `AMENDED_WANTED`, for wanted outcomes: the new wanted outcome of a row, known, control or pin. Stating an
 # outcome where none was stated, or a value where only `builds` was, needs no entry; any other change does.
-AMENDED: dict[str, tuple[tuple | None, str]] = {}
+TYPECHECK_BOUNDARY = "2026-11-13, Task TP1: a typecheck failure is reported as compiler_defect, not a traceback"
+AMENDED: dict[str, tuple[tuple | None, str]] = {
+    **{row_id: (LOCAL_LOOP_STATE, TYPECHECK_BOUNDARY) for row_id in ("D9-name", "D9-ref", "D9-fn", "D9-map")},
+    "D22": (KNOWN["D22"], TYPECHECK_BOUNDARY),
+}
 AMENDED_WANTED: dict[str, tuple[tuple | None, str]] = {}
 
 # Rows the plan names as needing a control whatever their signature.
