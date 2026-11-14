@@ -18,6 +18,7 @@
   "rollout_details": null,
   "metadata": null
  },
+ "verifier_result": null,
  "init": {
   "type": "system",
   "subtype": "init",
@@ -170,6 +171,7 @@
   "view_mode": "default"
  },
  "n_events": 10,
+ "n_api_retry": 0,
  "stream_tail": [
   {
    "type": "user",

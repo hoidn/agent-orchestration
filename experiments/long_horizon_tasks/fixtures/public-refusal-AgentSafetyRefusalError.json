@@ -24,6 +24,11 @@
   "rollout_details": null,
   "metadata": null
  },
+ "verifier_result": {
+  "rewards": {
+   "reward": 0
+  }
+ },
  "init": {
   "type": "system",
   "subtype": "init",
@@ -155,6 +160,7 @@
   "view_mode": "default"
  },
  "n_events": 335,
+ "n_api_retry": 0,
  "stream_tail": [
   {
    "type": "assistant",

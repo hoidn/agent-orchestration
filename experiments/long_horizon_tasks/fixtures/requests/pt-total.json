@@ -1,0 +1,64 @@
+{
+ "source": "local recording pt-total: stub_api.py request log (see recordings.json for its scenario and harness arguments)",
+ "shapes": [
+  {
+   "method": "POST",
+   "path": "/v1/messages?beta=true",
+   "subagent": false,
+   "headers": {
+    "accept": null,
+    "accept-encoding": null,
+    "anthropic-beta": "interleaved-thinking-2025-05-14,context-management-2025-06-27,claude-code-20250219,per-turn-control-2026-07-01,thinking-token-count-2026-05-13,effort-2025-11-24,thinking-display-updates-2026-08-18",
+    "anthropic-dangerous-direct-browser-access": null,
+    "anthropic-version": "2023-06-01",
+    "connection": null,
+    "content-length": null,
+    "content-type": "application/json",
+    "host": null,
+    "user-agent": "claude-cli/2.1.311",
+    "x-api-key": "<dummy>",
+    "x-app": "cli",
+    "x-claude-code-session-id": null,
+    "x-stainless-arch": null,
+    "x-stainless-lang": null,
+    "x-stainless-os": null,
+    "x-stainless-package-version": null,
+    "x-stainless-retry-count": null,
+    "x-stainless-runtime": null,
+    "x-stainless-runtime-version": null,
+    "x-stainless-timeout": null
+   },
+   "model": "claude-haiku-5-5",
+   "effort": "low",
+   "max_tokens": 128000,
+   "stream": true,
+   "other_params": [
+    "context_management",
+    "thinking"
+   ],
+   "tools": [
+    "Bash",
+    "Edit",
+    "Read"
+   ],
+   "server_tools": [],
+   "system": []
+  }
+ ],
+ "requests": [
+  [
+   0,
+   200,
+   2,
+   0.0,
+   null
+  ],
+  [
+   0,
+   403,
+   4,
+   0.1,
+   null
+  ]
+ ]
+}
