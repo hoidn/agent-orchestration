@@ -2249,7 +2249,7 @@ def _elaborate_parallel_map_to_body(
         source=source, binder_name=expr.binder_name, binder_type_ref=expr.source_item_type_ref,
         workspace_body=workspace, body=body, max_count=expr.max_iterations,
         parallel_count=expr.parallel_count, binding_label=expr.binding_label,
-        binding_identity=expr.binding_identity,
+        binding_identity=expr.binding_identity, one_call_body=expr.one_call_body,
     )
     return _wrap_prefix_lets(prefix, control)
 

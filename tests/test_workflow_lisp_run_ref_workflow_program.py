@@ -869,7 +869,7 @@ def test_confined_site_in_a_list_map_effect_frame_is_refused(tmp_path, case):
     assert [row.code for row in refused.value.diagnostics] == ["run_ref_placement_invalid"]
 
 
-# Surface coherence I1: a map body is any expression, but one that holds a run reference stays one call.
+# Surface coherence I1: in a program that holds a run reference, every map body stays one call.
 # Every new body shape that reaches a confined site is therefore refused, serial or parallel.
 NEW_SHAPE_BODIES = {
     "let": "(let* ((n (bump x))) (call one :seed n :revision revision))",
@@ -947,6 +947,27 @@ def test_ruling_p12_alone_refuses_every_new_body_shape(tmp_path, monkeypatch, sh
         _map_program(tmp_path, f"(let* ((xs {MAP_HEADS[mode]}{NEW_SHAPE_BODIES[shape]}{close})) 1)")
 
     assert [row.code for row in refused.value.diagnostics] == ["run_ref_placement_invalid"]
+
+
+# Surface coherence I1: a program holding a run reference anywhere, in either spelling, keeps every map body
+# one call with pure arguments, also a body that reaches none; a program holding none admits any body.
+GENERAL_MAP = "(list/map-effect ((x (list 1 2))) :max 2 (let* ((n x)) (+ n 1)))"
+ELSEWHERE = {"confined": "(call one :seed 1 :revision revision)", "path": "(call onep :seed 1 :revision revision)"}
+
+
+@pytest.mark.parametrize("spelling", sorted(ELSEWHERE))
+def test_general_map_body_is_refused_in_a_program_holding_a_run_reference_elsewhere(tmp_path, monkeypatch, spelling):
+    monkeypatch.setattr(sys.modules[__name__], "CONFINED", CONFINED.replace('"2.38"', '"2.40"'))
+    with pytest.raises(LispFrontendCompileError) as refused:
+        _built(_map_program(tmp_path, f"(let* ((xs {GENERAL_MAP}) (y {ELSEWHERE[spelling]})) y)"))
+
+    assert [row.code for row in refused.value.diagnostics] == ["list_map_effect_body_unsupported"]
+
+
+def test_general_map_body_builds_in_a_program_holding_no_run_reference(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys.modules[__name__], "CONFINED", CONFINED.replace('"2.38"', '"2.40"'))
+
+    assert _built(_map_program(tmp_path, f"(let* ((xs {GENERAL_MAP})) (list/length xs))")).sites == ()
 
 
 def test_path_site_through_a_serial_list_map_effect_call_is_still_admitted(tmp_path):

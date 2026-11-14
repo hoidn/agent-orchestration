@@ -90,7 +90,7 @@ def _one_call_map_body_fault(expr, typed_body):
     """Why the body is not exactly one call with pure arguments, as (message, the offending
     expression), or None when it is: the body for its shape, the argument for an effect in it.
 
-    The shape a map body that reaches a run reference must have (evaluated execution 1.2)."""
+    The shape every map body keeps in a program that holds a run reference (evaluated execution 1.2)."""
 
     from .conditionals import _is_helper_expanded
     from .expression_traversal import iter_child_exprs
@@ -444,10 +444,10 @@ def typecheck_structural_value_expr(
         if expr.parallel_count is not None:
             from .typecheck_agents import check_parallel_body
             check_parallel_body(expr, typed_body, context)
-        # Only a body that holds a run reference keeps the one-call shape
-        # (evaluated execution 1.2); any other body is any expression.
-        # A procedure-reference callee is known only after specialization: the closed
-        # build checks the specialized body again (`single_iteration_effect_kinds`).
+        # In a program that holds a run reference anywhere, every map body is one call with
+        # pure arguments (evaluated execution 1.2). Refused here early when the body's own
+        # summary holds one; the closed build decides for the whole program
+        # (`Builder.refuse_map_bodies_beside_run_refs`).
         one_call_fault = _one_call_map_body_fault(expr, typed_body)
         if one_call_fault is not None and effect_summary_contains_runs_ref(typed_body.effect_summary):
             message, offending = one_call_fault
@@ -497,6 +497,7 @@ def typecheck_structural_value_expr(
             return typed_factory(
                 expr=replace(expr, source_expr=typed_source.expr, body_expr=typed_body.expr,
                              workspace_expr=workspace_expr, binding_identity=binding_identity,
+                             one_call_body=one_call_fault is None,
                              source_item_type_ref=typed_source.type_ref.item_type_ref,
                              result_item_type_ref=typed_body.type_ref),
                 type_ref=result_type, effect=typed_body.effect_summary,
@@ -703,8 +704,8 @@ def typecheck_structural_value_expr(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
             exhaustion_diagnostic_code="list_map_effect_cap_exceeded",
-            # The effect kinds a body that holds a run reference may run, after
-            # specialization: one of these for a one-call body, none for any other.
+            # The effect kinds a body may run after specialization in a program that holds a
+            # run reference: one of these for a one-call body, none for any other.
             single_iteration_effect_kinds=(
                 ("provider", "command", "call", "run_ref") if one_call_fault is None else ()
             ),

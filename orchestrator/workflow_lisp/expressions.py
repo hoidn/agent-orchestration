@@ -303,6 +303,9 @@ class ListMapEffectExpr:
     workspace_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
     # A serial map's computed `:max`; None for a literal, so existing identities stay.
     max_expr: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+    # Typing's verdict on a parallel body: exactly one call with pure arguments (false until typed).
+    one_call_body: bool = field(default=False, repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
 
 
 @dataclass(frozen=True)
