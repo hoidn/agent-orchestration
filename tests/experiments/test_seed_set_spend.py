@@ -461,17 +461,25 @@ def recorded_call(records, fixture):
     return records
 
 
-def test_a_usage_limit_answer_is_recognised_with_the_reset_it_names(tmp_path):
-    limit = units.usage_limit(recorded_call(tmp_path, "token-usage-limit-NonZeroAgentExitCodeError"))
-    assert (limit["call"], limit["reset"]) == ("1", RESET)
+LIMIT_FIXTURES = ["token-usage-limit-NonZeroAgentExitCodeError",  # both recordings of the vendor's answer
+                  "twenty-tools-token-usage-limit-NonZeroAgentExitCodeError"]
 
 
-def test_the_recorded_usage_limit_answer_carries_no_flag(tmp_path):
-    assert "flag" not in units.usage_limit(recorded_call(tmp_path, "token-usage-limit-NonZeroAgentExitCodeError"))
+@pytest.mark.parametrize("fixture", LIMIT_FIXTURES)
+def test_a_usage_limit_answer_is_recognised_with_the_reset_it_names(tmp_path, fixture):
+    named = [e["rate_limit_info"]["resetsAt"] for e in json.loads((FIXTURES / f"{fixture}.json").read_text())[
+        "stream_tail"] if e.get("type") == "rate_limit_event"]
+    limit = units.usage_limit(recorded_call(tmp_path, fixture))
+    assert (limit["call"], limit["reset"]) == ("1", named[-1])
 
 
-@pytest.mark.parametrize("fixture", ["token-normal-end", "stub-overloaded-UnknownApiError",
-                                     "token-unauthorized-UnknownApiError"])
+@pytest.mark.parametrize("fixture", LIMIT_FIXTURES)
+def test_the_recorded_usage_limit_answer_carries_no_flag(tmp_path, fixture):
+    assert "flag" not in units.usage_limit(recorded_call(tmp_path, fixture))
+
+
+@pytest.mark.parametrize("fixture", ["twenty-tools-token-normal-end", "token-three-tools-normal-end",
+                                     "stub-overloaded-UnknownApiError", "token-unauthorized-UnknownApiError"])
 def test_a_normal_end_an_overload_or_an_expired_login_is_not_a_usage_limit(tmp_path, fixture):
     assert units.usage_limit(recorded_call(tmp_path, fixture)) is None
 
@@ -502,7 +510,7 @@ def test_a_possible_usage_limit_in_another_shape_is_cut_flagged_unrecognised(tmp
     assert units.usage_limit(call_printing(tmp_path, stdout, stderr))["flag"] == units.UNRECOGNISED
 
 
-@pytest.mark.parametrize("fixture", ["stub-rate-limit-ApiRateLimitError", "stub-usage-limit-headers-key-mode-UnknownApiError"])
+@pytest.mark.parametrize("fixture", ["stub-rate-limit-ApiRateLimitError", "simple-mode-stub-usage-limit-headers-key-mode-UnknownApiError"])
 def test_a_recorded_429_answer_is_a_possible_usage_limit(tmp_path, fixture):
     assert units.usage_limit(recorded_call(tmp_path, fixture))["flag"] == units.UNRECOGNISED
 
@@ -843,6 +851,12 @@ def test_the_freeze_refuses_a_task_list_outside_the_runtime(runner, tmp_path):
                          runner.state)
     with pytest.raises(SystemExit, match="outside the runtime"):
         rules.record_freeze(moved)
+
+
+def test_the_freeze_refuses_without_the_frozen_criterion(runner):  # pins frozen_identity before its split
+    runner.frozen.unlink()
+    with pytest.raises(SystemExit, match="is missing: freeze the criterion first"):
+        rules.record_freeze(runner)
 
 
 def test_a_start_refuses_an_untracked_file_in_a_packages_seed(runner):
