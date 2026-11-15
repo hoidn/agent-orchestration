@@ -1,0 +1,3 @@
+Fix generic typed guidance validation
+
+The change is in orchestrator/workflow_lisp/result_guidance.py.

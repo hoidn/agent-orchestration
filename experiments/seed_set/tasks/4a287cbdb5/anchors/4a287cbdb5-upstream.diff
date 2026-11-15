@@ -1,0 +1,29 @@
+diff --git a/orchestrator/workflow_lisp/result_guidance.py b/orchestrator/workflow_lisp/result_guidance.py
+index 0062fd4df43aa1cf5578e33e94dcac2f82a1ba1d..36c7001cb64624a6a6d534e9f46247f805902189 100644
+--- a/orchestrator/workflow_lisp/result_guidance.py
++++ b/orchestrator/workflow_lisp/result_guidance.py
+@@ -327,15 +327,19 @@ def validate_module_result_guidance(
+ 
+     for definition in (*function_defs, *procedure_defs, *workflow_defs):
+         return_spec = getattr(definition, "return_spec", None)
+-        if return_spec is None or return_spec.guidance is None:
++        if (
++            return_spec is None
++            or return_spec.guidance is None
++            or return_spec.guidance.example_expr is None
++        ):
+             continue
+         return_type = type_env.resolve_type(
+             return_spec.type_name,
+             span=return_spec.span,
+-            form_path=return_spec.guidance.example_expr.form_path
+-            if return_spec.guidance.example_expr is not None
+-            else getattr(definition, "form_path", ("workflow-lisp",)),
+-            local_type_params=frozenset(getattr(definition, "type_params", ())),
++            form_path=return_spec.guidance.example_expr.form_path,
++            local_type_params=frozenset(
++                param.name for param in getattr(definition, "type_params", ())
++            ),
+         )
+         if type(return_type).__name__ == "TypeParamRef":
+             continue

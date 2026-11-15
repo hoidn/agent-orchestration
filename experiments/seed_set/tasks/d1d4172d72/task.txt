@@ -1,0 +1,19 @@
+fix: close Agent escapes through records, parallel callees, bind-proc and narrowed origins
+
+is_transportable_result_type refuses any type carrying an Agent, so record
+and union parameters/returns of workflows, calls, run-refs and provider/
+command results are refused at the single shared decision (the run-ref
+patch, the closed return diagnostic and the ValueError catch are removed).
+Parallel workers are checked on the closed tree: any agent/agent_turn
+perform reachable through call edges (child workflows, helpers, ProcRef
+callees, macro output) is refused with parallel_agent_boundary at build and
+as a checker backstop. The checker requires an untraced agent_turn operand
+(parameter, field, select result) to list every allocation provider; a
+select result is a fresh descriptor. Agent-turn results count as provider
+origins for provider-bundle-path. bind-proc refuses a fixed Agent argument.
+
+wc -l: check_agents.py 154 (+docstring), closed/agent_effects.py 97,
+typecheck_agents.py 212, check.py 5063, closed/build.py 4695,
+procedure_refs.py 565, contracts.py 1990
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_agent_turn_admission.py::test_turn_result_admits_its_provider_bundle_path` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

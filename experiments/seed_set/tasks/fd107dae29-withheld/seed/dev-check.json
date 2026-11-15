@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_workflow_dry_run_replay_index.py::test_dry_run_rejects_a_called_workflow_as_the_run_does"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

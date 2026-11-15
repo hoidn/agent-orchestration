@@ -1,0 +1,1 @@
+fix: skip private-workflow body probing for unspecialized generic templates at 2.33

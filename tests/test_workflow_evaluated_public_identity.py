@@ -17,6 +17,7 @@ from tests.test_workflow_lisp_closed_program_compile_cli import _compile
 from tests.workflow_evaluated_context_helpers import pure_files, pause_context
 from tests.workflow_evaluated_totality_helpers import checked_run, compile_public, assert_commit_bytes
 from tests.test_workflow_evaluated_calls import _walk_nodes
+from tests.source_edits import replace_exact
 
 
 PROBE = '''import json, os, sys
@@ -30,16 +31,17 @@ Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps({"n": 
 '''
 
 
-def _arms_source():
-    path = Path(__file__).parent / "fixtures/workflow_lisp/current_evaluated/arms_in_loop.orc"
+def _arms_source(name="arms_in_loop.orc"):
+    path = Path(__file__).parent / "fixtures/workflow_lisp/current_evaluated" / name
     return path.read_text()
 
 
 def _pure_seed(source):
-    return source.replace("(defworkflow run () -> Int\n    (loop/recur",
-        "(defworkflow run () -> Int\n    (let* ((seed (+ 0 0))) (loop/recur").replace(
-        "(i Int 0)", "(i Int seed)").replace("(done (+ state.total got.n))))))))",
-        "(done (+ state.total got.n)))))))))")
+    return replace_exact(replace_exact(
+        replace_exact(source, "(defworkflow run () -> Int\n    (loop/recur",
+        "(defworkflow run () -> Int\n    (let* ((seed (+ 0 0))) (loop/recur"),
+        "(i Int 0)", "(i Int seed)"), "(done (+ state.total got.n)))))))",
+        "(done (+ state.total got.n))))))))")
 
 
 def _effect_files(root, source):
@@ -98,7 +100,7 @@ def test_public_effect_sites_survive_formatting_and_pure_seed_refactor(tmp_path,
     source = _arms_source()
     observations = []
     for name, text in (("base", source), ("formatted", "\n; formatting only\n" + source),
-                       ("pure-seed", _pure_seed(source)), ("pure-renamed", _pure_seed(source).replace("seed", "start"))):
+                       ("pure-seed", _pure_seed(source)), ("pure-renamed", replace_exact(_pure_seed(source), "seed", "start", count=2))):
         if name.startswith("pure"):
             assert text != source, f"{name} rewrite left the fixture unchanged"
         root = tmp_path / name
@@ -145,8 +147,8 @@ def test_public_effect_replay_survives_workspace_and_package_relocation(tmp_path
 def test_public_semantic_change_refuses_without_repeating_effects(tmp_path, monkeypatch):
     files, inputs = _effect_files(tmp_path, _arms_source())
     authority, _snapshot = _complete_effects(files, inputs, monkeypatch)
-    files["source"].write_text(files["source"].read_text().replace(
-        "(variant Turn FIRST :n 1)", "(variant Turn FIRST :n 9)", 1))
+    files["source"].write_text(replace_exact(files["source"].read_text(),
+        "(variant Turn FIRST :n 1)", "(variant Turn FIRST :n 9)"))
     before = _orchestrate_snapshot(tmp_path)
     requests = (tmp_path / "requests.jsonl").read_bytes()
     refused = _resume_cli(tmp_path, authority.header["run_id"])
@@ -167,7 +169,8 @@ MACRO_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
 
 
 def test_public_235_to_236_retarget_refuses_without_run_writes_or_redispatch(tmp_path, monkeypatch):
-    files, inputs = _effect_files(tmp_path, _arms_source())
+    # A retarget between two old targets (Task 4b): the 2.35 copy of the fixture.
+    files, inputs = _effect_files(tmp_path, _arms_source("arms_in_loop_235.orc"))
     authority, _snapshot = _complete_effects(files, inputs, monkeypatch)
     source = files["source"].read_text()
     assert source.count('(:target-dsl "2.35")') == 1
@@ -226,12 +229,12 @@ def _hidden_macro_files(root, kind):
         return files, "generated", "neurips/macros.orc"
     if kind == "command":
         source = (fixtures / "invalid/macro_hidden_command_effect.orc").read_text()
-        source = source.replace('(:target-dsl "2.40")', '(:target-dsl "2.40") (defmodule main) (export command_checks)')
+        source = replace_exact(source, '(:target-dsl "2.40")', '(:target-dsl "2.40") (defmodule main) (export command_checks)')
         files["commands"].write_text(json.dumps({"run_checks": {"kind": "external_tool",
             "stable_command": ["python", "probe.py"], "closure": ["probe.py"]}}))
         entry = "command_checks"
     else:
-        source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule main) (export generated) (defrecord ImplementationSummary (report String))
           (emit-provider-workflow generated)
           (defmacro emit-provider-workflow (name)

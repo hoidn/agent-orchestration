@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_target_226_admits_effectful_and_nonprojectable_if"
+  ],
+  "timeout_sec": 600
+}

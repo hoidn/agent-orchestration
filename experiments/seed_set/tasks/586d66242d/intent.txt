@@ -1,0 +1,7 @@
+fix: enforce recursive Agent artifact boundaries
+
+Keep Agent descriptors local at public signatures, provider and command inputs, loops, captures, parallel workers and pure conversions. Preserve explicit procedure borrowing and runtime checkpoint coercion.
+
+Module lines: check.py 5074; check_agents.py 201; agent_value.py 52; pure_expr.py 2686; test_workflow_agent_artifact_boundaries.py 254.
+
+Validation: 188 focused cases passed; 48 boundary cases collected; fake CLI composition smoke passed.

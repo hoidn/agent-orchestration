@@ -525,8 +525,8 @@
     "provider_externs": {
       "providers.supervisor": "providers-supervisor-id"
     },
-    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.35\")\n  (defmodule cp/supervision_sibling_typecheck)\n  (export orchestrate)\n  (defworkflow orchestrate () -> String (with-live-providers ((worker (supervisor)) (supervisor (provider-result providers.supervisor :prompt prompts.supervisor :inputs () :returns ProviderSteeringDirective) :observes worker)) worker))\n)",
-    "source_sha256": "f0864900c7c87a422447927a045dfca0093fa6a86fb15ae45b2d52bb03090ad1",
+    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.40\")\n  (defmodule cp/supervision_sibling_typecheck)\n  (export orchestrate)\n  (defworkflow orchestrate () -> String (with-live-providers ((worker (supervisor)) (supervisor (provider-result providers.supervisor :prompt prompts.supervisor :inputs () :returns ProviderSteeringDirective) :observes worker)) worker))\n)",
+    "source_sha256": "bda27a78546033fed9c63ffe325186170b54daebc8d274993db7f441ae39665b",
     "stage": "compile_typed_program"
   },
   {
@@ -571,8 +571,8 @@
     "provider_externs": {
       "providers.reviewer": "providers-reviewer-id"
     },
-    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.35\")\n  (defmodule cp/peers_sibling_typecheck)\n  (export orchestrate)\n  (defworkflow orchestrate () -> String (with-live-provider-peers ((planner reviewer) (reviewer (provider-result providers.reviewer :prompt prompts.reviewer :inputs () :returns String))) planner))\n)",
-    "source_sha256": "860767bd8c2cc775a856ed0c0ab4434a9bdfa3eeef777f3bf2cf4c1424b54d90",
+    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.40\")\n  (defmodule cp/peers_sibling_typecheck)\n  (export orchestrate)\n  (defworkflow orchestrate () -> String (with-live-provider-peers ((planner reviewer) (reviewer (provider-result providers.reviewer :prompt prompts.reviewer :inputs () :returns String))) planner))\n)",
+    "source_sha256": "6eac6586adc1a029f8cbc628fec615138106bb75bbba83ffe93e9b84bdec9935",
     "stage": "compile_typed_program"
   }
 ]

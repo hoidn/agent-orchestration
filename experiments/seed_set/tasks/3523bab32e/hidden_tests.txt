@@ -1,0 +1,3 @@
+tests/test_workflow_evaluated_agent_allocation.py::test_backward_completion_transition_is_refused
+tests/test_workflow_evaluated_agent_allocation.py::test_binding_field_change_is_refused
+tests/test_workflow_evaluated_agent_allocation.py

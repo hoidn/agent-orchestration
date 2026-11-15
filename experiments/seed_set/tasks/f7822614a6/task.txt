@@ -1,0 +1,5 @@
+fix: check phase target path root refinements
+
+The change is in orchestrator/workflow_lisp/closed/check.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_closed_phase_target.py::test_generic_phase_target_build_readback_and_runtime` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

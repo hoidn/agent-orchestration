@@ -1,6 +1,11 @@
 # Seed-Set Calibration Plan
 
-**Status: Plan; zero-spend preparation in progress, no spend yet.** This page plans the scaled-down research step
+**Status: Plan; zero-spend preparation on `feat/seed-set-prep`, no spend yet.** Built: the kit, the usage-limit
+pause, the priced ceiling and the CLI pin (2026-11-14), fix round 1 after review 3, fix round 2 after its
+re-review and fix round 3 on the coordinator's rulings (2026-11-14). Owed before the first call: a scoped check of
+fix rounds 2 and 3, the freeze with `criterion.json`
+(its priced ceilings, per-call worst cases, largest ordinary-rate call per model and CLI pin), the 20-task
+rehearsal, the owner's credential decision and meter reading. This page plans the scaled-down research step
 the owner set on 2026-11-11: calibrate a small task set and a judge, then find
 two to four simple workflow programs that run reliably and do at least as well
 as one direct call at acceptable cost, and package them as seeds for a later
@@ -31,13 +36,169 @@ below differs, these hold:
   zero in the runner. A probe run that ends in a provider incident is resumed
   once from the remaining redraw Haiku allowance and is never counted as a
   task failure.
-- The five programs declare `(:target-dsl "2.40")` (they build the same
-  program as at 2.39).
+- The four programs and `common.orc` declare `(:target-dsl "2.40")` (they
+  build the same program as at 2.39).
 - Blinding: candidates and anchors are built in random order; every pooled
   patch is scanned for model, arm and program names before any judge call and
   a hit refuses the pool; each rating is bound to the digest of the patch the
   judge read.
 - A readout that ends in a stop prints no quality figure.
+
+**Changes since review 2 (2026-11-13 and 2026-11-14, with fix round 1 after
+review 3 and fix round 2 after its re-review; the [ledger](#ledger) has each
+ruling).** Where the text below differs, these hold:
+
+- *Usage limits (rulings R1 and R2).* A call the vendor answers with a usage
+  limit (the result event's `api_error: usage_limit_reached`, status 429) cuts
+  its unit. Recognition fails closed (review 3): an error result with status
+  429 (a number or a string), an error result beside a rejected rate-limit
+  event, or a provider error line in a session- or usage-limit wording that no
+  other named status explains cuts the unit too, flagged "unrecognised limit
+  shape"; the model's and the tools' own text is never read. The wording rule
+  reads only a call that did not succeed (an error result, or no result event
+  at all), never a warning beside a call that succeeded or a stream line cut
+  mid-write (fix round 2). The pause and every refusal name the rule that fired
+  and the line it read, and an older CLI's `...|<epoch>` gives the reset. A
+  call whose stream shows paid extra usage (a rate-limit event with overage in
+  use, or a rejected limit with overage allowed) closes every start as "paid
+  extra usage" until `resume-after-limit`; a call that ended normally stays an
+  observation (its slot does not run again, a judge's pool is not rebuilt),
+  one that did not is cut, and
+  either is priced at its metered tokens (final scoped check M1).
+  When the raw result shows no limit, `study.py not-a-limit UNIT --reason R` records
+  that decision while the pause is open: the unit becomes what the rules make
+  it (an incident or its outcome), the pause stops closing starts, and nothing
+  runs again. A unit its killed runner left unsettled refuses, and the pause
+  and the refusal say the way out (fix round 3): `settle` the run first; a
+  probe run, which only `probe` settles and `probe` refuses while starts are
+  closed, reopens by `resume-after-limit` after the reset, and the next
+  `probe` settles it as a cut run. A cut unit is not
+  an incident and not an observation: it is recorded `cut`, never pooled or
+  scored, and not counted by the 10% incident stop. The cut writes a `pause`
+  event as soon as the unit's process ends, which closes every start; calls in
+  flight finish or are cut. The refusal names the call's raw result, which the
+  operator reads before resuming. Starts reopen only by `study.py
+  resume-after-limit` with the reset the vendor's answer named and the owner's
+  meter reading (the five-hour and weekly meters in percent, both below 100,
+  and the time read); it refuses before that reset, and where no pause named a
+  reset, a typed reset earlier than the limit. Outside the smoke, each planned
+  slot whose run was cut runs again once, as a new unit, from the same cap; a
+  pool with a judge cut is rebuilt once from the same run records and judged
+  again by both judges. The smoke never runs a cut slot again: a smoke with a
+  unit cut, a planned program without its run or a reserved unit not settled
+  fails its check, and the cut run never sets the flat-or-bisect choice.
+- *The launch guard and the host checks (fix rounds 2 and 3).* A unit's
+  command runs as its guard's child from its first instant; the guard is a
+  child subreaper, so what a root shell that died leaves behind is killed too,
+  and a kill reaches a pid only while its start time matches, so a reused pid
+  is never signalled. The host-side checks of candidate code (`settle`'s
+  visible check, the probe's hidden check, `summarize`'s hidden tests) run
+  under the same guard with two bounds. Each hidden test has 240 s, twice the
+  120 s of Step 1's whole hidden run (the kit passes it to `summarize.py`,
+  whose own default of 1,800 s stays): a hidden test that hangs past it counts
+  as that test failing, and the pool is summarised (fix round 3). Each check
+  has a backstop for a harness that itself hangs: 600 s (five times the
+  120 s) plus 240 s per hidden test for a patch's hidden set, 1,200 s for the
+  visible check, and for a pool's summary 600 s per clone plus 240 s per
+  hidden test of each clone that runs them (final scoped check M2). A check past its backstop is recorded as timed out,
+  never as a pass or a failure: a probe run with one is an incident, a summary
+  that times out makes its pool an incident, and the readout counts timed-out
+  visible checks apart. Every hidden test can hang to its own bound and fail
+  before the backstop, so only a harness that itself hangs reaches it. The checks'
+  temporary directories are recorded beside the ledger with the process that
+  made them, the checks' own temporary directories go inside them, and the
+  sweep at the start of every study command that takes the lock removes the
+  recorded ones whose maker and check no longer run (a launcher killed with
+  SIGKILL runs no cleanup) and prints their paths (fix round 3).
+- *Concurrency (R3):* two runs at a time, and one study command that starts,
+  prepares or settles units at a time (a lock beside the ledger), so two
+  commands cannot put four units in flight.
+- *Priced ceiling (R4).* Candidates and judges run the metered template (the
+  judges through the study's own `programs/judge.providers.json`). Each unit
+  is settled at its metered tokens times the frozen price table, whose sha256
+  `criterion.json` names; a call with missing usage counts at the per-call
+  worst case and is flagged. A start is refused when the tranche's priced total
+  plus its worst case would pass the tranche's ceiling. Ceilings and per-call
+  worst cases are read from `criterion.json`, with no default; the unit's worst
+  case, times the price table's highest tier over its ordinary rate for the
+  model (5 for Haiku, whose long-context rates are five times its ordinary
+  ones; 1 for Sonnet), goes to the runtime as `--max-cost-usd`, because the
+  runtime counts every call at the highest tier. `record-freeze` refuses a
+  per-call worst case below that ratio times the largest ordinary-rate call
+  `criterion.json` names for the model (`largest_call_usd`), and a tranche
+  ceiling below two units in flight at its largest unit's worst case. A unit
+  settled above its reserved worst case is flagged and closes every start with
+  a `pause`.
+- *CLI pin (R5).* Every start checks that the unit's Claude CLI is the
+  criterion's pinned absolute path and answers `--version` with the pinned
+  version, and records both in its ledger row; a mismatch refuses the start.
+- *Sonnet judge only on a Haiku failure (R6):* not built. It needs a redesign of
+  pool storage and of the summary and readout flow (the [ledger](#ledger) row
+  says what); both judges still judge every pool, as the 2026-11-11 ruling set.
+- *Credential (R7):* the route is unchanged and the owner's decision. Each
+  unit's private home (`<work>/.private-homes/<id>` for a run,
+  `<pool>/.private-homes/<id>` for a judge, both on `/home`) gets a copy of the
+  subscription login file. It is removed when the unit ends, is refused or
+  raises. A launcher killed with SIGKILL, or a host reboot, runs no clean-up:
+  the copy then stays on disk until the next study command, which starts by
+  removing every copy no live unit holds and prints the paths. The unit's
+  agent dies with its launcher (a guard kills the unit's whole process tree).
+  During its call the agent under test can read the copy (it runs as the same
+  user inside the sandbox, which keeps network access); a copy it makes under
+  another name, or the text it writes into its output or its patch, is not
+  removed.
+- *Re-runs and the caps.* "From the same cap" means a cut slot runs again only
+  where its cap has room. The smoke's caps (10/1 candidates, 1/1 judges), the
+  calibration's Sonnet candidates (20 of 20) and both judges' calibration caps
+  (30 of 30) are fully planned, so a cut there is not run again: a smoke cut
+  fails the smoke, and a calibration judge cut costs its task's pool. A re-run
+  beyond the room is left out with a message, and its task keeps the runs it
+  has; a pool whose two judges the caps cannot both hold, or whose first judge
+  started and never settled, gets no judge, and the command names it after
+  judging the others; a probe step the redraw allowance cannot hold is a stop.
+- *Tasks rejected on 2026-11-13* (anchor stability under high load):
+  `1fd10ab4c3`, both forms (its reference fails
+  `tests/test_run_lock.py` under load, 3 of 3); `9a7547ed4c` (T1) and
+  `9a7547ed4c-t0` (T0), whose anchors are unstable. `a8ffc5997a` had already
+  left for the leak audit. Usable: T0 9, T1 11, T2 11 plus the smoke task, T3 19
+  drawn, T4 6, T5 5.
+- *Rehearsal 4* (2026-11-13) ran to the end and its readout stopped on an anchor
+  failure: the reference of `1fd10ab4c3` passed 0.667 of its hidden tests. That
+  is the runner's anchor check finding a real defect, which the rejection above
+  removed. Its rerun on the merged tree with four calibration tasks (the
+  independent status assessment, 65 minutes at load 57 to 170) ended with exit
+  0: the smoke check passed, the probe chose T3 and drew 20 tasks, no anchor
+  failed, and the decision was `stop: no judge passed its gate`, the expected
+  result with 16 of the 20 tasks missing by construction.
+- *Rehearsal 5* (2026-11-14, the code with R1 to R5, four calibration tasks, 54
+  minutes): exit 0, smoke check passed, one injected usage limit in the probe
+  was cut, closed starts and ran again after `resume-after-limit`, one start
+  beyond the redraw ceiling was refused, and the priced totals equal the
+  stand-in's known usage; decision `stop: no judge passed its gate`, as
+  expected with 16 of 20 tasks missing. A 20-task rehearsal is still owed.
+- *Rehearsals after fix round 1* (2026-11-14, stand-ins only, own ledgers,
+  four calibration tasks). A: one usage limit cut the smoke's Haiku `direct`
+  run; after the resume the other four programs ran and the pool was judged;
+  the smoke check failed (a cut unit; the provider error), and neither the probe
+  nor the calibration could start ("no passed smoke"), with no start after the
+  smoke event. B: the limit in the probe, as in rehearsal 5, with the same
+  result; its first attempt (B1) found that the rehearsal's separate
+  check-withheld launch had no freeze on its own ledger, which every start now
+  checks, and was rerun after the fix. A 20-task rehearsal is still owed.
+- *Rehearsals after fix round 2* (2026-11-14, on `76b967f3`, the same form).
+  A, the cut in the smoke: the smoke check failed, and nothing started after
+  the smoke event. B, the cut in the probe, with every call that succeeded
+  after the resume printing a limit warning on stderr: 19 such calls and no
+  pause after the resume; the other figures equal rehearsal 5's. A 20-task
+  rehearsal is still owed.
+- *Found while building R1:* the harness's model scan counted a session row
+  answered by `<synthetic>` (the CLI's own message at an API error or a usage
+  limit) as a forbidden model, which would have stopped the study at its first
+  usage limit. It no longer counts (`experiments/compare/scan.py`).
+- *Text corrections:* Step 1c named a `calibration/direct_sonnet.orc`; there is
+  none, and the `direct_sonnet` arm of `arms.json` runs `direct.orc` with the
+  Sonnet model. The summary above said "the five programs"; there are four plus
+  `common.orc`. Both are corrected in place.
 
 **Headline exit test (fails today):** `experiments/seed_set/results/seeds.json`
 exists, names its criterion and task-list hashes, and lists either two to four
@@ -139,15 +300,15 @@ The four programs are 22, 31, 40 and 45 lines.
 | `implement_review_revise.orc` | 2–3 | New, from the catalog's three-round version. Implement, one review, one revision if asked |
 
 Plus `common.orc`, `dev_check.py`, `providers.json`, `commands.json` and
-`calibration/direct_sonnet.orc`, which differs from `direct.orc` in the model
-literal only. Compile each and run each once through the public CLI behind
-the shims with a scripted provider.
+`arms.json`, whose `direct_sonnet` arm runs `direct.orc` with the model bound
+to `claude-sonnet-5-5` (there is no separate Sonnet program). Compile each and
+run each once through the public CLI behind the shims with a scripted provider.
 
 **1d. Runner and readout (1.5 days), `experiments/seed_set/study.py`.** One
 run: `prepare.run_arm(spec=ArmSpec(...))` with `COMPARE_CLAUDE_MODELS` and
 `COMPARE_MAX_CALLS` set, launch, `collect`, `scan --hash <fix>`,
 `check_first_attempt` on the final patch (the visible result, stored with the
-run record), then delete the run's `cand-*` trees; four runs at a time. One
+run record), then delete the run's `cand-*` trees; two runs at a time. One
 task: build its pool, run the judges, `verify-pool`, `scan --pool --judge`,
 `summarize.py`, then delete the pool's clones and keep its records; at most
 two pools on disk (a pool is 1 to 3 GB). `tests/experiments/test_seed_set.py`
@@ -197,7 +358,7 @@ checks. No flaw is ever planted.
 | Tier | What makes it that hard |
 | --- | --- |
 | T1, very easy | One source file, at most 20 changed source lines; the statement names the file; the failing test is in the tree |
-| T2, easy | At most two source files and 60 lines; the statement is the commit message; the failing test is in the tree |
+| T2, easy | At most two source files and 60 lines; the statement is the short commit message plus the names of the files to change (a recorded deviation, coordinator ruling on review 2 M8: with the message alone every T2 statement falls under the 80-character floor); the failing test is in the tree |
 | T3, medium | The 20 tasks already built: at most five files and 200 lines; the failing test is in the tree |
 | T4, hard | Six to fifteen source files or 200 to 600 lines; the statement is the commit message; the failing test is in the tree |
 | T5, very hard | A feature, not a fix: a commit or a run of consecutive commits that adds new behavior with at least 300 added source lines; the statement is the commit message; check-withheld form, so there is no test to run |
@@ -288,15 +449,17 @@ two of the three, stop and report to the owner before any further judge call.
 
 ## Step 2: Calibration (paid)
 
-**Smoke,** on the last reserve task, which then leaves the reserve: one direct
+**Smoke,** on the manifest's smoke task `194ad866a1`, the first T2 task that is
+not a probe task (coordinator ruling 1, 2026-11-12; it replaced the last
+reserve task when the leaking T3 task left the draw): one direct
 run per model, one run of each workflow, then one pool scored by both judges.
 Pass: sessions show only the bound models, the scans are clean, and
 `results.json` holds both judges' ratings and a hidden result for every
 clone. Whether token receipts are complete is recorded.
 
 **Candidates (80 Haiku, 20 Sonnet):** on the 20 drawn tasks, `direct.orc` four
-times (so a task's Haiku mean does not rest on one or two draws) and
-`direct_sonnet.orc` once.
+times (so a task's Haiku mean does not rest on one or two draws) and the
+`direct_sonnet` arm (`direct.orc` on Sonnet) once.
 
 **Judging (30 Haiku and 30 Sonnet judge calls).** The route is the harness's:
 one pool per task, `prepare.py pool` with `judge-calibration.json`,
@@ -506,6 +669,21 @@ A Sonnet token lists at about 20 times a Haiku token (vendor table cached
 2026-11-03; re-read at freeze). Tokens per call are unknown until the smoke.
 Allowance does not move between tranches; there is no top-up after a null.
 
+Each tranche also has a priced-token ceiling in USD (metered tokens times the
+frozen `orchestrator/providers/price_table.json`), and each model a per-call
+worst case. Both are set by the coordinator in `criterion.json` at the freeze
+and written to the ledger before the first call; the kit has no default and
+refuses a start without them. A start is refused when the tranche's committed
+priced total (settled units at their metered price, open ones at their worst
+case) plus its own worst case would pass the ceiling. A call cut by a usage
+limit counts like any other call; a slot run again after it takes its calls
+from the same cap, so a re-run is possible only where the cap has room. The
+criterion also names, per model, the largest ordinary-rate call it expects
+(`largest_call_usd`, from the smoke or earlier sessions): the per-call worst
+case must be at least the table's highest-tier ratio times it, and each
+ceiling at least two units in flight at the tranche's largest unit's worst
+case, or `record-freeze` refuses.
+
 ## Stop rules
 
 - Fewer than 20 tasks admitted after the one widening: stop before spend. The
@@ -517,6 +695,14 @@ Allowance does not move between tranches; there is no top-up after a null.
   run or judgment is contaminated; three such tasks stop the study.
 - A forbidden-model hit, over 10% of a tranche's runs excluded as incidents,
   a cap reached, or under 20 GB free: stop.
+- A usage limit is not a stop and not an incident: every start closes until the
+  vendor's named reset has passed and the owner has given a meter reading
+  (`study.py resume-after-limit`); the cut runs are no observations, and each
+  cut slot outside the smoke runs again once from the same cap. A smoke with a
+  cut unit fails, which is the stop above. A unit settled above its worst case
+  also closes every start until `resume-after-limit`.
+- A probe step the redraw allowance cannot hold (relaunches and re-runs used
+  its room): stop.
 - Only `direct` passes the rule: record "no workflow qualified at this size".
 
 ## What this plan makes harder
@@ -567,3 +753,20 @@ Allowance does not move between tranches; there is no top-up after a null.
 | 2026-11-13 | Owner direction: mutate model and effort per role | "for mutations of that seed, consider using a combination of model choice (haiku sonnet) and effort level for different agent roles". Recorded as a search dimension beside model per role: each present role (planner, implementer or coder, reviewer) has its own model (`claude-haiku-5-5` or `claude-sonnet-5-5`) and its own effort level. Consequences: a seed's entry takes a model and an effort per role (the long-horizon seed has one shared effort input today); cost stays priced tokens, since effort changes tokens per call and calls stop being comparable even within one model; the equal-price re-roll curve remains the bar. Reason recorded for using Sonnet in experiments under the Haiku default: model placement per role is itself the variable. Public figures (not ours) suggest effort is a large lever for Haiku: a benchmark write-up reports an aggregate from about 13 percent at `low` to 39 percent at `max`. Only `high` has been observed accepted for Haiku on this machine; the other levels are verified in the first probe. Spend to date: 0. |
 | 2026-11-13 | Owner direction: if the space is too large, one model and effort per role | "consider just one model (haiku) and different effort levels (assuming performance of haiku increases monotonically with increasing effort level)". Recorded as the first space to search: all roles on `claude-haiku-5-5`, effort per role varied (27 points at three levels); Sonnet placement deferred to a later extension. The monotonicity assumption is measured, not assumed: an effort ladder on the direct call, which also serves as the difficulty calibration (effort is the varied quantity) and places each task relative to the 10 to 30 percent band. Public figures, not ours, show the aggregate rising with every level for this model on one benchmark. With a monotone ladder the search walks one role's effort at a time from the cheapest point (seven points plus one corner) rather than the full grid. No Sonnet call is needed for this space. Spend to date: 0. |
 | 2026-11-14 | Correction to the row "mutate model and effort per role": a role's model and effort are literals at its call sites, not entry inputs | That row says "a seed's entry takes a model and an effort per role". It does not. The mutant generator's measurements showed that `resume` gives no plan when an input, or a default that takes effect, changes, so two points that differ only in inputs share no recorded work. The ruling of the [mutant generator plan](2026-11-13-phase-6-mutant-generator-plan.md#the-first-space-is-programs-not-bindings) holds: a point of the search space is a program, effort and model per role are string literals at each of the role's call sites, and a mutation rewrites them. The earlier row is kept as written. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R1: a call cut by a usage limit | Not an incident and not an observation. The unit is recorded `cut`, does not count toward the 10% incident stop and never scores 0; its slot runs again once, as a new unit id, from the same cap, so total calls never pass the cap and every unit still launches once. A judge pool cut by a limit is rebuilt once as a new pool from the same kept run records, judged by both judges. Built: `units.usage_limit` recognises the vendor's answer from the stream-json result event (`api_error: usage_limit_reached`, status 429, shape of the long-horizon fixture `token-usage-limit-NonZeroAgentExitCodeError`); `study.cut_reruns`, `layout.current_pool`, `probing.allowed`. Found while building it: the harness's model scan counted the CLI's `<synthetic>` session rows (its own error and usage-limit messages) as a forbidden model, which would have stopped the study at the first limit; fixed in `experiments/compare/scan.py`. Consequence recorded: re-runs fit only where the cap has room; the smoke's caps, the calibration's Sonnet candidates and both judges' calibration caps have none. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R2: starts close at a usage limit | At the first usage-limit answer the runner writes a `pause` event that `spend.reserve` honours: nothing more starts, calls in flight finish or are cut. Starts reopen only by `study.py resume-after-limit --reset T --five-hour P --weekly P --read-at T`: the reset named by the vendor's answer and the owner's meter reading (two percentages and the time read), recorded in the spend ledger; it refuses before the latest named reset and a reading taken before it. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R3: concurrency two | Two runs at a time, not four, so that a usage limit cuts at most two calls in flight. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R4: a priced-token ceiling per tranche, enforced by the kit | Candidates and judges use `claude_unrestricted_workspace_metered` (the judges through the study's own `programs/judge.providers.json`; the shared `experiments/compare/score.providers.json` is unchanged). Each unit is settled after it ends at its metered tokens times `orchestrator/providers/price_table.json` (per call, the larger of the table's ordinary-rate price of `modelUsage` and the CLI's reported cost); the table's sha256 is named in `criterion.json` and recorded in the freeze event. `spend.reserve` refuses a start when the tranche's committed total (settled units at their price, open ones at their worst case) plus its own worst case would pass the ceiling. A call with missing usage counts at the per-call worst case and is flagged. Ceilings per tranche and worst cases per model are read from `criterion.json` (`"spend"`), with no default: the coordinator sets the figures at freeze. The unit's worst case (its calls times the per-call figure) goes to the runtime as `--max-cost-usd`; the runtime prices at a model's highest tier, so the per-call figure must cover a call at Haiku's long-context rate, or a later call of a multi-call unit is refused and the run ends as an incident. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R5: the CLI pinned by path and version | Before every start the unit's declared Claude CLI must be the criterion's pinned absolute path and answer `--version` (run with an empty home) with the pinned version; both go into the start's ledger row, and a mismatch refuses the start before anything is reserved. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R6: the Sonnet judge only on a Haiku judge failure | Not built: it exceeds the bound the ruling set (about three hours, no redesign of pool storage). What it takes: (1) the same frozen pools for the later Sonnet judge, so either every pool's clones stay on disk until both judges are decided (30 pools of 1 to 3 GB; at most two fit today) or the harness gains a rebuild of a pool's clones under its recorded clone ids from the kept patches and mapping; (2) a summary per judge: `summarize.py` writes one `results.json` per pool with every judge of the mapping and runs the hidden tests on the clones, so a Haiku-only summary marks Sonnet excluded and a later Sonnet pass needs the clones again and a merge of ratings by clone id; (3) a two-phase readout: Haiku's gate (V1 to V4, and G3's insensitivity switch, which also hands over to the other judge) decides whether the Sonnet phase opens; (4) rulings for the early judge look and the smoke check, which require both judges today. Estimate 6 to 10 hours with tests and a rehearsal. Both judges keep judging every pool, as the 2026-11-11 ruling set. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R7: the credential route is the owner's | `sandbox.prepare_unit` is unchanged: each unit's private home gets a copy of the subscription login file, removed when the unit ends. Whether that copy satisfies the subscription-only rule is for the owner. No API-key route exists in the kit. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling R8: records | The status line and the section "Changes since review 2" record rulings R1 to R7, the tasks rejected on 2026-11-13 (`1fd10ab4c3` in both forms, its reference failing `tests/test_run_lock.py` under load 3 of 3; `9a7547ed4c` and `9a7547ed4c-t0` with unstable anchors; `a8ffc5997a` earlier, for the leak audit), rehearsal 4 (stopped by its anchor check on `1fd10ab4c3`) and its rerun on the merged tree after the rejections (exit 0, decision `stop: no judge passed its gate` with 16 of 20 tasks missing by construction), and two text corrections (no `calibration/direct_sonnet.orc` exists; four programs, not five). Rehearsal 5 on the code with R1 to R5 (`426031e2`, stand-ins only, its own ledger, four calibration tasks, 54 minutes at load 56 to 100): exit 0; the smoke check passed on all nine checks; one usage limit injected into the ladder probe on T1 task `2aaf1ecc8e` cut its run, closed every start, was lifted, and after `resume-after-limit` the slot ran again and completed (redraw 21 of 40 Haiku calls, 0 incidents); the probe chose T3 and drew 20 tasks; a start of 12 calls whose worst case (USD 3) would pass the redraw ceiling of USD 3 (USD 0.0756 committed) was refused and wrote nothing; the priced totals equal the stand-in's known usage (smoke USD 0.1664, redraw 0.0756, calibration 0.876, none open, no missing usage); no anchor failure, every identity scan 0 hits; decision `stop: no judge passed its gate`, as with 16 of 20 tasks missing by construction; the check-withheld run completed in 2 calls. Spend to date: 0. |
+| 2026-11-14 | Correction to the rows of 2026-11-12 (review 3 X4, records) | Kept as written; these hold. (1) T2 statements: the row "Pre-spend review of the builder and the integration" says they "are rebuilt as the commit message alone". The coordinator's ruling on review 2 M8 (commit `198736f0`) went the other way: a T2 statement is the short commit message plus the names of the files to change, a recorded deviation, because with the message alone every T2 statement falls under the 80-character floor and the rung disappears; T2 differs from T1 by the commits selected, not by the statement's form (`programs/README.md`, the readout's limits, Step 1b's table). (2) The smoke task: coordinator ruling 1 of 2026-11-12 moved the smoke to `194ad866a1`, the first T2 task that is not a probe task, when the leaking T3 task left the draw and the reserve took its place (Step 2 said "on the last reserve task"). (3) Recorded, the kit's behavior on review 2 minor 1: when every rung has 3 or 4 passes of 4 and some has 3, `ladder.table` answers "all too easy" (the extension), not "chosen", since the plan says 3 of 4 cannot be told from 4 of 4. (4) Recorded, the kit's behavior on review 2 minor 11: the hard extension bisects T0 and T1 (the row "bisection always for the extension"); if T0 is 0 of 4 it stops without probing T1 again, where the probe section says "runs it and T1 again". Neither (3) nor (4) has a coordinator ruling; either can be overruled before the freeze. Spend to date: 0. |
+| 2026-11-14 | Correction to the row "Coordinator ruling R7" (review 3 X5) | Kept as written; it says each unit's copy of the subscription login file is "removed when the unit ends". It is removed when the unit ends normally, is refused or raises. A launcher killed with SIGKILL, or a host reboot, runs no clean-up, and the copy stays on `/home` (`<work>/.private-homes/<id>/.claude/.credentials.json` for a run, `<pool>/.private-homes/<id>/...` for a judge) until the next study command that starts, prepares or settles units, which begins by removing every copy no live unit holds and prints each path. The agent under test can read its unit's copy during its call (the sandbox runs it as the same user and keeps network access); a copy it makes under another name, or text it writes into its output or its patch (which the judges see and the results keep), is not removed. Whether this route is acceptable stays the owner's decision; fix round 1 adds nothing to it beyond the clean-up and the process guard. Spend to date: 0. |
+| 2026-11-14 | Fix round 1 after review 3 (1 blocker, 5 majors, 11 minors; branch `feat/seed-set-prep`, `main` `e60b027f` merged first) | Blocker X1: a smoke with a unit cut by a usage limit, a planned program without its run, or a reserved unit not settled fails `smoke-check` (`no_unit_cut_by_a_usage_limit`, `every_reserved_unit_settled`), the cut run never sets the flat-or-bisect choice, and the smoke never runs a cut slot again. X2: usage-limit recognition fails closed (an error result with status 429 as a number or a string, an error result beside a rejected rate-limit event, or a provider error line in a limit wording no other named status explains, the wordings kept in one list in `units.py`); such a cut is flagged "unrecognised limit shape", and every pause refusal names the raw result to read before `resume-after-limit`; the model's and tools' own text is never read. X3: the runtime's `--max-cost-usd` is the unit's worst case times the table's highest tier over its ordinary rate for the model (5 for Haiku, 1 for Sonnet); `record-freeze` refuses a per-call worst case below that ratio times the criterion's `largest_call_usd` for the model, and a ceiling below two units in flight at the tranche's largest unit's worst case (correcting the R4 row's "must cover a call at Haiku's long-context rate, or a later call of a multi-call unit is refused"). X4: the correction row above. X5: a unit's whole process tree, its provider calls' own sessions and sandboxes included, dies with its launcher (`reaper.py`, the launch's guard; a kill -9 test with stand-ins), and every unit command starts by removing the copies no live unit holds; the R7 correction row above. X6: `settle` refuses a unit whose session still runs. Minors: the pause is written when the cut unit's process ends (1); one unit command at a time per study, a lock beside the ledger (2); a unit settled above its worst case is flagged and pauses starts (3); a call whose usage names no model counts at the worst case (4); the scan's `<synthetic>` exemption covers Claude assistant rows only (5); the freeze is checked before every unit, not once per command (6); a pool whose judges the caps cannot both hold, or whose first judge never settled, gets no judge and the command names it after judging the others (7); a re-run of a cut slot beyond the cap's room is left out with a message, and a probe step the redraw allowance cannot hold is a stop (8); `tiers.build` at statement-level complexity 12 (9; the radon-style count, with boolean operators and comprehensions, is not applied, and which count binds stays open); `resume-after-limit` refuses a meter at 100%, a truth value as a percentage, and, where no pause named a reset, a typed reset earlier than the limit (10); the runner's limits name a kill between reservation and launch as an incident priced at USD 0 (11). Not in this round: R6 stays unbuilt; whether re-runs may come from outside the caps is the owner's. Spend to date: 0. |
+| 2026-11-14 | Fix round 1: the two rehearsals (stand-ins only, own ledgers, four calibration tasks) | A, the cut in the smoke (on `3810d77f`, 140 s; the same on `aa26ab5c`): the stand-in answered the smoke's Haiku `direct` call with the usage-limit shape; the run was cut and a `pause` closed starts (the next program's start was refused with the raw result named); after `resume-after-limit` the other four programs completed, the pool was judged by both judges and summarized, and `smoke-check` failed (`no_unit_cut_by_a_usage_limit` and `no_provider_errors` false, the rest true; `direct_median_wall_sec` none); then the probe and the calibration both refused ("no passed smoke") and the ledger holds no start after the smoke event (smoke 10 of 10 Haiku and 1 of 1 Sonnet candidate calls reserved, 8 and 1 made; judges 1 and 1; priced USD 0.1664; calibration and redraw 0). B, the cut in the probe (on `3810d77f`, 35 minutes at load about 40 to 60; the same on `22c2ea40`): exit 0; the smoke check passed; the probe's cut on T1 task `2aaf1ecc8e` (runs: cut, completed) paused at seq 19 and resumed at seq 22 with no start between; 0 incidents; redraw 21 of 40; the probe chose T3 and drew 20 tasks; the 12-call start against the redraw ceiling of USD 3 was refused and wrote nothing; priced smoke USD 0.1664, redraw 0.0756, calibration 0.876, none open, none missing or over its reservation; no anchor failure, every identity scan 0 hits; decision `stop: no judge passed its gate` with 16 of 20 tasks missing by construction; the check-withheld run completed in 2 calls. Its first attempt (B1, `aa26ab5c`) reached the same readout and ledger, then its separate check-withheld launch refused "no freeze in the ledger": the rehearsal never froze that launch's own ledger, which every start now checks (minor 6); fixed in `1e423fc5`. Found by the kit tests between the two: `spend.rows` read the ledger without a lock, so a unit reading it while the other unit in flight appended a long row could fail on a half-written line (two e2e tests did); the ledger is now read under a shared lock (`3810d77f`). Spend to date: 0. |
+| 2026-11-14 | Fix round 2 after the re-review of fix round 1 (2 majors, 7 minors; branch `feat/seed-set-prep`, `main` `b7e2e2b5` merged first) | N1: the usage-limit wording, and the provider-error rule of incidents, read only a call that did not succeed (an error result, or no result event at all); a stdout line that starts with `{` and is not JSON (a stream event cut mid-write) is never read; every must-cut shape of the re-review stays cut. N2: the host-side checks of candidate code (`settle`'s visible check, the probe's hidden check, `summarize`'s hidden tests) run under the launch guard with a bound: 600 s for a patch's hidden set (five times the 120 s of Step 1's hidden run), 1,200 s for the visible check (dev-check.json's 600 s plus 600 s), 600 s per clone for a summary; a check past its bound is recorded as timed out, never as a pass or a zero (a probe run with one is an incident, a summary that times out makes its pool an incident, the readout counts timed-out visible checks apart). Assumption recorded for the coordinator: `summarize.py` gives each hidden test 1,800 s and counted a hanging one as failing; past the new per-clone bound such a hang now costs its pool, and a probe run with one is relaunched once. n1: a kill reaches a pid only while its start time matches the scan (a pidfd, then the start time). n2: the unit's command runs as its guard's child from its first instant; the guard is a child subreaper, so what a root shell that died leaves is killed when the command ends; a guard killed by the operator leaves the launcher to kill the command's session tree. n3: the pause and every refusal name the rule that fired and the line it read; an older CLI's `...|<epoch>` gives the reset; `study.py not-a-limit UNIT --reason R` records, while the unit's usage-limit pause is open, that its raw result shows no limit: the unit becomes what the rules make it, the pause stops closing starts, and nothing runs again. n4: the cut-unit table gains `settle`'s session audit and the redraw's planned units, each checked by a test. n7: `spend.rows` parses after releasing its lock; 120 writers beside 16 readers all finish. Minor 9: the ten functions the re-review listed are at radon 12 or below (`tiers.build` 35 to 6, `rules.smoke_check` 28 to 11, `probing.recover` 16 to 12, the others 10 or below), split with no behaviour change, and no function is new above 12. The merge of `main` renamed two long-horizon fixtures the kit tests read; the tests follow. Not in this round: R6, re-runs outside the caps, the credential route. Spend to date: 0. |
+| 2026-11-14 | Fix round 2: the two rehearsals (stand-ins only, own ledgers, four calibration tasks, on `76b967f3`) | A, the cut in the smoke (158 s at load about 55): exit 0; the smoke check failed on `no_unit_cut_by_a_usage_limit` and `no_provider_errors`, the other nine true; `direct` cut, the other four completed; the refusal named the unit, the reset, the rule that fired (the recorded answer) and its line, and `not-a-limit`; the probe and the calibration both refused ("no passed smoke") and no start follows the smoke event (smoke 10 of 10 Haiku and 1 of 1 Sonnet candidate calls reserved, 8 and 1 made; judges 1 and 1; priced USD 0.1664). B, the cut in the probe (40 minutes at load about 50 to 60): exit 0; the smoke check passed; the cut on T1 task `2aaf1ecc8e` (runs: cut, completed) paused at seq 19 and resumed at seq 22 with no start between; after the resume 19 calls that succeeded printed a limit warning on stderr and no pause followed; 0 incidents; redraw 21 of 40; the probe chose T3 and drew 20 tasks; the 12-call start against the redraw ceiling of USD 3 was refused and wrote nothing; priced smoke USD 0.1664, redraw 0.0756, calibration 0.876, none open, none missing or over its reservation; no anchor failure, every identity scan 0 hits; decision `stop: no judge passed its gate` with 16 of 20 tasks missing by construction; the check-withheld run completed in 2 calls. Spend to date: 0. |
+| 2026-11-14 | Fix round 3 on the coordinator's rulings after fix round 2 (branch `feat/seed-set-prep`; rehearsal on `2e272c8e`) | Ruling 1: a hidden test that hangs is a failure of that test, not the loss of the pool. Each hidden test has 240 s (twice Step 1's 120 s for a whole hidden run), passed by the kit to `summarize.py` (`--hidden-test-timeout-sec`; the harness default of 1,800 s is unchanged) and to the probe's hidden check; the 600 s per clone (and 600 s per patch's hidden set, 1,200 s per visible check) stays as the backstop for a harness that itself hangs, and a summary past it is still an incident. This replaces fix round 2's assumption that such a hang costs its pool; past the backstop it still does (more than two hanging tests in a patch's hidden set, about two and a half per clone on average in a summary). Ruling 2: `not-a-limit` still refuses an unsettled unit; the pause's refusal and that refusal now say the way out (`settle` the run first; a probe run, which only `probe` settles and `probe` refuses while starts are closed: `resume-after-limit` after the reset, then `probe` settles it as a cut run). Ruling 3: the host checks' temporary directories are recorded with their maker (pid and start time) in `host-temp.jsonl` beside the ledger, the checks' own temporary directories go inside them (`TMPDIR`), and the sweep at the start of every command that takes the study lock removes the recorded ones whose maker and check no longer run and prints their paths (never a listing of `/tmp`; a record naming a directory the kit does not make refuses). Rehearsal (stand-ins only, own ledger, four calibration tasks, the cut in the probe; 2,636 s, beside the kit tests): exit 0; the stand-in Sonnet's code on the first calibration task `12ea8483f0` made one hidden test hang 300 s in host-side checks; it hung twice (the first and the retest pool), each time counted as that test failing, both pools were summarised with only that test failed on the Sonnet clone, and no hanging process was left; the rest as fix round 2's rehearsal B (smoke check passed; the cut on `2aaf1ecc8e` paused and resumed at seq 22, its runs cut then completed; 19 warned calls and no pause after the resume; 0 incidents; the 12-call start against the redraw ceiling refused with the ledger unchanged; priced smoke USD 0.1664, redraw 0.0756, calibration 0.876, none open, missing or over its reservation; no anchor failure, every identity scan 0 hits; decision `stop: no judge passed its gate; hidden-test pass rate is primary; stop for the owner` with 16 of 20 tasks missing by construction; the check-withheld run completed in 2 calls). Spend to date: 0. |
+| 2026-11-14 | Fix round 4 on the final scoped check (1 blocker, 2 majors, 3 minors; branch `feat/seed-set-prep`, `main` `27a5b30b` merged after the fixes) | B1: the temporary-directory sweep acts on a recorded directory only when it is a direct child of the temp directory with a kit prefix and its real path is the recorded one, and runs `chmod` only after that check; any other record line is named on stderr, skipped and kept, and no longer stops a locked command. M1: paid extra usage (a `rate_limit_event` with overage in use, or a rejected limit with overage allowed; the long-horizon kit's rule read from the stream) closes every start under its own rule, "paid extra usage", until `resume-after-limit`; by the coordinator's follow-up rulings, a call that ended normally stays an observation (a candidate's result is used and its slot does not run again; a judge's judgment is kept and its pool is not rebuilt) and one that did not is cut like any limit; either is priced at its metered tokens. The pause of the recorded answer or of paid extra usage names `resume-after-limit` only, not `not-a-limit`. M2: a hidden set's backstop is 600 s plus 240 s per hidden test, summed over the clones whose hidden tests run for a summary, so hanging hidden tests fail at their own bound instead of timing the check out. n9: a session file whose recorded start time is not its live leader's reads as dead. n10: `not-a-limit` refuses a pause by the recorded answer or by paid extra usage. A guard killed before it wrote its session file gives a status saying so, and an empty file reads as no session. After the independent check of round 4, the sweep also skips, names and keeps a line naming a file or one it cannot read and gives a kit directory mode 700 before reading it, a unit with paid extra usage on any call is paused under that rule (so `not-a-limit` refuses it), overage flags are read case-insensitively, and the reset is the last rejected event's that names one. Kit tests 664 passed, compare-harness tests 558 passed (stand-ins only). The owner's check that paid extra usage is off on the account stays owed before the first call. Spend to date: 0. |
+| 2026-11-15 | The kit is on `main` (`09068ec8`, merge of `feat/seed-set-prep` at `f4ceafaa`) | After the independent check of fix round 4 ("ready after fixes": the six earlier findings closed, 72 of 73 recorded streams classify as before and the one that differs is the intended paid-usage change) and its six small items (a record line naming a regular file or an unreadable line is named, skipped and kept; a pause names a unit's paid-usage call so only `resume-after-limit` reopens it; overage flags given as strings are read; the reset comes from the last rejected event that names one), which the coordinator checked by reading the diff. Kit tests 664 passed. Full suite on the merge: 23,768 passed, 6 failed (the four nanoBragg tests of the standing baseline; two load failures that pass alone). No provider call was made; spend 0. **Still owed before the first paid call, in order:** the owner's decisions (the credential route of ruling R7; that paid extra usage is off; the allowance hours and shares and the meter-reading protocol; whether a cut slot may run again outside the caps); the freeze on the merged commit (runtime worktree, the anchors' stability run, `judge-calibration.json` and `judge-seeds.json`, the price table re-read, `criterion.json` with its `spend` and `sha256` blocks, `record-freeze`, the hashes in this ledger); the 20-task rehearsal on the frozen code at low load; the tranche's spend row; then the smoke. |

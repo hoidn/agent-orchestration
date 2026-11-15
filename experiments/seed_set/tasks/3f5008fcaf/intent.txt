@@ -1,0 +1,3 @@
+Retire completed YAML resume compatibility
+
+The change is in orchestrator/cli/commands/resume.py.

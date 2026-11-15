@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_provider_supervision.py::test_closed_member_inline_opaque_field_chain_flattens"
+  ],
+  "timeout_sec": 600
+}

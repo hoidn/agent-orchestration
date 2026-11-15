@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_workflow_lisp_command_boundary_closure.py::test_closure_is_parsed_with_absence_distinct_from_an_empty_declaration"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

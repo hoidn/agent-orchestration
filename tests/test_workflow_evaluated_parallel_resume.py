@@ -321,7 +321,7 @@ def test_map_result_retains_pure_workspace_dependencies(tmp_path):
 def test_serial_tail_after_map_keeps_historical_start_policy(tmp_path, kind, completed):
     sequential = f'(let* ((first {COMMAND}) (second {COMMAND.replace("fetch", "inc")})) second)'
     declarations = worker(sequential) + '(defworkflow pure-item ((repo String)) -> Int 7)'
-    declarations += '(defproc empty () -> List[String] :effects () :lowering inline (list))'
+    declarations += '(defproc empty () -> List[String] (list))'
     tail = '(call worker :repo "a")'
     item = COMMAND.replace('fetch', 'check') if kind == 'effectful' else '(call pure-item :repo repo)'
     source = 'repos' if kind == 'empty' else '(list "a")'
@@ -358,7 +358,7 @@ def test_nested_item_tail_retains_strict_starts_after_inner_map(tmp_path, comple
 
 
 def test_empty_map_keeps_an_earlier_map_barrier_pending(tmp_path):
-    declarations = worker('7') + '(defproc empty () -> List[String] :effects () :lowering inline (list))'
+    declarations = worker('7') + '(defproc empty () -> List[String] (list))'
     first_map = mapped(COMMAND.replace('fetch', 'check'), source='(list "a")')
     empty_map = mapped('(call worker :repo repo)', source='repos')
     body = f'(let* ((repos (empty)) (batch {first_map}) (empty-batch {empty_map})) (command-result fetch :argv ("python" "probe.py" "a") :returns Int))'

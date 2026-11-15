@@ -1,0 +1,12 @@
+fix: close run-ref confinement handoffs before child integration
+
+Share one image-root path walk (image_store.resolve_in_root) with the
+interpreter pins; code a spawner silent until its ready deadline as
+unavailable; make the tree depth and entry bounds documented profile
+constants checked at seeding and provisioning, coding a refused clone as
+host-side corruption; create the child control root before cloning so an
+orphan clone is never discarded unless it is bound to the child run id;
+fsync the run-ref-children entry; test a torn recipe next to published
+authority.
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

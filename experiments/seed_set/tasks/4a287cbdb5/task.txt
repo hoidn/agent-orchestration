@@ -1,0 +1,5 @@
+Fix generic typed guidance validation
+
+The change is in orchestrator/workflow_lisp/result_guidance.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_procedures.py::test_compile_generic_identity_with_description_only_return_guidance` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

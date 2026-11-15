@@ -1,0 +1,6 @@
+Check cond else body under emitted-clause false facts only
+
+The change is in orchestrator/workflow_lisp/typecheck_proofs.py.
+
+The check currently fails with:
+    E       Failed: DID NOT RAISE <class 'orchestrator.workflow_lisp.diagnostics.LispFrontendCompileError'>

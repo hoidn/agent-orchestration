@@ -1,0 +1,5 @@
+Lower direct provider and command return values
+
+The change is in orchestrator/contracts/prompt_contract.py and orchestrator/workflow_lisp/lowering/values.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_prompt_contract_injection.py::test_render_output_bundle_contract_block_root_field_renders_json_value_schema` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

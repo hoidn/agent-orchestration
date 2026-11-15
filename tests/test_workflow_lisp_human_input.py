@@ -29,11 +29,11 @@ def _expression(source: str) -> SyntaxNode:
     )
 
 
-def _type_env(span) -> FrontendTypeEnvironment:
+def _type_env(span, target: str = "2.40") -> FrontendTypeEnvironment:
     return FrontendTypeEnvironment.from_module(
         WorkflowLispModule(
             language_version="0.1",
-            target_dsl_version="2.35",
+            target_dsl_version=target,
             module_name=None,
             imports=(),
             exports=(),
@@ -78,7 +78,7 @@ def test_request_input_types_as_fixed_reply_and_infers_host_effect() -> None:
         target_dsl_version="2.35",
     )
 
-    typed = typecheck_expression(expr, type_env=_type_env(expr.span), value_env={})
+    typed = typecheck_expression(expr, type_env=_type_env(expr.span, "2.35"), value_env={})
 
     assert typed.type_ref.name == "HumanReply"
     assert typed.effect_summary.direct_effects == frozenset({HostInputEffect()})
@@ -88,9 +88,9 @@ def test_request_input_types_as_fixed_reply_and_infers_host_effect() -> None:
 
 def test_request_input_requires_a_string_question() -> None:
     expr = elaborate_expression(
-        _expression("(request-input false)"),
+        _expression("(request-input false :returns String)"),
         bound_names=frozenset(),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:

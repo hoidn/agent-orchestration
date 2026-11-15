@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_generic_unions.py::test_non_generic_union_identity_and_build_encoding_are_unchanged"
+  ],
+  "timeout_sec": 600
+}

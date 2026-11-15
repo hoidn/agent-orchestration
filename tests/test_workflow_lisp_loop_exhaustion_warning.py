@@ -16,7 +16,7 @@ from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bund
 
 
 CODE = "loop_missing_on_exhausted"
-LOOP = "(loop/recur :max 3 :state 0EXHAUSTED (fn (n) (if (>= n 2) (done n) (continue (+ n 1)))))"
+LOOP = "(loop/recur ((n 0)) :max 3EXHAUSTED (if (>= n 2) (done n) (continue (+ n 1))))"
 
 
 def _source(*, in_procedure: bool = False, exhausted: str = "") -> str:
@@ -26,7 +26,7 @@ def _source(*, in_procedure: bool = False, exhausted: str = "") -> str:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.39")\n'
+        '  (:target-dsl "2.40")\n'
         "  (defmodule counter)\n"
         "  (export run)\n"
         f"{procedure}"

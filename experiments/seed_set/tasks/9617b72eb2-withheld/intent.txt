@@ -1,0 +1,7 @@
+feat: copy confined run-ref workspaces with checkpoint headers
+
+Add an st_dev pin to safe_tree regular-file reads, bounded reads and
+no-follow symlink-target reads to WorkspaceFiles, and the descriptor-rooted
+seeding/checkpoint copier with the two-phase run_ref_checkpoint_header.v1
+(intent, sync, committed), the initial header and the resume preflight
+repair in run_ref/workspace.py.

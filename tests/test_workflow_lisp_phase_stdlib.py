@@ -27,6 +27,7 @@ from orchestrator.workflow_lisp.modules import build_import_scope
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding, CommandBoundaryEnvironment, ExternalToolBinding, build_workflow_catalog, elaborate_workflow_definitions, typecheck_workflow_definitions
+from tests.source_edits import replace_exact
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -69,6 +70,9 @@ def test_reusable_result_bundle_delegates_exact_unframed_json(
     ]
     assert json.loads(capsys.readouterr().out) == payload
 VALID_REVIEW_LOOP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_review_loop.orc"
+# The review-loop fixture at 2.35 with its exact effect clauses, for the one test whose refusal code
+# depends on the target (Task 4b).
+VALID_REVIEW_LOOP_235_FIXTURE = FIXTURES / "valid" / "phase_stdlib_review_loop_235.orc"
 VALID_PHASE_SCOPE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_scope_stdlib_targets.orc"
 VALID_NESTED_IMPLEMENTATION_PHASE_FIXTURE = FIXTURES / "valid" / "design_delta_nested_implementation_phase.orc"
 VALID_NESTED_SAME_FILE_CALL_FIXTURE = (
@@ -126,8 +130,7 @@ def _write_module(path: Path, body: str) -> Path:
 def _rewrite_fixture(path: Path, *, replacements: tuple[tuple[str, str], ...], tmp_path: Path, filename: str) -> Path:
     source = path.read_text(encoding="utf-8")
     for old, new in replacements:
-        assert old in source, f"fixture text not found: {old}"
-        source = source.replace(old, new, 1)
+        source = replace_exact(source, old, new)
     return _write_module(tmp_path / filename, source)
 
 
@@ -238,7 +241,9 @@ def test_typecheck_accepts_generic_phase_ctx_for_phase_target(tmp_path: Path) ->
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
+                "  (defmodule generic_phase_target_ok)",
+                "  (import std/phase :only (with-phase))",
                 "  (defpath WorkReportTarget",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -609,10 +614,10 @@ def test_linked_builtin_std_phase_owner_lane_fails_closed_on_review_loop_result_
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    broken_phase_source = (STDLIB_MODULE_ROOT / "std" / "phase.orc").read_text(encoding="utf-8").replace(
+    broken_phase_source = replace_exact(
+        (STDLIB_MODULE_ROOT / "std" / "phase.orc").read_text(encoding="utf-8"),
         "(defunion ReviewLoopResult",
         "(defunion BrokenReviewLoopResult",
-        1,
     )
     _write_module(
         tmp_path / "std" / "context.orc",
@@ -729,8 +734,10 @@ def test_typecheck_accepts_review_revise_loop_name_as_stdlib_macro_argument(tmp_
 
 
 def test_typecheck_rejects_review_revise_loop_without_imported_std_phase_surface(tmp_path: Path) -> None:
+    # Below 2.39 the refusal is `stdlib_extension_missing_import_route`; at 2.40 the same source
+    # refuses `stdlib_import_route_required` (Task 4b).
     path = _rewrite_fixture(
-        VALID_REVIEW_LOOP_FIXTURE,
+        VALID_REVIEW_LOOP_235_FIXTURE,
         replacements=(
             (
                 "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult review-revise-loop with-phase))\n",
@@ -810,8 +817,9 @@ def test_typecheck_accepts_generic_phase_scoped_provider_result_record(tmp_path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule generic_phase_provider_result)",
+                "  (import std/phase :only (with-phase))",
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',

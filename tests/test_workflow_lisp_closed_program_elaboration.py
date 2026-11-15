@@ -72,6 +72,7 @@ from orchestrator.workflow_lisp.wcc.model import (
 )
 from orchestrator.workflow_lisp.wcc.use_site_scope import rename_capturing_binders
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
+from tests.source_edits import replace_exact
 
 
 _SOURCE = '''(workflow-lisp
@@ -101,7 +102,7 @@ def _compile_and_elaborate(
     commands: dict[str, ExternalToolBinding] = _COMMANDS,
     entry_workflow: str = "run",
 ):
-    source = source.replace("TARGET", CURRENT_TARGET_DSL_VERSION)
+    source = source.replace("TARGET", CURRENT_TARGET_DSL_VERSION)  # callers may pass a source with no placeholder
     path = (tmp_path / Path(*module.split("/"))).with_suffix(".orc")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
@@ -500,8 +501,9 @@ def test_nested_loop_continues_keep_the_nearest_loop_target(tmp_path: Path) -> N
 
 _PHASE_TARGET_SOURCE = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "TARGET")
   (defmodule cp/closed_elaboration)
+  (import std/phase :only (with-phase))
   (export run)
   (defpath WorkReportTarget
     :kind relpath :under "artifacts/work" :must-exist false)
@@ -559,7 +561,8 @@ def test_closed_generic_phase_target_joins_artifact_root_and_phase_path(tmp_path
     assert target.args[1].value == "implementation/execution-report.md"
 
 
-_COMPOUND_PHASE_CONTEXT_SOURCE = _GENERIC_PHASE_TARGET_SOURCE.replace(
+_COMPOUND_PHASE_CONTEXT_SOURCE = replace_exact(
+    _GENERIC_PHASE_TARGET_SOURCE,
     "(with-phase ctx implementation (phase-target execution-report))",
     """(with-phase
       (record PhaseCtx
@@ -653,7 +656,8 @@ def test_closed_short_circuit_match_survives_let_call_done_and_loop_bindings(
 ) -> None:
     match_expr = "(match item ((A a) (check a.n)) ((B b) (check b.n)))"
     and_expr = f"(and true {match_expr})"
-    relay_source = _AND_MATCH_SHORT_CIRCUIT_SOURCE.replace(
+    relay_source = replace_exact(
+        _AND_MATCH_SHORT_CIRCUIT_SOURCE,
         "  (defworkflow run",
         """  (defproc relay ((flag Bool)) -> Bool
     (command-result relay :argv ("python" "probe.py" flag) :returns Bool))
@@ -690,7 +694,8 @@ def test_closed_short_circuit_match_survives_let_call_done_and_loop_bindings(
     }
 
     for name, source, body_source in cases:
-        source = source.replace(
+        source = replace_exact(
+            source,
             "(and true\n      (match item\n        ((A a) (check a.n))\n        ((B b) (check b.n))))",
             body_source,
         )
@@ -753,7 +758,8 @@ def test_closed_effectful_and_keeps_right_operand_inside_lazy_arm(tmp_path: Path
             )
 
 
-_AND_LOOP_SHORT_CIRCUIT_SOURCE = _SHORT_CIRCUIT_SOURCE.replace(
+_AND_LOOP_SHORT_CIRCUIT_SOURCE = replace_exact(
+    _SHORT_CIRCUIT_SOURCE,
     "(defworkflow run () -> Bool\n    (and false (check 1)))",
     """(defworkflow run () -> Bool
     (and true
@@ -785,7 +791,8 @@ def test_closed_short_circuit_uses_a_join_for_a_loop_operand(tmp_path: Path) -> 
     assert isinstance(join.continuation, WccIf)
 
 
-_CONTROL_SHORT_CIRCUIT_SOURCE = _SHORT_CIRCUIT_SOURCE.replace(
+_CONTROL_SHORT_CIRCUIT_SOURCE = replace_exact(
+    _SHORT_CIRCUIT_SOURCE,
     "(defworkflow run () -> Bool\n    (and false (check 1)))",
     """(defworkflow run ((go Bool)) -> Bool
     (and (if go (check 1) (check 2)) (check 3)))""",
@@ -837,7 +844,8 @@ def test_closed_short_circuit_keeps_effectful_select_in_condition_position_lazy(
     assert any(isinstance(node, WccIf) for node in _walk_wcc(body))
 
 
-_SHADOWED_SHORT_CIRCUIT_SOURCE = _SHORT_CIRCUIT_SOURCE.replace(
+_SHADOWED_SHORT_CIRCUIT_SOURCE = replace_exact(
+    _SHORT_CIRCUIT_SOURCE,
     "(defworkflow run () -> Bool\n    (and false (check 1)))",
     """(defworkflow run () -> Bool
     (let* ((x false)) (and (let* ((x (check 1))) x) x)))""",
@@ -1014,7 +1022,8 @@ _LOOP_SEED_BUDGET_SOURCE = '''(workflow-lisp
 '''
 
 
-_MACRO_LOOP_SEED_BUDGET_SOURCE = _LOOP_SEED_BUDGET_SOURCE.replace(
+_MACRO_LOOP_SEED_BUDGET_SOURCE = replace_exact(
+    _LOOP_SEED_BUDGET_SOURCE,
     "  (defworkflow run () -> Int\n    (loop/recur :max (budget 3)\n      :state (loop-state (i Int (seed 0)))\n      :on-exhausted state.i\n      (fn (state) (done state.i))))",
     """  (defmacro loop-with-budget (initial maximum)
     (loop/recur :max maximum
@@ -1059,7 +1068,8 @@ def test_closed_loop_seed_and_budget_effects_are_bound_in_authored_order(
 def test_closed_macro_loop_uses_expanded_keyword_order_over_argument_spans(
     tmp_path: Path,
 ) -> None:
-    source = _MACRO_LOOP_SEED_BUDGET_SOURCE.replace(
+    source = replace_exact(
+        _MACRO_LOOP_SEED_BUDGET_SOURCE,
         "TARGET",
         CURRENT_TARGET_DSL_VERSION,
     )
@@ -1112,7 +1122,8 @@ def test_closed_macro_loop_uses_expanded_keyword_order_over_argument_spans(
 def test_condition_retained_input_stays_out_of_legacy_ast_views_and_identities(
     tmp_path: Path,
 ) -> None:
-    source = _LOOP_IN_IF_CONDITION_SOURCE.replace(
+    source = replace_exact(
+        _LOOP_IN_IF_CONDITION_SOURCE,
         "TARGET",
         CURRENT_TARGET_DSL_VERSION,
     )
@@ -1595,7 +1606,8 @@ def test_closed_procedure_argument_prebinds_a_loop_inside_record_field(
     assert isinstance(body, WccJoin)
 
 
-_REVERSED_LOOP_SEED_BUDGET_SOURCE = _LOOP_SEED_BUDGET_SOURCE.replace(
+_REVERSED_LOOP_SEED_BUDGET_SOURCE = replace_exact(
+    _LOOP_SEED_BUDGET_SOURCE,
     "(loop/recur :max (budget 3)\n      :state (loop-state (i Int (seed 0)))",
     "(loop/recur :state (loop-state (i Int (seed 0)))\n      :max (budget 3)",
 )
@@ -1626,7 +1638,8 @@ def test_closed_loop_preserves_state_before_budget_keyword_order(
 
 
 
-_LOOP_IN_IF_CONDITION_SOURCE = _LOOP_SEED_BUDGET_SOURCE.replace(
+_LOOP_IN_IF_CONDITION_SOURCE = replace_exact(
+    _LOOP_SEED_BUDGET_SOURCE,
     """(defworkflow run () -> Int
     (loop/recur :max (budget 3)
       :state (loop-state (i Int (seed 0)))
@@ -1690,11 +1703,12 @@ def test_closed_loop_operand_order_survives_if_and_cond_prefixes(
           :on-exhausted false
           (fn (state) (done true)))"""
     condition = f"({form} {loop} true false)" if form == "if" else f"(cond ({loop} true) (else false))"
-    source = _LOOP_SEED_BUDGET_SOURCE.replace(
+    source = replace_exact(
+        _LOOP_SEED_BUDGET_SOURCE,
         "(loop/recur :max (budget 3)\n      :state (loop-state (i Int (seed 0)))\n      :on-exhausted state.i\n      (fn (state) (done state.i)))",
         condition,
     )
-    source = source.replace("(defworkflow run () -> Int", "(defworkflow run () -> Bool")
+    source = replace_exact(source, "(defworkflow run () -> Int", "(defworkflow run () -> Bool")
 
     body = _compile_and_elaborate(
         tmp_path,
@@ -1729,11 +1743,12 @@ def test_closed_loop_order_survives_repeated_condition_normalization(
       :on-exhausted false
       (fn (state) (done true)))"""
     inner = condition_template.format(loop=loop)
-    source = _LOOP_SEED_BUDGET_SOURCE.replace(
+    source = replace_exact(
+        _LOOP_SEED_BUDGET_SOURCE,
         "(loop/recur :max (budget 3)\n      :state (loop-state (i Int (seed 0)))\n      :on-exhausted state.i\n      (fn (state) (done state.i)))",
         f"(if {inner} true false)",
     )
-    source = source.replace("(defworkflow run () -> Int", "(defworkflow run () -> Bool")
+    source = replace_exact(source, "(defworkflow run () -> Int", "(defworkflow run () -> Bool")
 
     body = _compile_and_elaborate(
         tmp_path,
@@ -1754,7 +1769,8 @@ def test_closed_loop_order_survives_repeated_condition_normalization(
 def test_closed_nested_loop_done_head_keeps_authored_order_in_body_prefix(
     tmp_path: Path,
 ) -> None:
-    source = _LOOP_SEED_BUDGET_SOURCE.replace(
+    source = replace_exact(
+        _LOOP_SEED_BUDGET_SOURCE,
         "(defworkflow run () -> Int\n    (loop/recur :max (budget 3)\n      :state (loop-state (i Int (seed 0)))\n      :on-exhausted state.i\n      (fn (state) (done state.i))))",
         """(defworkflow run () -> Bool
       (if (loop/recur :max 1
@@ -1793,7 +1809,8 @@ def test_closed_nested_loop_done_head_keeps_authored_order_in_body_prefix(
 def test_closed_nested_operand_prefixes_keep_group_offsets_and_order(
     tmp_path: Path,
 ) -> None:
-    source = _LOOP_SEED_BUDGET_SOURCE.replace(
+    source = replace_exact(
+        _LOOP_SEED_BUDGET_SOURCE,
         "  (defworkflow run () -> Int\n    (loop/recur :max (budget 3)\n      :state (loop-state (i Int (seed 0)))\n      :on-exhausted state.i\n      (fn (state) (done state.i))))",
         """  (defproc budget-arg ((n Int)) -> Int
     (command-result budget-arg :argv ("python" "probe.py" n) :returns Int))
@@ -2251,8 +2268,8 @@ def test_prepared_list_captures_preserve_materialization_order(tmp_path: Path, m
                        :fixed (list (+ x 1) (let* ((x (+ x 2))) x)))))
           (let* ((x 100)) (list (hook 2) (hook 3))))))'''
     if materialized:
-        source = source.replace("((hook (bind-proc", "((saved (list (+ x 1) (let* ((x (+ x 2))) x))) (hook (bind-proc")
-        source = source.replace(":fixed (list (+ x 1) (let* ((x (+ x 2))) x))", ":fixed saved")
+        source = replace_exact(source, "((hook (bind-proc", "((saved (list (+ x 1) (let* ((x (+ x 2))) x))) (hook (bind-proc")
+        source = replace_exact(source, ":fixed (list (+ x 1) (let* ((x (+ x 2))) x))", ":fixed saved")
     program = build(tmp_path, source)
     operations = []
     original = values.evaluate_pure_expr

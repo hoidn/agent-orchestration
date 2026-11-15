@@ -1,0 +1,3 @@
+tests/test_workflow_lisp_expressions.py::test_map_expr_flattens_field_access_base_substitution
+tests/test_workflow_lisp_expressions.py
+tests/test_workflow_lisp_provider_supervision.py
