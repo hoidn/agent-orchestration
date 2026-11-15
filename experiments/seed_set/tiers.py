@@ -254,16 +254,7 @@ def build(work, workers, runs, out=b.HERE, repo=b.ROOT, tip=b.TIP, prior=()):
         if widened:
             admitted, skipped = evaluate_tier(tiered, rows, prior_rows, work, workers, runs)
         by_tier[tier] = (tiered, admitted, skipped, widened)
-    cache = work / "t3_withheld.jsonl"  # finished T3 withheld checks are reused after a restart, never re-run
-    done = {r["id"]: r for r in map(json.loads, cache.read_text().splitlines())} if cache.is_file() else {}
-    todo = [r for r in t3 if r["id"] not in done]
-    with ProcessPoolExecutor(max_workers=workers) as pool_:
-        for result in pool_.map(b.withheld_only, [out / "tasks" / r["id"] for r in todo], [work] * len(todo),
-                                [runs] * len(todo), [repo] * len(todo)):
-            done[result["id"]] = result
-            with cache.open("a") as handle:
-                handle.write(json.dumps(result, sort_keys=True) + "\n")
-    t3_results = [done[r["id"]] for r in t3]
+    t3_results = t3_withheld_checks(t3, work, workers, runs, out, repo)
     staged = out / "tasks_new"
     b.remove(staged)
     staged.mkdir()
@@ -304,6 +295,21 @@ def build(work, workers, runs, out=b.HERE, repo=b.ROOT, tip=b.TIP, prior=()):
     (out / "ladder_screening.jsonl").write_text("".join(json.dumps({"tip": tip, **r}, sort_keys=True) + "\n"
                                                         for r in record))
     verify(out)
+
+
+def t3_withheld_checks(t3, work, workers, runs, out, repo):
+    """The check-withheld form's result for each first-build T3 row, in order; finished checks are reused after a
+    restart from `work/t3_withheld.jsonl`, never re-run."""
+    cache = work / "t3_withheld.jsonl"
+    done = {r["id"]: r for r in map(json.loads, cache.read_text().splitlines())} if cache.is_file() else {}
+    todo = [r for r in t3 if r["id"] not in done]
+    with ProcessPoolExecutor(max_workers=workers) as pool_:
+        for result in pool_.map(b.withheld_only, [out / "tasks" / r["id"] for r in todo], [work] * len(todo),
+                                [runs] * len(todo), [repo] * len(todo)):
+            done[result["id"]] = result
+            with cache.open("a") as handle:
+                handle.write(json.dumps(result, sort_keys=True) + "\n")
+    return [done[r["id"]] for r in t3]
 
 
 def tier_records(tier, tiered, taken, skipped, rows):
