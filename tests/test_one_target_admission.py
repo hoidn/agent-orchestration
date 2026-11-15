@@ -14,11 +14,16 @@ from pathlib import Path
 import pytest
 
 from orchestrator.cli.commands import repl as repl_cli
+from orchestrator.contracts.closed_program.targets import (
+    CURRENT_TARGET_DSL_VERSION, READABLE_PROGRAM_TARGET_DSL_VERSIONS, RETIRED_TARGETS_RELEASE,
+)
 from orchestrator.workflow_lisp import build
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from tests.test_executor_retirement_cutoff import PROGRAM, cli
 
 OLDER_TARGETS = ("2.35", "2.39")
+MIDDLE_TARGETS = ("2.36", "2.37", "2.38")  # with OLDER_TARGETS, every target that v0.2.1 compiled
+VERSIONING = Path(__file__).resolve().parents[1] / "specs" / "versioning.md"
 MIGRATION = ("v0.2.1", "migrating-from-an-older-target")
 PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
   (defmodule dep/dep) (export get)
@@ -106,3 +111,22 @@ def test_older_target_run_ref_child_refuses_before_a_child_run_exists(tmp_path, 
     assert all(marker in memo.terminal.data["message"] for marker in MIGRATION)  # the child's cause reaches the parent
     assert not memo.active_commits
     assert not list(refs.rglob("state.json")) and not list(refs.rglob("run.json"))
+
+
+@pytest.mark.parametrize("target", MIDDLE_TARGETS)
+@pytest.mark.parametrize("command", ("compile", "run"))
+def test_every_older_target_refuses_compile_and_run_with_the_migration_message(tmp_path, command, target):
+    returncode, text, code = _cli_refusal(tmp_path, target, command)
+
+    assert returncode == 2 and _refused(text, code), text
+    assert _published(tmp_path) == []
+
+
+def test_the_versioning_label_table_names_the_readable_older_targets_and_their_release():
+    section = VERSIONING.read_text(encoding="utf-8").split("## Targets and identity", 1)[1].split("\n## ", 1)[0]
+    (row,) = [line.split("|")[1:-1] for line in section.splitlines() if line.startswith("| 2.")]
+    first, last = (int(label.split(".")[1]) for label in row[0].strip().split("-"))
+
+    assert {f"2.{minor}" for minor in range(first, last + 1)} == (
+        READABLE_PROGRAM_TARGET_DSL_VERSIONS - {CURRENT_TARGET_DSL_VERSION})
+    assert row[2].strip() == f"`{RETIRED_TARGETS_RELEASE}` only"

@@ -81,9 +81,6 @@ ALLOWED = {
     "orchestrator/workflow_lisp/closed/build.py": (  # 14
         'target_dsl_version=PATH_MODE_RUN_REF_TARGET_DSL_VERSION,',
     ),
-    "orchestrator/workflow_lisp/closed/target.py": (  # 2
-        'major, minor = (int(part) for part in target.split("."))',
-    ),
 }
 
 
