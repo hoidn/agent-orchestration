@@ -378,11 +378,14 @@ def not_a_limit(study, unit, reason):
     (re-review n3). The settled unit is no longer `cut` but what the rules then make it: the incident its cut set
     aside, an incident when it failed with a provider error, else what its outcome says (a natural failure scores
     0). The decision and the reason go to the ledger, and that pause no longer closes starts; nothing runs again
-    (a unit that is not cut has no re-run). Taken only while the pause is open. A unit not yet settled refuses with
-    the way out (`spend.UNSETTLED`)."""
+    (a unit that is not cut has no re-run). Taken only while the pause is open, and never for a pause whose rule
+    is a shape the kit knows is a real limit (`units.RECORDED`, `units.PAID`; final scoped check n10). A unit not
+    yet settled refuses with the way out (`spend.UNSETTLED`)."""
     if not reason.strip():
         raise SystemExit("not-a-limit needs the operator's reason: what the raw result shows")
-    spend.limit_pause(spend.rows(study.ledger), unit)
+    if (rule := spend.limit_pause(spend.rows(study.ledger), unit)["rule"]) in (units.RECORDED, units.PAID):
+        raise SystemExit(f"{unit} was paused by {rule}, a shape the kit knows is a real limit: not-a-limit cannot "
+                         "withdraw it; `resume-after-limit` after the reset, with the owner's meter reading")
     path, calls_root = unit_files(unit)
     if not path.is_file() or "calls" not in load(path):
         raise SystemExit(f"{unit} is not settled ({spend.UNSETTLED})")

@@ -411,6 +411,18 @@ def cut_run(runner, k=1, cut=None, stdout=(), stderr="", **facts):
     return records
 
 
+@pytest.mark.parametrize("stdout", [  # final scoped check n10: shapes the kit knows are a real limit
+    [{"type": "result", "is_error": True, "api_error": "usage_limit_reached", "api_error_status": 429, "result": "hit"}],
+    [{"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "isUsingOverage": True}},
+     {"type": "result", "is_error": False, "result": "done"}]])
+def test_not_a_limit_refuses_a_pause_whose_rule_is_a_known_limit(runner, stdout):
+    records = cut_run(runner, stdout=stdout)
+    with pytest.raises(SystemExit, match="resume-after-limit"):
+        study.not_a_limit(runner, str(records), "operator says so")
+    assert ([row["unit"] for row in spend.open_pauses(spend.rows(runner.ledger))],
+            "cut" in json.loads((records / "study.json").read_text())) == ([str(records)], True)
+
+
 def test_not_a_limit_reopens_starts_and_files_a_provider_error_as_an_incident(runner, monkeypatch):  # re-review n3
     records = cut_run(runner, stdout=[REJECTED, {**ERROR, "api_error_status": 403, "result": "API Error: 403"}])
     row = study.not_a_limit(runner, str(records), "a 403 beside a stale rejected event, not a limit")

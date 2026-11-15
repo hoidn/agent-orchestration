@@ -128,8 +128,9 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
 - When the raw result shows no usage limit, `study.py not-a-limit UNIT --reason R` records the operator's decision
   and reason in the ledger while the pause is open: the settled unit is no longer `cut` but what the rules make it
   (the incident its cut set aside, an incident when it failed with a provider error, else its outcome), its pause
-  stops closing starts, and nothing runs again. A unit not yet settled (its runner was killed before it settled
-  the unit) refuses, and the pause and the refusal say the way out: `settle` the run first, then `not-a-limit`. A
+  stops closing starts, and nothing runs again. It refuses a pause by the recorded answer or by paid extra usage,
+  shapes the kit knows are a real limit: those reopen by `resume-after-limit` only. A unit not yet settled (its
+  runner was killed before it settled the unit) refuses, and the pause and the refusal say the way out: `settle` the run first, then `not-a-limit`. A
   probe run is settled only by `probe`, which refuses while starts are closed, so for it the way is
   `resume-after-limit` after the reset (where no pause named a reset, a typed reset after the hit is accepted); the
   next `probe` then settles it as a cut run and runs its slot again.
