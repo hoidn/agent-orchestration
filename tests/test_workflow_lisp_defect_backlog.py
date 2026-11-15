@@ -773,7 +773,7 @@ def slots(fields: str, fills: str, template: str, arguments: str, parameters: st
 @dataclass(frozen=True)
 class ProviderRow:
     wanted: tuple | None
-    source: str = provider_fixture.SOURCE.replace('"2.35"', '"2.40"')
+    source: str = provider_fixture.SOURCE
     prompt: tuple[str, str] | None = None  # the prompt extern's kind and path; "OUTSIDE" is the outside file
     inputs: tuple[str, ...] = ()
     payload: str = '{"ok":true}'
@@ -961,7 +961,7 @@ def test_program_row(row_id, tmp_path):
 
 @pytest.mark.parametrize("row_id", sorted(A2_ROWS))
 def test_confined_site_reached_from_a_map_body_row(row_id, tmp_path, monkeypatch):
-    controller = run_ref_fixture.CONFINED.replace('"2.38"', '"2.40"').replace("EXTRA", "EXTRA " + A2_ROUTES)
+    controller = run_ref_fixture.CONFINED.replace("EXTRA", "EXTRA " + A2_ROUTES)
     monkeypatch.setattr(run_ref_fixture, "CONFINED", controller)
 
     settle(row_id, build_outcome(

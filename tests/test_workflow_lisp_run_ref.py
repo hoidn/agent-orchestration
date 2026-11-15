@@ -55,6 +55,7 @@ from orchestrator.workflow_lisp.wcc import (
 )
 from orchestrator.workflow_lisp.wcc.elaborate import _substitute_wcc_payload
 from orchestrator.workflow_lisp.workflows import WorkflowCatalog, WorkflowSignature
+from tests.source_edits import replace_exact
 
 
 FORM_PATH = ("workflow-lisp", "run-ref-test")
@@ -251,7 +252,8 @@ def test_run_ref_inputs_preserve_visible_callable_context_without_state_leak(
     visibility: str,
     expected_type: type,
 ) -> None:
-    source = _mode_one_source().replace(
+    source = replace_exact(
+        _mode_one_source(),
         ":inputs ()",
         f":inputs (:value {call_source})",
     )
@@ -294,7 +296,7 @@ def test_run_ref_inputs_preserve_visible_callable_context_without_state_leak(
 
 
 def test_run_ref_bundle_uses_workflow_resolver_without_session_leak() -> None:
-    source = _mode_one_source().replace("child", "local-alias")
+    source = replace_exact(_mode_one_source(), "child", "local-alias")
     observed: list[tuple[str, object, tuple[str, ...]]] = []
 
     def resolve_workflow(name, span, form_path):
@@ -356,7 +358,7 @@ def test_run_ref_repository_locator_normalization_is_clone_root_independent(
 
     expressions = tuple(
         parse_run_ref_expression(
-            _expression(_mode_one_source().replace("file:///workspace", locator)),
+            _expression(replace_exact(_mode_one_source(), "file:///workspace", locator)),
             target_dsl_version="2.40",
         )
         for locator in spellings
@@ -366,7 +368,7 @@ def test_run_ref_repository_locator_normalization_is_clone_root_independent(
 
 
 def test_run_ref_invalid_repository_locator_is_literal_diagnostic() -> None:
-    source = _mode_one_source().replace("file:///workspace", "relative/repo")
+    source = replace_exact(_mode_one_source(), "file:///workspace", "relative/repo")
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
@@ -384,7 +386,8 @@ def test_run_ref_invalid_repository_locator_is_literal_diagnostic() -> None:
     ("source", "expected_code"),
     (
         (
-            _mode_one_source().replace(
+            replace_exact(
+                _mode_one_source(),
                 ':commit "0123456789abcdef0123456789abcdef01234567"',
                 ':repo "file:///duplicate" '
                 ':commit "0123456789abcdef0123456789abcdef01234567"',
@@ -392,7 +395,8 @@ def test_run_ref_invalid_repository_locator_is_literal_diagnostic() -> None:
             "run_ref_shape_invalid",
         ),
         (
-            _mode_one_source().replace(
+            replace_exact(
+                _mode_one_source(),
                 ':commit "0123456789abcdef0123456789abcdef01234567"',
                 ':branch "main" '
                 ':commit "0123456789abcdef0123456789abcdef01234567"',
@@ -400,40 +404,39 @@ def test_run_ref_invalid_repository_locator_is_literal_diagnostic() -> None:
             "run_ref_shape_invalid",
         ),
         (
-            _mode_one_source().replace(
+            replace_exact(
+                _mode_one_source(),
                 "(:bundle child)",
                 '(:path "candidate.orc")',
             ),
             "run_ref_program_mode_invalid",
         ),
         (
-            _mode_one_source().replace(
+            replace_exact(
+                _mode_one_source(),
                 "(:bundle child)",
                 '(:bundle child :path "candidate.orc" :entry candidate)',
             ),
             "run_ref_program_mode_invalid",
         ),
         (
-            _mode_one_source().replace(
+            replace_exact(
+                _mode_one_source(),
                 ":inputs ()",
                 ":inputs () :returns Value",
             ),
             "run_ref_program_mode_invalid",
         ),
         (
-            _mode_one_source().replace(
+            replace_exact(
+                _mode_one_source(),
                 ":policy (:setup ())",
                 ":policy (:environment :deterministic-effect-free :setup ())",
             ),
             "run_ref_program_mode_invalid",
         ),
         (
-            _mode_one_source()
-            .replace("(:bundle child)", '(:path "candidate.orc" :entry candidate)')
-            .replace(
-                ":policy (:setup ())",
-                ":policy (:setup ())",
-            ),
+            replace_exact(_mode_one_source(), "(:bundle child)", '(:path "candidate.orc" :entry candidate)'),
             "run_ref_program_mode_invalid",
         ),
     ),
@@ -463,7 +466,8 @@ def test_run_ref_nested_shape_and_mode_restrictions(
 def test_run_ref_setup_static_policy_failures_are_literal_diagnostics(
     setup: str,
 ) -> None:
-    source = _mode_one_source().replace(
+    source = replace_exact(
+        _mode_one_source(),
         ":setup ()",
         f":setup {setup}",
     )
@@ -632,7 +636,7 @@ def test_run_ref_structural_errors_use_closed_shape_diagnostic(source: str) -> N
 
 
 def test_run_ref_workflow_program_below_target_238_is_unavailable() -> None:
-    source = _mode_one_source().replace("(:bundle child)", "(:workflow child)")
+    source = replace_exact(_mode_one_source(), "(:bundle child)", "(:workflow child)")
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(_expression(source), target_dsl_version="2.35")
@@ -680,7 +684,7 @@ def test_run_ref_nonliteral_static_fields_use_closed_literal_diagnostic(
 def test_run_ref_program_discriminator_uses_closed_mode_diagnostic(
     program: str,
 ) -> None:
-    source = _mode_one_source().replace("(:bundle child)", program)
+    source = replace_exact(_mode_one_source(), "(:bundle child)", program)
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(

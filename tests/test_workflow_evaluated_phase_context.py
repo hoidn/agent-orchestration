@@ -15,7 +15,8 @@ from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from tests.test_workflow_lisp_closed_program_elaboration import _GENERIC_PHASE_TARGET_SOURCE
-from tests.workflow_lisp_closed_program_helpers import TARGET, build, install
+from tests.workflow_lisp_closed_program_helpers import build, install
+from tests.source_edits import replace_exact
 
 
 # Source of test_compile_stage3_module_maps_phase_targets_by_name_not_position;
@@ -123,7 +124,7 @@ def test_fixed_phase_target_values_follow_named_order_after_readback(
         "prompt_externs": {"prompts.implementation.execute": "prompt.md"},
         "workspace_root": tmp_path,
     }
-    source_path = install(tmp_path, _FIXED_PHASE_TARGET_SOURCE.replace("TARGET", TARGET))
+    source_path = install(tmp_path, _FIXED_PHASE_TARGET_SOURCE)
     typed = compile_typed_program(
         source_path,
         entry_workflow="phase_targets_swapped::run-implementation-attempt",
@@ -157,7 +158,8 @@ def test_fixed_phase_target_values_follow_named_order_after_readback(
 def test_hidden_generic_phase_target_default_respects_result_refinement(
     tmp_path: Path, phase: str,
 ) -> None:
-    source = _GENERIC_PHASE_TARGET_SOURCE.replace(
+    source = replace_exact(
+        _GENERIC_PHASE_TARGET_SOURCE,
         "with-phase ctx implementation", f"with-phase ctx {phase}",
     )
     compiled = build(tmp_path, source, boundaries={}, providers={}, prompts={})
