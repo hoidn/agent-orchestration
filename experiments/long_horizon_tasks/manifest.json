@@ -177,6 +177,7 @@
   "experiments/long_horizon_tasks/passthrough.py": "d14e8f5f4279ab9836947e5a586c261b7a893465de55f403796acf3123269268",
   "experiments/long_horizon_tasks/price_check.py": "85b4d8985437e62f7bdb632aaec1bd681fbc738cf6fbc792bbd67d53056209fa",
   "experiments/long_horizon_tasks/price_rule.json": "7adece52af6119cf4b4c9d46ac2d1337f08ef105960d87d53edf132ac8b4442c",
+  "experiments/long_horizon_tasks/readout.py": "5c6c531d135a6a7a757967a0e7c28f1e71dcd546acda0a06d7d84dc6af44ff01",
   "experiments/long_horizon_tasks/record.sh": "751b5ee796aa0ac86537ee2f822070f717237137511548538e600430ff6acaa2",
   "experiments/long_horizon_tasks/recordings.json": "4fb973e544d35e8cc698c6b28a364805f4371044d6aff0f2b8114118509e4a9b",
   "experiments/long_horizon_tasks/relay-compose.yaml": "e86f395a055698c3760fa7a6b50f146a54758f1f3555b9397d81acb7f83b522b",
