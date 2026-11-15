@@ -268,9 +268,13 @@ fixtures of `tests/test_workflow_evaluated_cli.py`,
 `tests/test_workflow_evaluated_run_ref_settlement.py` and
 `tests/test_workflow_evaluated_invalidate.py`.
 
-Targets 2.35/2.36, admitted bounded 2.37, registered bounded 2.38 (agent
-sessions; see versioning), 2.39 and 2.40 use this persistence contract, with
-their separately specified class-specific extensions.
+Target 2.40 uses this persistence contract, with its separately specified
+class-specific extensions; runs recorded at 2.35–2.39 keep it as read-only
+labels. `resume` (with or without `--accept-changes`), `invalidate`,
+`input answer`/`cancel` and REPL attach read the stored program's `target` first
+and refuse a 2.35–2.39 label with `run_target_retired` (naming `v0.2.1`) before
+any lock, compile or write; `report`, the dashboard and the monitor read such a
+run unchanged ([targets and identity](versioning.md#targets-and-identity)).
 [Versioning](versioning.md#version-gating-summary) owns the 2.37 and 2.38
 qualification limits; W3 changes authoring and the packaged `std/improve` API without changing
 this profile, journal or resume guards.
@@ -292,17 +296,14 @@ Under exact `result_persistence_profile: "evaluated_execution.v1"` with
 | `run-ref-attempts.jsonl` | The run-reference coordinator ledger, present only once a run reference has allocated a child attempt ([Target 2.24](#target-224-run-ref-state-settlement-and-resume)) |
 | `state.json` | Derived view (below), absent until the first journal record; never authority |
 
-The artifact's top-level `target` must be a string registered for the evaluated
-route: `"2.35"`, `"2.36"`, bounded `"2.37"` or registered bounded `"2.38"`
-(agent sessions; see versioning), with the
-[existing qualification limits](versioning.md#version-gating-summary). It is
-not the representation version.
-The separate internal run-reference target remains `2.35`. Schema, profile,
-representation and read-back equality are unchanged. Retargeting current source
-from 2.35 to 2.36 changes the fresh program digest when the rebuild is valid
-after required source-caller migration, so retained-run resume refuses
-`resume_program_changed`. An invalid rebuild preserves the earlier compile
-refusal instead. Both refuse before evidence writes without converting authority.
+The artifact's top-level `target` must be a readable label: the current
+`"2.40"`, or one of `"2.35"`–`"2.39"`, which the checker still reads for
+recorded runs. A fresh build writes `"2.40"`. It is not the representation
+version.
+The separate internal run-reference target remains `2.35` (a wire value, not a
+label). Schema, profile, representation and read-back equality are unchanged.
+A run at a 2.35–2.39 label refuses `run_target_retired` before any rebuild, so a
+retarget of its source is never compiled against it.
 
 `run.json`, the program artifact and the empty journal are published, each
 synchronized, before the first record; no attempt is allocated or dispatched

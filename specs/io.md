@@ -9,11 +9,11 @@ services remain in use for admitted evaluated effects. Historical definitions of
 session, supervision, peers, target-2.23 phased or adjudicated IO do not admit
 those retired profiles. Target-2.39 phased delivery uses the existing IO
 validators with the separate [provider publication contract](providers.md#evaluated-phased-provider-delivery-target-239).
-Targets 2.35/2.36 retain current support; registered 2.37
-and bounded 2.38 (Agent Sessions and command-only confined run-ref children) retain only their
-[bounded qualification](versioning.md#version-gating-summary).
-Target 2.39 retains these IO and qualification contracts; its procedure
-authoring changes do not introduce a new result-acceptance profile.
+Target 2.40, the one admitted target, uses these contracts; parallel map, Agent
+Sessions and command-only confined run-ref children keep their
+[bounded qualification](versioning.md#version-gating-summary), and the
+procedure contract introduces no result-acceptance profile. Sections headed with
+an older target record when a contract arrived ([targets and identity](versioning.md#targets-and-identity)).
 
 - Input handling
   - `input_file`: read literal contents; no substitution inside file contents.

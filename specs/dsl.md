@@ -22,8 +22,10 @@ regardless of recorded source suffix, terminality or restart/repair flags;
 there is no historical resume fallback. `report` and the dashboard refuse historical runs
 with `workflow_execution_profile_retired`; they never parse authored YAML or
 compile source to reconstruct semantics. Source compilation, transitive imports, retained
-typed-program capsules, REPL loading and LSP analysis admit only registered
-targets 2.35–2.40 throughout the dependency graph. Older headers are rejected;
+typed-program capsules, REPL loading and LSP analysis admit only the current
+target 2.40 throughout the dependency graph; a 2.35–2.39 header refuses with a
+message that names the guide's migration section and the release `v0.2.1` that
+still compiles it ([targets and identity](versioning.md#targets-and-identity)). Older headers are rejected;
 historical data readers do not reopen source admission. Direct syntax/import
 analysis uses `target_dsl_unsupported`; public CLI old-entry preflight keeps
 `workflow_execution_target_retired` precedence under
@@ -35,7 +37,7 @@ does not widen evaluated admission or select a port of an excluded effect.
 YAML-fenced snippets are structural notation, not authored workflow files.
 
 - Top-level workflow keys
-  - `version`: string. Current source admission is exactly `"2.35"`, `"2.36"`, `"2.37"`, `"2.38"`, `"2.39"`, and `"2.40"`, including every imported module and retained typed-program capsule. These targets select evaluated execution: public `compile`, `run`, `resume` and `invalidate` use the checked closed program and memo-backed run. Target 2.36 adds W3 local hooks and the four-argument `std/improve` (the packaged module is at 2.40, so its importers declare 2.39 or 2.40); bounded 2.37 parallelism and 2.38 command-only confined run-ref/Agent Sessions retain their qualification limits. Target 2.39 adds inference-default procedure contracts and finite source admission; imported 2.35–2.38 definitions retain their defining contracts. See [versioning](versioning.md#version-gating-summary) for availability and historical feature-introduction gates. Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string. Current source admission is exactly `"2.40"`, including every imported module and retained typed-program capsule. It selects evaluated execution: public `compile`, `run`, `resume` and `invalidate` use the checked closed program and memo-backed run. The target includes local hooks with inferred captures and the four-argument `std/improve`, parallel map, command-only confined run-ref children and Agent Sessions within their qualification limits, procedure contracts whose `:effects` is an optional checked upper bound (no `:lowering`; every procedure lowers inline), finite source admission, phased provider delivery and typed host input. A run recorded at 2.35–2.39 is a read-only label: `report` reads it; `resume`, `invalidate`, `input` and REPL attach refuse it with `run_target_retired`. See [versioning](versioning.md#version-gating-summary) for availability and historical feature-introduction gates. Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
