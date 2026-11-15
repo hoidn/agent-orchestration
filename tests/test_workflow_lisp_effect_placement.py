@@ -953,14 +953,17 @@ def test_pure_place_keeps_one_clear_refusal(tmp_path: Path, case: str) -> None:
 
 def test_defect_inside_a_continue_value_is_not_reported_as_a_refusal_to_bind(tmp_path: Path) -> None:
     """Only a value whose own body branches is refused with the advice to bind it; another failure inside
-    the value (here the open defect of a `match` over a variant with a `cond` field) keeps its own report."""
+    the value (here the open defect of defect backlog row D5-binder-hidden, a read of the subject where a binding
+    in the arm hides the arm's binder) keeps its own report."""
 
-    subject = f"(match (variant Shape CIRCLE :r (cond ((> n 5) 6) (else 1))) ((CIRCLE c) {E(1)}) ((SQUARE q) 0))"
-    write(tmp_path, "Int", f"(loop/recur ((s 0)) :max 1 :on-exhausted s (if (= n 7) (done s) (continue {subject})))")
+    value = f"(match u ((A a) (let* ((a 5)) (variant U A :n (+ a u.n {E(1)})))) ((B b) u))"
+    write(tmp_path, "U", "(loop/recur ((u (variant U A :n n))) :max 1 :on-exhausted u "
+          f"(if (= n 7) (done u) (continue {value})))", "(defunion U (A (n Int)) (B (why String)))")
 
     compiled = cli(tmp_path, "compile", "main.orc")
 
-    assert (compiled.returncode != 0, "[effect_not_permitted]" in compiled.stderr) == (True, False), compiled.stderr
+    assert (compiled.returncode != 0, "[effect_not_permitted]" in compiled.stderr, "[compiler_defect]" in compiled.stderr) == (
+        True, False, True), compiled.stderr
 
 
 def test_serial_map_in_a_continue_value_keeps_the_code_of_its_source(tmp_path: Path) -> None:
