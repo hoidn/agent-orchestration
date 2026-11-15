@@ -18,7 +18,7 @@ neither imports the other. Standard library only.
                   (task, effort, round)
   starts          every start, and every pre-session failure, of every label: [{
                     "slot"            the id of a slot above: the join; a start that joins no slot is an error
-                    "start"           the launcher's start number: unique, increasing in the order starts were made
+                    "start"           the launcher's start number: unique, from 1, increasing in the order of the starts
                     "label"           the configuration label it ran under: the current one or an earlier one
                     "row"             the row of D5 that classified its ending (classification.rows); row 16 awaits
                                       a ruling and is refused until the ruling gives the start its row

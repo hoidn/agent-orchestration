@@ -184,7 +184,7 @@
   "experiments/long_horizon_tasks/recordings.json": "4fb973e544d35e8cc698c6b28a364805f4371044d6aff0f2b8114118509e4a9b",
   "experiments/long_horizon_tasks/relay-compose.yaml": "e86f395a055698c3760fa7a6b50f146a54758f1f3555b9397d81acb7f83b522b",
   "experiments/long_horizon_tasks/request_allowlist.json": "a22ddd4cd5abface38eaa0b37c1cb2191da16121c12375de19a299aae7b75963",
-  "experiments/long_horizon_tasks/slot_record.py": "4dfd6a0f7feb8a5e5b07df39600eec77c92c6f8875b6931fe185bcaec725a364",
+  "experiments/long_horizon_tasks/slot_record.py": "11e61459fe72012d668a4defde6aa2534c64181051efd51350fb0827a44be2f2",
   "experiments/long_horizon_tasks/stub_api.py": "342f0998efd42ce8b09d22ff53d6d39649ea3c216f50fbdbd10e7a30d7685d18",
   "experiments/long_horizon_tasks/summarize.py": "cc486172cd693bf9f76f453e6229b4159d651400f7a400b7f6c69910aa799c44",
   "experiments/long_horizon_tasks/tasks.json": "33fe3773aa519eefa567726b6aeab03c1428848a76b83f7dd9af817592ff224a",
