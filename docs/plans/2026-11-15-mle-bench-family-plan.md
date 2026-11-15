@@ -59,7 +59,7 @@ and, for each placed competition, its medals of fifteen attempts by effort. Afte
 | Configuration label | The SHA-256 of a tranche's manifest. Observations under different labels are never pooled |
 | Criterion | A tranche's `ladder.json`: every limit and rule as data |
 | Priced-token figure | Metered tokens times the frozen price rule (ladder D4). It caps and reports usage. Nothing is billed |
-| Scout report | A fact-finding note of 2026-11-15, written beside this plan and not committed. Cited by its section letters. Each fact cited from it was read in the installed harness's or the reviewed kit's source, or run on this machine with no model call, and the note says which. Tasks 7 and 11 establish again, on this kit, every such fact a decision rests on |
+| Scout report | The fact-finding report of 2026-11-15, [MLE-bench as tasks of the long-horizon harness: facts found on this machine](../reports/2026-11-15-mle-bench-machine-facts.md). Cited by its section letters. Each fact cited from it was read in the installed harness's or the reviewed kit's source, or run on this machine with no model call, and the note says which. Tasks 7 and 11 establish again, on this kit, every such fact a decision rests on |
 
 ## Scope, and what this line claims
 
