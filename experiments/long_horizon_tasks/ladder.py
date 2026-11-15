@@ -1596,6 +1596,12 @@ SOCKET_PATH_MAX = 107  # bytes of a unix socket's path (sun_path less its termin
 SOCKET_WAIT_S = 30  # seconds the passthrough has to open a new slot's socket (it reads the slots file every 0.25 s)
 
 
+# Task 8 m6: the harness waits for `go` on its input, written once slot.json holds its pid; an end of input (the
+# launcher died in between) ends it unrun, so no harness ever runs that reconcile cannot stop.
+HOLD = ["/bin/sh", "-c", 'read -r go && [ "$go" = go ] && unset PWD OLDPWD SHLVL _ && exec "$@" </dev/null',
+        "lh-hold"]  # the shell's own variables unset: the harness's environment stays exactly harness_env's
+
+
 def relay_dir(ctx, attempt):
     """The attempt's own relay socket directory (LH_RELAY_SOCKET_DIR): the passthrough serves the slot there, on a
     socket of its own (Task 5, connections), and removes it when the slot is retired."""
@@ -1898,10 +1904,13 @@ class Attempt:
         env = harness_env(self.ctx, self.a)
         own_socket(self.ctx, self.a)
         with open(self.dir / "harness.out", "ab") as out:
-            proc = subprocess.Popen(attempt_command(self.ctx, self.ladder, self.a, copy), env=env, stdout=out,
-                                    stderr=out, cwd=self.dir, start_new_session=True)
+            proc = subprocess.Popen([*HOLD, *attempt_command(self.ctx, self.ladder, self.a, copy)], env=env,
+                                    stdin=subprocess.PIPE, stdout=out, stderr=out, cwd=self.dir,
+                                    start_new_session=True)
         self.a.update(harness={"pid": proc.pid, "start": process_start(proc.pid)}, overlay_digest=digest)
         _write_slot(self.ctx, self.a)
+        proc.stdin.write(b"go\n")
+        proc.stdin.close()
         return proc
 
     def follow(self, proc):

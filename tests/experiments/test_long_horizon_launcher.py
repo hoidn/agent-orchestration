@@ -1802,6 +1802,19 @@ def test_a_signal_to_the_launcher_ends_a_running_attempt_within_seconds_leaves_n
         0, True, [], [], True, ["the launcher was signalled"])
 
 
+def test_the_harness_is_held_until_its_pid_is_recorded_and_never_runs_when_the_launcher_dies_first(short):
+    """Task 8 m6: the launcher writes `go` after slot.json holds the harness's pid; an end of input (the launcher
+    died between the two) ends the hold without running the harness."""
+    ran = []
+    for go in (b"", b"go\n"):
+        mark = short / f"ran-{len(ran)}"
+        held = subprocess.Popen([*ladder.HOLD, "touch", str(mark)], stdin=subprocess.PIPE)
+        held.stdin.write(go)
+        held.stdin.close()
+        ran.append((held.wait(timeout=WAIT) == 0, mark.exists()))
+    assert ran == [(False, False), (True, True)]
+
+
 def test_a_failure_while_an_attempt_runs_stops_its_harness_and_tears_it_down_before_it_propagates(rig):
     """Task 8 m5: the run-time load sample fails mid-attempt (a load file that cannot be read as one)."""
     r = rig(plan=[{"sleep": 30}])
