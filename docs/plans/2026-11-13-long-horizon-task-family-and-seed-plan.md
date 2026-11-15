@@ -345,10 +345,17 @@ listed address is reachable on every port (recorded). The proxy dials a listed n
   upstream request from the client's and sets exactly three header values:** `authorization`
   (the real token), `host` (the vendor's host) and `accept-encoding` (`identity`, so that
   every byte of the answer can be checked for the token). `content-length` is the length of
-  the body it read. Nothing else changes: not the other headers, not the two beta flags token
-  mode adds, not the body. A request outside the recorded shape is refused, not forwarded: the
-  request line, the header names and the values of the recorded ones, and the body's fields
-  and tools are held to an allowlist built from the request fixtures (`make_allowlist.py`).
+  the body it read. Nothing else changes: not the other headers, not the ten beta flags of
+  token mode (three more than simple mode's seven: `oauth-2025-04-20`,
+  `mid-conversation-tool-changes-2026-07-01` and `extended-cache-ttl-2025-04-11`; a request
+  after a paid-usage response or a very large prompt drops the last, and the compaction
+  request also `claude-code-20250219`), not the body. A request outside the recorded shape is
+  refused, not forwarded: the request line, the header names and the values of the recorded
+  ones, the body's top-level keys, and each tool's name, its definition's keys and its
+  `input_schema`'s top-level keys are held to an allowlist that `make_allowlist.py` builds from
+  Task 2a's request fixtures (`fixtures/requests/t2a-*.json`, token mode). The key sets are the
+  CLI's own, cut from its record of each request in the recording's session files; none is
+  assumed. The placeholder tool's definition carries `defer_loading`.
   This is the route the CLI supports: a subscription token and a base URL.
 - **Recorded for token mode against the stand-in** (`tok20-*`, `tok3-*`): the CLI honours the
   base URL and calls no other host or path; with the harness's setting that turns off
@@ -465,7 +472,10 @@ stream the CLI repeats the request with `stream: false` and `max_tokens: 64000`
   (`passthrough-model-…`, `-tool-…`, `-path-…`, `-unknown-token-…`): no retry,
   `api_error_status 403`, the message in the result text; each was served on the session's
   second request, and the unknown-token refusal also on its first
-  (`passthrough-unknown-token-first-request-UnknownApiError`).
+  (`passthrough-unknown-token-first-request-UnknownApiError`). A refusal is decided before
+  any byte of the body is read; the passthrough then reads and drops, for at most 2 s, what
+  the client is still sending before it closes, so that a client still sending its body reads
+  the refusal.
 - **A vendor 401** means the token expired or was revoked. The passthrough passes it on and
   sets the tranche stopped. Recorded form: two retries, no refresh request, then
   `api_error_status: 401` (fixture `token-unauthorized-UnknownApiError`).
@@ -556,10 +566,15 @@ coordinating session and the ladder draw on the same allowance.
     `…-overage-status: allowed` and `…-overage-in-use: true` gives `isUsingOverage: true`, and
     the session goes on to `completed` (`token-paid-extra-usage-normal-end`); which header is
     necessary is not isolated. **The paid-usage signal is not only on 429s.** The passthrough
-    therefore stops the tranche, before passing the response on, at any response that is not
-    a 429 and whose `anthropic-ratelimit-unified-status` is neither `allowed` nor
-    `allowed_warning`, or that carries `anthropic-ratelimit-unified-overage-in-use: true`, or
-    whose `anthropic-ratelimit-unified-overage-status` is `allowed` or `allowed_warning`. The
+    therefore stops the tranche at any response, a 429 included, that carries
+    `anthropic-ratelimit-unified-overage-in-use: true` or an
+    `anthropic-ratelimit-unified-overage-status` of `allowed` or `allowed_warning`; and at any
+    response other than a 429 that carries an `anthropic-ratelimit-unified-status` other than
+    `allowed` or `allowed_warning` (a response without that header is not stopped by it; a
+    429's status is the limit's own answer, D5). The stopping response is not passed on: the
+    client gets the 403 form with `lh-passthrough: tranche stopped`, and the passthrough still
+    reads that response to its end and meters it. A sign the live probe finds under another
+    header can be added at the passthrough's start (`--paid-usage HEADER=VALUE`). The
     header names are as recorded against the stand-in and were read from the CLI's bundle
     2.1.311, not from a vendor document; the live probe confirms them (Task 4, item 2). The
     five-minute cache fallback seen after a response reporting a 990,000-token prompt
@@ -568,7 +583,7 @@ coordinating session and the ladder draw on the same allowance.
     responses: precede the first paid request. Without that header the response that carries
     the signal has already been served, and so has any response in flight in the other open
     slots, at most four in all. If ordinary responses do carry `overage-status: allowed` or
-    `allowed_warning`, the stop's last clause acts on the first response of the tranche, before
+    `allowed_warning`, the stop's `overage-status` clause acts on the first response of the tranche, before
     any paid usage, and is revised under a new coordinator row (Task 4, item 2).
 
 **Price, caps and the ceiling.**
@@ -1075,10 +1090,10 @@ frozen rule matches occurs in a fixture; the price rule reproduces the three arc
 - [ ] **The live probe** (below) runs on the first slice, through `live_probe.sh`.
 - [ ] A vendor usage-limit answer is passed on unchanged, recorded with its reset, and closes
       starts; any other vendor 429 closes starts too; a vendor 401 is passed on and stops the
-      tranche; a response that carries a paid-usage sign (D4: not a 429 and a unified status
-      other than `allowed` or `allowed_warning`, or `overage-in-use: true`, or an
-      `overage-status` of `allowed` or `allowed_warning`) stops the tranche before it is passed
-      on.
+      tranche; a response that carries a paid-usage sign (D4: `overage-in-use: true` or an
+      `overage-status` of `allowed` or `allowed_warning`, on any response; on a response other
+      than a 429, a unified status present and other than `allowed` or `allowed_warning`)
+      stops the tranche and is not passed on.
 - [ ] The passthrough going down pauses the tranche.
 
 **The live probe: a few requests of subscription usage, no dollars.**
@@ -1086,7 +1101,10 @@ frozen rule matches occurs in a fixture; the price rule reproduces the three arc
 *Authority.* It is not an attempt of the ladder and not under the ladder's approval. It runs
 under the budget delegation of `AGENTS.md` and roadmap owner decision 18, by a coordinator
 approval row in this plan's ledger written before the first request. The row names the
-passthrough's commit and the limits of item 1.
+kit's commit in full (40 hex characters: the last commit that changed
+`experiments/long_horizon_tasks/`, which `live_probe.sh` takes as `LH_PROBE_COMMIT`), holds
+the exact phrase "live probe approved", and states the limits of item 1. `live_probe.sh`
+refuses to start unless exactly one line of the plan holds both.
 
 *Who runs it.* A subagent, under that approval; its brief names the ledger row. The owner
 starts nothing by hand except placing the token.
@@ -1123,7 +1141,7 @@ plan does not apply it; the coordinator does, with the approval row:
    of every `anthropic-*` header; and per session the key
    `cachedExtraUsageDisabledReason` in the exported configuration file
    (`agent/sessions/.claude.json`). If ordinary responses carry `overage-status`, the stop's
-   last clause is revised under a new coordinator row before any ladder attempt. The
+   `overage-status` clause is revised under a new coordinator row before any ladder attempt. The
    passthrough's request log keeps each request's beta flags, cache marks and declared tools,
    so a fall back to five-minute caching can be seen. Kept with the
    recordings, by SHA-256, with fixtures cut as for the others. The token is never kept.
@@ -1484,3 +1502,4 @@ without it.
 | 2026-11-14 | Task 2a, last items after the re-review (approve; no new recording, no spend) | A literal LAN address in a cutter test replaced by a documentation address; written fixtures now map every IPv4 address to `<address>` and a fake slot token to `<fake slot token>`. A test over committed files only checks each `t2a-*` index entry against its fixtures (effort, CLI version, the eighteen-name deny list, every fixture's recording indexed). The after-limit evidence is a fixture (`fixtures/after-limit/t2a-timeout-low.json`: 72 requests in the 18.3 s after the agent phase ended; the CLI's refusal of a standalone `sleep`, which points at Monitor). D4: an attempt settles when its slot closes; the live probe's 6 is per slot and its 18 the probe's total; the stop precedes paid usage only if ordinary responses carry `overage-status`. Live probe item 2 records every response header's name and every `anthropic-*` value, and its request log keeps beta flags, cache marks and declared tools. |
 | 2026-11-14 | Task 4, first slice, built on `feat/lh-passthrough` (impl_code; no spend, and no request left the machine) | `passthrough.py`: the request path (one unix socket; the bearer token and the `host` header replaced, no other byte changed; the one 403 form for an unknown token, another model, a provider-side tool, another path, a slot's or the tranche's request count or priced cap, a stopped tranche, and a body above 64 MiB), the meter (streamed and plain responses by `price_rule.json`, each cache write at its lifetime's rate, a response in flight at a cap metered to its end, the meter restored from the request log at a restart), the token's path of D4 (file mode 600 in a directory of mode 700, read once at the start; the fingerprint; no core dumps and not dumpable; the rehearsal switch opens no token file and makes its own canary), the vendor's answers (a 429 closes starts, a usage limit with its reset; a 401 stops the tranche; a configured paid-usage header stops it before the response is passed on; a response naming another model stops it; unreadable usage closes starts) and its shutdown (closed starts, the socket removed). `token_scan.py`: the fingerprint scan (path and offset only) and the canary check. `live_probe.sh`: the probe's items 1 to 4; it refuses to start without `LH_PROBE_SPEND_AUTHORIZED=yes`. Tests in `tests/experiments/test_long_horizon_passthrough.py` against `stub_api.py`, with a stand-in harness and podman for the probe script. Not run: the live probe (its preconditions, a non-author read and the approval row are open) and the container half of the canary check (a stand-in run of `live_probe.sh` with the real harness and CLI against the stub, zero spend). Readings and what is left for Task 5 are in the implementer's report. Spend to date: 0; subscription usage: none. |
 | 2026-11-14 | Task 4 fix round 1 on `feat/lh-passthrough`, after the independent security review of the first slice (approve after fixes, re-review before any live use: 3 blockers, 5 majors, 11 minors), the coordinator's rulings (R-host kept; R-encoding: `accept-encoding: identity` upstream) and three additions from the Task 2a review (its M1, M4, M6) (impl_code; no spend, and no request left the machine) | **The token never goes back:** every byte to the client and every log row is checked for the token in plain, hex, base64 (three alignments, both alphabets) and UTF-16LE form, across writes; a match sends nothing more, drops the client and stops the tranche with the place only; an answer that is not identity-encoded is not passed on. **Allowlist, not deny-list:** the request line, header names and values, and the body (strict JSON, recorded fields, model, efforts, tools, no vendor fetch) are held to `request_allowlist.json`, built by `make_allowlist.py` from `fixtures/requests` (rerun it when the fixtures change). **One request in flight per slot;** the total under one lock: a cap is overshot by less than one response per open slot (measured). The upstream request is built with three header values set (`authorization`, `host`, `accept-encoding`); answers are metered to their end, an incomplete one at the request's worst case (closes starts); the request's headers, body, times and connections are bounded; the scanner finds the encoded forms and fails a scan it cannot make whole. **Paid extra usage on a non-429** (unified status not allowed, overage in use, overage allowed; header names from Task 2a's bundle reading) stops the tranche and the answer is not passed on (403 "tranche stopped"). A slot is retired by the launcher only; a slot at a cap answers "slot cap reached" with the limit named (`cap_requests` is the live probe's only). The request log keeps each request's beta flags, cache marks and tools and each answer's header names and vendor-prefixed values (re-review G.1, G.4). A refusal closes with a bounded lingering read, so a client still sending its body reads it. `live_probe.sh` claims its run only after the passthrough listens, starts it with an empty environment, passes `--stop-on-non-200`, and needs a ledger line naming the kit's commit with "live probe" and "approv". D4 and D5 row 13 corrected. Open: tool keys are not in today's fixtures (the allowlist uses the API's client-tool fields), so the zero-spend rehearsal with the real CLI must show its requests admitted before the probe; the re-review. Spend to date: 0; subscription usage: none. |
+| 2026-11-14 | Task 4 fix round 2 on `feat/lh-passthrough`, after the coordinator's rulings on fix round 1 (revise_code; no spend, no new recording, and no request left the machine) | **Merged `integ/batch5`** (the Task 2a recordings): both sides' ledger rows kept; for paid usage, slot lifetime, the request count and row 13 the recordings branch's text. **Tool keys closed from the recordings:** the request cut now records, per declared tool, the top-level keys of its definition and of its `input_schema`, the body's top-level keys, and the message blocks' key sets, key names only, read from the CLI's own record of each request in the recording's session files and joined to the stub's log by name and JSON length; every tool of every `t2a-*` shape matched. The 32 `t2a-*` request fixtures were re-cut (a second cut is byte-identical; the files they are cut from already had their digests in `recordings.json`, unchanged). `make_allowlist.py` builds the allowlist from these key sets over the token-mode `t2a-*` shapes, per tool name, and assumes nothing. **The assumed tool keys would have refused every recorded ladder request:** the placeholder tool's definition carries `defer_loading`. The rebuilt allowlist is also narrower: the four tools of the ladder's configuration, efforts low to high, no subagent header and no `advanced-tool-use` flag. **`live_probe.sh`** needs exactly one ledger line holding the kit's last commit in full and the exact approval phrase, and prints that requirement when it refuses. D4: the ten beta flags of token mode (three more than simple mode); the bounded read after a refusal; the paid-usage clauses as built (the overage clauses on any response, a 429 included; the unified-status clause only on a response that carries the header and is not a 429). Not recorded: the keys of text blocks (the stub logged a text block's length only). Spend to date: 0; subscription usage: none. |
