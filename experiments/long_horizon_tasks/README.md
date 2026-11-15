@@ -184,7 +184,9 @@ To end a pause or a stop, a person writes the ledger row that D5 asks for and th
 needs `| <D> | Ruling | resume: <its cause>: <the decision> |` and `resume --date <D>` (a plain resume of a stop is
 refused, naming that row); a D7.7 threshold's stop is lifted by its `--clears` ruling. While one
 of D7.7's count thresholds is over its bound, a plain resume is refused, naming it. The thresholds are the
-infrastructure-failure share, five or 24 pre-session failures, the 5% of cuts, and three load-refusal endings.
+infrastructure-failure share of the tranche (`infrastructure-failures`) and at one level, judged from 20 starts at
+that level (`infrastructure-failures-at-level`, cleared on its own), five or 24 pre-session failures, the 5% of cuts,
+and three load-refusal endings.
 `resume --clears <threshold> --date <D>` lifts one after a `| <D> | Ruling | <threshold>: <decision> |` row. That
 threshold then counts only later endings, and every other threshold keeps counting. The export (`status --export`) follows `slot_record.py`, the layout the
 readout reads. The launcher checks the export against that layout before it writes it. It refuses to write the

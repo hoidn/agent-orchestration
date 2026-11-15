@@ -1236,7 +1236,8 @@ def test_reconcile_retires_the_token_of_an_attempt_settled_by_a_launcher_killed_
     ctx = _ctx(short, lh)
     ladder.ensure_state(ctx.root)
     attempt = ladder.reserve(ctx.root, _entry(), CRITERION, 0.0)
-    ladder._write_json(ctx.root / "slots" / attempt["id"] / "settled.json", {"class": "observation", "usd": 0.1})
+    ladder._write_json(ctx.root / "slots" / attempt["id"] / "settled.json", {"class": "observation", "row": 5,
+                                                                                 "reward": 1.0, "usd": 0.1})
     before = json.loads((ctx.root / "passthrough" / "slots.json").read_text())["slots"]
     ladder.reconcile(ctx, STANDING, 0.0, gate=lambda: True)
     after = json.loads((ctx.root / "passthrough" / "slots.json").read_text())["slots"]
@@ -2495,9 +2496,10 @@ def _specs(cls_row, n, load=False):
     return [(*cls_row, EFFS[i % 3], load) for i in range(n)]
 
 
+AT_LEVEL = [(*OBS, "low", False)] * 40 + [(*OBS, "high", False)] * 15 + [(*INFRA, "high", False)] * 5  # 5 of 60
 THRESHOLD_CASES = {  # name: (kind, endings that trip it)
     "infrastructure-failures": ("stop", _specs(OBS, 20) + _specs(INFRA, 3)),
-    "infrastructure-failures at one level": ("stop", [(*OBS, "high", False)] * 2 + [(*INFRA, "high", False)]),
+    "infrastructure-failures-at-level": ("stop", AT_LEVEL),  # Task 8 part A M7: from 20 starts at the level
     "pre-session-failures": ("stop", _specs(PRE, 5)),
     "pre-session-failures in all": ("stop", [x for _ in range(24) for x in (_specs(OBS, 1)[0], _specs(PRE, 1)[0])]),
     "cuts": ("pause", _specs(OBS, 19) + _specs(CUT, 2)),
@@ -2536,11 +2538,25 @@ def test_a_d77_threshold_trips_is_lifted_only_by_a_clearing_after_its_ruling_and
 
 
 @pytest.mark.parametrize("specs", [_specs(OBS, 8) + _specs(CUT, 2),  # 20% of cuts, but under 20 starts
-                                   [(*INFRA, "high", False), (*OBS, "high", False)]])  # under a block at one level
+                                   [(*OBS, "high", False)] * 14 + [(*INFRA, "high", False)] * 5])  # 19 at one level
 def test_a_share_is_not_judged_before_its_minimum_of_starts(short, specs):
     ctx = _threshold_rig(short)
     _ended(ctx.root, specs, time.time() - 60)
     assert ladder.threshold_breaches(ctx.root, STANDING) == {}
+
+
+def test_clearing_the_share_at_one_level_leaves_the_tranche_wide_share_counting_every_failure(short):
+    """Task 8 part A M7: two threshold names, cleared separately."""
+    ctx = _threshold_rig(short)
+    _ended(ctx.root, AT_LEVEL, time.time() - 600)
+    tripped = set(ladder.threshold_breaches(ctx.root, STANDING))
+    ladder.check_thresholds(ctx.root, STANDING)
+    (ctx.rehearsal / "ledger.md").write_text("| 2026-11-22 | Ruling | infrastructure-failures-at-level: go on |\n")
+    cleared = ladder.main(["resume", "--clears", "infrastructure-failures-at-level", "--date", "2026-11-22"],
+                          env=ctx.env)
+    _ended(ctx.root, [(*INFRA, "low", False)] * 5, time.time())  # 10 of 65 starts in the tranche
+    assert (tripped, cleared, set(ladder.threshold_breaches(ctx.root, STANDING))) == (
+        {"infrastructure-failures-at-level"}, 0, {"infrastructure-failures"})
 
 
 def test_an_attempt_ended_by_a_load_refusal_is_marked_from_the_tranche_s_rows_as_row_15_reads_them():

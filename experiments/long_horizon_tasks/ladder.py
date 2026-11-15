@@ -1052,14 +1052,16 @@ def stop_group(pid, start, grace=None):
     return not alive(pid, start)
 
 
+def _regrade_due(ladder, attempt):
+    """A settled attempt whose regrade case is due and has no regrade recorded (Task 8 part A M3)."""
+    return "regrade_case" not in attempt["settled"] and _case(ladder, attempt, attempt["settled"]) is not None
+
+
 def _finish_regrade(ctx, ladder, attempt, gate):
     """A settled attempt whose regrade a launcher death interrupted (its case is due and no regrade_case recorded;
     Task 8 part A M3): the regrade's containers removed, the partial regrade kept aside, then the regrade run. The
     record, or None."""
-    settled = attempt["settled"]
-    if "regrade_case" in settled or _case(ladder, attempt, settled) is None:
-        return None
-    attempt_dir = ctx.root / "slots" / attempt["id"]
+    settled, attempt_dir = attempt["settled"], ctx.root / "slots" / attempt["id"]
     if not remove_containers(ctx, attempt_dir):
         tranche_event(ctx.root, "pause", slot=attempt["id"], reason="the regrade's containers were not removed")
         return None
@@ -1074,6 +1076,8 @@ def reconcile(ctx, ladder, prior, gate):
     torn it down (tear_down: the scans, the stops already written for it, the regrades below the load `gate`)."""
     done = []
     for attempt in attempts(ctx.root):
+        if attempt["settled"] is not None and not _regrade_due(ladder, attempt):
+            continue
         owner = attempt["launcher"]
         if alive(owner["pid"], owner["start"]):
             continue
@@ -1207,8 +1211,8 @@ def stream_stop(event):
 
 # ---- D7.7's count thresholds: each lifted only by a clearing after a ledger ruling (coordinator ruling) ------
 
-THRESHOLDS = {"infrastructure-failures": "stop", "pre-session-failures": "stop", "cuts": "pause",
-              "load-refusals": "pause"}
+THRESHOLDS = {"infrastructure-failures": "stop", "infrastructure-failures-at-level": "stop",
+              "pre-session-failures": "stop", "cuts": "pause", "load-refusals": "pause"}
 
 
 def _rule(ladder, name):
@@ -1232,11 +1236,16 @@ def _share(every, ladder, cls, above, least):
 
 def _infrastructure(root, ladder):
     rule, every = _rule(ladder, "infrastructure failures"), _after(root, "infrastructure-failures")
-    found = _share(every, ladder, "infrastructure_failure", rule["above_share_of_starts"], rule["from_starts"])
-    # Open ruling: D7.7 states no minimum for the share at one level; the block's size (one start per effort) is used.
-    at_level = (_share([a for a in every if a["effort"] == level], ladder, "infrastructure_failure",
-                       rule["above_share_at_one_level"], len(EFFORTS)) for level in EFFORTS)
-    return found or next((f"{why} at one level" for why in at_level if why), None)
+    return _share(every, ladder, "infrastructure_failure", rule["above_share_of_starts"], rule["from_starts"])
+
+
+def _infrastructure_at_level(root, ladder):
+    """D7.7's share at one level, its own threshold (coordinator ruling, Task 8 part A M7): judged from 20 starts
+    at that level, and cleared apart from the tranche-wide share."""
+    rule, every = _rule(ladder, "infrastructure failures"), _after(root, "infrastructure-failures-at-level")
+    at_level = ((level, _share([a for a in every if a["effort"] == level], ladder, "infrastructure_failure",
+                               rule["above_share_at_one_level"], rule["from_starts"])) for level in EFFORTS)
+    return next((f"{why} at {level}" for level, why in at_level if why), None)
 
 
 def _pre_session(root, ladder):
@@ -1262,8 +1271,8 @@ def _load_refusals(root, ladder):
     return f"{n} attempts ended by a load refusal" if n >= rule["count"] else None
 
 
-COUNTS = {"infrastructure-failures": _infrastructure, "pre-session-failures": _pre_session, "cuts": _cuts,
-          "load-refusals": _load_refusals}
+COUNTS = {"infrastructure-failures": _infrastructure, "infrastructure-failures-at-level": _infrastructure_at_level,
+          "pre-session-failures": _pre_session, "cuts": _cuts, "load-refusals": _load_refusals}
 
 
 def threshold_breaches(root, ladder):
