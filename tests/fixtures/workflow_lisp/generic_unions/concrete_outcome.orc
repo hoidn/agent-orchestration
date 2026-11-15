@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defunion Outcome :forall (T E)
     (OK (value T))
     (ERROR (error E)))
@@ -11,18 +11,15 @@
   (defproc make-ok
     ((n Int))
     -> Outcome[Int String]
-    :effects ()
     (variant Outcome[Int String] OK :value n))
   (defproc run-check
     ((check ProcRef[(Int) -> Outcome[Int String]])
      (n Int))
     -> Outcome[Int String]
-    :effects ()
     (check n))
   (defproc summarize
     ((outcome Outcome[Int String]))
     -> Summary
-    :effects ()
     (match outcome
       ((OK ok) (record Summary :label "ok"))
       ((ERROR err) (record Summary :label err.error))))
@@ -30,12 +27,10 @@
     ((summarizer ProcRef[(Outcome[Int String]) -> Summary])
      (outcome Outcome[Int String]))
     -> Summary
-    :effects ()
     (summarizer outcome))
   (defproc wrap-report
     ((outcome Outcome[Int String]))
     -> Report
-    :effects ()
     (record Report :outcome outcome))
   (defworkflow entry
     ((n Int))

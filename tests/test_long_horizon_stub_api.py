@@ -300,3 +300,66 @@ def test_an_override_subagent_asks_for_another_model_and_effort():
 
 def test_a_web_reply_calls_web_tools_that_were_not_declared():
     assert [_reply("web", turn=t)[0][0]["name"] for t in (0, 1)] == ["WebFetch", "WebSearch"]
+
+
+def _one_row(tmp_path, body, *args, headers=None):
+    proc, port, log = _start(tmp_path, "normal", "--host", "127.0.0.1", "--port", "0", *args)
+    try:
+        _post(int(port), body, headers)
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+    return log, json.loads(log.read_text().splitlines()[0])
+
+
+def test_tool_definitions_are_recorded_by_size_and_cache_control(tmp_path):
+    tool = {"name": "Bash", "input_schema": {"type": "object"}, "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+    _, row = _one_row(tmp_path, {**_request(), "tools": [tool]})
+    assert (row["tool_chars"], row["tool_cache"]) == (
+        [len(json.dumps(tool))], [{"tool": "Bash", "cache_control": {"type": "ephemeral", "ttl": "1h"}}])
+
+
+def test_message_blocks_are_recorded_by_size_and_cache_control(tmp_path):
+    block = {"type": "text", "text": "hello", "cache_control": {"type": "ephemeral"}}
+    _, row = _one_row(tmp_path, {**_request(), "messages": [{"role": "user", "content": [block]}]})
+    assert row["message_blocks"] == [["user", [{"type": "text", "chars": 5, "cache_control": {"type": "ephemeral"}}]]]
+
+
+def test_watched_names_are_counted_where_they_occur(tmp_path):
+    body = {**_request(), "system": [{"type": "text", "text": "use deep-research"}],
+            "messages": [{"role": "user", "content": "Explore, then Explore again"}]}
+    _, row = _one_row(tmp_path, body, "--watch", "deep-research,Explore")
+    assert row["mentions"] == {"deep-research": {"system": 1, "tools": 0, "messages": 0},
+                               "Explore": {"system": 0, "tools": 0, "messages": 2}}
+
+
+def test_the_bearer_is_compared_but_never_logged(tmp_path):
+    log, row = _one_row(tmp_path, _request(), "--expect-bearer", "lh-fake-slot-0123abcd",
+                        headers={"authorization": "Bearer lh-fake-slot-0123abcd"})
+    assert (row["bearer_matches"], "0123abcd" in log.read_text()) == (True, False)
+
+
+@pytest.mark.parametrize("scenario", ["pt_model403", "pt_tool403", "pt_path", "pt_token"])
+def test_every_passthrough_refusal_has_the_403_form(scenario):
+    status, etype, message, headers = _reply(scenario, turn=1)
+    assert (status, etype, message.startswith("lh-passthrough: "), headers) == (
+        403, "permission_error", True, {"x-should-retry": "false"})
+
+
+def test_a_placeholder_reply_calls_the_placeholder_tool():
+    assert _reply("placeholder")[0][0]["name"] == "DeferredToolPlaceholder"
+
+
+def test_an_overage_reply_serves_with_the_overage_headers(tmp_path):
+    proc, port, _ = _start(tmp_path, "overage", "--host", "127.0.0.1", "--port", "0")
+    try:
+        status, _, headers = _post(int(port), _request())
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+    assert (status, headers["anthropic-ratelimit-unified-status"],
+            headers["anthropic-ratelimit-unified-overage-status"]) == (200, "rejected", "allowed")
+
+
+def test_a_first_request_refusal_refuses_the_session_s_first_request():
+    assert _reply("pt_token_first")[:3] == (403, "permission_error", "lh-passthrough: unknown token")

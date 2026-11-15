@@ -1,5 +1,5 @@
 {
- "source": "local recording f-transient (stub_api.py scenario transient, CLI 2.1.311, three tools, via the relay)",
+ "source": "local recording t2a-f-transient (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": null,
  "cli_exit_code": null,
  "agent_result": {
@@ -23,7 +23,7 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "368cf9d4-37cc-4cc8-9f99-0ef183b83f16",
+  "session_id": "d0953a15-d5a8-4cd1-9561-bd62ee8027c3",
   "tools": [
    "Bash",
    "Edit",
@@ -44,6 +44,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -84,7 +85,7 @@
    "focus",
    "reload-plugins"
   ],
-  "apiKeySource": "ANTHROPIC_API_KEY",
+  "apiKeySource": "none",
   "claude_code_version": "2.1.311",
   "output_style": "default",
   "agents": [
@@ -106,6 +107,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -141,15 +143,19 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "8eab26aa-a805-4f8e-8244-cd22ae49680a",
+  "uuid": "feb93262-738f-4a39-8871-1ef0bd99b8d5",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
   "original_cwd": "/app",
   "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
   "view_mode": "default"
  },
- "n_events": 8,
+ "n_events": 9,
  "n_api_retry": 3,
  "stream_tail": [
   {
@@ -157,27 +163,27 @@
    "subtype": "api_retry",
    "attempt": 2,
    "max_retries": 10,
-   "retry_delay_ms": 1130,
+   "retry_delay_ms": 1020,
    "error_status": 529,
    "error": "overloaded",
-   "session_id": "368cf9d4-37cc-4cc8-9f99-0ef183b83f16",
-   "uuid": "cecb7f54-6077-4b23-a9db-704d676b67f3"
+   "session_id": "d0953a15-d5a8-4cd1-9561-bd62ee8027c3",
+   "uuid": "4c41a6c9-b6bf-4f8a-b898-8673775ad372"
   },
   {
    "type": "system",
    "subtype": "api_retry",
    "attempt": 3,
    "max_retries": 10,
-   "retry_delay_ms": 2491,
+   "retry_delay_ms": 2148,
    "error_status": 500,
    "error": "server_error",
-   "session_id": "368cf9d4-37cc-4cc8-9f99-0ef183b83f16",
-   "uuid": "fb52c03f-174a-434e-b575-21c77c39e89b"
+   "session_id": "d0953a15-d5a8-4cd1-9561-bd62ee8027c3",
+   "uuid": "2430ae31-e5b0-48ea-9db1-0ca26e7f4e7a"
   },
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T02:43:16.708Z",
+   "timestamp": "2026-11-14T22:16:49.147Z",
    "message": {
     "model": "claude-haiku-5-5",
     "stop_reason": null,
@@ -195,9 +201,9 @@
    }
   },
   {
-   "duration_api_ms": 5765,
+   "duration_api_ms": 5371,
    "stop_reason": "end_turn",
-   "session_id": "368cf9d4-37cc-4cc8-9f99-0ef183b83f16",
+   "session_id": "d0953a15-d5a8-4cd1-9561-bd62ee8027c3",
    "total_cost_usd": 0.00030000000000000003,
    "usage": {
     "input_tokens": 2000,
@@ -273,13 +279,13 @@
    "subtype": "success",
    "api_error_status": null,
    "result": "<cut: model text>",
-   "ttft_ms": 91,
+   "ttft_ms": 184,
    "type": "result",
-   "duration_ms": 5912,
-   "uuid": "97278da4-c0e4-4947-bee8-9df60ea3ddc4",
-   "ttft_stream_ms": 89,
-   "time_to_request_ms": 67,
-   "first_content_frame_ms": 90,
+   "duration_ms": 5649,
+   "uuid": "49d50c6c-ec22-4714-b76d-750fa11bd8a3",
+   "ttft_stream_ms": 181,
+   "time_to_request_ms": 163,
+   "first_content_frame_ms": 182,
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {

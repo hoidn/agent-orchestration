@@ -33,10 +33,10 @@ OUTCOME = """  (defunion Outcome :forall (T E)
     (ERROR (error E)))"""
 
 
-def _write(tmp_path: Path, body: str, *, target: str = "2.35") -> Path:
+def _write(tmp_path: Path, body: str) -> Path:
     path = tmp_path / "module.orc"
     path.write_text(
-        f'(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "{target}")\n{body})\n',
+        f'(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.40")\n{body})\n',
         encoding="utf-8",
     )
     return path
@@ -71,8 +71,8 @@ def _line_of(path: Path, needle: str) -> int:
     return next(index for index, line in enumerate(lines, start=1) if needle in line)
 
 
-def _frontend_error(tmp_path: Path, body: str, *, target: str = "2.35") -> LispFrontendDiagnostic:
-    path = _write(tmp_path, body, target=target)
+def _frontend_error(tmp_path: Path, body: str) -> LispFrontendDiagnostic:
+    path = _write(tmp_path, body)
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(path, tmp_path, frontend=True)
     return _first_diagnostic(excinfo)
@@ -114,7 +114,7 @@ def test_generic_union_declaration_keeps_its_type_parameters(tmp_path: Path) -> 
 def test_concrete_applications_compile_through_shared_validation(tmp_path: Path) -> None:
     result = _compile(FIXTURES / "concrete_outcome.orc", tmp_path)
 
-    assert result.typed_program.target == "2.35"
+    assert result.typed_program.target == "2.40"
     assert "entry::entry" in result.typed_program.workflows
 
 

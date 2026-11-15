@@ -32,7 +32,7 @@ WATCH_PART = f"dependency:{WATCH}"
 PUBLISHED = "state/watchdog/watchdog-result.json"
 REPORT = f"{EVIDENCE}/repair-report.md"
 COMPAT = f"{EVIDENCE}/repair-result.json"
-TARGET_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+TARGET_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule watched_target) (export run)
   (defworkflow run ((divisor Float)) -> Float (/ 1.0 divisor)))
 '''

@@ -84,7 +84,6 @@ class TypecheckSessionState:
     )
     workflow_signature: WorkflowSignature | None = None
     procedure_hidden_context_signature: ProcedureSignature | None = None
-    reusable_state_producer_context: Mapping[str, object] | None = None
     shared_union_field_capabilities: tuple[
         SharedUnionFieldCapability, ...
     ] = ()

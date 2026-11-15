@@ -677,8 +677,8 @@ def test_extern_explicit_inferred_capture_equivalence_and_root_precedence(tmp_pa
 # carrier that loses a field, or a loop that exhausts instead of finishing, gives another value.
 COUNT = ("(loop/recur ((s (loop-state (i Int 0) (t Int 0)))) :max 5 :on-exhausted 0 "
          "(if (= s.i v) (done s.t) (continue (loop-state :like s :i (+ s.i 1) :t (+ s.t 10)))))")
-COUNT_FN = ("(loop/recur :max 5 :state (loop-state (i Int 0) (t Int 0)) :on-exhausted 0 "
-            "(fn (s) (if (= s.i v) (done s.t) (continue (loop-state :like s :i (+ s.i 1) :t (+ s.t 10))))))")
+COUNT_FN = ("(loop/recur ((s (loop-state (i Int 0) (t Int 0)))) :max 5 :on-exhausted 0 "
+            "(if (= s.i v) (done s.t) (continue (loop-state :like s :i (+ s.i 1) :t (+ s.t 10)))))")
 # Passed by reference the local carries a command: a pure loop procedure passed by reference to a pure procedure
 # is refused for another cause (backlog row E9).
 COUNT_EFFECT = COUNT.replace("(done s.t)", f"(done (+ s.t {backlog.E('e', 0, 'Int')}))")

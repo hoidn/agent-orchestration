@@ -6,8 +6,6 @@
   (defrecord Box (n Int))
   (defpath Notes :kind relpath :under "artifacts/work" :must-exist true)
   (defproc fetch ((n Int)) -> Box
-    :effects ((uses-command fetch))
-    :lowering inline
     (command-result fetch :argv ("python" "probe.py" "fetch" n) :returns Box))
   (defworkflow run ((notes Notes)) -> Box
     (let* ((first (provider-result providers.review
