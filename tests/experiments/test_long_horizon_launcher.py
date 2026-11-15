@@ -2254,8 +2254,8 @@ def test_the_disk_stop_reads_the_root_file_system_beside_the_state_the_cache_and
     ctx = _ctx(short)
     ladder.ensure_state(ctx.root)
     paths = ladder.disk_paths(ctx)
-    assert (Path("/") in paths, ctx.root in paths, ladder.free_gb(ctx) == min(
-        shutil.disk_usage(p).free for p in paths) / 1e9) == (True, True, True)
+    least = min(shutil.disk_usage(p).free for p in paths) / 1e9  # other processes write meanwhile: 0.5 GB of slack
+    assert (Path("/") in paths, ctx.root in paths, abs(ladder.free_gb(ctx) - least) < 0.5) == (True, True, True)
 
 
 @pytest.mark.parametrize("load", ["30.0 30.0 30.0", "24.0 24.5 20.0", "24.5 24.0 20.0"])  # both, 5-min, 1-min above
