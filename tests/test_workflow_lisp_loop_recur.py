@@ -594,3 +594,52 @@ def test_loop_exit_in_tail_position_runs_and_in_one_branch_of_a_binding_is_a_typ
     observed = (("value", json.loads(done.stdout.splitlines()[-1])) if done.returncode == 0
                 else ("refused", "type_mismatch") if "[type_mismatch]" in done.stderr else ("exit", done.returncode))
     assert observed == wanted, done.stderr
+
+
+# A `done` or `continue` where a value is expected: a `list` element, a `list/map` or `list/map-effect` body
+# (frontend specification 13.1). Each crashed on `main` at c24fb97d (defect D22).
+LOOP_EXIT_VALUES = {
+    "list": "(list (done 1))",
+    "list-both": "(done (list/length (list (continue (+ s 1)) (continue (+ s 1)))))",
+    "typed-list": "(done (list/length (list :of Int (if (> n 0) (done 1) (continue (+ s 1))))))",
+    "map-body": "(list/map ((x (list 1))) (done 1))",
+    "map-body-let": "(done (list/length (list/map ((x (list 1))) (let* ((y x)) (continue (+ s y))))))",
+    "map-effect-body": "(done (list/length (list/map-effect ((x (list 1))) :max 2 (cond ((> n 0) (done 1)) (else (continue 2))))))",
+    "map-effect-parallel-body": ('(done (list/length (list/map-effect ((x (list "a"))) :max 2 :parallel 1 :workspace x '
+                                 "(match (variant U A :n n) ((A a) (done a.n)) ((B b) (continue (+ s 1)))))))"),
+    "map-body-in-a-source": "(done (list/length (list/map ((y (list/map ((x (list 1))) (done 1)))) y)))",
+}
+
+
+@pytest.mark.parametrize("form", ["binder", "fn"])
+@pytest.mark.parametrize("body", LOOP_EXIT_VALUES)
+def test_loop_exit_as_a_list_element_or_map_body_is_refused(tmp_path: Path, body: str, form: str) -> None:
+    text = LOOP_EXIT_VALUES[body]
+    loop = (f"(loop/recur ((s 0)) :max 2 :on-exhausted 0 {text})" if form == "binder"
+            else f"(loop/recur :max 2 :state 0 :on-exhausted 0 (fn (s) {text}))")
+
+    done = cli_run(tmp_path, f"((n Int)) -> Int {loop}", "n=1")
+
+    assert (done.returncode, "[loop_recur_contract_invalid]" in done.stderr, command_log(tmp_path)) == (2, True, []), \
+        done.stderr
+
+
+# Exits in tail position, and values with lists and maps inside an exit: they build and run as on `main` (their
+# digests are pinned by `tests/test_workflow_lisp_d22_differential.py`).
+TAIL_EXITS = {
+    "if": ("(if (> s 0) (done s) (continue (+ s 1)))", 1),
+    "cond": ("(cond ((> s 0) (done s)) (else (continue (+ s 1))))", 1),
+    "match": ("(match (variant U A :n n) ((A a) (if (> s 0) (done a.n) (continue (+ s 1)))) ((B b) (done 0)))", 1),
+    "let": ("(let* ((y (+ s 1))) (if (> s 0) (done y) (continue y)))", 2),
+    "if-let": ("(if (> s 0) (let* ((y s)) (done y)) (let* ((z (+ s 1))) (continue z)))", 1),
+    "list-in-done": ("(done (list/length (list s 1)))", 2),
+    "map-in-continue": ("(if (> s 0) (done s) (continue (list/length (list/map ((x (list 1 2))) (+ x s)))))", 2),
+}
+
+
+@pytest.mark.parametrize("body", TAIL_EXITS)
+def test_loop_exit_in_tail_position_runs(tmp_path: Path, body: str) -> None:
+    text, wanted = TAIL_EXITS[body]
+
+    assert run_workflow(tmp_path, f"((n Int)) -> Int (loop/recur ((s 0)) :max 3 :on-exhausted 0 {text})", "n=1") \
+        == (wanted, [])

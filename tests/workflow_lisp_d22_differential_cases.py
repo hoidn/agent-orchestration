@@ -87,7 +87,7 @@ EXITS = {
 }
 
 # Inner positions of the two-deep family: the ones that crash on `main` and a few that do not.
-INNER = ("list-first", "map-body", "map-effect-body", "op-left", "record-field", "proc-arg")
+INNER = ("list-first", "map-body", "map-effect-body", "op-left", "proc-arg")
 TWO_EXITS = ("done", "continue", "if-all")
 
 TAILS = {
