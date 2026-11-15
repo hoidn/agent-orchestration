@@ -27,7 +27,7 @@ The CLI is never run on the host. There the no-provider stubs stay first on `PAT
 | `price_rule.json`, `price_check.py` | The per-request price rule, and its check against the public archives |
 | `tasks.json` | The 16 tasks' package digests, their pinned images (digests, sizes) and withholding results, the overlay digest and the oracle evidence |
 | `oracle_check.sh`, `summarize.py` | Task 2b's oracle check on the pinned images (overlay, CPU set, load gate, repeats, stops), and its per-label counts and per-trial records |
-| `oracle_first_pass.json`, `oracle_uidfix_recorded.json` | The first pass's records, and the labelled variant's rerun on its recorded image: one JSON line per trial (outcomes, timings, load, affinity, peak memory, network policy, image ids, digests; no log text) |
+| `oracle_first_pass.json`, `oracle_uidfix_recorded.json`, `oracle_second_pass.json` | The first pass's records, the labelled variant's rerun on its recorded image, and the second (qualifying) pass's: one JSON line per trial (outcomes, timings, load, affinity, peak memory, network policy, image ids, digests; no log text) |
 | `uidfix_variant.py` | Builds once, and records in `tasks.json` (`variant`), the verifier image of the labelled variant vba-userform-port-uidfix |
 | `image_check.py`, `image_measure.json` | Task 2b: pull, size and withholding check of one pinned image; one line per image (RECORDINGS.md, "Task 2b"); `image_check.py tasks` copies the results into `tasks.json` |
 

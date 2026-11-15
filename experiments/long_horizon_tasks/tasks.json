@@ -63,6 +63,22 @@
       "errors": [],
       "passes": true
      }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "vba-userform-port-uidfix",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
+      "errors": [],
+      "passes": true
+     }
     ]
    },
    "images": {
@@ -158,6 +174,22 @@
       "errors": [],
       "passes": true
      }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "vf2-speedup-networkx",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
+      "errors": [],
+      "passes": true
+     }
     ]
    },
    "images": {
@@ -228,6 +260,22 @@
        1
       ],
       "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "wal-recovery-ordering",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
       "errors": [],
       "passes": true
      }
@@ -304,6 +352,22 @@
       "errors": [],
       "passes": true
      }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "session-window-debug",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
+      "errors": [],
+      "passes": true
+     }
     ]
    },
    "images": {
@@ -374,6 +438,22 @@
        1
       ],
       "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "production-planning",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
       "errors": [],
       "passes": true
      }
@@ -450,6 +530,22 @@
       "errors": [],
       "passes": true
      }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "vpp-loss-divergence",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
+      "errors": [],
+      "passes": true
+     }
     ]
    },
    "images": {
@@ -523,6 +619,22 @@
       "errors": [],
       "passes": true
      }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "batched-eval-parity",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
+      "errors": [],
+      "passes": true
+     }
     ]
    },
    "images": {
@@ -593,6 +705,22 @@
        1
       ],
       "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "pretrain-shard-corruption",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
       "errors": [],
       "passes": true
      }
@@ -674,6 +802,22 @@
        1
       ],
       "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "gsea-proteomics",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
       "errors": [],
       "passes": true
      }
@@ -761,6 +905,22 @@
       "errors": [],
       "passes": true
      }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "lake-temp-glm",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
+      "errors": [],
+      "passes": true
+     }
     ]
    },
    "images": {
@@ -831,6 +991,22 @@
        1
       ],
       "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "sound-change-cascade",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
       "errors": [],
       "passes": true
      }
@@ -908,6 +1084,22 @@
       "errors": [],
       "passes": true
      }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "hof-topology-interpenetration",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
+      "errors": [],
+      "passes": true
+     }
     ]
    },
    "images": {
@@ -979,6 +1171,22 @@
        1
       ],
       "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "shadow-relay",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
       "errors": [],
       "passes": true
      }
@@ -1063,6 +1271,22 @@
       "errors": [],
       "passes": true
      }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "rs-archive-clone",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
+      "errors": [],
+      "passes": true
+     }
     ]
    },
    "images": {
@@ -1134,6 +1358,22 @@
        1
       ],
       "install": "ok",
+      "errors": [],
+      "passes": true
+     }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "retro-console-soc",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
       "errors": [],
       "passes": true
      }
@@ -1211,6 +1451,22 @@
       "errors": [],
       "passes": true
      }
+    ],
+    "oracle_second_pass": [
+     {
+      "label": "roy-polymorph-cn",
+      "reference": [
+       5,
+       5
+      ],
+      "untouched": [
+       0,
+       5
+      ],
+      "install": null,
+      "errors": [],
+      "passes": true
+     }
     ]
    },
    "images": {
@@ -1258,5 +1514,47 @@
   }
  ],
  "recompute": "digests: $LH/hvenv/bin/python -I -c 'import sys; from pathlib import Path; from harbor.publisher.packager import Packager; [print(p, \"sha256:\" + Packager.compute_content_hash(Path(p))[0]) for p in sys.argv[1:]]' <task dir>... (each a 4.1.0 or 4.0.0 package unpacked, or a checked copy under harbor-framework/terminal-bench/tasks); packages: the hub's public storage, path packages/terminal-bench/<task>/<hex digest>/dist.tar.gz, read with the publishable key that ships in the harbor package (not copied here)",
- "pending": "images and withholding come from image_measure.json (`image_check.py tasks`), with the coordinator's rulings beside any item that needs a look. overlay_digest is the SHA-256 of the two agent-phase keys as written by oracle_check.sh with D3's list as drafted for the oracle passes (Task 3 freezes the ladder's list; a different list gives a different digest). oracle_evidence holds the first pass (2026-11-14, one reference and one untouched run per label, load not controlled; per-trial records in oracle_first_pass.json); the second pass (five and five in a quiet window under the final policy) adds its own key and is the only one that qualifies a task. oracle_uidfix_recorded is the labelled variant's rerun on its recorded image (`variant`, built once by uidfix_variant.py). extra_hosts stays null until Task 3 freezes it; null means not yet set. The per-attempt cap's home is ladder.json (tasks.list[].cap_usd)"
+ "pending": "images and withholding come from image_measure.json (`image_check.py tasks`), with the coordinator's rulings beside any item that needs a look. overlay_digest is the SHA-256 of the two agent-phase keys as written by oracle_check.sh with D3's list as drafted for the oracle passes (Task 3 freezes the ladder's list; a different list gives a different digest). oracle_evidence holds the first pass (2026-11-14, one reference and one untouched run per label, load not controlled; per-trial records in oracle_first_pass.json); the second pass (2026-11-15, five and five under the allowlist above, four at a time, CPU set 8-31, gate 24) is under oracle_second_pass and is the only one that qualifies a task; its summary, the surviving list and the sub-test forms are under second_pass. oracle_uidfix_recorded is the labelled variant's rerun on its recorded image (`variant`, built once by uidfix_variant.py). extra_hosts stays null until Task 3 freezes it; null means not yet set. The per-attempt cap's home is ladder.json (tasks.list[].cap_usd)",
+ "second_pass": {
+  "run": "2026-11-15 07:12:12 to 08:59:01 PST (1 h 46 min 49 s), oracle_check.sh REPEATS=5 CONCURRENCY=4 GATE=24 CPUS=8-31 INSTALL=0, one task at a time in this file's order, vba-userform-port as its labelled variant only (owner question 4 not decided); records oracle_second_pass.json (160 trials); per-task counts under oracle_evidence.oracle_second_pass",
+  "network": "the agent phase on oracle_check.sh's allowlist (D3's list: 13 names; overlay_digest 3f99fe3c...c4f6 for all 16, no extra hosts)",
+  "qualified": [
+   "vba-userform-port-uidfix",
+   "vf2-speedup-networkx",
+   "wal-recovery-ordering",
+   "session-window-debug",
+   "production-planning",
+   "vpp-loss-divergence",
+   "batched-eval-parity",
+   "pretrain-shard-corruption",
+   "gsea-proteomics",
+   "lake-temp-glm",
+   "sound-change-cascade",
+   "hof-topology-interpenetration",
+   "shadow-relay",
+   "rs-archive-clone",
+   "retro-console-soc",
+   "roy-polymorph-cn"
+  ],
+  "qualified_rule": "D1: reference reward 1 five times of five and untouched reward 0 five times of five, every run evidence (summarize.py `qualifies`); all 16 labels qualify, none is dropped. vba-userform-port qualifies only as the labelled modified task vba-userform-port-uidfix, never pooled with the unchanged task",
+  "load": "1-minute load at trial starts 8.4 to 22.1, 5-minute 9.6 to 21.1, highest 1-minute sample 31.6 (gate 24; no gate wait was reported)",
+  "sub_tests": {
+   "batched-eval-parity": "CTRF (verifier/ctrf.json): reference 5 of 5, untouched 0 of 5",
+   "gsea-proteomics": "CTRF (verifier/ctrf.json): reference 16 of 16, untouched 0 of 16",
+   "hof-topology-interpenetration": "CTRF (verifier/ctrf.json): reference 38 of 38, untouched 0 of 38",
+   "lake-temp-glm": "CTRF (verifier/ctrf.json): reference 1 of 1, untouched 0 of 1; one test only: pass or fail",
+   "pretrain-shard-corruption": "CTRF (verifier/ctrf.json): reference 12 of 12, untouched 4 of 12",
+   "production-planning": "CTRF (verifier/ctrf.json): reference 20 of 20, untouched 1 of 20",
+   "retro-console-soc": "CTRF (verifier/ctrf.json): reference 8 of 8, untouched 0 of 8",
+   "roy-polymorph-cn": "CTRF (verifier/ctrf.json): reference 3 of 3, untouched 0 of 3",
+   "rs-archive-clone": "CTRF (verifier/ctrf.json): reference 57 of 57, untouched 0 of 57",
+   "session-window-debug": "CTRF (verifier/ctrf.json): reference 9 of 9, untouched 4 of 9",
+   "shadow-relay": "CTRF (verifier/ctrf.json): reference 9 of 9, untouched 2 of 9",
+   "sound-change-cascade": "CTRF (verifier/ctrf.json): reference 7 of 7, untouched 0 of 7",
+   "vba-userform-port-uidfix": "CTRF (verifier/ctrf.json): reference 1 of 1, untouched 1 of 1; the CTRF report is one pytest wrapper that only computes the score, so it is no sub-test count; the graded checks are the hidden traces (verifier/trace_summary.json): reference 29 of 29, untouched 0 of 29",
+   "vf2-speedup-networkx": "CTRF (verifier/ctrf.json): reference 60 of 60, untouched 0 of 60",
+   "vpp-loss-divergence": "CTRF (verifier/ctrf.json): reference 5 of 5, untouched 4 of 5",
+   "wal-recovery-ordering": "CTRF (verifier/ctrf.json): reference 97 of 97, untouched 1 of 2; the gates run first (ctrf_gates.json) and the suite only when they pass, so the report's total is the suite's on a pass and the gates' on a gate failure"
+  }
+ }
 }
