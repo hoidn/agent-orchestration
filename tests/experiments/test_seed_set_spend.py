@@ -1109,3 +1109,11 @@ def test_the_smoke_never_runs_a_cut_slot_again(runner, monkeypatch):  # a smoke 
     spend.reserve(runner.ledger, "smoke", "candidate", H, 1, records, env("smoke"), task="r2", arm="direct", price=P)
     monkeypatch.setattr(study, "one_run", lambda *a, **k: pytest.fail("a cut smoke slot ran again"))
     assert study.candidates(runner, "smoke", "direct", ["r2"]) == []
+
+
+def test_a_cut_run_counts_as_cut_in_the_measure_free_table_never_as_failed():  # R1: no observation
+    from experiments.seed_set import readout
+    runs = {"/w/1": {"tranche": "calibration", "arm": "direct", "outcome": "failed", "cut": CUT, "calls": 1},
+            "/w/2": {"tranche": "calibration", "arm": "direct", "outcome": "failed", "calls": 1}}
+    row = readout.measure_free(runs)["calibration/direct"]
+    assert (row["runs"], row["failed"], row["cut"], row["calls"]) == (2, 1, 1, 2)

@@ -51,7 +51,7 @@ def measure_free(runs):
         row["calls"] += facts.get("calls", 0)
         row["incidents"] += "incident" in facts
         row["cut"] += "cut" in facts
-        if facts.get("outcome") in ("completed", "failed"):
+        if facts.get("outcome") in ("completed", "failed") and "cut" not in facts:  # a cut is no outcome (R1)
             row[facts["outcome"]] += 1
         row["visible_passed"] += bool((facts.get("visible") or {}).get("passed"))
         row["metering_complete"] += bool(facts.get("metering_complete"))
