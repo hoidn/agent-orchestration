@@ -8,7 +8,9 @@ beside the stand-in command `c`, the provider extern `providers.review` and the 
   the value of a `continue` (`continue`), in the binder loop form and in the `fn` loop form;
 - `two-`: the same with the exit two positions deep;
 - `tail-`: controls, exits in tail position (in `if`, `cond`, `match` and `let*` bodies) and value positions
-  inside an exit's value: they build on `main`.
+  inside an exit's value: they build on `main`;
+- `extra-`: neighbours: an exit holding an effect in a `list` element or a map body, a loop whose exits are in its
+  own tail inside a `list` or a map body, and an exit in a map body outside any loop.
 
 `d22_differential_main.json` under `tests/fixtures/workflow_lisp/` (every case's build on `main` before the fix)
 is written by this module's `__main__`, never by hand, from an export of `main` at `c24fb97d`:
@@ -110,6 +112,22 @@ TAILS = {
                         "(if (> s 0) (done k) (continue (+ s k))))",
 }
 
+# name: a loop body, or (with `None` loop) a whole workflow
+EXTRAS = {
+    "list-effect-exit": f"(done (list/length (list (done {CMD}))))",
+    "map-body-effect-exit": f"(done (list/length (list/map ((x (list 1))) (done {CMD}))))",
+    "map-effect-body-effect-exit": f"(done (list/length (list/map-effect ((x (list 1))) :max 2 (done {CMD}))))",
+    "list-inner-loop": "(done (list/length (list (loop/recur ((t s)) :max 1 :on-exhausted 0 (done t)))))",
+    "map-body-inner-loop": ("(done (list/length (list/map ((x (list 1 2))) "
+                            "(loop/recur ((t x)) :max 2 :on-exhausted 0 (if (> t 1) (done t) (continue (+ t 1)))))))"),
+    "map-effect-body-inner-loop": ("(done (list/length (list/map-effect ((x (list 1))) :max 2 "
+                                   f"(loop/recur ((t x)) :max 1 :on-exhausted 0 (done {CMD})))))"),
+}
+OUTSIDE_LOOP = {
+    "map-body-done": "((n Int) (u U)) -> List[Int] (list/map ((x (list 1))) (done 1))",
+    "list-continue": "((n Int) (u U)) -> List[Int] (list (continue 1))",
+}
+
 
 def _loop(form: str, on_exhausted: str, body: str) -> str:
     if form == "binder":
@@ -154,6 +172,9 @@ def _cases() -> dict[str, tuple[str, tuple[str, ...]]]:
                         _run(type_, _loop(form, DEFAULTS[type_], f"(done {value})")), DEFINITIONS)
         for name, body in TAILS.items():
             cases[f"tail-{form}-{name}"] = (_run("Int", _loop(form, "0", body)), DEFINITIONS)
+        for name, body in EXTRAS.items():
+            cases[f"extra-{form}-{name}"] = (_run("Int", _loop(form, "0", body)), DEFINITIONS)
+    cases.update({f"extra-{name}": (run, DEFINITIONS) for name, run in OUTSIDE_LOOP.items()})
     return cases
 
 

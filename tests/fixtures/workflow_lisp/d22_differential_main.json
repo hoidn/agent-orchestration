@@ -1,4 +1,64 @@
 {
+ "extra-binder-list-effect-exit": [
+  "crash",
+  "AttributeError",
+  "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"
+ ],
+ "extra-binder-list-inner-loop": [
+  "builds",
+  "sha256:1e650530538008aa8726b6d11c7388f882837c14717a6f6b73036f3668617f7e"
+ ],
+ "extra-binder-map-body-effect-exit": [
+  "refused",
+  "list_map_body_effect_forbidden"
+ ],
+ "extra-binder-map-body-inner-loop": [
+  "builds",
+  "sha256:0961ebace32339c123b03f1881c0f268cd83f8b1dfb26dafe6f62b44dbe032bf"
+ ],
+ "extra-binder-map-effect-body-effect-exit": [
+  "crash",
+  "AttributeError",
+  "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"
+ ],
+ "extra-binder-map-effect-body-inner-loop": [
+  "builds",
+  "sha256:ea493c6e70584490ea6cc0490aea60632071149c410192b73654dd1af932f61c"
+ ],
+ "extra-fn-list-effect-exit": [
+  "crash",
+  "AttributeError",
+  "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"
+ ],
+ "extra-fn-list-inner-loop": [
+  "builds",
+  "sha256:1e650530538008aa8726b6d11c7388f882837c14717a6f6b73036f3668617f7e"
+ ],
+ "extra-fn-map-body-effect-exit": [
+  "refused",
+  "list_map_body_effect_forbidden"
+ ],
+ "extra-fn-map-body-inner-loop": [
+  "builds",
+  "sha256:0961ebace32339c123b03f1881c0f268cd83f8b1dfb26dafe6f62b44dbe032bf"
+ ],
+ "extra-fn-map-effect-body-effect-exit": [
+  "crash",
+  "AttributeError",
+  "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"
+ ],
+ "extra-fn-map-effect-body-inner-loop": [
+  "builds",
+  "sha256:ea493c6e70584490ea6cc0490aea60632071149c410192b73654dd1af932f61c"
+ ],
+ "extra-list-continue": [
+  "refused",
+  "loop_recur_continue_outside_loop"
+ ],
+ "extra-map-body-done": [
+  "refused",
+  "loop_recur_done_outside_loop"
+ ],
  "pos-binder-and-bare-cond-all": [
   "refused",
   "pure_expr_operand_type_mismatch"
