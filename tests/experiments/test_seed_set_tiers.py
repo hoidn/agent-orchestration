@@ -271,7 +271,8 @@ def test_the_scoring_path_hash_follows_the_kit_modules_only(tmp_path, edited, ch
 
 def test_the_scoring_path_hash_does_not_depend_on_where_the_tree_lives(tmp_path):
     from experiments.seed_set import anchors
-    assert anchors.scoring_path_hash(kit_tree(tmp_path / "a")) == anchors.scoring_path_hash(kit_tree(tmp_path / "b" / "c"))
+    here, there = kit_tree(tmp_path / "a"), kit_tree(tmp_path / "b" / "c")
+    assert anchors.scoring_path_hash(here) == anchors.scoring_path_hash(there)
 
 
 def test_the_scoring_path_hash_depends_on_each_modules_relative_path(tmp_path):
