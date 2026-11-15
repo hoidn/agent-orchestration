@@ -2,8 +2,8 @@
 configuration label of the plan's D7.
 
 Covered: every file under experiments/long_horizon_tasks/ (ladder.json, tasks.json, the scripts, recordings.json, the
-fixtures) except the names in NOT_COVERED; the price table the plan's D4 names by hash; and the test module that is
-the reference reader of ladder.json's pattern language until the launcher (Task 5) reads it.
+fixtures) except the names in NOT_COVERED; the price table the plan's D4 names by hash; and the criterion's test
+module, which holds the reader of ladder.json's pattern language (in ladder.py, the launcher's) to the fixtures.
 Not covered, and why (NOT_COVERED is also written into the manifest). Outside the repository, and so in no file here:
 the allowance inputs and meter readings (the launcher's state; plan D4, D7), the raw recordings (recordings.json
 holds their SHA-256), the task packages and images (tasks.json holds their digests), the token. The package code the

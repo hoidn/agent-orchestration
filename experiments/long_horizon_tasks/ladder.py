@@ -347,6 +347,95 @@ def token_refusal(token):
     return None if isinstance(token, str) and FAKE_TOKEN.fullmatch(token) else "a slot without a fake token in the launcher's form"
 
 
+# ---- the reader of ladder.json's pattern language (classification.fields and .tests; D5) -------------------
+# The one reader: the criterion's tests (test_long_horizon_ladder.py) import it from here. A session is a fixture's
+# shape (fixtures/*.json, as cut_fixture.py writes it) with `_log`, the passthrough's log as log_view reads it. The
+# launcher builds the same shape from a harness trial (session_of), keeping every event of the stream, and leaves
+# `harness_exception` out when the harness wrote no result: then the field `harness` is absent (D5 row 4).
+
+MISSING = object()
+
+
+def result_event(fx):
+    found = [e for e in fx.get("stream_tail") or [] if e.get("type") == "result"]
+    return found[-1] if found else MISSING
+
+
+def stream_of(fx, kind):
+    return [e for e in fx.get("stream_tail") or [] if e.get("type") == kind]
+
+
+STREAM = {"events": lambda fx: fx["n_events"], "api_retry": lambda fx: fx["n_api_retry"],
+          "system_subtypes": lambda fx: [e.get("subtype") for e in stream_of(fx, "system")],
+          "rate_limit": lambda fx: [e["rate_limit_info"] for e in stream_of(fx, "rate_limit_event")]}
+HARNESS = {"exception": "harness_exception", "message": "exception_message"}
+
+
+def field(fx, name):
+    """The value a rule's field names in a session, or MISSING (an unknown field is MISSING everywhere)."""
+    head, _, key = name.partition(".")
+    if head == "result":
+        result = result_event(fx)
+        return result if not key or result is MISSING else result.get(key, MISSING)
+    if head == "harness":
+        if "harness_exception" not in fx:  # the harness wrote no result
+            return MISSING
+        return fx if not key else fx.get(HARNESS.get(key), MISSING)
+    if head == "passthrough":
+        return fx.get("_log", {}).get(key, MISSING)
+    return STREAM[key](fx) if head == "stream" and key in STREAM else MISSING
+
+
+def like(pattern, value):
+    if isinstance(pattern, dict):
+        return isinstance(value, dict) and all(k in value and like(p, value[k]) for k, p in pattern.items())
+    return pattern == "*" or pattern == value
+
+
+OPS = {"absent": lambda arg, v: (v is MISSING) == arg, "null": lambda arg, v: (v is None) == arg,
+       "in": lambda arg, v: v is not MISSING and v in arg, "not_in": lambda arg, v: v is MISSING or v not in arg,
+       "contains": lambda arg, v: isinstance(v, str) and arg in v,
+       "lacks": lambda arg, v: isinstance(v, str) and arg not in v,
+       "some": lambda arg, v: isinstance(v, list) and any(like(arg, x) for x in v),
+       "none": lambda arg, v: isinstance(v, list) and not any(like(arg, x) for x in v)}
+
+
+def holds(test, value):
+    if isinstance(test, dict) and len(test) == 1 and next(iter(test)) in OPS:
+        (op, arg), = test.items()
+        return OPS[op](arg, value)
+    return value is not MISSING and value == test
+
+
+def alts(row):
+    return [] if row["match"] == "otherwise" else row["match"]
+
+
+def matches(row, session):
+    return any(all(holds(t, field(session, f)) for f, t in alt.items()) for alt in alts(row)) or not alts(row)
+
+
+def classify(session, ladder, order=None):
+    """The D5 row of a session: the rows tried in the criterion's order, the first match deciding."""
+    rows = {row["row"]: row for row in ladder["classification"]["rows"]}
+    return next(n for n in order or ladder["classification"]["order"] if matches(rows[n], session))
+
+
+OWN_STOPS = {"paid extra usage": lambda row: row.get("passed_on") is False,  # classification.own_stops
+             "token in a log row": lambda row: "withheld" in row,
+             "response model": lambda row: row.get("response_model") not in (None, MODEL)}
+
+
+def log_view(rows, ended_at=None, slot=None):
+    """The passthrough's log as the rules read it (classification.fields): the slot's rows (`slot`, or every row
+    naming a slot when none is given); those timed before the session's ending (every one when no ending was
+    recorded); the tranche's rows; the stops the slot's rows show."""
+    own = [row for row in rows if (row.get("slot") == slot if slot else row.get("slot"))]
+    return {"requests": own, "tranche_requests": rows,
+            "requests_before_ending": [row for row in own if ended_at is None or row["time"] < ended_at],
+            "own_stops": [cause for cause, shows in OWN_STOPS.items() if any(map(shows, own))]}
+
+
 # ---- state and money (D4: reservation, settlement, the ceiling) ---------------------------------------------
 
 price_check = _kit("price_check")
@@ -560,6 +649,313 @@ def settlement(attempt_dir, rows, reservation):
     known = [v for v in figures.values() if isinstance(v, (int, float))]
     usd = reservation if unreadable else max(known, default=0.0)
     return {"usd": usd, "figures": figures, "unreadable": unreadable}
+
+
+# ---- classification of an ended attempt (D5) ------------------------------------------------------------------
+
+FINAL = {"observation", "infrastructure_failure", "stop", "ruling"}  # classes whose slot is never run again
+
+
+def tranche_event(root, kind, **fields):
+    """An event in the passthrough's tranche.jsonl: the launcher writes `stop` (the passthrough then refuses every
+    request), `pause` and `reopen`; only a person writes `resume`."""
+    with open(root / "passthrough" / "tranche.jsonl", "a") as fh:
+        fh.write(json.dumps({"time": time.time(), "event": kind, **fields}) + "\n")
+
+
+def _result_json(trial):
+    path = trial / "result.json" if trial else None
+    return _read_json(path) if path and path.is_file() else None
+
+
+def session_of(attempt_dir, rows, ended_at, slot):
+    """The attempt as the reader reads a fixture: the harness's exception (left out when it wrote no result), every
+    event of the stream, and the passthrough's rows (log_view). None when the stream cannot be read: such a session
+    is not read as one that never started."""
+    trial = trial_dir(attempt_dir)
+    try:
+        events = stream_events(trial)
+    except ValueError:
+        return None
+    fx = {"n_events": len(events), "n_api_retry": sum(e.get("subtype") == "api_retry" for e in events),
+          "stream_tail": events, "_log": log_view(rows, ended_at, slot)}
+    result = _result_json(trial)
+    if result is not None:
+        exc = result.get("exception_info") or {}
+        fx.update(harness_exception=exc.get("exception_type"), exception_message=exc.get("exception_message"))
+    return fx
+
+
+def _epoch(stamp):
+    import datetime
+    return datetime.datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp() if stamp else None
+
+
+def ending_time(attempt, trial):
+    """The session's ending: when the launcher saw the stream's result event, else when the harness's agent phase
+    ended (a time limit), else None (every row of the slot then counts as before it; coordinator ruling N1)."""
+    if attempt.get("result_seen_at"):
+        return attempt["result_seen_at"]
+    result = _result_json(trial) or {}
+    return _epoch((result.get("agent_execution") or {}).get("finished_at"))
+
+
+def init_stop(events, ladder):
+    """The stop an init event other than the criterion's makes (D2, D7.7), or None."""
+    init = next((e for e in events if e.get("type") == "system" and e.get("subtype") == "init"), None)
+    want = ladder["attempt"]["init_event"]
+    for key, what in (("tools", "tool list"), ("claude_code_version", "CLI version"), ("apiKeySource", "credential source")):
+        if init is not None and init.get(key) != want[key]:
+            return f"an init event with another {what}"
+    return None
+
+
+def subagent_files(trial):
+    """Session files below a session's own directory: a subagent's rows (`<session>/subagents/agent-*.jsonl`)."""
+    projects = trial / "agent" / "sessions" / "projects" if trial else None
+    if projects is None or not projects.is_dir():
+        return []
+    return sorted(p for p in projects.rglob("*.jsonl") if len(p.relative_to(projects).parts) > 2)
+
+
+def _reward(trial):
+    return (((_result_json(trial) or {}).get("verifier_result") or {}).get("rewards") or {}).get("reward")
+
+
+def _launcher_stop(trial, ladder):
+    """A stop of D7.7 the launcher sees in the attempt's own files, beyond the D5 rows."""
+    try:
+        reason = init_stop(stream_events(trial), ladder)
+    except ValueError:
+        reason = None
+    return reason or ("a subagent file" if subagent_files(trial) else None)
+
+
+def window_rows(root, attempt, closed):
+    """The passthrough's rows of the whole tranche from the attempt's slot opening to its closing (D5's join)."""
+    return [r for r in _jsonl(root / "passthrough" / "requests.jsonl") if attempt["opened"] <= r["time"] <= closed]
+
+
+def judge(root, attempt, ladder, ended_at=None, closed=None):
+    """Row, class and reward of an ended attempt, from its trial and the passthrough's rows in its window."""
+    attempt_dir = root / "slots" / attempt["id"]
+    trial, window = trial_dir(attempt_dir), window_rows(root, attempt, closed or time.time())
+    ended_at = ended_at if ended_at is not None else ending_time(attempt, trial)
+    session = session_of(attempt_dir, window, ended_at, attempt["id"])
+    row = 16 if session is None else classify(session, ladder)
+    spec = ladder["classification"]["rows"][row - 1]
+    stop = _launcher_stop(trial, ladder)
+    cls = "stop" if stop else spec["class"]
+    return {"row": row, "class": cls, "flagged": spec.get("flagged", False), "reward": _observed(cls, row, trial),
+            "stop": stop or (f"D5 row {row}" if cls == "stop" or spec.get("stop") else None),
+            "slot_rows": [r for r in window if r.get("slot") == attempt["id"]]}
+
+
+def _observed(cls, row, trial):
+    """An observation's reward: the verifier's, 0 when it gave none (D5), except after a normal ending, which is
+    regraded first. Any other class's reward is never read (a cut's above all)."""
+    if cls != "observation":
+        return None
+    reward = _reward(trial)
+    return 0.0 if reward is None and row != 5 else reward
+
+
+def close(ctx, root, attempt, ladder, prior, ended_at=None):
+    """Classify and settle an attempt whose containers are all gone; the slot closes and its token is retired.
+    A stop is written to the tranche's events; a row-16 ending pauses the tranche for a ruling."""
+    judged = judge(root, attempt, ladder, ended_at)
+    money = settlement(root / "slots" / attempt["id"], judged.pop("slot_rows"), attempt["reservation_usd"])
+    record = {**money, **judged}
+    if record["stop"]:
+        tranche_event(root, "stop", slot=attempt["id"], reason=record["stop"])
+    elif record["class"] == "ruling":
+        tranche_event(root, "pause", slot=attempt["id"], reason=f"D5 row {record['row']}")
+    settle(root, attempt, record, ladder, prior)
+    return record
+
+
+def _key(entry):
+    return entry["round"], entry["task"], entry["effort"]
+
+
+def _by_key(root):
+    found = {}
+    for a in attempts(root):
+        found.setdefault(_key(a), []).append(a)
+    return found
+
+
+def _settled_classes(mine):
+    return [a["settled"]["class"] for a in mine if a["settled"]]
+
+
+def lost(root, schedule):
+    """The slots lost after their third pre-session failure (D5)."""
+    by_key = _by_key(root)
+    return [e for e in schedule if _settled_classes(by_key.get(_key(e), [])).count("pre_session_failure") >= 3
+            and not set(_settled_classes(by_key[_key(e)])) & FINAL]
+
+
+def queue(root, schedule):
+    """What is left to start, in order: slots to run again (a cut, a pre-session failure before its third) at the
+    head, in the order they ended; then the schedule's untried slots in its order. A slot in flight, ended in a
+    final class, or lost is not in it."""
+    by_key, heads, rest = _by_key(root), [], []
+    for entry in schedule:
+        mine = by_key.get(_key(entry), [])
+        classes = _settled_classes(mine)
+        if len(classes) < len(mine) or set(classes) & FINAL or classes.count("pre_session_failure") >= 3:
+            continue
+        if mine:
+            heads.append((mine[-1]["settled"]["closed"], {**entry, "rerun_of": mine[-1]["id"]}))
+        else:
+            rest.append(entry)
+    return [entry for _, entry in sorted(heads, key=lambda h: h[0])] + rest
+
+
+# ---- regrade (D5: verifier only, no model call) -----------------------------------------------------------------
+
+
+def harness_command(ctx, *args):
+    """The harness through its wrapper (harbor_patient.py), run by the harness venv's Python."""
+    return [str(ctx.lh / "hvenv" / "bin" / "python"), "-I", str(KIT / "harbor_patient.py"), *args]
+
+
+def _regrade_once(ctx, ladder, attempt, n):
+    """One verifier-only run of the attempt's trial; (reward or None, exception type or None)."""
+    attempt_dir = ctx.root / "slots" / attempt["id"]
+    trial, out = trial_dir(attempt_dir), attempt_dir / "regrade"
+    command = harness_command(ctx, "trial", "regrade", str(trial), "-p", str(attempt_dir / "task"), "--env",
+                              "podman", "--trial-name", f"regrade-{n}", "-o", str(out))
+    env = {**base_env(ctx), "CONTAINERS_CONF_OVERRIDE": str(ctx.lh / "logs" / "containers-override.conf")}
+    subprocess.run(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+                   start_new_session=True)
+    regraded = out / f"regrade-{n}"
+    return _reward(regraded), ((_result_json(regraded) or {}).get("exception_info") or {}).get("exception_type")
+
+
+def _case(ladder, attempt, record):
+    """Which regrade case of D5 an attempt is in: 1 (no reward after a normal ending), 2 (a load-sensitive task's
+    0 while the load was above the gate during verification), or None."""
+    if record["class"] == "observation" and record["row"] == 5 and record["reward"] is None:
+        return 1
+    sensitive = attempt["task"] in (ladder["tasks"]["load_sensitive"] or [])
+    if record["class"] == "observation" and record["reward"] == 0 and sensitive and record.get("verifier_load_above_gate"):
+        return 2
+    return None
+
+
+def _regrades(ctx, ladder, attempt, record, most, gate):
+    """Up to `most` regrades, each after the gate opens, until one gives a reward; (verifier timeouts, last reward).
+    `record` takes the count and the reward."""
+    timeouts, reward, record["regrades"] = 0, None, 0
+    for n in range(1, most + 1):
+        if not gate():
+            break
+        reward, exc = _regrade_once(ctx, ladder, attempt, n)
+        record["regrades"], timeouts = n, timeouts + (exc == "VerifierTimeoutError")
+        if reward is not None:
+            record["reward"] = reward
+            break
+    return timeouts, reward
+
+
+def regraded(ctx, ladder, attempt, record, gate):
+    """The record after the regrades D5 calls for, each below the load gate (`gate` waits for it and says whether it
+    opened); written to settled.json. Case 1: up to two; a reward then stands, a verifier timeout twice is 0, still
+    none is an infrastructure failure. Case 2: one, whose reward stands (none: indeterminate)."""
+    case, record = _case(ladder, attempt, record), dict(record)
+    if case is None:
+        return record
+    timeouts, reward = _regrades(ctx, ladder, attempt, record, 2 if case == 1 else 1, gate)
+    if case == 1 and record["reward"] is None:
+        record["reward"], record["class"] = (0.0, "observation") if timeouts == 2 else (None, "infrastructure_failure")
+    if case == 2 and record["regrades"] and record["reward"] == 0 and reward is None:
+        record["indeterminate"] = True
+    with _Lock(ctx.root):
+        _write_json(ctx.root / "slots" / attempt["id"] / "settled.json", record)
+    return record
+
+
+# ---- containers and reconcile -------------------------------------------------------------------------------
+
+
+def podman(ctx, *args, timeout=300):
+    """A podman command with the launcher's clean environment; its CompletedProcess (stdout as bytes)."""
+    return subprocess.run(["podman", *args], env=base_env(ctx), capture_output=True, timeout=timeout, check=False)
+
+
+def prefixes(attempt_dir):
+    """The name prefixes of every container and network the harness made for the attempt: its trial's compose
+    projects (`<trial>__env`, `<trial>__verifier__…`) and its regrades', from the trial names (Harbor lower-cases)."""
+    trials = [trial_dir(attempt_dir)] + sorted(p for p in (attempt_dir / "regrade").glob("*") if p.is_dir())
+    return [t.name.lower() + "__" for t in trials if t]
+
+
+def container_names(ctx, prefix_list):
+    names = podman(ctx, "ps", "-a", "--format", "{{.Names}}").stdout.decode().split()
+    return [n for n in names if any(n.startswith(p) for p in prefix_list)]
+
+
+def remove_containers(ctx, attempt_dir, tries=10):
+    """Remove the attempt's containers and networks by name; True once `podman ps -a` shows none of them."""
+    found = prefixes(attempt_dir)
+    for _ in range(tries):
+        names = container_names(ctx, found)
+        if not names:
+            for net in podman(ctx, "network", "ls", "--format", "{{.Name}}").stdout.decode().split():
+                if any(net.startswith(p) for p in found):
+                    podman(ctx, "network", "rm", net)
+            return True
+        podman(ctx, "rm", "-f", "-t", "5", *names)
+        time.sleep(POLL_S)
+    return False
+
+
+POLL_S = 1.0  # seconds between two looks at a process, a container list or the stream
+STOP_GRACE_S = 120  # seconds the harness has after SIGTERM to take its trial down, before SIGKILL to its group
+
+
+def alive(pid, start):
+    """Whether `pid` is the process that started at `start` (pid and start time both match) and not a zombie."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
+    except OSError:
+        return False
+    return int(stat[19]) == start and stat[0] != "Z"
+
+
+def stop_group(pid, start, grace=None):
+    """SIGTERM to the process group of `pid` (the harness runs in its own session), then SIGKILL to the group after
+    the grace; only while `pid` is still the process that started at `start`."""
+    import signal
+    for sig, wait in ((signal.SIGTERM, STOP_GRACE_S if grace is None else grace), (signal.SIGKILL, 30)):
+        if not alive(pid, start):
+            return True
+        try:
+            os.killpg(pid, sig)
+        except ProcessLookupError:
+            return True
+        deadline = time.monotonic() + wait
+        while alive(pid, start) and time.monotonic() < deadline:
+            time.sleep(0.2)
+    return not alive(pid, start)
+
+
+def reconcile(ctx, ladder, prior):
+    """Attempts left open by a launcher that is gone (its pid and start time do not both match a live process):
+    their harness is stopped if it is still the same process, their containers are removed, and they are closed."""
+    done = []
+    for attempt in [a for a in attempts(ctx.root) if a["settled"] is None]:
+        owner = attempt["launcher"]
+        if alive(owner["pid"], owner["start"]):
+            continue
+        harness = attempt.get("harness")
+        if harness:
+            stop_group(harness["pid"], harness["start"])
+        if remove_containers(ctx, ctx.root / "slots" / attempt["id"]):
+            done.append(close(ctx, ctx.root, attempt, ladder, prior))
+    return done
 
 
 # ---- the command line ---------------------------------------------------------------------------------------

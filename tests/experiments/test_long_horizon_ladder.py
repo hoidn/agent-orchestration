@@ -206,56 +206,12 @@ def test_the_agent_setup_timeout_multiplier_is_the_one_every_task_2a_recording_r
 
 # ---- D5: every rule rests on the fixtures it cites ----------------------------------------------------------
 
-MISSING = object()
-
-
-def _result(fx):
-    found = [e for e in fx.get("stream_tail") or [] if e.get("type") == "result"]
-    return found[-1] if found else MISSING
-
-
-def _events(fx, kind):
-    return [e for e in fx.get("stream_tail") or [] if e.get("type") == kind]
-
-
-STREAM = {"events": lambda fx: fx["n_events"], "api_retry": lambda fx: fx["n_api_retry"],
-          "system_subtypes": lambda fx: [e.get("subtype") for e in _events(fx, "system")],
-          "rate_limit": lambda fx: [e["rate_limit_info"] for e in _events(fx, "rate_limit_event")]}
-HARNESS = {"exception": "harness_exception", "message": "exception_message"}
-
-
-def _field(fx, name):
-    """The value a rule's field names in a fixture, or MISSING (an unknown field is MISSING everywhere)."""
-    head, _, key = name.partition(".")
-    if head == "result":
-        result = _result(fx)
-        return result if not key or result is MISSING else result.get(key, MISSING)
-    if head == "harness":
-        return fx if not key else fx.get(HARNESS.get(key), MISSING)
-    if head == "passthrough":
-        return fx.get("_log", {}).get(key, MISSING)
-    return STREAM[key](fx) if head == "stream" and key in STREAM else MISSING
-
-
-def _like(pattern, value):
-    if isinstance(pattern, dict):
-        return isinstance(value, dict) and all(k in value and _like(p, value[k]) for k, p in pattern.items())
-    return pattern == "*" or pattern == value
-
-
-OPS = {"absent": lambda arg, v: (v is MISSING) == arg, "null": lambda arg, v: (v is None) == arg,
-       "in": lambda arg, v: v is not MISSING and v in arg, "not_in": lambda arg, v: v is MISSING or v not in arg,
-       "contains": lambda arg, v: isinstance(v, str) and arg in v,
-       "lacks": lambda arg, v: isinstance(v, str) and arg not in v,
-       "some": lambda arg, v: isinstance(v, list) and any(_like(arg, x) for x in v),
-       "none": lambda arg, v: isinstance(v, list) and not any(_like(arg, x) for x in v)}
-
-
-def _holds(test, value):
-    if isinstance(test, dict) and len(test) == 1 and next(iter(test)) in OPS:
-        (op, arg), = test.items()
-        return OPS[op](arg, value)
-    return value is not MISSING and value == test
+# The reader of the pattern language is the launcher's (ladder.py); these tests hold it to the fixtures.
+ladder = _load("lh_ladder_reader", KIT / "ladder.py")
+MISSING, _result, _events = ladder.MISSING, ladder.result_event, ladder.stream_of
+STREAM, HARNESS = ladder.STREAM, ladder.HARNESS
+_field, _like, OPS, _holds = ladder.field, ladder.like, ladder.OPS, ladder.holds
+_alts, _matches, _classify, OWN_STOPS, _log = ladder.alts, ladder.matches, ladder.classify, ladder.OWN_STOPS, ladder.log_view
 
 
 def _fixture(name):
@@ -286,10 +242,6 @@ def _passthrough_problems(alt, cited, ladder):
         problems += [f"{name}: {v!r} in no cited fixture" for v in _leaves(pattern)
                      if not any(json.dumps(v).strip('"') in json.dumps(fx) for fx in cited.values())]
     return problems
-
-
-def _alts(row):
-    return [] if row["match"] == "otherwise" else row["match"]
 
 
 def _unseen(name):
@@ -388,48 +340,31 @@ def _log_row(status, reason, scenario):
     return {"slot": "s", "status": status, **signal}
 
 
-OWN_STOPS = {"paid extra usage": lambda row: row.get("passed_on") is False,
-             "token in a log row": lambda row: "withheld" in row,
-             "response model": lambda row: row.get("response_model") not in (None, MODEL)}
-
-
-def _log(rows, ended_at=None):
-    """The passthrough's log as the rules read it (classification.fields): the slot's rows; those timed before the
-    session's ending (every one when no ending was recorded); the tranche's rows; the stops the slot's rows show."""
-    own = [row for row in rows if row["slot"]]
-    return {"requests": own, "tranche_requests": rows,
-            "requests_before_ending": [row for row in own if ended_at is None or row["time"] < ended_at],
-            "own_stops": [cause for cause, shows in OWN_STOPS.items() if any(map(shows, own))]}
-
-
 def _with_log(name, rows, ended_at=10):
     """A recorded session with a constructed log; a row without a time is stamped 2, before the ending at 10."""
     return {**_fixture(name), "_log": _log([{"time": 2, **row} for row in rows], ended_at)}
 
 
 def _session(fx):
-    """The fixture with a stand-in for the passthrough's log of its attempt, built from what was recorded: one row per
-    request the stand-in answered, with the status its request fixture holds; a 403 carries the reason the result text
-    names, and a 429 of the usage-limit scenario carries signal 1. A refusal the passthrough logs with no slot is in
-    the tranche's rows only. Every request precedes the session's ending."""
+    """The fixture with a stand-in for the passthrough's log of its attempt (_session_rows); every request precedes
+    the session's ending."""
+    rows = _session_rows(fx)
+    return {**fx, "_log": _log(rows, len(rows))}
+
+
+def _session_rows(fx):
+    """A stand-in for the passthrough's rows of a fixture's attempt, built from what was recorded: one row per
+    request the stand-in answered, with the status its request fixture holds and its index as its time; a 403
+    carries the reason the result text names, and a 429 of the usage-limit scenario carries signal 1. A refusal the
+    passthrough logs with no slot has a null slot (it is in the tranche's rows only)."""
     name = _recording_of(fx)
     path = FIXTURES / "requests" / f"{name}.json"
     statuses = [row[1] for row in json.loads(path.read_text())["requests"]] if path.is_file() else []
     text = (_result(fx).get("result") or "") if _result(fx) is not MISSING else ""
     reason = re.search(r"lh-passthrough: ([a-z -]*[a-z])", text)
     scenario = re.search(r"scenario (\S+)", INDEX.get(name, {}).get("source", ""))
-    rows = [{**_log_row(status, reason and reason.group(1), scenario and scenario.group(1)), "time": i}
+    return [{**_log_row(status, reason and reason.group(1), scenario and scenario.group(1)), "time": i}
             for i, status in enumerate(statuses)]
-    return {**fx, "_log": _log(rows, len(rows))}
-
-
-def _matches(row, session):
-    return any(all(_holds(t, _field(session, f)) for f, t in alt.items()) for alt in _alts(row)) or not _alts(row)
-
-
-def _classify(session, ladder, order=None):
-    rows = {row["row"]: row for row in ladder["classification"]["rows"]}
-    return next(n for n in order or ladder["classification"]["order"] if _matches(rows[n], session))
 
 
 BY_NAME = [("pre-session-", 1), ("no-credential", 2), ("forced-empty", 2), ("token-simple-mode-", 2), ("timeout", 3),

@@ -79,13 +79,107 @@ def run_code(code, args):
     exec(compile(code, "<stand-in -c>", "exec"), {"__name__": "__main__"})
 
 
+def log_call(args):
+    import os
+    with open(HERE / "calls.jsonl", "a") as fh:
+        fh.write(json.dumps({"argv": args, "env": dict(os.environ), "pid": os.getpid()}) + "\n")
+
+
+def option(args, name):
+    return args[args.index(name) + 1] if name in args else None
+
+
+def regrade(args):
+    """`harbor_patient.py trial regrade TRIAL -p TASK --env podman --trial-name NAME -o DIR`: the next outcome of
+    standin/regrade.json for this source trial: a reward, or the exception the verifier ended with."""
+    plan = json.loads((HERE / "regrade.json").read_text()) if (HERE / "regrade.json").exists() else {}
+    outcomes = plan.get(Path(args[2]).name, [{"reward": 1.0}])
+    done = sum(1 for line in (HERE / "calls.jsonl").read_text().splitlines()
+               if json.loads(line)["argv"][1:4] == ["trial", "regrade", args[2]])
+    outcome = outcomes[min(done, len(outcomes)) - 1]
+    out = Path(option(args, "-o")) / option(args, "--trial-name")
+    out.mkdir(parents=True)
+    exc = {"exception_type": outcome["exception"], "exception_message": ""} if "exception" in outcome else None
+    reward = {"rewards": {"reward": outcome["reward"]}} if "reward" in outcome else None
+    (out / "result.json").write_text(json.dumps({"exception_info": exc, "verifier_result": reward}))
+
+
 args = sys.argv[1:]
 if args[:1] == ["-I"]:
     args = args[1:]
 if args[:1] == ["-c"]:
     run_code(args[1], args[2:])
+elif args[1:3] == ["trial", "regrade"]:
+    log_call(args)
+    regrade(args[1:])
 else:
     sys.exit(f"stand-in python: unexpected {args[:2]}")
+'''
+
+PODMAN = r'''
+"""The stand-in podman (test_long_horizon_launcher.py): containers and networks are JSON files under
+standin/podman; every call is logged. A container's `stubborn` count is how many removals it survives."""
+import json, sys
+from pathlib import Path
+
+STATE = Path(__file__).resolve().parents[2] / "standin" / "podman"
+C, N = STATE / "containers", STATE / "networks"
+args = sys.argv[1:]
+with open(STATE / "calls.jsonl", "a") as fh:
+    fh.write(json.dumps(args) + "\n")
+
+
+def names(folder):
+    return sorted(p.stem for p in folder.glob("*.json"))
+
+
+def operands(rest):
+    out, skip = [], False
+    for arg in rest:
+        if skip:
+            skip = False
+        elif arg in ("-t", "--time", "--format"):
+            skip = True
+        elif not arg.startswith("-"):
+            out.append(arg)
+    return out
+
+
+def load(name):
+    path = C / f"{name}.json"
+    return json.loads(path.read_text()) if path.exists() else None
+
+
+cmd, rest = args[0], args[1:]
+if cmd == "ps":
+    every = "-a" in rest
+    print("\n".join(n for n in names(C) if every or load(n).get("running", True)))
+elif cmd == "rm":
+    for name in operands(rest):
+        found = load(name)
+        if found and found.get("stubborn", 0) > 0:
+            found["stubborn"] -= 1
+            (C / f"{name}.json").write_text(json.dumps(found))
+        elif found:
+            (C / f"{name}.json").unlink()
+elif cmd == "network" and rest[0] == "ls":
+    print("\n".join(names(N)))
+elif cmd == "network" and rest[0] == "rm":
+    for name in operands(rest[1:]):
+        (N / f"{name}.json").unlink(missing_ok=True)
+elif cmd == "inspect":
+    print(json.dumps([{"Name": n, "Config": {"Env": load(n).get("env", [])}} for n in operands(rest) if load(n)]))
+elif cmd == "logs":
+    print((load(operands(rest)[0]) or {}).get("log", ""))
+elif cmd == "exec":
+    found = load(operands(rest)[0])
+    if not found or not found.get("running", True):
+        sys.exit(125)
+    sys.stdout.write("\0".join(found.get("env", [])))
+elif cmd == "export":
+    sys.stdout.write((load(operands(rest)[0]) or {}).get("fs", ""))
+else:
+    sys.exit(f"stand-in podman: unexpected {args[:2]}")
 '''
 
 
@@ -112,6 +206,11 @@ def _cache(short, records):
     python.write_text(f"#!{sys.executable} -I\n{STANDIN}")
     python.chmod(0o700)
     (lh / "standin" / "versions.json").write_text(json.dumps({"harbor": "0.25.0", "podman-compose": "1.6.0"}))
+    podman = lh / "hvenv" / "bin" / "podman"
+    podman.write_text(f"#!{sys.executable} -I\n{PODMAN}")
+    podman.chmod(0o700)
+    for folder in ("containers", "networks"):
+        (lh / "standin" / "podman" / folder).mkdir(parents=True)
     side = json.loads((KIT / "ladder.json").read_text())["harness"]["host_side"]
     (lh / "logs").mkdir()
     (lh / "logs" / "containers-override.conf").write_text(side["containers_override"]["content"])
@@ -627,3 +726,294 @@ def test_a_session_with_no_trial_is_settled_by_the_meter_alone(short):
     rows = [{"slot": attempt["id"], "status": 200, "usd": 0.25}, {"slot": attempt["id"], "status": 403, "refused": "x"}]
     assert ladder.settlement(root / "slots" / attempt["id"], rows, 4.0) == {
         "usd": 0.25, "figures": {"meter": 0.25, "session": None, "result": None, "model_usage": None}, "unreadable": []}
+
+
+# ---- Classification (Task 5, third checkbox) -------------------------------------------------------------------
+
+criterion_tests = _load("lh_criterion_tests", REPO / "tests" / "experiments" / "test_long_horizon_ladder.py")
+
+
+def _replay(fx, trial, started="2026-11-20T10:00:00Z", finished="2026-11-20T10:30:00Z"):
+    """A harness trial as Harbor writes it, from a cut fixture: result.json (absent for no harness result) and the
+    stream with the fixture's init event, its count of events and of api_retry events, and its last events."""
+    (trial / "agent").mkdir(parents=True, exist_ok=True)
+    exc = fx.get("harness_exception")
+    info = {"exception_type": exc, "exception_message": fx.get("exception_message") or ""} if exc else None
+    (trial / "result.json").write_text(json.dumps({
+        "exception_info": info, "agent_result": fx.get("agent_result"), "verifier_result": fx.get("verifier_result"),
+        "agent_execution": {"started_at": started, "finished_at": finished}}))
+    if fx["n_events"]:
+        tail = fx["stream_tail"]
+        head = [fx["init"]] if fx.get("init") and fx["init"] not in tail else []
+        retries = fx["n_api_retry"] - sum(e.get("subtype") == "api_retry" for e in head + tail)
+        filler = max(fx["n_events"] - len(head) - len(tail) - retries, 0)
+        events = head + [{"type": "system", "subtype": "api_retry"}] * retries + [{"type": "user"}] * filler + tail
+        (trial / "agent" / "claude-code.txt").write_text("".join(json.dumps(e) + "\n" for e in events))
+    return trial
+
+
+def _attempt_dir(short, name="001-r1-wal-recovery-ordering-low"):
+    path = short / "state" / "slots" / name
+    path.mkdir(parents=True)
+    return path
+
+
+def _launcher_session(short, fixture, rows, ended_at):
+    attempt_dir = _attempt_dir(short)
+    _replay(json.loads((KIT / "fixtures" / f"{fixture}.json").read_text()) if isinstance(fixture, str) else fixture,
+            attempt_dir / "jobs" / attempt_dir.name / "wal-recovery-ordering__abcdefg")
+    return ladder.session_of(attempt_dir, rows, ended_at, "s")
+
+
+def test_every_fixture_read_from_a_harness_trial_is_classified_into_its_row_by_the_shared_reader(short):
+    """The launcher's own path: each session fixture replayed into a harness trial directory and read back by
+    session_of, with the criterion's stand-in passthrough rows, lands in the row that cites it or that its name says
+    (the criterion test's expectation, test_long_horizon_ladder.py)."""
+    cited = {f: row["row"] for row in CRITERION["classification"]["rows"] for f in row["fixtures"]}
+    got, want = {}, {}
+    for n, name in enumerate(criterion_tests.SESSIONS):
+        fx = criterion_tests._fixture(name)
+        rows = criterion_tests._session_rows(fx)
+        attempt_dir = _attempt_dir(short, f"{n:03d}")
+        _replay(fx, attempt_dir / "jobs" / "j" / "t__abcdefg")
+        got[name] = ladder.classify(ladder.session_of(attempt_dir, rows, len(rows), "s"), CRITERION)
+        want[name] = cited.get(name, criterion_tests._named_row(name))
+    assert (len(got), {n: (got[n], want[n]) for n in got if got[n] != want[n]}) == (73, {})
+
+
+def test_endings_that_share_a_harness_class_are_told_apart(short):
+    rows_by_class = {}
+    for n, name in enumerate(criterion_tests.SESSIONS):
+        fx = criterion_tests._fixture(name)
+        rows = criterion_tests._session_rows(fx)
+        attempt_dir = _attempt_dir(short, f"{n:03d}")
+        _replay(fx, attempt_dir / "jobs" / "j" / "t__abcdefg")
+        row = ladder.classify(ladder.session_of(attempt_dir, rows, len(rows), "s"), CRITERION)
+        rows_by_class.setdefault(fx["harness_exception"], set()).add(row)
+    assert (rows_by_class["UnknownApiError"] >= {11, 12, 13, 14, 15},
+            rows_by_class["NonZeroAgentExitCodeError"] >= {6, 7, 10}) == (True, True)
+
+
+SIGNAL_1 = {"anthropic-ratelimit-unified-status": "rejected"}
+
+
+@pytest.mark.parametrize("fixture", ["token-three-tools-normal-end", "stub-budget-stop-NonZeroAgentExitCodeError",
+                                     "stub-refusal-AgentSafetyRefusalError", "passthrough-cap-UnknownApiError"])
+def test_a_slot_whose_log_holds_signal_1_before_the_ending_is_cut_whatever_the_cli_s_result_says(short, fixture):
+    rows = [{"time": 1, "slot": "s", "status": 429, "headers": SIGNAL_1},
+            {"time": 2, "slot": "s", "status": 403, "refused": "slot cap reached"}]
+    row = ladder.classify(_launcher_session(short, fixture, rows, 5), CRITERION)
+    assert (row, CRITERION["classification"]["rows"][row - 1]["class"]) == (10, "cut")
+
+
+def test_a_usage_limit_met_only_after_the_ending_leaves_a_time_limit_session_in_its_own_row(short):
+    rows = [{"time": 1, "slot": "s", "status": 200}, {"time": 9, "slot": "s", "status": 429, "headers": SIGNAL_1}]
+    assert ladder.classify(_launcher_session(short, "stub-timeout-AgentTimeoutError", rows, 5), CRITERION) == 3
+
+
+def test_a_session_with_signal_2_alone_pauses(short):
+    rows = [{"time": 1, "slot": "s", "status": 429}]  # the CLI says usage limit; the vendor's answer does not
+    assert ladder.classify(_launcher_session(short, "token-usage-limit-NonZeroAgentExitCodeError", rows, 5),
+                           CRITERION) == 16
+
+
+def test_a_session_whose_stream_cannot_be_read_pauses_rather_than_reading_as_before_a_session(short):
+    attempt_dir = _attempt_dir(short)
+    trial = _replay(criterion_tests._fixture("token-three-tools-normal-end"), attempt_dir / "jobs" / "j" / "t__a")
+    with open(trial / "agent" / "claude-code.txt", "a") as fh:
+        fh.write("{cut\n{}\n")
+    assert ladder.session_of(attempt_dir, [], None, "s") is None
+
+
+# Closing an attempt: its row, class, reward and what happens to its slot.
+
+def _state(short):
+    root = short / "state"
+    ladder.ensure_state(root)
+    return root
+
+
+def _ctx(short, lh=None):
+    reh = short / "reh"
+    reh.mkdir(exist_ok=True)
+    return ladder.Ctx({"HOME": str(short / "home"), "LH": str(lh or short / "lh"), "LH_REHEARSAL": str(reh)})
+
+
+def _closed(short, fixture, rows, entry=None, reward=None):
+    """Reserve an attempt, replay `fixture` as its trial, log `rows` for its slot and close it."""
+    ctx = _ctx(short)
+    root = ctx.root
+    ladder.ensure_state(root)
+    attempt = ladder.reserve(root, entry or _entry(), CRITERION, 0.0)
+    fx = json.loads((KIT / "fixtures" / f"{fixture}.json").read_text())
+    if reward is not None:
+        fx = {**fx, "verifier_result": {"rewards": {"reward": reward}}}
+    _replay(fx, root / "slots" / attempt["id"] / "jobs" / attempt["id"] / "wal-recovery-ordering__abcdefg")
+    now = attempt["opened"]
+    with open(root / "passthrough" / "requests.jsonl", "a") as fh:
+        for i, row in enumerate(rows):
+            fh.write(json.dumps({"time": now + 0.001 * (i + 1), "slot": attempt["id"], **row}) + "\n")
+    record = ladder.close(ctx, root, attempt, CRITERION, 0.0, ended_at=now + 1)
+    return root, attempt, record
+
+
+def test_a_cut_slot_is_run_again_at_the_head_of_the_queue_as_a_new_counted_start_and_its_reward_is_never_read(short):
+    first, second = _entry(rnd=1), _entry(rnd=2)
+    root, attempt, record = _closed(short, "token-three-tools-normal-end",
+                                    [{"status": 429, "headers": SIGNAL_1, "usd": 0.01}], entry=second, reward=1.0)
+    queue = ladder.queue(root, [first, second])
+    starts, committed, _ = ladder.tally(root, CRITERION, 0.0)
+    assert ((record["row"], record["class"], record["reward"]), queue[0]["round"], queue[0]["rerun_of"],
+            [e["round"] for e in queue], starts, committed) == (
+        (10, "cut", None), 2, attempt["id"], [2, 1], 1, 0.01)
+
+
+@pytest.mark.parametrize("fixture,rows,cls", [
+    ("token-three-tools-normal-end", [], "observation"),
+    ("stub-budget-stop-NonZeroAgentExitCodeError", [], "observation"),
+    ("stub-overloaded-UnknownApiError", [], "infrastructure_failure"),
+    ("passthrough-model-UnknownApiError", [{"status": 403, "refused": "model not allowed"}], "stop"),
+    ("token-usage-limit-NonZeroAgentExitCodeError", [{"status": 429}], "ruling")])  # signal 2 alone: row 16
+def test_a_slot_whose_session_ended_in_any_other_way_is_never_launched_again(short, fixture, rows, cls):
+    root, _, record = _closed(short, fixture, rows, reward=0.0)
+    assert (record["class"], ladder.queue(root, [_entry()])) == (cls, [])
+
+
+def test_an_observation_takes_the_verifier_s_reward_and_zero_when_the_verifier_gives_none(short):
+    (short / "a").mkdir()
+    (short / "b").mkdir()
+    _, _, with_reward = _closed(short / "a", "stub-budget-stop-NonZeroAgentExitCodeError", [], reward=1.0)
+    _, _, without = _closed(short / "b", "stub-timeout-AgentTimeoutError", [])
+    assert (with_reward["reward"], with_reward["flagged"], without["row"], without["reward"]) == (1.0, True, 3, 0.0)
+
+
+def test_a_stop_row_stops_the_tranche_and_a_row_16_ending_pauses_it(short):
+    (short / "a").mkdir()
+    (short / "b").mkdir()
+    stop_root, stopped, _ = _closed(short / "a", "passthrough-model-UnknownApiError",
+                                    [{"status": 403, "refused": "model not allowed"}])
+    pause_root, paused, _ = _closed(short / "b", "token-usage-limit-NonZeroAgentExitCodeError", [{"status": 429}])
+    events = [ladder._jsonl(root / "passthrough" / "tranche.jsonl")[-1] for root in (stop_root, pause_root)]
+    assert [(e["event"], e["slot"], e["reason"]) for e in events] == [
+        ("stop", stopped["id"], "D5 row 13"), ("pause", paused["id"], "D5 row 16")]
+
+
+def test_a_pre_session_failure_is_relaunched_at_most_twice_and_the_slot_is_lost_after_the_third(short):
+    ctx = _ctx(short)
+    root = ctx.root
+    ladder.ensure_state(root)
+    fx = criterion_tests._fixture("pre-session-agent-install-RuntimeError")
+    seen = []
+    for _ in range(3):
+        head = ladder.queue(root, [_entry()])
+        seen.append([e.get("rerun_of") for e in head])
+        attempt = ladder.reserve(root, head[0], CRITERION, 0.0)
+        _replay(fx, root / "slots" / attempt["id"] / "jobs" / attempt["id"] / "wal-recovery-ordering__abcdefg")
+        ladder.close(ctx, root, attempt, CRITERION, 0.0)
+    ids = [a["id"] for a in ladder.attempts(root)]
+    assert (seen, ladder.queue(root, [_entry()]), ladder.lost(root, [_entry()]), ladder.tally(root, CRITERION, 0.0)[:2]) == (
+        [[None], [ids[0]], [ids[1]]], [], [_entry()], (0, 0.0))
+
+
+def test_the_launcher_stops_the_tranche_at_an_init_event_with_another_tool_list_version_or_credential_source(short):
+    fx = criterion_tests._fixture("token-three-tools-normal-end")
+    bad = [{**fx, "init": {**fx["init"], "tools": ["Bash", "Edit", "Read", "Write"]}},
+           {**fx, "init": {**fx["init"], "claude_code_version": "2.1.312"}},
+           {**fx, "init": {**fx["init"], "apiKeySource": "ANTHROPIC_API_KEY"}}, fx]
+    reasons = []
+    for n, case in enumerate(bad):
+        attempt_dir = _attempt_dir(short, f"{n:03d}")
+        _replay(case, attempt_dir / "jobs" / "j" / "t__abcdefg")
+        reasons.append(ladder.init_stop(ladder.stream_events(ladder.trial_dir(attempt_dir)), CRITERION))
+    assert reasons == ["an init event with another tool list", "an init event with another CLI version",
+                       "an init event with another credential source", None]
+
+
+def test_a_subagent_file_is_a_stop(short):
+    attempt_dir = _attempt_dir(short)
+    trial = _replay(criterion_tests._fixture("token-three-tools-normal-end"), attempt_dir / "jobs" / "j" / "t__a")
+    sub = trial / "agent" / "sessions" / "projects" / "-app" / "sess" / "subagents"
+    sub.mkdir(parents=True)
+    before = ladder.subagent_files(trial)
+    (sub / "agent-1.jsonl").write_text("{}\n")
+    assert (before, [p.name for p in ladder.subagent_files(trial)]) == ([], ["agent-1.jsonl"])
+
+
+# Regrade (D5): verifier only, no model call.
+
+def _calls(lh):
+    path = lh / "standin" / "calls.jsonl"
+    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+@pytest.mark.parametrize("outcomes,want", [
+    ([{"reward": 1.0}], ("observation", 1.0, 1)),
+    ([{"exception": "RewardFileNotFoundError"}, {"reward": 0.0}], ("observation", 0.0, 2)),
+    ([{"exception": "VerifierTimeoutError"}, {"exception": "VerifierTimeoutError"}], ("observation", 0.0, 2)),
+    ([{"exception": "RewardFileNotFoundError"}, {"exception": "RewardFileNotFoundError"}],
+     ("infrastructure_failure", None, 2))])
+def test_no_reward_after_a_normal_ending_is_regraded_twice_at_most_and_a_regrade_never_starts_the_agent(
+        short, outcomes, want):
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    (lh / "standin" / "regrade.json").write_text(json.dumps({"wal-recovery-ordering__abcdefg": outcomes}))
+    root, attempt, record = _closed(short, "token-three-tools-normal-end", [])
+    ctx = _ctx(short, lh)
+    record = ladder.regraded(ctx, CRITERION, attempt, record, gate=lambda: True)
+    calls = _calls(lh)
+    agent_args = {"run", "--agent", "-m", "--ak", "--ae", "--effort", "--base-url"}
+    assert ((record["class"], record["reward"], len(calls)),
+            {c["argv"][1] + " " + c["argv"][2] for c in calls}, [agent_args & set(c["argv"]) for c in calls],
+            [k for c in calls for k in c["env"] if k.startswith(("CLAUDE", "LH_", "ANTHROPIC"))]) == (
+        want, {"trial regrade"}, [set()] * len(calls), [])
+
+
+def test_a_load_sensitive_task_s_zero_under_load_is_regraded_once_below_the_gate(short):
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    (lh / "standin" / "regrade.json").write_text(json.dumps({"wal-recovery-ordering__abcdefg": [{"reward": 1.0}]}))
+    criterion = {**CRITERION, "tasks": {**CRITERION["tasks"], "load_sensitive": ["wal-recovery-ordering"]}}
+    root, attempt, record = _closed(short, "stub-budget-stop-NonZeroAgentExitCodeError", [], reward=0.0)
+    quiet = ladder.regraded(_ctx(short, lh), criterion, attempt, {**record, "verifier_load_above_gate": False},
+                            gate=lambda: True)
+    loud = ladder.regraded(_ctx(short, lh), criterion, attempt, {**record, "verifier_load_above_gate": True},
+                           gate=lambda: True)
+    assert ((quiet["reward"], loud["reward"], loud["regrades"]), len(_calls(lh))) == ((0.0, 1.0, 1), 1)
+
+
+# Reconcile: only a dead launcher's attempts are stopped and removed.
+
+def _container(lh, name, **fields):
+    (lh / "standin" / "podman" / "containers" / f"{name}.json").write_text(json.dumps({"running": True, **fields}))
+
+
+def _containers(lh):
+    return sorted(p.stem for p in (lh / "standin" / "podman" / "containers").glob("*.json"))
+
+
+def test_reconcile_stops_only_the_containers_of_a_dead_launcher_whose_pid_and_start_time_both_match(short):
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    ctx = _ctx(short, lh)
+    root = ctx.root
+    ladder.ensure_state(root)
+    me, start = os.getpid(), ladder.process_start(os.getpid())
+    sleepers = [subprocess.Popen(["sleep", "300"], start_new_session=True) for _ in range(2)]
+    owners = {"alive": (me, start), "pid reused": (me, start + 1), "gone": (2 ** 22 + 7, 1)}
+    harness = {"alive": None, "pid reused": (sleepers[0].pid, ladder.process_start(sleepers[0].pid)),
+               "gone": (sleepers[1].pid, ladder.process_start(sleepers[1].pid) + 1)}  # the second: a reused pid
+    for n, (name, owner) in enumerate(owners.items()):
+        attempt = ladder.reserve(root, _entry(rnd=n), CRITERION, 0.0)
+        record = {**attempt, "launcher": {"pid": owner[0], "start": owner[1]}}
+        if harness[name]:
+            record["harness"] = {"pid": harness[name][0], "start": harness[name][1]}
+        ladder._write_json(root / "slots" / attempt["id"] / "slot.json", record)
+        trial = root / "slots" / attempt["id"] / "jobs" / attempt["id"] / f"Trial{n}__abcdefg"
+        trial.mkdir(parents=True)
+        _container(lh, f"trial{n}__abcdefg__env_main_1")
+    ladder.reconcile(ctx, CRITERION, 0.0)
+    states = [s.poll() for s in sleepers]
+    for s in sleepers:
+        s.kill()
+        s.wait()
+    settled = {a["id"].split("-", 1)[0]: a["settled"] and a["settled"]["class"] for a in ladder.attempts(root)}
+    assert (_containers(lh), settled, states[0] is not None, states[1]) == (
+        ["trial0__abcdefg__env_main_1"], {"001": None, "002": "infrastructure_failure", "003": "infrastructure_failure"},
+        True, None)
