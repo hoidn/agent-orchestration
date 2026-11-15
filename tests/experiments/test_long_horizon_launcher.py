@@ -1802,6 +1802,23 @@ def test_a_signal_to_the_launcher_ends_a_running_attempt_within_seconds_leaves_n
         0, True, [], [], True, ["the launcher was signalled"])
 
 
+def test_a_failure_while_an_attempt_runs_stops_its_harness_and_tears_it_down_before_it_propagates(rig):
+    """Task 8 m5: the run-time load sample fails mid-attempt (a load file that cannot be read as one)."""
+    r = rig(plan=[{"sleep": 30}])
+    proc = r.start_launch()
+    deadline = time.monotonic() + WAIT
+    while not any(n["what"] == "started" for n in r.notes()) and time.monotonic() < deadline:
+        time.sleep(0.2)
+    (r.kit.reh / "host" / "loadavg").write_text("not a load\n")
+    proc.communicate(timeout=WAIT * 2)
+    started = next(n for n in r.notes() if n["what"] == "started")
+    group = subprocess.run(["pgrep", "-g", str(started["pgid"])], capture_output=True, text=True).stdout.split()
+    slots = json.loads((r.root / "passthrough" / "slots.json").read_text())["slots"]
+    failed = [e["reason"] for e in r.events() if e["event"] == "pause" and "the launcher failed" in e["reason"]]
+    assert (group, r.attempts()[0]["settled"] is not None, slots, len(failed), _containers(r.lh)) == (
+        [], True, {}, 1, [])
+
+
 def test_a_passthrough_that_died_without_closing_starts_pauses_the_tranche(rig):
     r = rig()
     r.passthrough.kill()  # SIGKILL: it writes no close_starts, and its socket stays behind

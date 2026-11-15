@@ -1854,10 +1854,26 @@ class Attempt:
                 return
             self.follow(proc)
             self.teardown()
-        except Exception as exc:  # recorded, never lost: the tranche pauses for a person; reconcile closes it later
+        except Exception as exc:  # recorded, never lost: the tranche pauses for a person
             tranche_event(self.ctx.root, "pause", slot=self.a["id"],
                           reason=f"the launcher failed: {type(exc).__name__}: {exc}")
+            self.salvage()
             raise
+
+    def salvage(self):
+        """After a failure (Task 8 m5): the harness stopped, then the teardown (scans, containers removed, token
+        retired) unless the attempt is closed already. A failure of that teardown is recorded too, and reconcile
+        closes the attempt at the next launch."""
+        harness = self.a.get("harness")
+        if harness:
+            stop_group(harness["pid"], harness["start"])
+        if (self.dir / "settled.json").exists():
+            return
+        try:
+            self.teardown()
+        except Exception as exc:  # recorded: the attempt stays open for reconcile
+            tranche_event(self.ctx.root, "pause", slot=self.a["id"],
+                          reason=f"its teardown failed too: {type(exc).__name__}: {exc}")
 
     def refused(self, why):
         """A launch refused before the harness ran is no start (coordinator ruling, Task 5): the tranche stops, the
