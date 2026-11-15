@@ -101,7 +101,7 @@ Order: Task 0; T and O, in parallel (disjoint files); L, once E1 is merged (C1, 
 | P1 A prompt as an argument | `type_env.py`, `expressions.py`, `expression_traversal.py`, `typecheck_dispatch.py`, `typecheck_proofs.py`, new `prompt_values.py` | 10 | 0b |
 | P2 `Prompt[T]` and `Provider` parameters | `procedure_typecheck.py`, `procedure_specialization.py`, `procedures.py`, `specialization_typecheck.py`, `closed/names.py`, `typecheck_effects.py`, `prompt_values.py` | 16 | P1, T |
 | P3 A called reference over a generic procedure | `typecheck_dispatch.py`, `procedure_typecheck.py`, `prompt_values.py` | 8 | P2 |
-| P5 `std/ask` and the role idiom | `stdlib_modules/w3/std/ask.orc`, `workflows/examples/`, the registry row | 4 | P3; stage 4 Task 4a |
+| P5 `std/ask` and the role idiom | `stdlib_modules/std/ask.orc`, `workflows/examples/`, the registry row | 4 | P3; stage 4 Task 4a |
 | P6 Documents | the specification entries, guide, library reference, `specs/` change lists, capability matrix | 6 | P5; blocked files clean |
 | F Closeout | the exit test, ledger | 4 | all |
 
@@ -307,7 +307,7 @@ expression node, the head rule and the refusals, and must show that nothing else
 
 ### Task P5: `std/ask` and the role idiom (4 h)
 
-- [ ] `orchestrator/workflow_lisp/stdlib_modules/w3/std/ask.orc`: `ask`, with the signature of
+- [ ] `orchestrator/workflow_lisp/stdlib_modules/std/ask.orc`: `ask`, with the signature of
       design §4.4.
 - [ ] `tests/test_workflow_lisp_std_ask.py::test_ask_is_importable_and_bindable_across_modules`;
       `::test_macro_over_a_role_call_compiles_and_a_template_that_writes_the_call_refuses`
