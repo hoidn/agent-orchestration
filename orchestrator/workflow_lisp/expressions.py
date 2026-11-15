@@ -5335,7 +5335,8 @@ def _elaborate_prompt_dependencies(
                 form_path=form_path,
                 expansion_stack=value.expansion_stack,
             )
-        elaborated = tuple(
+        # A generated relpath seed cannot be an operand: only `std/phase`'s macros write one, inside a record or a call.
+        return tuple(
             _elaborate(
                 item,
                 form_path=form_path,
@@ -5345,19 +5346,6 @@ def _elaborate_prompt_dependencies(
             )
             for item in value.items
         )
-        generated = next(
-            (item for item in elaborated if isinstance(item, GeneratedRelpathSeedExpr)),
-            None,
-        )
-        if generated is not None:
-            _raise_error(
-                "compiler-generated relpath seeds are not prompt-dependency operands",
-                code="prompt_dependency_generated_relpath_invalid",
-                span=generated.span,
-                form_path=generated.form_path,
-                expansion_stack=generated.expansion_stack,
-            )
-        return elaborated
 
     required = operands(":required")
     optional = operands(":optional")
