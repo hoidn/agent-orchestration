@@ -242,9 +242,7 @@ def _start(slot, number, label, reward):
 def _outcomes(outcome):
     if outcome == "-":
         return []
-    if isinstance(outcome, int):
-        return [{"reward": outcome}]
-    return outcome if isinstance(outcome, list) else [outcome]
+    return [{"reward": o} if isinstance(o, int) else o for o in (outcome if isinstance(outcome, list) else [outcome])]
 
 
 def _export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot=()):
@@ -377,3 +375,42 @@ def _filled(ladder=LADDER):
 
 def test_a_final_readout_of_a_filled_criterion_is_not_stamped():
     assert _compute(_export(PARTIAL), ladder=_filled(), standins=None)["rehearsal"] is False
+
+
+# ---- 5. Exclusions are listed and never scored zero ----------------------------------------------------------------
+
+EXCLUDING = {TASKS[0]: {
+    "low": [[{"row": 10, "reward": 1}, 1], 1, {"row": 15, "reward": 1}, [{"row": 1}, 0],
+            {"reward": 1, "excluded": "contaminated"}],
+    "medium": [{"row": 13}, {"row": 4}, {"row": 2}, {"excluded": "no reward after regrades"},
+               {"row": 9, "reward": 0}],
+    "high": [0, 0, 0, 0, {"reward": 0, "excluded": "indeterminate"}]}}
+
+
+def test_every_excluded_class_of_d5_and_every_excluded_observation_is_listed():
+    listed = _compute(_export(EXCLUDING))["listed"]["exclusions"]
+    assert sorted((e["effort"], e["round"], e["class"], e["reason"]) for e in listed) == sorted([
+        ("low", 1, "cut", "Usage limit"), ("low", 3, "infrastructure_failure", "Provider fault, after the CLI's ten "
+                                         "retries; or the passthrough refused under load or timing"),
+        ("low", 4, "pre_session_failure", "Before a session"), ("low", 5, "observation", "contaminated"),
+        ("medium", 1, "stop", LADDER["classification"]["rows"][12]["ending"]),
+        ("medium", 2, "infrastructure_failure", "The host, Podman, the passthrough or the launcher died"),
+        ("medium", 3, "stop", "The CLI read no credential, or the harness found none"),
+        ("medium", 4, "observation", "no reward after regrades"), ("high", 5, "observation", "indeterminate")])
+
+
+def test_an_excluded_attempt_enters_neither_k_nor_n():
+    """A cut or an infrastructure failure with a reward of 1, or a contaminated pass, is never a success; a stop, a
+    pre-session failure or an attempt with no reward after its regrades is never a failure scored zero."""
+    cells = _compute(_export(EXCLUDING))["tasks"][TASKS[0]]["cells"]
+    assert {e: (c["k"], c["n"]) for e, c in cells.items()} == {"low": (2, 3), "medium": (0, 1), "high": (0, 4)}
+
+
+def test_a_flagged_observation_is_listed_and_counted():
+    result = _compute(_export(EXCLUDING))
+    assert ([(f["effort"], f["round"], f["ending"]) for f in result["listed"]["flags"]],
+            result["tasks"][TASKS[0]]["cells"]["medium"]["n"]) == ([("medium", 5, "Output limit")], 1)
+
+
+def test_an_excluded_round_leaves_its_triple_incomplete():
+    assert _compute(_export(EXCLUDING))["effort"]["per_task"] == {}

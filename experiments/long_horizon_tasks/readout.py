@@ -421,6 +421,17 @@ def _triples(starts, efforts):
     return tasks
 
 
+def _entry(start):
+    return {key: start[key] for key in ("start", "slot", "task", "effort", "round", "row", "class", "ending")}
+
+
+def _listed(starts):
+    """D6's lists: every start that enters no k or n, with its class and why; every flagged observation."""
+    exclusions = [_entry(s) | {"reason": s["excluded"] or s["ending"]} for s in starts if not s["counted"]]
+    flags = [_entry(s) for s in starts if s["counted"] and s["flagged"]]
+    return {"exclusions": exclusions, "flags": flags}
+
+
 def _configuration(ladder):
     """The configuration the readout names (D2, D6): model, efforts, CLI, tools, harness, network."""
     attempt, harness = ladder["attempt"], ladder["harness"]
@@ -441,4 +452,4 @@ def compute(ladder, export, standins=None):
     return {"rehearsal": rehearsal, "configuration": _configuration(criterion), "label": export["label"],
             "end": export["end"],
             "tasks": _placement(_counts(current, tasks, efforts, rules["interval"]["level"]), rules),
-            "effort": effort_test(triples, efforts, rules) | {"per_task": triples}}
+            "effort": effort_test(triples, efforts, rules) | {"per_task": triples}, "listed": _listed(current)}
