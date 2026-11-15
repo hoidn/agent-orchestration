@@ -4,7 +4,8 @@ subscription token, meters every request and enforces the caps.
 It listens on one unix socket only; the relay container forwards its one TCP port to it. Everything from the
 container is checked against `request_allowlist.json` (built by `make_allowlist.py` from the recorded request
 fixtures) and refused otherwise, in one form: HTTP 403 `permission_error`, `x-should-retry: false`, message
-`lh-passthrough: <reason>`, connection closed. In order, before any body byte is read:
+`lh-passthrough: <reason>`, connection closed (after reading and dropping, for LINGER seconds at most, what the
+client still sends, so that it reads the refusal). In order, before any body byte is read:
   the request line is exactly `POST /v1/messages?beta=true HTTP/1.1` ("path not allowed"; an unparsable line
   "request malformed", an over-long line or header block "request too large"); every header name is recorded
   and appears once ("header not allowed", "header repeated"); the recorded headers have recorded values; the
@@ -135,6 +136,7 @@ BODY_TIME = 120  # seconds to read a request body
 SLOT_WAIT = 300  # seconds a request waits for its slot's request in flight to be metered
 UPSTREAM_TIMEOUT = 900  # seconds without a byte from the vendor; a long output streams for minutes
 HANDLER_TIME = 3600  # seconds for one request, from its first header to the end of the vendor's answer
+LINGER = 2  # seconds a refused connection reads and discards what the client still sends, so it reads the refusal
 SLOTS_ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError)
 NUMBERS = ("time", "event", "slot", "status", "usd", "slot_usd", "total_usd", "worst_case")  # kept in a withheld row
 # Paid extra usage: the header names and values are Task 2a's reading of the CLI 2.1.311 bundle (the headers its
@@ -765,11 +767,25 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def _refuse(self, reason):
+        """The refusal, then a lingering close: a refusal decided from the headers comes before the client has
+        sent its body, and closing at once could reset the connection before the client reads the refusal."""
         try:
             self.wfile.write(_refusal(reason))
+            self.connection.shutdown(socket.SHUT_WR)
+            self.connection.settimeout(0.2)
+            deadline = time.monotonic() + LINGER
+            while time.monotonic() < deadline and self._discard():
+                pass
         except OSError:  # the client is gone; the refusal is in the log
             pass
         self.close_connection = True
+
+    def _discard(self):
+        """Read and drop what the client sends; False once it has closed."""
+        try:
+            return bool(self.connection.recv(READ))
+        except TimeoutError:
+            return True
 
 
 def _refusal(reason):

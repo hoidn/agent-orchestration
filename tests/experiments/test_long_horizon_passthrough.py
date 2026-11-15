@@ -1298,6 +1298,22 @@ def test_an_unknown_token_is_refused_before_any_body_byte_is_read(short, stub, i
     assert _reason(_exchange(sock, head, timeout=10)) == "unknown token"
 
 
+def test_a_client_still_sending_its_body_after_a_refusal_reads_the_refusal(short, stub, inproc):
+    upstream, _ = stub("normal")
+    sock, _ = inproc(upstream, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    body = json.dumps(_request()).encode()
+    reply = b""
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(WAIT)
+        client.connect(str(sock))
+        client.sendall(_raw(_headers(body, token="lh-fake-unknown")))
+        time.sleep(0.5)  # the refusal is decided from the headers meanwhile
+        client.sendall(body)
+        while chunk := client.recv(65536):
+            reply += chunk
+    assert _reason(reply) == "unknown token"
+
+
 def test_a_body_that_trickles_past_its_time_is_refused(short, stub, inproc, monkeypatch):
     monkeypatch.setattr(passthrough, "BODY_TIME", 1)
     upstream, upstream_log = stub("normal")
