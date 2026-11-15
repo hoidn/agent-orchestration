@@ -263,17 +263,24 @@ def _stop_seen(cause, row, slot, ladder):
     return seen == "any start" or (seen == "a session" and row["class"] != "pre_session_failure")
 
 
-def _class(start, row, slot, ladder, where):
-    """The launcher's class, checked against the row: the row's class; an infrastructure failure on an
+def _fits_row(start, row):
+    """Whether a start with no launcher cause fits its row: the row's class; an infrastructure failure on an
     observation's row marked as regrade case 1 (_exclusion checks the case), or on the pre-session row with a cost
-    (so it was no pre-session failure, which has none: D5, rulings on Task 8 part A m12 and re-review R-B1); or a
-    stop with a launcher cause where that cause can occur (D5, D7.7). A pre-session failure with a cost is refused."""
-    cls, cause = start["class"], start["stop_cause"]
+    (so it was no pre-session failure, which has none: D5, rulings on Task 8 part A m12 and re-review R-B1). A
+    pre-session failure with a cost fits no row."""
+    cls = start["class"]
     case_1 = cls == "infrastructure_failure" and row["class"] == "observation" and start["excluded"] == EXCLUSIONS[0]
     metered = cls == "infrastructure_failure" and row["class"] == "pre_session_failure" and start["usd"] > 0
     free = cls != "pre_session_failure" or start["usd"] == 0  # re-review R-B1: a pre-session failure has no cost
-    if (cause is None and free and (cls == row["class"] or case_1 or metered)) or (cls == "stop" != row["class"]
-                                                                and _stop_seen(cause, row, slot, ladder)):
+    return free and (cls == row["class"] or case_1 or metered)
+
+
+def _class(start, row, slot, ladder, where):
+    """The launcher's class, checked against the row: one that fits it with no launcher cause (_fits_row), or a
+    stop with a launcher cause where that cause can occur (D5, D7.7)."""
+    cls, cause = start["class"], start["stop_cause"]
+    if (cause is None and _fits_row(start, row)) or (cls == "stop" != row["class"]
+                                                     and _stop_seen(cause, row, slot, ladder)):
         return cls
     raise RecordError(f"{where}: class {cls!r} with stop_cause {cause!r} does not fit row {row['row']} "
                       f"({row['class']}) on slot {slot['slot']!r}: the class is the row's, 'infrastructure_failure' "

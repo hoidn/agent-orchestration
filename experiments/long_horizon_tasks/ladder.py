@@ -2503,6 +2503,14 @@ def record_ruling(ctx, args):
     return 0
 
 
+def _has_ruling(stop, args, text):
+    """Whether one stop is ruled: the ledger `text` holds `| <args.date> | Ruling | resume: <its cause>: ... |`, or
+    it is the stop of the threshold that `--clears` names."""
+    form = re.compile(rf"resume:\s*{re.escape(stop['why'] or '')}")
+    return bool(args.date and ruling_rows(text, args.date, form)) or bool(args.clears and
+                                                                        stop["threshold"] == args.clears)
+
+
 def _stop_ruled(ctx, args):
     """A stop is lifted only after a coordinator's ledger row names its cause and the decision (D5; Task 8 part A
     M2): `| D | Ruling | resume: <cause>: <decision> |` and `resume --date D`, or, for a D7.7 threshold's stop, the
@@ -2511,9 +2519,7 @@ def _stop_ruled(ctx, args):
     if state["kind"] != "stop":
         return
     text = ledger_text(ctx) if args.date else ""
-    ruled = [args.date and ruling_rows(text, args.date, re.compile(rf"resume:\s*{re.escape(s['why'] or '')}"))
-             or (args.clears and s["threshold"] == args.clears) for s in state["stops"]]
-    lacking = [s["why"] for s, done in zip(state["stops"], ruled) if not done]
+    lacking = [stop["why"] for stop in state["stops"] if not _has_ruling(stop, args, text)]
     if lacking:
         raise Refused(f"a stop is lifted only after the ledger row `| {args.date or '<date>'} | Ruling | resume: "
                       f"<cause>: <the decision> |` for each stop since the last resume, then `resume --date <date>`; "
