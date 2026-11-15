@@ -154,11 +154,17 @@ def codex_sessions(tree, since, home):
 SYNTHETIC = "<synthetic>"  # the Claude CLI's own messages (an API error, a usage limit): no model answered them
 
 
+def claude_synthetic(row):
+    """[(answering model, whether it is a Claude assistant row answered by `<synthetic>`)] of one session row."""
+    return [(model, row.get("type") == "assistant" and model == SYNTHETIC) for model in answering_model(row)]
+
+
 def model_hits(paths, allowed):
-    """Every answering model other than `allowed`; a `<synthetic>` row is a hit only where no model is allowed."""
+    """Every answering model other than `allowed`; a Claude assistant row answered by `<synthetic>` is a hit only
+    where no model is allowed, and any other `<synthetic>` row is always one."""
     for path in paths:
-        for _, number, model in json_actions(path, answering_model):
-            if model != allowed and not (allowed and model == SYNTHETIC):
+        for _, number, (model, synthetic) in json_actions(path, claude_synthetic):
+            if model != allowed and not (allowed and synthetic):
                 pattern = FABLE if "fable" in model.lower() else FORBIDDEN_MODEL
                 yield {"file": str(path), "line": number, "pattern": pattern, "text": f"model: {model}"}
 

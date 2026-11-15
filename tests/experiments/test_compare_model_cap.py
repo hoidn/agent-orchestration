@@ -146,6 +146,7 @@ def test_nested_path_cli_cannot_raise_model_cap(world, outer, inner):
     ("codex", "fable", "Fable model"),
     ("claude", SONNET, None), ("codex", TERRA, None),
     ("claude", "<synthetic>", None),  # the CLI's own message (an API error, a usage limit): no model answered
+    ("codex", "<synthetic>", "Forbidden model"),  # the exemption is the Claude CLI's assistant rows only
 ])
 def test_scan_uses_actual_model_metadata_and_policy_cannot_be_cleared(tmp_path, provider, model, pattern):
     tree = tmp_path / "tree"
@@ -276,3 +277,12 @@ def test_codex_policy_uses_exec_scope_without_treating_values_or_prompts_as_comm
     done = guarded("codex", args)
     assert done.returncode == 3, done.stderr
     assert json.loads(done.stdout)["args"] == expected
+
+
+def test_a_synthetic_row_beside_forbidden_rows_leaves_every_forbidden_hit(tmp_path):
+    path = tmp_path / "s.jsonl"
+    rows = [{"type": "assistant", "message": {"model": model}}
+            for model in ("<synthetic>", "claude-fable-5-1", "claude-opus-5-5", "claude-haiku-5-5")]
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    hits = list(scan.model_hits([path], "claude-haiku-5-5"))
+    assert ([hit["pattern"] for hit in hits], bool(scan.model_policy(hits))) == ([scan.FABLE, scan.FORBIDDEN_MODEL], True)
