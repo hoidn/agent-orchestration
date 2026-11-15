@@ -7,9 +7,11 @@ Kind: Workflow Lisp language design / implementation architecture
 Created: 2026-07-06
 
 Current source and typed-program imports, REPL loading and LSP analysis require
-target 2.35 or later under [versioning](../../specs/versioning.md). The 2.33
+target 2.40 under [versioning](../../specs/versioning.md#targets-and-identity). The 2.33
 and 2.34 boundaries below describe feature introduction and preserved evidence;
-they do not admit those source versions today.
+they do not admit those source versions today. Rules stated below for
+definition origins 2.35–2.38 describe the release tagged `v0.2.1`; the
+origin-2.39 rules apply to every definition.
 
 Related docs:
 
