@@ -17,7 +17,7 @@ import math
 import sys
 
 
-from orchestrator.contracts.closed_program.targets import AGENT_SESSIONS_MIN_TARGET_DSL_VERSION, EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION, PARALLEL_MAP_MIN_TARGET_DSL_VERSION, SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_supports_agent_sessions, target_dsl_supports_effect_ceilings, target_dsl_supports_parallel_map, target_dsl_uses_evaluated_execution
+from orchestrator.contracts.closed_program.targets import AGENT_SESSIONS_MIN_TARGET_DSL_VERSION, EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION, PARALLEL_MAP_MIN_TARGET_DSL_VERSION, SUPPORTED_TARGET_DSL_VERSIONS, retired_target_migration, target_dsl_is_retired_label, target_dsl_supports_agent_sessions, target_dsl_supports_effect_ceilings, target_dsl_supports_parallel_map, target_dsl_uses_evaluated_execution
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .reader import exponent_float_literal
 from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
@@ -329,7 +329,7 @@ def build_syntax_module(parse_tree: ListExpr) -> WorkflowLispSyntaxModule:
     if unsupported_target is not None:
         target, span = unsupported_target
         _raise_error(
-            f"unsupported target DSL `{target}`",
+            unsupported_target_message(target),
             span=span,
             code="target_dsl_unsupported",
         )
@@ -746,6 +746,13 @@ def _raise_error(message: str, *, span: SourceSpan, code: str = "frontend_parse_
             ),
         )
     )
+
+
+def unsupported_target_message(target: object) -> str:
+    """The `target_dsl_unsupported` message; a 2.35-2.39 header also says how to migrate (stage 4, R2)."""
+
+    message = f"unsupported target DSL `{target}`"
+    return f"{message}: {retired_target_migration(target)}" if target_dsl_is_retired_label(target) else message
 
 
 def target_dsl_supports_local_hook_inference(target_dsl_version: str) -> bool:
