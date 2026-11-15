@@ -209,3 +209,118 @@ def test_the_anchor_check_resumes_past_packages_recorded_at_their_current_hash(t
                         "sha256": "x", "reference_failing": [], "runs": []})
     anchors.run(tmp_path / "work", out=tmp_path)
     assert sorted(checked) == ["T3-01", "T3w-00", "T3w-01"]
+
+
+def build_world(tmp_path, monkeypatch):
+    """A first build of six drawn T3 rows, a smoke T3 row and an old T1 row, and a ladder pool of one T1 fix and one
+    T1 non-fix, two T2 fixes, one T4 and one T5, every collaborator of `tiers.build` that runs git, the oracle or
+    the leak audit replaced by its recorded answer (t3-1 fails the leak audit, b has no T0 variant)."""
+    out, work = tmp_path / "out", tmp_path / "work"
+    old = [{"id": f"t3-{k}", "commit": f"c{k}", "tier": "T3", "set": "drawn", "source_files": ["orchestrator/a.py"],
+            "source_lines": 10, "subject": "fix: a"} for k in range(6)]
+    old += [{"id": "sm", "commit": "cs", "set": "smoke", "source_files": ["x", "y", "z"], "source_lines": 100,
+             "subject": "fix: s"},
+            {"id": "old-t1", "commit": "co", "tier": "T1", "set": "ladder", "source_files": ["x"], "source_lines": 3,
+             "subject": "fix: o"}]
+    out.mkdir()
+    (out / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in old))
+    for r in old:
+        (out / "tasks" / r["id"]).mkdir(parents=True)
+        (out / "tasks" / r["id"] / "f").write_text(r["id"])
+    pool = [{"id": i, "tier": t, "message": m, "commit": f"k{i}", "rank": n, "subject": m, "parent": f"p{i}",
+             "source_files": [f"orchestrator/{i}.py"], "source_lines": 5, "source_added": 3, "nontest_lines": 5,
+             "tests": [f"tests/test_{i}.py"], "repo": str(tmp_path)}
+            for n, (i, t, m) in enumerate([("a", "T1", "fix: a"), ("b", "T1", "feat: b"), ("c", "T2", "fix: c"),
+                                           ("d", "T2", "fix: d"), ("e", "T4", "feat: e"), ("f", "T5", "feat: f")])]
+    for name in [f"{r['id']}-withheld" for r in old] + [i for c in pool for i in (c["id"], f"{c['id']}-withheld")]:
+        (work / "pkgs" / name).mkdir(parents=True)
+        (work / "pkgs" / name / "f").write_text(name)
+    evaluated, verified = [], []
+
+    def fake_candidates(repo, tip, t3_ids, record):
+        record.append({"id": "mined", "stage": "mine", "reason": f"t3 ids {sorted(t3_ids)}"})
+        return [dict(c) for c in pool]
+
+    def fake_evaluate(cands, rows, prior, work_, workers, runs):
+        evaluated.append([c["id"] for c in cands])
+        for c in cands:
+            rows[c["id"]] = {"id": c["id"], "commit": c["commit"], "stage": "evaluate", "reason": "admitted",
+                             "visible": ["v"], "hidden": ["h"], "package_sha256": f"p-{c['id']}",
+                             "withheld_sha256": f"w-{c['id']}", "clone": "/x", "base_outputs": []}
+        return list(cands), {}
+
+    def fake_t0(cand, row, staged):
+        if cand["id"] != "a":
+            return None, "the base runs' failure lines differ or are empty"
+        (staged / "a-t0").mkdir()
+        (staged / "a-t0" / "f").write_text("hint")
+        return "a-t0", None
+
+    monkeypatch.setenv("PATH", f"{b.GUARD}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(tiers, "CAP", 2)
+    monkeypatch.setattr(tiers, "candidates", fake_candidates)
+    monkeypatch.setattr(tiers, "evaluate_tier", fake_evaluate)
+    monkeypatch.setattr(tiers, "t0_variant", fake_t0)
+    monkeypatch.setattr(tiers, "t3_withheld_checks", lambda t3, *_: [
+        {"id": r["id"], "stage": "withheld", "withheld_sha256": f"w-{r['id']}"} for r in t3])
+    monkeypatch.setattr(tiers.leak_audit, "audit", lambda package, *_: [("leak", "names the fix")]
+                        if package.name.startswith("t3-1") else [])
+    monkeypatch.setattr(tiers, "verify", verified.append)
+    return out, work, evaluated, verified
+
+
+def test_build_writes_each_tiers_manifest_rows_packages_and_screening_records(tmp_path, monkeypatch):
+    """Characterization of `tiers.build`, pinned before its split (re-review of fix round 1, minor 9)."""
+    out, work, evaluated, verified = build_world(tmp_path, monkeypatch)
+    tiers.build(work, 1, 5, out=out, repo=tmp_path, tip="TIP")
+    lines = [json.loads(line) for line in (out / "tasks.jsonl").read_text().splitlines()]
+    records = [json.loads(line) for line in (out / "ladder_screening.jsonl").read_text().splitlines()]
+    assert ([(r["id"], r["tier"], r["form"], r["probe"], r.get("widened"), r.get("rejected"), r["withheld_id"],
+              r["withheld_sha256"], r.get("variant_of")) for r in lines],
+            sorted(p.name for p in (out / "tasks").iterdir()),
+            [(r["id"], r["stage"], r.get("tier"), r.get("reason"), r["tip"]) for r in records if r["id"] != "mined"],
+            [r["reason"] for r in records if r["id"] == "mined"], evaluated, verified,
+            (out / "tasks" / "a-t0" / "f").read_text(), (out / "tasks_new").exists()) == (
+        [("t3-0", "T3", "in_tree", True, None, None, "t3-0-withheld", "w-t3-0", None),
+         ("t3-1", "T3", "in_tree", False, None, "leak audit: t3-1: leak: names the fix", "t3-1-withheld", "w-t3-1",
+          None),
+         ("t3-2", "T3", "in_tree", True, None, None, "t3-2-withheld", "w-t3-2", None),
+         ("t3-3", "T3", "in_tree", True, None, None, "t3-3-withheld", "w-t3-3", None),
+         ("t3-4", "T3", "in_tree", True, None, None, "t3-4-withheld", "w-t3-4", None),
+         ("t3-5", "T3", "in_tree", False, None, None, "t3-5-withheld", "w-t3-5", None),
+         ("sm", "T3", "in_tree", False, None, None, "sm-withheld", "w-sm", None),
+         ("a", "T1", "in_tree", True, True, None, "a-withheld", "w-a", None),
+         ("a-t0", "T0", "in_tree", True, True, None, None, None, "a"),
+         ("b", "T1", "in_tree", True, True, None, "b-withheld", "w-b", None),
+         ("c", "T2", "in_tree", True, False, None, "c-withheld", "w-c", None),
+         ("d", "T2", "in_tree", True, False, None, "d-withheld", "w-d", None),
+         ("e", "T4", "in_tree", True, False, None, "e-withheld", "w-e", None),
+         ("f-withheld", "T5", "withheld", True, False, None, None, None, None)],
+        sorted(["a", "a-t0", "a-withheld", "b", "b-withheld", "c", "c-withheld", "d", "d-withheld", "e", "e-withheld",
+                "f-withheld"] + [n for k in range(6) for n in (f"t3-{k}", f"t3-{k}-withheld")] + ["sm", "sm-withheld"]),
+        [(i, s, "T3", reason, "TIP") for t in [f"t3-{k}" for k in range(6)] + ["sm"]
+         for i, s, reason in ((t, "withheld", None), (t, "t3-audit", "leak audit: t3-1: leak: names the fix"
+                                                     if t == "t3-1" else "clean"))]
+        + [("a-t0", "t0", "T0", "admitted", "TIP"),
+           ("b-t0", "t0", "T0", "the base runs' failure lines differ or are empty", "TIP"),
+           ("a", "evaluate", "T1", "admitted", "TIP"), ("b", "evaluate", "T1", "admitted", "TIP"),
+           ("c", "evaluate", "T2", "admitted", "TIP"), ("d", "evaluate", "T2", "admitted", "TIP"),
+           ("e", "evaluate", "T4", "admitted", "TIP"), ("f", "evaluate", "T5", "admitted", "TIP")],
+        ["t3 ids ['sm', 't3-0', 't3-1', 't3-2', 't3-3', 't3-4', 't3-5']"],
+        [["a"], ["a", "b"], ["c", "d"], ["e"], ["f"], []], [out], "hint", False)
+
+
+def test_build_refuses_a_first_build_row_whose_withheld_form_failed(tmp_path, monkeypatch):
+    out, work, _, verified = build_world(tmp_path, monkeypatch)
+    monkeypatch.setattr(tiers, "t3_withheld_checks", lambda t3, *_: [
+        {"id": r["id"], "reason": "no fail-to-pass" if r["id"] == "t3-2" else None, "withheld_sha256": "w"} for r in t3])
+    with pytest.raises(SystemExit, match="t3-2: the check-withheld form failed: no fail-to-pass"):
+        tiers.build(work, 1, 5, out=out, repo=tmp_path, tip="TIP")
+    assert (verified, (out / "tasks.jsonl").read_text().count("\n")) == ([], 8)
+
+
+def test_build_refuses_without_the_no_provider_stubs_first_on_path(tmp_path, monkeypatch):
+    out, work, _, _ = build_world(tmp_path, monkeypatch)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    with pytest.raises(SystemExit, match="first on PATH"):
+        tiers.build(work, 1, 5, out=out, repo=tmp_path, tip="TIP")

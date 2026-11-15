@@ -240,11 +240,34 @@ def build(work, workers, runs, out=b.HERE, repo=b.ROOT, tip=b.TIP, prior=()):
     """Evaluate every tier, then write the packages, `tasks.jsonl` and `ladder_screening.jsonl` under `out`."""
     if not os.environ.get("PATH", "").startswith(str(b.GUARD)):
         raise SystemExit(f"put {b.GUARD} first on PATH")
-    old = [json.loads(line) for line in (out / "tasks.jsonl").read_text().splitlines()]
-    t3 = [r for r in old if r.get("tier", "T3") == "T3" and (r["set"] == "drawn" or tier_of(
-        len(r["source_files"]), r["source_lines"], 0, r["subject"]) == "T3")]
-    record, rows, lines, prior_rows = [], {}, [], load_prior(prior)
+    t3, record, rows = first_build_t3(out), [], {}
     pool = candidates(repo, tip, {r["id"] for r in t3}, record)
+    by_tier = evaluate_tiers(pool, rows, load_prior(prior), work, workers, runs)
+    t3_results = t3_withheld_checks(t3, work, workers, runs, out, repo)
+    staged = out / "tasks_new"
+    b.remove(staged)
+    staged.mkdir()
+    lines = stage_t3(t3, t3_results, staged, work, out, repo, record)
+    for tier, evaluated in by_tier.items():
+        record += stage_tier(tier, evaluated, rows, work, staged, lines)
+    b.remove(out / "tasks")
+    staged.rename(out / "tasks")
+    (out / "tasks.jsonl").write_text("".join(json.dumps(line, sort_keys=True) + "\n" for line in lines))
+    (out / "ladder_screening.jsonl").write_text("".join(json.dumps({"tip": tip, **r}, sort_keys=True) + "\n"
+                                                        for r in record))
+    verify(out)
+
+
+def first_build_t3(out):
+    """The first build's T3 rows of `out/tasks.jsonl`: its drawn rows and every other row of T3 size."""
+    old = [json.loads(line) for line in (out / "tasks.jsonl").read_text().splitlines()]
+    return [r for r in old if r.get("tier", "T3") == "T3" and (r["set"] == "drawn" or tier_of(
+        len(r["source_files"]), r["source_lines"], 0, r["subject"]) == "T3")]
+
+
+def evaluate_tiers(pool, rows, prior_rows, work, workers, runs):
+    """{tier: (its candidates, admitted, skipped, widened)}; T1 and T2 take fix-worded commits first and drop that
+    filter once when fewer than CAP are admitted."""
     by_tier = {}
     for tier in ORDER:
         tiered = [c for c in pool if c["tier"] == tier]
@@ -254,11 +277,14 @@ def build(work, workers, runs, out=b.HERE, repo=b.ROOT, tip=b.TIP, prior=()):
         if widened:
             admitted, skipped = evaluate_tier(tiered, rows, prior_rows, work, workers, runs)
         by_tier[tier] = (tiered, admitted, skipped, widened)
-    t3_results = t3_withheld_checks(t3, work, workers, runs, out, repo)
-    staged = out / "tasks_new"
-    b.remove(staged)
-    staged.mkdir()
-    for r, result in zip(t3, t3_results):
+    return by_tier
+
+
+def stage_t3(t3, results, staged, work, out, repo, record):
+    """The first build's T3 rows staged with their check-withheld form (a failed form refuses the build) and
+    leak-audited; their manifest lines. A failed audit is recorded as `rejected`; the packages stay unchanged."""
+    lines = []
+    for r, result in zip(t3, results):
         record.append({**result, "tier": "T3"})
         if result.get("reason"):
             raise SystemExit(f"{r['id']}: the check-withheld form failed: {result['reason']}")
@@ -271,30 +297,33 @@ def build(work, workers, runs, out=b.HERE, repo=b.ROOT, tip=b.TIP, prior=()):
         if failed:  # the first build's packages stay unchanged; the rejection is recorded, not applied by edit
             line["rejected"] = f"leak audit: {failed[0]}"
         record.append({"id": r["id"], "stage": "t3-audit", "tier": "T3", "reason": line.get("rejected", "clean")})
-        line["probe"] = r["set"] == "drawn" and not failed and sum(
-            x.get("probe", False) for x in lines if x["tier"] == "T3") < PROBE
+        line["probe"] = r["set"] == "drawn" and not failed and sum(x.get("probe", False) for x in lines) < PROBE
         lines.append(line)
-    for tier, (tiered, admitted, skipped, widened) in by_tier.items():
-        taken = {c["id"] for c in admitted}
-        for index, cand in enumerate(admitted):
-            row = rows[cand["id"]]
-            for name in ([] if tier in WITHHELD_ONLY else [cand["id"]]) + [f"{cand['id']}-withheld"]:
-                shutil.copytree(work / "pkgs" / name, staged / name)
-            lines.append(manifest_row(cand, row, tier, index, widened))
-            if tier == "T1":
-                tid, reason = t0_variant(cand, row, staged)
-                record.append({"id": f"{cand['id']}-t0", "stage": "t0", "tier": "T0", "reason": reason or "admitted"})
-                if tid:
-                    lines.append({**lines[-1], "id": tid, "tier": "T0", "variant_of": cand["id"],
-                                  "package_sha256": b.package_hash(staged / tid),
-                                  "withheld_id": None, "withheld_sha256": None})
-        record += tier_records(tier, tiered, taken, skipped, rows)
-    b.remove(out / "tasks")
-    staged.rename(out / "tasks")
-    (out / "tasks.jsonl").write_text("".join(json.dumps(line, sort_keys=True) + "\n" for line in lines))
-    (out / "ladder_screening.jsonl").write_text("".join(json.dumps({"tip": tip, **r}, sort_keys=True) + "\n"
-                                                        for r in record))
-    verify(out)
+    return lines
+
+
+def stage_tier(tier, evaluated, rows, work, staged, lines):
+    """Stage one tier's admitted packages (a withheld-only tier ships that form alone) and append their manifest
+    lines, a T1 task's T0 variant after it; return the tier's screening records."""
+    tiered, admitted, skipped, widened = evaluated
+    record = []
+    for index, cand in enumerate(admitted):
+        row = rows[cand["id"]]
+        for name in ([] if tier in WITHHELD_ONLY else [cand["id"]]) + [f"{cand['id']}-withheld"]:
+            shutil.copytree(work / "pkgs" / name, staged / name)
+        lines.append(manifest_row(cand, row, tier, index, widened))
+        if tier == "T1":
+            record.append(t0_line(cand, row, staged, lines))
+    return record + tier_records(tier, tiered, {c["id"] for c in admitted}, skipped, rows)
+
+
+def t0_line(cand, row, staged, lines):
+    """Append a T1 task's T0 variant line after its own, when the variant is admitted; its screening record."""
+    tid, reason = t0_variant(cand, row, staged)
+    if tid:
+        lines.append({**lines[-1], "id": tid, "tier": "T0", "variant_of": cand["id"],
+                      "package_sha256": b.package_hash(staged / tid), "withheld_id": None, "withheld_sha256": None})
+    return {"id": f"{cand['id']}-t0", "stage": "t0", "tier": "T0", "reason": reason or "admitted"}
 
 
 def t3_withheld_checks(t3, work, workers, runs, out, repo):
