@@ -354,7 +354,7 @@ def _repository(root: Path) -> str:
                           capture_output=True, text=True).stdout.strip()
 
 
-PARENT = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+PARENT = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule controller) (export run)
   (defworkflow candidate-body ((seed Int) (task String)) -> Int (+ seed 41))
   (defworkflow run ((seed Int) (revision String)) -> Int

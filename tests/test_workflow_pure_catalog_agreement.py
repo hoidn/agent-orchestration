@@ -176,7 +176,7 @@ def _source_result(operator: str, operands: tuple[str, ...]) -> str:
     try:
         typed = typecheck_expression(
             expr,
-            type_env=FrontendTypeEnvironment({}, target_dsl_version="2.35"),
+            type_env=FrontendTypeEnvironment({}, target_dsl_version="2.40"),
             value_env={name: _SOURCE_TYPES[type_name] for name, type_name in zip(names, operands)},
         )
     except LispFrontendCompileError as exc:
@@ -288,7 +288,7 @@ def test_public_source_compiles_the_primitive_contract(tmp_path: Path) -> None:
     source_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule primitives)
   (export Result run)
   (defrecord Result
@@ -500,7 +500,7 @@ def _retained_inferences(operator: str, operands: tuple[str, ...]) -> dict[str, 
         form_path=_FORM_PATH,
     )
     types = {name: OPERAND_TYPES[operand][0] for name, operand in zip(names, operands)}
-    type_env = FrontendTypeEnvironment({}, target_dsl_version="2.35")
+    type_env = FrontendTypeEnvironment({}, target_dsl_version="2.40")
     inferred = {
         "result_guidance": result_guidance._infer_expr_type(expr, type_env=type_env, source_read_trace=None, lexical_types=types),
         "wcc/elaborate": wcc_elaborate._infer_expr_type(
@@ -515,7 +515,7 @@ def test_frontend_static_typing_and_evaluator_agree_on_every_generated_applicati
     inside, _ = _arities(operator)
     disagreements = []
     for operands in (operands for arity in inside for operands in _applications(arity)):
-        frontend = _frontend(operator, operands, "2.35")
+        frontend = _frontend(operator, operands, "2.40")
         static, evaluated = _static(operator, operands), _evaluator(operator, operands)
         accepted = [not answer.startswith("refused:") for answer in (frontend, static, evaluated)]
         if any(accepted) and (not all(accepted) or len({frontend, static, evaluated}) != 1):
@@ -529,7 +529,7 @@ def test_retained_inferences_agree_with_the_frontend_on_every_accepted_applicati
     inside, _ = _arities(operator)
     disagreements = []
     for operands in (operands for arity in inside for operands in _applications(arity)):
-        frontend = _frontend(operator, operands, "2.35")
+        frontend = _frontend(operator, operands, "2.40")
         if frontend.startswith("refused:"):
             continue
         for where, inferred in _retained_inferences(operator, operands).items():
@@ -545,7 +545,7 @@ def test_frontend_and_payload_validation_refuse_every_arity_outside_the_catalog(
     accepted = [
         (operands, frontend, static)
         for operands in (operands for arity in outside for operands in _applications(arity))
-        for frontend, static in [(_frontend(operator, operands, "2.35"), _static(operator, operands))]
+        for frontend, static in [(_frontend(operator, operands, "2.40"), _static(operator, operands))]
         if not (frontend.startswith("refused:") and static.startswith("refused:"))
     ]
 
@@ -617,7 +617,7 @@ def test_the_generated_set_holds_well_typed_and_ill_typed_applications_of_every_
         for arity in _arities(operator)[0]
         for operands in _applications(arity)
     ]
-    answers = {(operator, operands): _frontend(operator, operands, "2.35") for operator, operands in generated}
+    answers = {(operator, operands): _frontend(operator, operands, "2.40") for operator, operands in generated}
 
     assert len(answers) == len(generated)
     assert {operator for (operator, _), answer in answers.items() if not answer.startswith("refused:")} == set(OPERATORS)

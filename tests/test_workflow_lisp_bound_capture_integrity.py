@@ -61,8 +61,8 @@ def test_fresh_alpha_equivalent_incoming_and_local_obligations_are_accepted(tmp_
 def test_discarded_preparation_does_not_leak_its_owner_retention(tmp_path, monkeypatch):
     from orchestrator.workflow_lisp.closed.build import Builder
 
-    declarations = '(defproc helper ((n Int)) -> Int :effects ((uses-command echo)) '
-    declarations += ':lowering inline ' + _command('"${inputs.n}"') + ')'
+    declarations = '(defproc helper ((n Int)) -> Int '
+    declarations += _command('"${inputs.n}"') + ')'
     program = _compile(tmp_path, '(helper 3)', declarations=declarations)
     builder = Builder(program)
     original = builder._prepare_command_owner

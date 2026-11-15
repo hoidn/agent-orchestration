@@ -2091,6 +2091,15 @@ Rules:
   `union_match_non_exhaustive` (a missing or a repeated arm).
 - An arm's binder is in scope only in that arm, and on it only the fields of that arm's
   variant are read. Diagnostics: `variant_ref_wrong_variant`, `name_unknown`.
+- Inside an arm, a subject that is a name is of that arm's variant too: in
+  `(match u ((A a) u.n) ((B b) 0))` the read `u.n` is `a.n`. Open defect
+  (defect backlog rows D5-binder-hidden and D5-binder-hidden-match): such a
+  read where a binding inside the arm hides the arm's binder, as in
+  `((A a) (let* ((a 5)) (+ a u.n)))`, ends in `compiler_defect`; read the
+  field through the binder. So does a name that a discriminant test proves
+  passed, returned or matched whole, `(if (= u.variant A) (f u) 0)` or
+  `(if (= u.variant A) (match u …) 0)` (rows D5-if-whole, D5-if-whole-return
+  and D5-if-match).
 - Outside an arm or a branch a discriminant test proves (§12.2), a field read on a union value
   of a concrete union type is refused, also when
   every variant declares that field with one type; `variant` is always read. Inside a generic
@@ -2261,6 +2270,16 @@ Loop body returns:
 
 - `(continue new-state)`
 - `(done result)`
+
+Each leaves the loop and has no value, so it is written in tail position: the
+loop body itself, a `let*` body, or a branch of an `if`, `cond` or `match` in
+tail position. As the value of a `let*` binding (directly, as the body of a
+nested `let*`, or as every branch of an `if`, `cond` or `match` that is the
+binding's value) the build refuses it with `loop_recur_contract_invalid`,
+naming the binding; a typecheck alone, such as the language server's, accepts
+it. When the `let*` body passes that binding to `done`, the typechecker refuses
+it first, with `loop_recur_result_type_invalid`. A binding value that exits in
+some branches and gives a value in others is refused with `type_mismatch`.
 
 `:on-exhausted` is the loop's value when it reaches `:max` without `done`; the
 loop binder (`state` here) is in scope and holds the last state. A loop without
@@ -2586,12 +2605,27 @@ exceptions below.
   record here: `(continue (record-update s :a (if c (fetch) 0)))` is refused,
   `(continue (record-update s :a (fetch)))` runs. The same values are admitted
   as a `done` value, a loop `:state`, a `let*` binding or a workflow or
-  procedure result. Open defect, as before these places took effects: a
-  `continue` value that is an `if` with a branch that is an `if` holding a
-  command or a call of a workflow or procedure that holds an effect ends in
-  `compiler_defect`; bound first, it runs. So does a `match` subject that is a
-  procedure call whose argument holds an effect under a conditional or beside
-  a pure `match`, `(match (mk (+ E M)) …)`.
+  procedure result. A `continue` value that is an `if` with a branch that is
+  an `if` or `cond` holding a command, or a call of a workflow, a `defproc`
+  or a `let-proc` local that holds an effect, is refused with
+  `effect_not_permitted` too; such a call without effects there runs. A
+  `match` subject whose effect lowers to a join, such as a procedure call or a
+  `let*` whose argument or binding holds an effect under a conditional, a loop
+  or beside a pure `match` (`(match (mk (+ E M)) …)`), or a `cond` choosing
+  such a value, runs as its `let*`-bound spelling does: the same value, and
+  its effects run once. A subject that holds a `cond` the compiler reaches
+  (anywhere but in the body of a `let-proc` local) lowers in its typechecked
+  form, so it builds, pure or not: directly, in a call argument, a variant
+  field, a `let*` binding or body, an `if` branch or condition, an `and`
+  operand or a macro expansion. In such a subject a `list/map` or
+  `list/map-effect` in the argument builds too. Open defects, each ending in
+  `compiler_defect`; bind the subject first: a subject that holds no `cond`
+  and has a map in its argument or in a `let*` binding (defect backlog row
+  D20-map-argument); a pure `match` or a loop as the whole subject (rows
+  D4-subject-match, D4-subject-loop) or as a call argument in it
+  (D4-subject-argument), also when a `cond` sits inside it; a `let-proc`
+  subject whose body passes the local's call in an `if` argument
+  (D20-let-proc-subject).
 - *A parallel map whose binder a macro template introduces takes a pure
   source.* With an effect in its source it is refused as before
   (`effect_not_permitted`, or `list_map_effect_body_unsupported` when the
@@ -3093,7 +3127,7 @@ accepts exactly three optional call-policy keywords in its ordinary keyword sect
   :inputs (<expr> ...)
   [:model <String expr>]
   [:effort <String expr>]
-  [:timeout-sec <positive Int literal>]
+  [:timeout-sec <positive Int literal | Int name or field>]
   :returns <return-spec>)
 ```
 
@@ -3101,7 +3135,7 @@ The complete allowed-key set remains explicit: `:prompt`, `:inputs`, `:returns`,
 `:prompt-dependencies`, `:model`, `:effort`, and `:timeout-sec`. Each key occurs
 at most once. Model and effort accept exact `String` values from the effect-free
 inline-lowerable scalar and template subset; procedure edges alone do not count
-as runtime effects. Timeout accepts only a positive exact-`Int` literal.
+as runtime effects. Timeout accepts a positive exact-`Int` literal or, except for phased delivery, an effect-free `Int` name or field; a value below 1 from a name or field refuses the step before `started` (`provider_timeout_nonpositive`).
 Diagnostics for type errors precede the inline-subset diagnostic.
 
 At target 2.38, the first operand may instead be a run-local `Agent` under

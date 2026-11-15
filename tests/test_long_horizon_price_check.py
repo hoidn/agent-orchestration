@@ -26,6 +26,13 @@ def test_each_cache_write_is_priced_at_its_own_lifetime_rate():
     assert round(got, 9) == round((1000 * 0.10 + 100 * 0.50 + 20000 * 0.125 + 20000 * 0.20) / 1e6, 9)
 
 
+def test_write_tokens_the_split_leaves_out_are_priced_at_the_one_hour_rate():
+    rule = price_check.load_rule()
+    usage = {**_usage(five=1000), "cache_creation_input_tokens": 8000}  # 7000 written tokens in no split field
+    assert round(price_check.price(usage, rule), 9) == round(
+        (1000 * 0.10 + 100 * 0.50 + 1000 * 0.125 + 7000 * 0.20) / 1e6, 9)
+
+
 def test_every_rate_is_multiplied_above_the_long_prompt_threshold():
     rule = price_check.load_rule()
     small, large = _usage(inp=50_000), _usage(inp=150_000)

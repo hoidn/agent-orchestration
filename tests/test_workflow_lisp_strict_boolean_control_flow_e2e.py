@@ -18,10 +18,9 @@ def test_public_boolean_effects_preserve_order_and_resume_without_replay(
     tmp_path, monkeypatch, body, expected, calls,
 ):
     probe = _write_probe(tmp_path, "probe", CONTROL_PROBE)
-    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule grt/entry) (export run)
       (defproc check ((n Int)) -> Bool
-        :effects ((uses-command check)) :lowering inline
         (command-result check :argv ("python" "{probe.as_posix()}" "check" n) :returns Bool))
       (defworkflow run () -> Bool {body}))'''
     _write_sources(tmp_path, {"grt/entry.orc": source})

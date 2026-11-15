@@ -188,7 +188,7 @@ def test_build_syntax_module_assigns_form_paths_to_top_level_forms() -> None:
 
 def test_build_syntax_module_requires_language_header() -> None:
     parse_tree = read_sexpr_text(
-        '(workflow-lisp (:target-dsl "2.35") (defenum Approval APPROVE))',
+        '(workflow-lisp (:target-dsl "2.40") (defenum Approval APPROVE))',
         source_path="missing_language.orc",
     )
 
@@ -202,7 +202,7 @@ def test_build_syntax_module_requires_language_header() -> None:
 
 def test_build_syntax_module_rejects_unknown_header_keyword() -> None:
     parse_tree = read_sexpr_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") (:unknown true))',
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") (:unknown true))',
         source_path="unknown_header.orc",
     )
 

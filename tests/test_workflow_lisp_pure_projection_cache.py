@@ -16,7 +16,7 @@ def _module_source(*, module_name: str, exported_name: str) -> bytes:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 f"  (defmodule {module_name})",
                 f"  (export {exported_name}))",
                 "",

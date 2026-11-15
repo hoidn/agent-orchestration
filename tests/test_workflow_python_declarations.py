@@ -145,6 +145,18 @@ def test_prompt_kinds_and_externs_compile(tmp_path):
     assert built.typed_program.entry.signature.return_type_ref.name.endswith("Result")
 
 
+def test_provider_timeout_from_a_workflow_input_emits_a_name_and_builds(tmp_path):
+    _, _, built = compile_source(tmp_path, '''
+    ask = Prompt(text="Answer {task}", fills={"task": Text}, returns=str)
+    agent = Provider("review")
+    @workflow
+    def run(task: str, limit: int) -> str:
+        return agent(ask(task=task), timeout_sec=limit)
+    ''', providers={"providers.review": "codex"})
+    (effect,) = [node for node in nodes(built.program.tree) if node.get("k") == "perform"]
+    assert (effect["policy"]["timeout_sec"]["k"], effect["policy"]["timeout_sec"]["n"]) == ("name", "limit")
+
+
 def test_provider_order_reuse_and_ignored_call(tmp_path):
     _, _, built = compile_source(tmp_path, '''
     prompt1 = Prompt(text="First {task}", fills={"task": Text}, returns=str)
@@ -370,7 +382,7 @@ def test_provider_stub_validates_typed_result(tmp_path, payload, expected):
     assert len((tmp_path / "requests.jsonl").read_text().splitlines()) == 1
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36", "2.39"])
+@pytest.mark.parametrize("target", ["2.35", "2.36", "2.39", "2.40"])
 def test_module_target_is_admitted_by_existing_compiler(tmp_path, target):
     _, generated, built = compile_source(tmp_path, f'TARGET = "{target}"\n@workflow(returns=int)\ndef run():\n    return 1\n')
     assert generated.module_name == "py/sample"

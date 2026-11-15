@@ -163,7 +163,7 @@ def test_direct_bool_provider_guidance_executes_without_wrapper_or_overall_promp
 
 
 def test_nested_union_guidance_renders_and_selected_variant_keeps_source_lineage(tmp_path: Path) -> None:
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule guidance_runtime_neutrality) (export orchestrate)
       (defrecord ReviewMeta (score Float :example 0.9))
       (defunion Decision

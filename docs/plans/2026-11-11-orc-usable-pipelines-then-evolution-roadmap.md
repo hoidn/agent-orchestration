@@ -511,7 +511,9 @@ every removed test is listed with the code it covered".
      value is not the only missing piece (a provider cannot be an argument, a
      reference to a generic procedure does not instantiate, and an agent
      cannot be a `bind-proc` argument), and model and effort per role are
-     already one-token edits today through inputs with literal defaults, so
+     already one-token edits today, as string literals at each role's call
+     sites (not as inputs: a resumed run with changed inputs reuses nothing,
+     [mutant generator plan](2026-11-13-phase-6-mutant-generator-plan.md#the-first-space-is-programs-not-bindings)), so
      the first search space needs none of this; what prompt values buy is
      structural edits in one place (conversation scope, adding or splitting a
      role).
@@ -584,12 +586,13 @@ staging.
   verifier, so the family is oracle-scored: its qualification is the oracle
   check (the reference solution passes, an untouched environment fails), not
   a judge.
-- **Seed:** `milestones.orc` (49 lines; branch `spike/long-horizon-seed`):
+- **Seed:** `experiments/long_horizon_seed/milestones.orc` (47 lines of at most 120 columns):
   set up the project (directories, `AGENTS.md`, a document catalogue, an
   append-only log, topic notes), write spec targets, then rounds of plan,
-  build each milestone (work, check, review), check and acceptance. Two
-  neighbours are kept as comparison points (`staged`, one flat loop; `roles`,
-  the same with Agent Sessions).
+  build each milestone (work, check, review), check and acceptance. Three
+  neighbours are kept as comparison points (`staged`, one flat loop;
+  `designed`, `staged` with a reviewed design before the plan; `roles`, the
+  seed with Agent Sessions).
 - **Search dimensions:** in the
   [seed-set plan](2026-11-11-seed-set-calibration-plan.md), "Search dimensions
   around one seed". First space: one model (Haiku), effort per role. Prompt

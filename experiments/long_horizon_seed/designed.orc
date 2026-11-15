@@ -1,0 +1,62 @@
+(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule designed)
+  (import common :only (Change CheckReport Outcome DocPath GuidePath Setup Spec Design Reviewed Milestone Plan Verdict))
+  (export run)
+  ;; Candidate D: A with a design reviewed at most twice, revised between; refused twice, BLOCKED. Inputs: task, intent.
+  (defprompt guides (:fills (task :text)) -> Setup
+    "Work in the current working directory and nowhere else. Prepare the project there for the task below; do not start the task. If there is no AGENTS.md, write it: how to build and test, the layout, the conventions, that the check this workflow runs after each piece of work is `python dev_check.py`, and the documentation rules below, so that every later step follows them. If there is code already, AGENTS.md describes its layout and conventions as they are, and you move or rewrite none of it; if there is none, create the directories the task needs (source, tests, docs; no task code yet). If AGENTS.md exists, keep what it says and add only what it lacks of the above. Then add what is missing of: docs/index.md (the catalogue: every document, one line each with a link and what it is for, grouped by kind); docs/log.md (append-only; each entry starts `## [date] step | title` and says what was done and decided); docs/notes/ (one page per lasting topic: a decision, a component, a pitfall; for existing code, what a newcomer needs). Documentation rules: read docs/index.md first; put lasting knowledge in a page under docs/notes/ and revise that page rather than adding a second; list every new document in docs/index.md; each step that changes a file appends one entry to docs/log.md (a review changes nothing and logs nothing). Never change dev_check.py or dev-check.json.\n\nTask: {task}\n\nReport `guide`: the path of that guide; every later step is given it and reads it first. `index`: the path of the catalogue. `log`: the path of the log.")
+  (defprompt specify (:fills (guide :path GuidePath) (task :text)) -> Spec
+    "Work in the current working directory and nowhere else. Read {guide} and follow it. Write docs/spec.md (another name under docs/ if the project already has that file): the task below as numbered targets T1, T2, ..., each one observable behaviour with the command or inspection that shows it holds; leave out nothing the task asks for. Write no code; never change dev_check.py or dev-check.json.\n\nTask: {task}\n\nReport `doc`: the path you wrote. `targets`: the target ids.")
+  (defprompt design (:fills (guide :path GuidePath) (spec :path DocPath)) -> Design
+    "Work in the current working directory and nowhere else. Read {guide} and follow it. Write docs/design.md (another name under docs/ if the project already has that file): the parts and what each is responsible for; the interfaces between them (names, inputs, outputs, errors); the flow of data and of control; each significant decision with the alternative rejected and why; the risks; and, for each target of {spec}, how it will be shown to hold. Write no code and no plan of work; never change dev_check.py or dev-check.json.\n\nReport `doc`: the path you wrote.")
+  (defprompt critique (:fills (guide :path GuidePath) (spec :path DocPath) (design :path DocPath)) -> Verdict
+    "Review the design {design} of the project in the current working directory against {spec}. Read both, {guide} and the code there is; change nothing. MET if the design is adequate to build from: every target is covered and has a way to be shown to hold, every interface is definite enough to code against, and no decision contradicts a target; give the evidence per target. NOT_MET otherwise; each reason names the target or the interface at fault and says what is missing or wrong.")
+  (defprompt revise (:fills (guide :path GuidePath) (spec :path DocPath) (design :path DocPath)
+                            (notes :value List[String])) -> Design
+    "Work in the current working directory and nowhere else. Read {guide} and follow it. A reviewer refused the design {design} against {spec} for the reasons below. Revise that document: fix each reason that is right, keep what stands, and record under its decisions each reason you reject and why. Write no code and no plan of work; never change dev_check.py or dev-check.json.\n{notes}\n\nReport `doc`: the path of the revised design.")
+  (defprompt plan (:fills (guide :path GuidePath) (spec :path DocPath) (design :path DocPath)) -> Plan
+    "Work in the current working directory and nowhere else. Read {guide} and follow it. Read {spec} and {design}. Write docs/plan.md (another name under docs/ if the project already has that file): ordered milestones M1, M2, ..., each a small working increment that names the parts of the design it builds and the targets it meets, in an order in which each milestone leaves the project building and its own new tests passing. Do not restate the design. Write no code; never change dev_check.py or dev-check.json.\n\nReport `doc`: the path you wrote. `milestones`: each with `id`, `goal` and `targets`.")
+  (defprompt work (:fills (guide :path GuidePath) (plan :path DocPath) (design :path DocPath)
+                          (notes :value List[String])) -> Change
+    "Work in the current working directory and nowhere else. Read {guide} and follow it. Carry out {plan}, milestone by milestone, to the design in {design}. Where the design proves wrong, correct {design} first and say so in `account`. Write tests for the behaviour you add. Run the check this workflow runs, `python dev_check.py`, as you go and leave it passing; never change dev_check.py or dev-check.json. Leave the tree clean: no stray files, no commented-out code. What earlier rounds left open (the reasons an acceptance was refused, then the check output of each round that failed since), empty on the first; fix each one that still holds:\n{notes}\n\nRecord what you did and learned as {guide} says (notes, index, log). Report `summary`: one sentence. `account`: what you changed and why.")
+  (defprompt review (:fills (guide :path GuidePath) (task :text) (scope :value Milestone) (spec :path DocPath)
+                            (report :value CheckReport)) -> Verdict
+    "Review the project in the current working directory. Read {guide} and the code; change nothing. The task:\n{task}\nUnder review (the scope `all` is the whole task):\n{scope}\nThe check this workflow runs, `python dev_check.py`, just reported:\n{report}\nMET if all of this holds: the goal of the scope is reached; each of its targets holds as {spec} states it; no target that held before is broken; for the scope `all`, nothing the task asks for is left out, even where the spec is silent; the code is readable, tested and consistent with {guide}. Give the evidence per target. NOT_MET otherwise; each reason names the target or the gap, the input or scenario that goes wrong, and the check output that shows it.")
+  (defworkflow review-design ((draft DocPath) (guide GuidePath) (spec DocPath)) -> Reviewed
+    (loop/recur :max 2 :state (loop-state (doc DocPath draft) (notes List[String] (list)))
+      :on-exhausted (variant Reviewed REFUSED :reasons state.notes) (fn (state)
+        (let* ((design (if (list/empty? state.notes) state.doc (let* ((revised
+                            (provider-result providers.planner :model "claude-haiku-5-5" :effort "medium"
+                              :timeout-sec 1200
+                              :prompt (revise :guide guide :spec spec :design state.doc :notes state.notes))))
+                     revised.doc)))
+               (opinion (provider-result providers.reviewer :model "claude-haiku-5-5" :effort "medium" :timeout-sec 1200
+                          :prompt (critique :guide guide :spec spec :design design))))
+          (match opinion ((MET ok) (done (variant Reviewed ACCEPTED :design design)))
+            ((NOT_MET gap) (continue (loop-state :like state :doc design :notes gap.reasons))))))))
+  (defworkflow build ((task String) (whole Milestone) (guide GuidePath) (spec DocPath) (design DocPath)) -> Outcome
+    (let* ((plan (provider-result providers.planner :model "claude-haiku-5-5" :effort "medium" :timeout-sec 1200
+                   :prompt (plan :guide guide :spec spec :design design))))
+      (loop/recur :max 4 :state (loop-state (notes List[String] (list)))
+        :on-exhausted (variant Outcome BLOCKED :reason "round limit reached" :notes state.notes) (fn (state)
+          (let* ((change (provider-result providers.coder :model "claude-haiku-5-5" :effort "medium" :timeout-sec 3600
+                           :prompt (work :guide guide :plan plan.doc :design design :notes state.notes)))
+                 (report (command-result dev-check :returns CheckReport)))
+            (if (not report.passed) (continue (loop-state :like state :notes (list/append state.notes report.excerpt)))
+              (let* ((acceptance
+                       (provider-result providers.reviewer :model "claude-haiku-5-5" :effort "medium" :timeout-sec 1200
+                         :prompt (review :guide guide :task task :scope whole :spec spec :report report))))
+                (match acceptance ((MET met) (done (variant Outcome DONE :summary "accepted")))
+                  ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons)))))))))))
+  (defworkflow run ((task String) (intent String)) -> Outcome
+    (let* ((ready (provider-result providers.planner :model "claude-haiku-5-5" :effort "medium" :timeout-sec 1200
+                    :prompt (guides :task task)))
+           (spec (provider-result providers.planner :model "claude-haiku-5-5" :effort "medium" :timeout-sec 1200
+                   :prompt (specify :guide ready.guide :task task)))
+           (draft (provider-result providers.planner :model "claude-haiku-5-5" :effort "medium" :timeout-sec 1200
+                    :prompt (design :guide ready.guide :spec spec.doc)))
+           (design (call review-design :draft draft.doc :guide ready.guide :spec spec.doc))
+           (whole (record Milestone :id "all" :goal intent :targets spec.targets)))
+      (match design ((REFUSED gap) (variant Outcome BLOCKED :reason "design round limit reached" :notes gap.reasons))
+        ((ACCEPTED ok)
+         (let* ((built (call build :task task :whole whole :guide ready.guide :spec spec.doc :design ok.design)))
+           built))))))

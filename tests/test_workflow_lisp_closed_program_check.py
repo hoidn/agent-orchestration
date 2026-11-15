@@ -2566,8 +2566,7 @@ def test_provider_dependencies_and_policy_reject_typed_operand_tampering(mutatio
     elif mutation == "timeout_not_integer":
         provider["policy"]["timeout_sec"] = _lit("60", string)
     elif mutation == "timeout_not_positive_literal":
-        provider["policy"]["timeout_sec"] = _name("timeout")
-        tree["params"].append(["timeout", deepcopy(INT)])
+        provider["policy"]["timeout_sec"] = _lit(0)
     elif mutation == "invalid_delivery":
         provider["policy"]["delivery"] = _lit("unknown", string)
     elif mutation == "phased_delivery_unsupported":

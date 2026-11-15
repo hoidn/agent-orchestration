@@ -1388,7 +1388,7 @@ def test_current_target_local_macro_hygienically_introduces_list_map_binder(
         """
         (workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.35")
+          (:target-dsl "2.40")
           (defmodule local_list_map_hygiene)
           (export orchestrate)
           (defmacro map-plus-one (values)
@@ -1420,7 +1420,7 @@ def test_current_target_imported_macro_hygienically_introduces_list_map_binder(
         """
         (workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.35")
+          (:target-dsl "2.40")
           (defmodule imported_list_map_hygiene)
           (import helpers/list-map-macros :only (map-plus-one))
           (export orchestrate)

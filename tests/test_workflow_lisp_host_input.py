@@ -316,7 +316,6 @@ def test_confined_child_refuses_typed_host_request_transitively(tmp_path):
     from tests.test_workflow_lisp_run_ref_workflow_program import _confined
     with pytest.raises(LispFrontendCompileError) as caught:
         _confined(tmp_path,
-            ('(:target-dsl "2.38")', '(:target-dsl "2.40")'),
             ('(export run)', '(import std/host :only (HostReply)) (export run)'),
             (':workflow candidate-body', ':workflow bad'),
             extra='''(defworkflow asker ((seed Int) (task String)) -> Int
@@ -510,13 +509,13 @@ def test_erased_reply_contract_still_refuses_ambiguous_authored_types(tmp_path):
 @pytest.mark.parametrize("collision", ["", "(defunion Box (OTHER (count Int)))",
     "(defunion Box :forall (T) (OTHER (count T)))"])
 def test_capsule_generic_nominal_type_absent_in_caller_keeps_erased_matching(tmp_path, collision):
-    producer_path = install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    producer_path = install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule producer) (export run)
       (defunion Box :forall (T) (SOME (value T)) (NONE))
       (defworkflow run () -> Box[String] (variant Box[String] SOME :value "ok")))''')
     producer = compile_typed_program(producer_path, entry_workflow='run', command_boundaries={}, source_roots=(tmp_path,), workspace_root=tmp_path)
     producer_path.unlink()
-    path = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    path = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule consumer) (export run)
       {collision}
       (defunion Local (SOME (value String)) (NONE))
