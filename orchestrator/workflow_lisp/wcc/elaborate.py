@@ -2364,6 +2364,21 @@ def _parallel_command_bindings(expr, metadata, scope, bindings, context):
     return {**bindings, _COMMAND_SCOPE_CONTEXT: child}
 
 
+def _elaborate_map_body(expr: ListMapExpr, metadata, *, scope: WccIdentityFactory, compile_time_bindings, **inputs):
+    """The body of a pure `list/map`. In a command scope (a loop's) the binder is bound there first, as a
+    parallel map binds its item: a `let*` in the body whose value reads it, one the condition normalisation
+    writes for a `match` in an `if`, `cond` or `and` condition or one written there, raised `KeyError` for the
+    binder without it (D1 of the staged-authoring plan)."""
+
+    from .anf import normalize_wcc_body_to_anf
+
+    context = compile_time_bindings.get(_COMMAND_SCOPE_CONTEXT)
+    if context is not None:
+        compile_time_bindings = _parallel_command_bindings(expr, metadata, scope, compile_time_bindings, context)
+    return normalize_wcc_body_to_anf(_elaborate_expr_to_body(expr.body_expr, scope=scope,
+        compile_time_bindings=compile_time_bindings, **inputs))
+
+
 def _elaborate_parallel_map_to_body(
     expr: ListMapEffectExpr, *, scope: WccIdentityFactory,
     type_env: FrontendTypeEnvironment, value_env: Mapping[str, TypeRef],
@@ -3962,18 +3977,19 @@ def _elaborate_expr_to_value(
                         source_span=expr.source_expr.span, form_path=expr.source_expr.form_path,
                         expansion_stack=expr.source_expr.expansion_stack), body=source_body))
         body_scope = scope.child_scope("map-body", authored_binding_name=expr.binder_name)
-        body = normalize_wcc_body_to_anf(_elaborate_expr_to_body(expr.body_expr, scope=body_scope,
+        body_metadata = body_scope.body_metadata(role="map-body", type_ref=expr.result_item_type_ref,
+            source_span=expr.body_expr.span, form_path=expr.body_expr.form_path,
+            expansion_stack=expr.body_expr.expansion_stack)
+        body = _elaborate_map_body(expr, body_metadata, scope=body_scope,
             type_env=type_env, value_env={**value_env, expr.binder_name: expr.source_item_type_ref},
             workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types,
             effect_summary=EMPTY_EFFECT_SUMMARY, procedure_edges_by_site=procedure_edges_by_site,
             compile_time_bindings={name: value for name, value in compile_time_bindings.items()
-                if name != expr.binder_name}, active_phase_scope=active_phase_scope))
+                if name != expr.binder_name}, active_phase_scope=active_phase_scope)
         return source_prefix, WccListMap(metadata=scope.atom_metadata(role="opaque:ListMapExpr", type_ref=result_type,
                 source_span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack),
             source=source, binder_name=expr.binder_name, binder_type_ref=expr.source_item_type_ref,
-            body=body, body_metadata=body_scope.body_metadata(role="map-body", type_ref=expr.result_item_type_ref,
-                source_span=expr.body_expr.span, form_path=expr.body_expr.form_path,
-                expansion_stack=expr.body_expr.expansion_stack),
+            body=body, body_metadata=body_metadata,
             binding_label=expr.binding_label, binding_identity=expr.binding_identity)
     if isinstance(expr, FieldAccessExpr):
         base_type = value_env[expr.base.name]

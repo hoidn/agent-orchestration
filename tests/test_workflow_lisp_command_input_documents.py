@@ -11,6 +11,7 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.wcc.model import WccPerform
 from tests.test_workflow_lisp_closed_program_elaboration import _compile_and_elaborate, _let_chain, _walk_wcc
+from tests.source_edits import replace_exact
 
 
 def _commands(tmp_path: Path, names=("emit",)):
@@ -87,10 +88,9 @@ def _compile_current_source(tmp_path, source, commands):
     return compile_stage3_module(path, command_boundaries=commands, validate_shared=False, workspace_root=tmp_path)
 
 
-@pytest.mark.parametrize("target,extra", [("2.35", ":adapter emit")])
-def test_external_documents_preserve_target_and_mode_refusals(tmp_path, target, extra):
+def test_external_documents_preserve_mode_refusal(tmp_path):
     with pytest.raises(LispFrontendCompileError) as caught:
-        _compile_current_source(tmp_path, source=_source(f'(command-result emit :argv ("python" "emit.py") {extra} :inputs () :returns String)', target=target), commands=_commands(tmp_path))
+        _compile_current_source(tmp_path, source=_source('(command-result emit :argv ("python" "emit.py") :adapter emit :inputs () :returns String)'), commands=_commands(tmp_path))
     assert caught.value.diagnostics[0].code == "command_result_adapter_invalid"
 
 
@@ -184,7 +184,7 @@ def test_operand_order_survives_nested_let_if_and_import(tmp_path, first, fields
     expressions = {"text": '(if flag (text) "unused")', "more": '(more)'}
     inputs = ':inputs (' + ' '.join(f'({name} {expressions[name]})' for name in fields) + ')'
     sections = f'{argv} {inputs}' if first == "argv" else f'{inputs} {argv}'
-    source = _source(f'(command-result emit {sections} :returns String)', declarations=declarations, params='(flag Bool)').replace('(defmodule cp/closed_elaboration)', '(defmodule cp/closed_elaboration) (import cp/library :only (text))')
+    source = replace_exact(_source(f'(command-result emit {sections} :returns String)', declarations=declarations, params='(flag Bool)'), '(defmodule cp/closed_elaboration)', '(defmodule cp/closed_elaboration) (import cp/library :only (text))')
     body = _compile_and_elaborate(tmp_path, source=source, commands=_commands(tmp_path, ("emit", "number", "text", "more")))
     names = [node.callee_name.rsplit("::", 1)[-1] for node in _walk_wcc(body) if isinstance(node, WccCall)]
     expected = ["number", *fields] if first == "argv" else [*fields, "number"]
@@ -262,7 +262,7 @@ def test_legacy_command_semantic_identity_keeps_its_frozen_fields():
     expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(), target_dsl_version="2.40")
     expected = "CommandResultExpr(step_name='emit',argv=(LiteralExpr(value='python',literal_kind='string'),LiteralExpr(value='emit.py',literal_kind='string')),adapter_name=None,adapter_inputs=(),return_spec=ReturnSpec(type_name='String',guidance=None))"
     assert _semantic_identity(expr) == expected
-    empty = elaborate_expression(_expression_syntax(source.replace(':returns', ':inputs () :returns')), bound_names=frozenset(), target_dsl_version="2.40")
+    empty = elaborate_expression(_expression_syntax(replace_exact(source, ':returns', ':inputs () :returns')), bound_names=frozenset(), target_dsl_version="2.40")
     assert _semantic_identity(empty) != expected
     reordered = replace(empty, operand_order=("inputs", "argv"))
     assert _semantic_identity(reordered) != _semantic_identity(empty)

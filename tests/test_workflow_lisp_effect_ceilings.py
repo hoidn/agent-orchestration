@@ -1,4 +1,4 @@
-"""Target 2.39 inferred effects and definition-owned optional restrictions."""
+"""Inferred effects and definition-owned optional restrictions (the 2.39 contract, kept at the current target)."""
 
 from pathlib import Path
 
@@ -11,7 +11,7 @@ from orchestrator.workflow_lisp.effects import CallsWorkflowEffect, UsesCommandE
 from tests.workflow_lisp_closed_program_helpers import install
 
 
-def _compile(root, declarations, body="(helper)", *, target="2.39", sources=None, imports=""):
+def _compile(root, declarations, body="(helper)", *, target="2.40", sources=None, imports=""):
     source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
       (defmodule el1/entry) {imports} (export run)
       {declarations}
@@ -154,7 +154,7 @@ def test_target_239_inline_effectful_procedure_skips_legacy_lowering_analysis(
     assert any(procedure.transitive_effect_summary.transitive_effects for procedure in helpers)
 
 
-@pytest.mark.parametrize("target", ["2.38", "2.39"])
+@pytest.mark.parametrize("target", ["2.38", "2.40"])
 def test_loop_call_private_override_respects_definition_origin(tmp_path, monkeypatch, target):
     from orchestrator.workflow_lisp import procedure_specialization
 
@@ -170,7 +170,7 @@ def test_loop_call_private_override_respects_definition_origin(tmp_path, monkeyp
         checks.append("body")
         return original_body(*args, **kwargs)
 
-    if target == "2.39":
+    if target == "2.40":
         def unexpected_analysis(*args, **kwargs):
             pytest.fail("target-2.39 loop calls must bypass legacy private eligibility")
 
@@ -188,28 +188,26 @@ def test_loop_call_private_override_respects_definition_origin(tmp_path, monkeyp
             procedure_specialization, "_procedure_private_body_valid", counted_body
         )
     effect_clauses = (
-        "" if target == "2.39" else ":effects ((uses-command probe)) :lowering inline"
+        "" if target == "2.40" else ":effects ((uses-command probe)) :lowering inline"
     )
     typed = _compile(
         tmp_path,
         f'''(defproc next-value () -> Int
               {effect_clauses}
               (command-result probe :argv ("python" "probe.py") :returns Int))''',
-        '''(loop/recur :max 1
-             :state (loop-state (current Int 0))
+        '''(loop/recur ((state (loop-state (current Int 0)))) :max 1
              :on-exhausted state.current
-             (fn (state)
-               (let* ((updated (next-value)))
-                 (if (< updated 1)
-                   (continue (loop-state :like state :current updated))
-                   (done updated)))))''',
+             (let* ((updated (next-value)))
+               (if (< updated 1)
+                 (continue (loop-state :like state :current updated))
+                 (done updated))))''',
         target=target,
     )
 
     checks.clear()
     build_closed_program(typed)
 
-    if target != "2.39":
+    if target != "2.40":
         assert checks
 
 
@@ -282,7 +280,7 @@ def test_old_caller_refuses_new_definition_before_import_shortcuts(tmp_path, tar
 
 
 def test_workflow_ceiling_resolves_alias_and_unused_workflow(tmp_path):
-    lib = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    lib = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule el1/lib) (export target unused)
       (defworkflow target () -> Int 7) (defworkflow unused () -> Int 8))'''
     typed = _compile(tmp_path, '''(defproc helper () -> Int
@@ -295,7 +293,7 @@ def test_workflow_ceiling_resolves_alias_and_unused_workflow(tmp_path):
 
 
 def test_imported_restriction_keeps_definition_scope_under_shadowing(tmp_path):
-    lib = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    lib = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule el1/lib) (export invoke)
       (defworkflow target () -> Int 7)
       (defproc invoke () -> Int :effects ((calls-workflow target)) (call target)))'''
@@ -512,7 +510,7 @@ def test_new_inspection_uses_inferred_facts_and_marks_generic_calls_incomplete(t
     from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
     from orchestrator.workflow_lisp.repl_expr import LoadedModule
 
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule el1/inspect) (export run)
       (defrecord Box (n Int))
       (defworkflow boxed ((n Int)) -> Box (record Box :n n))
@@ -604,7 +602,7 @@ def test_public_omitted_generic_wrapper_runs_and_completed_resume_reuses_result(
     from tests.test_workflow_evaluated_cli import _run_cli
     from tests.test_workflow_evaluated_resume import _resume_cli
 
-    source = install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    source = install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule el1/runtime) (export run)
       (defproc leaf () -> Int
         (command-result probe :argv ("python" "probe.py") :returns Int))

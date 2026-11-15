@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp import syntax
+from orchestrator.contracts.closed_program.targets import CURRENT_TARGET_DSL_VERSION
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.workflow_lisp.closed.build import build_closed_program
@@ -19,11 +19,12 @@ from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_CERTIFIED_ADAPTER
 from tests.workflow_lisp_closed_program_corpus import Built, Gap, Refused, corpus, target_dsl_version, try_build
 
 
-TARGET = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+TARGET = CURRENT_TARGET_DSL_VERSION
 
 
 @pytest.mark.parametrize("target", ["2.35", "2.36"])
 def test_corpus_preserves_authored_evaluated_target(tmp_path, target):
+    # Each supported older target is kept as authored (Task 4b).
     from tests.workflow_lisp_closed_program_corpus import Workflow, prepare
     root = tmp_path / "src"
     root.mkdir()
@@ -231,10 +232,11 @@ _CONTROL_COMMANDS = (
 )
 
 
-def _control_procedures() -> str:
+def _control_procedures(exact: bool = False) -> str:
+    """The control commands as procedures; `exact` writes the clauses a source below 2.39 needs."""
+    clauses = "\n          :effects ((uses-command {name})) :lowering inline" if exact else ""
     return "\n".join(
-        f'''(defproc {name} ((n Int)) -> {"Bool" if name == "check" else "Int"}
-          :effects ((uses-command {name})) :lowering inline
+        f'''(defproc {name} ((n Int)) -> {"Bool" if name == "check" else "Int"}{clauses.format(name=name)}
           (command-result {name} :argv ("python" "probe.py" n) :returns {"Bool" if name == "check" else "Int"}))'''
         for name in _CONTROL_COMMANDS
     )
@@ -243,8 +245,8 @@ def _control_procedures() -> str:
 def _control_sources(case: str, route: str) -> tuple[dict[str, str], str]:
     specification = _CONTROL_CASES.get(case) or _CONTROL_REFUSALS[case]
     result_type, body, extra = specification[:3]
-    target = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
-    entry_header = f'(workflow-lisp (:language "0.1") (:target-dsl "{target}") (defmodule cp/probe)'
+    entry_header = f'(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}") (defmodule cp/probe)'
+    # A helper owned by a source at an older target (Task 4b).
     old_header = '(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule cp/old)'
     if route == "direct":
         text = f'''{entry_header} (export run)
@@ -263,7 +265,7 @@ def _control_sources(case: str, route: str) -> tuple[dict[str, str], str]:
         entry = f'''{entry_header} (import cp/old :as old) (export run)
 (defworkflow run () -> {result_type} (call old.helper)))'''
         helper = f'''{old_header} (export helper)
-{_control_procedures()}
+{_control_procedures(exact=True)}
 {extra}
 (defworkflow helper () -> {result_type} {body}))'''
         return {"cp/probe.orc": entry, "cp/old.orc": helper}, "cp/probe::run"
@@ -534,7 +536,7 @@ def test_certified_adapter_preserves_its_authored_invocation_mode(
     source = source_root / "cp" / "certified_argv.orc"
     source.parent.mkdir()
     old_source = source
-    old_source.write_text(_certified_adapter_source("2.35", invocation), encoding="utf-8")
+    old_source.write_text(_certified_adapter_source(TARGET, invocation), encoding="utf-8")
     old_build = compile_stage3_entrypoint(
         old_source,
         source_roots=(source_root,),
@@ -673,7 +675,7 @@ print(json.dumps(request, sort_keys=True))
         else "(items_path items)"
     )
     source.write_text(
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule cp/signature_document) (export run)
           (defpath ReviewFindingsJsonPath :kind relpath :under "artifacts/work" :must-exist true)
           (defrecord ReviewFindings (items_path ReviewFindingsJsonPath))
@@ -929,6 +931,7 @@ def test_unsupported_control_placements_remain_source_refusals(
 def test_prepared_import_manifest_uses_shared_old_and_evaluated_producer_routing(
     tmp_path: Path, producer_target: str
 ) -> None:
+    # A compiled producer at an older target routed into a 2.35 consumer (Task 4b).
     from tests.workflow_lisp_closed_program_corpus import Workflow, compile, prepare
 
     source_root = tmp_path / "checked-source"
@@ -968,11 +971,11 @@ def test_prepared_import_manifest_uses_shared_old_and_evaluated_producer_routing
         prepared.workspace_root / "imported_workflow_bundles.json"
     )
     assert json.loads(prepared.imported_workflow_manifest.read_text()) == manifest
-    assert target_dsl_version(prepared.entry) == TARGET
+    assert target_dsl_version(prepared.entry) == "2.35"
     assert target_dsl_version(prepared.workspace_root / "producer.orc") == producer_target
 
     typed = compile(prepared)
-    assert typed.target == TARGET
+    assert typed.target == "2.35"
     producer_snapshot = typed.imported_programs["dep"]
     assert producer_snapshot.target == producer_target
     assert producer_snapshot.source_file_digests

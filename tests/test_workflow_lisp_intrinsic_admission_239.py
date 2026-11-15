@@ -21,6 +21,7 @@ from orchestrator.workflow_lisp.syntax import (
     syntax_node_datum,
 )
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding
+from tests.source_edits import replace_exact
 
 
 PHASE_SCOPE_FIXTURE = (
@@ -110,7 +111,7 @@ def _diagnostics_for_private_rejection(path: Path, root: Path):
 )
 def test_target_239_refuses_direct_private_expansion_heads(expression: str) -> None:
     with pytest.raises(LispFrontendCompileError) as caught:
-        _elaborate(expression, "2.39")
+        _elaborate(expression, "2.40")
 
     diagnostic = caught.value.diagnostics[0]
     assert diagnostic.code == "private_form_not_admitted"
@@ -140,7 +141,7 @@ def test_targets_235_through_238_keep_existing_intrinsic_routes(
     assert isinstance(_elaborate(expression, target), expected_type)
 
 
-@pytest.mark.parametrize("target", ("2.38", "2.39"))
+@pytest.mark.parametrize("target", ("2.38", "2.39", "2.40"))
 def test_completion_hides_private_and_fallback_heads_only_for_target_239(
     tmp_path: Path,
     target: str,
@@ -151,8 +152,8 @@ def test_completion_hides_private_and_fallback_heads_only_for_target_239(
     )
     from orchestrator.workflow_lisp.form_registry import registered_form_heads
 
-    source = PHASE_SCOPE_FIXTURE.read_text(encoding="utf-8").replace(
-        '(:target-dsl "2.35")', f'(:target-dsl "{target}")'
+    source = replace_exact(
+        PHASE_SCOPE_FIXTURE.read_text(encoding="utf-8"), '(:target-dsl "2.40")', f'(:target-dsl "{target}")'
     )
     path = _write_module(tmp_path, "phase_scope_stdlib_targets", source)
     result = _compile(path, tmp_path)
@@ -170,15 +171,15 @@ def test_completion_hides_private_and_fallback_heads_only_for_target_239(
         "with-phase",
     }
 
-    if target == "2.39":
-        assert hidden.isdisjoint({completion.label for completion in completions})
-    else:
+    if target == "2.38":  # below 2.39 completion lists them (Task 4b)
         assert hidden <= {completion.label for completion in completions}
+    else:
+        assert hidden.isdisjoint({completion.label for completion in completions})
 
 
 def test_target_239_refuses_bare_compatibility_heads() -> None:
     with pytest.raises(LispFrontendCompileError) as caught:
-        _elaborate('(with-phase ctx implementation "body")', "2.39")
+        _elaborate('(with-phase ctx implementation "body")', "2.40")
 
     diagnostic = caught.value.diagnostics[0]
     assert diagnostic.code == "stdlib_import_route_required"
@@ -188,18 +189,18 @@ def test_target_239_refuses_bare_compatibility_heads() -> None:
 def test_target_239_accepts_packaged_phase_template_nested_under_user_macro(
     tmp_path: Path,
 ) -> None:
-    source = PHASE_SCOPE_FIXTURE.read_text(encoding="utf-8").replace(
-        '(:target-dsl "2.40")', '(:target-dsl "2.40")'
-    )
-    source = source.replace(
+    source = replace_exact(
+        PHASE_SCOPE_FIXTURE.read_text(encoding="utf-8"),
         "  (export PhaseScopeSurface phase-scope-demo)",
         "  (export PhaseScopeSurface phase-scope-demo)\n"
         "  (defmacro wrapped-phase-scope (name ctx-key ctx phase-key phase-name)\n"
         "    (phase-scope name ctx-key ctx phase-key phase-name))",
     )
-    source = source.replace(
-        "(phase-scope implementation-scope :ctx phase-ctx :phase implementation)",
-        "(wrapped-phase-scope implementation-scope :ctx phase-ctx :phase implementation)",
+    # The fixture writes the call over three lines; its head is what the user macro takes over.
+    source = replace_exact(
+        source,
+        "(phase-scope implementation-scope\n",
+        "(wrapped-phase-scope implementation-scope\n",
     )
     path = _write_module(tmp_path, "phase_scope_stdlib_targets", source)
 
@@ -216,13 +217,16 @@ def test_target_239_with_phase_build_readback_and_phase_target_runtime(
     from tests.test_workflow_lisp_closed_phase_target import _context, _source
     from tests.workflow_lisp_closed_program_helpers import build
 
-    source = _source().replace("TARGET", "2.39")
+    source = replace_exact(_source(), "TARGET", "2.40")
     if nested:
-        source = source.replace(
+        source = replace_exact(
+            source,
             "(export run)",
             "(export run)\n"
             "  (defmacro wrap (ctx phase body) (with-phase ctx phase body))",
-        ).replace(
+        )
+        source = replace_exact(
+            source,
             "(with-phase request.ctx implementation",
             "(wrap request.ctx implementation",
         )

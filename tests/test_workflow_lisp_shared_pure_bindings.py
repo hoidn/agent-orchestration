@@ -13,7 +13,7 @@ def _source(uses: int) -> str:
         (
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule grt/entry)",
             "  (export run)",
             "  (defworkflow run ((n Int)) -> Int",
@@ -51,7 +51,7 @@ def test_transitive_binding_keeps_nested_let_shadowing_through_public_entrypoint
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule grt/entry)",
                 "  (export run)",
                 "  (defun expanded-shadow ((n Int)) -> Int",
@@ -78,7 +78,7 @@ def test_outer_pure_binding_is_sequenced_before_unselected_if_arm(tmp_path: Path
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule grt/entry)",
                 "  (export run)",
                 "  (defworkflow run ((take Bool) (n Int)) -> Int",
@@ -122,7 +122,7 @@ def test_shared_bindings_can_change_which_failing_operation_is_reported(
                 (
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     "  (defmodule grt/entry)",
                     "  (export run)",
                     f"  (defworkflow run ((n Int) (d Float)) -> Float {body}))",
@@ -164,7 +164,7 @@ def test_list_map_effect_state_binding_is_shared_without_changing_effects(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule grt/entry)",
                 "  (export run)",
                 "  (defworkflow child ((value Int)) -> Int",
@@ -203,7 +203,7 @@ def test_outer_record_field_is_sequenced_before_unselected_if_arm(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule grt/entry)",
                 "  (export run)",
                 "  (defrecord Box (value Int))",

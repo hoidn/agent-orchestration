@@ -950,6 +950,7 @@ def normalize_resolved_inline_procedure_calls(
             proc_ref_bindings=selected_proc_bindings,
             typed_procedures=typed_procedures_by_name,
         )
+        _refuse_bound_parameter_passed_on(rows, selected_proc_bindings.values(), allocator.formal_names)
         if len(rows) != 1:
             raise LispFrontendCompileError(
                 (
@@ -1518,6 +1519,7 @@ class _ExpansionNameAllocator:
 
     ordinal: int = 0
     reserved_names: set[str] = field(default_factory=set)
+    formal_names: set[str] = field(default_factory=set)  # the parameters of every expanded call, renamed
 
     def reserve_expr(self, expr: ExprNode) -> None:
         self.reserved_names.update(
@@ -1537,6 +1539,25 @@ class _ExpansionNameAllocator:
             candidate = f"__pure_{role}_{digest}_{suffix}"
         self.reserved_names.add(candidate)
         return candidate
+
+
+def _refuse_bound_parameter_passed_on(rows, references, formal_names: set[str]) -> None:
+    """D5 of the staged-authoring plan. When no specialization row matches (`rows` empty, which was always
+    `procedure_lowering_unresolved`) and a `bind-proc` argument of `references` reads a parameter of a pure
+    procedure expanded where it is called, which the expansion renamed, refuse by name: the procedure's
+    specializations were made from the definition's names, and such a reference cannot be passed on yet."""
+
+    arguments = () if rows else (argument for reference in references for argument in getattr(reference, "bound_args", ()))
+    for argument in arguments:
+        if any(isinstance(node, NameExpr) and node.name in formal_names for node in walk_expr(argument.value_expr)):
+            raise LispFrontendCompileError((LispFrontendDiagnostic(
+                code="proc_ref_binding_parameter_unsupported",
+                message=(f"`bind-proc` binds `:{argument.name}` to a value that reads a parameter of the procedure "
+                         "it is written in, and the reference is passed to a `ProcRef` parameter; that is not "
+                         "supported yet. Bind the reference where the procedure is called and pass it in as a "
+                         "`ProcRef` parameter"),
+                span=argument.keyword_span, form_path=argument.keyword_form_path,
+                expansion_stack=argument.keyword_expansion_stack),))
 
 
 @dataclass(frozen=True)
@@ -1566,6 +1587,7 @@ def _ordered_call_bindings(
         param_name: allocator.fresh(role=f"{role}_param", source_expr=source_expr)
         for param_name, _ in params
     }
+    allocator.formal_names.update(formal_names.values())
     temporary_bindings = tuple(zip(temp_names, args, strict=True))
     formal_bindings = tuple(
         (

@@ -73,7 +73,7 @@ def _make_cli_lsp_workspace(
     source_root = workspace / "src" if explicit_source_roots else workspace
     source_root.mkdir(parents=True)
     entry_path = source_root / ENTRY_FIXTURE.name
-    entry_path.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    entry_path.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule entry_publication_runtime) (export entry-publication-runtime)
       (defworkflow entry-publication-runtime () -> Int 1))''')
     caller_roots = (
@@ -173,7 +173,7 @@ def test_real_evaluated_dry_run_and_lsp_consume_the_same_request(
     assert configuration["command_boundaries"] == capture.command_boundaries
     assert cli_result.typed_program.imported_programs == capture.imported_workflow_bundles == {}
     assert cli_result.typed_program.source_file_digests == lsp_result.compile_result.entry_result.typed_program.source_file_digests
-    assert cli_result.typed_program.target == lsp_result.compile_result.entry_result.typed_program.target == "2.35"
+    assert cli_result.typed_program.target == lsp_result.compile_result.entry_result.typed_program.target == "2.40"
     assert cli_result.entry_workflow == lsp_result.selected_workflow_name
     assert _diagnostic_identities(cli_result.compile_diagnostics) == _diagnostic_identities(lsp_result.diagnostics)
     builtin_root = compile_driver.compiler._builtin_stdlib_source_root().resolve()
@@ -309,7 +309,7 @@ def test_l3_listed_and_unlisted_requests_match_real_evaluated_cli(
 
 @pytest.mark.parametrize("entry_text, expected_code", (
     ("(workflow-lisp\n", "frontend_parse_error"),
-    ('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    ('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule broken) (export run) (defworkflow run () -> Int "bad"))''', "return_type_mismatch"),
 ), ids=("parse-preflight", "typed-235"))
 def test_real_broken_dry_run_and_lsp_share_request_and_diagnostic_identity(

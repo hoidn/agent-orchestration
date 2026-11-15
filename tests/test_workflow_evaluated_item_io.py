@@ -192,8 +192,7 @@ def test_item_run_reference_keeps_outer_parent_authority_and_child_clone(tmp_pat
         assert (identity, 1) in snapshot.settlements
 
 
-@pytest.mark.parametrize('target', ['2.40'])
-def test_public_serial_commands_clear_ambient_root_without_item_protocol(tmp_path, monkeypatch, target):
+def test_public_serial_commands_clear_ambient_root_without_item_protocol(tmp_path, monkeypatch):
     from orchestrator.workflow.evaluated.authority import load_run_authority
     from orchestrator.workflow.evaluated.memo import read_memo
     from tests.test_workflow_evaluated_attempt_cwd import command_program, SCRIPT
@@ -201,7 +200,6 @@ def test_public_serial_commands_clear_ambient_root_without_item_protocol(tmp_pat
     (tmp_path / 'probe.py').write_text(SCRIPT)
     program = command_program(tmp_path)
     source = tmp_path / 'cwd.orc'
-    source.write_text(source.read_text().replace('"2.40"', json.dumps(target)))
     manifest = tmp_path / 'commands.json'
     manifest.write_text(json.dumps({'fetch': {'stable_command': ['python', 'probe.py', 'data.txt'], 'closure': []}}))
     monkeypatch.setenv('ORCHESTRATOR_WORKSPACE_ROOT', '/ambient/poison')

@@ -33,6 +33,7 @@ from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from tests.agent_session_shims import closed_path
 from tests.workflow_lisp_closed_program_helpers import build_outcome, crash_signature
+from tests.source_edits import replace_exact
 
 REPO = Path(__file__).resolve().parents[1]
 CONFIG = {"provider_externs": {"provider": "provider-id"},
@@ -73,14 +74,14 @@ def _one_chain(invoke: str, depth: int = 2) -> str:
 
 
 def _workflow_ref_macro(body: str, target: str = "2.40", definitions: str = "") -> str:
-    head = HEAD.replace('"2.40"', f'"{target}"')
+    head = replace_exact(HEAD, '"2.40"', f'"{target}"')
     return (head + WORKFLOWS + definitions
             + f"  (defworkflow run ((n Int)) -> {'List[Int]' if 'list/map' in body else 'Int'}\n"
             f"    (let* ((input (record Box :n n))) {body})))\n")
 
 
 def _pure(definitions: str, body: str) -> str:
-    return INT_HEAD.replace("TARGET", "2.40") + definitions + f"  (defworkflow run ((n Int)) -> Int {body}))\n"
+    return replace_exact(INT_HEAD, "TARGET", "2.40") + definitions + f"  (defworkflow run ((n Int)) -> Int {body}))\n"
 
 
 A_THEN_B = "(let* ((a (cw c1 input)) (b (cw c2 input))) (+ a.n (* 1000 b.n)))"
@@ -122,13 +123,13 @@ PROGRAMS = {
         "  (defworkflow right ((input Box)) -> Box (record Box :n (+ input.n 10)))\n" + FOO + INVOKE_ADDS_ONE
         + f"  (defworkflow run ((input Box)) -> Box\n    (let* ((a (invoke {_chain('left')} input))\n"
         f"           (b (invoke {_chain('right')} a))) b)))\n", ({"input": {"n": 4}}, {"n": 24})),
-    "macro-local": (INT_HEAD.replace("TARGET", "2.40") + f"  (defmacro with-loop (x k)\n    {LOCAL})\n" + TWICE,
+    "macro-local": (replace_exact(INT_HEAD, "TARGET", "2.40") + f"  (defmacro with-loop (x k)\n    {LOCAL})\n" + TWICE,
         ({"n": 3}, 705)),
-    "macro-local-captured": (INT_HEAD.replace("TARGET", "2.40")
+    "macro-local-captured": (replace_exact(INT_HEAD, "TARGET", "2.40")
         + f"  (defmacro with-loop (x kk)\n    (let* ((k kk)) {LOCAL}))\n" + TWICE, ({"n": 3}, 705)),
-    "macro-proc-ref": (_pure("  (defproc one () -> Int 1)\n  (defproc two () -> Int 2)\n"
+    "macro-proc-ref": (replace_exact(_pure("  (defproc one () -> Int 1)\n  (defproc two () -> Int 2)\n"
         "  (defproc apply ((hook ProcRef[() -> Int])) -> Int (hook))\n  (defmacro invoke (h) (apply (proc-ref h)))\n",
-        "(+ (invoke one) (* 10 (invoke two)))").replace("((n Int)) -> Int", "() -> Int"), ({}, 21)),
+        "(+ (invoke one) (* 10 (invoke two)))"), "((n Int)) -> Int", "() -> Int"), ({}, 21)),
     "macro-generic": (_pure("  (defproc ident :forall (T) ((x T)) -> T x)\n  (defmacro same (x) (ident x))\n",
         '(let* ((s (same "text")) (a (same n))) (+ a 1))'), ({"n": 3}, 4)),
     # A macro over a procedure specialized by a `WorkflowRef` (2.39 and later): each expansion keeps its workflow.
@@ -148,7 +149,7 @@ PROGRAMS = {
     "inlined-macro-same-arguments": (_pure(f"  (defmacro lk (x) (let-proc ((h {ADDS_ONE})) (h x)))\n"
         "  (defproc both ((n Int)) -> Int (+ (lk n) (* 100 (lk n)) (* 10000 (lk n))))\n", "(both n)"), ({"n": 3}, 40404)),
     "inlined-two-locals": (_pure(f"  (defproc both ((n Int)) -> Int (let-proc ((f {ADDS_ONE}) "
-        f"(g {ADDS_ONE.replace('(+ s 1)', '(* s 10)')})) (+ (f n) (g n))))\n",
+        f"(g {replace_exact(ADDS_ONE, '(+ s 1)', '(* s 10)')})) (+ (f n) (g n))))\n",
         "(+ (both n) (* 1000 (both (+ n 1))))"), ({"n": 3}, 34 + 1000 * 45)),
     # A value bound by `bind-proc` is identified by its position and, when it is made of stable kinds only, its
     # content: two expansions of one template binding different such values get their own specializations.
@@ -212,13 +213,10 @@ def _harness(root: Path) -> ClosedProgram:
     reached through `invoke` bound over `foo`, so the two outer specializations share one closed key."""
     from tests import test_workflow_evaluated_provider_io as provider_io
 
-    producer = provider_io.PRODUCER.replace('"2.35"', '"2.40"')
-    _, imports = provider_io._stages(root, sources={"cp/producer.orc": producer, "cp/prompt.md": "TARGET LEFT\n"})
-    source = provider_io.WREF.replace('"2.35"', '"2.40"').replace(
-        ":effects ((uses-provider provider) (calls-workflow runner)) :lowering inline", "")
-    source = source.replace("(defworkflow run", INVOKE.strip() + "\n  (defworkflow run")
+    _, imports = provider_io._stages(root, sources={"cp/producer.orc": provider_io.PRODUCER, "cp/prompt.md": "TARGET LEFT\n"})
+    source = replace_exact(provider_io.WREF, "(defworkflow run", INVOKE.strip() + "\n  (defworkflow run")
     for side in ("left", "right"):
-        source = source.replace(f"(foo (workflow-ref {side})", f"(invoke {_chain(side)}")
+        source = replace_exact(source, f"(foo (workflow-ref {side})", f"(invoke {_chain(side)}")
     return provider_io._checked(provider_io._typed(root, source, imports))[0]
 
 

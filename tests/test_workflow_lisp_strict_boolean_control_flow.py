@@ -60,14 +60,14 @@ def _defmacro_source(target: str) -> str:
 
 
 def test_cond_is_reserved_at_current_target() -> None:
-    spec = _form_registry().get_form_spec("cond", target_dsl_version="2.35")
+    spec = _form_registry().get_form_spec("cond", target_dsl_version="2.40")
     assert spec is not None
     assert spec.macro_bindable is False
     assert spec.elaboration_route == "cond"
 
 
 def test_cond_syntax_elaborates_special_form_at_current_target() -> None:
-    """Target 2.35 selects the `cond` special form and keeps the else marker."""
+    """The current target selects the `cond` special form and keeps the else marker."""
 
     cond_expr_type = _cond_expr_type()
     assert cond_expr_type is not None
@@ -75,7 +75,7 @@ def test_cond_syntax_elaborates_special_form_at_current_target() -> None:
     expr = elaborate_expression(
         _expression_syntax('(cond (true "yes") (else "no"))'),
         bound_names=frozenset(),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     assert isinstance(expr, cond_expr_type)
@@ -103,7 +103,7 @@ def test_cond_syntax_no_else_elaborates_with_has_else_false() -> None:
     expr = elaborate_expression(
         _expression_syntax('(cond (true "yes") (false "no"))'),
         bound_names=frozenset(),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     assert isinstance(expr, cond_expr_type)
@@ -129,7 +129,7 @@ def test_cond_syntax_retains_source_spans() -> None:
     expr = elaborate_expression(
         node,
         bound_names=frozenset(),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     assert isinstance(expr, cond_expr_type)
@@ -143,7 +143,7 @@ def test_cond_syntax_retains_source_spans() -> None:
 
 def test_cond_reservation_blocks_defmacro_at_current_target(tmp_path: Path) -> None:
     source = tmp_path / "cond_macro.orc"
-    source.write_text(_defmacro_source("2.35"), encoding="utf-8")
+    source.write_text(_defmacro_source("2.40"), encoding="utf-8")
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage1_module(source)
     assert excinfo.value.diagnostics[0].code == "macro_reserved_name"
@@ -187,7 +187,7 @@ def test_cond_malformed_clauses_diagnose(source: str, code: str) -> None:
         elaborate_expression(
             _expression_syntax(source),
             bound_names=frozenset(),
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
 
     assert excinfo.value.diagnostics[0].code == code
@@ -212,7 +212,7 @@ def test_cond_non_final_else_with_invalid_nested_result_reports_else_clause() ->
         elaborate_expression(
             node,
             bound_names=frozenset(),
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -270,7 +270,7 @@ def test_strict_linear_extraction_normalizes(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule linear)",
                 "  (export decide)",
                 "  (defenum ReviewDecision",
@@ -314,7 +314,7 @@ def test_short_circuit_and_normalizes_to_nested_if(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule sc_and)",
                 "  (defworkflow gate",
                 "    ()",
@@ -354,7 +354,7 @@ def test_short_circuit_or_normalizes_to_nested_if(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule sc_or)",
                 "  (defworkflow gate",
                 "    ()",
@@ -392,7 +392,7 @@ def test_nested_control_value_binds_once(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule nested)",
                 "  (defworkflow route",
                 "    ()",
@@ -445,13 +445,13 @@ def test_strict_non_bool_conditions_rejected(
     condition: str,
     prelude: str,
 ) -> None:
-    """Non-``Bool`` conditions fail with ``if_condition_not_bool`` at 2.35."""
+    """Non-``Bool`` conditions fail with ``if_condition_not_bool`` at the current target."""
 
     source = "\n".join(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule reject)",
             "  (export reject)",
             f"  {prelude}" if prelude else "  (defrecord Ignored (approved Bool))",
@@ -486,7 +486,7 @@ def test_strict_direct_workflow_bool_admitted(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule direct_call)",
                 "  (export outer)",
                 "  (defworkflow inner",
@@ -523,7 +523,7 @@ def test_short_circuit_helper_argument_effectful_and_normalized(tmp_path: Path) 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule helper_arg)",
                 "  (export outer)",
                 "  (defun identity-bool",
@@ -561,7 +561,7 @@ def test_short_circuit_match_arm_effectful_and_normalized(tmp_path: Path) -> Non
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule match_arm)",
                 "  (export outer)",
                 "  (defunion Subject",
@@ -602,7 +602,7 @@ def test_strict_macro_cloned_effect_distinct_bindings(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule macro_clone)",
                 "  (export outer)",
                 "  (defmacro twice (x)",
@@ -646,7 +646,7 @@ def test_strict_no_effectful_and_or_reaches_pure_op(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule invariant)",
                 "  (export outer)",
                 "  (defun identity-bool",
@@ -697,7 +697,7 @@ def test_strict_helper_body_and_or_normalized(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule helper_body)",
                 "  (export outer)",
                 "  (defun both",
@@ -731,13 +731,12 @@ def test_strict_direct_procedure_bool_admitted(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule direct_proc)",
                 "  (export outer)",
                 "  (defproc ready-proc",
                 "    ()",
                 "    -> Bool",
-                "    :effects ((uses-command probe))",
                 "    (command-result probe",
                 '      :argv ("python" "scripts/probe.py")',
                 "      :returns Bool))",
@@ -768,7 +767,7 @@ def test_strict_nested_helper_call_in_procedure_arg_expands(tmp_path: Path) -> N
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule nested_helper)",
                 "  (export outer)",
                 "  (defun both",
@@ -778,7 +777,6 @@ def test_strict_nested_helper_call_in_procedure_arg_expands(tmp_path: Path) -> N
                 "  (defproc identity-proc",
                 "    ((value Bool))",
                 "    -> Bool",
-                "    :effects ()",
                 "    value)",
                 "  (defworkflow outer",
                 "    ()",
@@ -812,7 +810,7 @@ def test_strict_effectful_not_normalized(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule not_effect)",
                 "  (export outer)",
                 "  (defworkflow outer",
@@ -858,7 +856,7 @@ def test_strict_union_value_rejected(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule reject)",
             "  (export reject)",
             f"  {prelude}",
@@ -891,7 +889,7 @@ def test_strict_value_condition_rejected(tmp_path: Path) -> None:
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule reject_value)",
             "  (export reject)",
             "  (defworkflow reject ((payload Value)) -> Bool",
@@ -922,7 +920,7 @@ def test_strict_nested_let_shadowing_preserved(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule shadow)",
                 "  (export decide)",
                 "  (defworkflow decide () -> Bool",
@@ -978,7 +976,7 @@ def test_strict_list_map_binder_scope_preserved(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule list_scope)",
                 "  (export gate)",
                 "  (defworkflow gate ((bools List[Bool])) -> Bool",
@@ -1014,7 +1012,7 @@ def test_strict_effectful_callee_body_and_or_stays_atomic(tmp_path: Path) -> Non
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule callee_and)",
             "  (export outer)",
             "  (defworkflow gate () -> Bool",
@@ -1074,18 +1072,16 @@ def test_strict_loop_body_and_exhaustion_normalize_in_scope(tmp_path: Path) -> N
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule loop_bool)",
                 "  (export gate)",
                 "  (defworkflow gate () -> Bool",
-                "    (if (loop/recur",
+                "    (if (loop/recur ((state (loop-state (count Int 0) (done Bool false))))",
                 "          :max 1",
-                "          :state (loop-state (count Int 0) (done Bool false))",
                 "          :on-exhausted (and false false)",
-                "          (fn (state)",
-                "            (if (and (= state.count 0) (= state.done false))",
-                "                (done true)",
-                "                (continue (loop-state :like state :count 1 :done true)))))",
+                "          (if (and (= state.count 0) (= state.done false))",
+                "              (done true)",
+                "              (continue (loop-state :like state :count 1 :done true))))",
                 "        (command-result yes",
                 '          :argv ("python" "scripts/yes.py")',
                 "          :returns Bool)",
@@ -1134,7 +1130,7 @@ def test_strict_with_phase_body_normalizes_in_scope(tmp_path: Path) -> None:
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule phase_bool)",
             "  (import std/phase :only (with-phase))",
             "  (export gate)",
@@ -1192,20 +1188,18 @@ def test_strict_loop_body_if_branch_effect_stays_inside(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule loop_branch)",
                 "  (export gate)",
                 "  (defworkflow gate () -> Bool",
-                "    (if (loop/recur",
+                "    (if (loop/recur ((state (loop-state (count Int 0) (done Bool false))))",
                 "          :max 1",
-                "          :state (loop-state (count Int 0) (done Bool false))",
                 "          :on-exhausted false",
-                "          (fn (state)",
-                "            (if (= state.done false)",
-                "                (done (command-result done_effect",
-                '                        :argv ("python" "scripts/done_effect.py")',
-                "                        :returns Bool))",
-                "                (continue (loop-state :like state :count 1 :done true)))))",
+                "          (if (= state.done false)",
+                "              (done (command-result done_effect",
+                '                      :argv ("python" "scripts/done_effect.py")',
+                "                      :returns Bool))",
+                "              (continue (loop-state :like state :count 1 :done true))))",
                 "        (command-result yes",
                 '          :argv ("python" "scripts/yes.py")',
                 "          :returns Bool)",
@@ -1240,25 +1234,23 @@ def test_strict_loop_body_match_arm_binding_stays_inside(tmp_path: Path) -> None
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule loop_match)",
                 "  (export gate)",
                 "  (defunion Subject (A (flag Bool)) (B (flag Bool)))",
                 "  (defworkflow gate () -> Bool",
-                "    (if (loop/recur",
+                "    (if (loop/recur ((state (loop-state (count Int 0))))",
                 "          :max 1",
-                "          :state (loop-state (count Int 0))",
                 "          :on-exhausted false",
-                "          (fn (state)",
-                "            (match (command-result subject",
-                '                     :argv ("python" "scripts/subject.py")',
-                "                     :returns Subject)",
-                "              ((A a)",
-                "               (done (command-result must_not_run",
-                '                      :argv ("python" "scripts/must_not_run.py")',
-                "                      :returns Bool)))",
-                "              ((B b)",
-                "               (continue (loop-state :like state :count 1))))))",
+                "          (match (command-result subject",
+                '                   :argv ("python" "scripts/subject.py")',
+                "                   :returns Subject)",
+                "            ((A a)",
+                "             (done (command-result must_not_run",
+                '                    :argv ("python" "scripts/must_not_run.py")',
+                "                    :returns Bool)))",
+                "            ((B b)",
+                "             (continue (loop-state :like state :count 1)))))",
                 "        (command-result yes",
                 '          :argv ("python" "scripts/yes.py")',
                 "          :returns Bool)",
@@ -1346,11 +1338,11 @@ def _module_for_target(target_dsl: str, forms: tuple[str, ...]) -> str:
 def test_current_target_admits_effectful_and_nonprojectable_if(
     tmp_path: Path,
 ) -> None:
-    """Target 2.35 admits an effectful and a nonprojectable `if` condition."""
+    """The current target admits an effectful and a nonprojectable `if` condition."""
 
     for forms in (_EFFECTFUL_IF_FORMS, _NONPROJECTABLE_IF_FORMS):
         path = tmp_path / "if_admitted.orc"
-        path.write_text(_module_for_target("2.35", forms), encoding="utf-8")
+        path.write_text(_module_for_target("2.40", forms), encoding="utf-8")
         result = compile_stage3_module(
             path,
             command_boundaries={
@@ -1373,7 +1365,7 @@ _PROOF_TYPES_MODULE = "\n".join(
     [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defmodule proof)",
         '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
         "  (defenum BlockerClass missing_resource unavailable_hardware)",
@@ -1402,7 +1394,7 @@ def _check_226(type_env: FrontendTypeEnvironment, source: str, value_env: dict):
     expr = elaborate_expression(
         _expression_syntax(source),
         bound_names=frozenset(value_env),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
     return typecheck_expression(expr, type_env=type_env, value_env=value_env)
 
@@ -1734,7 +1726,7 @@ _LOCAL_UNION_MODULE = "\n".join(
     [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defmodule local_union_lowering)",
         "  (export gate)",
         '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
@@ -1758,7 +1750,7 @@ _COMPOSED_CONDITION_MODULE = "\n".join(
     [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defmodule composed_condition_lowering)",
         "  (export gate)",
         '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
@@ -1785,7 +1777,7 @@ _TWO_UNION_MODULE = "\n".join(
     [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defmodule two_union_lowering)",
         "  (export gate)",
         '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
@@ -1820,7 +1812,7 @@ _SHADOWED_ATTEMPT_MODULE = "\n".join(
     [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defmodule shadowed_attempt_lowering)",
         "  (export gate)",
         '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
@@ -1863,7 +1855,7 @@ _NESTED_IF_CONDITION_MODULE = "\n".join(
     [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defmodule nested_if_condition_lowering)",
         "  (export gate)",
         '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
@@ -1892,7 +1884,7 @@ _MATCH_ATTEMPT_MODULE = "\n".join(
     [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defmodule match_attempt_restore)",
         "  (export gate)",
         '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
@@ -2145,7 +2137,7 @@ def test_cond_exhaustive_terminal_shadowed_discriminant_not_folded(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule cond_shadow)",
                 "  (export decide)",
                 '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
@@ -2259,7 +2251,7 @@ def test_cond_mid_list_true_erases_dead_terminal_from_typed_body(tmp_path: Path)
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule dead_terminal_lowering)",
             "  (export gate)",
             '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',

@@ -20,6 +20,7 @@ from tests.workflow_lisp_improve_stdlib_sources import (
     SUMMARIZE_PROBE,
     unnamed_union_caller_sources,
 )
+from tests.source_edits import replace_exact
 
 
 CHECK_PROBE = """import json, os, sys
@@ -40,32 +41,33 @@ print(json.dumps(payload))
 
 LIB = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/lib)
   (export Text Verdict check)
   (defrecord Text (text String))
   (defunion Verdict (PASS (note Text)) (FAIL (why Text)))
   (defproc check ((title String)) -> Verdict
-    :effects ((uses-command probe_check))
-    :lowering inline
     (command-result probe_check :argv ("python" "PROBE_CHECK" title) :returns Verdict)))
 """
 
 ENTRY = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
   (import grt/lib :only (Text Verdict check))
   (export run)
   (defproc check-wrap ((title String)) -> Verdict
-    :effects EFFECTS
-    :lowering inline
     (check title))
 BODY)
 """
 
-DECLARED = "((uses-command probe_check))"
-UNDECLARED = "()"
+# The exact `:effects` rule of targets below 2.39 (Task 4b): both modules at 2.35, the wrapper declaring none.
+LIB_235 = replace_exact(
+    replace_exact(LIB, '"2.40"', '"2.35"'),
+    "-> Verdict\n    (command-result", "-> Verdict\n    :effects ((uses-command probe_check))\n    :lowering inline\n    (command-result")
+UNDECLARED_ENTRY_235 = replace_exact(
+    replace_exact(ENTRY, '"2.40"', '"2.35"'),
+    "-> Verdict\n    (check title)", "-> Verdict\n    :effects ()\n    :lowering inline\n    (check title)")
 
 BODIES = {
     "match-subject": """  (defworkflow run () -> Text
@@ -84,13 +86,13 @@ BODIES = {
 CHECK_EFFECT = UsesCommandEffect(subject=("probe_check",))
 
 
-def _wrapper_project(root: Path, *, effects: str, body: str) -> dict[str, Path]:
+def _wrapper_project(root: Path, *, body: str, lib: str = LIB, entry: str = ENTRY) -> dict[str, Path]:
     probes = {"probe_check": _write_probe(root, "probe_check", CHECK_PROBE)}
     _write_sources(
         root,
         {
-            "grt/lib.orc": LIB.replace("PROBE_CHECK", probes["probe_check"].as_posix()),
-            "grt/entry.orc": ENTRY.replace("EFFECTS", effects).replace("BODY", BODIES[body]),
+            "grt/lib.orc": replace_exact(lib, "PROBE_CHECK", probes["probe_check"].as_posix()),
+            "grt/entry.orc": replace_exact(entry, "BODY", BODIES[body]),
         },
     )
     return probes
@@ -119,7 +121,7 @@ def _wrapper_line(root: Path) -> int:
 
 
 def test_wrapper_of_an_imported_command_carries_the_command_in_its_transitive_summary(tmp_path: Path) -> None:
-    probes = _wrapper_project(tmp_path, effects=DECLARED, body="tail")
+    probes = _wrapper_project(tmp_path, body="tail")
 
     wrapper = next(
         procedure
@@ -136,13 +138,13 @@ def test_wrapper_result_as_match_subject_or_let_binding_returns_the_command_valu
 ) -> None:
     """Both forms return the same value with the same command log."""
 
-    probes = _wrapper_project(tmp_path, effects=DECLARED, body=body)
+    probes = _wrapper_project(tmp_path, body=body)
 
     assert _run(tmp_path, probes, monkeypatch) == (0, {"text": "ok:alpha"}, ["alpha"])
 
 
 def test_wrapper_declaring_no_effects_is_rejected_naming_the_missing_effect(tmp_path: Path) -> None:
-    probes = _wrapper_project(tmp_path, effects=UNDECLARED, body="tail")
+    probes = _wrapper_project(tmp_path, body="tail", lib=LIB_235, entry=UNDECLARED_ENTRY_235)
 
     code, path, line, message = _rejection(tmp_path, probes)
 

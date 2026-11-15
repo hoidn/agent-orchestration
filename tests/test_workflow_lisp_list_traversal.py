@@ -163,11 +163,11 @@ def _expression_syntax(source: str) -> SyntaxNode:
 def test_current_target_accepts_list_traversal_source() -> None:
     module = build_syntax_module(
         read_sexpr_text(
-            _module_source("2.35"),
+            _module_source("2.40"),
             source_path="current_list_traversal.orc",
         )
     )
-    assert module.target_dsl_version == "2.35"
+    assert module.target_dsl_version == "2.40"
 
 
 
@@ -1032,7 +1032,7 @@ def test_empty_list_uses_declared_return_context_through_match_arms(
         """
         (workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.35")
+          (:target-dsl "2.40")
           (defmodule match_empty_context)
           (defunion Choice
             (EMPTY)
@@ -1211,7 +1211,7 @@ def test_frontend_effect_map_path_join_under_does_not_widen_other_surfaces(
         f"""
         (workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.35")
+          (:target-dsl "2.40")
           (defmodule {module_name})
           (export orchestrate)
           (defpath ChildPath
@@ -1378,7 +1378,7 @@ def _write_list_map_template_macro(tmp_path: Path) -> None:
         """
         (workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.35")
+          (:target-dsl "2.40")
           (defmodule helpers/list-map-macros)
           (export map-plus-one)
           (defmacro map-plus-one (values)

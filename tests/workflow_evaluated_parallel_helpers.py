@@ -34,7 +34,7 @@ def replay_case(root, body=None, *, declarations='', result='List[Int]', boundar
         directory = root / item / 'work'
         directory.mkdir(parents=True, exist_ok=True)
         (directory / 'probe.py').write_text('# immutable implementation\n')
-    text = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+    text = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
         (defmodule parallel) (export run) {declarations}
         (defworkflow run () -> {result} {body or mapped()}))'''
     program = build(root, text, boundaries=boundaries)

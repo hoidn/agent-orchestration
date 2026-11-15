@@ -14,6 +14,8 @@ from .expressions import (
     IfExpr,
     LetProcExpr,
     LetStarExpr,
+    ListExpr,
+    ListMapExpr,
     LiteralExpr,
     MatchExpr,
     NameExpr,
@@ -371,15 +373,26 @@ def _typed_subject_records_more(typed_subject_expr) -> bool:
     )
 
 
-def _reached_cond(expr) -> bool:
+def _authored_list(expr) -> bool:
+    """A list or a `list/map` as written: their item types only typecheck records, and elaboration does not
+    lower them in that form."""
+    if isinstance(expr, ListExpr):
+        return not isinstance(expr.element_type_ref, TypeRef) or len(expr.items) != len(expr.item_type_refs)
+    return isinstance(expr, ListMapExpr) and (expr.source_item_type_ref is None or expr.result_item_type_ref is None)
+
+
+def _reached_unlowerable(expr, *, in_let_proc: bool = False) -> bool:
     """Whether `expr` holds a `cond` outside the bodies of its `let-proc` locals, which lower from their lifted
-    procedures, not from the subject: a subject whose `cond` is only there built before, as written."""
+    procedures, or an authored list or `list/map` outside every `let-proc` form. Typecheck replaces a
+    `let-proc` node, the call in its body included, by its rewrite, so a list there lowered from the rewrite
+    and the subject built as written; it keeps doing so (B1 of the review of staged-authoring Task 0b)."""
     from .expression_traversal import iter_child_exprs
 
-    if isinstance(expr, CondExpr):
+    if isinstance(expr, CondExpr) or (not in_let_proc and _authored_list(expr)):
         return True
-    children = (expr.body,) if isinstance(expr, LetProcExpr) else iter_child_exprs(expr)
-    return any(_reached_cond(child) for child in children)
+    if isinstance(expr, LetProcExpr):
+        return _reached_unlowerable(expr.body, in_let_proc=True)
+    return any(_reached_unlowerable(child, in_let_proc=in_let_proc) for child in iter_child_exprs(expr))
 
 
 def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
@@ -398,9 +411,12 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
       command, and the authored empty argv cannot cross into the closed program;
     - a subject whose constructor, list, `list/map` source or path child holds an
       effect: only the typechecked form records it, and no earlier program has one;
-    - a subject with a `cond` in it that elaboration reaches (`_reached_cond`):
+    - a subject with a `cond` in it that elaboration reaches (`_reached_unlowerable`):
       typecheck erases it into `if`, and the authored `cond`, which elaboration
-      does not take, ended in `compiler_defect`.
+      does not take, ended in `compiler_defect`;
+    - a subject with a list or a `list/map` in it outside every `let-proc`
+      form: typecheck records their item types, and the authored forms, which
+      have none, ended in `compiler_defect` (D2 of the staged-authoring plan).
     """
     from .expression_traversal import walk_expr
     from .expressions import CommandResultExpr, ProviderResultExpr
@@ -414,7 +430,7 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
         (isinstance(node, ProviderResultExpr) and isinstance(node.prompt, PromptApplicationExpr))
         or (isinstance(node, CommandResultExpr) and node.adapter_name is None and not node.argv)
         for node in walk_expr(expr.subject)
-    ) or _reached_cond(expr.subject) or (
+    ) or _reached_unlowerable(expr.subject) or (
         context.procedure_catalog is not None
         and calls_generic_procedure_through_type_dependent_hook(
             expr.subject, procedure_catalog=context.procedure_catalog
