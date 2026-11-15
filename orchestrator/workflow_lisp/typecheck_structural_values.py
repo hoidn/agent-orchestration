@@ -36,6 +36,7 @@ from .expressions import (
     ProviderResultExpr,
     PureOpExpr,
 )
+from .loops import LoopControlTypeRef
 from .type_env import ListTypeRef, PathTypeRef, PrimitiveTypeRef, TypeParamRef, TypeRef
 
 from .typecheck_context import (
@@ -167,6 +168,27 @@ def _register_map_run_ref_types(type_env, *, context):
     register_all_known_run_ref_types(type_env, session_state=context.session_state)
 
 
+def _require_value(typed: TypedExpr, *, place: str, holder: str) -> None:
+    """Refuse `typed` where `place` needs a value and it is a `done` or `continue` (or a form every branch of which
+    is one), with `loop_recur_contract_invalid` (frontend specification 13.1).
+
+    Called just before the type of `typed` is read as a value type's: a loop control type has no name, and the
+    build crashed there before this refusal (defect D22)."""
+
+    if not isinstance(typed.type_ref, LoopControlTypeRef):
+        return
+    form = {DoneExpr: "`done`", ContinueExpr: "`continue`"}.get(
+        type(typed.expr), "a form every branch of which ends in `done` or `continue`")
+    raise_error(
+        f"{place} is {form}, which leaves the loop and has no value; write the `done` or `continue` in tail "
+        f"position (the loop body, or a branch of it) with the {holder} in its value",
+        code="loop_recur_contract_invalid",
+        span=typed.expr.span,
+        form_path=typed.expr.form_path,
+        expansion_stack=typed.expr.expansion_stack,
+    )
+
+
 def _written_list_type(expr: ListExpr, expected_list: ListTypeRef | None, *, context: TypecheckContext) -> ListTypeRef:
     """The type `(list :of T …)` states, which must be the type its position expects, if any.
 
@@ -275,6 +297,7 @@ def typecheck_structural_value_expr(
                     form_path=expr.form_path,
                     expansion_stack=expr.expansion_stack,
                 )
+            _require_value(typed_item_values[0], place="this `list` element", holder="`list`")
             list_type = ListTypeRef(
                 name=f"List[{item_type.name}]",
                 item_type_ref=item_type,
@@ -377,6 +400,7 @@ def typecheck_structural_value_expr(
                 form_path=expr.body_expr.form_path,
                 expansion_stack=expr.body_expr.expansion_stack,
             )
+        _require_value(typed_body, place="this `list/map` body", holder="`list/map`")
         result_type = ListTypeRef(
             name=f"List[{typed_body.type_ref.name}]",
             item_type_ref=typed_body.type_ref,
@@ -516,6 +540,7 @@ def typecheck_structural_value_expr(
                 form_path=offending.form_path,
                 expansion_stack=offending.expansion_stack,
             )
+        _require_value(typed_body, place="this `list/map-effect` body", holder="`list/map-effect`")
         result_type = ListTypeRef(
             name=f"List[{typed_body.type_ref.name}]",
             item_type_ref=typed_body.type_ref,

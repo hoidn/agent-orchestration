@@ -2694,6 +2694,11 @@ naming the binding; a typecheck alone, such as the language server's, accepts
 it. When the `let*` body passes that binding to `done`, the typechecker refuses
 it first, with `loop_recur_result_type_invalid`. A binding value that exits in
 some branches and gives a value in others is refused with `type_mismatch`.
+As the elements of a `list` or the body of a `list/map` or `list/map-effect`,
+the same forms are refused with `loop_recur_contract_invalid` by the typecheck
+itself, naming the position; a `list` element beside an element of another
+type, and the other value positions (an operand, an argument, a field, a
+`match` subject, a `:max`, a loop state), refuse them with their own type codes.
 
 `:on-exhausted` is the loop's value when it reaches `:max` without `done`; the
 loop binder (`state` here) is in scope and holds the last state. A loop without

@@ -138,7 +138,6 @@ KNOWN: dict[str, tuple] = {
     "D12-literal": NO_ELABORATION,
     "D12-name": BINDER_OUT_OF_SCOPE,
     "D13": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._value"),
-    "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "match-arm-binder": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
@@ -522,10 +521,8 @@ WANTED_AT_T0: dict[str, tuple | None] = {
 #
 # `AMENDED_WANTED`, for wanted outcomes: the new wanted outcome of a row, known, control or pin. Stating an
 # outcome where none was stated, or a value where only `builds` was, needs no entry; any other change does.
-TYPECHECK_BOUNDARY = "2026-11-13, Task TP1: a typecheck failure is reported as compiler_defect, not a traceback"
 AMENDED: dict[str, tuple[tuple | None, str]] = {
     "D9-ref": (None, "2026-11-13, coordinator ruling: D9-ref's remaining outcome is E9, entered as E9-local"),
-    "D22": (KNOWN["D22"], TYPECHECK_BOUNDARY),
     "E8": (KNOWN["E8"], "2026-11-14, staged-authoring Task 0b: D5 of that plan, not fixed, refused by name"),
 }
 AMENDED_WANTED: dict[str, tuple[tuple | None, str]] = {}
@@ -918,7 +915,7 @@ ROWS: dict[str, Row] = {
     "D21": row(refused("loop_recur_contract_invalid"), "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (let* ((x (done 1))) x))"),
     # The `continue` spelling, which a mutant of the seed set reached (mutant generator Task T5).
     "D21-continue": row(refused("loop_recur_contract_invalid"), "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted s (let* ((x (continue (+ s 1)))) (done 1)))"),
-    "D22": row(None, "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (list (done 1)))"),
+    "D22": row(refused("loop_recur_contract_invalid"), "() -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (list (done 1)))"),
     # Eleventh batch: an inlined pure procedure gave every node of its body the site of its call, so two calls in
     # that body to different lifted locals shared one site and one target, chosen in hash-seed order.
     # Found by the call-site review; not collisions: they crash in a single use too.
