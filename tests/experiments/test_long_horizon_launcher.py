@@ -1199,6 +1199,23 @@ def test_reconcile_closes_a_dead_launcher_s_attempt_as_its_stop_never_as_a_score
         (5, "stop", cause, None), [cause])
 
 
+def test_reconcile_finishes_a_regrade_a_launcher_death_interrupted_and_removes_its_containers(short):
+    """Task 8 part A M3: close() settled a normal ending with no reward, and the launcher died before or during its
+    regrade (a regrade's verifier container is left). Reconcile regrades it, so the record is exportable."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    root, attempt, record = _closed(short, "token-three-tools-normal-end", [])
+    ladder._write_json(root / "slots" / attempt["id"] / "slot.json", {**attempt, "launcher": {"pid": 2 ** 22 + 7, "start": 1}})
+    (root / "slots" / attempt["id"] / "regrade" / "regrade-1").mkdir(parents=True)  # the interrupted regrade's trial
+    _container(lh, "regrade-1__env_main_1")
+    ctx = _ctx(short, lh)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    ladder.reconcile(ctx, STANDING, 0.0, gate=lambda: True)
+    settled = ladder.attempts(root)[0]["settled"]
+    start = ladder.export(ctx, ladder.criterion(ctx))["starts"][0]
+    assert ((record["reward"], settled.get("regrade_case"), settled["reward"]), _containers(lh), start["reward"]) == (
+        (None, 1, 1.0), [], 1.0)
+
+
 def test_reconcile_retires_the_token_of_an_attempt_settled_by_a_launcher_killed_inside_settle(short):
     """Task 8 m4: settled.json was written and the slots file not rewritten before the kill."""
     lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])

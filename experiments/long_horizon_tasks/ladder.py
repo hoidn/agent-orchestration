@@ -1019,14 +1019,33 @@ def stop_group(pid, start, grace=None):
     return not alive(pid, start)
 
 
+def _finish_regrade(ctx, ladder, attempt, gate):
+    """A settled attempt whose regrade a launcher death interrupted (its case is due and no regrade_case recorded;
+    Task 8 part A M3): the regrade's containers removed, the partial regrade kept aside, then the regrade run. The
+    record, or None."""
+    settled = attempt["settled"]
+    if "regrade_case" in settled or _case(ladder, attempt, settled) is None:
+        return None
+    attempt_dir = ctx.root / "slots" / attempt["id"]
+    if not remove_containers(ctx, attempt_dir):
+        tranche_event(ctx.root, "pause", slot=attempt["id"], reason="the regrade's containers were not removed")
+        return None
+    if (attempt_dir / "regrade").exists():
+        (attempt_dir / "regrade").rename(attempt_dir / f"regrade-interrupted-{time.time_ns()}")
+    return regraded(ctx, ladder, attempt, settled, gate)
+
+
 def reconcile(ctx, ladder, prior, gate):
     """Attempts left open by a launcher that is gone (its pid and start time do not both match a live process):
     their harness is stopped if it is still the same process, and each is torn down as its own thread would have
     torn it down (tear_down: the scans, the stops already written for it, the regrades below the load `gate`)."""
     done = []
-    for attempt in [a for a in attempts(ctx.root) if a["settled"] is None]:
+    for attempt in attempts(ctx.root):
         owner = attempt["launcher"]
         if alive(owner["pid"], owner["start"]):
+            continue
+        if attempt["settled"] is not None:
+            done += [r for r in [_finish_regrade(ctx, ladder, attempt, gate)] if r]
             continue
         harness = attempt.get("harness")
         if harness:
