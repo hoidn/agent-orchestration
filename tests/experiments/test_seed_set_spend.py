@@ -466,10 +466,73 @@ def test_a_usage_limit_answer_is_recognised_with_the_reset_it_names(tmp_path):
     assert (limit["call"], limit["reset"]) == ("1", RESET)
 
 
-@pytest.mark.parametrize("fixture", ["stub-rate-limit-ApiRateLimitError", "token-normal-end",
-                                     "stub-usage-limit-headers-key-mode-UnknownApiError"])
-def test_a_rate_limit_a_normal_end_or_a_key_mode_429_is_not_a_usage_limit(tmp_path, fixture):
+def test_the_recorded_usage_limit_answer_carries_no_flag(tmp_path):
+    assert "flag" not in units.usage_limit(recorded_call(tmp_path, "token-usage-limit-NonZeroAgentExitCodeError"))
+
+
+@pytest.mark.parametrize("fixture", ["token-normal-end", "stub-overloaded-UnknownApiError",
+                                     "token-unauthorized-UnknownApiError"])
+def test_a_normal_end_an_overload_or_an_expired_login_is_not_a_usage_limit(tmp_path, fixture):
     assert units.usage_limit(recorded_call(tmp_path, fixture)) is None
+
+
+ERROR = {"type": "result", "subtype": "success", "is_error": True}
+
+
+def call_printing(records, stdout=(), stderr=""):
+    """A unit's records directory whose one call printed `stdout` (stream-json events or plain lines) and `stderr`."""
+    call = records / "calls" / "1"
+    call.mkdir(parents=True)
+    (call / "prompt.txt").write_text("p")
+    (call / "stdout.txt").write_text("".join((e if isinstance(e, str) else json.dumps(e)) + "\n" for e in stdout))
+    (call / "stderr.txt").write_text(stderr)
+    return records
+
+
+@pytest.mark.parametrize("stdout, stderr", [  # review3 X2: recognition fails closed
+    ([{**ERROR, "api_error_status": "429", "api_error": "usage_limit_reached", "result": "x"}], ""),
+    ([{**ERROR, "api_error_status": 429, "result": "API Error: Request rejected (429)"}], ""),
+    ([{**ERROR, "result": "Claude AI usage limit reached|1794627837"}], ""),  # an older CLI's wording
+    ([{**ERROR, "result": "You've hit your weekly limit"}], ""),
+    ([{"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": RESET}},
+      {**ERROR, "result": "something else"}], ""),
+    ([], "Error: You've hit your session limit · resets 3:43am (UTC)\n"),
+])
+def test_a_possible_usage_limit_in_another_shape_is_cut_flagged_unrecognised(tmp_path, stdout, stderr):
+    assert units.usage_limit(call_printing(tmp_path, stdout, stderr))["flag"] == units.UNRECOGNISED
+
+
+@pytest.mark.parametrize("fixture", ["stub-rate-limit-ApiRateLimitError", "stub-usage-limit-headers-key-mode-UnknownApiError"])
+def test_a_recorded_429_answer_is_a_possible_usage_limit(tmp_path, fixture):
+    assert units.usage_limit(recorded_call(tmp_path, fixture))["flag"] == units.UNRECOGNISED
+
+
+QUOTED = json.dumps({**ERROR, "api_error": "usage_limit_reached", "api_error_status": 429,
+                     "result": "You've hit your session limit"})
+
+
+@pytest.mark.parametrize("stdout", [
+    [{"type": "user", "message": {"content": [{"type": "tool_result", "content": QUOTED}]}},
+     {"type": "result", "subtype": "success", "is_error": False, "result": "done"}],  # a tool printed the shape
+    [{"type": "assistant", "message": {"model": H, "content": [{"type": "text", "text": "You've hit your usage limit"}]}},
+     {"type": "result", "subtype": "success", "is_error": False, "result": "I hit a usage limit reached 429"}],
+    [{**ERROR, "api_error_status": 401, "result": "Failed to authenticate: usage limit of this token"}],  # another
+])
+def test_a_model_or_tool_quoting_the_wording_or_another_named_error_is_no_usage_limit(tmp_path, stdout):
+    assert units.usage_limit(call_printing(tmp_path, stdout)) is None
+
+
+def test_a_pause_of_an_unrecognised_shape_tells_the_operator_to_read_the_raw_result(ledger, tmp_path):
+    limit = units.usage_limit(call_printing(tmp_path, [{**ERROR, "result": "Claude AI usage limit reached|1"}]))
+    spend.record(ledger, "pause", unit=str(tmp_path), **limit)
+    with pytest.raises(SystemExit) as refused:
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"), price=P)
+    assert all(part in str(refused.value) for part in (units.UNRECOGNISED, limit["raw"], "read the raw result",
+                                                       "resume-after-limit"))
+
+
+def test_the_session_limit_wording_is_a_provider_error(tmp_path):
+    assert units.provider_incident(call_printing(tmp_path, stderr="You've hit your session limit\n"))
 
 
 TABLE = json.loads((ROOT / "orchestrator" / "providers" / "price_table.json").read_text())

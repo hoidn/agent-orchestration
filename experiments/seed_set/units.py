@@ -5,8 +5,10 @@
 - `provider_incident`: why a failed run is a provider or apparatus incident (rate limit, overload,
   authentication, an API or connection error, a call refused by the cap), from its calls' stdout and stderr;
   None for a natural failure, which scores 0.
-- `usage_limit`: the vendor's usage-limit answer in a unit's calls. A unit cut by a usage limit is neither an
-  incident nor an observation (coordinator ruling R1, 2026-11-14): starts close, and its slot runs again once.
+- `usage_limit`: the vendor's usage-limit answer in a unit's calls, or any other shape that may be one (fail closed,
+  review3 X2: flagged `UNRECOGNISED`, for the operator to read the raw result). A unit cut by a usage limit is
+  neither an incident nor an observation (coordinator ruling R1, 2026-11-14): starts close, and its slot runs
+  again once.
 - `audit_sessions`: every Claude session file anywhere in the unit's private home (each unit has its own home,
   so all of them belong to the unit). A session outside the unit tree's project store, more top-level sessions
   than physical calls, or an answer by another model fails the unit. Not seen: sessions written into the unit
@@ -30,10 +32,15 @@ from orchestrator.providers.pricing import priced as table_price
 from orchestrator.providers.types import ProviderSessionMetadataMode
 from orchestrator.providers.usage import usage_from_stdout
 
+# The vendor's session- and usage-limit wordings, kept here only: an error line matching one is a possible usage limit
+# (`usage_limit`) and a provider error (`provider_incident`).
+LIMIT_WORDINGS = (r"hit your .*limit", r"usage limit", r"session limit", r"weekly limit")
+LIMIT_TEXT = re.compile("|".join(LIMIT_WORDINGS), re.I)
+UNRECOGNISED = "unrecognised limit shape"
 PROVIDER_ERRORS = re.compile(
-    r"\b(?:429|529|401|403)\b|rate.?limit|usage limit|overloaded|unauthori[sz]ed|authenticat|invalid (?:api|x-api)"
+    r"\b(?:429|529|401|403)\b|rate.?limit|overloaded|unauthori[sz]ed|authenticat|invalid (?:api|x-api)"
     r"[ -]key|oauth|credit balance|quota|api error|connection error|econnreset|etimedout|eai_again|"
-    r"refused by COMPARE_MAX_CALLS", re.I)
+    r"refused by COMPARE_MAX_CALLS|" + "|".join(LIMIT_WORDINGS), re.I)
 REFUSAL = """#!/bin/sh
 echo "seed-set: $0 is disabled: the study never resumes a unit (a resume has no reservation and no call cap)" >&2
 exit 64
@@ -77,22 +84,51 @@ def provider_incident(records):
 
 
 def usage_limit(records):
-    """{"call", "reset", "text"} of the first call the vendor answered with a usage limit, or None. The class needs
-    the stream-json result event's `api_error: usage_limit_reached` with `api_error_status: 429` (recorded in
-    experiments/long_horizon_tasks/fixtures/token-usage-limit-NonZeroAgentExitCodeError.json); a 429 without it is a
-    rate limit, an incident. `reset` is the `resetsAt` (epoch seconds) of the call's rejected `rate_limit_event`,
-    None when the answer names none."""
+    """{"call", "reset", "text", "raw"} of the first call the vendor may have answered with a usage limit, or None;
+    with "flag": `UNRECOGNISED` unless it is the recorded answer (the stream-json result event's `api_error:
+    usage_limit_reached` with `api_error_status: 429`, experiments/long_horizon_tasks/fixtures/
+    token-usage-limit-NonZeroAgentExitCodeError.json). `reset` is the `resetsAt` (epoch seconds) of the call's
+    rejected `rate_limit_event`, None when the answer names none; `raw` is the call's directory."""
     for call in calls(records):
         events = stream_events(call / "stdout.txt")
-        ends = [e for e in events if e.get("type") == "result" and e.get("api_error") == "usage_limit_reached"
-                and e.get("api_error_status") == 429]
-        if ends:
-            rejected = [e["rate_limit_info"] for e in events if e.get("type") == "rate_limit_event"
-                        and isinstance(e.get("rate_limit_info"), dict) and e["rate_limit_info"].get("status") == "rejected"]
+        shape = limit_shape(call, events)
+        if shape:
+            rejected = [e["rate_limit_info"] for e in events if rejected_event(e)]
             reset = rejected[-1].get("resetsAt") if rejected else None
+            errors = [e for e in events if e.get("type") == "result" and e.get("is_error")]
+            text = errors[-1].get("result") if errors else next(limit_lines(call), "")
             return {"call": call.name, "reset": reset if type(reset) in (int, float) else None,
-                    "text": str(ends[-1].get("result"))[:300]}
+                    "text": str(text)[:300], "raw": str(call)} | ({"flag": shape} if shape == UNRECOGNISED else {})
     return None
+
+
+def limit_shape(call, events):
+    """"recorded" for the vendor's recorded answer; `UNRECOGNISED` for an error result with status 429 (a number or
+    a string), an error result beside a rejected `rate_limit_event`, or an error line in a limit wording that no
+    other named status explains; else None. A model's or a tool's text is never read (`error_lines`)."""
+    results = [e for e in events if e.get("type") == "result"]
+    if any(e.get("api_error") == "usage_limit_reached" and e.get("api_error_status") == 429 for e in results):
+        return "recorded"
+    errors = [e for e in results if e.get("is_error")]
+    statuses = {str(e["api_error_status"]) for e in errors if e.get("api_error_status") is not None}
+    if "429" in statuses or (errors and any(map(rejected_event, events))):
+        return UNRECOGNISED
+    if not statuses and next(limit_lines(call), None) is not None:  # another status: positively something else
+        return UNRECOGNISED
+    return None
+
+
+def rejected_event(event):
+    info = event.get("rate_limit_info") if event.get("type") == "rate_limit_event" else None
+    return isinstance(info, dict) and info.get("status") == "rejected"
+
+
+def limit_lines(call):
+    """The call's provider error lines (`error_lines`) in a usage-limit wording."""
+    for name in ("stderr.txt", "stdout.txt"):
+        path = call / name
+        yield from (line for line in (error_lines(path.read_text(errors="replace"), name) if path.is_file() else [])
+                    if LIMIT_TEXT.search(line))
 
 
 def stream_events(path):

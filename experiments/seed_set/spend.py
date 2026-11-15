@@ -113,9 +113,11 @@ def refuse_closed(entries):
     if stop:
         raise SystemExit(f"the study is stopped ({stop['reason']}); nothing more starts")
     if pauses := open_pauses(entries):
-        raise SystemExit(f"starts are closed by a usage limit ({pauses[0].get('unit')}, resets "
-                         f"{when(pauses[0].get('reset'))}): `resume-after-limit` after the reset, with the owner's "
-                         "meter reading")
+        pause = pauses[0]
+        flag = f"; {pause['flag']}" if pause.get("flag") else ""
+        raise SystemExit(f"starts are closed by {pause.get('reason') or 'a usage limit'} ({pause.get('unit')}, resets "
+                         f"{when(pause.get('reset'))}{flag}): read the raw result ({pause.get('raw') or pause.get('unit')})"
+                         ", then `resume-after-limit` after the reset, with the owner's meter reading")
 
 
 def when(epoch):
