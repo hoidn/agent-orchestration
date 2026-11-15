@@ -167,15 +167,15 @@ def _p(rule):
 def fall_bound(tasks, low, high, rule):
     """D6's bound on the fall: the one-sided upper bound on the pooled fall from low to high, in points.
 
-    A bootstrap over tasks (rule["resamples"] resamples drawn by random.Random(rule["seed"]), tasks in name order);
-    the bound is the smallest resampled fall with at least rule["one_sided"] of the resamples at or below it. None
-    when no task has a complete triple.
+    The method ladder.json freezes in readout.fall_bound (generator, order, resample_fall, quantile; ruling R5): a
+    bootstrap over tasks, rule["resamples"] resamples drawn by random.Random(rule["seed"]) with the tasks in name
+    order; the bound is the ceil(rule["one_sided"] x resamples)-th smallest resampled fall. None when no task has a
+    complete triple.
     """
     rows = [(tasks[task]["triples"], tasks[task]["successes"][low] - tasks[task]["successes"][high])
             for task in sorted(tasks)]
     if not rows:
         return None
-    # Open ruling R5: D6 names no generator or quantile; these are random.Random(seed) and the ceil(0.95 R)-th fall.
     rng, resamples = random.Random(rule["seed"]), rule["resamples"]
     falls = []
     for _ in range(resamples):

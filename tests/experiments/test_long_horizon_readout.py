@@ -692,3 +692,17 @@ def test_the_command_takes_the_drops_and_writes_family_json(tmp_path):
                          str(tmp_path / "family.json")])
     family = json.loads((tmp_path / "family.json").read_text())
     assert (code, [t["task"] for t in family["tasks"]["dropped"]]) == (0, [TASKS[2], TASKS[3]])
+
+
+# ---- Ruling R5: the bootstrap is frozen as built; a pinned bound catches a change of generator or order --------------
+
+PINNED = {f"t{i:02}": {"triples": t, "successes": {"low": low, "medium": 0, "high": high}}
+          for i, (t, low, high) in enumerate([(5, 2, 0), (5, 1, 1), (4, 1, 0), (3, 0, 1), (5, 3, 1), (2, 1, 0),
+                                              (5, 0, 2), (4, 2, 2), (3, 1, 0), (5, 1, 3), (4, 0, 0), (5, 2, 1)])}
+
+
+def test_the_bound_on_the_fall_is_pinned_for_one_table_and_one_seed():
+    """random.Random(seed), tasks in name order, 10,000 resamples, the 9,500th smallest fall. With the tasks in the
+    reverse order the same seed gives 20.45...; with seed 20261115, 20.41..."""
+    rule = RULES["fall_bound"] | {"seed": 20261114}
+    assert (rule["resamples"], readout.fall_bound(PINNED, "low", "high", rule)) == (10000, 20.833333333333332)
