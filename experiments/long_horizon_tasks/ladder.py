@@ -1845,9 +1845,9 @@ def had_session(attempt_dir):
 def runtime_check(ctx, attempt_dir, export):
     """D4's runtime check on the attempt's containers before they are removed: every container's inspected
     configuration and the process environments read while it ran; with `export`, the file system of every agent
-    container (`*_main_1`) too. The egress sidecar's log is read to its end and kept first, both of its streams: the proxy
-    writes every connection and refusal to standard error (Task 7). The finding, or None:
-    any finding in any container is the attempt's. A session with no container under the trial's prefix, or an
+    container (`*_main_1`) too. The egress sidecar's log is read to its end and kept first, both of its streams:
+    the proxy writes every connection and refusal to standard error (Task 7). The finding, or None: any finding in
+    any container is the attempt's. A session with no container under the trial's prefix, or an
     export due with no agent container, is an incomplete scan, never clean (Task 8 B2); so is a podman read that
     failed (M2): every container's inspect and every exported container's export must succeed. The process
     environments are what the samples taken while each container ran hold; a container never sampled is scanned

@@ -288,8 +288,8 @@ def _exclusion(start, cls, observed, where):
     case_2 = excluded == EXCLUSIONS[1] and cls == "observation" and reward == 0
     if not (case_1 or case_2):
         raise RecordError(f"{where}: excluded {excluded!r} with class {cls!r} does not fit its D5 case (case 1: an "
-                          f"infrastructure failure on an observation's row, reward null; case 2: an observation, reward 0); "
-                          f"row {start['row']}, reward {reward!r}")
+                          f"infrastructure failure on an observation's row, reward null; case 2: an observation, "
+                          f"reward 0); row {start['row']}, reward {reward!r}")
 
 
 def _outcome(start, cls, observed, where):
