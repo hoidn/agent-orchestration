@@ -12,7 +12,7 @@ from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendDiagnostic,
 )
 from orchestrator.contracts.closed_program.targets import (
-    SUPPORTED_TARGET_DSL_VERSIONS, retired_target_migration, target_dsl_is_retired_label,
+    SUPPORTED_TARGET_DSL_VERSIONS, retired_target_migration, target_dsl_is_retired_entry, target_dsl_is_retired_label,
 )
 from orchestrator.workflow_lisp.reader import SourceReadTrace, read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr, StringAtom
@@ -91,15 +91,6 @@ def _raw_entry_target_header_from_tree(
     return None
 
 
-def _is_retired_entry_target(target: str) -> bool:
-    """An executable entry at a retired target: 2.14 to 2.34 (no evaluated execution) or a 2.35-2.39 label."""
-    try:
-        major, minor = (int(part) for part in target.split("."))
-    except ValueError:
-        return False
-    return (target == f"{major}.{minor}" and major == 2 and 14 <= minor < 35) or target_dsl_is_retired_label(target)
-
-
 def _entry_target_header_for_retirement(
     parse_tree: ListExpr,
 ) -> tuple[str, SourceSpan]:
@@ -112,7 +103,7 @@ def _entry_target_header_for_retirement(
         ):
             raise
         header = _raw_entry_target_header_from_tree(parse_tree)
-        if header is None or not _is_retired_entry_target(header[0]):
+        if header is None or not target_dsl_is_retired_entry(header[0]):
             raise
         return header
 

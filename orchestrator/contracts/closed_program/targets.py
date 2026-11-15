@@ -27,6 +27,16 @@ def target_dsl_is_retired_label(target: object) -> bool:
     return target in READABLE_PROGRAM_TARGET_DSL_VERSIONS and target != CURRENT_TARGET_DSL_VERSION
 
 
+def target_dsl_is_retired_entry(target: str) -> bool:
+    """An executable entry at a retired target: 2.14 to 2.34 (no evaluated execution) or a 2.35-2.39 label."""
+
+    try:
+        major, minor = (int(part) for part in target.split("."))
+    except ValueError:
+        return False
+    return (target == f"{major}.{minor}" and major == 2 and 14 <= minor < 35) or target_dsl_is_retired_label(target)
+
+
 def retired_target_migration(target: str) -> str:
     """The sentence a refusal of 2.35-2.39 source adds: how to migrate, and which release still compiles it."""
 
