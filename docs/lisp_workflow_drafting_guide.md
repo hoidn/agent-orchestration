@@ -368,7 +368,7 @@ Use target **2.39** for the [current procedure authoring contract](#procedure-co
 The **2.35/2.36** recipes below remain valid at their stated targets; **2.38**
 introduces bounded [Agent Sessions](#agent-sessions-target-238) and
 [command-only confined children](#confined-workflow-children-target-238-command-only). These select evaluated
-execution; 2.36 adds the W3 local-hook and graph-selected `std/improve` API
+execution; 2.36 adds the W3 local-hook `std/improve` API
 shown in [Section 13.3](#137-improve). Every source dependency must declare
 target 2.35 or newer, including dependencies supplied as typed programs or
 compiled bundles. Pre-2.35 entry execution is retired; source imports, REPL
@@ -2675,17 +2675,13 @@ using the [task chooser](lisp_library_reference.md#choose-by-task).
 
 See the [complete local-hook example](lisp_library_reference.md#target-239-local-hooks)
 and its inference/capture limits. The hooks use the W3 API introduced at 2.36;
-the caller uses 2.39 procedure restrictions and imports retained 2.35 library
-definitions.
+the caller uses 2.39 procedure restrictions and imports the library, which
+targets 2.40.
 
 #### Compile, run and resume the maintained proposal
 
 See the [proposal operating route](lisp_library_reference.md#compile-run-and-resume-the-maintained-proposal),
 including the workspace-owned launcher requirement.
-
-#### Target 2.35 explicit inputs
-
-See the [explicit-input API](lisp_library_reference.md#target-235-explicit-inputs).
 
 #### `improve` rejections
 
