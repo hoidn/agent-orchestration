@@ -20,6 +20,7 @@ from tests.workflow_lisp_improve_stdlib_sources import (
     SUMMARIZE_PROBE,
     unnamed_union_caller_sources,
 )
+from tests.source_edits import replace_exact
 
 
 CHECK_PROBE = """import json, os, sys
@@ -61,9 +62,11 @@ BODY)
 """
 
 # The exact `:effects` rule of targets below 2.39 (Task 4b): both modules at 2.35, the wrapper declaring none.
-LIB_235 = LIB.replace('"2.40"', '"2.35"').replace(
+LIB_235 = replace_exact(
+    replace_exact(LIB, '"2.40"', '"2.35"'),
     "-> Verdict\n    (command-result", "-> Verdict\n    :effects ((uses-command probe_check))\n    :lowering inline\n    (command-result")
-UNDECLARED_ENTRY_235 = ENTRY.replace('"2.40"', '"2.35"').replace(
+UNDECLARED_ENTRY_235 = replace_exact(
+    replace_exact(ENTRY, '"2.40"', '"2.35"'),
     "-> Verdict\n    (check title)", "-> Verdict\n    :effects ()\n    :lowering inline\n    (check title)")
 
 BODIES = {
@@ -88,8 +91,8 @@ def _wrapper_project(root: Path, *, body: str, lib: str = LIB, entry: str = ENTR
     _write_sources(
         root,
         {
-            "grt/lib.orc": lib.replace("PROBE_CHECK", probes["probe_check"].as_posix()),
-            "grt/entry.orc": entry.replace("BODY", BODIES[body]),
+            "grt/lib.orc": replace_exact(lib, "PROBE_CHECK", probes["probe_check"].as_posix()),
+            "grt/entry.orc": replace_exact(entry, "BODY", BODIES[body]),
         },
     )
     return probes

@@ -5,6 +5,7 @@ import pytest
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from tests.workflow_lisp_closed_program_helpers import build
+from tests.source_edits import replace_exact
 
 
 SOURCE = '''(workflow-lisp
@@ -34,8 +35,8 @@ def _source(route, result_type):
           :effects ((uses-provider provider)) :lowering {route}''' if route == "private-workflow" else ""
         declaration = f'''(defproc review ((draft String)) -> {result_type}{clauses} {effect})'''
         body = "(review draft)"
-    source = SOURCE.replace("DECLARATION", declaration).replace("BODY", body)
-    return source.replace('(:target-dsl "2.40")', '(:target-dsl "2.35")') if route == "private-workflow" else source
+    source = replace_exact(replace_exact(SOURCE, "DECLARATION", declaration), "BODY", body)
+    return replace_exact(source, '(:target-dsl "2.40")', '(:target-dsl "2.35")') if route == "private-workflow" else source
 
 
 @pytest.mark.parametrize("route", ["direct", "inline", "private-workflow"])

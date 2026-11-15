@@ -24,6 +24,7 @@ from orchestrator.workflow_lisp.syntax import (
 from tests.workflow_evaluated_totality_helpers import _public_run_files, _write_sources
 from tests.workflow_evaluated_totality_helpers import _public_run
 from tests.test_workflow_lisp_generic_unions_runtime import _compile
+from tests.source_edits import replace_exact
 
 
 LITERALS = [
@@ -109,7 +110,8 @@ def test_literal_that_is_not_a_finite_double_is_refused_when_read(tmp_path: Path
 def test_literal_that_is_not_a_finite_double_is_refused_before_elaboration(tmp_path: Path) -> None:
     """The literal sits in an unused definition; reading the module refuses it anyway."""
 
-    source = _source("1.5").replace(
+    source = replace_exact(
+        _source("1.5"),
         "  (defworkflow run", "  (defun unused ((x Float)) -> Float (+ x 1e999))\n  (defworkflow run"
     )
 
@@ -119,7 +121,7 @@ def test_literal_that_is_not_a_finite_double_is_refused_before_elaboration(tmp_p
 
 
 def test_decimal_parameter_default_reaches_the_public_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    source = _source("x", target="2.40").replace("(defworkflow run ()", "(defworkflow run ((x Float :default 2.5))")
+    source = replace_exact(_source("x", target="2.40"), "(defworkflow run ()", "(defworkflow run ((x Float :default 2.5))")
     _write_sources(tmp_path, {"grt/entry.orc": source})
     _compile(tmp_path)  # The explicit current default remains a native frontend contract.
     monkeypatch.chdir(tmp_path)
