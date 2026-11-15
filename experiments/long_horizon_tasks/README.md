@@ -180,7 +180,8 @@ container, network or CLI is used:
 
 ```
 pytest -q -n 4 tests/experiments/test_long_horizon_launcher.py tests/experiments/test_long_horizon_ladder.py \
-  tests/experiments/test_long_horizon_passthrough.py
+  tests/experiments/test_long_horizon_passthrough.py tests/experiments/test_long_horizon_slot_record.py \
+  tests/experiments/test_long_horizon_readout.py
 ```
 
 Task 7's rehearsal is where the real harness, Podman, relay and CLI are exercised.
