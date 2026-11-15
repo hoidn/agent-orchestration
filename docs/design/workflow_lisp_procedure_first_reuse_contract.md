@@ -33,12 +33,14 @@ publication boundaries. Typed procedures are the normal unit for reusable
 internal behavior. Both use the same typed return model, but they do not have
 the same operational identity.
 
-Procedure composition follows the definition’s origin. Origins 2.35–2.38
-retain role-based authored lowering: migrations use `:lowering inline`,
-`private-workflow` requires a reviewed private namespace need, and `auto`
-promises no persisted identity. Definitions originating at 2.39 reject
-`:lowering` and compose inline in the caller. A 2.39 caller preserves imported
-2.35–2.38 policy; an intentional new boundary uses `defworkflow` plus `call`.
+Every procedure composes inline in its caller and an authored `:lowering`
+clause is refused; an intentional boundary uses `defworkflow` plus `call`.
+One source target, 2.40, is admitted
+([targets and identity](../../specs/versioning.md#targets-and-identity)), so
+the rules this document states for definitions originating at 2.39 are the
+contract. Its rules for origins 2.35–2.38 (authored `inline`,
+`private-workflow` and `auto` lowering, and their import into a 2.39 caller)
+describe the release tagged `v0.2.1` and no longer apply.
 
 Procedure composition is statically resolved. Direct body effects and
 caller-visible transitive effects are distinct, and the compiler recomputes

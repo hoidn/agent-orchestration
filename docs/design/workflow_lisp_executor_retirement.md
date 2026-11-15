@@ -87,7 +87,7 @@ another candidate's. No new fallback or target-conversion flag is introduced.
 | Boundary | Selected behavior |
 | --- | --- |
 | `compile`/`run`/`run --dry-run` of an old executable entry target through 2.34 | Explicit retired-target diagnostic before build/run publication; source is not rewritten |
-| Source compilation/import/REPL/LSP below 2.35 | Refuse at the source floor; no typed-only compatibility lane or automatic migration. Admitted 2.35–2.38 definitions preserve their semantics when imported by 2.39. |
+| Source compilation/import/REPL/LSP below 2.35 | Refuse at the source floor; no typed-only compatibility lane or automatic migration. Source at 2.35–2.39 now refuses as well (note under [Source floor](#source-floor-235)). |
 | Old persisted execution profile, including `resume --force-restart` and invalidation | Refuse without changing retained run contents; identify the tested retained-release route where one exists |
 | `prompt run` (default/exact/inferred contract or `--scaffold`) and both `prompt import` branches | Retire new executions from the new package; refuse before scaffold/run/session writes or effects, and direct users to the retained complete release/environment |
 | `prompt resume [--in-place]` on an existing linked session | Retain the native TTY bridge, pins, isolation, lineage and continuation publication without compiler/old-executor imports; this mutates native session journals, not retired workflow execution |
@@ -107,7 +107,14 @@ deleted-tree verification and delivery remain tracked in the execution closeout.
 
 ### Source floor: 2.35
 
-The current package source contract begins at 2.35. Reject pre-2.35 entries,
+The admitted source target is now 2.40 only: 2.35–2.39 source refuses with a
+message that names the guide's migration section and the release tagged
+`v0.2.1`, and a run recorded at one of those targets is read-only
+([targets and identity](../../specs/versioning.md#targets-and-identity)).
+This section and the rows above that name 2.35–2.38 record the floor as it
+was selected.
+
+The package source contract began at 2.35. Reject pre-2.35 entries,
 transitive source dependencies, compiler input bundles/typed programs, REPL
 loads and LSP analysis before typed publication or execution. Raw syntax used
 to locate an unsupported header is not a compatibility frontend. Preserve the

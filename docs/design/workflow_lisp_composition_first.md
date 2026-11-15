@@ -1,9 +1,9 @@
 # Workflow Lisp Composition-First Procedures
 
 - **Status:** generic unions and `std/improve` (§§3–6) are implemented at
-  their introduction target 2.33; current source admission starts at 2.35.
-  EL-1 procedure contracts are delivered at 2.39; §7 distinguishes definition
-  origins. The reference module is
+  their introduction target 2.33; current source admission is target 2.40 only.
+  EL-1 procedure contracts, delivered at 2.39, apply to every definition; older
+  definition origins named below describe the release tagged `v0.2.1`. The reference module is
   [`std/improve.orc`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc)
   and its rules and known defects are in §11. The §8 consumer migration
   remains gated by CF-1c (ON_HOLD); EL-1 delivery does not select it. W3 at 2.36 is implemented;
@@ -254,14 +254,11 @@ requires no tracked effects after hook resolution; explicit nonempty requires
 a subset with resolved subject identities preserved. These restrictions attach
 to the definition’s origin, including imported and specialized definitions.
 
-Both packaged `improve` variants originate at 2.35 and retain their existing
-generic-hook forwarding regime, including their authored empty clause and
-lowering policy, even in a 2.39 caller. Their inferred transitive summaries
+The packaged `improve` module is at 2.40 and carries no authored effect
+clause or lowering. Its inferred transitive summaries
 include the provider and command effects of selected adapters, including
-findings validation and imported hooks. The selected EL-1 delivery preserves
-all six maintained stdlib modules at 2.35; it does not migrate those libraries
-to 2.39 or select the §8 consumer migration. A later library migration needs
-its own selection and origin-aware review. The below-2.33 behavior in §11 is
+findings validation and imported hooks. The library's move to 2.40 does not
+select the §8 consumer migration. The below-2.33 behavior in §11 is
 historical evidence, not an admitted source route.
 
 ## 8. Migration
