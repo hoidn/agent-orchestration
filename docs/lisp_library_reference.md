@@ -17,7 +17,7 @@ historical data and cannot be imported or analyzed by the current frontend.
 | --- | --- | --- | --- |
 | Ask for a durable typed decision | [Host replies with `std/host`](#host-replies-with-stdhost) | Generic union plus evaluated effect | Target 2.40 serial requests; external settlement and ordinary resume |
 | Generate independent code changes, then choose one | [Generate candidates and select](#generate-candidates-and-select) | Example workflow | Canonical 2.35 source; serial, bounded, manually prepared clones |
-| Review and revise one typed candidate | [Review and revise with `std/improve`](#review-and-revise-with-stdimprove) | Library API | 2.35 explicit-input API; 2.36–2.40 local-hook API, with a maintained 2.40 caller |
+| Review and revise one typed candidate | [Review and revise with `std/improve`](#review-and-revise-with-stdimprove) | Library API | local-hook API at 2.40, with a maintained 2.40 caller |
 | Score a candidate with a deterministic executable | [Evaluate with an external command](#evaluate-with-an-external-command) | Composition pattern | Typed `command-result` with a declared command boundary at 2.35 |
 | Search across candidates under an evaluation budget | [Iterative search](#iterative-search) | Example workflow | Maintained compact controller at 2.40; application-defined policy |
 | Keep one conversation across review and revise | [`design_review_execute_agents.orc`](../workflows/examples/design_review_execute_agents.orc); [Agent sessions](lisp_workflow_drafting_guide.md#agent-sessions-target-238) | Example workflow | Implemented at 2.38; [deterministic and bounded adapter-smoke evidence](reports/2026-10-14-agent-sessions-pq1a-qualification.md) recorded; acceptance comparison pending |
@@ -171,7 +171,7 @@ unrestricted clones.
 ## Review and revise with `std/improve`
 
 **Kind:** library API imported from `std/improve`.
-**Availability:** the 2.35 explicit-input API and 2.36–2.40 W3 API;
+**Availability:** the W3 local-hook API, with the packaged module at target 2.40;
 remaining composition and tooling limits are stated below.
 
 `improve` takes a record candidate and typed review/revise procedure references.
@@ -189,20 +189,11 @@ a compile-time integer constant of at least one, not a runtime workflow input.
 Timeouts, malformed hook results, cancellation and provider failures keep their
 runtime failure behavior; they do not become `EXHAUSTED`.
 
-The entry target chooses one API for the entire **source import graph**:
-
-| Entry target | Call | Hook signatures |
-| --- | --- | --- |
-| 2.35 | `(improve initial inputs review revise limit)` | `review(S I) -> Decision[F B]`; `revise(S I F) -> S` |
-| 2.36–2.40 | `(improve initial review revise limit)` | `review(S) -> Decision[F B]`; `revise(S F) -> S` |
-
-Every admitted source importer sees that API, including a defining-module
-target of 2.35 in a 2.36+ entry graph.
-Retargeting requires migrating five-argument source callers; compatible and
-type-only imports remain legal. Complete imported snapshots retain producer
-authority. Both packaged improve variants have source header 2.35; the entry
-graph still selects the 2.35 explicit-input or 2.36+ W3 API. See
-the v2.36 entry of [versioning](../specs/versioning.md)
+The call is `(improve initial review revise limit)`, with hooks
+`review(S) -> Decision[F B]` and `revise(S F) -> S`. The packaged module
+(`stdlib_modules/std/improve.orc`) declares target 2.40; an importer below 2.39
+refuses with `evaluated_execution_target_direction_invalid`. Complete imported snapshots retain producer
+authority. See the v2.36 entry of [versioning](../specs/versioning.md)
 for snapshot conflicts and resume guards.
 
 W3 is implemented at 2.36; the [closeout](reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns exact qualification and delivery evidence.
@@ -219,7 +210,7 @@ arbitrary compositions, package upgrades, all old checkpoints or evaluated LSP.
 The maintained
 [`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
 targets 2.40 and uses inferred signatures and lexical captures from W3. The
-imported `std/improve` definitions remain at 2.35 with their original contracts.
+imported `std/improve` module targets 2.40 as well.
 `propose` retains an intentional empty restriction; `execute` retains the named
 launch-command ceiling. Neither procedure authors a lowering strategy.
 Its complete module follows
@@ -378,29 +369,16 @@ or retargeting an old source does not promise compatible resume. The
 and [CLI contract](../specs/cli.md#evaluated-execution-target-235) own operator
 behavior for both evaluated targets.
 
-#### Target 2.35 explicit inputs
-
-At 2.35 use the five-argument form with explicit domain inputs and complete
-hook signatures. Current source controls live in
-[`test_workflow_lisp_improve_stdlib.py`](../tests/test_workflow_lisp_improve_stdlib.py),
-including a public compile/run consumer. The preserved
-[`improve_legacy/improve_experiment_proposal.orc`](../tests/fixtures/workflow_lisp/improve_legacy/improve_experiment_proposal.orc)
-has source header 2.33 and is a complete explicit-input source specimen. Its
-entry and typed imports are retired. Read it only as a historical API specimen;
-changing a header alone is not a supported migration recipe. The five-argument
-API remains supported at 2.35. For bounded evaluated consumer evidence and remaining
-composition limits, see
-[composition-first §11.4](design/workflow_lisp_composition_first.md#114-evaluated-w3-boundaries).
-
 #### `improve` rejections
 
 The [frontend specification §7.8](design/workflow_lisp_frontend_specification.md#78-procedure-references)
 owns the rules for a local without a declared signature; the
 [evaluated composition boundary](design/workflow_lisp_composition_first.md#114-evaluated-w3-boundaries)
 owns the remaining OPEN pure-helper, combined-capture and relay cases.
-Independent successful compositions do not close those fixtures. Retargeting
-a five-argument caller to 2.36 requires migration to its four-argument API;
-it does not promise compatible resume of an older run.
+Independent successful compositions do not close those fixtures. A
+five-argument call refuses with `procedure_arity_mismatch`, whose message names
+the migration: remove the `inputs` argument and capture it in the local hooks.
+Migrating a caller does not promise compatible resume of an older run.
 
 
 ## Evaluate with an external command
