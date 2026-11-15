@@ -53,11 +53,12 @@ from it, and read
 [Workflow Lisp Runtime-Native Drain Authoring](design/workflow_lisp_runtime_native_drain_authoring.md)
 as a historical checklist for that family's shape. Start current authoring from
 [`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
-at 2.39 for a `std/improve` review loop, or the
+for a `std/improve` review loop, or the
 [complete lifecycle recipe](#a-complete-235-recipe-compile-run-resume-report-invalidate).
-[`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and
 [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc)
-now target 2.35. Their [experiment recipe](../experiments/orc_vs_single_call/README.md)
+targets 2.40. [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc)
+is kept at 2.35, the text its recorded results name, and this release refuses it
+([Migrating from an older target](#migrating-from-an-older-target)). Their [experiment recipe](../experiments/orc_vs_single_call/README.md)
 provides the manifests and prerequisites for serial candidate selection and
 the review/revise loop; historical comparison results keep their original scope.
 
@@ -109,7 +110,7 @@ document symbols for the ten directly authored module, procedure, workflow,
 enum, path, record, union, schema, resource, and transition kinds. Completion
 preserves separate
 procedure/workflow/form namespaces and renders callable parameters, returns,
-and procedure contracts from compiler signatures. At 2.39, detail separates
+and procedure contracts from compiler signatures. Detail separates
 optional authored restrictions from inferred effects and marks unresolved
 generic hooks incomplete. Save the buffer
 before expecting refreshed results. Definition and document symbols remain
@@ -284,7 +285,7 @@ Think in five layers.
 | Effects | What work occurs? | Admitted `provider-result`, `command-result`, calls and path-mode `run-ref` | Effect identity, validated results, memo commits |
 | Runtime substrate | How is it executed? | Usually not hand-authored | Core AST, semantic IR, snapshots, bundles, artifacts |
 
-For evaluated targets 2.35–2.40, within their admitted feature scope,
+Within the admitted feature scope,
 the compiler elaborates and checks `.orc` source into a
 closed program; the evaluator computes its values and memoizes its effects.
 The checked `closed_program.json` is execution authority. The memo is effect
@@ -310,13 +311,17 @@ adapter.
 ## 2. Availability Model
 
 Use the [Capability Status Matrix](capability_status_matrix.md) to distinguish
-implemented, library-provided, designed, future and legacy surfaces. Compiler
-acceptance at an older target does not establish evaluated runtime admission.
-Use 2.39 or newer for inference-default [procedure contracts](#procedure-contracts-at-target-239).
-The explicitly versioned 2.35/2.36 recipes retain their original procedure rules;
-2.38 introduces bounded [Agent Sessions](#agent-sessions-target-238) and
-[command-only confined children](#confined-workflow-children-target-238-command-only).
-[Section 2A](#2a-program-shapes-what-runs-today) owns the current shape limits.
+implemented, library-provided, designed, future and legacy surfaces. Workflow
+Lisp has one source target, **2.40**: every module of a source graph declares
+`(:target-dsl "2.40")`, including dependencies supplied as typed programs or
+compiled bundles, and it selects evaluated execution. A 2.35–2.39 header refuses
+at `compile`, `run`, dry-run, imports, REPL load, LSP analysis and the Python
+frontend; see [Migrating from an older target](#migrating-from-an-older-target).
+Headers below 2.35 refuse as before; historical source is preserved as evidence
+and no header or run conversion is performed. A heading in this guide that
+carries a target number records when that capability arrived; all of them are
+part of 2.40. [Section 2A](#2a-program-shapes-what-runs-today) owns the current
+shape limits.
 
 The shared authoring surface includes declarations (`defenum`, `defpath`,
 `defrecord`, `defunion`, `defschema`), modules/imports/exports, `defworkflow`,
@@ -327,7 +332,7 @@ fragments. Prompt output slots may own one required UTF-8 file alongside the
 structured result. See the effect admission limits in Section 2A before using
 any library helper.
 
-At target 2.38 the surface also includes `agent`, which allocates a run-local
+The surface also includes `agent`, which allocates a run-local
 `Agent`, and `provider-result` on an `Agent`, which takes one turn in that
 agent's native conversation. Both compile and run; acceptance comparison
 remains pending. See
@@ -347,10 +352,9 @@ or survive in runtime state. Generic `defproc` is supported; generic
 `defworkflow`, dynamic runtime dispatch and runtime closures remain outside
 current authoring.
 
-At target 2.35, bounded V1 `let-proc` has one typed local procedure and
-explicit identifier captures. At 2.36,
-[W3](design/workflow_lisp_write_once.md#63-language-changes-to-let-proc)
-adds several bindings, inferred lexical captures and incomplete signatures
+`let-proc` binds one or several local procedures
+([W3](design/workflow_lisp_write_once.md#63-language-changes-to-let-proc)),
+with inferred lexical captures and incomplete signatures
 inferred from exactly one authored direct consumer site. Complete signatures
 retain reuse. Nested local definitions and recursion remain excluded. See
 [Section 13.3](#137-improve) for the maintained proposal recipe.
@@ -362,22 +366,127 @@ own their detailed language limits. Historical YAML migration records preserve
 captured baselines and parity evidence; they do not select a current runtime
 route.
 
-## 2A. Program Shapes: What Runs Today
+### Migrating from an older target
 
-Use target **2.39** for the [current procedure authoring contract](#procedure-contracts-at-target-239).
-The **2.35/2.36** recipes below remain valid at their stated targets; **2.38**
-introduces bounded [Agent Sessions](#agent-sessions-target-238) and
-[command-only confined children](#confined-workflow-children-target-238-command-only). These select evaluated
-execution; 2.36 adds the W3 local-hook `std/improve` API
-shown in [Section 13.3](#137-improve). Every source dependency must declare
-target 2.35 or newer, including dependencies supplied as typed programs or
-compiled bundles. Pre-2.35 entry execution is retired; source imports, REPL
-loads and LSP analysis below that floor also refuse. Historical source is
-preserved as evidence; no header or run conversion is performed. Target 2.37
-adds bounded [parallel map](#173-parallel-map-target-237). Target 2.38 separately admits the bounded
-[Agent recipe](#agent-sessions-target-238) and
-[command-only confined children](#confined-workflow-children-target-238-command-only);
-the latter does not admit providers or Agent operations inside the child.
+A run started before the migration is finished with the release tagged
+`v0.2.1`; this release reads it and does not continue it, and migrating the
+source does not change that. `report`, the dashboard and the monitor read a run
+recorded at 2.35–2.39. `resume` (with or without `--accept-changes`),
+`invalidate`, `input answer`, `input cancel` and REPL `:attach` refuse it with
+`run_target_retired` before any lock, compile or write; the commands exit 2.
+Check out `v0.2.1` to finish such a run, or start a new run from the migrated
+source.
+
+Source at 2.35–2.39 refuses with `workflow_execution_target_retired` (the entry
+of `compile`, `run` or `run --dry-run`) or
+`target_dsl_unsupported` (any other module of the graph, a typed import, REPL
+`:load`, LSP analysis, `py run`). Both messages name this section. Nothing is
+retargeted for you, because the changes below alter what a procedure means.
+Every module of the graph declares 2.40, so migrate a module together with
+what it imports.
+
+The mechanical steps are scripted. Run it from the repository root, with this
+checkout on `PYTHONPATH`; a path is a `.orc` file or a directory:
+
+```bash
+python scripts/migrate_orc_sources.py --check PATH   # reports what would change, writes nothing
+python scripts/migrate_orc_sources.py PATH           # rewrites the files in place
+```
+
+It does steps 1 to 3 below and leaves the rest to you. It also rewrites a
+`loop/recur` written with `(fn (state) ...)` to the binder form where that
+keeps the program; both loop forms compile at 2.40, so that rewrite is not
+required. Read the diff, then compile. The steps, in the order the compiler
+reports them:
+
+1. **Header.** Write `(:target-dsl "2.40")` in every module.
+2. **`:lowering`.** Delete every `:lowering` clause; one that remains refuses
+   with `proc_lowering_annotation_invalid`. Every procedure now composes
+   inline in its caller. A procedure that an older target lowered as a private
+   workflow (by `:lowering private-workflow`, by the default `auto`, or when
+   called in a loop) computes the same result inline, under different step
+   identities. For a deliberate call boundary, write a `defworkflow` and
+   `call` it ([procedure contract](#procedure-contracts-at-target-239)).
+3. **`:effects`.** The clause is now optional and a checked upper bound on the
+   procedure's transitive effects, a hook's effects included. A clause written
+   for the older exact rule on a procedure that takes a hook lists only the
+   body's own effects and refuses with `procedure_effect_ceiling_exceeded`.
+   Delete the clause to infer the effects (the script deletes every `:effects`
+   clause of a module below 2.39), or keep one where you want the bound:
+   `:effects ()` means "stays effect-free".
+4. **`std/improve`.** The call is `(improve initial review revise limit)`. A
+   five-argument call refuses with `procedure_arity_mismatch`, and the message
+   names the edit: remove the `inputs` argument and capture it in the local
+   `review` and `revise` hooks
+   ([example](lisp_library_reference.md#target-239-local-hooks)).
+5. **`with-phase` and private heads.** Import `with-phase` from `std/phase`; a
+   bare `with-phase` refuses with `procedure_call_unknown`. A hand-written
+   `__with-phase__` or `__generated-relpath-seed__` refuses with
+   `private_form_not_admitted`; for the second write
+   `(path/join-under PathType "name")`.
+6. **`request-input`.** Give it `:returns T`, or a prompt that declares a
+   return contract; the one-question `(request-input question)` refuses with
+   `request_input_keyword_invalid`
+   ([Durable Host Input](#durable-host-input)).
+7. **Reserved names.** `agent` is a form and `Agent` a type; rename a
+   definition that uses either name (`prelude_type_name_reserved` for a type).
+8. **Python sources.** `TARGET` defaults to `"2.40"`, the only accepted value;
+   remove an older `TARGET` or set it to `"2.40"`.
+
+A single-binding `let-proc` with an explicit `:captures` list still compiles
+and needs no edit. The forms of [Section 13.1](#131-removed-forms) refuse with
+`form_retired`, as they did before. A path-mode `run-ref` child is compiled
+from its pinned commit: when that commit holds older-target source the child
+does not compile, the parent run fails at that step with
+`trial_program_compile_rejected`, and no child run is created; pin a commit
+with migrated source.
+
+Before, a 2.35 module with one hook-taking procedure (`review.orc`):
+
+```lisp
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.35")
+  (defmodule review)
+  (export run)
+
+  (defproc apply-step ((step ProcRef[Int -> Int]) (value Int)) -> Int
+    :effects ()
+    :lowering inline
+    (step value))
+
+  (defproc measure ((value Int)) -> Int
+    :effects ((uses-command measure))
+    :lowering inline
+    (command-result measure :argv ("python" "measure.py") :returns Int))
+
+  (defworkflow run ((value Int)) -> Int
+    (apply-step (proc-ref measure) value)))
+```
+
+With only the header changed it refuses at the first `:lowering`; with the
+`:lowering` clauses also removed it refuses at `apply-step`, whose `:effects ()`
+does not cover the command its hook runs. After the script, or the same three
+edits by hand, it compiles:
+
+```lisp
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.40")
+  (defmodule review)
+  (export run)
+
+  (defproc apply-step ((step ProcRef[Int -> Int]) (value Int)) -> Int
+    (step value))
+
+  (defproc measure ((value Int)) -> Int
+    (command-result measure :argv ("python" "measure.py") :returns Int))
+
+  (defworkflow run ((value Int)) -> Int
+    (apply-step (proc-ref measure) value)))
+```
+
+## 2A. Program Shapes: What Runs Today
 
 Values are evaluated in lexical scope; they are not stored as generated steps.
 Effects execute in source order and are recorded in `memo.jsonl`. A committed
@@ -392,7 +501,7 @@ not in the historical flat-route workaround catalogue.
 | Records, unions, lists, and repeated pure bindings | Keep typed native values; no flattening or value-as-step wrapper is needed to reach a command. |
 | Effectful arguments and conditions | Admitted effects run in structural evaluation order, once per activation; boolean operators short-circuit. |
 | Pure contexts | Keep `:on-exhausted` and pure `list/map` bodies effect-free; union reads still require proof. |
-| Serial `list/map-effect` | Supply an explicit traversal bound and one admitted effect per body; for concurrent items use the bounded 2.37 [parallel map](#173-parallel-map-target-237). |
+| Serial `list/map-effect` | Supply an explicit traversal bound and one admitted effect per body; for concurrent items use the bounded [parallel map](#173-parallel-map-target-237). |
 | Decimal arithmetic | Use the closed numeric operator surface in Section 9A; mixed numeric types and non-finite results fail closed. |
 | Path-mode `run-ref` | Admitted directly or through calls in effect-admitting branches, loops, budgets, seeds, `match` subjects and serial effect maps; retain pure-context restrictions. |
 
@@ -402,9 +511,9 @@ references. Portable providers admit extern `asset_file`/`input_file` prompts
 and supported `defprompt` slots, including `:path :out`, but no session,
 context binding/capture, managed job or secrets.
 
-Selected `request-input`, phased provider delivery, live provider
-supervision/peer groups and bundle-mode `run-ref` are unavailable at every
-evaluated target and refuse at build with `closed_program_gap`. The forms
+Live provider
+supervision/peer groups and bundle-mode `run-ref` are unavailable
+and refuse at build with `closed_program_gap`. The forms
 listed in [Section 13.1](#131-removed-forms) and `trial` were removed and
 refuse with `form_retired`.
 Provider session artifacts and materialization attempts are also excluded.
@@ -436,7 +545,7 @@ and the complete lifecycle below.
 
 ### Static command arguments and shared closures
 
-For targets 2.35–2.40, omit `:argv` when the external-tool binding already names
+Omit `:argv` when the external-tool binding already names
 the complete invocation:
 
 ```lisp
@@ -626,9 +735,7 @@ python -B -m orchestrator resume <run_id>
 What the recipe does not show: context capture, trials, phased providers
 and the other classes of
 [§1.1](design/workflow_lisp_evaluated_execution.md#11-the-first-release)
-refuse at build with `closed_program_gap` (a parallel `list/map-effect` below
-target 2.37 refuses earlier, in the frontend, with
-`list_traversal_target_dsl_unsupported`); external kills at every window of
+refuse at build with `closed_program_gap`; external kills at every window of
 every effect of the three maintained programs are owned by
 [`tests/test_workflow_evaluated_recovery.py`](../tests/test_workflow_evaluated_recovery.py)
 (Phase 3 Task 15, integrated).
@@ -660,7 +767,7 @@ you want kept:
 
 ### Print a value during a run
 
-At target 2.35, `(print value)` writes the value's compact JSON line to the
+`(print value)` writes the value's compact JSON line to the
 run's stdout and returns the value, so a `let*` binding such as
 `(shown (print feedback.findings))` shows a committed result while the run goes
 on. `print` is an operator, not an effect: it has no memo record, `resume`
@@ -669,7 +776,7 @@ prints again what it re-evaluates, and readers that replay the program (views,
 
 ### Inspect a run with the Workflow Lisp REPL
 
-For admitted evaluated targets 2.35–2.40, `orchestrator repl` lets you discover a loaded
+`orchestrator repl` lets you discover a loaded
 module's declarations, inspect their contracts/source, ask for expression types,
 and inspect captured run bindings. From the repository root, use the maintained
 [`plan_review_execute.orc`](../workflows/examples/plan_review_execute.orc) and
@@ -1109,13 +1216,11 @@ A schema is not a workflow. It is reusable contract structure.
 
 Use compiler-owned `Value` only when the useful contract is
 "one transportable JSON value" and consumers do not yet need named fields,
-variants, path constraints, or element guarantees. This example uses the
-2.35–2.38 procedure syntax:
+variants, path constraints, or element guarantees:
 
 ```lisp
 (defproc pass-through ((payload Value)) -> Value
   :effects ()
-  :lowering inline
   payload)
 ```
 
@@ -1193,7 +1298,7 @@ Use `defproc` for reusable internal effectful graph behavior.
 
 #### Procedure contracts at target 2.39
 
-At target **2.39**, omit `:effects` to infer a procedure's transitive effects
+Omit `:effects` to infer a procedure's transitive effects
 without an authored restriction. Use `:effects ()` when the procedure must
 remain free of tracked effects, including after generic or ProcRef
 specialization. A named clause is a checked upper bound: the inferred effects
@@ -1219,7 +1324,8 @@ and refuses a substitution with another provider. Omission never means purity.
     (pure-wrapper value)))
 ```
 
-Do not write `:lowering` on a 2.39 definition: procedures compose inline in
+Do not write `:lowering`: the clause refuses with
+`proc_lowering_annotation_invalid`, and procedures compose inline in
 the caller. To express an intentional call/frame/checkpoint boundary, define
 an ordinary `defworkflow` and invoke it with `call`. An unexported workflow
 can still be selected locally as an entry; its inputs and result must satisfy
@@ -1228,14 +1334,8 @@ parameters cannot be transported across that boundary. Moving an old private
 procedure into a workflow changes definition identity and does not promise
 old fingerprints or cross-version resume.
 
-Imported definitions retain their defining target: 2.35–2.38 procedures keep
-mandatory exact ordinary declarations, specialization exceptions and their
-authored/default lowering policy. A 2.39 caller does not reinterpret those
-contracts, and an older module cannot import a 2.39 definition. The packaged
-stdlib remains at 2.35. Source below 2.35 is refused.
-
-At 2.39, use the genuine imported stdlib binding for `with-phase`; its bare
-compatibility head is refused. Private expansion heads are admitted only when
+Use the genuine imported `std/phase` binding for `with-phase`; a bare
+`with-phase` without that import refuses with `procedure_call_unknown`. Private expansion heads are admitted only when
 introduced by the actual packaged `std/phase` macro template. This preserves genuine imported
 expansion without admitting hand-written private syntax; it does not admit
 excluded state/resource effects to evaluated execution.
@@ -1253,25 +1353,6 @@ command ledger.
 
 Resolved effect-free helpers can compose in expressions, with eager once-only
 arguments and lexical scope; admitted effectful calls still follow Section 2A.
-The following illustrative declaration uses the older **2.35–2.38** contract:
-
-```lisp
-(defproc ensure-approved-plan
-  ((ctx PhaseCtx)
-   (selected SelectedItemInputs)
-   (roadmap RoadmapState)
-   (providers PlanProviders))
-  -> PlanGateResult
-
-  :effects
-    ((reads selected.selected-item-context-path)
-     (uses-provider providers.generate providers.review)
-     (writes Path.plan-target)
-     (writes Path.review-report)
-     (updates-state ctx))
-
-  ...)
-```
 
 A macro rewrites syntax. A procedure represents reusable internal workflow
 behavior. If
@@ -1508,7 +1589,7 @@ inspection views, not call-policy or resume authority.
 
 ### Portable Provider Context
 
-Provider context binding and capture are unavailable at targets 2.35/2.36 and
+Provider context binding and capture are unavailable and
 refuse with `closed_program_gap`. Use typed results or artifact handoffs within
 the admitted provider subset. The
 [provider-context contract](design/workflow_lisp_provider_context_values.md)
@@ -1517,8 +1598,8 @@ its executable route is retired, with no evaluated capture port selected.
 
 ### Agent sessions (target 2.38)
 
-Status: allocation, turns, recovery, C8 guards and instance views are implemented
-at target 2.38. The [qualification record](reports/2026-10-14-agent-sessions-pq1a-qualification.md)
+Status: allocation, turns, recovery, C8 guards and instance views are implemented.
+The [qualification record](reports/2026-10-14-agent-sessions-pq1a-qualification.md)
 contains deterministic proofs and bounded adapter smokes. The clean and failed/resumed
 comparison (PQ-1c) ran once per cell on a four-turn pattern: both variants completed and
 resumed, the agent variant cost 1.4 to 1.7 times the plain handoff, and a committed agent
@@ -1620,7 +1701,6 @@ Refused at compile time:
 
 | Code | When |
 | --- | --- |
-| `agent_target_dsl_unsupported` | `agent` in a module below target 2.38 |
 | `agent_provider_invalid` | The first operand is not a compiler-known provider extern |
 | `agent_keyword_invalid` | A keyword other than `:model` or `:effort`, such as `:timeout-sec`, on `agent` |
 | `agent_model_type_invalid`, `agent_effort_type_invalid` | `:model` or `:effort` is not a `String` |
@@ -1734,7 +1814,7 @@ and [monitoring](workflow_monitoring.md) own details and recovery.
 
 ### Explicit OMP Session Publication
 
-Provider session artifacts are unavailable at targets 2.35/2.36 and refuse
+Provider session artifacts are unavailable and refuse
 with `closed_program_gap`. The typed result bundle remains provider-result
 authority. See the [session publication contract](../specs/providers.md)
 and [OMP runbook](omp_upgrade_runbook.md) for historical session publication and retained verified native `prompt resume`
@@ -1954,7 +2034,7 @@ Prompt identity and drift evidence is diagnostic, never a workflow value or
 resume decision. The [prompt-identity contract](design/workflow_lisp_prompt_identity_diagnostics.md)
 owns Q3's versioned snapshot and report behavior; its older-route evidence does
 not establish evaluated-profile availability. Use the evaluated lifecycle and
-reader contracts for reports from a 2.35/2.36 run.
+reader contracts for reports from an evaluated run.
 
 ### Inspecting Judgment Views
 
@@ -2001,8 +2081,7 @@ tracks deterministic evidence separately from live-provider qualification.
      :effort "low")
    ```
 
-   The defining module must target 2.39 or newer; importing an older definition
-   from a 2.39 caller does not admit it. The prompt must be a fragment application
+   The prompt must be a fragment application
    with a generated nonempty result contract. Materialization attempts must be
    an integer literal from 1 through 3, defaulting to 2 when omitted. This counts
    **total submissions**, including the first, within one provider attempt.
@@ -2044,7 +2123,7 @@ remain excluded. Historical target-2.23 Q5 fixtures and results remain historica
 
 ## 8A. Bounded Live Provider Supervision
 
-`with-live-providers` is unavailable at targets 2.35/2.36 and refuses with
+`with-live-providers` is unavailable and refuses with
 `closed_program_gap`. See the
 [live-binding contract](design/workflow_lisp_provider_live_binding.md) for the
 historical one-worker/one-supervisor surface; its execution is retired.
@@ -2054,7 +2133,7 @@ the reusable design.
 
 ## 8B. Recorded Provider Peer Groups
 
-`with-live-provider-peers` is unavailable at targets 2.35/2.36 and refuses with
+`with-live-provider-peers` is unavailable and refuses with
 `closed_program_gap`. See the
 [peer-messaging contract](design/workflow_lisp_provider_peer_messaging.md) for
 the historical cooperative-provider surface; its execution is retired.
@@ -2064,7 +2143,7 @@ the reusable design.
 
 ## Pinned Child Runs And Trials
 
-Path-mode `run-ref` is admitted at targets 2.35/2.36. Pin an exact literal
+Path-mode `run-ref` is admitted. Pin an exact literal
 40-character lowercase Git commit, supply every child input, and preserve the
 child's exact result contract and `:deterministic-effect-free` environment.
 Relpath inputs are copied and rebound into the pinned child workspace after
@@ -2223,7 +2302,7 @@ Agent allocation/turns, dynamic evaluation, trials, human/resource effects and
 `provider-bundle-path`. A confined site is also excluded from serial or parallel
 `list/map-effect` frames. Image-pinned interpreters execute project scripts as
 arguments; command `closure` entries cannot resolve into the mutable clone.
-The independent 2.38 [Agent recipe](#agent-sessions-target-238) runs outside this
+The independent [Agent recipe](#agent-sessions-target-238) runs outside this
 child profile and does not widen it.
 
 Public confined provider sites still refuse with
@@ -2674,9 +2753,8 @@ using the [task chooser](lisp_library_reference.md#choose-by-task).
 #### Target 2.39 local hooks
 
 See the [complete local-hook example](lisp_library_reference.md#target-239-local-hooks)
-and its inference/capture limits. The hooks use the W3 API introduced at 2.36;
-the caller uses 2.39 procedure restrictions and imports the library, which
-targets 2.40.
+and its inference/capture limits. The hooks use the W3 local-hook API; the
+caller and the imported library both target 2.40.
 
 #### Compile, run and resume the maintained proposal
 
@@ -2955,7 +3033,7 @@ declared root.
 body; its source and body arguments remain pure. Pure `list/map` bodies remain
 effect-free. Indexing, filtering, folding, general ProcRef mapping and
 unbounded traversal are outside the current surface; parallel `list/map-effect`
-requires target 2.37 ([Section 17.3](#173-parallel-map-target-237)). Traversal does
+is described in [Section 17.3](#173-parallel-map-target-237). Traversal does
 not grant prompt visibility: a provider input still needs an admitted renderer.
 See [evaluated totality evidence](../tests/test_workflow_evaluated_totality.py)
 for record/union/list transport and pure-context refusals.
@@ -3204,7 +3282,7 @@ Before running a new `.orc` workflow, confirm:
 | Types | Every boundary has its actual transportable type; no wrapper is required. Exact `Value` remains opaque. Typed result guidance does not alter validation. |
 | Paths | Path contracts are reusable `defpath` definitions. |
 | Authority | Validated typed values, checked artifacts and the committed memo own runtime meaning; provisional provider files await validation/commit. Reports are views. |
-| Providers | Portable composed calls return validated structured state. Bounded Agent Sessions require 2.38; [fragment-backed phased delivery](#authoring-phased-contract-delivery-target-239) requires 2.39 and an explicitly capable interactive provider. Context capture, supervision and peer groups remain unavailable. |
+| Providers | Portable composed calls return validated structured state. Bounded Agent Sessions are available; [fragment-backed phased delivery](#authoring-phased-contract-delivery-target-239) requires an explicitly capable interactive provider. Context capture, supervision and peer groups remain unavailable. |
 | Commands | Command semantics use `command-result` or certified adapters. |
 | Reports | No markdown report is parsed for semantic state in new high-level code. |
 | Pointers | Pointer files are not treated as artifact values. |
