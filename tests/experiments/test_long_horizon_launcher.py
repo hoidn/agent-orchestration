@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1826,6 +1827,23 @@ def test_a_ruling_for_the_latest_stop_never_lifts_an_earlier_one(short, capsys):
             ladder.starts_gate(ctx.root, time.time())["kind"]) == ((True, True), 3, (True, False), 0, None)
 
 
+def test_a_ruling_row_for_a_longer_cause_never_lifts_a_stop_whose_cause_is_its_prefix(short, capsys):
+    """Scoped check S-m1 (D5): a row's cause is the whole cause, ended by its `:`; a row for "response model
+    claude-x-2" is no row for "response model claude-x"."""
+    ctx = _ctx(short)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    ladder.ensure_state(ctx.root)
+    ladder.tranche_event(ctx.root, "stop", slot="x", reason="response model claude-x")
+    ladder.tranche_event(ctx.root, "stop", slot="y", reason="response model claude-x-2")
+    (ctx.rehearsal / "ledger.md").write_text("| 2026-11-21 | Ruling | resume: response model claude-x-2: go on |\n")
+    longer_only = ladder.main(["resume", "--date", "2026-11-21"], env=ctx.env)
+    lacking = capsys.readouterr().err.split("no row yet for: ")[-1].strip()
+    with open(ctx.rehearsal / "ledger.md", "a") as fh:
+        fh.write("| 2026-11-21 | Ruling | resume: response model claude-x: go on |\n")
+    both = ladder.main(["resume", "--date", "2026-11-21"], env=ctx.env)
+    assert (longer_only, lacking, both) == (3, "response model claude-x", 0)
+
+
 # ---- Allowance (Task 5, fourth checkbox) -----------------------------------------------------------------------
 
 def _events_file(root, *events):
@@ -3147,6 +3165,30 @@ def test_clearing_one_threshold_does_not_resume_while_another_is_over_its_bound(
     (ctx.rehearsal / "ledger.md").write_text("| 2026-11-22 | Ruling | load-refusals: the cap was raised |\n")
     code = ladder.main(["resume", "--clears", "load-refusals", "--date", "2026-11-22"], env=ctx.env)
     assert (code, ladder._jsonl(ctx.root / "clearings.jsonl"), _jsonl_events(ctx)) == (3, [], [])
+
+
+def test_two_thresholds_over_at_once_are_cleared_by_one_resume_naming_both_each_after_its_ruling(short, capsys):
+    """Scoped check S-M1 (D7.7): `--clears` takes several thresholds, each needing its own Ruling row; the resume
+    succeeds only when every threshold over its bound is named and ruled, and it names the ones still missing."""
+    ctx = _threshold_rig(short)
+    _ended(ctx.root, _specs(OBS, 15) + _specs(CUT, 2) + _specs(INFRA, 3), time.time() - 60)  # cuts 10%, infra 15%
+    ladder.check_thresholds(ctx.root, STANDING)
+    over = set(ladder.threshold_breaches(ctx.root, STANDING))
+    (ctx.rehearsal / "ledger.md").write_text("| 2026-11-22 | Ruling | cuts: go on |\n")
+    both = ["resume", "--clears", "cuts", "--clears", "infrastructure-failures", "--date", "2026-11-22"]
+    one_named = ladder.main(["resume", "--clears", "cuts", "--date", "2026-11-22"], env=ctx.env)
+    still_over = capsys.readouterr().err
+    one_ruled = ladder.main(both, env=ctx.env)
+    unruled = capsys.readouterr().err
+    with open(ctx.rehearsal / "ledger.md", "a") as fh:
+        fh.write("| 2026-11-22 | Ruling | infrastructure-failures: go on, the host was repaired |\n")
+    cleared = ladder.main(both, env=ctx.env)
+    assert (over, (one_named, "infrastructure-failures" in still_over), (one_ruled, "infrastructure-failures" in unruled,
+            "cuts:" in unruled.split("no ledger row")[-1]), cleared,
+            sorted(r["threshold"] for r in ladder._jsonl(ctx.root / "clearings.jsonl")),
+            ladder.threshold_breaches(ctx.root, STANDING), _jsonl_events(ctx)[-1]["event"]) == (
+        {"cuts", "infrastructure-failures"}, (3, True), (3, True, False), 0, ["cuts", "infrastructure-failures"], {},
+        "resume")
 
 
 def _jsonl_events(ctx):

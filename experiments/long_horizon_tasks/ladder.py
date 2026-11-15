@@ -12,7 +12,7 @@ Usage (from the repository root, or a detached checkout of the frozen commit for
   python -I experiments/long_horizon_tasks/ladder.py ruling ATTEMPT --row N --date YYYY-MM-DD
                                                                  a start paused under D5 row 16 gets the row of
                                                                  the ledger's `| date | Ruling | ATTEMPT row N |`
-  python -I experiments/long_horizon_tasks/ladder.py resume [--clears THRESHOLD --date YYYY-MM-DD]
+  python -I experiments/long_horizon_tasks/ladder.py resume [--clears THRESHOLD ... --date YYYY-MM-DD]
                                                                  resume a pause or a stop (D7.7 thresholds: below)
   python -I experiments/long_horizon_tasks/ladder.py allowance (inputs|reading|figures) ...
                                                                  the owner's inputs and meter readings (D4)
@@ -37,7 +37,7 @@ State lives outside the checkout: $HOME/.local/state/lh-ladder, or LH_REHEARSAL/
   money.lock      the one lock under which starts are counted, reserved and settled
   end.json        how the tranche ended: the schedule done, the ceiling or the 240 starts
 A pause or a stop (passthrough/tranche.jsonl) holds until a person runs `ladder.py resume` after the ledger row D5
-asks for; a D7.7 threshold over its bound needs `resume --clears <threshold> --date <its Ruling row's date>`. The ledger rows the schedule waits for: `| <date> | Smoke read | <label> pass |` (or
+asks for; every D7.7 threshold over its bound needs its own `--clears <threshold>` in that resume (several at once: one `--clears` each), with `--date <the date of their Ruling rows>`. The ledger rows the schedule waits for: `| <date> | Smoke read | <label> pass |` (or
 `fail`: a stop), `| <date> | Pilot read | <label> ... |`, `| <date> | Round 1 read | <label> ... |`.
 The passthrough is started by a person with the token file; `status` prints its command line.
 """
@@ -2572,11 +2572,11 @@ def record_ruling(ctx, args):
 
 
 def _has_ruling(stop, args, text):
-    """Whether one stop is ruled: the ledger `text` holds `| <args.date> | Ruling | resume: <its cause>: ... |`, or
-    it is the stop of the threshold that `--clears` names."""
-    form = re.compile(rf"resume:\s*{re.escape(stop['why'] or '')}")
-    return bool(args.date and ruling_rows(text, args.date, form)) or bool(args.clears and
-                                                                        stop["threshold"] == args.clears)
+    """Whether one stop is ruled: the ledger `text` holds `| <args.date> | Ruling | resume: <its cause>: ... |`, the
+    whole cause ended by its `:` (scoped check S-m1: a row for a longer cause is not this one's), or it is the stop of
+    a threshold that `--clears` names."""
+    form = re.compile(rf"resume:\s*{re.escape(stop['why'] or '')}\s*:")
+    return bool(args.date and ruling_rows(text, args.date, form)) or stop["threshold"] in (args.clears or [])
 
 
 def _stop_ruled(ctx, args):
@@ -2594,28 +2594,42 @@ def _stop_ruled(ctx, args):
                       f"no row yet for: " + "; ".join(str(why) for why in lacking))
 
 
+def _clears_refusal(ctx, clears, date, over):
+    """Why the thresholds `--clears` names cannot be cleared, each one named, or None: every threshold over its bound
+    is named (scoped check S-M1: several at once), and each named one has its own `| <date> | Ruling | T: ... |` row
+    and is over its bound (Task 8 part A m7: a clearing would reset its count for nothing)."""
+    text = ledger_text(ctx) if clears else ""
+    unruled = [name for name in clears if not ruling_rows(text, date, re.compile(rf"{re.escape(name)}:\s*\S"))]
+    if unruled:
+        return f"no ledger row `| {date} | Ruling | <threshold>: <the decision> |` for: " + "; ".join(unruled)
+    idle = [name for name in clears if name not in over]
+    if idle:
+        return "; ".join(idle) + " not over its bound: there is nothing to clear"
+    left = {name: why for name, why in over.items() if name not in clears}
+    if left:
+        return ("over its bound, cleared only by `resume --clears <threshold> ...` naming every one, each after its "
+                "Ruling row; not named: " + "; ".join(f"{k} ({v})" for k, v in left.items()))
+    return None
+
+
 def record_resume(ctx, args):
     """A person's resume of a pause or a stop, after the ledger row D5 asks for. Refused while a D7.7 threshold is
-    over its bound; `--clears T --date D` clears T once the ledger holds `| D | Ruling | T: <decision> |`, recording
-    the date and the counts then, and T counts only later endings; every other threshold keeps counting."""
+    over its bound and not cleared; `--clears T [--clears U ...] --date D` clears each named threshold once the ledger
+    holds `| D | Ruling | T: <decision> |` for it (_clears_refusal), recording the date and the counts then, and it
+    counts only later endings; every other threshold keeps counting."""
     ladder = criterion(ctx)
     ensure_state(ctx.root)
+    clears = list(dict.fromkeys(args.clears or []))
     _stop_ruled(ctx, args)
     over = threshold_breaches(ctx.root, ladder)
-    form = re.compile(rf"{re.escape(args.clears or '')}:\s*\S")
-    if args.clears and not ruling_rows(ledger_text(ctx), args.date, form):
-        raise Refused(f"no ledger row `| {args.date} | Ruling | {args.clears}: <the decision> |`")
-    if args.clears and args.clears not in over:  # Task 8 part A m7: a clearing would reset its count for nothing
-        raise Refused(f"{args.clears} is not over its bound: there is nothing to clear")
-    left = {name: why for name, why in over.items() if name != args.clears}
-    if left:
-        raise Refused("over its bound, cleared only by `resume --clears`: " + "; ".join(f"{k} ({v})" for k, v in left.items()))
-    if args.clears:
+    reason = _clears_refusal(ctx, clears, args.date, over)
+    if reason:
+        raise Refused(reason)
+    for name in clears:
         with open(ctx.root / "clearings.jsonl", "a") as fh:
-            fh.write(json.dumps({"threshold": args.clears, "date": args.date, "at": time.time(),
-                                 "counts": over.get(args.clears)}) + "\n")
-    tranche_event(ctx.root, "resume", by="a person", clears=args.clears, date=args.date)
-    print(f"resumed{f', {args.clears} cleared by the ruling of {args.date}' if args.clears else ''}")
+            fh.write(json.dumps({"threshold": name, "date": args.date, "at": time.time(), "counts": over[name]}) + "\n")
+    tranche_event(ctx.root, "resume", by="a person", clears=clears or None, date=args.date)
+    print(f"resumed{f', {', '.join(clears)} cleared by the ruling of {args.date}' if clears else ''}")
     return 0
 
 
@@ -2669,7 +2683,8 @@ def _parse(argv):
     ruling.add_argument("--row", type=int, required=True)
     ruling.add_argument("--date", required=True, help="the date of the ledger's `Ruling` row")
     resume = sub.add_parser("resume", help="resume a pause or a stop; --clears a D7.7 threshold after its ruling")
-    resume.add_argument("--clears", choices=sorted(THRESHOLDS))
+    resume.add_argument("--clears", choices=sorted(THRESHOLDS), action="append",
+                        help="a D7.7 threshold to clear; once per threshold, every one over its bound")
     resume.add_argument("--date", help="the date of the ledger's `Ruling` row (with --clears)")
     _allowance_parser(sub)
     return parser.parse_args(argv)
