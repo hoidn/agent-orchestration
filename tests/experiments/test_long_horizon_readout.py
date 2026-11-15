@@ -414,3 +414,33 @@ def test_a_flagged_observation_is_listed_and_counted():
 
 def test_an_excluded_round_leaves_its_triple_incomplete():
     assert _compute(_export(EXCLUDING))["effort"]["per_task"] == {}
+
+
+# ---- 6. Cuts are counted per effort; the pilot's attempts are marked ----------------------------------------------
+
+CUT = {"row": 10, "reward": None}
+PILOT_TASK = LADDER["schedule"]["pilot"]["task"]
+CUTS = {TASKS[0]: {"low": [[CUT, CUT, 1], 0], "medium": [[CUT, 0], 0], "high": [0, 0]},
+        TASKS[1]: {"low": [0, 0], "medium": [0, 0], "high": [0, [CUT, 1]]},
+        PILOT_TASK: {"low": [1, 0], "medium": [0, 0], "high": [0, 0]}}
+PILOT = {(PILOT_TASK, effort, 1) for effort in EFFORTS}
+
+
+def test_cuts_are_counted_per_effort():
+    assert _compute(_export(CUTS))["listed"]["cuts"] == {"low": 2, "medium": 1, "high": 1}
+
+
+def test_a_slot_cut_and_run_again_counts_once_in_its_cell():
+    assert _compute(_export(CUTS))["tasks"][TASKS[0]]["cells"]["low"] | {"interval": None} == {
+        "k": 1, "n": 2, "interval": None, "label": "incomplete"}
+
+
+def test_the_pilot_s_three_attempts_are_marked_and_are_observations_of_the_ladder():
+    result = _compute(_export(CUTS, pilot=PILOT))
+    assert ([(p["task"], p["effort"], p["round"], p["class"]) for p in result["listed"]["pilot"]],
+            result["tasks"][PILOT_TASK]["cells"]["low"]["k"]) == (
+        [(PILOT_TASK, effort, 1, "observation") for effort in EFFORTS], 1)
+
+
+def test_no_attempt_is_marked_as_the_pilot_s_when_no_slot_is():
+    assert _compute(_export(CUTS))["listed"]["pilot"] == []

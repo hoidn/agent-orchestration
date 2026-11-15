@@ -425,11 +425,14 @@ def _entry(start):
     return {key: start[key] for key in ("start", "slot", "task", "effort", "round", "row", "class", "ending")}
 
 
-def _listed(starts):
-    """D6's lists: every start that enters no k or n, with its class and why; every flagged observation."""
+def _listed(starts, efforts):
+    """D6's lists: every start that enters no k or n, with its class and why; every flagged observation; the
+    attempts cut by a usage limit, counted per effort; the pilot's attempts, marked (D7.2)."""
     exclusions = [_entry(s) | {"reason": s["excluded"] or s["ending"]} for s in starts if not s["counted"]]
     flags = [_entry(s) for s in starts if s["counted"] and s["flagged"]]
-    return {"exclusions": exclusions, "flags": flags}
+    cuts = Counter(s["effort"] for s in starts if s["class"] == "cut")
+    return {"exclusions": exclusions, "flags": flags, "cuts": {e: cuts[e] for e in efforts},
+            "pilot": [_entry(s) for s in starts if s["pilot"]]}
 
 
 def _configuration(ladder):
@@ -452,4 +455,4 @@ def compute(ladder, export, standins=None):
     return {"rehearsal": rehearsal, "configuration": _configuration(criterion), "label": export["label"],
             "end": export["end"],
             "tasks": _placement(_counts(current, tasks, efforts, rules["interval"]["level"]), rules),
-            "effort": effort_test(triples, efforts, rules) | {"per_task": triples}, "listed": _listed(current)}
+            "effort": effort_test(triples, efforts, rules) | {"per_task": triples}, "listed": _listed(current, efforts)}
