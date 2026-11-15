@@ -50,7 +50,7 @@ pure expressions, and collection contracts. Relevant component authorities:
   scope/proof analysis, and identity/resume: the maintained lowering foundation.
 - [Frontend specification §12](workflow_lisp_frontend_specification.md#12-conditionals) ([strict Boolean control flow](workflow_lisp_strict_boolean_control_flow.md), historical record):
   target-2.26 conditional normalization, order, and short circuit.
-- [Pure list traversal](workflow_lisp_pure_list_traversal.md): pure map evaluation,
+- [Frontend specification §10.3](workflow_lisp_frontend_specification.md#103-target-218-bounded-list-traversal) ([pure list traversal](workflow_lisp_pure_list_traversal.md), historical record): pure map evaluation,
   collection eligibility, and pure-payload schema boundaries.
 - [Procedure-first reuse](workflow_lisp_procedure_first_reuse_contract.md):
   inline versus private-workflow identity obligations.

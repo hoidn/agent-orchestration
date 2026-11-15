@@ -202,8 +202,8 @@ Retargeting requires migrating five-argument source callers; compatible and
 type-only imports remain legal. Complete imported snapshots retain producer
 authority. Both packaged improve variants have source header 2.35; the entry
 graph still selects the 2.35 explicit-input or 2.36+ W3 API. See
-[write-once §9](design/workflow_lisp_write_once.md#9-targets-and-compatibility)
-for old module identities, snapshot conflicts and resume guards.
+the v2.36 entry of [versioning](../specs/versioning.md)
+for snapshot conflicts and resume guards.
 
 W3 is implemented at 2.36; the [closeout](reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns exact qualification and delivery evidence.
 The following two source forms have bounded public compile/run and
@@ -394,8 +394,8 @@ composition limits, see
 
 #### `improve` rejections
 
-The [W3 contract](design/workflow_lisp_write_once.md#63-language-changes-to-let-proc)
-owns incomplete-local restrictions; the
+The [frontend specification §7.8](design/workflow_lisp_frontend_specification.md#78-procedure-references)
+owns the rules for a local without a declared signature; the
 [evaluated composition boundary](design/workflow_lisp_composition_first.md#114-evaluated-w3-boundaries)
 owns the remaining OPEN pure-helper, combined-capture and relay cases.
 Independent successful compositions do not close those fixtures. Retargeting

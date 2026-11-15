@@ -85,6 +85,30 @@ def _pure(definitions: str, body: str) -> str:
 
 
 A_THEN_B = "(let* ((a (cw c1 input)) (b (cw c2 input))) (+ a.n (* 1000 b.n)))"
+FWI = ("  (defworkflow c1 ((input Box)) -> Box (record Box :n (+ input.n 100)))\n"
+       "  (defproc fwi ((k Int) (input Box)) -> Box (call c1 :input (record Box :n (+ input.n k))))\n"
+       "  (defproc ap ((hook ProcRef[Box -> Box]) (input Box)) -> Box (hook input))\n")
+
+
+def _captured(bindings_and_body: str, definitions: str = "", returns: str = "Int") -> str:
+    """`run` binds `input` to a `Box` of `n`, then the given bindings and body; `fwi` calls a workflow."""
+    return (HEAD + FWI + definitions + f"  (defworkflow run ((n Int)) -> {returns}\n"
+            f"    (let* ((input (record Box :n n)) {bindings_and_body})))\n")
+
+
+def _two_sites(value: str) -> str:
+    """`fwk` (a workflow call) bound to `value` at two sites, the second result times 1000."""
+    bound = f"(applyi (bind-proc (proc-ref fwk) :k {value}) n)"
+    return (HEAD + "  (defworkflow c1 ((input Box)) -> Box (record Box :n (+ input.n 100)))\n"
+            "  (defproc fwk ((k Int) (y Int)) -> Int (let* ((r (call c1 :input (record Box :n (+ y k))))) r.n))\n"
+            "  (defproc applyi ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))\n"
+            f"  (defworkflow run ((n Int)) -> Int (+ {bound} (* 1000 {bound}))))\n")
+
+
+def _let_hook(b: int) -> str:
+    return f"(let* ((b {b}) (hook (bind-proc (proc-ref fwi) :k (+ b 1)))) (ap hook input))"
+BOUND_RUNW = ("  (defproc ap ((hook ProcRef[Box -> Box]) (input Box)) -> Box (hook input))\n"
+              "  (defmacro ba (w v) (ap (bind-proc (proc-ref runw) :w (workflow-ref w)) v))\n")
 
 # name: (source, (inputs, value) or None when the program calls a provider)
 PROGRAMS = {
@@ -127,14 +151,40 @@ PROGRAMS = {
     "inlined-two-locals": (_pure(f"  (defproc both ((n Int)) -> Int (let-proc ((f {ADDS_ONE}) "
         f"(g {replace_exact(ADDS_ONE, '(+ s 1)', '(* s 10)')})) (+ (f n) (g n))))\n",
         "(+ (both n) (* 1000 (both (+ n 1))))"), ({"n": 3}, 34 + 1000 * 45)),
+    # A value bound by `bind-proc` is identified by its position and, when it is made of stable kinds only, its
+    # content: two expansions of one template binding different such values get their own specializations.
+    "bound-value-macro": (_pure("  (defproc helper ((fixed Int) (y Int)) -> Int (+ fixed y))\n"
+        "  (defproc applyi ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))\n"
+        "  (defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (+ k 0)) x))\n",
+        "(+ (bf 1 n) (* 100 (bf 7 n)))"), ({"n": 3}, 1004)),
+    "bound-workflow-ref-macro": (_workflow_ref_macro("(let* ((a (ba c1 input)) (b (ba c2 input))) (+ a.n (* 1000 b.n)))",
+        definitions=BOUND_RUNW), ({"n": 3}, 203103)),
+    # One closed value written at two sites stays two bindings, whatever later passes hoist out of it.
+    "written-if-twice": (_two_sites("(if (> 1 0) 1 0)"), ({"n": 3}, 104104)),
+    "written-call-twice": (_two_sites("(let* ((r (call c1 :input (record Box :n 1)))) r.n)"), ({"n": 3}, 204204)),
+    # A bound value that reads a local keeps its position: the same text read in two scopes is two values.
+    "captured-two-lets": (_captured(f"(a {_let_hook(1)}) (c {_let_hook(7)})) (+ a.n (* 1000 c.n))"), ({"n": 3}, 111105)),
+    "captured-shadowed": (_captured("(b 1) (a (let* ((hook (bind-proc (proc-ref fwi) :k (+ b 1)))) (ap hook input))) "
+        f"(c {_let_hook(7)})) (+ a.n (* 1000 c.n))"), ({"n": 3}, 111105)),
+    "captured-loop-state": (_captured("(r (loop/recur ((s 1)) :max 3 :on-exhausted 0 (if (> s 200) (done s) "
+        "(let* ((hook (bind-proc (proc-ref fwi) :k (+ s 1))) (o (ap hook input))) (continue (+ (* s 7) o.n))))))) r"),
+        ({"n": 3}, 1000)),
+    "captured-map-binder": (_captured("(xs (list/map-effect ((b (list 1 7))) :max 2 (let* ((hook (bind-proc (proc-ref fwi) "
+        ":k (+ b 1))) (o (ap hook input))) o.n)))) xs", returns="List[Int]"), ({"n": 3}, [105, 111])),
+    "captured-two-procedures": (_captured("(a (pk 1 input)) (c (pq 7 input))) (+ a.n (* 1000 c.n))",
+        "".join(f"  (defproc {name} ((b Int) (input Box)) -> Box (let* ((hook (bind-proc (proc-ref fwi) :k (+ b 1)))) "
+                "(ap hook input)))\n" for name in ("pk", "pq"))), ({"n": 3}, 111105)),
 }
 SWEEP = ("two-provider-chains", "one-chain", "one-chain-adding", "three-levels-adding", "two-chains-adding",
          "macro-local", "macro-local-captured", "macro-proc-ref", "macro-generic", "workflow-ref-macro-2.39",
          "workflow-ref-macro-three", "workflow-ref-macro-in-procedure", "inlined-two-equal-locals",
-         "inlined-macro-same-arguments", "inlined-two-locals")
+         "inlined-macro-same-arguments", "inlined-two-locals", "bound-value-macro", "bound-workflow-ref-macro",
+         "written-if-twice")
 IN_PROCESS = ("macro-local", "macro-local-captured", "workflow-ref-macro", "workflow-ref-macro-reversed",
               "workflow-ref-macro-in-map", "inlined-two-equal-locals", "inlined-macro-same-arguments",
-              "inlined-two-locals")
+              "inlined-two-locals", "bound-value-macro", "bound-workflow-ref-macro", "written-if-twice",
+              "written-call-twice", "captured-two-lets", "captured-shadowed", "captured-loop-state", "captured-map-binder",
+              "captured-two-procedures")
 
 
 def _install(root: Path, name: str) -> Path:
@@ -208,6 +258,87 @@ def test_nested_specializations_keep_every_level(tmp_path):
     names = [name.split("[")[0] for name in program.tree["definitions"]]
     assert sorted(names) == ["procedure:main::foo", *["procedure:main::invoke"] * 3, "workflow:main::left"]
     assert _value(program, {"input": {"n": 4}}) == {"n": 7}
+
+
+def test_bound_value_identity_only_splits_what_the_position_joins():
+    """Over hand-built bound values: bindings at two positions never share an identity; at one position, values of
+    stable kinds split by content and other kinds stay joined; equal content at one position stays one."""
+    from orchestrator.workflow_lisp.expressions import IfExpr, LiteralExpr, PureOpExpr, WorkflowRefLiteralExpr
+    from orchestrator.workflow_lisp.procedure_refs import _source_identity
+    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+
+    def at(column):
+        return SourceSpan(SourcePosition("m.orc", 4, column, column), SourcePosition("m.orc", 4, column + 9, column + 9))
+
+    def lit(value, column):
+        return LiteralExpr(value=value, literal_kind="int", span=at(column), form_path=())
+
+    def plus(k, column):
+        return PureOpExpr("+", (lit(k, column), lit(0, column)), at(column), ())
+
+    def choose(k, column):
+        return IfExpr(PureOpExpr(">", (lit(k, column), lit(0, column)), at(column), ()), lit(k, column),
+                      lit(0, column), at(column), ())
+
+    values = [plus(1, 10), plus(7, 10), plus(1, 10), plus(1, 40), choose(1, 70), choose(7, 70), choose(1, 90),
+              WorkflowRefLiteralExpr("m::c1", at(110), ()), WorkflowRefLiteralExpr("m::c2", at(110), ()),
+              WorkflowRefLiteralExpr("m::c1", at(130), ()), lit(3, 150), lit(3, 160)]
+    position = {id(v): ("literal:3" if isinstance(v, LiteralExpr) else v.span.start.column) for v in values}
+    identity = {id(v): _source_identity(v) for v in values}
+    joined = [(a, b) for a in values for b in values if position[id(a)] != position[id(b)]]
+    assert all(identity[id(a)] != identity[id(b)] for a, b in joined)
+    assert identity[id(values[0])] != identity[id(values[1])]
+    assert identity[id(values[0])] == identity[id(values[2])]
+    assert identity[id(values[4])] == identity[id(values[5])]
+    assert identity[id(values[7])] != identity[id(values[8])]
+    assert identity[id(values[10])] == identity[id(values[11])]
+
+
+def test_nested_bound_values_split_only_when_every_node_is_stable():
+    """Two levels down: a record of records of literals splits by content at one position; a record whose inner
+    record holds a name, a field read, an `if` or a call keeps the position alone, whatever that node says."""
+    from orchestrator.workflow_lisp.expressions import (
+        FieldAccessExpr, FunctionCallExpr, IfExpr, LiteralExpr, NameExpr, RecordExpr)
+    from orchestrator.workflow_lisp.procedure_refs import _source_identity
+    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+
+    at = SourceSpan(SourcePosition("m.orc", 6, 20, 20), SourcePosition("m.orc", 6, 60, 60))
+
+    def lit(value):
+        return LiteralExpr(value=value, literal_kind="int", span=at, form_path=())
+
+    def wrap(inner):
+        return RecordExpr("Wrap", (("box", RecordExpr("Box", (("n", inner),), at, ())),), at, ())
+
+    def identity(inner):
+        return _source_identity(wrap(inner))
+
+    assert identity(lit(1)) != identity(lit(7))
+    assert identity(lit(1)) == identity(lit(1))
+    unstable = [
+        (NameExpr("a", at, ()), NameExpr("b", at, ())),
+        (FieldAccessExpr(NameExpr("r", at, ()), ("k",), at, ()), FieldAccessExpr(NameExpr("r", at, ()), ("j",), at, ())),
+        (IfExpr(lit(1), lit(1), lit(0), at, ()), IfExpr(lit(1), lit(7), lit(0), at, ())),
+        (FunctionCallExpr("dbl", (lit(1),), at, ()), FunctionCallExpr("dbl", (lit(7),), at, ())),
+    ]
+    position = identity(NameExpr("a", at, ()))
+    assert ":content:" not in position
+    assert all(identity(first) == identity(second) == position for first, second in unstable)
+
+
+def test_bound_values_of_two_expansions_split_by_content(tmp_path):
+    """Two expansions binding `(+ 1 0)` and `(+ 7 0)` specialize `fwi` twice; binding `(+ 1 0)` twice, once."""
+    macro = "  (defmacro mk (k v) (ap (bind-proc (proc-ref fwi) :k (+ k 0)) v))\n"
+    counts = {}
+    for second, meant in ((7, 104 + 1000 * 110), (1, 104104)):
+        root = tmp_path / str(second)
+        root.mkdir()
+        (root / "main.orc").write_text(_captured(f"(a (mk 1 input)) (c (mk {second} input))) (+ a.n (* 1000 c.n))", macro))
+        program = _closed(build_closed_program(compile_typed_program(root / "main.orc", entry_workflow="run",
+            source_roots=(root,), workspace_root=root, **CONFIG)))
+        assert _value(program, {"n": 3}) == meant
+        counts[second] = [name.split("[")[0] for name in program.tree["definitions"]].count("procedure:main::fwi")
+    assert counts == {7: 2, 1: 1}
 
 
 @pytest.mark.parametrize("name", IN_PROCESS)

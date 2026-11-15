@@ -1,5 +1,9 @@
 # Workflow Lisp: Writing Each Fact Once
 
+Status: **Historical — archived in place.** Superseded: W3 (section 6.3, local procedures that read their context) is specified by [frontend specification §7.8](workflow_lisp_frontend_specification.md#78-procedure-references); W2 (inferred effects) by [§8.8](workflow_lisp_frontend_specification.md#88-defproc); the `std/improve` interface selected per source graph (sections 6.4 and 9) by the v2.36 entry of [versioning](../../specs/versioning.md) and the [library reference](../lisp_library_reference.md). W0, W1, W4 and W5 were not built: the current roadmap drops W4 and does not select the W0 lint, and the forms of W1 and W5 are refused today. They stay here as proposals of record and select no work. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#t9-callables).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 > **2026-11-11 disposition:** W4 is dropped by the [current roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions),
 > and the W0 lint is not selected in its [Phase 1](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-1-the-first-hour-and-the-long-run).
 
@@ -20,7 +24,7 @@
   [local ProcRef bindings](workflow_lisp_let_proc_local_proc_refs.md),
   [parametric type system](workflow_lisp_parametric_type_system.md),
   [composition-first procedures](workflow_lisp_composition_first.md),
-  [pure list traversal](workflow_lisp_pure_list_traversal.md)
+  [pure list traversal](workflow_lisp_pure_list_traversal.md) (historical record; current owner: [frontend specification §10.3](workflow_lisp_frontend_specification.md#103-target-218-bounded-list-traversal))
 
 ## 1. Summary
 
