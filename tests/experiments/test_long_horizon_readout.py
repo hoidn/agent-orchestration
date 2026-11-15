@@ -219,3 +219,161 @@ def test_the_bound_is_fixed_by_its_seed():
 def test_no_complete_triple_leaves_the_verdict_not_resolved_and_no_bound():
     result = _test({})
     assert (result["verdict"], result["fall_bound"], result["triples"]) == ("not resolved", None, 0)
+
+
+# ---- Constructed records: the export the readout reads (readout.py's docstring states its shape) -----------------
+
+LABEL, OLD = "a" * 64, "b" * 64
+TASKS = [task["name"] for task in LADDER["tasks"]["list"]]
+STAND_IN_VALUES = {"readout.contamination_scan.terms": ["<a frozen term>"],
+                   "readout.contamination_scan.canary_sha256": "c" * 64,
+                   "readout.graded_outcome.verifiers": {TASKS[0]: "passed and total sub-tests"},
+                   "readout.fall_bound.seed": 20261114}
+STANDINS = {p["field"]: STAND_IN_VALUES[p["field"]] for p in LADDER["pending"] if p["field"].startswith("readout.")}
+CEILING = {"by": "ceiling", "cause": None}
+
+
+def _start(slot, number, label, reward):
+    return {"slot": slot, "start": number, "label": label, "row": 5, "reward": reward, "excluded": None,
+            "usd": 1.0, "minutes": 30.0, "tokens": {kind: 10 for kind in readout.TOKEN_KINDS}, "graded": None,
+            "egress_refused": {}}
+
+
+def _outcomes(outcome):
+    if outcome == "-":
+        return []
+    if isinstance(outcome, int):
+        return [{"reward": outcome}]
+    return outcome if isinstance(outcome, list) else [outcome]
+
+
+def _export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot=()):
+    """table: {task: {effort: [outcome of round 1, 2, ...]}}. An outcome is 0 or 1 (an observation ending normally),
+    "-" (a slot not started), a dict of start fields, or a list of such dicts (one slot's starts, in order)."""
+    slots, starts = [], []
+    for task, by_effort in table.items():
+        for effort, outcomes in by_effort.items():
+            for number, outcome in enumerate(outcomes, 1):
+                slot = f"r{number}-{task}-{effort}"
+                slots.append({"slot": slot, "task": task, "effort": effort, "round": number,
+                              "pilot": (task, effort, number) in pilot})
+                for fields in _outcomes(outcome):
+                    starts.append(_start(slot, len(starts) + 1, label, None) | fields)
+    return {"label": label, "earlier_labels": [{"label": old, "ended_by": f"ledger row ending {old[:8]}"}
+                                               for old in earlier],
+            "end": end, "slots": slots, "starts": starts, "allowance": allowance}
+
+
+def _same(rewards):
+    return {effort: list(rewards) for effort in EFFORTS}
+
+
+def _compute(export, ladder=LADDER, standins=STANDINS):
+    return readout.compute(ladder, export, standins)
+
+
+# ---- 4. A ceiling stop leaves partial rounds out of complete triples ---------------------------------------------
+
+PARTIAL = {TASKS[0]: _same([1, 0, 0, 0, 0]), TASKS[1]: _same([0, 1, 0, 0, 0]), TASKS[2]: _same([0, 0, 0, 0, "-"]),
+           TASKS[3]: {"low": [0, 0, 0, 0, 1], "medium": [0, 0, 0, 0, 0], "high": [0, 0, 0, 0, "-"]}}
+
+
+def test_a_ceiling_stop_leaves_the_dropped_and_the_partial_block_out_of_complete_triples():
+    effort = _compute(_export(PARTIAL))["effort"]
+    assert (effort["triples"], {task: entry["triples"] for task, entry in effort["per_task"].items()}) == (
+        18, {TASKS[0]: 5, TASKS[1]: 5, TASKS[2]: 4, TASKS[3]: 4})
+
+
+def test_the_partial_block_s_success_enters_its_cell_and_not_the_effort_test():
+    result = _compute(_export(PARTIAL))
+    low = result["tasks"][TASKS[3]]["cells"]["low"]
+    assert ((low["k"], low["n"]), result["effort"]["pooled"]) == ((1, 5), {"low": 2, "medium": 2, "high": 2})
+
+
+def test_the_short_cells_of_the_partial_block_are_incomplete_and_printed_with_their_count():
+    cells = _compute(_export(PARTIAL))["tasks"][TASKS[3]]["cells"]
+    assert {e: (c["n"], c["label"]) for e, c in cells.items()} == {"low": (5, "screened in"), "medium": (5, "floor"),
+                                                                   "high": (4, "incomplete")}
+
+
+# ---- The record shape: a record that does not fit is an error, never a skipped row --------------------------------
+
+def _broken(change):
+    export = _export({TASKS[0]: _same([1, 0])})
+    change(export)
+    return export
+
+
+@pytest.mark.parametrize("change, message", [
+    (lambda x: x["starts"][0].update(slot="r9-nowhere-low"), "joins no slot"),
+    (lambda x: x["starts"][0].update(label="d" * 64), "label"),
+    (lambda x: x["starts"][0].update(row=16), "ruling"),
+    (lambda x: x["starts"][0].update(row=17), "row"),
+    (lambda x: x["starts"][0].update(reward=0.5), "reward"),
+    (lambda x: x["starts"][0].update(reward=None), "regrade"),
+    (lambda x: x["starts"][0].update(excluded="cosmic rays"), "excluded"),
+    (lambda x: x["starts"][0].update(row=15, excluded="contaminated"), "excluded"),
+    (lambda x: x["starts"][0].update(extra=1), "keys"),
+    (lambda x: x["starts"][0].pop("usd"), "keys"),
+    (lambda x: x["starts"][0].update(usd=True), "usd"),
+    (lambda x: x["starts"][0]["tokens"].pop("cache_read"), "tokens"),
+    (lambda x: x["starts"][0].update(graded={"passed": 3, "total": 2}), "graded"),
+    (lambda x: x["starts"][1].update(start=1), "start"),
+    (lambda x: x["starts"].append(dict(x["starts"][0], start=99)), "more than one"),
+    (lambda x: x["slots"][0].update(task="no-such-task"), "task"),
+    (lambda x: x["slots"][0].update(effort="max"), "effort"),
+    (lambda x: x["slots"][0].update(round=6), "round"),
+    (lambda x: x["slots"].append(dict(x["slots"][0], slot="duplicate")), "twice"),
+    (lambda x: x.update(end={"by": "stop", "cause": None}), "cause"),
+    (lambda x: x.update(end={"by": "tired", "cause": None}), "end"),
+    (lambda x: x.update(label="not a label"), "label"),
+    (lambda x: x.update(extra=1), "keys"),
+])
+def test_a_record_that_does_not_fit_the_shape_is_refused(change, message):
+    with pytest.raises(readout.ReadoutError, match=message):
+        _compute(_broken(change))
+
+
+def test_a_timeout_with_no_reward_is_an_observation_scored_zero():
+    """D5: an observation enters k and n with the verifier's reward, 0 if the verifier gives none (row 3)."""
+    cell = _compute(_export({TASKS[0]: {"low": [{"row": 3, "reward": None}], "medium": [0], "high": [0]}}))
+    assert (cell["tasks"][TASKS[0]]["cells"]["low"]["k"], cell["tasks"][TASKS[0]]["cells"]["low"]["n"]) == (0, 1)
+
+
+# ---- Pending readout fields: refused, unless a rehearsal gives stand-ins and is stamped ---------------------------
+
+def test_a_final_readout_is_refused_while_a_readout_field_is_pending_and_names_each():
+    with pytest.raises(readout.ReadoutError) as caught:
+        _compute(_export(PARTIAL), standins=None)
+    assert all(field in str(caught.value) for field in STANDINS) and STANDINS
+
+
+def test_a_rehearsal_takes_its_stand_ins_and_is_stamped():
+    assert _compute(_export(PARTIAL))["rehearsal"] is True
+
+
+def test_a_rehearsal_missing_a_stand_in_is_refused():
+    with pytest.raises(readout.ReadoutError, match="stand-in"):
+        _compute(_export(PARTIAL), standins=dict(list(STANDINS.items())[1:]))
+
+
+def test_a_stand_in_for_a_field_that_is_not_pending_is_refused():
+    with pytest.raises(readout.ReadoutError, match="not pending"):
+        _compute(_export(PARTIAL), standins=STANDINS | {"readout.cell.complete_n": 3})
+
+
+def _filled(ladder=LADDER):
+    """The criterion as the freeze leaves it: every pending readout field filled with its stand-in."""
+    filled = json.loads(json.dumps(ladder))
+    for field, value in STANDINS.items():
+        *path, key = field.split(".")
+        target = filled
+        for part in path:
+            target = target[part]
+        target[key] = value
+    filled["pending"] = [p for p in filled["pending"] if p["field"] not in STANDINS]
+    return filled
+
+
+def test_a_final_readout_of_a_filled_criterion_is_not_stamped():
+    assert _compute(_export(PARTIAL), ladder=_filled(), standins=None)["rehearsal"] is False
