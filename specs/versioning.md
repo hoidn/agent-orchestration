@@ -1454,7 +1454,13 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
     `loop_recur_contract_invalid` (D21; §13.1); so is one, or a form every branch of which is one,
     as the elements of a `list` or the body of a `list/map` or `list/map-effect`, which crashed in
     typecheck: a program that crashed is now refused, and nothing that compiled changes (D22;
-    §13.1; `tests/test_workflow_lisp_d22_differential.py`).
+    §13.1; `tests/test_workflow_lisp_d22_differential.py`);
+  - a `let-proc` local that captures a `proc-ref`, or a role bound with `bind-proc` over one whose
+    bound values are literals or names, builds from target 2.39 when it is called by name, is a
+    map body or is passed by `proc-ref`, and runs to the value of the same uses written with the
+    reference (TD6, D10, D11; frontend specification §7.8). Where a name the role reads is bound
+    again between the role and the local, the local keeps its capture parameters and builds, or
+    ends in `compiler_defect`, exactly as before (rows `D10-rebound-*`).
 
   Every program that compiled before keeps its closed program, digest and identities, and its
   recorded runs resume; a differential corpus test over the shapes around these fixes and every

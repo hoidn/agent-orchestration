@@ -61,7 +61,8 @@ bound-value review) are in the Defect Table.
 Rows D5-binder-hidden, D5-binder-hidden-match, D5-if-whole and D5-if-whole-return, found by the review of
 TD2, D5-if-match and D20-map-argument, found by its re-review, D4-subject-match and D4-subject-loop, found by the
 differential corpus of TD1, and D4-subject-argument and D20-let-proc-subject, found by its second re-review, are
-not in it either.
+not in it either. Rows D10-input-pure, D10-field, D10-field-pure, D10-literal-let, D10-literal-let-pure and D10-rebound-*
+(the twelfth batch, found by the TD6 review and its fix round) are in the Defect Table.
 """
 
 from __future__ import annotations
@@ -128,15 +129,26 @@ KNOWN: dict[str, tuple] = {
     "D4-subject-argument": OPERAND, "D20-let-proc-subject": OPERAND,
     "D6": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._field_type"),
     "D7": BINDER_OUT_OF_SCOPE, "D7-hoisted": BINDER_OUT_OF_SCOPE, "D8": BINDER_OUT_OF_SCOPE,
-    "D10": CAPTURED_COMMAND, "D10-R1": CAPTURED_COMMAND,
-    "D11": CAPTURED_PROVIDER_INPUT, "D11-R1": CAPTURED_PROVIDER_INPUT, "D11-R2": CAPTURED_PROVIDER_INPUT,
-    "D11-R5": CAPTURED_PROVIDER_INPUT,
     "D12-entry": crash("CanonicalNameError", "workflow_lisp/closed/names.py:canonical_type_descriptor.<locals>.build"),
     "D12-literal": NO_ELABORATION,
     "D12-name": BINDER_OUT_OF_SCOPE,
     "D13": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._value"),
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D10-input-pure": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D10-field": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-field-pure": crash("ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
+    "D10-literal-let": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
+    "D10-literal-let-pure": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D10-rebound-loop": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-continue": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-fn": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-let": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-let-in-loop": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-arm": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-macro": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-parameter": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-two-roles": crash("ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
     "D25-plain": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "D26": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D27": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._check_effect_node"),
@@ -253,6 +265,20 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D23-macro": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
     "D24": ("crash", "ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D10-input-pure": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D10-field": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-field-pure": ("crash", "ValueError", "workflow_lisp/closed/command_templates.py:CommandScopeContext.bind"),
+    "D10-literal-let": ("crash", "ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
+    "D10-literal-let-pure": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D10-rebound-loop": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-continue": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-fn": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-let": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-let-in-loop": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-arm": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-macro": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-parameter": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
+    "D10-rebound-two-roles": ("crash", "ValueError", "workflow_lisp/closed/names.py:_capture_index_mapping"),
     "D25-plain": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
     "D26": ("crash", "ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D27": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._check_effect_node"),
@@ -393,6 +419,24 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D23-macro": ("value", 705),
     "D24": None,
     "D25": None,
+    "D10-input-pure": ("value", 2),
+    "D10-field": ("value", 3, "add"),
+    "D10-field-pure": ("value", 2),
+    "D10-literal-let": ("value", 3, "add"),
+    "D10-literal-let-pure": ("value", 11),
+    "D10-rebound-loop": ("value", 2, "add"),
+    "D10-rebound-continue": ("value", 2, "add"),
+    "D10-rebound-fn": ("value", 2, "add"),
+    "D10-rebound-let": ("value", 2, "add"),
+    "D10-rebound-let-in-loop": ("value", 2, "add"),
+    "D10-rebound-arm": ("value", 2, "add"),
+    "D10-rebound-macro": ("value", 2, "add"),
+    "D10-rebound-parameter": ("value", 2, "add"),
+    "D10-rebound-two-roles": ("value", 13, "add", "add"),
+    "D10-rebound-renamed": ("value", 2, "add"),
+    "D10-rebound-unreferenced": ("value", 7),
+    "D10-rebound-unread-binding": ("value", 7),
+    "D10-rebound-ignored-argument": ("value", 7),
     "D25-plain": None,
     "D26": None,
     "D27": None,
@@ -589,6 +633,26 @@ B7_WRITTEN = "(inc1 (bind-proc (proc-ref foo) :runner (workflow-ref W)) input)"
 B7_HELPER = "(defproc helper ((fixed Int) (y Int)) -> Int (+ fixed y))"
 B7_APPLYI = "(defproc applyi ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))"
 B7_BF = "(defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (+ k 0)) x))"
+ROLE_OVER = ("(let* (VALUE (role (bind-proc (proc-ref add) :n READ))) "
+             "(let-proc ((step ((x Int)) -> Int (role x))) (step 1)))")
+ADDN = f"(defproc add ((n Int) (x Int)) -> Int (let* ((z {E('add', 0, 'Int')})) (+ (+ n x) z)))"
+REBOUND = "(let* ((role (bind-proc (proc-ref add) :n k))) BODY)"
+REBOUND_STEP = "(let-proc ((step ((x Int)) -> Int (role x))) USE)"
+REBINDERS = {
+    "loop": "(loop/recur ((k 100)) :max 1 :on-exhausted 0 (done LOCAL))",
+    "continue": "(loop/recur ((k 0)) :max 2 :on-exhausted 0 (if (> k 0) (done k) (continue LOCAL)))",
+    "fn": "(loop/recur :max 1 :state 100 :on-exhausted 0 (fn (k) (done LOCAL)))",
+    "let": "(let* ((k 100)) LOCAL)",
+    "let-in-loop": "(loop/recur ((s 0)) :max 1 :on-exhausted 0 (let* ((k 100)) (done LOCAL)))",
+    "arm": "(match (variant U A :n 100) ((A k) LOCAL) ((B b) 0))",
+    "macro": "(bind-as k LOCAL)",
+}
+BIND_AS = "(defmacro bind-as (nm body) (let* ((nm 100)) body))"
+IGNORE = "(defproc ignore ((f ProcRef[Int -> Int]) (v Int)) -> Int v)"
+
+
+def rebound(wanted: tuple, body: str) -> Row:
+    return row(wanted, "((k Int)) -> Int " + REBOUND.replace("BODY", body), ADDN, U, BIND_AS, IGNORE, inputs=("k=1",))
 B7_FWK = "(defproc fwk ((k Int) (y Int)) -> Int (let* ((r (call c1 :input (record Box :n (+ y k))))) r.n))"
 B7_U = "(defunion U (A (n Int)) (B (n Int)))"
 B7_DBL = "(defun dbl ((x Int)) -> Int (* x 2))"
@@ -832,6 +896,49 @@ ROWS: dict[str, Row] = {
                + LOOP_LOCAL_ADDING.replace("ADDEND", "r.k") + ")", "(defrecord R (k Int))", inputs=("n=3",)),
     "D25": row(None, "((n Int)) -> Int (both n 1)", "(defproc both ((x Int) (k Int)) -> Int (let* ((kk (+ k 0))) "
                + LOOP_LOCAL_ADDING.replace("ADDEND", "kk") + "))", inputs=("n=3",)),
+    # Twelfth batch (TD6 fix round 1), each a role called from a local step: over a workflow input with a pure
+    # `add` (D10's shape with `:n k`); over a field read; over a `let*` name bound to a literal. The copied role is
+    # the spelling `main` crashes on when written by hand inside the local. D10-rebound-*: the role reads `k`, bound
+    # again between the role and the local (each binder kind; a parameter of the local; one of two roles). A copy
+    # would read the inner binder, so the local keeps its capture parameters and crashes as on `main`; wanted is
+    # the value the lexical binding gives, the one the renamed spelling runs to. Controls: renamed; the local never
+    # referenced, referenced only by a `let*` nothing reads, or by an argument its callee ignores: `main` builds
+    # each (7) with the same digest.
+    "D10-input-pure": row(value(2), "((k Int)) -> Int " + ROLE_OVER.replace("VALUE ", "").replace("READ", "k"), ADD,
+                          inputs=("k=1",)),
+    "D10-field": row(value(3, "add"), "((k Int)) -> Int " + ROLE_OVER.replace("VALUE", "(r (record R :k k))")
+                     .replace("READ", "r.k"), ADDE, "(defrecord R (k Int))", inputs=("k=1",)),
+    "D10-field-pure": row(value(2), "((k Int)) -> Int " + ROLE_OVER.replace("VALUE", "(r (record R :k k))")
+                          .replace("READ", "r.k"), ADD, "(defrecord R (k Int))", inputs=("k=1",)),
+    "D10-literal-let": row(value(3, "add"), "() -> Int " + ROLE_OVER.replace("VALUE", "(v 10)").replace("READ", "v"),
+                           ADDE),
+    "D10-literal-let-pure": row(value(11), "() -> Int " + ROLE_OVER.replace("VALUE", "(v 10)").replace("READ", "v"),
+                                ADD),
+    "D10-rebound-loop": rebound(value(2, "add"), REBINDERS["loop"].replace(
+        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
+    "D10-rebound-continue": rebound(value(2, "add"), REBINDERS["continue"].replace(
+        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
+    "D10-rebound-fn": rebound(value(2, "add"), REBINDERS["fn"].replace(
+        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
+    "D10-rebound-let": rebound(value(2, "add"), REBINDERS["let"].replace(
+        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
+    "D10-rebound-let-in-loop": rebound(value(2, "add"), REBINDERS["let-in-loop"].replace(
+        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
+    "D10-rebound-arm": rebound(value(2, "add"), REBINDERS["arm"].replace(
+        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
+    "D10-rebound-macro": rebound(value(2, "add"), REBINDERS["macro"].replace(
+        "LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
+    "D10-rebound-parameter": rebound(value(2, "add"), "(let-proc ((step ((k Int)) -> Int (role k))) (step 1))"),
+    "D10-rebound-two-roles": row(value(13, "add", "add"), "((k Int)) -> Int (let* ((v 10) (r1 (bind-proc (proc-ref add) :n k)) "
+                                 "(r2 (bind-proc (proc-ref add) :n v))) (let* ((v 0)) (let-proc ((step ((x Int)) -> Int "
+                                 "(+ (r1 x) (r2 x)))) (step 1))))", ADDN, inputs=("k=1",)),
+    "D10-rebound-renamed": rebound(value(2, "add"), REBINDERS["loop"].replace("((k 100))", "((q 100))")
+                                   .replace("LOCAL", REBOUND_STEP.replace("USE", "(step 1)"))),
+    "D10-rebound-unreferenced": rebound(value(7), REBINDERS["loop"].replace("LOCAL", REBOUND_STEP.replace("USE", "7"))),
+    "D10-rebound-unread-binding": rebound(value(7), REBINDERS["let"].replace(
+        "LOCAL", REBOUND_STEP.replace("USE", "(let* ((f (proc-ref step))) 7)"))),
+    "D10-rebound-ignored-argument": rebound(value(7), REBINDERS["let"].replace(
+        "LOCAL", REBOUND_STEP.replace("USE", "(ignore (proc-ref step) 7)"))),
     "D25-plain": row(value(4), "((n Int)) -> Int (pan 1 n)",
                      "(defproc pan ((k Int) (x Int)) -> Int (let-proc ((h ((v Int)) -> Int (+ v k))) (h x)))",
                      inputs=("n=3",)),
