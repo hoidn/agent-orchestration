@@ -292,3 +292,78 @@ def test_the_needle_is_found_across_a_chunk_boundary(monkeypatch):
 
 def test_no_needle_means_no_hit():
     assert image_check.holds(io.BytesIO(b"abc"), None) == (_sha(b"abc"), False)
+
+
+# ---- text files too large for the line check (ledger N3) -----------------------------------------
+
+
+def _tar_with(path, members):
+    with tarfile.open(path, "w") as tar:
+        for name, raw in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(raw)
+            tar.addfile(info, io.BytesIO(raw))
+    return path
+
+
+def test_a_text_file_over_the_read_limit_is_listed_as_skipped_by_the_line_check(tmp_path, monkeypatch):
+    monkeypatch.setattr(image_check, "MAX_READ", 16)
+    tar = _tar_with(tmp_path / "x.tar", {"./data/big.csv": SOLVED * 2, "./data/big.bin": b"\0" * 64,
+                                         "./data/small.csv": b"a,b\n"})
+    found = image_check.classify(image_check.tar_entries(tar, GUID), _index())
+    assert found["large_text"] == [{"path": "data/big.csv", "size": 2 * len(SOLVED), "env_copy": False}]
+
+
+def test_a_large_text_file_keeps_its_digest_and_canary_search(tmp_path, monkeypatch):
+    monkeypatch.setattr(image_check, "MAX_READ", 16)
+    raw = b"x" * 40 + GUID
+    entry = next(image_check.tar_entries(_tar_with(tmp_path / "x.tar", {"./big.txt": raw}), GUID))
+    assert (entry.sha, entry.canary, entry.text, entry.raw) == (_sha(raw), True, True, None)
+
+
+# ---- tasks.json from image_measure.json --------------------------------------------------------
+
+
+def _measured(task, role, **withholding):
+    line = {"task": task, "role": role, "ref": f"org/img:{task}-{role}@sha256:{role[0] * 64}",
+            "digest_matches": True, "compressed": 3, "unpacked": 9, "layers": [{"diff_digest": "sha256:a"}] * 2,
+            "pull": {"ok": True, "form": "pinned", "image_id": role[0] * 64}}
+    if role == "agent":
+        line["withholding"] = {"withheld": True, "layers": {"withheld": True}, "canary": "not found",
+                               "canary_counts": {"env_sha": 0, "name_only": 0, "other": 0}, "near_copy": "clean",
+                               "near_copy_look": [], "git_dirs": [], "not_opened": [], "canary_name_only": [],
+                               "large_text": [], "pass": 5, "package_digest": "sha256:p"} | withholding
+    return line
+
+
+def test_a_task_record_takes_both_images_from_the_measurement():
+    got = image_check.task_record("t1", [_measured("t1", "agent"), _measured("t1", "verifier")], {})
+    assert (got["images"]["verifier"], got["withholding"]["verdict"]) == (
+        {"ref": "org/img:t1-verifier@sha256:" + "v" * 64, "digest": "sha256:" + "v" * 64, "digest_matches": True,
+         "pull": "pinned", "image_id": "v" * 64, "compressed": 3, "unpacked": 9, "layers": 2}, "withheld")
+
+
+def test_an_item_that_needs_a_look_carries_its_ruling_beside_it():
+    lines = [_measured("t1", "agent", near_copy="needs a look", git_dirs=["app/.git"]), _measured("t1", "verifier")]
+    got = image_check.task_record("t1", lines, {("t1", "app/.git"): "not a hit (ruling)"})["withholding"]
+    assert (got["near_copy"], got["rulings"], got["verdict"]) == (
+        "needs a look", [{"item": "app/.git", "ruling": "not a hit (ruling)"}], "withheld")
+
+
+def test_an_item_that_needs_a_look_without_a_ruling_keeps_the_task_open():
+    lines = [_measured("t1", "agent", near_copy="needs a look", near_copy_look=["opt/x.py"]),
+             _measured("t1", "verifier")]
+    got = image_check.task_record("t1", lines, {})["withholding"]
+    assert (got["unruled"], got["verdict"]) == (["opt/x.py"], "needs a look")
+
+
+@pytest.mark.parametrize("change", [{"withheld": False}, {"layers": {"withheld": False}},
+                                    {"canary": "found outside environment files"}])
+def test_a_path_digest_or_canary_hit_is_a_hit(change):
+    lines = [_measured("t1", "agent", **change), _measured("t1", "verifier")]
+    assert image_check.task_record("t1", lines, {})["withholding"]["verdict"] == "hit"
+
+
+def test_a_task_without_both_measured_images_is_an_error():
+    with pytest.raises(image_check.Stop):
+        image_check.task_record("t1", [_measured("t1", "agent")], {})
