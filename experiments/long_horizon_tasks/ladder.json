@@ -390,7 +390,7 @@
                               "a slot at its cap", "all slots together at the ceiling",
                               "any request while the tranche is stopped"],
                   "sets": ["authorization (the real token)", "host (the vendor's)", "accept-encoding (identity)"],
-                  "in_flight": "one request per slot; a second waits until the first is metered (at most 300 s, else `slot busy`), then is checked against the caps; a third open request of the slot is refused (`too many connections`), and so is any connection beyond 16 in all",
+                  "in_flight": "one request per slot; a second waits until the first is metered (at most 300 s, else `slot busy`), then is checked against the caps; a third open request of the slot is refused (`too many connections`), and so is any connection beyond 16 on one socket. Each slot of the ladder has its own socket (`own_socket` in the slots file; plan Task 5, connections): <the relay directory>/<slot>/passthrough.sock, mounted by that attempt's relay alone, so a connection counts against its own attempt before its token is read; the slot's token is `unknown token` on any other socket. The main socket serves the live probe's slots",
                   "passes_on": "every vendor response, unchanged, once checked for the token's forms (token_scan.py), except the one that stops the tranche for paid extra usage (paid_usage)",
                   "logs_never": "the authorization header"},
   "slot": {"opens": "when the launcher starts its attempt",

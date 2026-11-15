@@ -1066,10 +1066,13 @@ def test_no_reward_after_a_normal_ending_is_regraded_twice_at_most_and_a_regrade
     record = ladder.regraded(ctx, CRITERION, attempt, record, gate=lambda: True)
     calls = _calls(lh)
     agent_args = {"run", "--agent", "-m", "--ak", "--ae", "--effort", "--base-url"}
+    exported = ladder._start_record(root, {**attempt, "settled": record}, STANDING)  # the readout's reading of it
     assert ((record["class"], record["reward"], len(calls)),
             {c["argv"][1] + " " + c["argv"][2] for c in calls}, [agent_args & set(c["argv"]) for c in calls],
-            [k for c in calls for k in c["env"] if k.startswith(("CLAUDE", "LH_", "ANTHROPIC"))]) == (
-        want, {"trial regrade"}, [set()] * len(calls), [])
+            [k for c in calls for k in c["env"] if k.startswith(("CLAUDE", "LH_", "ANTHROPIC"))],
+            (exported["class"], exported["excluded"])) == (
+        want, {"trial regrade"}, [set()] * len(calls), [],
+        ("observation", "no reward after regrades" if want[0] == "infrastructure_failure" else None))
 
 
 def test_a_load_sensitive_task_s_zero_under_load_is_regraded_once_below_the_gate(short):
@@ -1546,6 +1549,34 @@ def test_no_credential_is_in_any_file_environment_or_command_line(rig):
                    "LH_RELAY_SOCKET_DIR", "CLAUDE_FORCE_OAUTH", "CLAUDE_CODE_OAUTH_TOKEN"]), False)
 
 
+def test_each_attempt_s_relay_has_its_own_passthrough_socket_which_goes_when_its_slot_closes(rig):
+    """Group 6 (connections): the slots file marks the slot own_socket, the harness's relay mounts the slot's own
+    directory, and the passthrough removes the socket once the slot is retired."""
+    r = rig(plan=[{}, {"sleep": 2}, {"sleep": 2}, {"sleep": 2}])
+    r.launch()
+    r.ledger("Smoke read", f"{r.label} pass")
+    r.launch()
+    dirs = [c["env"]["LH_RELAY_SOCKET_DIR"] for c in r.calls()]
+    statuses = [n["status"] for n in r.notes() if n["what"] == "request"]
+    deadline = time.monotonic() + WAIT
+    while any(Path(d).exists() for d in dirs) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert (sorted(dirs), statuses, [Path(d).exists() for d in dirs]) == (
+        sorted(str(r.root / "relay" / a["id"]) for a in r.attempts()), [200] * 4, [False] * 4)
+
+
+def test_a_state_path_too_long_for_a_slot_s_socket_is_refused(short):
+    kit = Kit(short)
+    long = short / ("d" * 90)
+    long.mkdir(mode=0o700)
+    shutil.copy(kit.reh / "stand_ins.json", long / "stand_ins.json")
+    env = kit.env(LH_REHEARSAL=str(long))
+    kit.allowance_inputs(env)
+    (long / "state").mkdir(exist_ok=True)
+    shutil.copy(kit.reh / "state" / "allowance.jsonl", long / "state" / "allowance.jsonl")
+    assert _refused(kit, env)[1].startswith("the state's path is too long for a slot's socket")
+
+
 def test_the_egress_log_is_followed_out_and_kept_before_the_containers_are_removed(rig):
     r = rig(plan=[{"egress": '{"sid": "a", "msg": "bypass"}\n{"sid": "a", "dst": "198.51.100.7:443"}\n'
                              '{"sid": "b", "msg": "10.0.0.2:1 <-> relay:8080"}'}])
@@ -1649,10 +1680,16 @@ def test_the_load_gate_opens_when_the_load_falls_below_it(rig):
     assert (waited, len(r.attempts())) == ([], 1)
 
 
+SLOT_RECORD = _load("lh_slot_record_for_the_launcher", KIT / "slot_record.py")  # by its path, as the readout reads
+
+
 def _export(r):
+    """`ladder.py status --export` of the rig's state, read back and loaded through slot_record.py by its path, as
+    the readout does; the document."""
     path = r.kit.reh / "export.json"
     subprocess.run([sys.executable, "-I", str(r.kit.kit / "ladder.py"), "status", "--export", str(path)],
                    cwd=r.kit.repo, env=r.kit.env(), check=True, capture_output=True, timeout=WAIT)
+    SLOT_RECORD.load(SLOT_RECORD.read(path), ladder.criterion(ladder.Ctx(r.kit.env())))
     return json.loads(path.read_text())
 
 
@@ -1663,9 +1700,9 @@ def test_a_match_of_the_token_scanner_at_teardown_stops_the_tranche_and_the_atte
     r.launch()
     stops = [e["reason"] for e in r.events() if e["event"] == "stop"]
     start = _export(r)["starts"][0]
-    cause = "a match of token_scan.py in the attempt's output"
-    assert (stops, r.attempts()[0]["settled"]["class"], [start[k] for k in ("row", "class", "cause", "reward")]) == (
-        [cause], "stop", [5, "stop", cause, None])
+    cause = "a match of token_scan.py"
+    assert (stops, r.attempts()[0]["settled"]["class"], [start[k] for k in ("row", "class", "stop_cause", "reward")],
+            cause in SLOT_RECORD.LAUNCHER_STOPS) == ([cause], "stop", [5, "stop", cause, None], True)
 
 
 def test_the_runtime_check_scans_every_container_s_configuration_and_environment_and_a_match_stops_the_tranche(rig):
@@ -1780,6 +1817,23 @@ def test_a_criterion_naming_another_order_hash_is_refused(short):
 
 # The contamination scan (coordinator ruling): the frozen terms over the transcript and the exported files.
 
+@pytest.mark.parametrize("hosts", [["relay"], HOSTS, HOSTS + ["registry.npmjs.org", "crates.io"]])
+def test_the_launcher_s_overlay_copy_and_digest_are_the_oracle_check_s_byte_for_byte(short, hosts):
+    """The oracle recorded each task's overlay digest with oracle_check.sh's overlay_task; the launcher checks the
+    criterion's digests against its own, so both must build the same two lines."""
+    package = short / "pkg"
+    (package / "tests").mkdir(parents=True)
+    (package / "task.toml").write_text('[task]\nname = "t"\n\n[agent]\ntimeout_sec = 28800.0\n\n[verifier]\n')
+    (package / "tests" / "test.sh").write_text("#!/bin/bash\n")
+    oracle = subprocess.run(["bash", "-c", 'source "$1" && shift && "$@"', "lh-test", str(KIT / "oracle_check.sh"),
+                             "overlay_task", str(package), str(short / "oracle"), *hosts],
+                            capture_output=True, text=True, timeout=WAIT, check=True)
+    digest = ladder.overlay(package, short / "launcher", hosts)
+    assert (digest, (short / "launcher" / "task.toml").read_bytes(), sorted(p.name for p in (short / "launcher").rglob("*"))) == (
+        oracle.stdout.strip(), (short / "oracle" / "task.toml").read_bytes(),
+        sorted(p.name for p in (short / "oracle").rglob("*")))
+
+
 def test_the_contamination_scan_finds_a_term_in_the_transcript_and_in_an_exported_file_and_records_no_term(short):
     trial = short / "trial"
     (trial / "agent").mkdir(parents=True)
@@ -1821,7 +1875,7 @@ def test_the_canary_identifier_is_read_from_the_package_by_its_sha256(short):
             ladder.canary_term(package, "0" * 64)) == ("0f0e-11", None)
 
 
-def test_a_contaminated_attempt_is_an_excluded_observation_and_three_tasks_with_one_of_any_class_stop_the_tranche(rig):
+def test_a_contaminated_observation_is_recorded_unscored_and_three_tasks_with_one_of_any_class_stop_the_tranche(rig):
     r = rig(stand_ins={"readout.contamination_scan.terms": ["stand-in-term"]},
             plan=[{"write": {"agent/note.txt": "found stand-in-term here"}}])
     r.launch()
@@ -1829,48 +1883,129 @@ def test_a_contaminated_attempt_is_an_excluded_observation_and_three_tasks_with_
     start = _export(r)["starts"][0]
     three = [{"task": t, "settled": {"class": c, "contamination": {"contaminated": True}}}
              for t, c in zip(TASKS, ("observation", "cut", "stop"))]
-    assert (attempt["settled"]["class"], attempt["settled"]["contamination"]["contaminated"], start["excluded"],
-            start["contamination"], [e for e in r.events() if e["event"] == "stop"],
-            ladder.contamination_stop(three[:2], CRITERION), ladder.contamination_stop(three, CRITERION)) == (
-        "observation", True, "contaminated", [hashlib.sha256(b"stand-in-term").hexdigest()], [], None,
+    loaded = SLOT_RECORD.load(SLOT_RECORD.read(r.kit.reh / "export.json"), ladder.criterion(ladder.Ctx(r.kit.env())))
+    assert (attempt["settled"]["class"], start["excluded"], start["contamination"], loaded[0]["counted"],
+            [e for e in r.events() if e["event"] == "stop"], ladder.contamination_stop(three[:2], CRITERION),
+            ladder.contamination_stop(three, CRITERION)) == (
+        "observation", None, [hashlib.sha256(b"stand-in-term").hexdigest()], False, [], None,
         "contaminated attempts on three tasks")
+
+
+STANDING = _criterion()  # the criterion with the rehearsals' stand-ins, as the export reads it
+SHA = hashlib.sha256(b"stand-in-term").hexdigest()
+
+
+def _settled_start(short, **settled):
+    """A start record as the export writes it, for one settled attempt (only the fields given differ)."""
+    base = {"row": 5, "class": "observation", "reward": 1.0, "usd": 1.0, "stop": None, "minutes": 3.0,
+            "tokens": dict.fromkeys(SLOT_RECORD.TOKEN_KINDS, 1), "api_retry": 0, "graded": None}
+    (short / "slots" / "001").mkdir(parents=True, exist_ok=True)
+    return ladder._start_record(short, {"id": "001", "index": 1, "label": "c" * 64, "round": 1, "task": "gsea-proteomics",
+                                        "effort": "low", "settled": {**base, **settled}}, STANDING)
 
 
 @pytest.mark.parametrize("cls,row", [("cut", 10), ("infrastructure_failure", 15), ("stop", 13)])
 def test_a_contamination_hit_on_a_start_of_another_class_is_recorded_and_excludes_nothing(short, cls, row):
-    sha = hashlib.sha256(b"stand-in-term").hexdigest()
-    settled = {"row": row, "class": cls, "reward": None, "usd": 1.0, "stop": "D5 row 13" if cls == "stop" else None,
-               "contamination": {"contaminated": True, "hits": [{"term_sha256": sha, "file": "agent/x", "offset": 0}]}}
-    (short / "slots" / "001").mkdir(parents=True)
-    start = ladder._start_record(short, {"id": "001", "index": 1, "label": "c" * 64, "round": 1,
-                                         "task": "gsea-proteomics", "effort": "low", "settled": settled})
-    assert (start["class"], start["excluded"], start["contamination"]) == (cls, None, [sha])
+    start = _settled_start(short, row=row, **{"class": cls}, reward=None, stop="D5 row 13" if cls == "stop" else None,
+                           contamination={"contaminated": True,
+                                          "hits": [{"term_sha256": SHA, "file": "agent/x", "offset": 0}]})
+    assert (start["class"], start["excluded"], start["contamination"]) == (cls, None, [SHA])
 
 
-# The export the readout reads (feat/lh-readout, slot_record.py: EXPORT, SLOT, START, copied here until one branch
-# imports the other's module).
-
-EXPORT = {"label": str, "earlier_labels": list, "end": (dict, type(None)), "slots": list, "starts": list,
-          "allowance": (dict, type(None))}
-SLOT = {"slot": str, "task": str, "effort": str, "round": int, "pilot": bool}
-START = {"slot": str, "start": int, "label": str, "row": int, "class": str, "cause": (str, type(None)),
-         "reward": (int, float, type(None)),
-         "excluded": (str, type(None)), "contamination": list, "usd": (int, float), "minutes": (int, float), "tokens": dict,
-         "graded": (dict, type(None)), "egress_refused": dict}
+def test_a_stop_on_a_stop_row_has_no_cause_of_its_own_and_a_launcher_stop_on_another_row_names_its_cause(short):
+    on_row = _settled_start(short, row=13, **{"class": "stop"}, reward=None, stop="D5 row 13")
+    launcher = _settled_start(short, row=5, **{"class": "stop"}, reward=None, stop="a subagent file")
+    assert [(s["class"], s["stop_cause"]) for s in (on_row, launcher)] == [("stop", None), ("stop", "a subagent file")]
 
 
-def _fits(doc, layout):
-    return set(doc) == set(layout) and all(isinstance(doc[k], t) for k, t in layout.items())
+def test_regrade_case_1_without_a_reward_is_exported_as_an_observation_excluded_and_case_2_as_indeterminate(short):
+    case_1 = _settled_start(short, row=5, **{"class": "infrastructure_failure"}, reward=None, regrade_case=1)
+    case_2 = _settled_start(short, row=6, reward=0.0, regrade_case=2, indeterminate=True)
+    assert [(s["class"], s["excluded"], s["reward"]) for s in (case_1, case_2)] == [
+        ("observation", "no reward after regrades", None), ("observation", "indeterminate", 0.0)]
 
 
-def test_the_export_is_the_readout_s_record_layout(rig):
+def test_a_missing_figure_is_exported_as_missing_never_as_zero(short):
+    start = _settled_start(short, minutes=None, tokens=None, api_retry=None)
+    assert (start["minutes"], start["tokens"], start["api_retry"]) == (None, None, None)
+
+
+def test_tokens_are_missing_when_the_meter_read_a_usage_only_as_its_bound_and_zero_for_an_answer_with_none():
+    usage = {"input_tokens": 3, "output_tokens": 2, "cache_read_input_tokens": 1, "cache_creation_input_tokens": 0}
+    assert (ladder._tokens([{"status": 200, "usage": usage}, {"status": 429, "usage": None}, {"refused": "x"}]),
+            ladder._tokens([{"status": 200, "usage": usage, "worst_case": True}]), ladder._tokens([])) == (
+        {"input": 3, "output": 2, "cache_read": 1, "cache_write_5m": 0, "cache_write_1h": 0}, None,
+        dict.fromkeys(SLOT_RECORD.TOKEN_KINDS, 0))
+
+
+@pytest.mark.parametrize("result,want", [
+    (None, None), ({"agent_execution": None}, 0.0),
+    ({"agent_execution": {"started_at": "2026-11-20T10:00:00Z", "finished_at": None}}, None),
+    ({"agent_execution": {"started_at": "2026-11-20T10:00:00Z", "finished_at": "2026-11-20T10:45:00Z"}}, 45.0)])
+def test_the_session_s_minutes_come_from_the_harness_and_are_missing_when_it_recorded_none(short, result, want):
+    trial = short / "trial"
+    trial.mkdir()
+    if result is not None:
+        (trial / "result.json").write_text(json.dumps(result))
+    assert ladder.session_minutes(trial) == want
+
+
+@pytest.mark.parametrize("named,want", [({"gsea-proteomics": "ctrf"}, {"passed": 7, "total": 9}), ({}, None)])
+def test_graded_is_the_verifier_s_sub_tests_where_the_criterion_names_its_report(short, named, want):
+    trial = short / "trial"
+    (trial / "verifier").mkdir(parents=True)
+    (trial / "verifier" / "ctrf.json").write_text(json.dumps({"results": {"summary": {"tests": 9, "passed": 7}}}))
+    assert ladder.graded(trial, _criterion(**{"readout.graded_outcome.verifiers": named}), "gsea-proteomics") == want
+
+
+def test_the_allowance_export_sums_the_weekly_points_the_owner_s_readings_show_moved(short):
+    root = _state(short)
+    _allowance(root, {"kind": "reading", "at": 1000.0, "weekly": 10, "weekly_reset": 5000.0, "five": 0, "five_reset": 0},
+               {"kind": "reading", "at": 2000.0, "weekly": 14, "weekly_reset": 5000.0, "five": 0, "five_reset": 0},
+               {"kind": "reading", "at": 6000.0, "weekly": 3, "weekly_reset": 9000.0, "five": 0, "five_reset": 0})
+    one = short / "one"
+    ladder.ensure_state(one)
+    _allowance(one, {"kind": "reading", "at": 1000.0, "weekly": 10, "weekly_reset": 5000.0, "five": 0, "five_reset": 0})
+    found = ladder.allowance_used(root)
+    assert (found["weekly_points"], found["readings"].count("Allowance reading"), ladder.allowance_used(one)) == (
+        7, 3, None)
+
+
+def test_a_row_16_start_is_exported_only_under_the_row_the_ledger_s_ruling_names(short):
+    root, attempt, record = _closed(short, "token-usage-limit-NonZeroAgentExitCodeError", [{"status": 429}])
+    ctx = _ctx(short)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    with pytest.raises(ladder.Refused) as waiting:
+        ladder.export(ctx, ladder.criterion(ctx))
+    argv = ["ruling", attempt["id"], "--row", "10", "--date", "2026-11-21"]
+    unruled = ladder.main(argv, env=ctx.env)
+    (ctx.rehearsal / "ledger.md").write_text(f"| 2026-11-21 | Ruling | {attempt['id']} row 10: a usage limit |\n")
+    ruled = ladder.main(argv, env=ctx.env)
+    start = ladder.export(ctx, ladder.criterion(ctx))["starts"][0]
+    assert (record["class"], attempt["id"] in str(waiting.value), unruled, ruled, start["row"], start["class"],
+            ladder.queue(root, ladder.schedule(STANDING))[0].get("rerun_of")) == (
+        "ruling", True, 3, 0, 10, "cut", attempt["id"])
+
+
+def test_the_launcher_refuses_to_write_an_export_the_readout_would_refuse(short):
+    root, attempt, record = _closed(short, "token-three-tools-normal-end", [], reward=0.5)  # not 0, 1 or null
+    ctx = _ctx(short)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    with pytest.raises(ladder.Refused) as refused:
+        ladder.export(ctx, ladder.criterion(ctx))
+    assert str(refused.value).startswith("the export does not fit slot_record.py")
+
+
+# The export the readout reads: slot_record.py (from feat/lh-readout), loaded by its path as the readout does.
+
+def test_an_export_of_a_rehearsal_run_loads_through_slot_record(rig):
     r = rig()
     r.launch()
-    doc = _export(r)
-    slots = {s["slot"] for s in doc["slots"]}
+    now = time.time()  # the owner's second reading: the weekly meter moved two points since the rig's first
+    _allowance(r.root, {"kind": "reading", "at": now, "weekly": 2, "five": 1, "weekly_reset": now + DAY,
+                        "five_reset": now + 3600})
+    doc = _export(r)  # read and loaded through slot_record.py by its path
     start = doc["starts"][0]
-    assert (_fits(doc, EXPORT), all(_fits(s, SLOT) for s in doc["slots"]), all(_fits(s, START) for s in doc["starts"]),
-            start["slot"] in slots, doc["label"], start["label"], sorted(start["tokens"]), start["egress_refused"],
-            sum(s["pilot"] for s in doc["slots"])) == (
-        True, True, True, True, r.label, r.label, sorted(["input", "output", "cache_read", "cache_write_5m",
-                                                          "cache_write_1h"]), {"203.0.113.9:443": 1}, 3)
+    assert (doc["label"], start["label"], sorted(start["tokens"]), start["api_retry"], start["minutes"],
+            start["egress_refused"], sum(s["pilot"] for s in doc["slots"]), doc["allowance"]["weekly_points"]) == (
+        r.label, r.label, sorted(SLOT_RECORD.TOKEN_KINDS), 0, 30.0, {"203.0.113.9:443": 1}, 3, 2)

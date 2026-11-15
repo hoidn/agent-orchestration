@@ -71,8 +71,8 @@ recording's harness arguments back from its trial's `config.json`; its decoy tes
 
 **Covered:** every file of this directory, `ladder.json`, `tasks.json`, the scripts, `recordings.json` and the
 fixtures among them; `orchestrator/providers/price_table.json`, which D4 names by hash; and
-`tests/experiments/test_long_horizon_ladder.py`, the reference reader of the pattern language until the launcher
-reads it. **Not covered** (the
+`tests/experiments/test_long_horizon_ladder.py`, the criterion's tests, which hold the shared reader of the pattern
+language (in `ladder.py`) to the fixtures. **Not covered** (the
 list is in `manifest.py` and in `manifest.json`): `manifest.json` itself; `README.md` and `RECORDINGS.md`, prose that
 no code reads, so a wording fix makes no new label; `results/`, the readout's output; `__pycache__/`. The allowance
 inputs, the meter readings, the raw recordings, the task packages and images, and the token are outside the
@@ -125,3 +125,55 @@ Tests (no container, no network, no CLI; the upstream is `stub_api.py`):
 ```
 pytest -q -n 4 tests/experiments/test_long_horizon_passthrough.py
 ```
+
+## The launcher (plan Task 5)
+
+`ladder.py` runs the tranche. It reserves money under one lock and starts each attempt through the harness. At
+teardown it scans the attempt and removes its containers by name; only then does it settle the attempt and classify
+it by D5. **A live launch spends**, so it refuses unless every condition holds. It needs `LH_SPEND_AUTHORIZED=yes`,
+plus `LH_MANIFEST_SHA256` and `LH_RUNTIME_COMMIT` that match the ledger's current `Configuration label` row. It
+also needs a frozen manifest with nothing pending in `ladder.json`, a detached checkout of that commit and a clean
+kit. Its preflight checks the harness environment, the host-side overrides, the 4.1.0 package digests and the
+owner's allowance inputs. A rehearsal (`LH_REHEARSAL=<dir>`) spends nothing. It refuses any spend variable, takes a
+stand-in for every pending field from `<dir>/stand_ins.json`, and reads its ledger from `<dir>/ledger.md`.
+
+```
+python -I experiments/long_horizon_tasks/ladder.py plan                   # the schedule, in the order it runs
+python -I experiments/long_horizon_tasks/ladder.py launch [--dry-run]     # run until it ends, waits or stops
+python -I experiments/long_horizon_tasks/ladder.py status [--export F]    # the state; F: the readout's record
+python -I experiments/long_horizon_tasks/ladder.py ruling ATTEMPT --row N --date YYYY-MM-DD
+python -I experiments/long_horizon_tasks/ladder.py allowance inputs|reading|figures ...
+```
+
+The launcher never holds the token. A person starts the passthrough with the token file, and `status` prints its
+command line. The launcher refuses to run while `LH_TOKEN_FILE` is in its environment. Each harness starts from an
+empty environment that holds `HOME`, `PATH`, telemetry off, the runtime directory, the containers override, its
+slot's relay socket directory and the slot's fake token. It runs under the CPU set in its own session. Each attempt
+has its own passthrough socket (`<state>/relay/<slot>/passthrough.sock`) with a cap of 16 connections of its own,
+so one attempt's connections never refuse another's requests.
+
+`launch` returns when the tranche waits for a person, and prints why: the smoke read, the pilot's ledger row, the
+round-one read, a pause or a stop. It reads these ledger rows:
+
+- `| <date> | Smoke read | <label> pass |` (or `fail`, a stop);
+- `| <date> | Pilot read | <label> ... |`;
+- `| <date> | Round 1 read | <label> ... |`;
+- `| <date> | Ruling | <attempt> row <N> ... |`, which `ruling` needs before it gives a start paused under D5 row
+  16 its row.
+
+To end a pause or a stop, a person writes the ledger row that D5 asks for and then appends `{"event": "resume"}`
+to `<state>/passthrough/tranche.jsonl`. The export (`status --export`) follows `slot_record.py`, the layout the
+readout reads. The launcher checks the export against that layout before it writes it. It refuses to write the
+export while any start still waits for a ruling. State lives in `$HOME/.local/state/lh-ladder`, or `<dir>/state`
+for a rehearsal.
+
+Tests run against stand-ins only. Scripts stand in for the harness's Python and for Podman, replaying the recorded
+fixtures on a closed `PATH`. The upstream is `stub_api.py`, and the passthrough runs in rehearsal mode. No
+container, network or CLI is used:
+
+```
+pytest -q -n 4 tests/experiments/test_long_horizon_launcher.py tests/experiments/test_long_horizon_ladder.py \
+  tests/experiments/test_long_horizon_passthrough.py
+```
+
+Task 7's rehearsal is where the real harness, Podman, relay and CLI are exercised.

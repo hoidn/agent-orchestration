@@ -1612,6 +1612,94 @@ def test_connections_beyond_the_cap_are_refused_while_an_admitted_request_comple
     assert (over, admitted) == ("too many connections", [200])
 
 
+# A socket per attempt (Task 5, connections): a slot marked own_socket is served on its own socket, alone.
+
+def _own(token):
+    return {**_slot(token), "own_socket": True}
+
+
+@pytest.fixture
+def sockets(short):
+    """A passthrough in this process with its main socket and its slots' own sockets (synced once at the start)."""
+    made = []
+
+    def start(upstream, slots, token="real-token-made-up-for-this-test"):
+        name = f"own{len(made)}"
+        state, relay = short / f"{name}-state", short / name
+        state.mkdir(mode=0o700)
+        relay.mkdir(mode=0o700)
+        pt = passthrough.Passthrough(state, slots, token, "live", passthrough.unix_upstream(str(upstream)))
+        main = relay / "passthrough.sock"
+        server = passthrough.serve(str(main), pt)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        own = passthrough.Sockets(pt, main)
+        made.append((server, own))
+        own.sync()
+        return main, own
+    yield start
+    for server, own in made:
+        own.close_all()
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_slot_with_its_own_socket_is_served_there_and_its_token_nowhere_else(short, stub, sockets):
+    upstream, _ = stub("normal")
+    slots = _slots(short / "slots.json", {"a": _own("lh-fake-a"), "b": _own("lh-fake-b"), "c": _slot("lh-fake-c")},
+                   total_usd=5.0)
+    main, own = sockets(upstream, slots)
+    served = [_post(own.path("a"), "lh-fake-a", _request())[0], _post(main, "lh-fake-c", _request())[0]]
+    refused = [_error(_post(sock, token, _request())[2])[1]
+               for sock, token in ((main, "lh-fake-a"), (own.path("a"), "lh-fake-b"), (own.path("a"), "lh-fake-c"))]
+    assert (served, refused, oct(own.path("a").parent.stat().st_mode & 0o777)) == (
+        [200, 200], ["lh-passthrough: unknown token"] * 3, "0o700")
+
+
+def test_one_slot_s_connections_never_count_against_another_slot_s_socket(short, stub, sockets, monkeypatch):
+    monkeypatch.setattr(passthrough, "MAX_CONNECTIONS", 2)
+    upstream, _ = stub("normal")
+    main, own = sockets(upstream, _slots(short / "slots.json", {"a": _own("lh-fake-a"), "b": _own("lh-fake-b")},
+                                         total_usd=5.0))
+    idle = [socket.socket(socket.AF_UNIX) for _ in range(2)]
+    for client in idle:
+        client.connect(str(own.path("a")))
+    time.sleep(0.5)  # both are accepted and wait for a request line
+    over = _reason(_exchange(own.path("a"), b"", timeout=10))
+    served = _post(own.path("b"), "lh-fake-b", _request())[0]
+    for client in idle:
+        client.close()
+    assert (over, served) == ("too many connections", 200)
+
+
+def test_a_retired_slot_s_socket_and_its_directory_are_removed(short, stub, sockets):
+    upstream, _ = stub("normal")
+    slots = _slots(short / "slots.json", {"a": _own("lh-fake-a")})
+    main, own = sockets(upstream, slots)
+    before = own.path("a").exists()
+    _slots(slots, {})
+    own.sync()
+    assert (before, own.path("a").parent.exists(), sorted(own.open)) == (True, False, [])
+
+
+@pytest.mark.parametrize("name", ["../a", ".a", "a/b", "x" * 65, ""])
+def test_a_slot_whose_name_is_not_a_plain_name_gets_no_socket(short, stub, sockets, name):
+    upstream, _ = stub("normal")
+    main, own = sockets(upstream, _slots(short / "slots.json", {name: _own("lh-fake-a")}))
+    assert (sorted(own.open), sorted(p.name for p in main.parent.iterdir())) == ([], ["passthrough.sock"])
+
+
+def test_the_process_opens_a_slot_s_socket_when_the_slots_file_names_it_and_removes_it_when_it_ends(short, stub):
+    upstream, _ = stub("normal")
+    slots = _slots(short / "slots.json", {})
+    proc, sock, state, out = _start(short, slots, *_rehearsal(short, upstream))
+    _slots(slots, {"a": _own("lh-fake-a")})
+    path = sock.parent / "a" / "passthrough.sock"
+    opened = _eventually(path.exists)
+    status = _post(path, "lh-fake-a", _request())[0]
+    _stop(proc)
+    assert (opened, status, path.parent.exists()) == (True, 200, False)
+
+
 def _descriptors():
     return len(os.listdir("/proc/self/fd"))
 

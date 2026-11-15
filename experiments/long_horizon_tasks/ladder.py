@@ -9,6 +9,9 @@ Usage (from the repository root, or a detached checkout of the frozen commit for
   python -I experiments/long_horizon_tasks/ladder.py status [--export FILE]
                                                                  starts, money, gates, the passthrough's command;
                                                                  FILE: the readout's record (slot_record.py)
+  python -I experiments/long_horizon_tasks/ladder.py ruling ATTEMPT --row N --date YYYY-MM-DD
+                                                                 a start paused under D5 row 16 gets the row of
+                                                                 the ledger's `| date | Ruling | ATTEMPT row N |`
   python -I experiments/long_horizon_tasks/ladder.py allowance (inputs|reading|figures) ...
                                                                  the owner's inputs and meter readings (D4)
 
@@ -79,6 +82,7 @@ def _kit(name):
 
 
 manifest = _kit("manifest")
+slot_record = _kit("slot_record")  # the one layout of the export, and the closed list of the launcher's stops
 
 
 def _read_json(path):
@@ -344,7 +348,8 @@ def preflight(ctx):
         if reason:
             raise Refused(reason)
     ladder = criterion(ctx)
-    reason = _criterion_refusal(ladder) or allowlist_refusal(ladder) or harness_refusal(ctx, ladder)
+    reason = _criterion_refusal(ladder) or allowlist_refusal(ladder) or socket_refusal(ctx, ladder)
+    reason = reason or harness_refusal(ctx, ladder)
     reason = reason or next(filter(None, (task_refusal(ctx, ladder, t) for t in qualified(ladder))), None)
     if reason:
         raise Refused(reason)
@@ -539,9 +544,9 @@ def cap(ladder, task):
 
 
 def _slots_file(root, ladder, prior):
-    """The passthrough's slots file: every open attempt's fake token and cap; the total is the ceiling less the
-    live probe's usage."""
-    slots = {a["id"]: {"token": a["token"], "cap_usd": a["cap_usd"], "cap_requests": None}
+    """The passthrough's slots file: every open attempt's fake token and cap, each on its own socket (Task 5,
+    connections); the total is the ceiling less the live probe's usage."""
+    slots = {a["id"]: {"token": a["token"], "cap_usd": a["cap_usd"], "cap_requests": None, "own_socket": True}
              for a in attempts(root) if a["settled"] is None}
     total = round(ladder["ceiling"]["total_usd"] - prior, 6)
     _write_json(root / "passthrough" / "slots.json", {"total_usd": total, "total_requests": None, "slots": slots})
@@ -562,7 +567,8 @@ def reserve(root, entry, ladder, prior):
         (root / "slots" / name).mkdir(mode=0o700)  # the claim: a second claimant fails here
         attempt = {**entry, "id": name, "index": index, "cap_usd": cap(ladder, entry["task"]),
                    "reservation_usd": reservation, "token": "lh-fake-slot-" + os.urandom(16).hex(),
-                   "launcher": {"pid": os.getpid(), "start": process_start(os.getpid())}, "opened": time.time()}
+                   "launcher": {"pid": os.getpid(), "start": process_start(os.getpid())}, "opened": time.time(),
+                   "label": this_label()}
         _write_json(root / "slots" / name / "slot.json", attempt)
         _slots_file(root, ladder, prior)
     return attempt
@@ -669,15 +675,15 @@ def settlement(attempt_dir, rows, reservation):
 # ---- classification of an ended attempt (D5) ------------------------------------------------------------------
 
 FINAL = {"observation", "infrastructure_failure", "stop", "ruling"}  # classes whose slot is never run again
-# The closed list of the stops the launcher itself finds in an attempt (D2, D4, D7.7; coordinator ruling: such an
-# attempt's class is `stop`, whatever row its ending matches, and it is never scored). A stop row of D5 is "D5 row N".
-LAUNCHER_STOPS = ("an init event with another tool list", "an init event with another CLI version",
-                  "an init event with another credential source", "a subagent file",
-                  "a sign of paid extra usage in the session's stream",
-                  "a match of token_scan.py in the attempt's output",
-                  "an incomplete scan of token_scan.py in the attempt's output",
-                  "a match of the runtime check in the attempt's containers",
-                  "an incomplete scan of the runtime check in the attempt's containers", "refused at launch")
+# A stop the launcher finds in an attempt makes its class `stop` whatever row its ending matches, and it is never
+# scored (coordinator ruling). Its cause is one of slot_record.LAUNCHER_STOPS, the one closed list; the export is
+# checked against it. Open ruling: four causes the launcher writes are not in that list yet (TOKEN_INCOMPLETE,
+# RUNTIME_MATCH, RUNTIME_INCOMPLETE, REFUSED_AT_LAUNCH below); an export that holds one is refused until it is.
+TOKEN_MATCH = "a match of token_scan.py"
+TOKEN_INCOMPLETE = "an incomplete scan of token_scan.py"
+RUNTIME_MATCH = "a match of the runtime check in the attempt's containers"
+RUNTIME_INCOMPLETE = "an incomplete scan of the runtime check in the attempt's containers"
+REFUSED_AT_LAUNCH = "refused at launch"
 
 
 def tranche_event(root, kind, **fields):
@@ -774,7 +780,32 @@ def judge(root, attempt, ladder, ended_at=None, closed=None):
     cls = "stop" if stop else spec["class"]
     return {"row": row, "class": cls, "flagged": spec.get("flagged", False), "reward": _observed(cls, row, trial),
             "stop": stop or (f"D5 row {row}" if cls == "stop" or spec.get("stop") else None),
+            "api_retry": None if session is None else session["n_api_retry"], "minutes": session_minutes(trial),
+            "graded": graded(trial, ladder, attempt["task"]),
             "slot_rows": [r for r in window if r.get("slot") == attempt["id"]]}
+
+
+def session_minutes(trial):
+    """The session's length from the harness's agent phase; 0 when the agent never started (no session), None
+    when the harness left no record of it or of its end (a missing figure is never written as zero)."""
+    result = _result_json(trial)
+    if result is None:
+        return None
+    agent = result.get("agent_execution") or {}
+    start, end = _epoch(agent.get("started_at")), _epoch(agent.get("finished_at"))
+    if start is None:
+        return 0.0
+    return round((end - start) / 60, 3) if end is not None else None
+
+
+def graded(trial, ladder, task):
+    """{"passed", "total"} sub-tests where the verifier reports them (D6; enters no rule), else None. Open ruling:
+    readout.graded_outcome.verifiers (pending) is read as {task: "ctrf"}, the report at verifier/ctrf.json."""
+    path = trial / "verifier" / "ctrf.json" if trial else None
+    if (ladder["readout"]["graded_outcome"]["verifiers"] or {}).get(task) != "ctrf" or not (path and path.is_file()):
+        return None
+    summary = _read_json(path)["results"]["summary"]
+    return {"passed": summary["passed"], "total": summary["tests"]}
 
 
 def _observed(cls, row, trial):
@@ -896,6 +927,7 @@ def regraded(ctx, ladder, attempt, record, gate):
     case, record = _case(ladder, attempt, record), dict(record)
     if case is None:
         return record
+    record["regrade_case"] = case
     timeouts, reward = _regrades(ctx, ladder, attempt, record, 2 if case == 1 else 1, gate)
     if case == 1 and record["reward"] is None:
         record["reward"], record["class"] = (0.0, "observation") if timeouts == 2 else (None, "infrastructure_failure")
@@ -1458,9 +1490,34 @@ def attempt_command(ctx, ladder, attempt, package_copy):
     return ["taskset", "-c", ladder["host"]["cpu_set"], *run]
 
 
+SOCKET_PATH_MAX = 107  # bytes of a unix socket's path (sun_path less its terminating NUL)
+SOCKET_WAIT_S = 30  # seconds the passthrough has to open a new slot's socket (it reads the slots file every 0.25 s)
+
+
 def relay_dir(ctx, attempt):
-    """The relay's socket directory for an attempt (LH_RELAY_SOCKET_DIR)."""
-    return ctx.root / "relay"
+    """The attempt's own relay socket directory (LH_RELAY_SOCKET_DIR): the passthrough serves the slot there, on a
+    socket of its own (Task 5, connections), and removes it when the slot is retired."""
+    return ctx.root / "relay" / attempt["id"]
+
+
+def socket_refusal(ctx, ladder):
+    """A state root whose slots' socket paths would not fit a unix socket's path."""
+    longest = max((f"999-{slot_id(e)}" for e in schedule(ladder)), key=len)
+    path = relay_dir(ctx, {"id": longest}) / "passthrough.sock"
+    return (f"the state's path is too long for a slot's socket ({len(str(path).encode())} bytes, at most "
+            f"{SOCKET_PATH_MAX}): {ctx.root}") if len(str(path).encode()) > SOCKET_PATH_MAX else None
+
+
+def own_socket(ctx, attempt):
+    """Wait for the passthrough to answer on the attempt's own socket; Refused when it does not in time."""
+    path = relay_dir(ctx, attempt) / "passthrough.sock"
+    deadline = time.monotonic() + SOCKET_WAIT_S
+    while time.monotonic() < deadline:
+        with socket.socket(socket.AF_UNIX) as probe:
+            if path.exists() and probe.connect_ex(str(path)) == 0:
+                return
+        time.sleep(0.1)
+    raise Refused("the passthrough opened no socket for the slot")
 
 
 def harness_env(ctx, attempt):
@@ -1493,13 +1550,10 @@ def token_scan(ctx, *paths, stdin=None):
     return subprocess.run(command, stdin=stdin, capture_output=True, timeout=3 * 3600, check=False).returncode
 
 
-def _scan_verdict(code, what):
+def _scan_verdict(code, match, incomplete):
     """A scan's stop: a match, or a scan that could not finish (open ruling: read as a stop, since it cannot show
     that nothing leaked)."""
-    return {1: f"a match of {what}", 2: f"an incomplete scan of {what}"}.get(code)
-
-
-RUNTIME = "the runtime check in the attempt's containers"
+    return {1: match, 2: incomplete}.get(code)
 
 
 def runtime_check(ctx, attempt_dir, export):
@@ -1514,13 +1568,14 @@ def runtime_check(ctx, attempt_dir, export):
     sample_environ(ctx, attempt_dir, names)
     for name in names:
         (attempt_dir / "containers" / f"{name}.inspect.json").write_bytes(podman(ctx, "inspect", name).stdout)
-    found = _scan_verdict(token_scan(ctx, attempt_dir / "containers"), RUNTIME) if names else None  # none: nothing ran
+    scanned = token_scan(ctx, attempt_dir / "containers") if names else 0  # no container: nothing to scan
+    found = _scan_verdict(scanned, RUNTIME_MATCH, RUNTIME_INCOMPLETE)
     for name in [n for n in names if n.endswith("_main_1")] if export and not found else []:
         exported = subprocess.Popen(["podman", "export", name], env=base_env(ctx), stdout=subprocess.PIPE,
                                     stderr=subprocess.DEVNULL)
         code = token_scan(ctx, "-", stdin=exported.stdout)
         exported.stdout.close()
-        found = _scan_verdict(2 if exported.wait() != 0 and code == 0 else code, RUNTIME)
+        found = _scan_verdict(2 if exported.wait() != 0 and code == 0 else code, RUNTIME_MATCH, RUNTIME_INCOMPLETE)
     return found
 
 
@@ -1624,10 +1679,7 @@ class Attempt:
         self.offset, self.stops, self.terms = 0, [], []
 
     def stop(self, reason, **detail):
-        """A stop found in this attempt (one of LAUNCHER_STOPS): written to the tranche's events at once, kept for
-        its record."""
-        if reason not in LAUNCHER_STOPS:
-            raise ValueError(f"not a launcher stop: {reason}")
+        """A stop found in this attempt: written to the tranche's events at once, kept for its record."""
         if reason not in self.stops:
             self.stops.append(reason)
             tranche_event(self.ctx.root, "stop", slot=self.a["id"], reason=reason, **detail)
@@ -1637,7 +1689,7 @@ class Attempt:
             try:
                 self.follow(self.start())
             except Refused as refused:
-                self.stop("refused at launch", detail=str(refused))
+                self.stop(REFUSED_AT_LAUNCH, detail=str(refused))
             self.teardown()
         except Exception as exc:  # recorded, never lost: the tranche pauses for a person; reconcile closes it later
             tranche_event(self.ctx.root, "pause", slot=self.a["id"],
@@ -1655,6 +1707,7 @@ class Attempt:
         if (self.ladder["tasks"]["overlay_digests"] or {}).get(task) != digest:
             raise Refused(f"{task}: the overlay's digest is not the criterion's")
         env = harness_env(self.ctx, self.a)
+        own_socket(self.ctx, self.a)
         with open(self.dir / "harness.out", "ab") as out:
             proc = subprocess.Popen(attempt_command(self.ctx, self.ladder, self.a, copy), env=env, stdout=out,
                                     stderr=out, cwd=self.dir, start_new_session=True)
@@ -1713,14 +1766,14 @@ class Attempt:
         """The scans, then the containers removed by name; only then is the slot closed and its token retired."""
         trial = trial_dir(self.dir)
         found = runtime_check(self.ctx, self.dir, self.a["kind"] in ("smoke", "pilot") or not self.ctx.live)
-        found = found or _scan_verdict(token_scan(self.ctx, self.dir), "token_scan.py in the attempt's output")
+        found = found or _scan_verdict(token_scan(self.ctx, self.dir), TOKEN_MATCH, TOKEN_INCOMPLETE)
         if found:
             self.stop(found)
         scanned = contamination(trial, self.terms) if trial else {"contaminated": False, "hits": []}
         if not remove_containers(self.ctx, self.dir):
             tranche_event(self.ctx.root, "pause", slot=self.a["id"], reason="the attempt's containers were not removed")
             return
-        extra = {"contamination": scanned, "verifier_load_above_gate": self.loaded(trial), "minutes": self.minutes(trial)}
+        extra = {"contamination": scanned, "verifier_load_above_gate": self.loaded(trial)}
         extra.update({"stop": self.stops[0], "class": "stop"} if self.stops else {})
         record = close(self.ctx, self.ctx.root, self.a, self.ladder, self.t.prior, extra=extra)
         regraded(self.ctx, self.ladder, self.a, record, self.t.wait_for_load)
@@ -1732,11 +1785,6 @@ class Attempt:
         gate = self.ladder["host"]["load_gate"]["at_or_below"]
         samples = _jsonl(self.dir / "load.jsonl") if start and end else []
         return any(start <= s["time"] <= end and max(s["load"]) > gate for s in samples)
-
-    def minutes(self, trial):
-        agent = (_result_json(trial) or {}).get("agent_execution") or {}
-        start, end = _epoch(agent.get("started_at")), _epoch(agent.get("finished_at"))
-        return round(((end - start) if start and end else time.time() - self.a["opened"]) / 60, 3)
 
 
 SELF_ENDING = ("limit",)  # a closed gate of these kinds reopens by itself: the launcher waits through it
@@ -1817,8 +1865,6 @@ class Tranche:
             return None
         action, got = next_start(self.root, queue(self.root, self.plan), self.ladder, self.prior)
         if action == "start":
-            got["label"] = this_label()
-            _write_slot(self.ctx, got)
             self.workers[got["id"]] = worker = threading.Thread(target=Attempt(self, got).run, name=got["id"])
             worker.start()
             self.started = True
@@ -1869,46 +1915,44 @@ def launch(ctx, dry_run):
     return 0
 
 
-# ---- status and the export the readout reads (slot_record.py on feat/lh-readout) ----------------------------
-
-TOKEN_KINDS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
-
+# ---- status, rulings and the export the readout reads (slot_record.py, the one layout) ---------------------
 
 def _tokens(rows):
-    """Tokens by kind over a slot's forwarded rows (the meter's usage)."""
-    totals = dict.fromkeys(TOKEN_KINDS, 0)
-    for row in rows:
-        u = row.get("usage") or {}
+    """Tokens by kind over a slot's forwarded rows (the meter's usage; an answer with none, such as a 429, used
+    none); None when the meter could not read a 200's usage whole (its worst-case row): a missing figure."""
+    forwarded = [row for row in rows if "refused" not in row]
+    if any(row.get("worst_case") for row in forwarded):
+        return None
+    totals = dict.fromkeys(slot_record.TOKEN_KINDS, 0)
+    for u in (row.get("usage") or {} for row in forwarded):
         five, hour = price_check._writes({"cache_creation_input_tokens": 0, **u})
-        for kind, value in zip(TOKEN_KINDS, (u.get("input_tokens"), u.get("output_tokens"),
-                                             u.get("cache_read_input_tokens"), five, hour)):
+        for kind, value in zip(slot_record.TOKEN_KINDS, (u.get("input_tokens"), u.get("output_tokens"),
+                                                          u.get("cache_read_input_tokens"), five, hour)):
             totals[kind] += value if isinstance(value, int) else 0
     return totals
 
 
-def _excluded(settled):
-    """Why a start the table reads as an observation is not scored (D5, D6); a contamination hit on a start of
-    another class is recorded and excludes nothing (coordinator ruling)."""
-    if settled.get("indeterminate"):
-        return "indeterminate"
-    if settled["row"] == 5 and settled["class"] == "infrastructure_failure":
-        return "no reward after regrades"
-    hit = (settled.get("contamination") or {}).get("contaminated")
-    return "contaminated" if hit and settled["class"] == "observation" else None
+def _export_class(settled, rows):
+    """(class, stop_cause, excluded) as slot_record.py reads a start. Regrade case 1 that still gave no reward is
+    the launcher's infrastructure failure (D5) and the layout's observation excluded as "no reward after regrades";
+    case 2 that could not regrade is "indeterminate"; a stop on a stop row has no cause of its own (the row is it)."""
+    if settled.get("regrade_case") == 1 and settled["class"] == "infrastructure_failure":
+        return "observation", None, "no reward after regrades"
+    cause = settled.get("stop") if settled["class"] == "stop" and rows[settled["row"]]["class"] != "stop" else None
+    return settled["class"], cause, "indeterminate" if settled.get("indeterminate") else None
 
 
-def _start_record(root, attempt):
+def _start_record(root, attempt, ladder):
     settled = attempt["settled"]
+    rows = {row["row"]: row for row in ladder["classification"]["rows"]}
+    cls, cause, excluded = _export_class(settled, rows)
     hits = (settled.get("contamination") or {}).get("hits") or []
-    # "class" and "cause": the coordinator's rule for the layout's next revision (the class the launcher decided,
-    # the row as evidence; a stop's cause from LAUNCHER_STOPS or "D5 row N"); slot_record.py on feat/lh-readout
-    # names them, and the branch that lands second takes its names.
     return {"slot": slot_id(attempt), "start": attempt["index"], "label": attempt["label"], "row": settled["row"],
-            "class": settled["class"], "cause": settled.get("stop") if settled["class"] == "stop" else None,
-            "reward": settled.get("reward"), "excluded": _excluded(settled),
-            "contamination": sorted({h["term_sha256"] for h in hits}), "usd": settled["usd"],
-            "minutes": settled.get("minutes") or 0.0, "tokens": settled.get("tokens") or _tokens([]),
-            "graded": None, "egress_refused": egress_refused(root / "slots" / attempt["id"])}
+            "class": cls, "stop_cause": cause, "reward": None if excluded == "no reward after regrades" else
+            settled.get("reward"), "excluded": excluded, "contamination": sorted({h["term_sha256"] for h in hits}),
+            "usd": settled["usd"], "minutes": settled.get("minutes"), "tokens": settled.get("tokens"),
+            "api_retry": settled.get("api_retry"), "graded": settled.get("graded"),
+            "egress_refused": egress_refused(root / "slots" / attempt["id"])}
 
 
 def earlier_labels(text, label):
@@ -1930,15 +1974,68 @@ def _end(root):
     return {"by": "stop", "cause": state["why"]} if state["kind"] == "stop" else None
 
 
+def allowance_used(root):
+    """The weekly points the owner's readings show moved while the ladder ran (D6, cost; enters no rule): each
+    rise between two readings of one weekly window, and after a weekly reset the next reading's points. Open
+    ruling: the owner's own use in that span is in it too. None with fewer than two readings."""
+    readings = sorted(allowance_state(root)["readings"], key=lambda r: r["at"])
+    if len(readings) < 2:
+        return None
+    points = sum(b["weekly"] - (a["weekly"] if b["weekly_reset"] == a["weekly_reset"] else 0)
+                 for a, b in zip(readings, readings[1:]))
+    shown = "; ".join(f"Allowance reading {time.strftime('%Y-%m-%d %H:%M', time.localtime(r['at']))} weekly "
+                      f"{r['weekly']}" for r in readings)
+    return {"weekly_points": points, "readings": shown}
+
+
 def export(ctx, ladder):
-    """The record the readout reads, in slot_record.py's layout (EXPORT, SLOT, START), from the state: every
-    settled start; an attempt still open is not in it."""
+    """The record the readout reads, in slot_record.py's layout, from the state: every settled start (an attempt
+    still open is not in it). Refused while a start awaits a ruling (D5 row 16), and when the record does not
+    load through slot_record.py: the launcher never writes a record the readout would refuse."""
+    every = [a for a in attempts(ctx.root) if a["settled"]]
+    unruled = [a["id"] for a in every if a["settled"]["class"] == "ruling"]
+    if unruled:
+        raise Refused(f"the export waits for a ruling (D5 row 16) on {', '.join(unruled)}: `ladder.py ruling`")
     label = this_label()
-    return {"label": label, "earlier_labels": earlier_labels(ledger_text(ctx), label), "end": _end(ctx.root),
-            "slots": [{"slot": slot_id(e), "task": e["task"], "effort": e["effort"], "round": e["round"],
-                       "pilot": e["kind"] == "pilot"} for e in schedule(ladder)],
-            "starts": [_start_record(ctx.root, a) for a in attempts(ctx.root) if a["settled"]],
-            "allowance": None}
+    doc = {"label": label, "earlier_labels": earlier_labels(ledger_text(ctx), label), "end": _end(ctx.root),
+           "slots": [{"slot": slot_id(e), "task": e["task"], "effort": e["effort"], "round": e["round"],
+                      "pilot": e["kind"] == "pilot"} for e in schedule(ladder)],
+           "starts": [_start_record(ctx.root, a, ladder) for a in every], "allowance": allowance_used(ctx.root)}
+    try:
+        slot_record.load(json.loads(json.dumps(doc)), ladder)
+    except slot_record.RecordError as exc:
+        raise Refused(f"the export does not fit slot_record.py: {exc}") from None
+    return doc
+
+
+def ruling_rows(text, date, attempt_id, row):
+    """The ledger's `| <date> | Ruling | <attempt id> row <N> ... |` rows: a coordinator's ruling on a row-16 slot."""
+    form = re.compile(rf"{re.escape(attempt_id)} row {row}(?!\d)")
+    return [line for line in text.splitlines() if line.startswith("| ")
+            and [p.strip() for p in line.split("|")[1:3]] == [date, "Ruling"] and form.match(line.split("|")[3].strip())]
+
+
+def record_ruling(ctx, args):
+    """Give a start paused under D5 row 16 the row the coordinator ruled, once the ledger holds that ruling's row:
+    its class is that row's, and the slot then follows that class (a cut runs again, any other ending never)."""
+    ladder, path = criterion(ctx), ctx.root / "slots" / args.attempt / "settled.json"
+    rows = {row["row"]: row for row in ladder["classification"]["rows"]}
+    if not path.is_file():
+        raise Refused(f"no settled attempt {args.attempt}")
+    if rows.get(args.row, {"class": "ruling"})["class"] == "ruling":
+        raise Refused(f"row {args.row} is not a row of D5 a ruling can give")
+    if not ruling_rows(ledger_text(ctx), args.date, args.attempt, args.row):
+        raise Refused(f"no ledger row `| {args.date} | Ruling | {args.attempt} row {args.row} ... |`")
+    with _Lock(ctx.root):
+        settled = _read_json(path)
+        if settled["class"] != "ruling":
+            raise Refused(f"{args.attempt} awaits no ruling")
+        cls = rows[args.row]["class"]
+        reward = _observed(cls, args.row, trial_dir(ctx.root / "slots" / args.attempt))
+        _write_json(path, {**settled, "row": args.row, "class": cls, "reward": reward,
+                           "ruled": {"row": args.row, "date": args.date}})
+    print(f"{args.attempt}: D5 row {args.row} ({cls}), by the ledger's ruling of {args.date}")
+    return 0
 
 
 def passthrough_command(ctx):
@@ -1978,6 +2075,10 @@ def _parse(argv):
     sub.add_parser("plan")
     sub.add_parser("launch").add_argument("--dry-run", action="store_true", help="every refusal; nothing started")
     sub.add_parser("status").add_argument("--export", metavar="FILE", help="write the readout's record")
+    ruling = sub.add_parser("ruling", help="give a start paused under D5 row 16 the row the ledger's ruling names")
+    ruling.add_argument("attempt")
+    ruling.add_argument("--row", type=int, required=True)
+    ruling.add_argument("--date", required=True, help="the date of the ledger's `Ruling` row")
     _allowance_parser(sub)
     return parser.parse_args(argv)
 
@@ -1990,6 +2091,8 @@ def _run(ctx, args):
         raise Refused(reason)
     if args.command == "allowance":
         return record_allowance(ctx, args)
+    if args.command == "ruling":
+        return record_ruling(ctx, args)
     return status(ctx, args.export) if args.command == "status" else plan(ctx)
 
 
