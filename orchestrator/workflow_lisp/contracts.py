@@ -18,7 +18,6 @@ from orchestrator.exceptions import ValidationSubjectRef, serialize_validation_s
 from orchestrator.workflow.type_descriptor import transport_schema_for_descriptor
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .phase_stdlib import ReusableArtifactRequirement
 from .result_guidance import ResultGuidance, normalized_result_guidance_payload
 from .spans import SourceSpan
 
@@ -986,65 +985,6 @@ def _union_projection_fields(
     for variant_fields in projection.variant_fields.values():
         fields.extend(variant_fields)
     return _dedupe_projection_fields(fields, span=span, form_path=form_path)
-
-
-def _derive_reusable_artifact_requirements(
-    type_ref: RecordTypeRef | UnionTypeRef,
-    *,
-    reusable_variants: tuple[str, ...] = (),
-    span: SourceSpan | None,
-    form_path: tuple[str, ...],
-) -> Mapping[str, tuple[ReusableArtifactRequirement, ...]]:
-    if isinstance(type_ref, RecordTypeRef):
-        return {
-            type_ref.name: _artifact_requirements_from_fields(
-                _flatten_structured_result_fields(
-                    type_ref,
-                    span=span,
-                    form_path=form_path,
-                )
-            )
-        }
-
-    requirements: dict[str, tuple[ReusableArtifactRequirement, ...]] = {}
-    selected_variants = set(reusable_variants)
-    shared_fields = _shared_variant_structured_result_fields(
-        type_ref,
-        span=span,
-        form_path=form_path,
-    )
-    for variant in type_ref.definition.variants:
-        if selected_variants and variant.name not in selected_variants:
-            continue
-        requirements[variant.name] = _artifact_requirements_from_fields(
-            [
-                *shared_fields,
-                *_flatten_variant_structured_result_fields(
-                    type_ref,
-                    variant.name,
-                    span=span,
-                    form_path=form_path,
-                ),
-            ]
-        )
-    return requirements
-
-
-def _artifact_requirements_from_fields(
-    fields: list[dict[str, Any]],
-) -> tuple[ReusableArtifactRequirement, ...]:
-    requirements: list[ReusableArtifactRequirement] = []
-    for field in fields:
-        if field.get("type") != "relpath" or not field.get("must_exist_target"):
-            continue
-        json_pointer = str(field.get("json_pointer", ""))
-        requirements.append(
-            ReusableArtifactRequirement(
-                field_path=tuple(part for part in json_pointer.split("/") if part),
-                under=str(field.get("under", "")),
-            )
-        )
-    return tuple(requirements)
 
 
 def _dedupe_projection_fields(
