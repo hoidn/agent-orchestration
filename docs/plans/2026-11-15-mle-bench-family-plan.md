@@ -940,5 +940,5 @@ third holds its content.
 
 | Date | Entry | Detail |
 | --- | --- | --- |
-| 2026-11-15 | Plan written | Against `3ac3a2e4` (`integ/20261115b`: `main` with the day's documentation pass and the ladder's 15-task configuration). Not reviewed. No spend authorized: this line has no rule in `AGENTS.md` and no approval row. Spend to date: 0. Evidence used: the feasibility report (a desk study) and the scout's fact-finding of the same day (read in source or run on this machine with no model call; not committed) |
+| 2026-11-15 | Plan written | Against `3ac3a2e4` (`integ/20261115b`: `main` with the day's documentation pass and the ladder's 15-task configuration); `main` at `c49d43b7` merged before the final checks. Not reviewed. No spend authorized: this line has no rule in `AGENTS.md` and no approval row. Spend to date: 0. Evidence used: the feasibility report (a desk study) and the scout's fact-finding of the same day (read in source or run on this machine with no model call; not committed) |
 | 2026-11-15 | Owner action done: GPU toolkit | NVIDIA Container Toolkit 1.20.2 installed by the owner; rootless Podman 4.9.3 passes the RTX 3090 to a container (coordinator's check). `/etc/cdi/nvidia.yaml` is a stripped copy at `cdiVersion: 0.6.0`, to be rebuilt after a driver update (the operating note under "Owner actions and questions") |
