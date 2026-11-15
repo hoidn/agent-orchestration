@@ -1,5 +1,5 @@
 {
- "source": "local recording f-slow (stub_api.py scenario slow, CLI 2.1.311, three tools, via the relay)",
+ "source": "local recording t2a-f-slow (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "UnknownApiError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -29,7 +29,7 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "901aaea8-00c0-4fb4-ac74-cd77188309c4",
+  "session_id": "9093054b-bb74-44eb-afc0-8a4c47a69352",
   "tools": [
    "Bash",
    "Edit",
@@ -50,6 +50,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -90,7 +91,7 @@
    "focus",
    "reload-plugins"
   ],
-  "apiKeySource": "ANTHROPIC_API_KEY",
+  "apiKeySource": "none",
   "claude_code_version": "2.1.311",
   "output_style": "default",
   "agents": [
@@ -112,6 +113,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -147,9 +149,13 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "01d94e0a-8d1b-43c2-878a-f46a96e52231",
+  "uuid": "dc112bc1-e394-41bb-8fb1-d35329a5a67e",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
   "original_cwd": "/app",
   "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
@@ -163,27 +169,27 @@
    "subtype": "api_retry",
    "attempt": 9,
    "max_retries": 10,
-   "retry_delay_ms": 36470,
+   "retry_delay_ms": 33362,
    "error_status": null,
    "error": "unknown",
-   "session_id": "901aaea8-00c0-4fb4-ac74-cd77188309c4",
-   "uuid": "6c7a9328-a0cb-4c46-82e4-90e6e0b9a0f5"
+   "session_id": "9093054b-bb74-44eb-afc0-8a4c47a69352",
+   "uuid": "ba22eadb-1fbc-4d2f-8fd6-c8524827e7a6"
   },
   {
    "type": "system",
    "subtype": "api_retry",
    "attempt": 10,
    "max_retries": 10,
-   "retry_delay_ms": 32063,
+   "retry_delay_ms": 35214,
    "error_status": null,
    "error": "unknown",
-   "session_id": "901aaea8-00c0-4fb4-ac74-cd77188309c4",
-   "uuid": "5dd0aa29-81ee-48b5-a6b6-6751286c5520"
+   "session_id": "9093054b-bb74-44eb-afc0-8a4c47a69352",
+   "uuid": "3a61f7be-76e2-4589-9ef8-84626e551ab6"
   },
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T02:38:56.042Z",
+   "timestamp": "2026-11-14T22:11:46.974Z",
    "error": "server_error",
    "is_api_error_message": true,
    "message": {
@@ -219,9 +225,9 @@
    }
   },
   {
-   "duration_api_ms": 72,
+   "duration_api_ms": 77,
    "stop_reason": "stop_sequence",
-   "session_id": "901aaea8-00c0-4fb4-ac74-cd77188309c4",
+   "session_id": "9093054b-bb74-44eb-afc0-8a4c47a69352",
    "total_cost_usd": 0.00015000000000000001,
    "usage": {
     "input_tokens": 1000,
@@ -298,8 +304,8 @@
    "api_error_status": null,
    "result": "API Error: Connection dropped (ECONNRESET). Check the gateway set in ANTHROPIC_BASE_URL, then try again.",
    "type": "result",
-   "duration_ms": 340168,
-   "uuid": "af9dd7f1-cff1-48b4-8528-d01ec3c8e214",
+   "duration_ms": 340567,
+   "uuid": "959bd90a-43e1-4dc9-9b53-bc194b8fe7e7",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {

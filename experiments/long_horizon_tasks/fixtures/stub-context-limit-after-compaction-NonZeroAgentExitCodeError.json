@@ -1,5 +1,5 @@
 {
- "source": "local recording s3-context-late-low (stub_api.py scenario context_late, CLI 2.1.311, three tools, via the relay)",
+ "source": "local recording t2a-context-late-low (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "NonZeroAgentExitCodeError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -29,7 +29,7 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "74fbe07b-d04d-47d4-a43a-e771c9d08ec7",
+  "session_id": "b18fdb74-c818-4449-98da-fdf1c7766df3",
   "tools": [
    "Bash",
    "Edit",
@@ -50,6 +50,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -90,7 +91,7 @@
    "focus",
    "reload-plugins"
   ],
-  "apiKeySource": "ANTHROPIC_API_KEY",
+  "apiKeySource": "none",
   "claude_code_version": "2.1.311",
   "output_style": "default",
   "agents": [
@@ -112,6 +113,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -147,9 +149,13 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "531af43a-238b-4fc5-8cba-aecdaeeb0568",
+  "uuid": "7a5928a6-1296-4071-9772-f4a5d455a640",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
   "original_cwd": "/app",
   "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
@@ -163,8 +169,8 @@
    "subtype": "status",
    "status": "compacting",
    "compact_output_chars": 0,
-   "session_id": "74fbe07b-d04d-47d4-a43a-e771c9d08ec7",
-   "uuid": "289af276-16af-4788-9a04-dd511e7a7e53"
+   "session_id": "b18fdb74-c818-4449-98da-fdf1c7766df3",
+   "uuid": "12b2bbb6-549b-4573-b6e3-f0c6b2a3d676"
   },
   {
    "type": "system",
@@ -172,13 +178,13 @@
    "status": null,
    "compact_result": "failed",
    "compact_error": "exhausted",
-   "session_id": "74fbe07b-d04d-47d4-a43a-e771c9d08ec7",
-   "uuid": "de5d353e-f0a7-4287-ad7b-d6855fafb45d"
+   "session_id": "b18fdb74-c818-4449-98da-fdf1c7766df3",
+   "uuid": "3750644b-b67f-47de-90d4-444cb5d36cd8"
   },
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T01:47:57.972Z",
+   "timestamp": "2026-11-14T21:48:43.954Z",
    "error": "invalid_request",
    "is_api_error_message": true,
    "message": {
@@ -214,9 +220,9 @@
    }
   },
   {
-   "duration_api_ms": 55,
+   "duration_api_ms": 78,
    "stop_reason": "stop_sequence",
-   "session_id": "74fbe07b-d04d-47d4-a43a-e771c9d08ec7",
+   "session_id": "b18fdb74-c818-4449-98da-fdf1c7766df3",
    "total_cost_usd": 0.49524999999999997,
    "usage": {
     "input_tokens": 990000,
@@ -293,8 +299,8 @@
    "api_error_status": null,
    "result": "Prompt is too long",
    "type": "result",
-   "duration_ms": 288,
-   "uuid": "df129ea2-520f-4b91-aa79-caaf1f064aff",
+   "duration_ms": 495,
+   "uuid": "c4b224cc-b808-42d2-8413-b8e3cb5d84e8",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {

@@ -43,7 +43,18 @@ Faults and refusals: a Bash call first, then every later request of the main ses
   transient the first three attempts of the second turn get 429 (retry-after 2), 529, 500; then an end
   usage_limit  429 rate_limit_error with `anthropic-ratelimit-unified-status: rejected`, representative claim
             `five_hour` and a reset --delay seconds ahead (the headers the CLI reads for a subscription limit)
+  pt_model403, pt_tool403, pt_path, pt_token  403 permission_error with `x-should-retry: false` and an
+            `lh-passthrough:` message (the one refusal form, for a model, a provider-side tool, a path, an
+            unknown token)
+  pt_token_first  the unknown-token refusal on the session's first request (no Bash call before it)
+  placeholder  a call of the placeholder tool the deny list leaves (DeferredToolPlaceholder), then an end
+  overage   a normal session whose every response carries the headers the CLI reads as paid extra usage:
+            `anthropic-ratelimit-unified-status: rejected` with `…-overage-status: allowed` and
+            `…-overage-in-use: true`
 Any path other than the messages path answers --other-status (default 404) and is logged.
+--watch NAMES (comma-separated) counts each name's whole-word occurrences in the system blocks, the tool
+definitions and the messages of every request; --expect-bearer VALUE logs whether the authorization
+header is `Bearer VALUE` (never the value).
 """
 
 import argparse
@@ -51,6 +62,7 @@ import collections
 import itertools
 import json
 import os
+import re
 import socketserver
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -68,6 +80,10 @@ HOUR_WRITES = {**SMALL, "cache_creation_input_tokens": 20000,
 REDACT = ("x-api-key", "authorization")
 LOOPBACK = ("127.0.0.1", "localhost")
 NO_RETRY = {"x-should-retry": "false"}
+PLACEHOLDER = "DeferredToolPlaceholder"
+OVERAGE = {"anthropic-ratelimit-unified-status": "rejected", "anthropic-ratelimit-unified-overage-status": "allowed",
+           "anthropic-ratelimit-unified-overage-in-use": "true",
+           "anthropic-ratelimit-unified-representative-claim": "five_hour"}
 FAULTS = {
     "rate_limit_retry_after": (429, "rate_limit_error", "stub: rate limited", {"retry-after": "5"}),
     "rate_limit": (429, "rate_limit_error", "stub: rate limited", {}),
@@ -78,6 +94,10 @@ FAULTS = {
     "pt_stopped": (403, "permission_error", "lh-passthrough: tranche stopped", NO_RETRY),
     "pt_model": (404, "not_found_error", "lh-passthrough: model not allowed", NO_RETRY),
     "pt_tool": (400, "invalid_request_error", "lh-passthrough: provider-side tool refused", NO_RETRY),
+    "pt_model403": (403, "permission_error", "lh-passthrough: model not allowed", NO_RETRY),
+    "pt_tool403": (403, "permission_error", "lh-passthrough: provider-side tool refused", NO_RETRY),
+    "pt_path": (403, "permission_error", "lh-passthrough: path not allowed", NO_RETRY),
+    "pt_token": (403, "permission_error", "lh-passthrough: unknown token", NO_RETRY),
     "unauthorized": (401, "authentication_error", "stub: OAuth token has expired", {}),
 }
 TRANSIENT = [(429, "rate_limit_error", "stub: rate limited", {"retry-after": "2"}),
@@ -167,6 +187,12 @@ def _normal(body, turn):
     return _bash(body, PROBE) if turn == 0 else ([_text("done")], "end_turn", SMALL)
 
 
+def _placeholder(body, turn):
+    if turn == 0:
+        return [_tool(PLACEHOLDER, {})], "tool_use", SMALL
+    return [_text("done")], "end_turn", SMALL
+
+
 def _hour_writes(body, turn):
     return _bash(body, PROBE, HOUR_WRITES) if turn == 0 else ([_text("done")], "end_turn", HOUR_WRITES)
 
@@ -174,6 +200,8 @@ def _hour_writes(body, turn):
 SCENARIOS = {
     "normal": _normal,
     "cache_writes": _hour_writes,
+    "placeholder": _placeholder,
+    "overage": _normal,
     "context": lambda body, turn: TOO_LONG,
     "context_late": _context_late,
     "refusal": lambda body, turn: ([_text("I can't help with that.")], "refusal", SMALL),
@@ -189,6 +217,7 @@ SCENARIOS = {
     "transient": _transient,
     "usage_limit": _usage_limit,
     **{name: (lambda fault: lambda body, turn: _later(body, turn, fault))(fault) for name, fault in FAULTS.items()},
+    "pt_token_first": lambda body, turn: FAULTS["pt_token"],
 }
 
 
@@ -244,14 +273,36 @@ def _system(body):
              **({"cache_control": b["cache_control"]} if "cache_control" in b else {})} for b in blocks]
 
 
+def _blocks(content):
+    blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content or []
+    return [{"type": b.get("type"), "chars": len(b["text"]) if "text" in b else len(json.dumps(b)),
+             **({"cache_control": b["cache_control"]} if "cache_control" in b else {})} for b in blocks]
+
+
+def _mentions(body, names):
+    """Whole-word occurrences of each name in the system blocks, the tool definitions and the messages."""
+    parts = {"system": json.dumps(body.get("system") or ""), "tools": json.dumps(body.get("tools") or []),
+             "messages": json.dumps(body.get("messages") or [])}
+    return {n: {part: len(re.findall(rf"(?<![\w-]){re.escape(n)}(?![\w-])", text)) for part, text in parts.items()}
+            for n in names}
+
+
+def _tools(tools):
+    """Each declared tool's name, size in characters and cache control; server tools whole."""
+    return {"tools": [t.get("name") or t.get("type") for t in tools],
+            "server_tools": [t for t in tools if "input_schema" not in t],
+            "tool_chars": [len(json.dumps(t)) for t in tools],
+            "tool_cache": [{"tool": t.get("name"), "cache_control": t["cache_control"]} for t in tools
+                           if "cache_control" in t]}
+
+
 def _record(path, headers, body):
     params = {k: v for k, v in body.items() if k not in ("messages", "system", "tools")}
-    return {"path": path, "model": body.get("model"),
-            "tools": [t.get("name") or t.get("type") for t in body.get("tools") or []],
-            "server_tools": [t for t in body.get("tools") or [] if "input_schema" not in t],
+    return {"path": path, "model": body.get("model"), **_tools(body.get("tools") or []),
             "headers": {k.lower(): _redact(k, v) for k, v in headers.items()},
             "params": params, "n_messages": len(body.get("messages", [])), "turn": _turn(body),
-            "subagent": SUB_MARK in _first_user_text(body), "system": _system(body)}
+            "subagent": SUB_MARK in _first_user_text(body), "system": _system(body),
+            "message_blocks": [[m.get("role"), _blocks(m.get("content"))] for m in body.get("messages") or []]}
 
 
 class Stub(BaseHTTPRequestHandler):
@@ -284,6 +335,7 @@ class Stub(BaseHTTPRequestHandler):
         raw = self.rfile.read(int(self.headers.get("content-length", 0)))
         body = json.loads(raw or b"{}")
         row = _record(self.path, self.headers, body)
+        self._checks(row, body)
         status, payload, extra = self._answer(body)
         row.update(status=status, usage=payload.get("usage"), stop_reason=payload.get("stop_reason"),
                    content=[b.get("name") or b["type"] for b in payload.get("content", [])],
@@ -294,7 +346,16 @@ class Stub(BaseHTTPRequestHandler):
         elif body.get("stream"):
             self._stream(payload, extra)
         else:
-            self._send_json(status, payload)
+            self._send_json(status, payload, self._served_headers())
+
+    def _served_headers(self):
+        return OVERAGE if self.cfg.scenario == "overage" else {}
+
+    def _checks(self, row, body):
+        if self.cfg.watch:
+            row["mentions"] = _mentions(body, self.cfg.watch.split(","))
+        if self.cfg.expect_bearer is not None:
+            row["bearer_matches"] = self.headers.get("authorization") == f"Bearer {self.cfg.expect_bearer}"
 
     def _other(self):
         status = self.cfg.other_status
@@ -318,6 +379,8 @@ class Stub(BaseHTTPRequestHandler):
         if mode == "slow":
             time.sleep(self.cfg.delay)
         self.send_response(200)
+        for key, value in self._served_headers().items():
+            self.send_header(key, value)
         self.send_header("content-type", "text/event-stream")
         self.send_header("connection", "close")
         self.end_headers()
@@ -347,6 +410,8 @@ def main():
     parser.add_argument("--unix")
     parser.add_argument("--delay", type=float, default=120)
     parser.add_argument("--other-status", type=int, default=404)
+    parser.add_argument("--watch", default="")
+    parser.add_argument("--expect-bearer")
     Stub.cfg = parser.parse_args()
     if Stub.cfg.host not in LOOPBACK:
         parser.error(f"--host {Stub.cfg.host}: the stub binds only a loopback address ({', '.join(LOOPBACK)}) "

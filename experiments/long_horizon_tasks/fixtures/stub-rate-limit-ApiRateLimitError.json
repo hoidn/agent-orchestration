@@ -1,5 +1,5 @@
 {
- "source": "local recording f-rate-limit (stub_api.py scenario rate_limit, CLI 2.1.311, three tools, via the relay)",
+ "source": "local recording t2a-f-rate-limit (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "ApiRateLimitError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -29,7 +29,7 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "b5b838fa-698d-4460-8b9b-0bf31ed4ec8d",
+  "session_id": "e2ac1ddc-04e1-4731-96f0-13feb7fae3fd",
   "tools": [
    "Bash",
    "Edit",
@@ -50,6 +50,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -90,7 +91,7 @@
    "focus",
    "reload-plugins"
   ],
-  "apiKeySource": "ANTHROPIC_API_KEY",
+  "apiKeySource": "none",
   "claude_code_version": "2.1.311",
   "output_style": "default",
   "agents": [
@@ -112,6 +113,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -147,43 +149,45 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "77744e1d-4a4a-440c-9869-a8e0732711ea",
+  "uuid": "737df152-9f4a-4801-97bb-9c40629ec4ab",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
   "original_cwd": "/app",
   "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
   "view_mode": "default"
  },
- "n_events": 15,
+ "n_events": 17,
  "n_api_retry": 10,
  "stream_tail": [
   {
    "type": "system",
    "subtype": "api_retry",
-   "attempt": 9,
-   "max_retries": 10,
-   "retry_delay_ms": 34836,
-   "error_status": 429,
-   "error": "rate_limit",
-   "session_id": "b5b838fa-698d-4460-8b9b-0bf31ed4ec8d",
-   "uuid": "d28e9c3d-3a55-4773-9cd4-54878cdd707a"
-  },
-  {
-   "type": "system",
-   "subtype": "api_retry",
    "attempt": 10,
    "max_retries": 10,
-   "retry_delay_ms": 37100,
+   "retry_delay_ms": 34418,
    "error_status": 429,
    "error": "rate_limit",
-   "session_id": "b5b838fa-698d-4460-8b9b-0bf31ed4ec8d",
-   "uuid": "a126356a-c286-4710-9b69-8057c743b2c0"
+   "session_id": "e2ac1ddc-04e1-4731-96f0-13feb7fae3fd",
+   "uuid": "5036e10b-efbc-47f0-ad38-881a246131fd"
+  },
+  {
+   "type": "rate_limit_event",
+   "rate_limit_info": {
+    "status": "rejected",
+    "isUsingOverage": false
+   },
+   "uuid": "ba94cf7e-27f0-4edd-a289-396bf1c06785",
+   "session_id": "e2ac1ddc-04e1-4731-96f0-13feb7fae3fd"
   },
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T02:11:10.390Z",
+   "timestamp": "2026-11-14T21:34:00.184Z",
    "error": "rate_limit",
    "is_api_error_message": true,
    "api_error_status": 429,
@@ -214,7 +218,7 @@
     "content": [
      {
       "type": "text",
-      "text": "API Error: Request rejected (429) \u00b7 stub: rate limited"
+      "text": "API Error: Server is temporarily limiting requests (not your usage limit) \u00b7 stub: rate limited"
      }
     ]
    }
@@ -222,7 +226,7 @@
   {
    "duration_api_ms": 75,
    "stop_reason": "stop_sequence",
-   "session_id": "b5b838fa-698d-4460-8b9b-0bf31ed4ec8d",
+   "session_id": "e2ac1ddc-04e1-4731-96f0-13feb7fae3fd",
    "total_cost_usd": 0.00015000000000000001,
    "usage": {
     "input_tokens": 1000,
@@ -297,10 +301,10 @@
    "num_turns": 2,
    "subtype": "success",
    "api_error_status": 429,
-   "result": "API Error: Request rejected (429) \u00b7 stub: rate limited",
+   "result": "API Error: Server is temporarily limiting requests (not your usage limit) \u00b7 stub: rate limited",
    "type": "result",
-   "duration_ms": 183775,
-   "uuid": "96414d9d-b369-4f46-9b1d-b9049ea407ce",
+   "duration_ms": 178448,
+   "uuid": "2a53d7a1-55bf-48d2-b9ed-49f7495c879c",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {
