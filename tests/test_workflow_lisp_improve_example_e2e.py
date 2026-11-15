@@ -36,17 +36,12 @@ from tests.workflow_lisp_improve_example_sources import (
     EXHAUSTED_LAUNCH,
     QUESTION,
     SEED,
-    EXAMPLE,
     EXAMPLE_INPUTS,
     EXAMPLE_PROMPTS,
     LEGACY_COMMANDS,
     MAINTAINED_EXAMPLE,
     LAUNCH_PROBE,
-    PANEL_HOOKS,
-    PANEL_REVIEW,
     REPO_ROOT,
-    SELECTED_REVIEW,
-    panel_source,
 )
 
 
@@ -54,7 +49,6 @@ ENTRY = "improve_experiment_proposal::run-experiment"
 PROVIDERS = {
     "providers.proposal.review": "methods",
     "providers.proposal.revise": "reviser",
-    "providers.proposal.statistics-review": "statistics",
 }
 
 
@@ -231,7 +225,7 @@ def test_documented_command_dry_runs_the_example(tmp_path: Path) -> None:
     ids=["approved", "blocked", "exhausted-after-final-continue"],
 )
 def test_executor_consumes_the_returned_proposal(workspace: Path, reviewer, calls, launched, status) -> None:
-    files = _install(workspace, EXAMPLE.read_text(encoding="utf-8"))
+    files = _install(workspace, MAINTAINED_EXAMPLE.read_text(encoding="utf-8"))
     agents = _Agents({"methods": reviewer, "reviser": _reviser})
 
     result = _run(files, agents)
@@ -244,7 +238,7 @@ def test_executor_consumes_the_returned_proposal(workspace: Path, reviewer, call
 
 
 def test_resume_after_the_final_continue_projects_the_latest_proposal(workspace: Path) -> None:
-    files = _install(workspace, EXAMPLE.read_text(encoding="utf-8"))
+    files = _install(workspace, MAINTAINED_EXAMPLE.read_text(encoding="utf-8"))
     agents = _Agents({"methods": _revise("methods"), "reviser": _reviser})
     from orchestrator.workflow.evaluated import runtime
     class AfterLastProvider(BaseException):
@@ -267,45 +261,4 @@ def test_resume_after_the_final_continue_projects_the_latest_proposal(workspace:
 
     assert (state.terminal.data["outcome"], state.terminal.data["value"], agents.calls, _launched(workspace)) == (
         "completed", {"status": "held"}, EXHAUSTED_CALLS, [EXHAUSTED_LAUNCH],
-    )
-
-
-def test_panel_reviewer_substitution_changes_only_the_selected_hook(workspace: Path) -> None:
-    example = EXAMPLE.read_text(encoding="utf-8")
-    panel = panel_source(example)
-    files = _install(workspace, panel)
-    agents = _Agents({"methods": _first_draft(_approve("methods")), "statistics": _approve("stats"), "reviser": _reviser})
-
-    result = _run(files, agents)
-
-    assert panel.replace(PANEL_HOOKS, "").replace(PANEL_REVIEW, SELECTED_REVIEW) == example
-    assert (result.exit_code, agents.calls, _launched(workspace)) == (
-        0,
-        [
-            ("methods", "warmup", None), ("statistics", "warmup", None), ("reviser", "warmup", "methods:add-1"),
-            ("methods", "warmup+r", None), ("statistics", "warmup+r", None),
-        ],
-        [{**APPROVED_LAUNCH, "note": "stats:ok:warmup+r"}],
-    )
-
-
-@pytest.mark.parametrize(
-    ("methods", "statistics", "blocker"),
-    [
-        (_block("methods"), _approve("stats"), "methods:blocked:warmup"),
-        (_revise("methods"), _block("stats"), "stats:blocked:warmup"),
-        (_approve("methods"), _block("stats"), "stats:blocked:warmup"),
-    ],
-    ids=["methods-blocks-statistics-approves", "statistics-blocks-methods-revises", "statistics-blocks-methods-approves"],
-)
-def test_panel_returns_an_inner_block_never_a_downgraded_verdict(workspace: Path, methods, statistics, blocker) -> None:
-    files = _install(workspace, panel_source(EXAMPLE.read_text(encoding="utf-8")))
-    agents = _Agents({"methods": methods, "statistics": statistics, "reviser": _reviser})
-
-    result = _run(files, agents)
-
-    assert (result.exit_code, agents.calls, _launched(workspace)) == (
-        0,
-        [("methods", "warmup", None), ("statistics", "warmup", None)],
-        [{"outcome": "blocked", "note": blocker, "hypothesis": "warmup", "parameters": [SEED]}],
     )

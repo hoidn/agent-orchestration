@@ -1,33 +1,26 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cp/if_in_hook)
   (import std/improve :only (Decision Improvement improve))
   (export run)
   (defrecord Box (n Int))
   (defproc fetch ((n Int)) -> Box
-    :effects ((uses-command fetch))
-    :lowering inline
     (command-result fetch :argv ("python" "probe.py" "fetch" n) :returns Box))
   (defrecord Candidate (score Int))
-  (defrecord Brief (goal Int))
   (defrecord Note (n Int))
-  (defproc review ((c Candidate) (brief Brief)) -> Decision[Note Note]
-    :effects ((uses-command fetch))
-    :lowering inline
+  (defproc review ((c Candidate)) -> Decision[Note Note]
     (let* ((b (fetch c.score)))
-      (if (< b.n brief.goal)
+      (if (< b.n 4)
         (if (< b.n 1)
           (variant Decision[Note Note] REVISE :feedback (record Note :n 1))
           (variant Decision[Note Note] REVISE :feedback (record Note :n 2)))
         (variant Decision[Note Note] APPROVE :evidence (record Note :n b.n)))))
-  (defproc revise ((c Candidate) (brief Brief) (note Note)) -> Candidate
-    :effects ((uses-command fetch))
-    :lowering inline
+  (defproc revise ((c Candidate) (note Note)) -> Candidate
     (let* ((b (fetch (+ c.score note.n))))
       (record Candidate :score b.n)))
   (defworkflow run () -> Int
-    (let* ((result (improve (record Candidate :score 0) (record Brief :goal 4) (proc-ref review) (proc-ref revise) 5)))
+    (let* ((result (improve (record Candidate :score 0) (proc-ref review) (proc-ref revise) 5)))
       (match result
         ((APPROVED a) a.evidence.n)
         ((BLOCKED b) 0)
