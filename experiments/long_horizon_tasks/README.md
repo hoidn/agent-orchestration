@@ -257,8 +257,11 @@ figure. Every figure is computed once, by `compute`, from the starts joined to t
 and pooled count with their exact intervals and labels (a count pooled over tasks gets no interval), the band effort,
 the effort test over complete triples with its verdict and the bound on the fall, the cost per effort, the lists
 (exclusions, a contaminated attempt of any label by the SHA-256 of each term found, counted over every label for D7.7,
-flags, cuts per effort, the pilot's attempts, refused connections), the graded outcome, an earlier label's counts and
-the allowance. The last three enter no rule. The pooled screen applies when every effort has at least four scored
+flags, cuts per effort, the pilot's attempts, refused connections, relay lookup timeouts apart from them, and the
+regrades refused for a declared artifact never collected, per task and effort), the graded outcome, an earlier
+label's counts and the allowance. The sidecar logs `bypass` when its lookup of `relay` times out; the launcher counts
+a `bypass` toward the relay itself (an address the sidecar resolved `relay` to in the same log) as a relay lookup
+timeout, never as a refused connection, so `egress_refused` holds only destinations outside the kit. The last three enter no rule. The pooled screen applies when every effort has at least four scored
 observations (`readout.pooled.min_per_effort`), and is printed "screened at n of 15 attempts"; with fewer at any effort
 a task is "not screened", with its counts per effort. A readout that ends in a stop places nothing and still prints the
 bound on the fall over the complete triples there are.

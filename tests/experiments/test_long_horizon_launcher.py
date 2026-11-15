@@ -2296,6 +2296,38 @@ def test_the_egress_log_is_followed_out_and_kept_before_the_containers_are_remov
             ladder.egress_refused(attempt_dir)) == (True, 1, True, {"198.51.100.7:443": 1})
 
 
+# The egress sidecar's log (its JSON lines, trimmed to the fields read): a connection it routed to the relay (it
+# resolved the name `relay` itself: `<-> relay:8080`, dst the address it found), a connection to the relay whose
+# lookup of `relay` timed out (logged `bypass`, as in the rehearsal's second run, start 2), and one it refused toward
+# an address outside the kit.
+RELAY_ROUTED = '{"sid": "r1", "dst": "10.89.0.3:8080", "host": "relay:8080", "msg": "10.89.0.2:40000 <-> relay:8080"}\n'
+RELAY_TIMEOUT = ('{"sid": "t1", "msg": "10.89.0.2:41000 <> 127.0.0.1:12345"}\n'
+                 '{"sid": "t1", "level": "error", "msg": "route(retry=0) dial tcp: lookup relay on 10.89.0.1:53: read '
+                 'udp 10.89.0.4:53000->10.89.0.1:53: i/o timeout"}\n'
+                 '{"sid": "t1", "dst": "10.89.0.3:8080", "msg": "10.89.0.2:41000 >< 127.0.0.1:12345", "outputBytes": 0}\n'
+                 '{"sid": "t1", "level": "error", "msg": "bypass"}\n')
+OUTSIDE_REFUSED = ('{"sid": "o1", "dst": "198.51.100.7:443", "msg": "10.89.0.2:42000 >< 127.0.0.1:12345"}\n'
+                   '{"sid": "o1", "msg": "bypass"}\n')
+
+
+@pytest.mark.parametrize("log,want", [
+    (RELAY_ROUTED + RELAY_TIMEOUT + RELAY_TIMEOUT.replace("t1", "t2") + OUTSIDE_REFUSED,
+     ({"198.51.100.7:443": 1}, {"10.89.0.3:8080": 2})),
+    (RELAY_TIMEOUT + OUTSIDE_REFUSED, ({"10.89.0.3:8080": 1, "198.51.100.7:443": 1}, {}))])
+def test_a_refusal_toward_the_relay_itself_is_a_relay_lookup_timeout_never_a_refused_egress_connection(short, log,
+                                                                                                    want):
+    """Coordinator ruling on the rehearsal's second run: when the sidecar's lookup of `relay` times out it logs
+    `bypass`; a connection whose destination is the relay itself is no refused egress connection, so it is counted
+    and listed apart, and the refused list holds only destinations outside the kit. The relay's address is the one
+    the sidecar itself resolved `relay` to in the same log; with no such route nothing is moved out of the refused
+    list."""
+    root, attempt, record = _closed(short, "token-three-tools-normal-end", [], reward=1.0)
+    attempt_dir = root / "slots" / attempt["id"]
+    (attempt_dir / "egress-x__env_harbor-docker-egress-control-sidecar_1.log").write_text(log)
+    exported = ladder._start_record(root, {**attempt, "settled": record}, STANDING)
+    assert (exported["egress_refused"], exported["relay_lookup_timeouts"]) == want
+
+
 def test_the_kept_egress_log_holds_what_the_sidecar_s_proxy_writes_to_its_standard_error(rig):
     """Task 7 found it: the sidecar's shell writes its two start lines to standard output, and its proxy (gost)
     writes every connection and every refusal (`bypass`) to standard error; the kept log must hold both."""

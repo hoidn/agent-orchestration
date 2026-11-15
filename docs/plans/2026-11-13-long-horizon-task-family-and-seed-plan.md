@@ -888,7 +888,10 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
   decided, with its D5 row as evidence: the row's class, or a stop the launcher found (a cause
   from the closed list in `slot_record.py`) on a row of another class; a stop is never scored
   and is listed with its cause (after review M1). The egress log adds, per attempt, the refused addresses and their count (D3); a
-  refused connection fetched nothing and excludes nothing. A readout that ends in a stop prints no placement.
+  refused connection fetched nothing and excludes nothing. A connection to the relay itself that
+  the sidecar logged as refused because its lookup of `relay` timed out is no refused egress: it
+  is counted and listed apart, as a relay lookup timeout, so the refused list holds only
+  destinations outside the kit (coordinator ruling on the rehearsal's second run). A readout that ends in a stop prints no placement.
 - **The final readout is bound to the frozen criterion.** Without `--rehearsal` the readout
   runs only when the manifest is frozen, its hash is the export's configuration label, the
   files `ladder.json`, `tasks.json`, `readout.py` and `slot_record.py` match the manifest's

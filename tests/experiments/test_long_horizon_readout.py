@@ -728,6 +728,20 @@ def test_refused_connections_are_listed_per_attempt_and_exclude_nothing():
         [("low", {"<address>:443": 3})], 1, True)
 
 
+def test_relay_lookup_timeouts_are_listed_apart_from_the_refused_connections():
+    """Coordinator ruling on the rehearsal's second run: a `bypass` toward the relay itself (its lookup timed out) is
+    no refused egress connection; it is listed on its own, and the refused list holds only addresses outside the
+    kit."""
+    table = {TASKS[0]: {"low": [{"reward": 1, "relay_lookup_timeouts": {"<relay>:8080": 2}}], "medium": [0],
+                        "high": [{"reward": 0, "egress_refused": {"<address>:443": 1}}]}}
+    result = _compute(_export(table))
+    text = readout.render(result)
+    timeouts = text[text.index("### Relay lookup timeouts"):]
+    assert ([(e["effort"], e["timeouts"]) for e in result["listed"]["relay_timeouts"]],
+            [e["effort"] for e in result["listed"]["egress"]], "<relay>:8080: 2" in timeouts.split("###")[1]) == (
+        [("low", {"<relay>:8080": 2})], ["high"], True)
+
+
 def test_the_regrades_refused_for_a_declared_artifact_never_collected_are_counted_per_task_and_effort():
     """Coordinator ruling on the rehearsal's second run: a start whose case-2 regrade Harbor refused for an absent
     declared artifact is an observation with its verifier's 0, counted; the readout counts the flag per task and

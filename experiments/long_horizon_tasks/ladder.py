@@ -1981,24 +1981,61 @@ def sample_environ(ctx, attempt_dir, names):
             path.write_bytes(b"\0".join(sorted(new - {b""})) + b"\0")
 
 
-def egress_refused(attempt_dir):
-    """{address: count} of the connections the egress sidecar refused (D3): a session id with a `bypass` event,
-    its address from that session's `dst`. Addresses only: the log names no host for a refusal."""
-    refused = {}
+RELAY_ROUTE = re.compile(r" <-> relay(?::\d+)?$")  # the sidecar's line for a connection it routed to `relay`
+
+
+def _sessions(path):
+    """A kept sidecar log's JSON events, by session id."""
+    sessions = {}
+    for line in path.read_text(errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("sid"):
+            sessions.setdefault(event["sid"], []).append(event)
+    return sessions
+
+
+def _relay_addresses(sessions):
+    """The host addresses the sidecar itself resolved the name `relay` to: a `<-> relay:<port>` line's `dst`."""
+    return {e["dst"].rsplit(":", 1)[0] for events in sessions.values() for e in events
+            if e.get("dst") and RELAY_ROUTE.search(str(e.get("msg") or ""))}
+
+
+def _bypassed(attempt_dir):
+    """(address, toward the relay) of each connection the egress sidecar logged `bypass` for: a session id with a
+    `bypass` event, its address from that session's first `dst`. The relay's addresses are those the sidecar itself
+    resolved `relay` to in the same log (_relay_addresses), so no name an agent's request carries can make an outside
+    address the relay's; with no such line, none is."""
     for path in sorted(attempt_dir.glob("egress-*.log")):
-        sessions = {}
-        for line in path.read_text(errors="replace").splitlines():
-            try:
-                event = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(event, dict) and event.get("sid"):
-                sessions.setdefault(event["sid"], []).append(event)
+        sessions = _sessions(path)
+        relay = _relay_addresses(sessions)
         for events in sessions.values():
             dst = next((e["dst"] for e in events if e.get("dst")), None)
             if dst and any(e.get("msg") == "bypass" for e in events):
-                refused[dst] = refused.get(dst, 0) + 1
+                yield dst, dst.rsplit(":", 1)[0] in relay
+
+
+def egress_refused(attempt_dir):
+    """{address: count} of the connections the egress sidecar refused toward a destination outside the kit (D3).
+    Addresses only: the log names no host for a refusal. A `bypass` toward the relay itself is not one."""
+    refused = {}
+    for dst, relay in _bypassed(attempt_dir):
+        if not relay:
+            refused[dst] = refused.get(dst, 0) + 1
     return refused
+
+
+def relay_lookup_timeouts(attempt_dir):
+    """{address: count} of the connections to the relay itself that the sidecar logged `bypass` for: its lookup of
+    `relay` timed out (the rehearsal's second run). They are no refused egress connection and are counted apart
+    (coordinator ruling); they exclude nothing."""
+    timeouts = {}
+    for dst, relay in _bypassed(attempt_dir):
+        if relay:
+            timeouts[dst] = timeouts.get(dst, 0) + 1
+    return timeouts
 
 
 def contamination(trial, terms, chunk=1 << 20):
@@ -2441,6 +2478,7 @@ def _start_record(root, attempt, ladder):
             "usd": settled["usd"], "minutes": settled.get("minutes"), "tokens": settled.get("tokens"),
             "api_retry": settled.get("api_retry"), "graded": settled.get("graded"),
             "egress_refused": egress_refused(root / "slots" / attempt["id"]),
+            "relay_lookup_timeouts": relay_lookup_timeouts(root / "slots" / attempt["id"]),
             "artifact_absent": bool(settled.get("artifact_absent"))}
 
 

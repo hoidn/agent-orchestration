@@ -49,7 +49,12 @@ neither imports the other. Standard library only.
                     "api_retry"       the number of api_retry events in the stream (D5: recorded per attempt), or
                                       null: not recorded
                     "graded"          null, or {"passed", "total"} sub-tests where the verifier reports them (D6)
-                    "egress_refused"  {address: count} of refused connections (D3); excludes nothing
+                    "egress_refused"  {address: count} of refused connections toward addresses outside the kit
+                                      (D3); excludes nothing
+                    "relay_lookup_timeouts"
+                                      {address: count} of connections to the relay itself that the egress sidecar
+                                      logged as refused when its lookup of `relay` timed out: no refused egress
+                                      (coordinator ruling on the rehearsal's second run); excludes nothing
                     "artifact_absent" true when the start's regrade (D5 case 2) was refused by the harness because
                                       a declared artifact was not collected in the source trial: the verifier's 0
                                       stands, an observation that enters k and n (coordinator ruling on the
@@ -108,7 +113,7 @@ SLOT = {"slot": str, "task": str, "effort": str, "round": int, "pilot": bool}
 START = {"slot": str, "start": int, "label": str, "row": int, "class": str, "stop_cause": (str, type(None)),
          "reward": (int, float, type(None)), "excluded": (str, type(None)), "contamination": list, "usd": NUMBER,
          "minutes": (*NUMBER, type(None)), "tokens": dict, "api_retry": (int, type(None)), "graded": (dict, type(None)),
-         "egress_refused": dict, "artifact_absent": bool}
+         "egress_refused": dict, "relay_lookup_timeouts": dict, "artifact_absent": bool}
 SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -229,9 +234,13 @@ def _usage(start, where):
         fields(graded, {"passed": int, "total": int}, f"{where}: graded")
         if not 0 <= graded["passed"] <= graded["total"]:
             raise RecordError(f"{where}: graded {graded} does not hold 0 <= passed <= total")
-    refused = start["egress_refused"]
-    if not all(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in refused.values()):
-        raise RecordError(f"{where}: egress_refused {refused} is not address -> a positive count")
+    for key in ("egress_refused", "relay_lookup_timeouts"):
+        _by_address(start[key], key, where)
+
+
+def _by_address(counts, key, where):
+    if not all(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in counts.values()):
+        raise RecordError(f"{where}: {key} {counts} is not address -> a positive count")
 
 
 def frozen_term_digests(ladder):

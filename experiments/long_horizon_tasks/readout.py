@@ -328,18 +328,24 @@ def _contaminated(starts, ladder):
 def _listed(starts, efforts, ladder):
     """D6's lists: every start that enters no k or n, with its class and why; every flagged observation; the
     attempts cut by a usage limit, counted per effort; the pilot's attempts, marked (D7.2); the refused
-    connections of each attempt (D3, D6), which exclude nothing; the regrades refused for an absent artifact."""
+    connections of each attempt (D3, D6), which exclude nothing, and its relay lookup timeouts apart (no refused
+    egress); the regrades refused for an absent artifact."""
     cuts = Counter(s["effort"] for s in starts if s["class"] == "cut")
     return {"exclusions": [_entry(s) | {"reason": _why(s), "contamination": s["contamination"]}
                            for s in starts if not s["counted"]],
             "contaminated": _contaminated(starts, ladder),
             "flags": [_entry(s) for s in starts if s["counted"] and s["flagged"]],
             "cuts": {e: cuts[e] for e in efforts}, "pilot": [_entry(s) for s in starts if s["pilot"]],
-            "egress": _egress(starts), "artifact_absent": _absent(starts, efforts)}
+            "egress": _egress(starts), "relay_timeouts": _relay_timeouts(starts),
+            "artifact_absent": _absent(starts, efforts)}
 
 
 def _egress(starts):
     return [_entry(s) | {"refused": s["egress_refused"]} for s in starts if s["egress_refused"]]
+
+
+def _relay_timeouts(starts):
+    return [_entry(s) | {"timeouts": s["relay_lookup_timeouts"]} for s in starts if s["relay_lookup_timeouts"]]
 
 
 def _absent(starts, efforts):
@@ -598,8 +604,8 @@ def _excluded(entry):
     return entry["reason"] + (f" (terms by SHA-256: {', '.join(found)})" if found else "")
 
 
-def _refused(entry):
-    return ", ".join(f"{address}: {count}" for address, count in sorted(entry["refused"].items()))
+def _refused(entry, key="refused"):
+    return ", ".join(f"{address}: {count}" for address, count in sorted(entry[key].items()))
 
 
 def _entries(title, entries, why=None):
@@ -616,6 +622,8 @@ def _listed_section(listed, label):
             + ["### Cut by a usage limit, per effort", "", ", ".join(f"{e} {n}" for e, n in listed["cuts"].items()),
                ""] + _entries("The pilot's attempts (they ran first)", listed["pilot"])
             + _entries("Refused connections (they exclude nothing)", listed["egress"], _refused)
+            + _entries("Relay lookup timeouts (connections to the relay itself, no refused egress; they exclude "
+                       "nothing)", listed["relay_timeouts"], lambda e: _refused(e, "timeouts"))
             + _absent_section(listed["artifact_absent"])
             + _contaminated_section(listed["contaminated"], label))
 

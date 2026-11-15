@@ -55,6 +55,8 @@ SESSION_STOPS = [cause for cause, seen in slot_record.LAUNCHER_STOPS.items() if 
     (lambda x: x["starts"][0].update(minutes="30"), "minutes"),
     (lambda x: x["starts"][0].update(graded={"passed": 3, "total": 2}), "graded"),
     (lambda x: x["starts"][0].update(egress_refused={"<address>:443": 0}), "egress_refused"),
+    (lambda x: x["starts"][0].update(relay_lookup_timeouts={"<relay>:8080": 0}), "relay_lookup_timeouts"),
+    (lambda x: x["starts"][0].update(relay_lookup_timeouts=[]), "relay_lookup_timeouts"),
     (lambda x: x["starts"][0].update(artifact_absent="yes"), "artifact_absent"),
     (lambda x: x["starts"][0].update(artifact_absent=True, reward=1), "artifact_absent"),
     (lambda x: x["starts"][0].update({"artifact_absent": True, "reward": 0, "excluded": "indeterminate"}),

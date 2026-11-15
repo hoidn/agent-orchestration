@@ -64,7 +64,7 @@ def start(slot, number, label, reward):
     return {"slot": slot, "start": number, "label": label, "row": 5, "class": "observation", "stop_cause": None,
             "reward": reward, "excluded": None, "contamination": [], "usd": 1.0, "minutes": 30.0,
             "tokens": {kind: 10 for kind in TOKEN_KINDS}, "api_retry": 0, "graded": None, "egress_refused": {},
-            "artifact_absent": False}
+            "relay_lookup_timeouts": {}, "artifact_absent": False}
 
 
 def _outcomes(outcome):
