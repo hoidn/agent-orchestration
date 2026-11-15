@@ -134,15 +134,17 @@ BODY = {"model": "claude-haiku-5-5", "stream": False, "max_tokens": 1000, "outpu
         "tools": [{"name": "Bash", "input_schema": {"type": "object"}}], "messages": [{"role": "user", "content": "hi"}]}
 
 
-def post(sock, token):
-    """One request through the relay's socket, as the CLI sends it; its status, or the error's class."""
+def post(sock, token, turn=0):
+    """One request through the relay's socket, as the CLI sends it (after `turn` assistant turns); its status, or
+    the error's class."""
     import http.client, socket
     conn = http.client.HTTPConnection("relay", 8080, timeout=60)
     conn.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     conn.sock.settimeout(60)
     try:
         conn.sock.connect(sock)
-        conn.request("POST", "/v1/messages?beta=true", json.dumps(BODY), {
+        later = [{"role": "assistant", "content": "ok"}, {"role": "user", "content": "go on"}] * turn
+        conn.request("POST", "/v1/messages?beta=true", json.dumps({**BODY, "messages": BODY["messages"] + later}), {
             "authorization": f"Bearer {token}", "content-type": "application/json",
             "anthropic-beta": "oauth-2025-04-20,extended-cache-ttl-2025-04-11"})
         resp = conn.getresponse()
@@ -197,7 +199,7 @@ def run(args):
     container = containers(trial, behaviour)
     sock = os.path.join(os.environ["LH_RELAY_SOCKET_DIR"], "passthrough.sock")
     for _ in range(behaviour.get("requests", 1)):
-        note("request", status=post(sock, os.environ["CLAUDE_CODE_OAUTH_TOKEN"]))
+        note("request", status=post(sock, os.environ["CLAUDE_CODE_OAUTH_TOKEN"], behaviour.get("turn", 0)))
     if behaviour.get("child"):
         subprocess.Popen(["sleep", "600"])
         note("child")
@@ -1454,7 +1456,7 @@ class Rig:
     """A kit copy in rehearsal mode with its passthrough (rehearsal switch, in front of stub_api.py), the stand-in
     harness and podman, allowance inputs, a reading and the pilot's figures; `launch()` runs `ladder.py launch`."""
 
-    def __init__(self, short, plan=(), edit=_fast, stand_ins=None, figures=True, scenario="normal"):
+    def __init__(self, short, plan=(), edit=_fast, stand_ins=None, figures=True, scenario="normal", stub_args=()):
         self.kit = kit = Kit(short, edit=edit)
         values = {**STAND_INS, "tasks.overlay_digests": {t: kit.ladder.overlay_digest(HOSTS) for t in TASKS},
                   "schedule.order.hash": kit.ladder.ORDER_HASH, **(stand_ins or {})}
@@ -1476,7 +1478,7 @@ class Rig:
         self.procs = []
         stub = short / "stub.sock"
         self._start([sys.executable, "-I", str(KIT / "stub_api.py"), "--unix", str(stub), "--model", ladder.MODEL,
-                     "--scenario", scenario, "--log", str(short / "stub.jsonl")], short / "stub.out")
+                     "--scenario", scenario, "--log", str(short / "stub.jsonl"), *stub_args], short / "stub.out")
         self.canary_file = short / "canary"
         self.passthrough = self._start(
             [sys.executable, "-I", str(KIT / "passthrough.py"), "--socket", str(self.root / "relay" / "passthrough.sock"),
@@ -1817,6 +1819,43 @@ def test_after_the_smoke_read_the_pilot_s_block_runs_three_together_and_waits_fo
     assert (code, "waiting for the pilot's ledger row" in out, sorted(a["effort"] for a in pilot),
             {a["task"] for a in pilot}, starts[-1] - starts[0] < 2) == (
         0, True, ["high", "low", "medium"], {"rs-archive-clone"}, True)
+
+
+def test_the_whole_schedule_ends_inside_both_caps_and_a_usage_limit_in_its_middle_closes_starts_until_after_its_reset_and_its_cut_slot_runs_again(rig):
+    """Task 7, first checkbox: every slot of the schedule against the stand-in harness, with the ledger's three reads
+    written as the tranche waits for them. The 20th start meets a usage limit (the stub's answer to its second turn,
+    a reset 292 s ago: starts reopen 8 s later); no start is made while starts are closed, the cut slot is the first
+    start after they reopen, and every slot ends in one observation inside the 240 starts and the USD 200."""
+    usage_limit = str(KIT / "fixtures" / "token-usage-limit-NonZeroAgentExitCodeError.json")
+    r = rig(plan=[{}] * 19 + [{"turn": 1, "fixture": usage_limit, "sleep": 1}], scenario="usage_limit",
+            stub_args=("--delay", "-292"))
+    outs = []
+    for what, cell in (("Smoke read", f"{r.label} pass"), ("Pilot read", f"{r.label} read"),
+                       ("Round 1 read", f"{r.label} read"), (None, None)):
+        code, out, err = r.launch(timeout=WAIT * 10)
+        outs.append((code, out.strip().splitlines()[-1]))
+        if what:
+            r.ledger(what, cell)
+    every, plan = r.attempts(), r.kit.ladder.schedule(r.kit.ladder.criterion(r.kit.ladder.Ctx(r.kit.env())))
+    (limit,) = [e for e in r.events() if e["event"] == "close_starts"]
+    until = float(limit["reset"]) + r.kit.ladder.REOPEN_S
+    (cut,) = [a for a in every if a["settled"]["class"] == "cut"]
+    after = sorted((a for a in every if a["opened"] >= until), key=lambda a: a["opened"])
+    starts, committed, open_ = r.kit.ladder.tally(r.root, r.kit.ladder.criterion(r.kit.ladder.Ctx(r.kit.env())), 0.0)
+    classes = {}
+    for a in every:
+        classes.setdefault((a["round"], a["task"], a["effort"]), []).append(a["settled"]["class"])
+    exported = _export(r)
+    assert (outs, [a["id"] for a in every if limit["time"] + 1 < a["opened"] < until], after[0].get("rerun_of"),
+            (after[0]["task"], after[0]["effort"], after[0]["round"]) == (cut["task"], cut["effort"], cut["round"]),
+            cut["settled"]["reward"], starts, len(plan) + 1, open_, committed == pytest.approx(
+                sum(a["settled"]["usd"] for a in every)), committed < 200, sorted(classes) == sorted(
+                (e["round"], e["task"], e["effort"]) for e in plan),
+            sorted(c.count("observation") for c in classes.values()) == [1] * len(plan),
+            json.loads((r.root / "end.json").read_text())["by"], len(exported["starts"])) == (
+        [(0, "waiting for the smoke read"), (0, "waiting for the pilot's ledger row"),
+         (0, "waiting for the round-one read"), (0, "the schedule is done")], [], cut["id"], True, None, 46, 46, [],
+        True, True, True, True, "schedule", 46)
 
 
 def test_a_failed_smoke_stops_the_tranche_and_its_start_is_a_stop_never_scored(rig):
