@@ -1232,6 +1232,19 @@ def test_a_runtime_check_that_finds_nothing_it_must_read_is_incomplete_never_cle
     """B2: an attempt with a session, or with containers, whose agent container is not found."""
     assert _runtime(short, containers, session=session) == want
 
+
+def test_a_container_whose_process_environments_were_never_read_is_an_incomplete_scan(short):
+    """M1: every `podman exec` failed (an image without sh), so no sample of its processes was ever scanned."""
+    assert _runtime(short, lambda t: {MAIN: {"no_sh": True}, SIDECAR: {}}) == INCOMPLETE
+
+
+@pytest.mark.parametrize("fields", [{MAIN: {"inspect_fails": True}, SIDECAR: {}},
+                                    {MAIN: {}, SIDECAR: {"logs_fails": True}},
+                                    {MAIN: {"fs": None}, SIDECAR: {}}])
+def test_a_failed_podman_read_is_an_incomplete_scan_never_an_empty_file_scanned_clean(short, fields):
+    """M2: `podman inspect`, `logs` or `export` exits non-zero."""
+    assert _runtime(short, lambda t: fields) == INCOMPLETE
+
 def _events_file(root, *events):
     with open(root / "passthrough" / "tranche.jsonl", "a") as fh:
         for event in events:

@@ -1670,6 +1670,21 @@ def _export_scan(ctx, name):
     return 2 if exported.wait() != 0 and code == 0 else code
 
 
+def _kept(ctx, attempt_dir, name):
+    """Keep a container's inspected configuration, and an egress sidecar's log first: 0, or 2 when podman could not
+    give one (Task 8 M2: a failed read, or an empty inspection, is never kept as an empty file and scanned clean)."""
+    reads = ([("logs", attempt_dir / f"egress-{name}.log")] if "egress-control-sidecar" in name else []) + [
+        ("inspect", attempt_dir / "containers" / f"{name}.inspect.json")]
+    code = 0
+    for verb, path in reads:
+        done = podman(ctx, verb, name)
+        if done.returncode != 0 or (verb == "inspect" and not done.stdout.strip()):
+            code = 2
+            continue
+        path.write_bytes(done.stdout)
+    return code
+
+
 def had_session(attempt_dir):
     """Whether the attempt's trial holds the agent's stream: a session ran, so containers ran."""
     trial = trial_dir(attempt_dir)
@@ -1681,16 +1696,15 @@ def runtime_check(ctx, attempt_dir, export):
     configuration and the process environments read while it ran; with `export`, the file system of every agent
     container (`*_main_1`) too. The egress sidecar's log is read to its end and kept first. The finding, or None:
     any finding in any container is the attempt's. A session with no container under the trial's prefix, or an
-    export due with no agent container, is an incomplete scan, never clean (Task 8 B2)."""
+    export due with no agent container, is an incomplete scan, never clean (Task 8 B2); so are a container whose
+    process environments no sample over the attempt read (M1) and a podman read that failed (M2)."""
     (attempt_dir / "containers").mkdir(exist_ok=True)
     names = container_names(ctx, prefixes(attempt_dir))
-    for name in names:
-        if "egress-control-sidecar" in name:
-            (attempt_dir / f"egress-{name}.log").write_bytes(podman(ctx, "logs", name).stdout)
+    codes = [_kept(ctx, attempt_dir, name) for name in names]
     sample_environ(ctx, attempt_dir, names)
-    for name in names:
-        (attempt_dir / "containers" / f"{name}.inspect.json").write_bytes(podman(ctx, "inspect", name).stdout)
-    codes = [token_scan(ctx, attempt_dir / "containers")] if names else []  # no container: nothing to scan
+    sampled = attempt_dir / "containers"  # M1: a container no sample over the attempt could read is unscanned
+    codes += [2 for name in names if not (sampled / f"{name}.environ").is_file()]
+    codes += [token_scan(ctx, attempt_dir / "containers")] if names else []  # no container: nothing to scan
     agents = [n for n in names if n.endswith("_main_1")]
     if (names or had_session(attempt_dir)) and (not names or export and not agents):
         codes.append(2)
@@ -1703,7 +1717,8 @@ def runtime_check(ctx, attempt_dir, export):
 
 def sample_environ(ctx, attempt_dir, names):
     """Each running container's process environments, kept as the distinct entries seen so far in
-    containers/<name>.environ (one per NUL-ended entry)."""
+    containers/<name>.environ (one per NUL-ended entry). A container no exec has reached has no such file, which
+    runtime_check reads as unscanned (Task 8 M1)."""
     for name in names:
         done = podman(ctx, "exec", name, "sh", "-c", "cat /proc/[0-9]*/environ 2>/dev/null; true", timeout=60)
         if done.returncode != 0:
