@@ -291,14 +291,21 @@ elif cmd == "network" and rest[0] == "rm":
     for name in operands(rest[1:]):
         (N / f"{name}.json").unlink(missing_ok=True)
 elif cmd == "inspect":
+    if any((load(n) or {}).get("inspect_fails") for n in operands(rest)):
+        sys.exit(125)
     print(json.dumps([{"Name": n, "Config": {"Env": load(n).get("env", [])}} for n in operands(rest) if load(n)]))
 elif cmd == "logs":
-    print((load(operands(rest)[0]) or {}).get("log", ""))
+    found = load(operands(rest)[0]) or {}
+    if found.get("logs_fails"):
+        sys.exit(125)
+    print(found.get("log", ""))
 elif cmd == "exec":
     found = load(operands(rest)[0])
     if not found or not found.get("running", True):
         sys.exit(125)
-    sys.stdout.write("\0".join(found.get("env", [])))
+    if found.get("no_sh"):  # an image without sh
+        sys.exit(127)
+    sys.stdout.write("\0".join(found.get("proc_env", found.get("env", []))))
 elif cmd == "export":
     found = load(operands(rest)[0]) or {}
     if "fs" in found and found["fs"] is None:  # a container whose file system cannot be exported
@@ -1179,7 +1186,40 @@ def test_reconcile_closes_a_dead_launcher_s_attempt_as_its_stop_never_as_a_score
         (5, "stop", cause, None), [cause])
 
 
-# ---- Allowance (Task 5, fourth checkbox) -----------------------------------------------------------------------
+# The runtime check (Task 8 part B): any finding in any container is the attempt's; what it cannot read is
+# an incomplete scan, never clean.
+
+def _runtime(short, containers, session=True, export=True):
+    """runtime_check on an attempt whose trial had a session (or not), with stand-in containers named
+    `<trial>__<suffix>` and the fields `containers(token)` gives; its finding."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    ctx = _ctx(short, lh)
+    ladder.ensure_state(ctx.root)
+    token = "lh-test-" + os.urandom(16).hex()
+    _fingerprint(ctx.root, token)
+    attempt_dir = ctx.root / "slots" / "001"
+    trial = attempt_dir / "jobs" / "001" / "wal__abcdefg"
+    (trial / "agent").mkdir(parents=True)
+    if session:
+        (trial / "agent" / "claude-code.txt").write_text("{}\n")
+    for suffix, fields in containers(token).items():
+        _container(lh, f"wal__abcdefg__{suffix}", **fields)
+    return ladder.runtime_check(ctx, attempt_dir, export)
+
+
+MAIN, SIDECAR = "env_main_1", "env_harbor-docker-egress-control-sidecar_1"
+INCOMPLETE = "an incomplete scan of the runtime check in the attempt's containers"
+MATCH = "a match of the runtime check in the attempt's containers"
+
+
+def test_a_clean_attempt_s_containers_pass_the_runtime_check(short):
+    assert _runtime(short, lambda t: {MAIN: {"fs": "a file\n"}, SIDECAR: {"log": "{}"}}) is None
+
+
+def test_a_match_in_one_container_s_file_system_is_never_replaced_by_a_later_container_s_clean_one(short):
+    """B1: the trial's agent container and a verifier project's both end in _main_1; the first holds the token."""
+    found = _runtime(short, lambda t: {MAIN: {"fs": f"x {t} y"}, "verifier__abc_main_1": {"fs": "clean\n"}})
+    assert found == MATCH
 
 def _events_file(root, *events):
     with open(root / "passthrough" / "tranche.jsonl", "a") as fh:

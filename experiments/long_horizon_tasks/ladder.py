@@ -1656,10 +1656,25 @@ def _scan_verdict(code, match, incomplete):
     return {1: match, 2: incomplete}.get(code)
 
 
+def _worst(codes):
+    """The scans' joint exit: a match anywhere (1) before an incomplete scan anywhere (2), else 0 (Task 8 B1)."""
+    return 1 if 1 in codes else max(codes, default=0)
+
+
+def _export_scan(ctx, name):
+    """token_scan.py over a container's exported file system; a failed export is an incomplete scan."""
+    exported = subprocess.Popen(["podman", "export", name], env=base_env(ctx), stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL)
+    code = token_scan(ctx, "-", stdin=exported.stdout)
+    exported.stdout.close()
+    return 2 if exported.wait() != 0 and code == 0 else code
+
+
 def runtime_check(ctx, attempt_dir, export):
     """D4's runtime check on the attempt's containers before they are removed: every container's inspected
-    configuration and the process environments read while it ran; with `export`, the agent container's exported
-    file system too. The egress sidecar's log is read to its end and kept first. The finding, or None."""
+    configuration and the process environments read while it ran; with `export`, the file system of every agent
+    container (`*_main_1`) too. The egress sidecar's log is read to its end and kept first. The finding, or None:
+    any finding in any container is the attempt's."""
     (attempt_dir / "containers").mkdir(exist_ok=True)
     names = container_names(ctx, prefixes(attempt_dir))
     for name in names:
@@ -1668,15 +1683,12 @@ def runtime_check(ctx, attempt_dir, export):
     sample_environ(ctx, attempt_dir, names)
     for name in names:
         (attempt_dir / "containers" / f"{name}.inspect.json").write_bytes(podman(ctx, "inspect", name).stdout)
-    scanned = token_scan(ctx, attempt_dir / "containers") if names else 0  # no container: nothing to scan
-    found = _scan_verdict(scanned, RUNTIME_MATCH, RUNTIME_INCOMPLETE)
-    for name in [n for n in names if n.endswith("_main_1")] if export and not found else []:
-        exported = subprocess.Popen(["podman", "export", name], env=base_env(ctx), stdout=subprocess.PIPE,
-                                    stderr=subprocess.DEVNULL)
-        code = token_scan(ctx, "-", stdin=exported.stdout)
-        exported.stdout.close()
-        found = _scan_verdict(2 if exported.wait() != 0 and code == 0 else code, RUNTIME_MATCH, RUNTIME_INCOMPLETE)
-    return found
+    codes = [token_scan(ctx, attempt_dir / "containers")] if names else []  # no container: nothing to scan
+    for name in [n for n in names if n.endswith("_main_1")] if export else []:
+        if 1 in codes:
+            break
+        codes.append(_export_scan(ctx, name))
+    return _scan_verdict(_worst(codes), RUNTIME_MATCH, RUNTIME_INCOMPLETE)
 
 
 def sample_environ(ctx, attempt_dir, names):
