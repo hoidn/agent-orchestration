@@ -275,8 +275,9 @@ Against the copies the feasibility check used (`harbor-framework/terminal-bench`
     Dockerfile, a uv lock).
   - Instructions and reference solutions did not change.
   - For those 7, the public per-task counts were measured on a different environment.
-- `tasks.json` keeps `overlay_digest`, `cap`, `extra_hosts` and `oracle_evidence` as `null`. The plan's
-  Task 2 oracle runs fill them; those runs were not part of the recording rounds.
+- `tasks.json` now also holds each task's pinned images and withholding result (Task 2b, below), and the
+  first oracle pass filled `overlay_digest` and `oracle_evidence` ("First oracle pass"). `extra_hosts`
+  stays `null` until Task 3 freezes it; the per-attempt cap lives only in `ladder.json`.
 
 ### Token mode (owner ruling: subscription only)
 
@@ -534,6 +535,9 @@ system is exported to a tar, and the tar is read on the host.
    - An archive inside an archive, a git pack, an unreadable archive and anything larger are listed as
      "not opened", with path and size.
    - Every `.git` directory outside system paths is listed and is "needs a look".
+   - Archives inside system and language paths are neither opened nor listed (the intended scope).
+   - A text file over 64 MiB (no NUL byte in its first 8 KiB) is never read by check 4, so it is listed
+     (`large_text`, ledger item N3), with its size and whether it is an environment copy.
 6. **Each layer of the image is walked**, deleted files included, in Podman's user namespace
    (`podman unshare`). Every entry, whiteouts included, is tested by path, and every regular file by
    SHA-256.
@@ -542,8 +546,10 @@ system is exported to a tar, and the tar is read on the host.
 - The first pass (checks 1 to 3, regular files only) was replaced in the file by the second, and its
   numbers are not in `image_measure.json`.
 - Every record now in the file was written by the committed code, after the virtual-environment rule.
-  All 16 agent images were pulled again one at a time under the 25 GB stop; the record says `pass` 4
-  or 5.
+  All 16 agent images were checked again during the first oracle pass (below), each while its image was
+  in the store for that pass, with the `large_text` listing added; the record says `pass` 5 or 6.
+- **Large text files (N3): none.** No agent image holds a text file over 64 MiB, so check 4 skipped
+  nothing for size.
 - The verdicts are the ones the earlier records predicted under the final rule. The one change is
   roy-polymorph-cn: its two launcher scripts are now inside a virtual environment.
 - The earlier passes are kept as `earlier_passes` summaries.
@@ -694,6 +700,181 @@ writing to both disks throughout, so every figure below holds for its date only 
 - **At the end of the regeneration** (`df -h`): `/home` 70 GB, `/` 50 GB.
 - **Not in the file any more:** the first pass's export figures were overwritten (their low was
   72.18 GB on `/home` and 55.20 GB on `/`).
+
+### First oracle pass on the pinned images (2026-11-14, no spend)
+
+Plan D1's first pass: each task once, reference and untouched, load not controlled. Run by `oracle_check.sh`
+(`GATE=none REPEATS=1 CONCURRENCY=1 CPUS=8-31 INSTALL=1`) from 16:18 to 18:36 PST, one task at a time in
+`tasks.json` order, vba-userform-port first. Per task:
+- both pinned images pulled by digest under their `docker.io/` full name;
+- the pinned CLI installed once on the agent image by the harness's own path (`claude-code --install-only`,
+  version 2.1.311): the public CLI was downloaded, no session started and no request reached any model API;
+- one `oracle` trial (the reference solution) and one `nop` trial (untouched), each graded by the task's own
+  verifier image;
+- the withholding recheck of the agent image while it was in the store (above);
+- both images deleted (never `-f`).
+The harness ran with an empty environment: no credential of any kind. Per-trial records (outcome, phase
+times, load, the egress sidecar's refused connections, each container's peak memory and affinity, image ids,
+digests; no log text) are in `oracle_first_pass.json`; the logs stay in the cache directory.
+
+**The overlay.** Each package's `task.toml` got the two agent-phase keys after `[agent]`: `network_mode =
+"allowlist"` and D3's list as drafted (the relay, the Python, Node and Rust indexes, the Debian, Ubuntu and
+Fedora mirrors: 13 names, no port, never the host's address). Its digest is `3f99fe3c…c4f6` for all 16
+(`overlay_digest` in `tasks.json`). For every copy, removing the two lines gave back the package's
+`task.toml` byte for byte.
+
+| Task | Reference | Untouched | CLI install, setup s | Wall s (ref / untouched) | Load 1-min at start (ref / untouched) | Graded checks passed (ref / untouched) | Largest peak memory, GB |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| vba-userform-port | no reward (RewardFileNotFoundError) | no reward (RewardFileNotFoundError) | ok, 25 | 61 / 50 | 55 / 52 | - / - | 0.02 |
+| vba-userform-port-uidfix | pass | fail (0) | (on the unchanged label) | 113 / 66 | 19 / 32 | 29 of 29 / 0 of 29 traces | 0.52 |
+| vf2-speedup-networkx | pass | fail (0) | ok, 127 | 330 / 71 | 34 / 35 | 60 of 60 / 0 of 60 | 0.54 |
+| wal-recovery-ordering | pass | fail (0) | ok, 155 | 537 / 71 | 34 / 15 | gates 3 of 3 / 1 of 2; suite 10 × 97 of 97 / not run | 0.40 |
+| session-window-debug | pass | fail (0) | ok, 174 | 67 / 66 | 40 / 47 | 9 of 9 / 4 of 9 | 0.24 |
+| production-planning | pass | fail (0) | ok, 162 | 98 / 61 | 63 / 52 | 20 of 20 / 1 of 20 | 0.31 |
+| vpp-loss-divergence | pass | fail (0) | ok, 140 | 234 / 188 | 33 / 38 | 5 of 5 / 4 of 5 | 1.04 |
+| batched-eval-parity | pass | fail (0) | ok, 171 | 327 / 107 | 48 / 35 | 5 of 5 / 0 of 5 | 0.47 |
+| pretrain-shard-corruption | pass | fail (0) | ok, 178 | 409 / 106 | 41 / 22 | 12 of 12 / 4 of 12 | 1.57 |
+| gsea-proteomics | pass | fail (0) | ok, 130 | 107 / 50 | 12 / 14 | 16 of 16 / 0 of 16 | 0.91 |
+| lake-temp-glm | pass | fail (0) | ok, 119 | 379 / 71 | 32 / 39 | 1 of 1 / 0 of 1 | 0.77 |
+| sound-change-cascade | pass | fail (0) | ok, 157 | 66 / 61 | 35 / 37 | 7 of 7 / 0 of 7 | 0.22 |
+| hof-topology-interpenetration | pass | fail (0) | ok, 170 | 112 / 67 | 45 / 50 | 38 of 38 / 0 of 38 | 0.44 |
+| shadow-relay | pass | fail (0) | ok, 156 | 66 / 61 | 56 / 48 | 9 of 9 / 2 of 9 | 0.23 |
+| rs-archive-clone | pass | fail (0) | ok, 165 | 169 / 72 | 49 / 55 | 57 of 57 / 0 of 57 | 0.23 |
+| retro-console-soc | pass | fail (0) | ok, 32 | 309 / 56 | 39 / 17 | 8 of 8 / 0 of 8 | 3.72 |
+| roy-polymorph-cn | pass | fail (0) | ok, 121 | 71 / 61 | 52 / 45 | 3 of 3 / 0 of 3 | 0.27 |
+
+**What the pass shows.**
+- **All 15 tasks other than vba-userform-port pass both halves** on their pinned images, under the draft
+  allowlist, at 1-minute load 11 to 63. That includes the six timing- or speed-sensitive tasks the plan
+  names. One run under load says nothing about five quiet runs: the second pass decides.
+- **vba-userform-port fails unchanged on the pinned images as on the local build.** Its verifier assigns a
+  random uid up to about 10^9 and dies with `OSError: [Errno 22] Invalid argument`, so neither half writes a
+  reward. Rootless Podman here maps 65,536 sub-ids (`podman unshare cat /proc/self/uid_map`).
+- **The labelled variant (owner question 4) passes both halves**, built as follows:
+  - Why a derived image: a pinned verifier image carries its own copy of the tests. The harness uploads no
+    tests to it (Harbor's `bundled_tests`), so changing the package's `tests/app_worker.py` alone would
+    change nothing.
+  - The variant is the package with that one line changed (`secrets.randbelow(1000000000)` to
+    `secrets.randbelow(55000)`), run on a verifier image derived from the pinned one by the same `sed`. That
+    is one layer, and `podman image diff` shows only `/tests/app_worker.py` changed. The copy's
+    `task.toml` names the derived image.
+  - The variant's first run lost its untouched half to the harness. podman-compose 1.6.0's teardown (`down
+    --rmi local --remove-orphans`) deletes images by two paths, both with `rmi --ignore --force <name>`:
+    - `--rmi local`: a service whose compose `image:` string starts with `localhost/`, or that has a `build:`
+      section and no `/` in the string (`is_local()`). The string is the one in `task.toml`, not the stored
+      name: Podman stores every local image as `localhost/…` either way;
+    - `--remove-orphans`: the image of every leftover container of the same compose project, whatever its
+      name.
+    The first derived image's `task.toml` string began with `localhost/`, so after the reference trial it was
+    gone, and the untouched trial failed to start (`RuntimeError`, pull of the missing image).
+  - The fix: the `task.toml` string has no prefix, and the variant was run again, both halves. The set-aside
+    reference trial had also passed; both lost trials are kept outside the job tree.
+  - Fix round 1 gave the variant a recorded identity ("The labelled variant's recorded image", below).
+- **The CLI installs on all 16 pinned agent images**, with 25 to 178 s of agent setup:
+  - vba-userform-port's image already had Node;
+  - retro-console-soc's Fedora image used `dnf`;
+  - the harness's install command ends with `claude --version` under `set -euo pipefail`, so a missing binary
+    would have failed it.
+- **The CPU set reaches every container.** Each sample read the affinity of every process in each
+  container's cgroup: the agent's container, its egress sidecar, the verifier's container and, where the
+  verifier has no network, its sidecar. Every value was `8-31`. A verifier container was sampled in 32 of the
+  34 graded trials; the two vba-userform-port unchanged verifiers ended within a sampling interval.
+- **Egress:** only gsea-proteomics's reference had refused connections. There were 8, to two addresses on
+  port 443, one per run of the bundled GSEA tool (8 runs), and the reference passed 16 of 16. The log names
+  addresses, not hosts. The review named the host: `www.gsea-msigdb.org` resolves today to exactly those two
+  addresses, and the GSEA jar holds `https://www.gsea-msigdb.org/gsea`. So the tool calls home at start, and
+  the task does not need it. `tasks.json` records this beside the task (`egress_refused`), so that no later
+  reader adds the host to `extra_hosts`. Its index traffic was allowed.
+- **What the egress logs show of the allowlist: only that it was in force for gsea-proteomics.** A sidecar's
+  log holds its start (`initial egress policy is public`, `ok: allow all egress`) and its refusals. The
+  harness switches the agent phase to the allowlist by `compose exec … network-policy allow …`, and that
+  command's `ok: allowlist applied` is not in the log. For the other 15 tasks the allowlist rests on the
+  overlay (each copy minus the two lines is its package's `task.toml`) and on the harness raising when the
+  switch fails. From fix round 1 on, `oracle_check.sh` records each sidecar's `network-policy show` (mode and
+  number of hosts) in `samples` whenever it changes, and `summarize.py` keeps it as `policies`.
+- **Graded checks:** every verifier except vba-userform-port's unchanged run wrote a CTRF report, and its
+  counts are in the records. Two tasks grade by something else, so the table gives their own counts:
+  - vba-userform-port's CTRF holds one pytest wrapper that only computes the score (1 of 1 in both halves).
+    The graded checks are the hidden traces (`verifier/trace_summary.json`): 29 of 29 and 0 of 29. Every
+    untouched trace fails with `Missing /workspace/generated_app/run.sh`;
+  - wal-recovery-ordering runs gates first (`ctrf_gates.json`), then its suite ten times. The untouched run
+    passes the structural gate, fails the isolated recovery gate and stops there (`-x`), so its suite never
+    runs.
+  - Since fix round 2, `summarize.py` counts a run only when its CTRF report holds at least one test, and a
+    reference pass only when every test in it passed. No verifier of the 16 lacks a report by design.
+    vba-userform-port's report holds only the wrapper, so its hidden traces (`traces` in the records) are
+    the evidence that its graded checks ran. The first pass's verdicts are unchanged by the rule.
+- **Memory and disk.** The largest cgroup peak was 3.72 GB (retro-console-soc's verifier). The job tree is
+  36 MB for all 50 trials. During any trial, free space fell by at most 2.74 GB on `/home` and 2.46 GB on
+  `/`, with other sessions writing at the same time. The lowest readings were 31.0 GB on `/` and 68.6 GB on
+  `/home`, above the 25 GB stop.
+
+### The labelled variant's recorded image (Task 2b fix round 1, 2026-11-14, no spend)
+
+**Ruling.** The coordinator accepts vba-userform-port-uidfix as the labelled reading of D1's one-line verifier
+change, for use only if the owner does not run `podman system migrate` (owner question 4 stays open; nothing
+here runs it).
+
+**Built once.** `uidfix_variant.py` built the verifier image once and recorded it under `variant` in
+vba-userform-port's `tasks.json` entry:
+- base: the pinned verifier image, pulled by digest (`sha256:ce013fac…2a28`, image id `cb25df7d…073d`, the
+  id `tasks.json` already held);
+- recipe: `FROM docker.io/<pinned ref>` and one `RUN`, which refuses unless exactly one line of
+  `/tests/app_worker.py` holds the bound and then runs the `sed`. It was built with no network and no pull;
+- image id `01b5f971…67ca`, under two names: `lh-oracle/vba-userform-port-uidfix:verifier` (the one the
+  variant's `task.toml` uses) and `lh-keep/vba-userform-port-uidfix:verifier` (in no compose file);
+- `/tests/app_worker.py`: SHA-256 `d30b3eaf…6df7` before, which is also the package's file byte for byte,
+  and `f760628d…cf2a` after. The diff is line 55, `randbelow(1000000000)` to `randbelow(55000)`;
+- file by file, only `tests/app_worker.py` differs. Both images were exported from a created, never started
+  container and compared by kind, mode, owner, link target and SHA-256, modification times aside.
+  `podman image diff` lists `C /tests` (the directory's modification time, from `sed -i`'s rename) and
+  `C /tests/app_worker.py`.
+
+**The guard.** podman-compose's teardown deletes an image by the name its container used (`rmi --ignore
+--force <name>`); while a second name holds the image, that only untags. `oracle_check.sh`:
+- checks the recorded image id before each launch of the label;
+- gives the compose name back from the keeper if it is missing;
+- refuses when the copy's changed file is not the recorded one;
+- never builds or deletes the variant.
+
+Deleting it is a manual step: `podman rmi` of both names, then the `variant` record. The image and its base
+(the pinned verifier image) are in the store now.
+
+**What the second pass must check before running this label four at once.**
+- Both names give the recorded id (`podman image inspect -f '{{.Id}}'`).
+- A teardown can still untag the compose name while a sibling trial of the label is in its agent phase. That
+  happens only through `--remove-orphans`, on a trial's own leftover containers. The sibling's verifier would
+  then fail to start with an error, and `summarize.py` counts that as no evidence, never as a pass or a fail.
+  The same path can force-remove a shared pinned image by name, together with a sibling trial's container
+  (review m7). The script's id check stops the next launch (exit 6) when an image is gone.
+- So run one round of the label four at once first, and check its errors. If an image went, run the label's
+  trials one at a time.
+
+**Rerun on the recorded image** (`oracle_check.sh`, `GATE=none REPEATS=1 CONCURRENCY=1 CPUS=8-31`, 19:52 PST;
+records in `oracle_uidfix_recorded.json`):
+- the reference passes 29 of 29 hidden traces (reward 1) in 119 s;
+- untouched gets reward 0 and 0 of 29 traces in 62 s;
+- 1-minute load 57.9 and 39.5 at the two starts;
+- nothing was built, and `summarize.py` prints `qualifies`.
+
+The sidecar's sampled policy shows `allow-all` before and after the agent phase. The oracle's agent phase
+lasted 6 s and fell between two samples.
+
+### The stops, checked on the variant (Task 2b fix round 1, no spend)
+
+`oracle_check.sh` ran the variant with `WALL_BOUND_S=45`, and the script got SIGTERM 30 s into the untouched
+trial:
+- **The reference trial stopped at its wall bound** (`stop=wall bound 45s`). Harbor got SIGTERM, cancelled the
+  agent phase (`CancelledError`), took its containers down and exited 130, 61 s after the trial's start.
+- **The untouched trial stopped by the request** (`stop=signal`). The script's trap created `$JOBS/.stop`, and
+  the follower then stopped the harness. The verifier had started as the signal came; Harbor let it finish
+  (reward 0 in `result.json`) and exited 130 after 37 s.
+- **Nothing was left:** no container or network named after either trial, so the script had nothing to
+  remove. `summarize.py` lists both runs as `stopped: …`, no evidence.
+- **The sampled policy** of the reference, stopped in its agent phase, shows `controlled egress` with 13
+  hosts.
+- **Not captured:** the script's exit code. The driver printed `$?` after a command substitution; the unit
+  test covers exit 5.
 
 ## Fixtures
 

@@ -1,5 +1,9 @@
 """Structural and creator-scope capture contracts for W3 local procedures."""
 
+import json
+import subprocess
+import sys
+
 import pytest
 
 from orchestrator.workflow_lisp.closed.build import build_closed_program
@@ -12,6 +16,9 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.procedures import GeneratedLocalProcedure
 from tests.test_workflow_lisp_procedures import _write_module
 from tests import test_workflow_lisp_defect_backlog as backlog
+from tests.workflow_lisp_closed_program_helpers import build_outcome
+from orchestrator.workflow_lisp.build import FrontendBuildRequest
+from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 
 
 W3_TARGET = "2.40"
@@ -699,10 +706,9 @@ def _local(body, call="(h n)"):
     return f"((n Int)) -> Int (let-proc ((h ((v Int)) -> Int {body})) {call})"
 
 
-def _run_local(tmp_path, run, *definitions):
+def _run_local(tmp_path, run, *definitions, inputs=("n=3",)):
     path = backlog._install(tmp_path, {"m.orc": backlog.module(run, *definitions)})
-    observed, detail = backlog._run(tmp_path, path, "m::run", ("n=3",))
-    return observed, detail
+    return backlog._run(tmp_path, path, "m::run", inputs)
 
 
 @pytest.mark.parametrize(
@@ -726,3 +732,207 @@ def test_local_whose_loop_state_is_a_scalar_runs(tmp_path):
     """Control: a local loop without a `loop-state` built before the fix."""
     observed, detail = _run_local(tmp_path, _local(COUNT_SCALAR))
     assert observed == backlog.value(30), detail
+
+
+# A role bound with `bind-proc` over `add` and called from a `let-proc` step, and a captured procedure reference:
+# the captured value is a compile-time binding of the local. `ADDE` is `add` backed by a command that returns 3.
+ROLE_STEP_CALLED = backlog.ROLE_STEP.replace("BODY", "(step 1)")
+ROLE_STEP_MAP_BODY = backlog.ROLE_STEP.replace("BODY", backlog.MAP_12.replace("CALL", "(step x)"))
+ROLE_STEP_PASSED = backlog.ROLE_STEP.replace("BODY", "(each (proc-ref step) (list 1 2))")
+CAPTURED_INCREMENT = "(let* ((p (proc-ref increment))) (let-proc ((f ((x Int)) -> Int (p x))) (f 1)))"
+CAPTURED_STEP = "(let* ((g (proc-ref step))) (let-proc ((h ((n Int)) -> Int (g n))) (via (proc-ref h) (list 1 2))))"
+
+
+@pytest.mark.parametrize(
+    ("body", "definitions", "wanted"),
+    [(ROLE_STEP_CALLED, (backlog.ADD,), (2,)), (ROLE_STEP_CALLED, (backlog.ADDE,), (3, "add"))],
+    ids=["pure-role", "effectful-role"],
+)
+def test_role_bound_with_bind_proc_is_called_from_a_local_step(tmp_path, body, definitions, wanted):
+    observed, detail = _run_local(tmp_path, f"() -> Int {body}", *definitions, inputs=())
+    assert observed == backlog.value(*wanted), detail
+
+
+@pytest.mark.parametrize(
+    ("body", "definitions"),
+    [
+        (ROLE_STEP_MAP_BODY, (backlog.ADDE,)),
+        (ROLE_STEP_PASSED, (backlog.ADDE, backlog.EACH)),
+        (backlog.ROLE.replace("BODY", "(let-proc ((step (x) (role x))) (each (proc-ref step) (list 1 2)))"),
+         (backlog.ADDE, backlog.EACH)),
+    ],
+    ids=["map-body", "passed-to-a-mapping-procedure", "inferred-signature-passed"],
+)
+def test_local_capturing_a_reference_is_a_map_body(tmp_path, body, definitions):
+    observed, detail = _run_local(tmp_path, f"() -> Int {body}", *definitions, inputs=())
+    assert observed == backlog.value(2, "add", "add"), detail
+
+
+@pytest.mark.parametrize(
+    ("body", "definitions", "wanted"),
+    [(CAPTURED_INCREMENT, (backlog.INC,), (2,)), (CAPTURED_STEP, (backlog.STEP, backlog.D11_VIA), (2, "step", "step"))],
+    ids=["called", "passed-to-a-mapping-procedure"],
+)
+def test_local_forwards_a_captured_reference(tmp_path, body, definitions, wanted):
+    observed, detail = _run_local(tmp_path, f"() -> Int {body}", *definitions, inputs=())
+    assert observed == backlog.value(*wanted), detail
+
+
+@pytest.mark.parametrize(
+    ("alias", "by_name", "definitions"),
+    [
+        (CAPTURED_INCREMENT, "(let-proc ((f ((x Int)) -> Int (increment x))) (f 1))", (backlog.INC,)),
+        (CAPTURED_STEP, "(let-proc ((h ((n Int)) -> Int (step n))) (via (proc-ref h) (list 1 2)))",
+         (backlog.STEP, backlog.D11_VIA)),
+        (ROLE_STEP_MAP_BODY, "(let-proc ((step ((x Int)) -> Int (add 1 x))) "
+         + backlog.MAP_12.replace("CALL", "(step x)") + ")", (backlog.ADDE,)),
+        (ROLE_STEP_PASSED, "(let-proc ((step ((x Int)) -> Int (add 1 x))) (each (proc-ref step) (list 1 2)))",
+         (backlog.ADDE, backlog.EACH)),
+    ],
+    ids=["captured-reference-called", "captured-reference-passed", "role-step-map-body", "role-step-passed"],
+)
+def test_captured_reference_and_the_procedure_name_give_one_digest(tmp_path, alias, by_name, definitions):
+    digests = {backlog._build(tmp_path / name, backlog.module(f"() -> Int {body}", *definitions)).program.digest
+               for name, body in (("alias", alias), ("by-name", by_name))}
+    assert len(digests) == 1
+
+
+def test_role_bound_over_a_workflow_input_is_a_map_body(tmp_path):
+    run = "((k Int)) -> Int " + ROLE_STEP_MAP_BODY.replace(":n 1", ":n k")
+    observed, detail = _run_local(tmp_path, run, backlog.ADDE, inputs=("k=1",))
+    assert observed == backlog.value(2, "add", "add"), detail
+
+
+# A role bound over `k` and a local using it, with a binder between them. Where the binder is `k`, the copied role
+# would read it, so the role stays a capture parameter, as on `main` (the record's `D10-rebound-*` rows); with the
+# inner binder renamed it runs and gives the role's value. `ADDV` is a command-backed `add` whose value is `n + x`.
+ADDV = ('(defproc add ((n Int) (x Int)) -> Int (let* ((z (command-result c :argv ("python" "c.py" "add" "0") '
+        ':returns Int))) (+ (+ n x) z)))')
+UNION_U = "(defunion U (A (n Int)) (B (why String)))"
+BIND_AS = "(defmacro bind-as (nm body) (let* ((nm 100)) body))"
+WITH_K = "(defmacro with-k (body) (let* ((k 100)) body))"
+IGNORE = "(defproc ignore ((f ProcRef[Int -> Int]) (v Int)) -> Int v)"
+ROLE_OVER_K = "(let* ((role (bind-proc (proc-ref add) :n k))) BODY)"
+STEP_LOCAL = "(let-proc ((step ((x Int)) -> Int (role x))) (step 1))"
+REBINDINGS = {
+    "loop-binder": "(loop/recur ((K 100)) :max 1 :on-exhausted 0 (done LOCAL))",
+    "fn-state-binder": "(loop/recur :max 1 :state 100 :on-exhausted 0 (fn (K) (done LOCAL)))",
+    "let-binder": "(let* ((K 100)) LOCAL)",
+    "let-in-loop": "(loop/recur ((s 0)) :max 1 :on-exhausted 0 (let* ((K 100)) (done LOCAL)))",
+    "match-arm-binder": "(match (variant U A :n 100) ((A K) LOCAL) ((B b) 0))",
+    "macro-binder": "(bind-as K LOCAL)",
+    "local-parameter": "(let-proc ((step ((K Int)) -> Int (role K))) (step 1))",
+}
+
+
+def _rebinding(case, binder):
+    return "((k Int)) -> Int " + ROLE_OVER_K.replace("BODY", REBINDINGS[case].replace("LOCAL", STEP_LOCAL)
+                                                      .replace("K", binder))
+
+
+def _build_twice(tmp_path, run):
+    path = backlog._install(tmp_path, {"m.orc": backlog.module(run, ADDV, UNION_U, BIND_AS, WITH_K, IGNORE)})
+
+    def build():
+        return build_closed_program_bundle(FrontendBuildRequest(source_path=path, source_roots=(tmp_path,),
+            entry_workflow="m::run", command_boundaries_path=tmp_path / "commands.json", workspace_root=tmp_path))
+
+    return path, build_outcome(build), build_outcome(build)
+
+
+CLI_TWICE = """import json, sys
+from orchestrator.cli import main
+run = sys.argv[1:]
+sys.argv = ["orchestrator", "compile", *[a for a in run if a != "--input" and "=" not in a]]
+assert main() == 0
+sys.argv = ["orchestrator", "run", *run]
+sys.exit(main())
+"""
+
+
+def _run_in_one_process_after_a_compile(root, path, inputs):
+    """The public command line twice in one process: `compile`, then `run`."""
+    flags = [flag for item in inputs for flag in ("--input", item)]
+    done = subprocess.run([sys.executable, "-B", "-c", CLI_TWICE, str(path.relative_to(root)),
+        "--entry-workflow", "m::run", "--source-root", ".", "--command-boundaries-file", "commands.json", *flags],
+        cwd=root, env=backlog._env(), capture_output=True, text=True, check=False)
+    log = (root / "log.txt").read_text(encoding="utf-8").split() if (root / "log.txt").exists() else []
+    if done.returncode:
+        return ("exit", done.returncode, *log), done.stderr
+    return backlog.value(json.loads(done.stdout.splitlines()[-1]), *log), done.stderr
+
+
+@pytest.mark.parametrize("case", sorted(REBINDINGS))
+def test_role_read_name_with_the_inner_binder_renamed_gives_the_role_value(tmp_path, case):
+    _assert_runs_to(tmp_path, _rebinding(case, "q"), backlog.value(2, "add"))
+
+
+def test_macro_binder_renamed_by_hygiene_keeps_the_role_value(tmp_path):
+    run = "((k Int)) -> Int " + ROLE_OVER_K.replace("BODY", f"(with-k {STEP_LOCAL})")
+    _assert_runs_to(tmp_path, run, backlog.value(2, "add"))
+
+
+def test_local_in_a_loop_done_builds_alike_in_one_process_and_cold(tmp_path):
+    run = ("((k Int)) -> Int " + ROLE_OVER_K.replace(
+        "BODY", f"(loop/recur ((s 0)) :max 1 :on-exhausted 0 (done {STEP_LOCAL}))"))
+    _assert_runs_to(tmp_path, run, backlog.value(2, "add"))
+
+
+def _assert_runs_to(tmp_path, run, wanted):
+    path, first, second = _build_twice(tmp_path / "in-process", run)
+    assert (first, second) == (backlog.BUILDS, backlog.BUILDS)
+    cold_root = tmp_path / "cold"
+    cold_root.mkdir()
+    cold_path = backlog._install(cold_root, {"m.orc": path.read_text(encoding="utf-8")})
+    cold, detail = backlog._run(cold_root, cold_path, "m::run", ("k=1",))
+    assert cold == wanted, detail
+    warm, detail = _run_in_one_process_after_a_compile(path.parent, path, ("k=1",))
+    assert warm == wanted, detail
+
+
+# A local that is never lowered, over a role whose read name is bound again before it, builds as on `main` and runs
+# to 7: one the `let-proc` body never references keeps the capture parameter, and so does one referenced only by a
+# `let*` nothing reads or by an argument its callee ignores, because the role's read is rebound.
+UNREFERENCED = "(let-proc ((step ((x Int)) -> Int (role x))) 7)"
+UNREFERENCED_LOCALS = {
+    "loop-binder": f"(loop/recur ((k 100)) :max 1 :on-exhausted 0 (done {UNREFERENCED}))",
+    "let-binder": f"(let* ((k 100)) {UNREFERENCED})",
+    "local-parameter": "(let-proc ((step ((k Int)) -> Int (role k))) 7)",
+    "group-member": "(let* ((k 100)) (let-proc ((step ((x Int)) -> Int (role x)) (other ((x Int)) -> Int (+ x 0))) "
+                    "(other 7)))",
+    "unread-binding": "(let* ((k 100)) (let-proc ((step ((x Int)) -> Int (role x))) (let* ((f (proc-ref step))) 7)))",
+    "ignored-argument": "(let* ((k 100)) (let-proc ((step ((x Int)) -> Int (role x))) (ignore (proc-ref step) 7)))",
+}
+
+
+@pytest.mark.parametrize("case", sorted(UNREFERENCED_LOCALS))
+def test_local_never_lowered_over_a_role_whose_read_name_is_bound_again_builds(tmp_path, case):
+    _assert_runs_to(tmp_path, "((k Int)) -> Int " + ROLE_OVER_K.replace("BODY", UNREFERENCED_LOCALS[case]),
+                    backlog.value(7))
+
+
+# The two pairs whose spellings gave two digests in review (M2): each local gives the digest `main` gives for the
+# spelling the copy makes. A captured `(proc-ref increment)` passed on is the local with the alias written in its
+# own body (`main` builds that one; it differs from `(increment x)` there too, as a `defproc` body does). A role
+# in a macro's local is the template written with the call, under the same macro name: the local's parameter
+# is the macro's hygienic binder, and its name holds the macro's name.
+ROLE_TEMPLATE = "(defmacro use-step (r y) (let-proc ((step ((x Int)) -> Int (r x))) (step y)))"
+CALL_TEMPLATE = "(defmacro use-step (y) (let-proc ((step ((x Int)) -> Int (add 1 x))) (step y)))"
+INCREMENT_PASSED = "(via (proc-ref f) (list 1 2))"
+ONE_DIGEST_PAIRS = {
+    "captured-pure-reference-passed": (
+        ("() -> Int (let* ((p (proc-ref increment))) (let-proc ((f ((x Int)) -> Int (p x))) "
+         + INCREMENT_PASSED + "))", backlog.INC, backlog.D11_VIA),
+        ("() -> Int (let-proc ((f ((x Int)) -> Int (let* ((p (proc-ref increment))) (p x)))) "
+         + INCREMENT_PASSED + ")", backlog.INC, backlog.D11_VIA)),
+    "role-in-a-macro-local-expanded-twice": (
+        ("() -> Int " + backlog.ROLE.replace("BODY", "(+ (use-step role 1) (use-step role 2))"), ADDV, ROLE_TEMPLATE),
+        ("() -> Int (+ (use-step 1) (use-step 2))", ADDV, CALL_TEMPLATE)),
+}
+
+
+@pytest.mark.parametrize("case", sorted(ONE_DIGEST_PAIRS))
+def test_local_over_a_captured_reference_gives_the_digest_of_the_spelling_it_makes(tmp_path, case):
+    digests = {backlog._build(tmp_path / name, backlog.module(*spelling)).program.digest
+               for name, spelling in zip(("local", "written"), ONE_DIGEST_PAIRS[case], strict=True)}
+    assert len(digests) == 1

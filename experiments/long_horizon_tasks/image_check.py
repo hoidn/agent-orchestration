@@ -16,6 +16,7 @@ Plan D1 and Task 2b. For the image of <task> and <role> (`agent` or `verifier`) 
      no environment/ file (only the lines' SHA-256 is recorded); system paths, language package
      directories and virtual environments (any directory holding a pyvenv.cfg) need NOISE_N matches;
    - archives and .git objects outside system paths, opened when small enough and searched the same way;
+   - text files over MAX_READ, which the line check never reads, are listed (`large_text`);
    then each layer of the image is walked, deleted files included, by path and SHA-256;
 3. delete the tar and the container, and the image unless it was in the store before the pull.
 One JSON line is appended to the result file (`recheck` replaces an agent line's withholding result). It
@@ -26,6 +27,7 @@ Usage (from the repository root; LH is the cache directory, by default ~/lh-cach
   python -I experiments/long_horizon_tasks/image_check.py measure <task> <role> <scratch dir>
   python -I experiments/long_horizon_tasks/image_check.py recheck <task> <scratch dir>   (withholding again)
   python -I experiments/long_horizon_tasks/image_check.py totals
+  python -I experiments/long_horizon_tasks/image_check.py tasks    (images and withholding into tasks.json)
 Exit codes: 0 done; 1 pull failed; 2 bad arguments or package; 3 disk stop; 4 image left in place because a
 container uses it; 5 a clean-up step failed.
 Needs: podman (rootless), taskset, ionice; the task packages unpacked at $LH/tasks41/<task>/x; Harbor in
@@ -86,7 +88,8 @@ class Stop(Exception):
         self.code = code
 
 
-Entry = collections.namedtuple("Entry", "path kind size sha canary raw link")
+# text: for a file over MAX_READ, whether its first 8 KiB look like text (None when the file was read whole)
+Entry = collections.namedtuple("Entry", "path kind size sha canary raw link text", defaults=(None,))
 
 
 # ---- sizes and disk ---------------------------------------------------------------------------
@@ -289,7 +292,7 @@ def new_found():
     return {"path_hits": [], "digest_hits": [], "name_matches": 0, "name_samples": [],
             "name_match_dirs": collections.Counter(), "name_match_names": collections.Counter(),
             "canary_env_sha": [], "canary_name_only": [], "canary_other": [], "near_copies": [],
-            "archives_opened": [], "not_opened": [], "git_dirs": [], "files": 0, "members": 0}
+            "archives_opened": [], "not_opened": [], "git_dirs": [], "large_text": [], "files": 0, "members": 0}
 
 
 def _note_name(found, path, index):
@@ -325,13 +328,27 @@ def _open_archive(found, entry, index, depth):
         judge(found, member, index, depth + 1)
 
 
-def judge(found, entry, index, depth=0):
-    """Apply every check to one member of an image (or of an archive inside it)."""
+def _judge_member(found, entry, index):
+    """The checks every member gets, whatever its kind: by path, and a .git directory outside system paths."""
     found["members"] += 1
     found["path_hits"] += [{"path": entry.path, "kind": entry.kind, "matches": rel}
                            for rel in answer_paths(entry.path, index) + answer_paths(entry.link or "", index)]
     if entry.kind == "dir" and entry.path.rstrip("/").endswith(".git") and not is_system(entry.path, index.get("venvs", ())):
         found["git_dirs"].append(entry.path)
+
+
+def _judge_text(found, entry, index):
+    """Near copies in a file read whole; a text file over MAX_READ, never read by the line check, is listed (N3)."""
+    if entry.raw is not None and entry.sha not in index["env_sha"]:
+        near = near_copy(entry.path, entry.raw, index)
+        found["near_copies"] += [near] if near else []
+    if entry.text:
+        found["large_text"].append({"path": entry.path, "size": entry.size, "env_copy": entry.sha in index["env_sha"]})
+
+
+def judge(found, entry, index, depth=0):
+    """Apply every check to one member of an image (or of an archive inside it)."""
+    _judge_member(found, entry, index)
     if entry.kind != "file":
         return
     found["files"] += 1
@@ -341,9 +358,7 @@ def judge(found, entry, index, depth=0):
     if entry.canary:
         bucket, item = canary_bucket(entry.path, entry.sha, index)
         found[bucket].append(item)
-    if entry.raw is not None and entry.sha not in index["env_sha"]:
-        near = near_copy(entry.path, entry.raw, index)
-        found["near_copies"] += [near] if near else []
+    _judge_text(found, entry, index)
     _open_archive(found, entry, index, depth)
 
 
@@ -400,8 +415,11 @@ def tar_entries(tar_path, needle):
             elif member.size <= MAX_READ:
                 yield _entry(path, tar.extractfile(member).read(), needle)
             else:
-                sha, hit = holds(tar.extractfile(member), needle)
-                yield Entry(path, kind, member.size, sha, hit, None, None)
+                stream = tar.extractfile(member)
+                text = _is_text(stream.read(8192))
+                stream.seek(0)
+                sha, hit = holds(stream, needle)
+                yield Entry(path, kind, member.size, sha, hit, None, None, text)
 
 
 def layer_entries(dirs):
@@ -660,6 +678,59 @@ def _lines():
     return [json.loads(x) for x in RESULT.read_text().splitlines() if x.strip()] if RESULT.exists() else []
 
 
+# ---- tasks.json from the measurement -----------------------------------------------------------
+
+_GIT_RULING = ("not a withholding hit (coordinator ruling, 2026-11-14): built by the environment's own Dockerfile; "
+               "every object loose and opened; no solution or test content (RECORDINGS.md, Task 2b)")
+RULINGS = {("pretrain-shard-corruption", "app/.git"): _GIT_RULING, ("shadow-relay", "app/.git"): _GIT_RULING}
+
+
+def _image(line):
+    return {"ref": line["ref"], "digest": line["ref"].split("@")[1], "digest_matches": line["digest_matches"],
+            "pull": line["pull"]["form"], "image_id": line["pull"]["image_id"], "compressed": line["compressed"],
+            "unpacked": line["unpacked"], "layers": len(line["layers"])}
+
+
+def _look_items(wh):
+    """Every path the check says needs a look: near copies, git directories, unopened archives, name-only canaries."""
+    return (wh["near_copy_look"] + wh["git_dirs"] + [n["path"] for n in wh["not_opened"]]
+            + [n["path"] for n in wh["canary_name_only"]])
+
+
+def task_record(task, lines, rulings):
+    """A task's `images` and `withholding` for tasks.json, from its measured lines; rulings are (task, path) -> text."""
+    mine = {line["role"]: line for line in lines if line["task"] == task and line.get("layers")}
+    if set(mine) != {"agent", "verifier"}:
+        raise Stop(f"{task}: measured roles {sorted(mine)}, need agent and verifier", 2)
+    wh = mine["agent"]["withholding"]
+    ruled = [{"item": i, "ruling": rulings[(task, i)]} for i in _look_items(wh) if (task, i) in rulings]
+    unruled = [i for i in _look_items(wh) if (task, i) not in rulings]
+    keep = ("withheld", "canary", "canary_counts", "near_copy", "near_copy_look", "git_dirs", "not_opened",
+            "pass", "package_digest")
+    return {"images": {role: _image(mine[role]) for role in ("agent", "verifier")},
+            "withholding": {k: wh[k] for k in keep} | {
+                "layers_withheld": wh["layers"]["withheld"], "large_text": wh.get("large_text"),
+                "rulings": ruled, "unruled": unruled, "verdict": _withholding_verdict(wh, unruled)}}
+
+
+def _withholding_verdict(wh, unruled):
+    """hit: a path, digest or canary hit; needs a look: an item without a ruling, or no canary to search for."""
+    if not wh["withheld"] or not wh["layers"]["withheld"] or wh["canary"] == "found outside environment files":
+        return "hit"
+    if unruled or wh["canary"] == "no identifier in package":
+        return "needs a look"
+    return "withheld"
+
+
+def fill_tasks():
+    """Write each task's measured images and withholding result into tasks.json."""
+    data, lines = json.loads(TASKS.read_text()), _lines()
+    for entry in data["tasks"]:
+        entry |= task_record(entry["name"].rsplit("/", 1)[-1], lines, RULINGS)
+    TASKS.write_text(json.dumps(data, indent=1) + "\n")
+    return [(e["name"], e["withholding"]["verdict"]) for e in data["tasks"]]
+
+
 def _exit_code(line, problems):
     if any("left in place" in p for p in problems):
         return 4
@@ -702,8 +773,15 @@ def _cmd_totals(argv):
     return 0
 
 
+def _cmd_tasks(argv):
+    for name, verdict in fill_tasks():
+        print(name, verdict)
+    return 0
+
+
 def main(argv):
-    commands = {"measure": _cmd_measure, "recheck": _cmd_recheck, "layers": _cmd_layers, "totals": _cmd_totals}
+    commands = {"measure": _cmd_measure, "recheck": _cmd_recheck, "layers": _cmd_layers, "totals": _cmd_totals,
+                "tasks": _cmd_tasks}
     if not argv or argv[0] not in commands:
         print(__doc__, file=sys.stderr)
         return 2
