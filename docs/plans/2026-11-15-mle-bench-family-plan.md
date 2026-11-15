@@ -1,7 +1,9 @@
 # MLE-bench Task Family Plan (Roadmap Phase 5b, Steps 10 To 12)
 
-**Status: Plan; written 2026-11-15; not reviewed; nothing built, nothing run, nothing spent, and no
-spend authorized.** This page turns steps 10 to 12 of
+**Status: Plan; written 2026-11-15; revised 2026-11-15 after an independent review (accept after
+fixes: 2 blockers, 9 majors, 13 minors) and the coordinator's rulings on it; accepted by the
+coordinator for Tasks 1 to 9; nothing paid is approved.** Nothing is built, nothing has run and
+nothing is spent. This page turns steps 10 to 12 of
 [roadmap Phase 5b](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-5b-long-horizon-task-family-and-staged-seed)
 into a plan: a second long-horizon task family built from single MLE-bench competitions (owner
 decision 17). The roadmap owns the direction. [`AGENTS.md`](../../AGENTS.md) ("Experiment rules")
@@ -14,34 +16,45 @@ plan", with its decisions as "ladder D1" to "ladder D7") owns the credential rou
 the launcher and the rules this plan reuses; its kit is described in the kit's
 [README](../../experiments/long_horizon_tasks/README.md). This plan owns the competition list, the
 success definition, the qualification check, the limits, the stop rules and the ledger of this
-line. Its commands are for this machine and are not copyable examples. Spend is authorized only as
-the [ledger](#ledger) records. Until this plan is reviewed and its kit exists, the only long-horizon
-kit to use is the ladder's.
+line; each tranche also has a ledger file of its own, which the launcher reads (M4). Its commands
+are for this machine and are not copyable examples. Spend is authorized only as the
+[ledger](#ledger) and the tranche ledgers record. Until this plan's kit exists and has passed its
+own review (Task 8), the only long-horizon kit to use is the ladder's.
 
 **The answer first.**
 
 - **Preparation can start today and needs no owner action for its first nine tasks:** the kit, a
   synthetic miniature competition as a test fixture, the verifier that runs the grader, the
   withholding checks, the configuration as data, the wrapper around the reviewed launcher with its
-  guard tests, its independent review and a zero-spend rehearsal (about 57 hours, a planner's
-  estimate).
+  guard tests, its independent review and a zero-spend rehearsal (about 73 hours, a planner's
+  estimate). Task 10a, the download script with its tests and its review, needs no owner action
+  either.
 - **Real competitions wait for the owner's Kaggle account, token and rule acceptance.** The three
   CPU-only candidates come first: they need neither the GPU nor much disk.
-- **No paid attempt can start before four things:** the Terminal-Bench live probe has shown that the
-  vendor accepts the subscription route; each competition has passed the qualification check on
-  this machine; the wrapper has passed its review and rehearsal; and the owner has approved the
-  line, because its ceilings are above what the coordinator may approve alone.
-- **The screen is 39 attempts in two tranches** (9 on the three CPU-only competitions, then 30 on
-  the GPU), at effort `medium`, capped at USD 8 an attempt and USD 200 in all. Every dollar figure
-  on this page is a priced-token figure and an estimate until measured.
-- **The reviewed launcher is not changed.** A second small kit loads it and points it at this
-  family's data. The cost of that choice: no attempt on the GPU runs beside another attempt, and
-  this line never runs while the Terminal-Bench ladder has an attempt in flight.
+- **No paid attempt can start before five things:** the Terminal-Bench live probe has shown that the
+  vendor accepts the subscription route; each competition has passed the qualification check and
+  the evaluator's controls on this machine; the wrapper has passed its review and rehearsal; the
+  real packages have been reviewed and one has been rehearsed with the real CLI at no spend; and the
+  owner has approved the line, because its ceilings are above what the coordinator may approve
+  alone.
+- **The screen is sequential:** three attempts per competition at effort `medium`, and three more
+  for a competition with no medal in the first three. That is 39 to 78 attempts, capped at USD 8 an
+  attempt and USD 200 in all. At the central estimate of USD 3 an attempt, USD 200 pays for the
+  second three of about six competitions, and more than six are likely to need them; the others are
+  then reported as not screened (M9). Every dollar figure on this page is a priced-token figure
+  and an estimate until measured.
+- **What the screen cannot do:** place a competition. A competition whose true rate is near 10
+  percent is excluded about half the time, and one at 50 to 70 percent usually survives, so the
+  placement has to catch it (M1).
+- **The reviewed launcher is not changed.** A second small kit loads it, points it at this
+  family's data and adds its own checks before it. The cost of that choice: no attempt on the GPU
+  runs beside another attempt, each tranche has its own ledger file, and neither this line nor the
+  Terminal-Bench ladder can launch while the other's launcher is running.
 
 **Headline exit test (fails today):** `experiments/mle_bench_tasks/results/family.json` exists,
 names its criteria and package digests, and lists every screened competition with its screen class
-and, for each placed competition, its medals of fifteen attempts by effort. After a stop no
-`family.json` is written.
+and, for each placed competition, its medals of fifteen attempts by effort with the exact interval.
+After a stop no `family.json` is written.
 
 ## Words used on this page
 
@@ -50,13 +63,15 @@ and, for each placed competition, its medals of fifteen attempts by effort. Afte
 | Competition | One past Kaggle competition as MLE-bench repackages it (report §2): a description, public data, a preparation script that builds held-out answers, a grading function and a snapshot of the private leaderboard |
 | Medal | A score at or past the competition's bronze threshold, computed by the benchmark's grader from the leaderboard snapshot (report §3.1). "Any medal" is the benchmark's headline measure |
 | The band | 10 to 30 percent success for a direct `claude-haiku-5-5` session (owner decisions 14 and 17) |
-| The ladder | The Terminal-Bench effort ladder of the ladder plan: 15 tasks, three efforts, at most 240 starts and USD 200 (owner decision 16) |
+| The ladder | The Terminal-Bench effort ladder of the ladder plan: three efforts, at most 240 starts and USD 200. Owner decision 16 names 16 tasks; the 15 that qualified run |
 | The reviewed kit | `experiments/long_horizon_tasks/`: the launcher `ladder.py`, the passthrough, the relay, the token scanner, the slot record and the readout, on `main` after two independent reviews and two zero-spend rehearsals |
 | Passthrough, relay | The one host process that holds the subscription token, and the credential-free container that forwards the agent's requests to it (ladder D4, route B) |
 | Attempt, start, slot | One whole agent session on one competition; a start is an attempt the launcher began; a slot is a place in the schedule |
 | Observation, cut, infrastructure failure, stop | The launcher's classes for how a start ended (ladder D5). Only an observation enters a count. A cut is an attempt ended by a usage limit; its slot is run again |
-| Tranche | One run of the launcher under one configuration label, one state directory and one ceiling |
-| Configuration label | The SHA-256 of a tranche's manifest. Observations under different labels are never pooled |
+| Tranche | One run of the launcher under one configuration label, one state directory, one ceiling and one ledger file |
+| Tranche ledger | The file `docs/plans/2026-11-15-mle-bench-ledger-<tranche>.md`: the only ledger the launcher reads for that tranche (M4) |
+| Stage | The screen runs each resource class in two stages, each a tranche: stage one is three attempts per competition, stage two three more for the competitions with no medal yet (M1) |
+| Configuration label | The SHA-256 of a tranche's manifest. Observations under different labels are never pooled, with one exception fixed here before spend: the screen reads a competition's stage-one and stage-two observations together (M1) |
 | Criterion | A tranche's `ladder.json`: every limit and rule as data |
 | Priced-token figure | Metered tokens times the frozen price rule (ladder D4). It caps and reports usage. Nothing is billed |
 | Scout report | The fact-finding report of 2026-11-15, [MLE-bench as tasks of the long-horizon harness: facts found on this machine](../reports/2026-11-15-mle-bench-machine-facts.md). Cited by its section letters. Each fact cited from it was read in the installed harness's or the reviewed kit's source, or run on this machine with no model call, and the note says which. Tasks 7 and 11 establish again, on this kit, every such fact a decision rests on |
@@ -66,20 +81,22 @@ and, for each placed competition, its medals of fifteen attempts by effort. Afte
 - **Step 10, preparation.** Each candidate competition becomes a task the reviewed launcher can run,
   with the private answers, the grader and the medal thresholds outside the agent's container, and
   passes a qualification check on this machine.
-- **Step 11, the screen.** Thirteen candidates, three attempts each at one effort: 39 attempts. Its
-  only purpose is to exclude the competitions that are clearly at the floor or clearly above the
-  band.
+- **Step 11, the screen.** Thirteen candidates at one effort, three attempts each and three more
+  for a competition with no medal in the first three: 39 to 78 attempts. Its only purpose is to
+  exclude the competitions that are clearly at the floor or clearly above the band, and M1 states
+  how often it gets that wrong.
 - **Step 12, the placement.** Each competition that survives the screen gets fifteen fresh attempts
-  (five at each of `low`, `medium` and `high`, the ladder's size per task). One enters the family
-  only at 1 to 5 medals of fifteen.
+  (five at each of `low`, `medium` and `high`, the ladder's size per task) and is admitted by the
+  ladder's own rule: 1 to 5 medals of fifteen.
 - **What is measured:** how often a direct `claude-haiku-5-5` Claude Code session earns a medal on
   each competition, under this plan's configuration: CLI 2.1.311 signed in through the subscription
   route, the tools Bash, Edit and Read, the allowlist network policy and, if the owner decides M6 as
   recommended, a fixed set of pretrained weights. Every attempt also records its score, its
   leaderboard percentile and whether it is above the leaderboard median.
 - **Not claimed:** anything about a workflow; that a competition's true rate lies in 10 to 30
-  percent (three attempts cannot show it, and fifteen give "screened at n of 15", as in ladder D6);
-  an ordering of competitions; any comparison with a published MLE-bench rate, which used other
+  percent (six attempts cannot show it, and fifteen give an observed count whose exact 90 percent
+  interval is 28 to 44 points wide and always reaches outside the band; M1); an ordering of
+  competitions; any comparison with a published MLE-bench rate, which used other
   agents, an open network and 24 hours of prompting (report §6.1, §9.1); that a medal reflects work
   from scratch and not recall (M7).
 - **Kind of experiment.** The family is oracle-scored: a deterministic grader scores each attempt
@@ -94,14 +111,14 @@ and, for each placed competition, its medals of fifteen attempts by effort. Afte
 | Rule | Where it comes from | What it means here |
 | --- | --- | --- |
 | Subscription only, no API key | `AGENTS.md`, "Credential"; roadmap decision 18 | Every model call goes through the owner's Claude subscription. The benchmark's own harness, which puts an API key in the agent's container (report §5.1), is not used |
-| The token stays in one host process and enters no container | `AGENTS.md`, "Credential" | The passthrough of the reviewed kit, unchanged. One passthrough process at a time, so this line and the ladder never have attempts in flight together (M5) |
+| The token stays in one host process and enters no container | `AGENTS.md`, "Credential" | The passthrough of the reviewed kit, unchanged. One passthrough process holds the token at a time: the wrapper refuses to launch while the ladder's launcher runs or its passthrough answers, and the ladder's launcher is refused while this line's runs (M5). Stopping this line's passthrough before the ladder's is started is a person's step |
 | Haiku only for this line; no Fable in any experiment call | `AGENTS.md`, "Cost default"; decision 17 names `claude-haiku-5-5` | The launcher's and the passthrough's model checks, unchanged |
-| No uncalibrated quality claim | `AGENTS.md`, "No uncalibrated experiments" | The qualification check and the evaluator check of M2 pass before any paid attempt. The screen and the placement are themselves calibration and make no claim about a workflow |
+| No uncalibrated quality claim | `AGENTS.md`, "No uncalibrated experiments" | The qualification check and the separate evaluator check of M2 pass before any paid attempt. The screen and the placement are themselves calibration and make no claim about a workflow |
 | "Better" is Pareto dominance over quality and model-aware cost | `AGENTS.md`; [structural search driver](../design/orc_structural_search_driver.md#task-family-and-evaluator) | No comparison is made here. Cost per attempt is recorded so that a later one can be |
-| Decisions and limits in the ledger before the first call | `AGENTS.md`, "Record experiment decisions" | The [ledger](#ledger) holds each tranche's label, caps and ceilings before its first start; the launcher refuses without that row |
-| A competition enters the family only at 10 to 30 percent success | Roadmap decisions 14 and 17 | The placement rule of M1 |
-| Attempts in parallel up to the benchmark's 24-hour limit; Haiku spend up to USD 200 per calendar day for this family | Roadmap decision 17 ("parallel up to 24 hours ok , haiku spend up to $200 per day ok"), a priced-token figure under decision 18 | M5 and M9. The daily figure is kept by construction: no tranche's ceiling is above USD 200, and a tranche starts only on a later calendar day than the one on which the previous tranche's last attempt settled |
-| The coordinator asks the owner for a tranche above about USD 100, cumulative spend above about USD 300, a new experiment line, or a top-up after a null | `AGENTS.md`, "Budget delegation"; roadmap decision 12 | The screen's second tranche and the placement are above USD 100, so the owner approves the line (owner action 9). A subagent never spends on its own authority |
+| Decisions and limits in the ledger before the first call | `AGENTS.md`, "Record experiment decisions" | The line's decisions are in this plan's [ledger](#ledger). Each tranche's label, caps and ceiling are in its own tranche ledger before its first start; the launcher reads that file and refuses without the label row (M4) |
+| A competition enters the family only at 10 to 30 percent success | Roadmap decisions 14 and 17 | The placement rule of M1, which is the ladder's own. It admits on an observed count, and M1 states how wide the interval around that count is |
+| Attempts in parallel up to the benchmark's 24-hour limit; Haiku spend up to USD 200 per calendar day for this family | Roadmap decision 17 ("parallel up to 24 hours ok , haiku spend up to $200 per day ok"), a priced-token figure under decision 18 | M5 and M9. The daily figure holds by the tranche ceilings and by procedure, not by a guard: no tranche's ceiling is above USD 200, one tranche runs at a time (enforced by a lock), and a tranche starts only on a later calendar day than the previous tranche's last settlement (a person's ledger row) |
+| The coordinator asks the owner for a tranche above about USD 100, cumulative spend above about USD 300, a new experiment line, or a top-up after a null | `AGENTS.md`, "Budget delegation"; roadmap decision 12 | The screen's GPU tranches and the placement are above USD 100, so the owner approves the line (owner action 9). A subagent never spends on its own authority |
 | Usage limits are shared with the owner's own sessions; every tranche says how it pauses and how a cut attempt is counted | `AGENTS.md`, "Credential" | M8 |
 
 ## Candidates
@@ -115,21 +132,28 @@ hundred MB, an estimate). Each competition's size on disk is measured after its 
 measurement. The competition's id in the benchmark is its Kaggle slug, and its rules page is
 `https://www.kaggle.com/competitions/<slug>/rules`.
 
-| Order | Kaggle slug | GB | Class | Rank in report §8.2 |
-| --- | --- | --- | --- | --- |
-| 1 | `leaf-classification` | 0.036 | CPU | 7 |
-| 2 | `text-normalization-challenge-russian-language` | 0.01 | CPU | 10 |
-| 3 | `mlsp-2013-birds` | 0.59 | CPU | 11 |
-| 4 | `us-patent-phrase-to-phrase-matching` | 0.002 | GPU | 4 |
-| 5 | `tweet-sentiment-extraction` | 0.003 | GPU | 1 |
-| 6 | `learning-agency-lab-automated-essay-scoring-2` | 0.036 | GPU | 3 |
-| 7 | `chaii-hindi-and-tamil-question-answering` | 0.032 | GPU | 13 |
-| 8 | `jigsaw-toxic-comment-classification-challenge` | 0.06 | GPU | 8 |
-| 9 | `lmsys-chatbot-arena` | 0.18 | GPU | 12 |
-| 10 | `whale-categorization-playground` | 0.73 | GPU | 6 |
-| 11 | `petfinder-pawpularity-score` | 1.04 | GPU | 2 |
-| 12 | `kuzushiji-recognition` | 4.51 | GPU | 9 |
-| 13 | `cassava-leaf-disease-classification` | 6.19 | GPU | 5 |
+**Each competition has a short task name, and the launcher sees only that name.** The launcher
+refuses a state directory whose longest socket path is above 107 bytes, and that path holds the
+task's name; with the Kaggle slugs most tranches would be refused at launch (computed: 123 to 133
+bytes). A task name is at most 12 characters, as is a tranche's name, which gives at most 97 bytes
+under this machine's home directory. The slug is kept as a field of `family.json` and is what the
+download and the benchmark's grader are given. This page uses the short names from here on.
+
+| Order | Name | Kaggle slug | GB | Class | Rank in report §8.2 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `leaf` | `leaf-classification` | 0.036 | CPU | 7 |
+| 2 | `textnorm-ru` | `text-normalization-challenge-russian-language` | 0.01 | CPU | 10 |
+| 3 | `birds` | `mlsp-2013-birds` | 0.59 | CPU | 11 |
+| 4 | `patent` | `us-patent-phrase-to-phrase-matching` | 0.002 | GPU | 4 |
+| 5 | `tweet` | `tweet-sentiment-extraction` | 0.003 | GPU | 1 |
+| 6 | `essay2` | `learning-agency-lab-automated-essay-scoring-2` | 0.036 | GPU | 3 |
+| 7 | `chaii` | `chaii-hindi-and-tamil-question-answering` | 0.032 | GPU | 13 |
+| 8 | `jigsaw` | `jigsaw-toxic-comment-classification-challenge` | 0.06 | GPU | 8 |
+| 9 | `lmsys` | `lmsys-chatbot-arena` | 0.18 | GPU | 12 |
+| 10 | `whale` | `whale-categorization-playground` | 0.73 | GPU | 6 |
+| 11 | `petfinder` | `petfinder-pawpularity-score` | 1.04 | GPU | 2 |
+| 12 | `kuzushiji` | `kuzushiji-recognition` | 4.51 | GPU | 9 |
+| 13 | `cassava` | `cassava-leaf-disease-classification` | 6.19 | GPU | 5 |
 
 The order is the order of preparation: the three CPU-only competitions (0.64 GB together by the
 README's figures), then the GPU competitions from the smallest. The total is 13.4 GB (report
@@ -154,27 +178,69 @@ tranche's criterion is frozen and its label is in the ledger.
   whether the submission is valid; whether it is above the leaderboard median. The benchmark's grader
   gives the other three and no percentile (scout report B), so this plan fixes it: the share of the
   snapshot's scores that the attempt's score beats or ties, in the metric's direction; an attempt
-  with no score has no percentile, and it is never written as zero. The outcomes place nothing by
-  themselves, except as the screen's floor rule below says.
-- **The screen's classes, fixed before spend.** With three observations of a competition:
+  with no score has no percentile, and it is never written as zero. The outcomes place nothing and
+  enter no rule of the screen or the placement.
+- **The screen is sequential, and its rule is fixed before spend.** Stage one is three attempts
+  per competition. Stage two is three more attempts for each competition that has no medal after
+  stage one. Only medals among observations decide.
 
-| Observed | Class | What follows |
-| --- | --- | --- |
-| 3 medals of 3 | Above the band | Out. A competition at 30 percent shows this 2.7 percent of the time |
-| 0 medals of 3, and no attempt above the leaderboard median (an invalid or missing submission counts as not above) | Floor | Out |
-| Anything else: 1 or 2 medals, or 0 medals with at least one attempt above the median | Survives | Goes to the placement |
-| Fewer than 3 observations | Not screened | Reported with its count; it neither survives nor is out, and nothing is rerun to fill it |
+| After | Observed | Class | What follows |
+| --- | --- | --- | --- |
+| Stage one | 3 medals of 3 observations | Above the band | Out |
+| Stage one | At least one medal, and not 3 of 3 | Survives | Goes to the placement |
+| Stage one | No medal | Undecided | Stage two, if it is funded (M9) |
+| Stage two | At least one medal among its observations | Survives | Goes to the placement |
+| Stage two | No medal in six observations | Excluded low | Out |
+| The class's screen has ended | No medal in fewer than six observations | Not screened | Reported with its count; it neither survives nor is out, and nothing is rerun to fill it |
 
-- **Why the floor rule uses the score.** Zero medals of three cannot exclude a competition: one at
-  20 percent shows it about half the time. The continuous score can (report §7): where scores are
-  stable between runs, three attempts below the median mean a medal is far away, and where they are
-  noisy against the medal margin (report §6.2), a competition near the band is unlikely to land
-  below the median three times.
-- **The placement.** A surviving competition gets fifteen fresh attempts: five at each of `low`,
-  `medium` and `high`. It enters the family at 1 to 5 medals of fifteen, labelled "screened at n of
-  15 attempts" and never "in the band", with the ladder's rule for fewer than fifteen observations
-  (ladder D6). The screen's three attempts are printed beside the fifteen and are not pooled with
-  them: a competition was chosen because of them, so pooling would bias its count upward.
+- **What the screen does at a given true rate.** The table takes a competition's attempts as
+  independent with one medal rate, and for the last two columns takes the rate pooled over the three
+  efforts of the placement to be the same. Both are simplifications; the figures were computed for
+  this plan and checked against the independent review's.
+
+| True rate | Above (3 of 3) | Goes to stage two | Excluded low (0 of 6) | Survives | Mean attempts used | Placement admits (1 to 5 of 15) | Enters the family |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 5% | 0.000 | 0.857 | 0.735 | 0.265 | 5.6 | 0.537 | 0.142 |
+| 10% | 0.001 | 0.729 | 0.531 | 0.468 | 5.2 | 0.792 | 0.370 |
+| 20% | 0.008 | 0.512 | 0.262 | 0.730 | 4.5 | 0.904 | 0.660 |
+| 30% | 0.027 | 0.343 | 0.118 | 0.855 | 4.0 | 0.717 | 0.613 |
+| 50% | 0.125 | 0.125 | 0.016 | 0.859 | 3.4 | 0.151 | 0.130 |
+| 70% | 0.343 | 0.027 | 0.001 | 0.656 | 3.1 | 0.004 | 0.002 |
+
+- **What the screen cannot do.**
+  1. *It cannot place a competition.* Six attempts say nothing about 10 against 30 percent.
+  2. *It drops the lower part of the band.* A competition near 10 percent is excluded low about half
+     the time (0.53), against about one time in eight at 30 percent. The family will therefore lean
+     to the upper part of the band, and a competition excluded low is not shown to be below it.
+  3. *Three of three does not exclude a competition at 50 to 70 percent reliably.* Such a
+     competition survives 86 and 66 percent of the time. The placement then has to catch it, which
+     it does (it admits 15 percent of competitions at a true 50 percent and almost none at 70), at
+     the cost of fifteen attempts each.
+  4. *It still spends most on the floor.* A competition at 5 percent uses 5.6 attempts on average
+     and survives a quarter of the time.
+- **Why the score is not used.** A rule that kept a competition with no medal when one attempt was
+  above the leaderboard median was considered and is not used: how often an attempt without a
+  medal is above the median is not known for this model, and for several candidates the published
+  runs of another agent put it near never (report §7), so the clause would have decided little and
+  nobody could say how much. The score and the above-median flag are still recorded for every
+  attempt and printed beside each class.
+- **The placement uses the ladder's admission rule and attempt count** (ladder D6, "Per task,
+  pooled"), so that the two families are admitted alike. A surviving competition gets fifteen fresh
+  attempts: five at each of `low`, `medium` and `high`. With K medals of n observations it is
+  admitted at 1/15 ≤ K/n ≤ 1/3 (1 to 5 of fifteen), judged once every effort has at least four
+  scored observations; with fewer it is "not screened" and neither in nor out. `family.json`
+  carries the ladder's label, "screened at n of 15 attempts".
+- **What is claimed for a placed competition: "observed in the band", and nothing about its true
+  rate.** Each is reported with its count and the exact (Clopper–Pearson) 90 percent interval, and
+  with the 95 percent interval the ladder's readout prints. The interval's width is the limit of
+  the placement: for 1, 2, 3, 4 and 5 medals of fifteen the 90 percent intervals are 0.3 to 27.9,
+  2.4 to 36.3, 5.7 to 44.0, 9.7 to 51.1 and 14.2 to 57.7 percent. Every one reaches outside 10 to
+  30 percent. This is the rule the review criticised as wide (it admits a competition at a true 5
+  percent about half the time and one at 40 percent four times in ten); it is kept because a
+  different rule here would make the two families incomparable, and a narrower one needs about 90
+  attempts per competition (ladder plan, "What this size can and cannot support").
+- **The screen's attempts are never pooled with the fifteen.** They are printed beside them: a
+  competition was chosen because of them, so pooling would bias its count upward.
 - **If fewer competitions are placed than is useful.** The family supplements the Terminal-Bench
   set, so one placed competition is already useful. If none is placed, the line ends with a report.
   Two other definitions then exist, and each is **a later owner decision with its own request, never
@@ -183,9 +249,10 @@ tranche's criterion is frozen and its label is in the ledger.
   attempts (report §7; the only definition that can place most competitions by construction). The
   recorded scores let either be assessed on paper first, at no spend.
 - **Cost if wrong.** If "any medal" is too coarse, few competitions are placed and the placement's
-  spend buys little. If the floor rule is too strict, a competition near the band is dropped after
-  three attempts; the readout prints every dropped competition's three scores against its
-  thresholds so that the owner can see it.
+  spend buys little. The screen's known cost is the table's: about half of the competitions near 10
+  percent are lost, and each competition above the band that survives costs fifteen placement
+  attempts. The readout prints every excluded competition's scores against its thresholds so that
+  the owner can see what was dropped.
 
 ### M2. The qualification check and the evaluator check (coordinator)
 
@@ -196,8 +263,8 @@ as the verifier runs it, tells a perfect submission from a useless one.
   verifier image, the allowlist policy, the tranche's CPU set):
   1. *Answers.* The harness's reference agent writes the held-out answers as the submission. It must
      earn reward 1 with a gold medal. Where the answers file is not itself a valid submission, the
-     leg uses the gold submission the competition's configuration names (`kuzushiji-recognition`;
-     scout report J).
+     leg uses the gold submission the competition's configuration names (`kuzushiji`; scout
+     report J).
   2. *Sample submission.* The competition's own sample submission is submitted. It must earn reward 0
      and be valid, and its score must equal the floor the benchmark's own test lists for it (report
      §3.2, column "Floor"), where one is listed.
@@ -206,7 +273,8 @@ as the verifier runs it, tells a perfect submission from a useless one.
 - **Repetitions: two of each leg.** The grader is deterministic and the legs take seconds, so the
   repeat checks only that the path is stable: the two scores of a leg must be equal. The ladder
   needed five because some of its verifiers depend on timing.
-- **A competition qualifies only if all six runs give what is listed.** One that fails and has no
+- **A competition qualifies only if all six runs give what is listed and its controls below pass.**
+  One that fails and has no
   host-side fix is dropped, is not replaced, and its slots are not given to another competition. A
   failure means one of three things, and the ledger row says which: the preparation is defective (the
   benchmark's README lists some; report §6.4), the thresholds do not fit the rebuilt test set
@@ -215,17 +283,42 @@ as the verifier runs it, tells a perfect submission from a useless one.
   rates of report §7, which come from other agents.
 - **What is already known.** The benchmark's grader was run on this machine, on the host, with
   hand-made answers for the three CPU-only competitions: the answers file earned gold, the uniform
-  submission of `leaf-classification` scored the listed floor, and a missing or malformed file got no
-  score and no medal (scout report B). That shows the grader, not the verifier path, which Task 7
-  builds.
-- **The evaluator check that `AGENTS.md` requires on known controls** is the same six runs, read as
-  a test of the measure: the controls are the answers (known gold), the sample submission (known no
-  medal) and no submission (known zero). The predeclared margin is "gold on the answers, no medal on
-  the other two"; the predeclared error rate is zero wrong outcomes over every control of every
-  competition in the tranche. The synthetic fixture competition validates the code and qualifies
-  nothing.
-- **Cost if wrong.** A grader that scores a competition wrongly would place it wrongly; the three
-  legs bound the two ends of the scale and nothing in between.
+  submission of `leaf` scored the listed floor, and a missing or malformed file got no score and no
+  medal (scout report B). That shows the grader, not the verifier path, which Task 7 builds.
+- **The evaluator check is separate, and it tests the measure where it decides: at the lines.** The
+  three legs sit at the two ends of the scale, and any grader that orders scores correctly passes
+  them, whatever line it draws for a medal. So each qualified competition also gets four synthetic
+  controls, built on the host from the answers by replacing a share of the rows with the sample
+  submission's values:
+  1. *The lines* are the bronze threshold and the leaderboard median that the benchmark's own
+     grader reports for the competition when run on the host.
+  2. *The controls* are the two submissions nearest the bronze line, one scoring just past it and
+     one just short of it, and the same pair at the median. The share of replaced rows is found by
+     bisection in a seeded row order, down to one row, or to the smallest step that changes the
+     score.
+  3. *The expected class* of each control (medal or none, above the median or not) is written down
+     from its host score and the two lines, in the metric's direction, before the control goes
+     through the verifier.
+  4. *The check:* each control, run through the verifier path an attempt uses, gets exactly its
+     expected reward and flags, and the percentiles of the four controls and the three legs are in
+     the order of their scores.
+- **The predeclared margin and error rate.** The margin is the distance between the two controls
+  of a pair, recorded per competition; the error rate allowed is zero wrong classes over every
+  control and every leg of every competition in the tranche. A competition whose pair cannot be
+  built on both sides of a line (a metric too coarse for it) is recorded as such and qualifies only
+  on a coordinator's ruling.
+- **These controls validate the evaluator only** (`AGENTS.md`, "Task-difficulty calibration"). They
+  are constructed, not naturally produced; they say nothing about how hard a competition is and
+  replace no part of the screen or the placement. The synthetic fixture competition validates the
+  code and qualifies nothing.
+- **A paper check beside them, deciding nothing by itself:** where the benchmark's repository holds
+  grading reports of published runs for a candidate, their scores and medal flags are compared with
+  what this verifier's lines give for the same scores. A disagreement goes in the ledger with the
+  competition's name. Whether those reports can be read from the clone is not verified.
+- **Cost if wrong.** A grader that scores a competition wrongly would place it wrongly. The
+  controls show that this verifier applies the benchmark's lines exactly, ties and direction
+  included. They do not show that the benchmark's lines are fair on the rebuilt test set (report
+  §3.1); only the screen's scores can.
 
 ### M3. Withholding (coordinator)
 
@@ -238,7 +331,11 @@ as the verifier runs it, tells a perfect submission from a useless one.
   own image, receiving only the files the task declares as artifacts (scout report D3).
 - **Only the submission crosses.** The task declares the submission directory as its one artifact.
   An attempt that writes no submission still reaches the verifier and gets a written reward of 0
-  (run on a scratch task: scout report D5).
+  (run on a scratch task: scout report D5). The verifier trusts nothing in what crosses: its script
+  reads only a regular file named `submission.csv`, with `python -I`, from a working directory
+  outside the uploaded paths. The harness already drops a symbolic link that points out of the
+  artifact when it copies the artifact over (read in Harbor 0.25.0's artifact handler by the
+  reviewer); Task 7 holds that with a submission that is a link to the answers' path.
 - **The verifier image** pins the benchmark at commit `507f92e` and the dependency versions of the
   benchmark's own image (scout report A: unpinned, today's versions do not install together, and a
   newer pandas could change what the preparation writes). It sets the grader's data directory and
@@ -249,8 +346,8 @@ as the verifier runs it, tells a perfect submission from a useless one.
   that container (report §5.1). Here the agent image holds a script that compares a submission with
   the sample submission only: the same columns, the same ids, the same number of rows, no empty
   value. The instruction names it. It is weaker than upstream's: a submission it accepts can still
-  be invalid for the grader. The readout counts such attempts. **The sample it reads is always a
-  public copy.** For the Russian text-normalization competition the benchmark's configuration names
+  be invalid for the grader. The readout counts the invalid submissions; it cannot tell whether an
+  agent ran the check. **The sample it reads is always a public copy.** For the Russian text-normalization competition the benchmark's configuration names
   a sample submission in the private directory and the public copy is inside an archive (scout report
   B); the wrapper takes the public one, and a test holds that it copies nothing from a private
   directory into an agent image.
@@ -262,9 +359,14 @@ as the verifier runs it, tells a perfect submission from a useless one.
   competition. The ladder kit's image check is written for a package's `solution/` and `tests/`
   directories and its line matching does not fit an answers file (scout report I4), so this check is
   new code.
+- **The check's result belongs to one image content.** It is recorded in `tasks.json` against the
+  image's digest, and the package names its images by that same digest and never by a tag (M4). An
+  image rebuilt under the same name has another digest: the package would have to be rewritten to
+  use it, which changes the package's digest and the label, and the wrapper refuses a package whose
+  image digest has no withholding result.
 - **On the host:** the prepared data, the answers and the images stay outside the repository; the kit
-  holds names, digests and image ids. The reference agent's copy of the answers exists only in the
-  package used for the answers leg, never in the package an attempt runs.
+  holds names and digests. The reference agent's copy of the answers exists only in the package
+  used for the answers leg, never in the package an attempt runs.
 - **Cost if wrong.** An answers file in reach of the agent makes every medal on that competition
   worthless, and it would not show in the scores.
 
