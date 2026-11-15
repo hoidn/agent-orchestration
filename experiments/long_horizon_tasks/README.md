@@ -162,6 +162,9 @@ round-one read, a pause or a stop. It reads these ledger rows:
 - `| <date> | Ruling | <attempt> row <N> ... |`, which `ruling` needs before it gives a start paused under D5 row
   16 its row.
 
+A launch refused before its harness runs (the task's package, the overlay's digest, its socket) stops the tranche
+but is no start: it is not exported, its token is retired, and the attempt is kept under `<state>/refused/`.
+
 To end a pause or a stop, a person writes the ledger row that D5 asks for and then runs `ladder.py resume`. While one
 of D7.7's count thresholds is over its bound, a plain resume is refused, naming it. The thresholds are the
 infrastructure-failure share, five or 24 pre-session failures, the 5% of cuts, and three load-refusal endings.

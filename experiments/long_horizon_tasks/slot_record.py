@@ -69,14 +69,19 @@ EXCLUSIONS = ("no reward after regrades", "indeterminate")
 ENDS = ("schedule", "ceiling", "starts", "stop")
 # The stops of D7.7 the launcher sees in an attempt's own files whatever its D5 row, each with where it can occur:
 # "a session" (a start that is not a pre-session failure: the init event, the stream and the subagent files come
-# from a session), "the smoke's slot" (D7.1, smoke_cell) or "any start" (token_scan.py reads every teardown's files).
-# The first five are feat/lh-launcher's words (ladder.py init_stop, stream_stop, _launcher_stop at 0ff18eda).
+# from a session), "the smoke's slot" (D7.1, smoke_cell) or "any start": token_scan.py reads every teardown's files,
+# and the runtime check reads the containers of any start that had a session or containers, which a pre-session
+# failure can have. A scan that could not finish is a stop, since it cannot show that nothing leaked (coordinator
+# ruling, Task 5). A launch refused before the harness ran is no start: it is not exported and has no cause here.
 LAUNCHER_STOPS = {"an init event with another tool list": "a session",
                   "an init event with another CLI version": "a session",
                   "an init event with another credential source": "a session",
                   "a sign of paid extra usage in the session's stream": "a session",
                   "a subagent file": "a session",
                   "a match of token_scan.py": "any start",
+                  "an incomplete scan of token_scan.py": "any start",
+                  "a match of the runtime check in the attempt's containers": "any start",
+                  "an incomplete scan of the runtime check in the attempt's containers": "any start",
                   "a failed smoke check": "the smoke's slot"}
 AGAIN_AFTER = ("cut", "pre_session_failure")  # D5: the only classes whose slot is run again
 NUMBER = (int, float)

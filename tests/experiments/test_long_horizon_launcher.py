@@ -211,6 +211,10 @@ def run(args):
     for name, text in behaviour.get("write", {}).items():
         (trial / name).parent.mkdir(parents=True, exist_ok=True)
         (trial / name).write_text(text)
+    for name in behaviour.get("unreadable", []):  # a file no scan can read (mode 000)
+        (trial / name).parent.mkdir(parents=True, exist_ok=True)
+        (trial / name).write_text("x")
+        (trial / name).chmod(0)
     if behaviour.get("after_requests"):
         subprocess.Popen([sys.executable, "-I", __file__, "--outlive", str(container), sock,
                           os.environ["CLAUDE_CODE_OAUTH_TOKEN"], str(behaviour["after_requests"])],
@@ -296,7 +300,10 @@ elif cmd == "exec":
         sys.exit(125)
     sys.stdout.write("\0".join(found.get("env", [])))
 elif cmd == "export":
-    sys.stdout.write((load(operands(rest)[0]) or {}).get("fs", ""))
+    fs = (load(operands(rest)[0]) or {}).get("fs")
+    if fs is None:  # a container whose file system cannot be exported
+        sys.exit(125)
+    sys.stdout.write(fs)
 else:
     sys.exit(f"stand-in podman: unexpected {args[:2]}")
 '''
@@ -1652,10 +1659,15 @@ def test_a_passthrough_that_died_without_closing_starts_pauses_the_tranche(rig):
 
 
 def test_an_overlay_whose_digest_is_not_the_criterion_s_stops_the_tranche_before_the_harness_runs(rig):
+    """Coordinator ruling (Task 5): a launch refused before the harness ran is no start and is not exported; it
+    stays in the launcher's own records (the stop event and the attempt kept under refused/), and its token is
+    retired."""
     r = rig(stand_ins={"tasks.overlay_digests": {t: "0" * 64 for t in TASKS}})
     r.launch()
-    assert ([e["reason"] for e in r.events() if e["event"] == "stop"], r.calls(), _containers(r.lh)) == (
-        ["refused at launch"], [], [])
+    slots = json.loads((r.root / "passthrough" / "slots.json").read_text())["slots"]
+    assert ([e["reason"] for e in r.events() if e["event"] == "stop"], r.calls(), _containers(r.lh), r.attempts(),
+            len(list((r.root / "refused").iterdir())), slots, _export(r)["starts"]) == (
+        ["refused at launch"], [], [], [], 1, {}, [])
 
 
 def test_the_disk_stop_reads_the_root_file_system_beside_the_state_the_cache_and_the_home(short):
@@ -1723,6 +1735,22 @@ def test_the_runtime_check_scans_every_container_s_configuration_and_environment
     kept = sorted(p.name for p in (attempt_dir / "containers").iterdir())
     assert (stops, sum(n.endswith(".inspect.json") for n in kept), sum(n.endswith(".environ") for n in kept)) == (
         ["a match of the runtime check in the attempt's containers"], 2, 2)
+
+
+@pytest.mark.parametrize("behaviour, cause", [
+    (lambda r: {"container_env": ["PATH=/usr/bin", f"X={r.canary}"]},
+     "a match of the runtime check in the attempt's containers"),
+    (lambda r: {"container_fs": None}, "an incomplete scan of the runtime check in the attempt's containers"),
+    (lambda r: {"unreadable": ["verifier/blocked.bin"]}, "an incomplete scan of token_scan.py")])
+def test_a_teardown_scan_that_matches_or_cannot_finish_stops_the_tranche_and_exports_a_stop(rig, behaviour, cause):
+    """The session ended normally (row 5) with reward 1; the stop makes it a stop with the cause slot_record.py
+    accepts, never scored."""
+    r = rig()
+    (r.lh / "standin" / "plan.json").write_text(json.dumps([behaviour(r)]))
+    r.launch()
+    start = _export(r)["starts"][0]
+    assert ([e["reason"] for e in r.events() if e["event"] == "stop"],
+            [start[k] for k in ("row", "class", "stop_cause", "reward")]) == ([cause], [5, "stop", cause, None])
 
 
 def test_the_smoke_s_runtime_check_also_scans_the_agent_container_s_exported_file_system(rig):

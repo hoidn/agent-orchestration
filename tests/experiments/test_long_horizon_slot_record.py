@@ -105,9 +105,28 @@ def test_a_cause_that_needs_a_session_is_refused_on_a_pre_session_failure(cause)
         _load(_one({"row": 1, "class": "stop", "stop_cause": cause}))
 
 
-def test_a_token_scan_match_may_stop_on_a_pre_session_failure():
-    first = _load(_one({"row": 1, "class": "stop", "stop_cause": "a match of token_scan.py"}))[0]
+ANY_START = [cause for cause, seen in slot_record.LAUNCHER_STOPS.items() if seen == "any start"]
+
+
+def test_a_match_or_an_incomplete_scan_of_either_teardown_scan_may_stop_any_start():
+    """Coordinator ruling (Task 5): token_scan.py reads every teardown's files, and the runtime check reads the
+    containers of any start that had a session or containers, which a pre-session failure can have."""
+    assert set(ANY_START) == {"a match of token_scan.py", "an incomplete scan of token_scan.py",
+                              "a match of the runtime check in the attempt's containers",
+                              "an incomplete scan of the runtime check in the attempt's containers"}
+
+
+@pytest.mark.parametrize("cause", ANY_START)
+def test_a_teardown_scan_may_stop_a_pre_session_failure(cause):
+    first = _load(_one({"row": 1, "class": "stop", "stop_cause": cause}))[0]
     assert (first["class"], first["counted"]) == ("stop", False)
+
+
+def test_a_launch_refused_before_the_harness_ran_has_no_cause_since_it_is_no_start():
+    """Coordinator ruling (Task 5): a refused launch creates no start and is not exported; it stays in the
+    launcher's own log."""
+    with pytest.raises(slot_record.RecordError, match="does not fit row 1"):
+        _load(_one({"row": 1, "class": "stop", "stop_cause": "refused at launch"}))
 
 
 @pytest.mark.parametrize("task, effort, rnd", [(TASKS[0], "low", 1), (SMOKE_TASK, "high", 1), (SMOKE_TASK, "low", 2)])

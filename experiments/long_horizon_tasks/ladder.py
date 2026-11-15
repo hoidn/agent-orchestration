@@ -679,8 +679,7 @@ def settlement(attempt_dir, rows, reservation):
 FINAL = {"observation", "infrastructure_failure", "stop", "ruling"}  # classes whose slot is never run again
 # A stop the launcher finds in an attempt makes its class `stop` whatever row its ending matches, and it is never
 # scored (coordinator ruling). Its cause is one of slot_record.LAUNCHER_STOPS, the one closed list; the export is
-# checked against it. Open ruling: four causes the launcher writes are not in that list yet (TOKEN_INCOMPLETE,
-# RUNTIME_MATCH, RUNTIME_INCOMPLETE, REFUSED_AT_LAUNCH below); an export that holds one is refused until it is.
+# checked against it. REFUSED_AT_LAUNCH is no record's cause: a refused launch is no start (Attempt.refused).
 TOKEN_MATCH = "a match of token_scan.py"
 TOKEN_INCOMPLETE = "an incomplete scan of token_scan.py"
 RUNTIME_MATCH = "a match of the runtime check in the attempt's containers"
@@ -1787,14 +1786,26 @@ class Attempt:
     def run(self):
         try:
             try:
-                self.follow(self.start())
+                proc = self.start()
             except Refused as refused:
-                self.stop(REFUSED_AT_LAUNCH, detail=str(refused))
+                self.refused(str(refused))
+                return
+            self.follow(proc)
             self.teardown()
         except Exception as exc:  # recorded, never lost: the tranche pauses for a person; reconcile closes it later
             tranche_event(self.ctx.root, "pause", slot=self.a["id"],
                           reason=f"the launcher failed: {type(exc).__name__}: {exc}")
             raise
+
+    def refused(self, why):
+        """A launch refused before the harness ran is no start (coordinator ruling, Task 5): the tranche stops, the
+        attempt leaves slots/ for refused/, where the launcher keeps it, and its fake token leaves the slots file."""
+        self.stop(REFUSED_AT_LAUNCH, detail=why)
+        kept = self.ctx.root / "refused"
+        kept.mkdir(mode=0o700, exist_ok=True)
+        with _Lock(self.ctx.root):
+            self.dir.rename(kept / f"{self.a['id']}-{time.time_ns()}")
+            _slots_file(self.ctx.root, self.ladder, self.t.prior)
 
     def start(self):
         task = self.a["task"]
