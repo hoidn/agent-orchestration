@@ -1501,11 +1501,10 @@ identity meets at `resume`.
   reference is refused where it is defined, called or not
   (`proc_ref_specialization_cycle`); one that reaches itself through a local
   is `proc_lowering_cycle`.
-- *Target 2.35.* A module at target 2.35 writes the older form: one binding,
-  not in a list, with typed parameters, `-> Type` and `:captures (…)` all
-  present, `(let-proc (f ((x Int)) -> Int :captures (k) (+ x k)) body)`.
-  Diagnostics: `let_proc_multiple_bindings_unsupported`,
-  `let_proc_name_collision`, `let_proc_syntax_invalid`.
+- *The 2.35 spelling.* One binding not in a list,
+  `(let-proc (f ((x Int)) -> Int :captures (k) (+ x k)) body)`, is still
+  accepted as a one-binding list. A module at target 2.35 is refused at its
+  header since the one-target cut; `v0.2.1` still compiles it.
 
 **Open defect (rows `B3`, `B3-print`): a local named like a function or a
 form.** A local named like a `defun` or a built-in form compiles, and `(f …)`

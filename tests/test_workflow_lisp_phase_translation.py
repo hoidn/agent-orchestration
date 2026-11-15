@@ -110,14 +110,8 @@ def _typecheck_fixture(path: Path):
 
 
 def test_elaborate_phase_translation_fixture_builds_with_phase_and_phase_target_nodes() -> None:
-    syntax_module = _build_syntax_module(VALID_FIXTURE)
-    workflow_def = elaborate_workflow_definitions(syntax_module)[0]
-    from orchestrator.workflow_lisp.expressions import elaborate_expression
-
-    body = elaborate_expression(
-        workflow_def.body,
-        bound_names=frozenset(param.name for param in workflow_def.params),
-    )
+    # The fixture imports `with-phase` from `std/phase`; the bare registry head is gone (lane D stage 4).
+    body = _compile_module(VALID_FIXTURE).typed_workflows[0].definition.body
 
     assert type(body).__name__ == "WithPhaseExpr"
     assert body.phase_name == "implementation"
