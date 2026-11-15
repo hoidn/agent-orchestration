@@ -632,6 +632,15 @@ def test_the_launcher_refuses_to_hold_the_token_file_s_name(short):
     assert _refused(kit, kit.env(LH_TOKEN_FILE="/somewhere/token"))[1].startswith("LH_TOKEN_FILE is set")
 
 
+@pytest.mark.parametrize("name", ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"])
+def test_the_launcher_refuses_a_credential_in_its_own_environment_naming_it_never_its_value(short, name):
+    """Task 8 m8: the launcher and its children never hold a credential, so it refuses to start."""
+    kit = Kit(short)
+    value = "lh-test-" + os.urandom(16).hex()
+    code, reason = _refused(kit, kit.env(**{name: value}))
+    assert (code, name in reason, value in reason) == (3, True, False)
+
+
 def test_a_rehearsal_without_a_stand_in_for_a_pending_field_is_refused(short):
     kit = Kit(short)
     (kit.reh / "stand_ins.json").write_text(json.dumps({k: v for k, v in STAND_INS.items() if k != "host.cpu_set"}))

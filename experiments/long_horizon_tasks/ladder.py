@@ -124,10 +124,17 @@ class Ctx:
         return self.rehearsal is None
 
 
+CREDENTIAL_VARS = ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")  # Task 8 m8
+
+
 def mode_refusal(env):
-    """Why this environment may not run the launcher at all, or None."""
+    """Why this environment may not run the launcher at all, or None. A credential variable is named, never its
+    value."""
     if env.get("LH_TOKEN_FILE"):
         return "LH_TOKEN_FILE is set: the token file is named only to the passthrough, never to the launcher"
+    held = [name for name in CREDENTIAL_VARS if name in env]
+    if held:
+        return f"{', '.join(held)} in the launcher's environment: the launcher and its children hold no credential"
     if env.get("LH_REHEARSAL"):
         spend = [name for name in SPEND_VARS if env.get(name)]
         return f"a rehearsal with a spend variable set ({', '.join(spend)})" if spend else None
