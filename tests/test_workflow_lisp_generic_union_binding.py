@@ -39,13 +39,12 @@ DECISION = """  (defunion Decision :forall (F B)
   (defproc review-hook
     ((subject Subject))
     -> Decision[MyFeedback MyBlocker]
-    :effects ()
     (variant Decision[MyFeedback MyBlocker] APPROVE :evidence (record MyFeedback :note subject.text)))"""
 
 
 def _write(tmp_path: Path, body: str) -> Path:
     path = tmp_path / "module.orc"
-    path.write_text(f'(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.35")\n{body})\n', encoding="utf-8")
+    path.write_text(f'(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.40")\n{body})\n', encoding="utf-8")
     return path
 
 
@@ -84,8 +83,6 @@ KEEP = """  (defproc keep
     :forall (T)
     ((value T))
     -> T
-    :effects ()
-    :lowering inline
     value)"""
 
 
@@ -97,12 +94,10 @@ def _run_review(decide_return: str, body: str = "(review subject)") -> str:
     ((subject S)
      (review ProcRef[(S) -> Decision[F B]]))
     -> Decision[F B]
-    :effects ()
     {body})
   (defproc decide
     ((subject Subject))
     -> {decide_return}
-    :effects ()
     (run-review subject (proc-ref review-hook)))"""
 
 
@@ -137,7 +132,6 @@ def _route(summarize_param: str) -> str:
   (defproc summarize-hook
     ((decision {summarize_param}))
     -> Subject
-    :effects ()
     (record Subject :text "summary"))
   (defproc route
     :forall (S F B)
@@ -145,12 +139,10 @@ def _route(summarize_param: str) -> str:
      (review ProcRef[(S) -> Decision[F B]])
      (summarize ProcRef[(Decision[F B]) -> S]))
     -> S
-    :effects ()
     (summarize (review subject)))
   (defproc run
     ((subject Subject))
     -> Subject
-    :effects ()
     (route subject
            (proc-ref review-hook)
            (proc-ref summarize-hook)))"""
@@ -186,12 +178,10 @@ def _phantom(second_tag: str) -> str:
   (defproc tag-first
     ((subject Subject))
     -> Tagged[Int]
-    :effects ()
     (variant Tagged[Int] VAL :value 1))
   (defproc tag-second
     ((subject Subject))
     -> Tagged[{second_tag}]
-    :effects ()
     (variant Tagged[{second_tag}] VAL :value 2))
   (defproc both
     :forall (S T)
@@ -199,12 +189,10 @@ def _phantom(second_tag: str) -> str:
      (first ProcRef[(S) -> Tagged[T]])
      (second ProcRef[(S) -> Tagged[T]]))
     -> Tagged[T]
-    :effects ()
     (first subject))
   (defproc run
     ((subject Subject))
     -> Tagged[Int]
-    :effects ()
     (both subject
           (proc-ref tag-first)
           (proc-ref tag-second)))"""
@@ -272,7 +260,7 @@ def _tags_module(tmp_path: Path, left: str, right: str) -> Path:
     path.write_text(
         f"""(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule t3/tags)
   (import gu/lib :as lib)
   (import cx/a :only (Item))
@@ -287,7 +275,6 @@ def _tags_module(tmp_path: Path, left: str, right: str) -> Path:
     ((left {left})
      (right {right}))
     -> Flag
-    :effects ()
     (record Flag :same (= left.variant right.variant))))
 """,
         encoding="utf-8",

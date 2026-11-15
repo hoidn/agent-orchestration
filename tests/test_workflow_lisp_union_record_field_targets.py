@@ -24,7 +24,7 @@ print(json.dumps(payload))
 
 SOURCE = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule tgt/entry)
   (export run)
   (defrecord Candidate (title String) (score Int))

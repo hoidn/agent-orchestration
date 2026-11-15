@@ -1192,7 +1192,7 @@ def test_serialize_diagnostic_preserves_command_result_adapter_invalid_phase(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1228,7 +1228,7 @@ def test_evaluated_command_adapter_preserves_structured_inputs(tmp_path: Path) -
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1314,7 +1314,7 @@ def test_compile_stage3_preserves_low_level_state_path_warning_without_aborting(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule low_level_state_path_warning)",
                 "  (export orchestrate)",
                 "  (defpath StateFile",
@@ -1366,7 +1366,7 @@ def test_compile_stage3_strict_lint_still_rejects_unrelated_public_state_path(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule unrelated_public_state_path)",
                 "  (export orchestrate)",
                 "  (defpath StateFile",
@@ -1439,7 +1439,7 @@ def test_compile_stage1_preserves_diagnostic_order(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord ProblemRecord",
                 "    (status MissingA)",
                 "    (status MissingB))",
@@ -1482,7 +1482,7 @@ def test_compile_stage3_renders_macro_expansion_notes_for_downstream_command_err
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1523,7 +1523,7 @@ def test_compile_stage3_reports_macro_emitted_malformed_letstar_as_frontend_diag
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Out",
                 "    (value String))",
                 "  (emit-broken-workflow broken)",
@@ -1562,7 +1562,7 @@ def test_compile_stage3_preserves_macro_provenance_without_reclassifying_downstr
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Out",
                 "    (value String))",
                 "  (emit-record-workflow broken)",
@@ -1665,7 +1665,7 @@ def test_compile_stage3_renders_macro_expansion_notes_for_downstream_provider_pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1731,7 +1731,7 @@ def test_compile_stage3_renders_macro_expansion_notes_for_provider_extern_valida
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1859,7 +1859,7 @@ _COND_NON_BOOL_EFFECTFUL_SOURCE = "\n".join(
     [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defmodule cond_non_bool)",
         '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
         "  (defworkflow decide () -> String",
@@ -1905,7 +1905,7 @@ _IF_NON_BOOL_EFFECTFUL_SOURCE = "\n".join(
     [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defmodule if_non_bool)",
         '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
         "  (defworkflow decide () -> String",

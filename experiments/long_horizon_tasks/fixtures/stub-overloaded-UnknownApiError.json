@@ -1,5 +1,5 @@
 {
- "source": "local recording f-overloaded (stub_api.py scenario overloaded, CLI 2.1.311, three tools, via the relay)",
+ "source": "local recording t2a-f-overloaded (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "UnknownApiError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -29,7 +29,7 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "eb3dd1c7-3d60-47c4-be49-a7b10a17c62c",
+  "session_id": "c0d64ba7-b624-4d47-bdba-db7755602a4d",
   "tools": [
    "Bash",
    "Edit",
@@ -50,6 +50,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -90,7 +91,7 @@
    "focus",
    "reload-plugins"
   ],
-  "apiKeySource": "ANTHROPIC_API_KEY",
+  "apiKeySource": "none",
   "claude_code_version": "2.1.311",
   "output_style": "default",
   "agents": [
@@ -112,6 +113,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -147,9 +149,13 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "263d9c15-be2f-4330-88bd-92004d87040b",
+  "uuid": "f47f2ff8-acd5-4628-9a74-cc24ac1cd06e",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
   "original_cwd": "/app",
   "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
@@ -163,27 +169,27 @@
    "subtype": "api_retry",
    "attempt": 9,
    "max_retries": 10,
-   "retry_delay_ms": 36633,
+   "retry_delay_ms": 32944,
    "error_status": 529,
    "error": "overloaded",
-   "session_id": "eb3dd1c7-3d60-47c4-be49-a7b10a17c62c",
-   "uuid": "bdc2e35d-232b-4eb6-a8d4-a4698de181e8"
+   "session_id": "c0d64ba7-b624-4d47-bdba-db7755602a4d",
+   "uuid": "2e21c06f-6215-4e4d-b03f-dcf09e33ae22"
   },
   {
    "type": "system",
    "subtype": "api_retry",
    "attempt": 10,
    "max_retries": 10,
-   "retry_delay_ms": 39134,
+   "retry_delay_ms": 38263,
    "error_status": 529,
    "error": "overloaded",
-   "session_id": "eb3dd1c7-3d60-47c4-be49-a7b10a17c62c",
-   "uuid": "e33fc7ca-d95e-408f-aee1-8b27e7e571df"
+   "session_id": "c0d64ba7-b624-4d47-bdba-db7755602a4d",
+   "uuid": "655e7c4c-d8a1-4d7c-821b-52b0bf31753a"
   },
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T02:17:57.409Z",
+   "timestamp": "2026-11-14T21:41:29.557Z",
    "error": "server_error",
    "is_api_error_message": true,
    "api_error_status": 529,
@@ -220,9 +226,9 @@
    }
   },
   {
-   "duration_api_ms": 65,
+   "duration_api_ms": 81,
    "stop_reason": "stop_sequence",
-   "session_id": "eb3dd1c7-3d60-47c4-be49-a7b10a17c62c",
+   "session_id": "c0d64ba7-b624-4d47-bdba-db7755602a4d",
    "total_cost_usd": 0.00015000000000000001,
    "usage": {
     "input_tokens": 1000,
@@ -299,8 +305,8 @@
    "api_error_status": 529,
    "result": "API Error: 529 Overloaded. This is a server-side issue, usually temporary \u2014 try again in a moment. If it persists, check your inference gateway (relay:8080).",
    "type": "result",
-   "duration_ms": 181149,
-   "uuid": "b082f077-977b-47da-84c8-4fc8f4bee31e",
+   "duration_ms": 180150,
+   "uuid": "e2e8305d-b867-434f-9f95-2a705d925fa4",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {

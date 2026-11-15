@@ -1,0 +1,5014 @@
+{
+ "source": "local recording t2a-strace-decoy-low (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay; DECOY=1: a decoy .credentials.json holding a canary in the CLI's config directory, strace from the host-side podman exec, so from the CLI's execve)",
+ "traced_processes": 40,
+ "cli_started_in_trace": true,
+ "paths": {
+  "": {
+   "statx": [
+    "ok"
+   ]
+  },
+  ".": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "/": {
+   "newfstatat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ]
+  },
+  "/.claude/agents": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/.claude/commands": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/.claude/output-styles": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/.claude/skills": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/.claude/workflows": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/.dockerenv": {
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/.git": {
+   "statx": [
+    "ENOENT"
+   ],
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/.git/HEAD": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/.git/info/exclude": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/.gitignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/.ignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/.rgignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/HEAD": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/System/Library/OpenSSL/certs": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/app": {
+   "getcwd": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ],
+   "chdir": [
+    "ok"
+   ],
+   "newfstatat": [
+    "ok"
+   ],
+   "readlink": [
+    "EINVAL"
+   ],
+   "inotify_add_watch": [
+    "ok"
+   ]
+  },
+  "/app/.claude": {
+   "statx": [
+    "ENOENT"
+   ],
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/app/.claude/.git": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.claude/AGENTS.md": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.claude/CLAUDE.md": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.claude/agents": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.claude/commands": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.claude/output-styles": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.claude/scheduled_tasks.json": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/app/.claude/settings.json": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.claude/settings.local.json": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.claude/skills": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.claude/workflows": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.git": {
+   "statx": [
+    "ENOENT"
+   ],
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/app/.git/HEAD": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/app/.git/info/exclude": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.gitignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.ignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.mcp.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/.rgignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/AGENTS.md": {
+   "statx": [
+    "ENOENT"
+   ],
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/app/CLAUDE.local.md": {
+   "statx": [
+    "ENOENT"
+   ],
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/app/CLAUDE.md": {
+   "statx": [
+    "ENOENT"
+   ],
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/app/HEAD": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/app/data": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/app/data/.git": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/data/.git/info/exclude": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/data/.gitignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/data/.ignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/data/.rgignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/engine": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/app/engine/.git": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/engine/.git/info/exclude": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/engine/.gitignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/engine/.ignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/app/engine/.rgignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/bin/bash": {
+   "stat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ]
+  },
+  "/bin/rg": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/bin/zsh": {
+   "stat": [
+    "ENOENT"
+   ],
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/dev/null": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/dev/tty": {
+   "openat": [
+    "ok",
+    "ENXIO"
+   ]
+  },
+  "/etc": {
+   "statx": [
+    "ok"
+   ],
+   "readlink": [
+    "EINVAL"
+   ]
+  },
+  "/etc/claude-code": {
+   "statx": [
+    "ENOENT"
+   ],
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/etc/claude-code/.claude": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/etc/claude-code/.claude/agents": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/etc/claude-code/.claude/commands": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/etc/claude-code/.claude/output-styles": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/etc/claude-code/.claude/rules": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/etc/claude-code/.claude/skills": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/etc/claude-code/CLAUDE.md": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/etc/claude-code/managed-mcp.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/etc/claude-code/managed-settings.d": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/etc/claude-code/managed-settings.json": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/etc/gai.conf": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/gitconfig": {
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/etc/gnutls/config": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/etc/host.conf": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/hosts": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ld.so.cache": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ld.so.preload": {
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/etc/localtime": {
+   "openat": [
+    "ok"
+   ],
+   "newfstatat": [
+    "ok"
+   ],
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/etc/machine-id": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/etc/nsswitch.conf": {
+   "newfstatat": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/openssl/certs": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/etc/passwd": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/etc/pki/tls/cert.pem": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/etc/pki/tls/certs": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/etc/pki/tls/certs/ca-bundle.crt": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/etc/profile": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/profile.d": {
+   "newfstatat": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/profile.d/bash_completion.sh": {
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "EACCES",
+    "ok"
+   ],
+   "faccessat2": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/resolv.conf": {
+   "newfstatat": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/selinux/config": {
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/etc/ssl/ca-bundle.pem": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/etc/ssl/cert.pem": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/etc/ssl/certs": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/002c0b4f.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/0179095f.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/02265526.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/062cdee6.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/064e0aa9.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/06dc52d5.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/09789157.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/0a775a30.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/0b1b94ef.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/0b9bc432.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/0bf05006.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/0f5dc4f3.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/0f6fa695.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/1001acf7.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/106f3e4d.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/14bc7599.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/1cef98f5.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/1d3472b9.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/1e08bfd1.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/1e09d511.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/228f89db.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/244b5494.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/2923b3f9.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/2ae6433e.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/2b349938.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/32888f65.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/3513523f.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/3bde41ac.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/3e359ba6.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/3fb36b73.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/40193066.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/4042bcee.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/40547a79.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/406c9bb1.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/48bec511.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/4b718d9b.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/4bfab552.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/4f316efb.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/4fd49c6c.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/5443e9e3.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/54657681.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/5860aaa6.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/5931b5bc.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/5ad8a5d6.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/5cd81ad7.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/5f15c80c.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/5f618aec.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/607986c7.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/616816f6.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/626dceaf.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/653b494a.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/68dd7389.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/6a9bdba3.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/6b99d060.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/6d41d539.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/6fa5da56.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/706f604c.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/749e9e03.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/75d1b2ed.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/76faf6c0.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/7719f463.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/773e07ad.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/7a3adc42.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/7a780d93.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/7f3d5d1d.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/7fa05551.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/8160b96c.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/81f2d2b1.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/8312c4c1.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/8508e720.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/865fbdf9.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/878d9bca.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/8cb5ee0f.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/8d86cdd1.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/8d89cda1.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/8f103249.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/9046744a.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/90c5a3c8.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/930ac5d2.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/93bc0acc.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/9482e63a.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/9846683b.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/988a38cb.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/9b46e03d.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/9b5697b0.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/9bf03295.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/9c8dfbd4.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/9d04f354.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/9ef4a08a.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/9f727ac7.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/ACCVRAIZ1.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/AC_RAIZ_FNMT-RCM.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/AC_RAIZ_FNMT-RCM_SERVIDORES_SEGUROS.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/ANF_Secure_Server_Root_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/AffirmTrust_Premium.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Amazon_Root_CA_1.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Amazon_Root_CA_4.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Atos_TrustedRoot_2011.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Atos_TrustedRoot_Root_CA_ECC_TLS_2021.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Buypass_Class_3_Root_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/COMODO_ECC_Certification_Authority.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/COMODO_RSA_Certification_Authority.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Certigna.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Certigna_Root_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Certum_Trusted_Root_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Comodo_AAA_Services_root.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/D-TRUST_BR_Root_CA_2_2023.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/D-TRUST_EV_Root_CA_2_2023.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/D-TRUST_Root_Class_3_CA_2_2009.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/D-TRUST_Root_Class_3_CA_2_EV_2009.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/DigiCert_Assured_ID_Root_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/DigiCert_Global_Root_G3.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/DigiCert_TLS_RSA4096_Root_G5.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Entrust.net_Premium_2048_Secure_Server_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/FIRMAPROFESIONAL_CA_ROOT-A_WEB.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/GLOBALTRUST_2020.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/GTS_Root_R4.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/GlobalSign_ECC_Root_CA_-_R4.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/GlobalSign_Root_CA_-_R6.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/GlobalSign_Root_E46.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Go_Daddy_Class_2_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Go_Daddy_Root_Certificate_Authority_-_G2.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/HARICA_TLS_ECC_Root_CA_2021.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/IdenTrust_Commercial_Root_CA_1.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Izenpe.com.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Microsoft_RSA_Root_Certificate_Authority_2017.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/OISTE_WISeKey_Global_Root_GB_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/QuoVadis_Root_CA_2.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/QuoVadis_Root_CA_3_G3.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/SSL.com_EV_Root_Certification_Authority_ECC.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/SSL.com_TLS_RSA_Root_CA_2022.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/SZAFIR_ROOT_CA2.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Sectigo_Public_Server_Authentication_Root_E46.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/SecureTrust_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Secure_Global_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Security_Communication_RootCA2.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Starfield_Class_2_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/TUBITAK_Kamu_SM_SSL_Kok_Sertifikasi_-_Surum_1.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/TWCA_CYBER_Root_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/TWCA_Root_Certification_Authority.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Telekom_Security_TLS_ECC_Root_2020.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Trustwave_Global_Certification_Authority.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/Trustwave_Global_ECC_P384_Certification_Authority.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/TunTrust_Root_CA.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/UCA_Global_G2_Root.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/USERTrust_ECC_Certification_Authority.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/USERTrust_RSA_Certification_Authority.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/ca-certificates.crt": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/ca6e4ad9.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/e-Szigno_Root_CA_2017.pem": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/etc/ssl/certs/ed858448.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/home/claude/.claude/remote/.api_key": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/home/claude/.claude/remote/.session_ingress_token": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libacl.so.1": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libbrotlicommon.so.1": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libbrotlidec.so.1": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libc.so.6": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libcom_err.so.2": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libcrypto.so.3": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libcurl.so.4": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libdl.so.2": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libffi.so.8": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libgmp.so.10": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libgnutls.so.30": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libgssapi_krb5.so.2": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libhogweed.so.6": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libidn2.so.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libk5crypto.so.3": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libkeyutils.so.1": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libkrb5.so.3": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libkrb5support.so.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/liblber.so.2": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libldap.so.2": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libm.so.6": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libnettle.so.8": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libnghttp2.so.14": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libnghttp3.so.9": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libp11-kit.so.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libpcre2-8.so.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libpsl.so.5": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libpthread.so.0": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libresolv.so.2": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/librt.so.1": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/librtmp.so.1": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libsasl2.so.2": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libselinux.so.1": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libssh2.so.1": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libssl.so.3": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libtasn1.so.6": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libtinfo.so.6": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libunistring.so.5": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libz.so.1": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/lib/x86_64-linux-gnu/libzstd.so.1": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/logs": {
+   "statx": [
+    "ok"
+   ]
+  },
+  "/logs/agent": {
+   "statx": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions": {
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ],
+   "mkdir": [
+    "EEXIST"
+   ],
+   "newfstatat": [
+    "ok"
+   ],
+   "inotify_add_watch": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json": {
+   "statx": [
+    "ENOENT",
+    "ok"
+   ],
+   "openat": [
+    "ENOENT",
+    "ok"
+   ],
+   "readlink": [
+    "ENOENT",
+    "EINVAL"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.backup": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.lock": {
+   "mkdir": [
+    "ok"
+   ],
+   "utimensat": [
+    "ok"
+   ],
+   "statx": [
+    "ok",
+    "ENOENT"
+   ],
+   "rmdir": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.tmp.7243.0829cf7a50d8": {
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok",
+    "ENOENT"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.tmp.7243.093e0979d3e5": {
+   "openat": [
+    "ok"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.tmp.7243.0e7b1e223647": {
+   "openat": [
+    "ok"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.tmp.7243.71c17ea698ec": {
+   "openat": [
+    "ok"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.tmp.7243.9a0154b3f6e4": {
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok",
+    "ENOENT"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.tmp.7243.ae151512ffd0": {
+   "openat": [
+    "ok"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.tmp.7243.cf475007bd72": {
+   "openat": [
+    "ok"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.tmp.7243.d34f8b498ac5": {
+   "openat": [
+    "ok"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.tmp.7243.f65b8ec3ce41": {
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.claude.json.tmp.7243.fac5992271f4": {
+   "openat": [
+    "ok"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.config.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/.credentials.json": {
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/.last-cleanup": {
+   "statx": [
+    "ENOENT",
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/CLAUDE.md": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/access-audit": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/agents": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/backups": {
+   "openat": [
+    "ENOENT",
+    "ok"
+   ],
+   "mkdir": [
+    "ok",
+    "EEXIST"
+   ],
+   "newfstatat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/backups/.claude.json.backup.1794700733165": {
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/cache/model-access.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/cache/model-catalog": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/cache/model-catalog/masked-ids.json": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/cache/provider-probe-verdicts.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/cache/team-discovery.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/commands": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/daemon": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/daemon.log": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/daemon.log.1": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/daemon/auth": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/daemon/dispatch": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/daemon/dispatch/rejected": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/daemon/host-managed": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/daemon/roster.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/debug": {
+   "statx": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/dev-mods": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/dev-mods/94e947dd-29ff-4497-98a7-88a60dddf0c1": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/dump-prompts": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/feedback-bundles": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/feedback/drafts": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/file-history": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/file-transfers": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/hfi-auth.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/image-cache": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/jobs": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/jobs/pins.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/jobs/pins.json.tmp.e011bbe0": {
+   "openat": [
+    "ENOENT"
+   ],
+   "unlink": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/jobs/settled": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/logs": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/mcp-discovery-cache": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/mcp-needs-auth-cache.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/mcp-skill-archives": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/output-styles": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/paste-cache": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plans": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plugins": {
+   "statx": [
+    "ENOENT",
+    "ok"
+   ],
+   "mkdir": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/plugins/.trash": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plugins/cache": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plugins/flagged-plugins.json": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plugins/installed_plugins.json": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plugins/installed_plugins_v2.json": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plugins/known_marketplaces.json": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plugins/known_marketplaces_claudeai.json": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plugins/plugin-directory-cache-v2.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plugins/plugin-directory-marketplace.json": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plugins/store": {
+   "mkdir": [
+    "ENOENT",
+    "ok",
+    "EEXIST"
+   ],
+   "newfstatat": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ],
+   "rmdir": [
+    "ENOTEMPTY"
+   ]
+  },
+  "/logs/agent/sessions/plugins/store/agents-md_builtin-b21e741eeb30.json": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/plugins/store/cc-plugin-agents-md_builtin-b049b47b3618.json": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/plugins/store/cc-plugin-agents-md_builtin-b049b47b3618.json.lock": {
+   "mkdir": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ],
+   "rmdir": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/plugins/store/cc-plugin-agents-md_builtin-b049b47b3618.json.tmp.73a89bd3": {
+   "openat": [
+    "ok"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/plugins/synced": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/projects": {
+   "statx": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/projects/-app": {
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ],
+   "rmdir": [
+    "ENOTEMPTY"
+   ]
+  },
+  "/logs/agent/sessions/projects/-app/94e947dd-29ff-4497-98a7-88a60dddf0c1.jsonl": {
+   "statx": [
+    "ENOENT",
+    "ok"
+   ],
+   "openat": [
+    "ENOENT",
+    "ok",
+    "EEXIST"
+   ]
+  },
+  "/logs/agent/sessions/projects/-app/cloud-snapshots": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/projects/-app/memory": {
+   "statx": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/projects/-app/memory/": {
+   "openat": [
+    "ENOENT",
+    "ok"
+   ],
+   "mkdir": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/projects/-app/memory/MEMORY.md": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/projects/-app/memory/proposals": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/projects/-app/tiny_memory": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/remote-control/fork-seeds": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/rules": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/seed-admin": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/session-env": {
+   "openat": [
+    "ENOENT",
+    "ok"
+   ],
+   "mkdir": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/session-env/94e947dd-29ff-4497-98a7-88a60dddf0c1": {
+   "mkdir": [
+    "ENOENT",
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/sessions": {
+   "mkdir": [
+    "ok",
+    "EEXIST"
+   ],
+   "newfstatat": [
+    "ok"
+   ],
+   "chmod": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/sessions/.fleetview-heartbeat": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/sessions/7243.<hex>.key": {
+   "unlink": [
+    "ENOENT",
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/sessions/7243.<hex>.key.tmp.f80b6b22": {
+   "openat": [
+    "ok"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/sessions/7243.json": {
+   "openat": [
+    "ok"
+   ],
+   "unlink": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/settings.json": {
+   "statx": [
+    "ENOENT"
+   ],
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/shares": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/shell-snapshots": {
+   "statx": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ],
+   "mkdir": [
+    "EEXIST"
+   ],
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/shell-snapshots/snapshot-bash-1794700736759-l9znxp.sh": {
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ],
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ],
+   "unlink": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/skills": {
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/skills/.staging": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/skills/.trash": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/skills/manifest.json": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/skills/synced": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/startup-perf": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/state/device-mcp-consent-not-now.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/state/device-unbound-creates.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/state/mcp-discover-verdicts.json": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/statsig": {
+   "statx": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ],
+   "rmdir": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/tasks": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/teams": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/telemetry": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/themes": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/todos": {
+   "statx": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ],
+   "rmdir": [
+    "ok"
+   ]
+  },
+  "/logs/agent/sessions/traces": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/uploads": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/usage-data": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/usage-data/facets": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/usage-data/session-meta": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/logs/agent/sessions/workflows": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/opt/homebrew/bin/zsh": {
+   "stat": [
+    "ENOENT"
+   ],
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/proc/7243/stat": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/7281/stat": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/filesystems": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/self/cgroup": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/self/exe": {
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/10": {
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/11": {
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/11/-app": {
+   "mkdir": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/11/tasks": {
+   "mkdir": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/12": {
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/12/94e947dd-29ff-4497-98a7-88a60dddf0c1": {
+   "mkdir": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/12/byaus6xux.output": {
+   "statx": [
+    "ENOENT",
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ],
+   "unlink": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/13": {
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/16": {
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/6": {
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/7": {
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/proc/self/fd/9": {
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/proc/self/maps": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/self/ns/pid": {
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/proc/self/stat": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/self/statm": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/self/uid_map": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/sys/fs/binfmt_misc/WSLInterop": {
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/proc/sys/kernel/overflowuid": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/sys/vm/mmap_min_addr": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/proc/sys/vm/overcommit_memory": {
+   "open": [
+    "ok"
+   ]
+  },
+  "/proc/version": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/root": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/root/.bash_login": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.bash_profile": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.bashrc": {
+   "statx": [
+    "ok"
+   ],
+   "newfstatat": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/root/.cache/claude-cli-nodejs/-app": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.cache/claude-cli-nodejs/-app/errors": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.cache/claude/staging": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/root/.claude/bridge-spawn": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/root/.claude/state/served-calls": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.claude/state/settings-review.json": {
+   "openat": [
+    "ENOENT"
+   ],
+   "unlink": [
+    "ENOENT"
+   ]
+  },
+  "/root/.claude/state/unattended-serving-consent.json": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.claude/state/unattended-serving-runs": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.config/anthropic/active_config": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.config/anthropic/configs/default.json": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.config/curlrc": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.config/git/config": {
+   "access": [
+    "ENOENT"
+   ],
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.config/git/ignore": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/root/.curlrc": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.gitconfig": {
+   "access": [
+    "ENOENT"
+   ],
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/awk": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/bash": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/cat": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/claude": {
+   "statx": [
+    "ok"
+   ],
+   "readlink": [
+    "ok"
+   ]
+  },
+  "/root/.local/bin/curl": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/cut": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/env": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/git": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/grep": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/head": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/id": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/rg": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/sed": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/bin/zsh": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/root/.local/share/claude/versions": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/root/.local/share/claude/versions/2.1.311": {
+   "stat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ]
+  },
+  "/root/.local/state/claude/locks": {
+   "mkdir": [
+    "EEXIST"
+   ],
+   "newfstatat": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/root/.local/state/claude/locks/2.1.311.lock": {
+   "openat": [
+    "ENOENT",
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ],
+   "unlink": [
+    "ok"
+   ]
+  },
+  "/root/.local/state/claude/locks/2.1.311.lock.tmp.1553a5c7": {
+   "openat": [
+    "ok"
+   ],
+   "rename": [
+    "ok"
+   ]
+  },
+  "/root/.profile": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/sbin/rg": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/sbin/zsh": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/selinux": {
+   "statfs": [
+    "ENOENT"
+   ]
+  },
+  "/sys/devices/system/cpu/online": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/sys/devices/system/node/node1": {
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/sys/devices/system/node/node2": {
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/sys/devices/system/node/node3": {
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/sys/devices/system/node/node4": {
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/sys/devices/system/node/node5": {
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/sys/fs/cgroup/cgroup.controllers": {
+   "statx": [
+    "ok"
+   ]
+  },
+  "/sys/fs/cgroup/cpu.max": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/sys/fs/cgroup/memory.high": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/sys/fs/cgroup/memory.max": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/sys/fs/selinux": {
+   "statfs": [
+    "ENOENT"
+   ]
+  },
+  "/sys/hypervisor/uuid": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/sys/kernel/mm/transparent_hugepage/enabled": {
+   "open": [
+    "ok"
+   ]
+  },
+  "/tmp": {
+   "statx": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/tmp/cc-socks": {
+   "statx": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/tmp/cc-socks/7243.sock": {
+   "chmod": [
+    "ok"
+   ],
+   "unlink": [
+    "ok",
+    "ENOENT"
+   ]
+  },
+  "/tmp/claude-0": {
+   "mkdir": [
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ],
+   "statx": [
+    "ok"
+   ]
+  },
+  "/tmp/claude-0/-app": {
+   "statx": [
+    "ENOENT"
+   ],
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/tmp/claude-0/-app/94e947dd-29ff-4497-98a7-88a60dddf0c1": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/tmp/claude-0/-app/94e947dd-29ff-4497-98a7-88a60dddf0c1/tasks": {
+   "openat": [
+    "ENOENT"
+   ],
+   "statx": [
+    "ok"
+   ]
+  },
+  "/tmp/claude-0/bash-edit-diff": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/tmp/claude-0/fswatch-probe-e6a9hQ": {
+   "mkdir": [
+    "ok"
+   ],
+   "unlinkat": [
+    "EISDIR",
+    "ok"
+   ],
+   "openat": [
+    "ok"
+   ]
+  },
+  "/tmp/claude-0/fswatch-probe-e6a9hQ/probe": {
+   "openat": [
+    "ok",
+    "ENOTDIR"
+   ],
+   "inotify_add_watch": [
+    "ok"
+   ]
+  },
+  "/tmp/claude-0/speculation": {
+   "statx": [
+    "ENOENT"
+   ]
+  },
+  "/tmp/claude-fa9c-cwd": {
+   "openat": [
+    "ok"
+   ],
+   "unlink": [
+    "ok"
+   ]
+  },
+  "/tmp/stub-normal.txt": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr": {
+   "readlink": [
+    "EINVAL"
+   ]
+  },
+  "/usr/bin/awk": {
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ]
+  },
+  "/usr/bin/bash": {
+   "stat": [
+    "ok"
+   ]
+  },
+  "/usr/bin/cat": {
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ]
+  },
+  "/usr/bin/curl": {
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ]
+  },
+  "/usr/bin/cut": {
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ]
+  },
+  "/usr/bin/env": {
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ]
+  },
+  "/usr/bin/git": {
+   "stat": [
+    "ok"
+   ]
+  },
+  "/usr/bin/grep": {
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ]
+  },
+  "/usr/bin/head": {
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ]
+  },
+  "/usr/bin/id": {
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ]
+  },
+  "/usr/bin/rg": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/bin/run-parts": {
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ]
+  },
+  "/usr/bin/sed": {
+   "newfstatat": [
+    "ok"
+   ],
+   "access": [
+    "ok"
+   ]
+  },
+  "/usr/bin/zsh": {
+   "stat": [
+    "ENOENT"
+   ],
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_ADDRESS": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_COLLATE": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_CTYPE": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_IDENTIFICATION": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_MEASUREMENT": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_MESSAGES": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_MONETARY": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_NAME": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_NUMERIC": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_PAPER": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_TELEPHONE": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.UTF-8/LC_TIME": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_ADDRESS": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_COLLATE": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_CTYPE": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_IDENTIFICATION": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_MEASUREMENT": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_MESSAGES": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_MESSAGES/SYS_LC_MESSAGES": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_MONETARY": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_NAME": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_NUMERIC": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_PAPER": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_TELEPHONE": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/C.utf8/LC_TIME": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/locale/locale-archive": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/lib/ssl/openssl.cnf": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/local/bin/awk": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/bash": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/cat": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/curl": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/cut": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/env": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/git": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/grep": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/head": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/id": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/rg": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/run-parts": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/sed": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/bin/zsh": {
+   "stat": [
+    "ENOENT"
+   ],
+   "access": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/etc/openssl/cert.pem": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/etc/openssl/certs": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/awk": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/bash": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/cat": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/curl": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/cut": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/env": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/git": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/grep": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/head": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/id": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/rg": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/run-parts": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/sed": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/sbin/zsh": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/share/ca-certificates/ca-certificates.crt": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/local/share/certs": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/awk": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/bash": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/cat": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/curl": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/cut": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/env": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/git": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/grep": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/head": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/id": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/rg": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/run-parts": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/sed": {
+   "newfstatat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/sbin/zsh": {
+   "stat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/share": {
+   "readlink": [
+    "EINVAL"
+   ]
+  },
+  "/usr/share/ca-certificates": {
+   "openat": [
+    "ok"
+   ]
+  },
+  "/usr/share/locale": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "/usr/share/locale/locale.alias": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "/usr/share/zoneinfo": {
+   "readlink": [
+    "EINVAL"
+   ]
+  },
+  "/usr/share/zoneinfo/Etc": {
+   "readlink": [
+    "EINVAL"
+   ]
+  },
+  "/usr/share/zoneinfo/Etc/UTC": {
+   "readlink": [
+    "EINVAL"
+   ]
+  },
+  "/var/ssl/certs": {
+   "openat": [
+    "ENOENT"
+   ]
+  },
+  "002c0b4f.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "0179095f.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "02265526.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "062cdee6.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "064e0aa9.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "06dc52d5.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "09789157.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "0a775a30.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "0b1b94ef.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "0b9bc432.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "0bf05006.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "0f5dc4f3.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "0f6fa695.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "1001acf7.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "106f3e4d.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "14bc7599.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "1cef98f5.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "1d3472b9.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "1e08bfd1.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "1e09d511.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "228f89db.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "244b5494.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "2923b3f9.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "2ae6433e.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "2b349938.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "32888f65.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "3513523f.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "3bde41ac.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "3e359ba6.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "3fb36b73.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "40193066.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "4042bcee.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "40547a79.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "406c9bb1.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "48bec511.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "4b718d9b.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "4bfab552.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "4f316efb.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "4fd49c6c.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "5443e9e3.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "54657681.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "5860aaa6.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "5931b5bc.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "5ad8a5d6.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "5cd81ad7.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "5f15c80c.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "5f618aec.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "607986c7.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "616816f6.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "626dceaf.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "653b494a.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "68dd7389.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "6a9bdba3.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "6b99d060.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "6d41d539.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "6fa5da56.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "706f604c.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "749e9e03.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "75d1b2ed.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "76faf6c0.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "7719f463.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "773e07ad.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "7a3adc42.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "7a780d93.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "7f3d5d1d.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "7fa05551.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "8160b96c.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "81f2d2b1.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "8312c4c1.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "8508e720.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "865fbdf9.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "878d9bca.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "8cb5ee0f.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "8d86cdd1.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "8d89cda1.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "8f103249.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "9046744a.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "90c5a3c8.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "930ac5d2.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "93bc0acc.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "9482e63a.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "9846683b.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "988a38cb.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "9b46e03d.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "9b5697b0.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "9bf03295.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "9c8dfbd4.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "9d04f354.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "9ef4a08a.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "9f727ac7.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ACCVRAIZ1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "AC_RAIZ_FNMT-RCM.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "AC_RAIZ_FNMT-RCM_SERVIDORES_SEGUROS.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ANF_Secure_Server_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Actalis_Authentication_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "AffirmTrust_Commercial.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "AffirmTrust_Networking.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "AffirmTrust_Premium.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "AffirmTrust_Premium_ECC.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Amazon_Root_CA_1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Amazon_Root_CA_2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Amazon_Root_CA_3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Amazon_Root_CA_4.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Atos_TrustedRoot_2011.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Atos_TrustedRoot_Root_CA_ECC_TLS_2021.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Atos_TrustedRoot_Root_CA_RSA_TLS_2021.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Autoridad_de_Certificacion_Firmaprofesional_CIF_A62634068.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "BJCA_Global_Root_CA1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "BJCA_Global_Root_CA2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Baltimore_CyberTrust_Root.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Buypass_Class_2_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Buypass_Class_3_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "CA_Disig_Root_R2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "CFCA_EV_ROOT.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "COMODO_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "COMODO_ECC_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "COMODO_RSA_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Certainly_Root_E1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Certainly_Root_R1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Certigna.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Certigna_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Certum_EC-384_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Certum_Trusted_Network_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Certum_Trusted_Network_CA_2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Certum_Trusted_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "CommScope_Public_Trust_ECC_Root-01.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "CommScope_Public_Trust_ECC_Root-02.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "CommScope_Public_Trust_RSA_Root-01.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "CommScope_Public_Trust_RSA_Root-02.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Comodo_AAA_Services_root.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "D-TRUST_BR_Root_CA_1_2020.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "D-TRUST_BR_Root_CA_2_2023.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "D-TRUST_EV_Root_CA_1_2020.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "D-TRUST_EV_Root_CA_2_2023.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "D-TRUST_Root_Class_3_CA_2_2009.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "D-TRUST_Root_Class_3_CA_2_EV_2009.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "DigiCert_Assured_ID_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "DigiCert_Assured_ID_Root_G2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "DigiCert_Assured_ID_Root_G3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "DigiCert_Global_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "DigiCert_Global_Root_G2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "DigiCert_Global_Root_G3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "DigiCert_High_Assurance_EV_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "DigiCert_TLS_ECC_P384_Root_G5.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "DigiCert_TLS_RSA4096_Root_G5.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "DigiCert_Trusted_Root_G4.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Entrust.net_Premium_2048_Secure_Server_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Entrust_Root_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Entrust_Root_Certification_Authority_-_EC1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Entrust_Root_Certification_Authority_-_G2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "FIRMAPROFESIONAL_CA_ROOT-A_WEB.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GDCA_TrustAUTH_R5_ROOT.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GLOBALTRUST_2020.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GTS_Root_R1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GTS_Root_R2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GTS_Root_R3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GTS_Root_R4.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GlobalSign_ECC_Root_CA_-_R4.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GlobalSign_ECC_Root_CA_-_R5.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GlobalSign_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GlobalSign_Root_CA_-_R3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GlobalSign_Root_CA_-_R6.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GlobalSign_Root_E46.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "GlobalSign_Root_R46.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Go_Daddy_Class_2_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Go_Daddy_Root_Certificate_Authority_-_G2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "HARICA_TLS_ECC_Root_CA_2021.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "HARICA_TLS_RSA_Root_CA_2021.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Hellenic_Academic_and_Research_Institutions_ECC_RootCA_2015.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Hellenic_Academic_and_Research_Institutions_RootCA_2015.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "HiPKI_Root_CA_-_G1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Hongkong_Post_Root_CA_3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ISRG_Root_X1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ISRG_Root_X2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "IdenTrust_Commercial_Root_CA_1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "IdenTrust_Public_Sector_Root_CA_1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Izenpe.com.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Microsec_e-Szigno_Root_CA_2009.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Microsoft_ECC_Root_Certificate_Authority_2017.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Microsoft_RSA_Root_Certificate_Authority_2017.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "NAVER_Global_Root_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "NetLock_Arany_=Class_Gold=_F\\305\\221tan\\303\\272s\\303\\255tv\\303\\241ny.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "OISTE_WISeKey_Global_Root_GB_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "OISTE_WISeKey_Global_Root_GC_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "QuoVadis_Root_CA_1_G3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "QuoVadis_Root_CA_2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "QuoVadis_Root_CA_2_G3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "QuoVadis_Root_CA_3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "QuoVadis_Root_CA_3_G3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SSL.com_EV_Root_Certification_Authority_ECC.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SSL.com_EV_Root_Certification_Authority_RSA_R2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SSL.com_Root_Certification_Authority_ECC.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SSL.com_Root_Certification_Authority_RSA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SSL.com_TLS_ECC_Root_CA_2022.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SSL.com_TLS_RSA_Root_CA_2022.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SZAFIR_ROOT_CA2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Sectigo_Public_Server_Authentication_Root_E46.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Sectigo_Public_Server_Authentication_Root_R46.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SecureSign_Root_CA12.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SecureSign_Root_CA14.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SecureSign_Root_CA15.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SecureTrust_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Secure_Global_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Security_Communication_ECC_RootCA1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Security_Communication_RootCA2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Starfield_Class_2_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Starfield_Root_Certificate_Authority_-_G2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Starfield_Services_Root_Certificate_Authority_-_G2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "SwissSign_Gold_CA_-_G2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "T-TeleSec_GlobalRoot_Class_2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "T-TeleSec_GlobalRoot_Class_3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "TUBITAK_Kamu_SM_SSL_Kok_Sertifikasi_-_Surum_1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "TWCA_CYBER_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "TWCA_Global_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "TWCA_Root_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Telekom_Security_TLS_ECC_Root_2020.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Telekom_Security_TLS_RSA_Root_2023.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "TeliaSonera_Root_CA_v1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Telia_Root_CA_v2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "TrustAsia_Global_Root_CA_G3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "TrustAsia_Global_Root_CA_G4.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Trustwave_Global_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Trustwave_Global_ECC_P256_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "Trustwave_Global_ECC_P384_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "TunTrust_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "UCA_Extended_Validation_Root.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "UCA_Global_G2_Root.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "USERTrust_ECC_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "USERTrust_RSA_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "XRamp_Global_CA_Root.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "a09a51ae.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "a3418fda.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "a89d74c2.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "a94d09e5.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "aee5f10d.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "b0e59380.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "b1159c4c.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "b433981b.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "b66938e9.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "b727005e.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "b7a5b843.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "b81b93f0.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "b8d25de6.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ba8887ce.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "bf53fb88.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "c01eb047.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "c28a8a30.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ca-certificates.crt": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ca6e4ad9.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "cbf06781.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "cc450945.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "cd58d51e.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "cd8c0d63.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ce5e74ef.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "certSIGN_ROOT_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "certSIGN_Root_CA_G2.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "d4dae3dd.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "d52c538d.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "d6325660.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "d7e8dc79.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "d887a5bb.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "da0cfd1d.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "dc4d6a89.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "dd8e9d41.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ddcda989.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "de6d66f3.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "e-Szigno_Root_CA_2017.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "e113c810.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "e18bfb83.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "e35234b1.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "e36a6752.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "e73d606e.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "e868b802.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "e8de2f56.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ePKI_Root_Certification_Authority.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ecccd8db.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ed858448.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ee64a828.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "eed8c118.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ef954a4e.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "emSign_ECC_Root_CA_-_C3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "emSign_ECC_Root_CA_-_G3.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "emSign_Root_CA_-_C1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "emSign_Root_CA_-_G1.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "f081611a.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "f0c70a8d.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "f249de83.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "f30dd6ad.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "f387163d.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "f39fc864.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "f51bb24c.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "fa5da96b.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "fb717492.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "fc5a8f99.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "fd64f3fc.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "fe8a2cd8.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "feffd413.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ff34af3f.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "ffdd40f9.0": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "mozilla": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "probe": {
+   "unlinkat": [
+    "ok"
+   ]
+  },
+  "vTrus_ECC_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  },
+  "vTrus_Root_CA.pem": {
+   "newfstatat": [
+    "ok"
+   ]
+  }
+ },
+ "execs": [
+  "/bin/bash",
+  "/root/.local/bin/claude",
+  "/root/.local/share/claude/versions/2.1.311",
+  "/usr/bin/awk",
+  "/usr/bin/cat",
+  "/usr/bin/curl",
+  "/usr/bin/cut",
+  "/usr/bin/env",
+  "/usr/bin/git",
+  "/usr/bin/grep",
+  "/usr/bin/head",
+  "/usr/bin/id",
+  "/usr/bin/run-parts",
+  "/usr/bin/sed"
+ ],
+ "decoy": {
+  "canary": "lh-canary-ea39926e166cd824aa4114eeedb982fd",
+  "requests": 2,
+  "requests_with_the_slot_token": 2,
+  "requests_watched_for_the_canary": 2,
+  "requests_naming_the_canary": 0,
+  "files_holding_the_canary": [
+   "jobs/2026-11-14__15-55-05/recording-task__67UxCPE/agent/sessions/.credentials.json"
+  ]
+ }
+}

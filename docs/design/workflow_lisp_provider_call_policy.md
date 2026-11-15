@@ -18,8 +18,7 @@ Unsupported operands fail the frontend with
 `provider_result_policy_operand_not_inline_lowerable`; this component introduces
 no hidden materialization step.
 
-Timeout is a positive `Int` literal. Boolean, float, string, non-positive and
-dynamic timeout operands are rejected. Existing provider timeout behavior,
+Timeout is a positive `Int` literal or, except for phased delivery, an effect-free `Int` name or field, whose value below 1 refuses the step before `started` (`provider_timeout_nonpositive`). Boolean, float, string, non-positive literal and computed timeout operands are rejected. Existing provider timeout behavior,
 including exit 124, is unchanged. Empty strings do not introduce a language-level
 model/effort vocabulary; provider validation still decides admissible values.
 Absence of an option preserves provider defaults rather than synthesizing a new

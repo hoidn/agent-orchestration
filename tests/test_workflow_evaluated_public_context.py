@@ -145,14 +145,14 @@ def test_public_runtime_captures_keep_nested_reference_values(tmp_path, monkeypa
 def test_public_sibling_local_captures_survive_source_free_readback(tmp_path, monkeypatch, choice):
     source_path = (Path(__file__).parent / "fixtures" /
                    "workflow_lisp" / "closed_program" / "local_proc_specializations.orc")
-    source = source_path.read_text().replace('"TARGET"', '"2.35"')
+    source = source_path.read_text().replace('"TARGET"', '"2.40"')
     files, inputs = pure_files(tmp_path, source, {"choice": choice, "input": 4})
     _, result = assert_pure_public(files, inputs, 11, monkeypatch)
     assert result.descriptor == {"kind": "primitive", "name": "Int"}
 
 
 def test_public_bound_proc_captures_once_before_sibling_shadow(tmp_path, monkeypatch):
-    files, inputs = pure_files(tmp_path, _BIND_PROC_CAPTURE_SOURCE.replace("TARGET", "2.35"), {})
+    files, inputs = pure_files(tmp_path, _BIND_PROC_CAPTURE_SOURCE.replace("TARGET", "2.40"), {})
     script = tmp_path / "add.py"
     script.write_text('''import json, os, sys
 from pathlib import Path
@@ -389,8 +389,8 @@ def test_public_named_phase_targets_reach_real_provider_in_named_order(tmp_path,
     payload = {"variant": "COMPLETED", "implementation_state": "COMPLETED",
                "execution_report_path": context["execution_report_target"]}
     monkeypatch.setenv("PROVIDER_SHIM_RESULT", json.dumps(payload))
-    root = tmp_path / "2.35"
-    files, input_file = prepare_phase_provider(root, source.replace("TARGET", "2.35"), inputs)
+    root = tmp_path / "2.40"
+    files, input_file = prepare_phase_provider(root, source.replace("TARGET", "2.40"), inputs)
     monkeypatch.setenv("PATH", closed_path(root / "bin"))
     monkeypatch.chdir(root)
     output = _paused_phase_provider_value(root, files, input_file, monkeypatch)
@@ -407,7 +407,7 @@ def test_public_named_phase_targets_reach_real_provider_in_named_order(tmp_path,
 def test_public_hidden_generic_phase_target_preserves_refinement(tmp_path, monkeypatch, phase):
     from tests.test_workflow_lisp_closed_program_elaboration import _GENERIC_PHASE_TARGET_SOURCE
 
-    source = _GENERIC_PHASE_TARGET_SOURCE.replace("TARGET", "2.35").replace("with-phase ctx implementation", "with-phase ctx " + phase)
+    source = _GENERIC_PHASE_TARGET_SOURCE.replace("TARGET", "2.40").replace("with-phase ctx implementation", "with-phase ctx " + phase)
     files, inputs = pure_files(tmp_path, source, {})
     compile_public(files)
     monkeypatch.chdir(tmp_path)

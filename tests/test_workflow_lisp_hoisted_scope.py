@@ -105,8 +105,8 @@ OPERAND_SHAPES = {
     "effect-argument": ("Int", "(let* ((b 1) (r (tick (let* ((b 10)) b)))) b)", 1),
     "loop-budget": (
         "Int",
-        "(let* ((b 1)) (loop/recur :max (let* ((b 2)) b) :state (loop-state (n Int 0)) :on-exhausted b"
-        " (fn (state) (if (= state.n 5) (done state.n) (continue (loop-state :like state :n (+ state.n 1)))))))",
+        "(let* ((b 1)) (loop/recur ((state (loop-state (n Int 0)))) :max (let* ((b 2)) b) :on-exhausted b"
+        " (if (= state.n 5) (done state.n) (continue (loop-state :like state :n (+ state.n 1))))))",
         1,
     ),
 }
@@ -239,15 +239,15 @@ def test_a_match_subject_that_applies_a_typed_prompt_runs_as_the_let_bound_form(
 # A pure procedure copied into its caller retains lexical scope in current source.
 LIB = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/lib)
   (export shadow)
-  (defproc shadow ((n Int)) -> Int :effects () :lowering inline
+  (defproc shadow ((n Int)) -> Int
     (let* ((b n)) (+ (let* ((b 10)) b) b))))
 """
 ENTRY = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
   (import grt/lib :only (shadow))
   (export run)

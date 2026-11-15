@@ -19,7 +19,7 @@ def _commands(tmp_path: Path, names=("emit",)):
     return _parse_command_boundaries_manifest(json.loads(path.read_text()), manifest_path=path)
 
 
-def _source(body: str, *, target="2.35", params="", declarations="", returns="String"):
+def _source(body: str, *, target="2.40", params="", declarations="", returns="String"):
     return f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
       (defmodule cp/closed_elaboration) (export run)
       {declarations}
@@ -30,13 +30,12 @@ def _perform(body):
     return next(node for node in _walk_wcc(body) if isinstance(node, WccPerform) and node.target_name == "emit")
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.40"])
 @pytest.mark.parametrize("argv", ['', ':argv ("python" "emit.py")'])
 @pytest.mark.parametrize("inputs,present,fields", [("", False, ()), (":inputs ()", True, ()), (':inputs ((message "hi"))', True, ("message",))])
-def test_external_document_presence_survives_source_and_wcc(tmp_path, inputs, present, fields, target, argv):
+def test_external_document_presence_survives_source_and_wcc(tmp_path, inputs, present, fields, argv):
     from orchestrator.workflow_lisp.expressions import CommandResultExpr, LiteralExpr
 
-    source = _source(f'(command-result emit {argv} {inputs} :returns String)', target=target)
+    source = _source(f'(command-result emit {argv} {inputs} :returns String)')
     commands = _commands(tmp_path)
     compiled = _compile_current_source(tmp_path, source=source, commands=commands)
     expr = compiled.typed_program.workflows["cp/closed_elaboration::run"].typed_body.expr
@@ -56,9 +55,9 @@ def test_external_document_presence_survives_source_and_wcc(tmp_path, inputs, pr
 
 @pytest.mark.parametrize("first", ["argv", "inputs"])
 def test_operand_effects_follow_reordered_sections_once(tmp_path, first):
-    declarations = '''(defproc number () -> Int :effects ((uses-command number)) :lowering inline
+    declarations = '''(defproc number () -> Int
       (command-result number :argv ("python" "number.py") :returns Int))
-      (defproc text () -> String :effects ((uses-command text)) :lowering inline
+      (defproc text () -> String
       (command-result text :argv ("python" "text.py") :returns String))'''
     argv = ':argv ("python" "emit.py" (number))'
     inputs = ':inputs ((message (text)))'
@@ -132,7 +131,7 @@ def test_nontransportable_document_input_is_rejected(tmp_path, certified):
     mode = ':adapter emit' if certified else ':argv ("python" "emit.py")'
     commands = _adapter_commands(tmp_path, "ProcRef[Int -> Int]") if certified else _commands(tmp_path)
     with pytest.raises(LispFrontendCompileError) as caught:
-        _compile_and_elaborate(tmp_path, source=_source(f'(command-result emit {mode} :inputs ((payload (proc-ref identity))) :returns String)', declarations='(defproc identity ((n Int)) -> Int :effects () :lowering inline n)'), commands=commands)
+        _compile_and_elaborate(tmp_path, source=_source(f'(command-result emit {mode} :inputs ((payload (proc-ref identity))) :returns String)', declarations='(defproc identity ((n Int)) -> Int n)'), commands=commands)
     expected = "command_adapter_input_not_projectable" if certified else "command_result_inputs_invalid"
     assert caught.value.diagnostics[0].code == expected
 
@@ -149,7 +148,7 @@ def test_certified_recursive_inputs_preserve_nominal_type_check(tmp_path):
 def test_pure_operand_is_bound_in_source_order_before_later_effect(tmp_path):
     from orchestrator.workflow_lisp.wcc.model import WccCall, WccPureOp
 
-    declarations = '''(defproc number () -> Int :effects ((uses-command number)) :lowering inline
+    declarations = '''(defproc number () -> Int
       (command-result number :argv ("python" "number.py") :returns Int))'''
     body = _compile_and_elaborate(tmp_path, source=_source('(command-result emit :inputs ((quotient (/ 7.0 divisor))) :argv ("python" "emit.py" (number)) :returns String)', declarations=declarations, params='(divisor Float)'), commands=_commands(tmp_path, ("emit", "number")))
     values = [let.bound_value for let in _let_chain(body)]
@@ -159,7 +158,7 @@ def test_pure_operand_is_bound_in_source_order_before_later_effect(tmp_path):
 
 
 def test_adapter_binding_error_precedes_operand_type_error(tmp_path):
-    source = _source('(command-result emit :adapter emit :inputs ((payload (+ "bad" 1))) :returns Int)', target="2.35", returns="Int")
+    source = _source('(command-result emit :adapter emit :inputs ((payload (+ "bad" 1))) :returns Int)', returns="Int")
     with pytest.raises(LispFrontendCompileError) as caught:
         _compile_current_source(tmp_path, source, _adapter_commands(tmp_path, "Int"))
     assert caught.value.diagnostics[0].code == "command_result_return_type_invalid"
@@ -173,13 +172,13 @@ def test_operand_order_survives_nested_let_if_and_import(tmp_path, first, fields
 
     library = tmp_path / "cp" / "library.orc"
     library.parent.mkdir()
-    library.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    library.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule cp/library) (export text)
-      (defproc text () -> String :effects ((uses-command text)) :lowering inline
+      (defproc text () -> String
         (command-result text :argv ("python" "text.py") :returns String)))''')
-    declarations = '''(defproc number () -> Int :effects ((uses-command number)) :lowering inline
+    declarations = '''(defproc number () -> Int
         (command-result number :argv ("python" "number.py") :returns Int))
-      (defproc more () -> Int :effects ((uses-command more)) :lowering inline
+      (defproc more () -> Int
         (command-result more :argv ("python" "more.py") :returns Int))'''
     argv = ':argv ("python" "emit.py" (let* ((n (number))) n))'
     expressions = {"text": '(if flag (text) "unused")', "more": '(more)'}
@@ -209,7 +208,6 @@ def test_generic_specialization_preserves_document_presence_and_order(tmp_path):
     from orchestrator.workflow_lisp.expressions import CommandResultExpr
 
     declarations = '''(defproc send :forall (T) ((value T)) -> String
-      :effects ((uses-command emit)) :lowering inline
       (command-result emit :inputs ((payload "hi")) :argv ("python" "emit.py" value) :returns String))'''
     path = tmp_path / "cp" / "closed_elaboration.orc"
     path.parent.mkdir()
@@ -227,14 +225,13 @@ def test_generic_specialization_preserves_document_presence_and_order(tmp_path):
     ('(command-result emit :argv ("python" "emit.py") :returns String)', "19e8617fd9d5d4522c20e2b7e92e062bb09285e5191134d4a8437b597f2abcaa"),
     ('(command-result emit :adapter emit :inputs ((payload "hi")) :returns String)', "7074c9ecd4a5b6647e4fd9ddd170ca0c9946c740a2e34bbe1021ba0f96862986"),
 ])
-@pytest.mark.parametrize("target", ["2.35", "2.36"])
-def test_legacy_node_serialization_matches_frozen_source_bytes(source, expected, target):
+def test_legacy_node_serialization_matches_frozen_source_bytes(source, expected):
     import hashlib
     from orchestrator.workflow_lisp.build_manifest_io import _json_data
     from orchestrator.workflow_lisp.expressions import elaborate_expression
     from tests.test_workflow_lisp_command_adapters import _expression_syntax
 
-    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(), target_dsl_version=target)
+    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(), target_dsl_version="2.40")
     payload = _json_data(expr)
     assert "inputs_present" not in payload and "operand_order" not in payload
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -252,7 +249,7 @@ def test_empty_expanded_document_field_is_rejected():
     empty_pairs = replace(pairs, items=(empty_pair,))
     datum = replace(node.datum, items=(*node.datum.items[:5], empty_pairs, *node.datum.items[6:]))
     with pytest.raises(LispFrontendCompileError) as caught:
-        elaborate_expression(replace(node, datum=datum), bound_names=frozenset(), target_dsl_version="2.35")
+        elaborate_expression(replace(node, datum=datum), bound_names=frozenset(), target_dsl_version="2.40")
     assert caught.value.diagnostics[0].code == "command_result_inputs_invalid"
 
 
@@ -262,10 +259,10 @@ def test_legacy_command_semantic_identity_keeps_its_frozen_fields():
     from tests.test_workflow_lisp_command_adapters import _expression_syntax
 
     source = '(command-result emit :argv ("python" "emit.py") :returns String)'
-    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(), target_dsl_version="2.35")
+    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(), target_dsl_version="2.40")
     expected = "CommandResultExpr(step_name='emit',argv=(LiteralExpr(value='python',literal_kind='string'),LiteralExpr(value='emit.py',literal_kind='string')),adapter_name=None,adapter_inputs=(),return_spec=ReturnSpec(type_name='String',guidance=None))"
     assert _semantic_identity(expr) == expected
-    empty = elaborate_expression(_expression_syntax(source.replace(':returns', ':inputs () :returns')), bound_names=frozenset(), target_dsl_version="2.35")
+    empty = elaborate_expression(_expression_syntax(source.replace(':returns', ':inputs () :returns')), bound_names=frozenset(), target_dsl_version="2.40")
     assert _semantic_identity(empty) != expected
     reordered = replace(empty, operand_order=("inputs", "argv"))
     assert _semantic_identity(reordered) != _semantic_identity(empty)
@@ -275,7 +272,6 @@ def test_legacy_command_semantic_identity_keeps_its_frozen_fields():
 def test_generic_document_contract_is_checked_after_instantiation(tmp_path, type_name, template):
     declarations = f'''(defunion Choice (YES (value Int)) (NO))
       (defproc send :forall (T) ((value {template})) -> String
-        :effects ((uses-command emit)) :lowering inline
         (command-result emit :inputs ((payload value)) :argv ("python" "emit.py") :returns String))'''
     body = _compile_and_elaborate(tmp_path, source=_source('(send value)', params=f'(value {type_name})', declarations=declarations), commands=_commands(tmp_path))
     from orchestrator.workflow_lisp.wcc.model import WccCall
@@ -283,9 +279,8 @@ def test_generic_document_contract_is_checked_after_instantiation(tmp_path, type
 
 
 def test_generic_document_contract_rejects_nontransportable_instantiation(tmp_path):
-    declarations = '''(defproc identity ((n Int)) -> Int :effects () :lowering inline n)
+    declarations = '''(defproc identity ((n Int)) -> Int n)
       (defproc send :forall (T) ((value T)) -> String
-        :effects ((uses-command emit)) :lowering inline
         (command-result emit :inputs ((payload value)) :argv ("python" "emit.py") :returns String))'''
     with pytest.raises(LispFrontendCompileError) as caught:
         _compile_and_elaborate(tmp_path, source=_source('(send (proc-ref identity))', declarations=declarations), commands=_commands(tmp_path))
@@ -296,7 +291,6 @@ def test_generic_document_contract_rejects_nontransportable_instantiation(tmp_pa
 @pytest.mark.parametrize("type_name", ["String", "Int"])
 def test_certified_generic_document_checks_signature_after_instantiation(tmp_path, type_name):
     declarations = '''(defproc send :forall (T) ((value T)) -> String
-      :effects ((uses-command emit)) :lowering inline
       (command-result emit :adapter emit :inputs ((payload value)) :returns String))'''
     source = _source('(send value)', params=f'(value {type_name})', declarations=declarations)
     if type_name == "Int":
@@ -310,7 +304,7 @@ def test_certified_generic_document_checks_signature_after_instantiation(tmp_pat
 
 def test_recursive_document_keeps_existing_proc_ref_storage_refusal(tmp_path):
     declarations = '''(defrecord Bad (hook ProcRef[Int -> Int]))
-      (defproc identity ((n Int)) -> Int :effects () :lowering inline n)'''
+      (defproc identity ((n Int)) -> Int n)'''
     source = _source('(command-result emit :argv ("python" "emit.py") :inputs ((payload (record Bad :hook (proc-ref identity)))) :returns String)', declarations=declarations)
     with pytest.raises(LispFrontendCompileError) as caught:
         _compile_and_elaborate(tmp_path, source=source, commands=_commands(tmp_path))
@@ -367,9 +361,9 @@ def test_colliding_effect_inputs_keep_each_producer_once(tmp_path, certified, fi
     from orchestrator.workflow_lisp.wcc.model import WccCall, WccNameAtom
 
     producers = {"a-b": "one", "a_b": "two"}
-    declarations = '''(defproc one () -> Int :effects ((uses-command one)) :lowering inline
+    declarations = '''(defproc one () -> Int
       (command-result one :argv ("python" "one.py") :returns Int))
-      (defproc two () -> Int :effects ((uses-command two)) :lowering inline
+      (defproc two () -> Int
       (command-result two :argv ("python" "two.py") :returns Int))'''
     inputs = ' '.join(f'({name} ({producers[name]}))' for name in fields)
     mode = ':adapter emit' if certified else ':argv ("python" "emit.py")'
@@ -399,9 +393,9 @@ def test_noncolliding_input_binder_identities_are_preserved(tmp_path, certified)
 @pytest.mark.parametrize("argv", ['', ':argv ("python" "emit.py")'])
 @pytest.mark.parametrize("fields", [("first", "second"), ("second", "first")])
 def test_omitted_argv_keeps_input_effect_order_once(tmp_path, argv, fields):
-    declarations = """(defproc first () -> Int :effects ((uses-command first)) :lowering inline
+    declarations = """(defproc first () -> Int
       (command-result first :returns Int))
-      (defproc second () -> Int :effects ((uses-command second)) :lowering inline
+      (defproc second () -> Int
       (command-result second :returns Int))"""
     inputs = " ".join(f"({name} ({name}))" for name in fields)
     body = _compile_and_elaborate(tmp_path, source=_source(
@@ -423,8 +417,8 @@ def test_omitted_argv_cannot_infer_certified_adapter_mode(tmp_path, inputs):
 
 @pytest.mark.parametrize(
     ("target", "procedure", "argv"),
-    [("2.35", False, ''), ("2.40", True, ':argv ("python" "prepare.py")')],
-    ids=["2.35-workflow-argv-omitted", "2.40-procedure-argv-given"],
+    [("2.40", False, ''), ("2.40", True, ':argv ("python" "prepare.py")')],
+    ids=["2.40-workflow-argv-omitted", "2.40-procedure-argv-given"],
 )
 @pytest.mark.parametrize("subject", ["direct", "let", "if", "helper", "macro"])
 def test_nested_match_keeps_resolved_command_subject(tmp_path, target, procedure, argv, subject):
@@ -435,7 +429,6 @@ def test_nested_match_keeps_resolved_command_subject(tmp_path, target, procedure
     from orchestrator.workflow_lisp.expression_traversal import walk_expr
     from orchestrator.workflow_lisp.expressions import CommandResultExpr
 
-    lowering = ':lowering inline' if target == "2.35" else ''
     command = f'(command-result prepare {argv} :inputs ((diagnosis diagnosis)) :returns Preparation)'
     subjects = {
         "direct": command,
@@ -446,7 +439,7 @@ def test_nested_match_keeps_resolved_command_subject(tmp_path, target, procedure
     }
     declarations = f'''(defunion Diagnosis (DIAGNOSED) (UNLISTED))
       (defunion Preparation (READY (message String)) (BLOCKED))
-      (defproc identity ((value Preparation)) -> Preparation :effects () {lowering} value)
+      (defproc identity ((value Preparation)) -> Preparation :effects () value)
       (defmacro pass (value) value)'''
     body = f'''(match diagnosis
       ((UNLISTED _) "unlisted")
@@ -454,7 +447,7 @@ def test_nested_match_keeps_resolved_command_subject(tmp_path, target, procedure
         ((READY ready) ready.message) ((BLOCKED _) "blocked"))))'''
     if procedure:
         declarations += f'''(defproc recover ((diagnosis Diagnosis)) -> String
-          :effects ((uses-command prepare)) {lowering} {body})'''
+          :effects ((uses-command prepare)) {body})'''
         body = '(recover diagnosis)'
     path = tmp_path / "cp" / "closed_elaboration.orc"
     path.parent.mkdir()

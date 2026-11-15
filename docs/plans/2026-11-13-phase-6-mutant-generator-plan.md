@@ -238,7 +238,8 @@ Before and after:
   at both reviewer calls. Builds; a new digest.
 - `rounds`, `loop0=3`: `(loop/recur :max 2 :state ...` becomes `(loop/recur :max 3 :state ...`.
 - `drop_step`, `let1.0`: the binding `(ready (provider-result providers.planner ... (guides ...)))`
-  disappears; builds (nothing reads `ready`). `let1.1` (`spec`) is refused `name_unknown`.
+  disappears; refused `name_unknown` (every later step reads `ready.guide`; it built while nothing read
+  `ready`, before the seeds' second fix round). `let1.1` (`spec`) is refused `name_unknown`.
 - `prompt`, `work.drop2` removes the sentence that holds `{milestone}`: refused
   `prompt_placeholder_missing`. `work.append` builds.
 - `graft` on `staged`, target the coder's call, donor the acceptance arm: the coder's
@@ -255,7 +256,7 @@ means it exists to feed the compile check.
 | Effort per role (first space: three levels) | `effort`, as is | All seven programs (one role in `direct`, `retry_until_check` and `implement_check_repair`, two in `implement_review_revise`, three in the long-horizon seeds) | — |
 | Model per role | `model`, as is | The same | — |
 | Revision rounds | `rounds`, as is | Programs with a `loop/recur`: the three long-horizon seeds, `implement_check_repair`, `retry_until_check` | `direct` and `implement_review_revise` have no loop |
-| Planner absent | None | None | Dropping `ready` builds but removes one of three planner calls; `spec` and `plan` are read (`name_unknown`). It needs a seed where the plan is optional (`plan_implement_review.orc`, which does not exist); built when that dimension is searched |
+| Planner absent | None | None | Dropping `ready` is refused `name_unknown`, by design since the seeds' second fix round (every later step reads the guide path it reports), so "setup absent" is not reachable by `drop_step`; `spec` and `plan` are read too (`name_unknown`). It needs a seed where the plan is optional (`plan_implement_review.orc`, which does not exist); built when that dimension is searched |
 | Reviewer absent | None that can be relied on | One `graft` pair per site: it builds in `staged` and in `milestones::run`, and is refused `name_unknown` in `milestones::milestone` | A cap of 100 among about 1,500 pairs seldom draws that pair; built when that dimension is searched |
 | Conversation (fresh or continued) | None: T4 is deferred | — | The hand edit of P10 gives its reuse (0 of 11; no plan on `roles`) |
 | Prompt wording | `replace_prompt`, as is, with text from a proposer; `prompt` (`drop k`, `append`) is check only | All | The mechanical generator is not what a search would use: the seed-set plan says wording "is searched by proposal" |

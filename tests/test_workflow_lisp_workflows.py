@@ -122,7 +122,7 @@ def test_elaborate_workflow_carries_guided_return_spec() -> None:
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     "  (defworkflow approved ()",
                     '    -> (result Bool :format-hint "JSON boolean." :example true)',
                     "    true))",
@@ -149,7 +149,7 @@ def test_workflow_definition_stores_only_canonical_return_spec() -> None:
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     "  (defworkflow approved () -> Bool true))",
                 ]
             ),
@@ -239,7 +239,7 @@ def test_build_workflow_catalog_rejects_duplicate_workflow_names() -> None:
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     "  (defworkflow duplicate",
                     "    ((report_path WorkReport))",
                     "    -> ImplementationSummary",
@@ -274,7 +274,7 @@ def test_typecheck_workflow_definitions_rejects_duplicate_parameter_names() -> N
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     "  (defworkflow duplicate-param",
                     "    ((report_path WorkReport)",
                     "     (report_path WorkReport))",
@@ -310,7 +310,7 @@ def test_elaborate_workflow_definitions_parses_workflow_param_default_metadata()
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     "  (defworkflow defaults",
                     "    ((report_path WorkReport :default \"reports/default.md\")",
                     "     (status String))",
@@ -341,7 +341,7 @@ def test_elaborate_workflow_definitions_rejects_unknown_workflow_param_keyword()
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     "  (defworkflow defaults",
                     "    ((report_path WorkReport :optional true))",
                     "    -> ImplementationSummary",
@@ -368,7 +368,7 @@ def test_elaborate_workflow_definitions_rejects_workflow_param_default_without_v
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     "  (defworkflow defaults",
                     "    ((report_path WorkReport :default))",
                     "    -> ImplementationSummary",
@@ -575,7 +575,7 @@ def test_build_workflow_catalog_accepts_union_workflow_returns_when_projection_i
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defworkflow provider-attempt",
                 "    ((input ChecksResult)",
                 "     (report_path WorkReport))",
@@ -605,7 +605,7 @@ def test_build_workflow_catalog_normalizes_supported_workflow_param_defaults(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defenum Status",
                 "    ready",
                 "    blocked)",
@@ -652,7 +652,7 @@ def test_compile_stage3_module_accepts_float_literals_in_workflow_body(tmp_path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Summary",
                 "    (score Float))",
                 "  (defworkflow defaults",
@@ -683,7 +683,7 @@ def test_build_workflow_catalog_rejects_structured_workflow_param_defaults(tmp_p
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord MultiInput",
                 "    (status String)",
                 "    (report String))",
@@ -717,7 +717,7 @@ def test_build_workflow_catalog_rejects_type_invalid_workflow_param_defaults(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Summary",
                 "    (status String))",
                 "  (defworkflow defaults",
@@ -762,7 +762,7 @@ def test_workflow_boundary_admits_collection_typed_returns(tmp_path: Path) -> No
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord WorkflowOutput",
                 "    (attempt_ids Map[String, Int]))",
                 "  (defworkflow entry",
@@ -795,7 +795,7 @@ def test_workflow_boundary_rejects_collections_inside_workflow_ref_signatures(tm
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord WorkflowOutput",
                 "    (value String))",
                 "  (defworkflow entry",
@@ -835,7 +835,7 @@ def test_build_workflow_catalog_rejects_unsupported_workflow_param_types(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defworkflow summarize",
                 f"    ((value {bad_type})",
                 "     (report_path WorkReport))",
@@ -871,7 +871,7 @@ def test_workflow_catalog_rejects_unsupported_nested_return_fields(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -890,7 +890,7 @@ def test_workflow_catalog_rejects_unsupported_nested_return_fields(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defworkflow summarize",
                 "    ((report_path WorkReport))",
                 "    -> InvalidSummary",
@@ -915,7 +915,7 @@ def test_typecheck_workflow_definitions_accepts_union_workflow_calls_with_match_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defworkflow helper",
                 "    ((input ChecksResult)",
                 "     (report_path WorkReport))",
@@ -1172,7 +1172,7 @@ def test_workflow_boundary_rejects_proc_ref_record_fields(tmp_path: Path) -> Non
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord WorkflowInput",
                 "    (value String))",
                 "  (defrecord WorkflowOutput",
@@ -1204,7 +1204,7 @@ def test_workflow_boundary_rejects_proc_ref_union_payloads(tmp_path: Path) -> No
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord WorkflowInput",
                 "    (value String))",
                 "  (defrecord WorkflowOutput",
@@ -1292,7 +1292,7 @@ def _native_collection_return_module(tmp_path: Path, return_type_name: str) -> P
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1365,7 +1365,7 @@ def test_derive_workflow_signature_contracts_keeps_record_and_union_return_kinds
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Summary",
                 "    (status String))",
                 "  (defunion Decision",

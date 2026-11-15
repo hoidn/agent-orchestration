@@ -27,7 +27,8 @@ from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.type_env import RecordTypeRef, UnionTypeRef
 from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
 from tests.workflow_evaluated_totality_helpers import _public_run
-from tests.workflow_lisp_generic_union_runtime_sources import HEADER
+
+HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.40")\n'
 
 
 # `check` constructs over its own parameter and calls `lift`, a second
@@ -36,10 +37,8 @@ GENERICS = """  (defunion Outcome :forall (T E)
     (OK (value T))
     (ERR (error E)))
   (defproc lift :forall (T) ((x T)) :where ((T is-record)) -> Outcome[T String]
-    :effects () :lowering inline
     (variant Outcome[T String] OK :value x))
   (defproc check :forall (U) ((x U) (ok Bool)) :where ((U is-record)) -> Outcome[U String]
-    :effects () :lowering inline
     (if ok (lift x) (variant Outcome[U String] ERR :error "rejected")))
 """
 
@@ -60,10 +59,8 @@ Path(bundle).write_text(json.dumps({"text": text}), encoding="utf-8")
 # effectful arms (decision brief case a, independent of generics).
 CONSUMER = """  (defrecord Note (text String))
   (defproc note-ok ((c Cand)) -> Note
-    :effects ((uses-command probe_note)) :lowering inline
     (command-result probe_note :argv ("python" "PROBE" "ok" c.title) :returns Note))
   (defproc note-err ((why String)) -> Note
-    :effects ((uses-command probe_note)) :lowering inline
     (command-result probe_note :argv ("python" "PROBE" "err" why) :returns Note))
   (defworkflow make () -> Outcome[Cand String]
     CALL)
@@ -140,10 +137,8 @@ JOIN_LIB = HEADER + """  (defmodule grt/lib)
   (export Result lift choose)
   (defunion Result :forall (T E) (YES (value T)) (NO (error E)))
   (defproc lift :forall (T) ((x T)) :where ((T is-record)) -> Result[T String]
-    :effects () :lowering inline
     (variant Result[T String] YES :value x))
   (defproc choose :forall (U) ((x U) (flag Bool)) :where ((U is-record)) -> Result[U String]
-    :effects () :lowering inline
     (if flag (lift x) (variant Result[U String] NO :error "no")))
 )
 """
@@ -185,7 +180,7 @@ HIDDEN_LIBS = {
   (export Result make)
   (defrecord Secret (name String))
   (defunion Result (YES (value Secret)) (NO (error String)))
-  (defproc make ((name String)) -> Result :effects () :lowering inline
+  (defproc make ((name String)) -> Result
     (variant Result YES :value (record Secret :name name)))
 )
 """,
@@ -194,7 +189,6 @@ HIDDEN_LIBS = {
   (defrecord Secret (name String))
   (defunion Result :forall (T E) (YES (value T)) (NO (error E)))
   (defproc make :forall (T) ((x T) (ok Bool)) :where ((T is-record)) -> Result[T String]
-    :effects () :lowering inline
     (let* ((secret (record Secret :name "hidden")))
       (if ok (variant Result[T String] YES :value x) (variant Result[T String] NO :error secret.name))))
 )
@@ -249,7 +243,7 @@ SEED_LIB = """  (defmodule grt/lib)
   (export Outer make)
   (defrecord Private (word String))
   (defrecord Outer (value Private) (tags List[String]))
-  (defproc make () -> Outer :effects () :lowering inline
+  (defproc make () -> Outer
     (record Outer :value (record Private :word "x") :tags (list "x")))
 )
 """
@@ -271,7 +265,7 @@ LOOP_LIB = """  (defmodule grt/lib)
   (export Outer make)
   (defrecord Private (word String))
   (defrecord Outer (value Private) (tags List[String]))
-  (defproc make () -> Outer :effects () :lowering inline
+  (defproc make () -> Outer
     (loop/recur :max 3
       :state (loop-state (tags List[String] (list "x")) (n Int 0))
       :on-exhausted (record Outer :value (record Private :word "exhausted") :tags state.tags)

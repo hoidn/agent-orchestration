@@ -189,6 +189,7 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
     policy_count = len(node["policy"])
     policy_values = values[-policy_count:] if policy_count else ()
     policy = dict(zip(node["policy"], policy_values, strict=True))
+    _check_timeout(policy, dict(zip(node["policy"], operands[len(operands) - policy_count:], strict=True)))
     cut = assemble_provider_prompt_with_cut(
         node, operands, source_text=reads.source_text,
         dependency_snapshot=reads.dependency_snapshot, result_path=result_path, logical_workspace=logical_workspace,
@@ -224,6 +225,22 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
         prompt, policy, parts, provider_expected_outputs(fills, fill_values),
         cut if node["class"] == "provider_phased" else None,
     )
+
+
+class ProviderTimeoutNonpositive(ProviderPerformerError):
+    """`producers`: the steps whose results the value came from; `identity`: the refused step, set by the caller
+    that knows it (`effect_inputs`), for the recovery lines."""
+
+    def __init__(self, value, producers):
+        super().__init__("provider_timeout_nonpositive", f"provider timeout must be positive; value={value}, minimum=1")
+        self.producers = producers
+        self.identity = None
+
+
+def _check_timeout(policy, operands) -> None:
+    """A timeout from a name or a field is checked here, before `started`; a literal one at compile time."""
+    if policy.get("timeout_sec", 1) < 1:
+        raise ProviderTimeoutNonpositive(policy["timeout_sec"], sorted(operands["timeout_sec"].dependencies))
 
 
 def check_output_slots(node, resolved, *, workspace, result_path):

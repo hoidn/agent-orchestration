@@ -44,7 +44,7 @@ from orchestrator.workflow_lisp.procedure_typecheck import (
     _semantic_identity,
 )
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-from orchestrator.workflow_lisp.syntax import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+from orchestrator.contracts.closed_program.targets import CURRENT_TARGET_DSL_VERSION
 from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
@@ -81,12 +81,8 @@ _SOURCE = '''(workflow-lisp
   (export run)
   (defrecord Box (n Int))
   (defproc inc ((n Int)) -> Int
-    :effects ((uses-command inc))
-    :lowering inline
     (command-result inc :argv ("python" "probe.py" n) :returns Int))
   (defproc fetch ((n Int)) -> Box
-    :effects ((uses-command fetch))
-    :lowering inline
     (command-result fetch :argv ("python" "probe.py" n) :returns Box))
   (defworkflow run () -> Box
     (fetch (inc 4))))
@@ -105,7 +101,7 @@ def _compile_and_elaborate(
     commands: dict[str, ExternalToolBinding] = _COMMANDS,
     entry_workflow: str = "run",
 ):
-    source = source.replace("TARGET", EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION)
+    source = source.replace("TARGET", CURRENT_TARGET_DSL_VERSION)
     path = (tmp_path / Path(*module.split("/"))).with_suffix(".orc")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
@@ -207,8 +203,6 @@ def test_closed_command_adapter_inputs_bind_effectful_values_before_perform(
       (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)
       (defrecord ImplementationSummary (report WorkReport))
       (defproc make-report ((n Int)) -> WorkReport
-        :effects ((uses-command report))
-        :lowering inline
         (command-result report :argv ("python" "report.py" n) :returns WorkReport))
       (defworkflow run ((review WorkReport)) -> ImplementationSummary
         (command-result normalize_result
@@ -292,8 +286,6 @@ def test_closed_run_ref_inputs_bind_effectful_values_before_perform(
       (export run)
       (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)
       (defproc make-report ((n Int)) -> WorkReport
-        :effects ((uses-command report))
-        :lowering inline
         (command-result report :argv ("python" "report.py" n) :returns WorkReport))
       (defworkflow child ((payload WorkReport)) -> WorkReport payload)
       (defworkflow run ((n Int)) -> WorkReport
@@ -346,14 +338,11 @@ _DONE_SOURCE = '''(workflow-lisp
   (defmodule cp/closed_elaboration)
   (export run)
   (defproc inc ((n Int)) -> Int
-    :effects ((uses-command inc))
-    :lowering inline
     (command-result inc :argv ("python" "probe.py" n) :returns Int))
   (defworkflow run () -> Int
-    (loop/recur :max 3
-      :state (loop-state (i Int 0))
+    (loop/recur ((state (loop-state (i Int 0)))) :max 3
       :on-exhausted state.i
-      (fn (state) (done (inc state.i))))))
+      (done (inc state.i)))))
 '''
 
 
@@ -379,13 +368,11 @@ _DONE_MATCH_SOURCE = '''(workflow-lisp
   (export run)
   (defunion Outcome (SMALL (n Int)) (LARGE (n Int)))
   (defworkflow run ((item Outcome)) -> Int
-    (loop/recur :max 3
-      :state (loop-state (i Int 0))
+    (loop/recur ((state (loop-state (i Int 0)))) :max 3
       :on-exhausted state.i
-      (fn (state)
-        (done (match item
-                ((SMALL small) small.n)
-                ((LARGE large) large.n)))))))
+      (done (match item
+              ((SMALL small) small.n)
+              ((LARGE large) large.n))))))
 '''
 
 
@@ -405,17 +392,13 @@ def test_closed_entry_elaborates_admitted_older_target_imported_helper(
 ) -> None:
     helper = tmp_path / "older.orc"
     helper.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule older) (export get Box)
           (defrecord Box (n Int))
           (defunion Choice (Ready (value Box)) (Empty))
           (defproc fetch ((n Int)) -> Box
-            :effects ((uses-command fetch))
-            :lowering inline
             (command-result fetch :argv ("python" "probe.py" n) :returns Box))
           (defproc get ((n Int)) -> Box
-            :effects ((uses-command fetch))
-            :lowering inline
             (match (let* ((v (fetch n))) (variant Choice Ready :value v))
               ((Ready r) r.value)
               ((Empty e) (record Box :n 0)))))''',
@@ -424,7 +407,7 @@ def test_closed_entry_elaborates_admitted_older_target_imported_helper(
     entry = tmp_path / "entry.orc"
     entry.write_text(
         f'''(workflow-lisp (:language "0.1")
-          (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+          (:target-dsl "{CURRENT_TARGET_DSL_VERSION}")
           (defmodule entry)
           (import older :only (get Box))
           (export run)
@@ -517,7 +500,7 @@ def test_nested_loop_continues_keep_the_nearest_loop_target(tmp_path: Path) -> N
 
 _PHASE_TARGET_SOURCE = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "TARGET")
+  (:target-dsl "2.35")
   (defmodule cp/closed_elaboration)
   (export run)
   (defpath WorkReportTarget
@@ -614,8 +597,6 @@ _SHORT_CIRCUIT_SOURCE = '''(workflow-lisp
   (defmodule cp/closed_elaboration)
   (export run)
   (defproc check ((n Int)) -> Bool
-    :effects ((uses-command check))
-    :lowering inline
     (command-result check :argv ("python" "probe.py" n) :returns Bool))
   (defworkflow run () -> Bool
     (and false (check 1))))
@@ -629,8 +610,6 @@ _AND_MATCH_SHORT_CIRCUIT_SOURCE = '''(workflow-lisp
   (export run)
   (defunion Choice (A (n Int)) (B (n Int)))
   (defproc check ((n Int)) -> Bool
-    :effects ((uses-command check))
-    :lowering inline
     (command-result check :argv ("python" "probe.py" n) :returns Bool))
   (defworkflow run ((item Choice)) -> Bool
     (and true
@@ -677,8 +656,6 @@ def test_closed_short_circuit_match_survives_let_call_done_and_loop_bindings(
     relay_source = _AND_MATCH_SHORT_CIRCUIT_SOURCE.replace(
         "  (defworkflow run",
         """  (defproc relay ((flag Bool)) -> Bool
-    :effects ((uses-command relay))
-    :lowering inline
     (command-result relay :argv ("python" "probe.py" flag) :returns Bool))
   (defworkflow run""",
     )
@@ -932,12 +909,8 @@ def test_closed_short_circuit_uses_the_materialized_typed_condition(
       (export run)
       (defrecord Gate (enabled Bool))
       (defproc check-bool ((n Int)) -> Bool
-        :effects ((uses-command check-bool))
-        :lowering inline
         (command-result check-bool :argv ("python" "probe.py" n) :returns Bool))
       (defproc check-gate ((n Int)) -> Gate
-        :effects ((uses-command check-gate))
-        :lowering inline
         (command-result check-gate :argv ("python" "probe.py" n) :returns Gate))
       (defworkflow run () -> Bool {body_source}))'''
     body = _compile_and_elaborate(
@@ -969,8 +942,6 @@ _BIND_PROC_CAPTURE_SOURCE = '''(workflow-lisp
   (defmodule cp/bind_proc_capture)
   (export run)
   (defproc add-leading ((leading Int) (value Int)) -> Int
-    :effects ((uses-command add))
-    :lowering inline
     (command-result add :argv ("python" "add.py" leading value) :returns Int))
   (defworkflow run () -> Int
     (let* ((b 1)
@@ -1032,12 +1003,8 @@ _LOOP_SEED_BUDGET_SOURCE = '''(workflow-lisp
   (defmodule cp/closed_elaboration)
   (export run)
   (defproc budget ((n Int)) -> Int
-    :effects ((uses-command budget))
-    :lowering inline
     (command-result budget :argv ("python" "probe.py" n) :returns Int))
   (defproc seed ((n Int)) -> Int
-    :effects ((uses-command seed))
-    :lowering inline
     (command-result seed :argv ("python" "probe.py" n) :returns Int))
   (defworkflow run () -> Int
     (loop/recur :max (budget 3)
@@ -1094,7 +1061,7 @@ def test_closed_macro_loop_uses_expanded_keyword_order_over_argument_spans(
 ) -> None:
     source = _MACRO_LOOP_SEED_BUDGET_SOURCE.replace(
         "TARGET",
-        EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
+        CURRENT_TARGET_DSL_VERSION,
     )
     path = (tmp_path / "cp" / "closed_elaboration.orc")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1147,7 +1114,7 @@ def test_condition_retained_input_stays_out_of_legacy_ast_views_and_identities(
 ) -> None:
     source = _LOOP_IN_IF_CONDITION_SOURCE.replace(
         "TARGET",
-        EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
+        CURRENT_TARGET_DSL_VERSION,
     )
     path = tmp_path / "cp" / "closed_elaboration.orc"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1431,7 +1398,7 @@ def test_retained_input_maps_and_expands_helpers_in_its_incoming_scope() -> None
 def test_cross_module_inline_constructor_survives_retention_and_source_deletion(
     tmp_path: Path,
 ) -> None:
-    target = EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+    target = CURRENT_TARGET_DSL_VERSION
     library_path = tmp_path / "cp" / "library.orc"
     consumer_path = tmp_path / "cp" / "consumer.orc"
     library_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1443,8 +1410,6 @@ def test_cross_module_inline_constructor_survives_retention_and_source_deletion(
   (export ready)
   (defrecord HiddenFlag (enabled Bool))
   (defproc ready ((value Bool)) -> Bool
-    :effects ()
-    :lowering inline
     (if (let* ((flag (record HiddenFlag :enabled value))) flag.enabled)
       true false)))''',
         encoding="utf-8",
@@ -1457,8 +1422,6 @@ def test_cross_module_inline_constructor_survives_retention_and_source_deletion(
   (import cp/library :only (ready))
   (export run)
   (defproc check ((n Int)) -> Bool
-    :effects ((uses-command check))
-    :lowering inline
     (command-result check :argv ("python" "probe.py" n) :returns Bool))
   (defworkflow run ((input Bool)) -> Bool
     (if (and (ready input) (check 1)) true false)))''',
@@ -1556,12 +1519,10 @@ def test_closed_procedure_argument_prebinds_a_pure_loop_under_not(
 ) -> None:
     source = f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+  (:target-dsl "{CURRENT_TARGET_DSL_VERSION}")
   (defmodule cp/closed_elaboration)
   (export run)
   (defproc relay ((value Bool)) -> Bool
-    :effects ((uses-command relay))
-    :lowering inline
     (command-result relay :argv ("python" "probe.py" value) :returns Bool))
   (defworkflow run () -> Bool
     (relay (not
@@ -1598,13 +1559,11 @@ def test_closed_procedure_argument_prebinds_a_loop_inside_record_field(
 ) -> None:
     source = f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+  (:target-dsl "{CURRENT_TARGET_DSL_VERSION}")
   (defmodule cp/closed_elaboration)
   (export run)
   (defrecord Box (value Bool))
   (defproc relay_box ((box Box)) -> Bool
-    :effects ((uses-command relay_box))
-    :lowering inline
     (command-result relay_box :argv ("python" "probe.py" box.value) :returns Bool))
   (defworkflow run () -> Bool
     (relay_box (record Box :value
@@ -1837,12 +1796,8 @@ def test_closed_nested_operand_prefixes_keep_group_offsets_and_order(
     source = _LOOP_SEED_BUDGET_SOURCE.replace(
         "  (defworkflow run () -> Int\n    (loop/recur :max (budget 3)\n      :state (loop-state (i Int (seed 0)))\n      :on-exhausted state.i\n      (fn (state) (done state.i))))",
         """  (defproc budget-arg ((n Int)) -> Int
-    :effects ((uses-command budget-arg))
-    :lowering inline
     (command-result budget-arg :argv ("python" "probe.py" n) :returns Int))
   (defproc seed-arg ((n Int)) -> Int
-    :effects ((uses-command seed-arg))
-    :lowering inline
     (command-result seed-arg :argv ("python" "probe.py" n) :returns Int))
   (defworkflow run () -> Bool
     (if (loop/recur :state (loop-state (i Int (seed (seed-arg 0))))
@@ -1875,18 +1830,16 @@ def test_closed_imported_old_snapshot_survives_source_deletion_and_is_reachable(
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cp/producer)
   (export get)
   (defproc seed ((n Int)) -> Int
-    :effects ((uses-command seed))
-    :lowering inline
     (command-result seed :argv ("python" "probe.py" n) :returns Int))
   (defworkflow get () -> Bool
-    (if (loop/recur :state (loop-state (i Int (seed 0)))
+    (if (loop/recur ((state (loop-state (i Int (seed 0)))))
           :max 3
           :on-exhausted false
-          (fn (state) (done true)))
+          (done true))
       true
       false)))''',
         encoding="utf-8",
@@ -1912,7 +1865,7 @@ def test_closed_imported_old_snapshot_survives_source_deletion_and_is_reachable(
     consumer_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+  (:target-dsl "{CURRENT_TARGET_DSL_VERSION}")
   (defmodule cp/consumer)
   (export run)
   (defworkflow run () -> Bool (call dep)))''',
@@ -1966,20 +1919,14 @@ def test_closed_nested_zero_budget_keeps_done_effect_inside_inner_iteration(
 ) -> None:
     source = f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+  (:target-dsl "{CURRENT_TARGET_DSL_VERSION}")
   (defmodule cp/closed_elaboration)
   (export run)
   (defproc budget ((n Int)) -> Int
-    :effects ((uses-command budget))
-    :lowering inline
     (command-result budget :argv ("python" "probe.py" n) :returns Int))
   (defproc seed ((n Int)) -> Int
-    :effects ((uses-command seed))
-    :lowering inline
     (command-result seed :argv ("python" "probe.py" n) :returns Int))
   (defproc check ((n Int)) -> Bool
-    :effects ((uses-command check))
-    :lowering inline
     (command-result check :argv ("python" "probe.py" n) :returns Bool))
   (defworkflow run () -> Bool
     (if (loop/recur :max 1
@@ -2052,30 +1999,30 @@ def test_closed_nested_zero_budget_keeps_done_effect_inside_inner_iteration(
     ("condition", "has_nested_check"),
     [
         (
-            "(not (loop/recur :max 1 :state (loop-state (outer Int 0)) "
-            ":on-exhausted false (fn (state) (done "
-            "(loop/recur :state (loop-state (inner Int (seed 0))) "
+            "(not (loop/recur ((state (loop-state (outer Int 0)))) :max 1 "
+            ":on-exhausted false (done "
+            "(loop/recur ((inner (loop-state (inner Int (seed 0))))) "
             ":max (budget 0) :on-exhausted false "
-            "(fn (inner) (done (check 1))))))))",
+            "(done (check 1))))))",
             True,
         ),
         (
-            "(= (loop/recur :max 1 :state (loop-state (outer Int 0)) "
-            ":on-exhausted false (fn (state) (done "
-            "(loop/recur :state (loop-state (inner Int (seed 0))) "
+            "(= (loop/recur ((state (loop-state (outer Int 0)))) :max 1 "
+            ":on-exhausted false (done "
+            "(loop/recur ((inner (loop-state (inner Int (seed 0))))) "
             ":max (budget 0) :on-exhausted false "
-            "(fn (inner) (done (check 1))))))) true)",
+            "(done (check 1))))) true)",
             True,
         ),
         (
-            "(not (loop/recur :max 0 :state (loop-state (inner Int 0)) "
-            ":on-exhausted false (fn (inner) (done true))))",
+            "(not (loop/recur ((inner (loop-state (inner Int 0)))) :max 0 "
+            ":on-exhausted false (done true)))",
             False,
         ),
         (
-            "(= (list/length (list (loop/recur :max 0 "
-            ":state (loop-state (inner Int 0)) :on-exhausted false "
-            "(fn (inner) (done true))))) 1)",
+            "(= (list/length (list (loop/recur ((inner (loop-state (inner Int 0)))) :max 0"
+            " :on-exhausted false "
+            "(done true)))) 1)",
             False,
         ),
     ],
@@ -2088,20 +2035,14 @@ def test_closed_value_operands_normalize_loops_without_losing_locality(
 ) -> None:
     source = f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+  (:target-dsl "{CURRENT_TARGET_DSL_VERSION}")
   (defmodule cp/closed_elaboration)
   (export run)
   (defproc budget ((n Int)) -> Int
-    :effects ((uses-command budget))
-    :lowering inline
     (command-result budget :argv ("python" "probe.py" n) :returns Int))
   (defproc seed ((n Int)) -> Int
-    :effects ((uses-command seed))
-    :lowering inline
     (command-result seed :argv ("python" "probe.py" n) :returns Int))
   (defproc check ((n Int)) -> Bool
-    :effects ((uses-command check))
-    :lowering inline
     (command-result check :argv ("python" "probe.py" n) :returns Bool))
   (defworkflow run () -> Bool
     (if {condition} true false)))'''
@@ -2167,12 +2108,10 @@ def test_closed_exhaustive_effectful_terminal_cond_evaluates_condition_once(
 ) -> None:
     source = f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")
+  (:target-dsl "{CURRENT_TARGET_DSL_VERSION}")
   (defmodule cp/closed_elaboration)
   (export run)
   (defproc check ((n Int)) -> Bool
-    :effects ((uses-command check))
-    :lowering inline
     (command-result check :argv ("python" "probe.py" n) :returns Bool))
   (defworkflow run () -> Int
     (cond ((or (check 1) true) 7))))'''
@@ -2273,10 +2212,10 @@ def test_prepared_lists_specialize_old_header_imports_without_reentry(tmp_path: 
           (defmodule cp/list_import) (import lib :as old) (export run)
           (defworkflow run () -> List[List[Int]]
             (list (old.singleton 4 5) (old.singleton true 8))))''',
-        "lib.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        "lib.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule lib) (export singleton)
           (defproc singleton :forall (T) ((value T) (n Int)) -> List[Int]
-            :effects () :lowering inline (list (+ n 1))))''',
+            (list (+ n 1))))''',
     }, entry_path="cp/list_import.orc")
     assert evaluate_closed_program(program, {}).value == ((6,), (9,))
 
@@ -2306,7 +2245,7 @@ def test_prepared_list_captures_preserve_materialization_order(tmp_path: Path, m
 
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/list_capture) (export run)
-      (defproc helper ((fixed List[Int]) (n Int)) -> List[Int] :effects () :lowering inline fixed)
+      (defproc helper ((fixed List[Int]) (n Int)) -> List[Int] fixed)
       (defworkflow run ((x Int)) -> List[List[Int]]
         (let* ((hook (bind-proc (proc-ref helper)
                        :fixed (list (+ x 1) (let* ((x (+ x 2))) x)))))
@@ -2350,7 +2289,7 @@ def test_prepared_list_in_adapter_payload_prepares_its_pure_calls(tmp_path: Path
     )
     program = build(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/list_payload) (export run) (defrecord Total (n Int))
-      (defproc keep ((n Int)) -> Int :effects () :lowering inline n)
+      (defproc keep ((n Int)) -> Int n)
       (defworkflow run () -> Total
         (command-result sum :adapter sum :inputs ((numbers (list (keep 1) (keep 2))))
           :returns Total)))''', boundaries={"sum": adapter})

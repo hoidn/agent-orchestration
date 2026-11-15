@@ -48,7 +48,7 @@ def test_direct_task_is_one_composed_provider_boundary() -> None:
     )
 
     compiled = result.entry_result
-    assert compiled.module.target_dsl_version == "2.35"
+    assert compiled.module.target_dsl_version == "2.40"
     assert compiled.module.module_name == "control/direct_task"
     assert compiled.module.exports == ("direct-task",)
     assert compiled.module.definitions == ()
