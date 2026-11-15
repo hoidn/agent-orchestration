@@ -125,3 +125,42 @@ Tests (no container, no network, no CLI; the upstream is `stub_api.py`):
 ```
 pytest -q -n 4 tests/experiments/test_long_horizon_passthrough.py
 ```
+
+## The readout (plan Task 6)
+
+`slot_record.py` is the one definition of the launcher's export: its fields and types (in its docstring) and
+`load`, which joins every start to its schedule slot and its D5 row and refuses anything that does not fit, naming the
+record. Each start carries the class the launcher decided (`class`, with `stop_cause` for a stop from the closed
+list `LAUNCHER_STOPS`, which also says where each cause can occur, found on a row of another class) and its D5 row as
+evidence; a stop is never scored. A `contamination` result may sit on a start of any class: it excludes an
+observation, and on any other class is listed and counted for D7.7 without changing the class. The launcher writes
+that layout and the readout reads it; both load the module by its path (the kit runs under `python -I`) and neither
+imports the other.
+
+`readout.py` turns the export into the readout of D6 and, at the end of the tranche, into `results/family.json` (step
+7). It reads every rule from `ladder.json` (`readout`, `classification`, `attempt`, `schedule`) and prints no public
+figure. Every figure is computed once, by `compute`, from the starts joined to their slots by slot id: each task's cells
+and pooled count with their exact intervals and labels (a count pooled over tasks gets no interval), the band effort,
+the effort test over complete triples with its verdict and the bound on the fall, the cost per effort, the lists
+(exclusions, a contaminated attempt of any label by the SHA-256 of each term found, counted over every label for D7.7,
+flags, cuts per effort, the pilot's attempts, refused connections), the graded outcome, an earlier label's counts and
+the allowance. The last three enter no rule. The pooled screen applies when every effort has at least four scored
+observations (`readout.pooled.min_per_effort`), and is printed "screened at n of 15 attempts"; with fewer at any effort
+a task is "not screened", with its counts per effort. A readout that ends in a stop places nothing and still prints the
+bound on the fall over the complete triples there are.
+
+```
+python -I experiments/long_horizon_tasks/readout.py <export.json> [--dropped <drops.json>] [--family experiments/long_horizon_tasks/results/family.json]
+python -I experiments/long_horizon_tasks/readout.py <export.json> --rehearsal <stand-ins.json> [--dropped <drops.json>] [--family <path>]
+pytest -q -n 4 tests/experiments/test_long_horizon_slot_record.py tests/experiments/test_long_horizon_readout.py
+```
+
+A final readout is refused unless `manifest.json` is frozen, its SHA-256 is the export's label, `ladder.json`,
+`tasks.json`, `readout.py` and `slot_record.py` equal its records and no field is pending; the refusal names the
+reason. `--rehearsal` takes a
+JSON object with a stand-in for each pending readout field (and for nothing else) and stamps the readout and
+`family.json` as a rehearsal. `--dropped` takes the coordinator's drops, a JSON list of `{"task", "reason"}`, the
+reason naming the ledger row by its date. `family.json` is written only from a readout whose tranche ended and did not end in a
+stop, with every task screened or dropped; the same records give the same bytes. `readout.py` and
+`slot_record.py` are kit files, so the manifest covers them and a change to either makes a new label; their test
+modules are not covered.
