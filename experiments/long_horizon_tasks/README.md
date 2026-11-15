@@ -173,7 +173,9 @@ A resume lifts a pause or a stop, never a usage limit. Starts stay closed until 
 and then reopen with one start, and with the rest once that session has an answer. If the single start ends with no
 answer, the tranche pauses, and a resume allows one more.
 
-To end a pause or a stop, a person writes the ledger row that D5 asks for and then runs `ladder.py resume`. While one
+To end a pause or a stop, a person writes the ledger row that D5 asks for and then runs `ladder.py resume`. A stop
+needs `| <D> | Ruling | resume: <its cause>: <the decision> |` and `resume --date <D>` (a plain resume of a stop is
+refused, naming that row); a D7.7 threshold's stop is lifted by its `--clears` ruling. While one
 of D7.7's count thresholds is over its bound, a plain resume is refused, naming it. The thresholds are the
 infrastructure-failure share, five or 24 pre-session failures, the 5% of cuts, and three load-refusal endings.
 `resume --clears <threshold> --date <D>` lifts one after a `| <D> | Ruling | <threshold>: <decision> |` row. That

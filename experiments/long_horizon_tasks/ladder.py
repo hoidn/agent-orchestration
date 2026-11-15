@@ -2299,12 +2299,26 @@ def record_ruling(ctx, args):
     return 0
 
 
+def _stop_ruled(ctx, args):
+    """A stop is lifted only after a coordinator's ledger row names its cause and the decision (D5; Task 8 part A
+    M2): `| D | Ruling | resume: <cause>: <decision> |` and `resume --date D`, or, for a D7.7 threshold's stop, the
+    `--clears` ruling of that threshold."""
+    state = gate_state(_jsonl(ctx.root / "passthrough" / "tranche.jsonl"))
+    if state["kind"] != "stop" or (args.clears and state.get("threshold") == args.clears):
+        return
+    form = re.compile(rf"resume:\s*{re.escape(state['why'] or '')}")
+    if not (args.date and ruling_rows(ledger_text(ctx), args.date, form)):
+        raise Refused(f"a stop is lifted only after the ledger row `| {args.date or '<date>'} | Ruling | resume: "
+                      f"{state['why']}: <the decision> |`, then `resume --date <date>`")
+
+
 def record_resume(ctx, args):
     """A person's resume of a pause or a stop, after the ledger row D5 asks for. Refused while a D7.7 threshold is
     over its bound; `--clears T --date D` clears T once the ledger holds `| D | Ruling | T: <decision> |`, recording
     the date and the counts then, and T counts only later endings; every other threshold keeps counting."""
     ladder = criterion(ctx)
     ensure_state(ctx.root)
+    _stop_ruled(ctx, args)
     over = threshold_breaches(ctx.root, ladder)
     form = re.compile(rf"{re.escape(args.clears or '')}:\s*\S")
     if args.clears and not ruling_rows(ledger_text(ctx), args.date, form):

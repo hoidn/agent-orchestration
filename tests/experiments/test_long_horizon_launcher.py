@@ -1375,6 +1375,21 @@ def test_a_reset_that_is_not_a_number_is_read_as_no_reset_named(short):
     assert (ladder.starts_gate(root, now)["kind"], len(ladder.limit_episodes(events))) == ("pause", 1)
 
 
+@pytest.mark.parametrize("cause", ["a match of token_scan.py", "a sign of paid extra usage in the session's stream",
+                                   "refused at launch"])
+def test_a_stop_is_lifted_only_after_a_ruling_row_naming_its_cause(short, cause):
+    """Task 8 part A M2 (D5): a plain resume of a stopped tranche is refused, naming the row it needs."""
+    ctx = _ctx(short)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    ladder.ensure_state(ctx.root)
+    ladder.tranche_event(ctx.root, "stop", reason=cause)
+    plain = ladder.main(["resume"], env=ctx.env)
+    (ctx.rehearsal / "ledger.md").write_text(f"| 2026-11-21 | Ruling | resume: {cause}: the decision |\n")
+    wrong_date = ladder.main(["resume", "--date", "2026-11-22"], env=ctx.env)
+    ruled = ladder.main(["resume", "--date", "2026-11-21"], env=ctx.env)
+    assert (plain, wrong_date, ruled, ladder.starts_gate(ctx.root, time.time())["kind"]) == (3, 3, 0, None)
+
+
 # ---- Allowance (Task 5, fourth checkbox) -----------------------------------------------------------------------
 
 def _events_file(root, *events):
