@@ -28,7 +28,7 @@ middle-end, runtime migration, and composition/stdlib behavior:
 and
 [Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md),
 and
-[Workflow Lisp Pure List Traversal](workflow_lisp_pure_list_traversal.md),
+[Workflow Lisp Pure List Traversal](workflow_lisp_pure_list_traversal.md) (historical record),
 and
 [Workflow Lisp Provider Live Binding](workflow_lisp_provider_live_binding.md),
 and
@@ -772,16 +772,16 @@ entry here or in a heading.
 | `some?` | Whether an `Optional` holds a value | [§10.2](#102-closed-pure-expression-surface) |
 | `or-else` | An `Optional`'s value, or a typed fallback | [§10.2](#102-closed-pure-expression-surface) |
 | `record-update` | A copy of a record with some fields replaced | [§10.2](#102-closed-pure-expression-surface) |
-| `list/empty?` | Whether a list is empty | [§10.2](#102-closed-pure-expression-surface) |
-| `list/head` | A list's first element as an `Optional` | [§10.2](#102-closed-pure-expression-surface) |
-| `list/rest` | A list without its first element | [§10.2](#102-closed-pure-expression-surface) |
-| `list/append` | A list with one element added at the end | [§10.2](#102-closed-pure-expression-surface) |
-| `list/length` | A list's length | [§10.2](#102-closed-pure-expression-surface) |
+| `list/empty?` | Whether a list is empty | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/head` | A list's first element as an `Optional`; the absent value for the empty list | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/rest` | A list without its first element | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/append` | A list with one element added at the end | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/length` | A list's length | [§10.3](#103-target-218-bounded-list-traversal) |
 | `print` | Writes a value to stdout and returns it | [§10.2](#102-closed-pure-expression-surface) |
-| `list` | Constructs a `List[T]` | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list` | Constructs a `List[T]` from elements of one type | [§10.3](#103-target-218-bounded-list-traversal) |
 | `list/map` | Maps a pure body over a list | [§10.3](#103-target-218-bounded-list-traversal) |
-| `list/map-effect` | Maps one effectful call over a list, at most `:max` elements | [§10.3](#103-target-218-bounded-list-traversal) |
-| `path/join-under` | A path of a named rooted path type | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/map-effect` | Evaluates a body that may hold effects once per element of a list of at most `:max` elements | [§10.3](#103-target-218-bounded-list-traversal) |
+| `path/join-under` | A path below the root of a named path type | [§10.3](#103-target-218-bounded-list-traversal) |
 | `provider-result` | A provider step with a typed result | [§22](#22-provider-result) |
 | `provider-bundle-path` | The path of a provider result's committed bundle | [§22](#22-provider-result) |
 | `command-result` | A command step with a typed result | [§23](#23-command-result) |
@@ -1964,7 +1964,9 @@ compile-time folding and run-time evaluation. The evaluator of
 into its payload rather than maintaining a separate evaluator. The closed
 program carries checked pure value nodes, which the evaluated runtime evaluates
 in lexical scope; a pure region writes no generated step or result bundle.
-Literal-only trees fold away at compile time through the same evaluator.
+An operator application over literals folds away at compile time through the same
+evaluator; a `list/map` and a `path/join-under` over literals do not, and are evaluated when
+the program runs (§10.3).
 
 A decimal literal (`1.5`, `-0.25`, `.5`, `2e-3`, `1.0E6`) is an expression
 wherever an expression is admitted. There is no literal for infinity or for a
@@ -2006,47 +2008,200 @@ Deliberate exclusions stay enforced by typed diagnostics:
 
 ### 10.3 Target-2.18 Bounded List Traversal
 
-Target 2.18 implements one deliberately bounded, constraint-first collection
-surface:
+A `List[T]` is built with `(list ...)`, read with the list operators, mapped with `list/map`
+(a pure body) or `list/map-effect` (a body that may hold effects, over at most `:max` elements),
+and carried as loop state. `path/join-under` builds a path below the root of a named path type.
+Both maps bind one name over a body written in place; a procedure reference written in place of
+the binder is refused (`list_map_binder_invalid`).
 
-- `(list ...)` constructs an ordered eligible `List[T]`;
-- `list/map` binds one element at a time in a pure body;
-- `path/join-under` constructs a value of an explicitly selected rooted path
-  family after pure lexical containment validation;
-- eligible whole-list values may cross pure projections, callable contracts,
-  and `loop/recur` state; and
-- `list/map-effect` erases to the existing bounded loop and ordinary
-  effect-call/checkpoint machinery. In a program that contains a run
-  reference anywhere, every `list/map-effect` iteration is exactly one call
-  with pure arguments, after specialization (`list_map_effect_body_unsupported`);
-  the program is the final closed program, every definition it holds included.
-  In a program that contains no run reference the body is any expression,
-  evaluated once per element with its effects in written order. A later change
-  may admit more bodies beside a run reference by analysing each iteration.
-  A serial map's `:max` is
-  a positive integer literal or any `Int` expression, evaluated once after the
-  source and before the first element (a non-`Int` one refuses with
-  `list_map_effect_max_invalid`); a parallel map's `:max` and `:parallel` are
-  positive integer literals. A list longer than `:max`: a serial map runs its
-  first `:max` elements and then fails with `list_map_effect_cap_exceeded`, as
-  does a computed `:max` below 1 over a non-empty list; a parallel map fails
-  with that code before any element. An empty list gives the empty list
-  whatever its computed `:max`. A parallel map may be written directly in a serial map
-  or loop body.
+**Which lists.** These forms admit a list type that §8.10 admits as a return: its elements
+are `String`, `Int`, `Float`, `Bool`, `Value`, an enum, a path type, a record, a union, or an
+`Optional`, `List` or `Map[String, T]` of these. A list of `Json` values, of procedure
+references or of workflow references is refused where it is constructed, and a list of
+procedure references also where a map would produce it. Diagnostics:
+`list_collection_contract_unsupported` (the message names the whole list type);
+`proc_ref_runtime_transport_forbidden` for a `List[ProcRef[...]]` written as a parameter type.
 
-The type boundary is structural and opt-in. The shared whole-list
-transportability predicate decides list eligibility; target 2.18 does not add
-a nominal list taxonomy. A named path family is required only because its
-rooted containment and deferred existence policy are load-bearing. Record and
-union list elements, higher-order or `ProcRef` mapping, indexing, and
-unbounded traversal remain outside this tranche.
+**Effects in an element, a path child and a map source.** A list element, a `path/join-under`
+child and the source of a `list/map` or `list/map-effect` may hold an effect, a command or a
+workflow call for example, under the two conditions of §16.3:
 
-Pure payload schema 2 carries the new list/map/path expression kinds while
-pre-2.18 payloads remain schema 1. The effectful binder introduces no new Core,
-Semantic IR, Executable IR, runtime-plan, scheduling, or checkpoint node kind.
-The exact typing, erasure, diagnostic, resume, and compatibility contracts live
-in
-[Workflow Lisp Pure List Traversal](workflow_lisp_pure_list_traversal.md).
+- every part of the value is simple, as §16.3 defines it: the part with the effect and the
+  parts beside it. An `if`, a `match` and a call of a procedure are not simple, whatever they
+  hold;
+- the value is not written inside an argument of a call of a procedure, of a `let-proc` local
+  or of a function, nor in the body of a `let-proc` local. The body of a `defproc` and an
+  argument of a workflow `call` take it.
+
+Otherwise the program is refused: bind the part that is not simple with `let*` first and use
+its name.
+Diagnostics, by the place that holds the effect: `effect_not_permitted` (an element, a path
+child), `list_map_body_effect_forbidden` (a `list/map` source),
+`list_map_effect_body_unsupported` (a `list/map-effect` source, serial or parallel). A source
+that is a list with a part that is not simple beside its effect gives the element's code. A
+value that holds no effect is not concerned.
+
+**Constructor.** `(list e1 e2 ...)` evaluates its elements in the order written and gives a
+`List[T]` where `T` is the type of the first element. Each later element has that type; nothing
+is converted, so an `Int` beside a `Float`, an `Int` beside an `Optional[Int]` and two path
+types with one root are each refused. Where the form around the list states its type, the two
+must agree. Diagnostics: `pure_expr_operand_type_mismatch`. An element may hold an effect
+under the rule above. Open defect: a `variant` with a list in a field, written directly as a
+`match` subject, ends in `compiler_defect`; bound with `let*` first, it builds.
+
+**Empty list.** `(list)` has no element to take a type from. It is accepted where the form
+around it states the list's type: the result of a workflow, a procedure or a function; an
+argument of a procedure, a `let-proc` local or a workflow `call`; a record or variant field; a
+typed `loop-state` field (§13.2), also in `:like`; an element of a list whose type is stated;
+and a branch of an `if`, `cond` or `match` that stands in one of these places. It is refused in
+these places, which state no type: a `let*` binding and the body of a `let*`; an operand of a
+list operator; a `list/map` source or body; an argument of a `defun` function; a `record-update`
+field; an `or-else` fallback; a command `:argv` item; an element of a list whose type is not
+stated; and a loop's binder-form or `:state` initial value, its `continue` value and its `done`
+value. Diagnostics: `list_empty_type_context_required`.
+
+**Operators.** The list operators are the rows of this table. Each takes a list as its first
+operand:
+
+| Operator | Type | Value |
+| --- | --- | --- |
+| `list/empty?` | `List[T] -> Bool` | whether the list has no element |
+| `list/head` | `List[T] -> Optional[T]` | the first element; the absent value (JSON `null`, §8.10) for the empty list |
+| `list/rest` | `List[T] -> List[T]` | the list without its first element; the empty list stays empty |
+| `list/append` | `(List[T], T) -> List[T]` | a new list with the element added at the end |
+| `list/length` | `List[T] -> Int` | the number of elements |
+
+Each gives a value for the empty list as for any other. `list/rest` and `list/append` give a
+new list and leave their operand as it was. The value of `list/head` is read with `some?` or
+`or-else`. A first operand that is not a list, a `list/append` element of another type and a
+wrong number of operands are refused. Diagnostics: `pure_expr_operand_type_mismatch`.
+`(list/nth xs 0)` is refused with `pure_expr_operator_unsupported`: the catalog has no indexing
+operator.
+
+**`list/map`.** `(list/map ((name source)) body)` gives the list of the body's values, one per
+element of `source`, in the source's order; an empty source gives the empty list.
+
+- The form has exactly these three parts and exactly one binder; it takes no `:max`.
+  Diagnostics: `list_map_binder_invalid`.
+- `name` is a new name. A name already bound where the map is written (a parameter, a `let*`
+  name, the binder of an enclosing map), the name of a provider or prompt extern and a name
+  that starts with `__` are refused; two maps side by side may use one name. Diagnostics:
+  `list_map_binder_invalid`.
+- `source` is a list and is evaluated once. It may hold an effect under the rule above.
+  Diagnostics: `pure_expr_operand_type_mismatch` (not a list), `list_map_body_effect_forbidden`.
+- `body` reads `name` at the element type and the names in scope around the map. It is pure:
+  operators, `if`, `let*`, `match`, calls of functions and of procedures without effects, another
+  `list/map`. A command, a workflow call and a procedure that holds an effect are refused.
+  Diagnostics: `list_map_body_effect_forbidden`; `pure_expr_operand_type_mismatch` when
+  the form around the map expects another list type.
+- A body that fails for one element, by a division by zero or a refused `path/join-under` child
+  for example, fails the run with that failure's own code. A map over literals that fails for
+  an element builds, and fails when the program runs.
+- Open defect (defect backlog row D8): a `list/map` whose body is a `match` on its binder,
+  written in the condition of an `if` inside a loop body, ends in `compiler_defect`; bound with
+  `let*` before the `if`, it builds.
+
+**`list/map-effect`.** `(list/map-effect ((name source)) :max n body)` evaluates `body` once
+per element of `source`, one element after the other, and gives the list of its values in the
+source's order. An empty source gives the empty list and evaluates no body.
+
+- A serial map is written with exactly these parts in this order. Binder and source follow the
+  rules of `list/map`, with `list_map_effect_body_unsupported` as the code of a refused effect
+  in the source. A run reference written as the source, of a serial or a parallel map, is
+  refused (`run_ref_placement_invalid`, §16.3). The form is an effect form whatever its body:
+  a `defun` body refuses it (`pure_function_has_effect`). Diagnostics:
+  `list_map_binder_invalid`, `list_map_effect_max_invalid` (a part missing, added or out of
+  order).
+- *Body.* In a program that contains no run reference the body is any expression: a pure one,
+  several effects, an `if`, a loop, another map. Its effects run in the order written, for one
+  element before the next. In a program that contains a run reference anywhere, the body of
+  every `list/map-effect`, serial or parallel, is exactly one call with pure arguments: a
+  provider, a command, a workflow call, a procedure call whose body holds exactly one such
+  effect after specialization, or the run reference itself. A pure body, a procedure without an
+  effect and a procedure with two are refused there. The program is the final closed program:
+  the entry and every definition it reaches. A workflow the entry does not reach does not count.
+  `list/map` is not concerned. Diagnostics: `list_map_effect_body_unsupported`.
+- *`:max`* of a serial map is a positive integer literal or any `Int` expression: an `if`, a
+  `match`, a loop or an expression over another map's result among them, with or without an
+  effect. It is evaluated once,
+  after the source and before the first element, and does not see the binder. Diagnostics:
+  `list_map_effect_max_invalid` (absent, a literal below 1, or not an `Int`).
+- *More elements than `:max`.* A serial map evaluates the body for the first `:max` elements and
+  then fails the run with `list_map_effect_cap_exceeded`; a list of exactly `:max` elements
+  succeeds. A computed `:max` below 1 fails with the same code before the first element of a
+  non-empty list, and gives the empty list for an empty one.
+- *Failure and resume.* A body of a serial map that fails for one element fails the run with
+  the failing effect's own code; the elements after it are not evaluated and no partial list is
+  returned. On `resume`, the elements that completed are not evaluated again: the map continues
+  at the failed element and returns every value in order
+  ([evaluated execution](workflow_lisp_evaluated_execution.md) owns resume). A parallel map
+  differs: see *Parallel, at run time*.
+- A discriminant proof does not reach a serial map's body (§12.2).
+- Open defect (defect backlog row E7): a serial map's body that calls a generic procedure
+  (§7.9) is refused with `procedure_call_unknown`, whether or not the procedure holds an
+  effect; a parallel map's body and a `list/map` body take the call.
+- A serial map takes each element with a compiler-owned head read. That read fails with
+  `list_nonempty_invariant_broken` on an empty list; the map evaluates it after testing that
+  elements remain, and no source form names it.
+- *Parallel, the clauses.* With `:parallel k` and `:workspace w` the map is a parallel map:
+  each element is evaluated in its workspace
+  ([evaluated execution §11](workflow_lisp_evaluated_execution.md#11-parallel-effects)). `:max`
+  and `:parallel` are positive integer literals and `:workspace` is required; the clauses come in
+  any order before the body, each once. `:workspace` is a pure `String` or path expression that
+  may read the binder; it names an existing directory, one per element. An `Agent` does not
+  enter or leave the body, and the body allocates none, directly or through a call
+  (`parallel_agent_boundary`; [agent sessions](workflow_lisp_agent_sessions.md)). A parallel
+  map may be written directly in the body of a serial map or of a loop. Diagnostics:
+  `list_map_effect_max_invalid`; `list_map_effect_workspace_invalid` (absent, or not pure);
+  `pure_expr_operand_type_mismatch` (a workspace of another type);
+  `list_map_effect_body_unsupported` (an unknown or repeated clause). A `:parallel` that is
+  absent or not a positive integer literal is refused with the code of `:max` spelled with
+  `parallel` in place of `max`; the diagnostic catalogue does not list that name (an open
+  defect: the name is built when the refusal is raised).
+- *Parallel, at run time.* The run fails before any element is evaluated when the list is
+  longer than `:max` (`list_map_effect_cap_exceeded`), when a workspace directory does not
+  exist, and when two elements name one directory (`parallel_workspace_shared`). When an
+  element fails, its own later effects do not run, and the other elements still run to
+  completion and their results are committed; then the map fails the run with a failing
+  effect's own code and returns no list. On `resume` no committed effect runs again: the
+  failed element continues at the effect that failed, and the map returns every value in the
+  source's order.
+
+**`path/join-under`.** `(path/join-under PathType child)` gives a value of `PathType`: the
+type's `:under` root joined with `child`.
+
+- `PathType` is the name of a path type in scope where the form is written: a prelude type
+  (`Path.state-root`, `Path.artifact-root`, §7.1), a `defpath` of the module or an imported one.
+  It is a name, not an expression. Diagnostics: `path_join_under_type_invalid` (a name that is
+  no path type, a first operand that is not a name, a number of operands other than two). Open
+  defect (defect backlog row E24): a procedure whose body names a path type is refused with
+  this code when it is called from a module that does not import that type.
+- `child` is one `String` expression, evaluated once. It may hold an effect under the rule
+  above. Diagnostics: `pure_expr_operand_type_mismatch` (not a `String`; a path value is not
+  one), `effect_not_permitted`.
+- The child is checked when the join is evaluated. An empty child, `.`, and a child with an
+  empty or `.` segment (`a//b`, `a/./b`, `a/`) fail with `path_join_under_child_invalid`. An
+  absolute child and a child with a `..` segment (`../x`, `a/../b`) fail with
+  `path_join_under_escape`. A literal child is checked at the same moment: a program with a
+  refused literal child builds, and fails when the join is reached.
+- The result has the named path type and no other (§7.3), and is not a `String`
+  (`pure_expr_path_string_concat_forbidden`, §10.2).
+- The join is lexical: it reads no file, and nothing needs to exist, also for a type declared
+  `:must-exist true`. The existence check of a path type applies where a value enters the
+  program: an input of the entry workflow, and the path result of a command or a provider
+  (§8.10). A workflow's result, an argument of a workflow `call` or of a procedure call and a
+  command's `:argv` item do not check it.
+- The root of the type must be a non-empty relative path with no empty, `.` or `..` segment.
+  `defpath` does not check this; a join on such a type does not build. Open defect: the build
+  stops with `compiler_defect`, not with `path_join_under_root_invalid`.
+- A join may stand in an argument of the call in a `list/map-effect` body and in a `list/map`
+  body. In a `list/map-effect` a refused child fails the run at its element, after the elements
+  before it have been evaluated.
+
+**Loop state.** A list is a loop's state, its `continue` and `done` values and its
+`:on-exhausted` value (§13.1); the whole list is carried from one round to the next. A loop
+state whose own type is an `Optional` or a `Map` is refused, while a list of either is carried.
+Diagnostics: `loop_recur_state_type_invalid`.
 
 ## 11. Pattern Matching
 
