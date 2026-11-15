@@ -902,3 +902,30 @@ UNREFERENCED_LOCALS = {
 def test_unreferenced_local_over_a_role_whose_read_name_is_bound_again_builds(tmp_path, case):
     _assert_runs_to(tmp_path, "((k Int)) -> Int " + ROLE_OVER_K.replace("BODY", UNREFERENCED_LOCALS[case]),
                     backlog.value(7))
+
+
+# The two pairs whose spellings gave two digests in review (M2): each local gives the digest `main` gives for the
+# spelling the copy makes. A captured `(proc-ref increment)` passed on is the local with the alias written in its
+# own body (`main` builds that one; it differs from `(increment x)` there too, as a `defproc` body does). A role
+# in a macro's local is the template written with the call, under the same macro name: the local's parameter
+# is the macro's hygienic binder, and its name holds the macro's name.
+ROLE_TEMPLATE = "(defmacro use-step (r y) (let-proc ((step ((x Int)) -> Int (r x))) (step y)))"
+CALL_TEMPLATE = "(defmacro use-step (y) (let-proc ((step ((x Int)) -> Int (add 1 x))) (step y)))"
+INCREMENT_PASSED = "(via (proc-ref f) (list 1 2))"
+ONE_DIGEST_PAIRS = {
+    "captured-pure-reference-passed": (
+        ("() -> Int (let* ((p (proc-ref increment))) (let-proc ((f ((x Int)) -> Int (p x))) "
+         + INCREMENT_PASSED + "))", backlog.INC, backlog.D11_VIA),
+        ("() -> Int (let-proc ((f ((x Int)) -> Int (let* ((p (proc-ref increment))) (p x)))) "
+         + INCREMENT_PASSED + ")", backlog.INC, backlog.D11_VIA)),
+    "role-in-a-macro-local-expanded-twice": (
+        ("() -> Int " + backlog.ROLE.replace("BODY", "(+ (use-step role 1) (use-step role 2))"), ADDV, ROLE_TEMPLATE),
+        ("() -> Int (+ (use-step 1) (use-step 2))", ADDV, CALL_TEMPLATE)),
+}
+
+
+@pytest.mark.parametrize("case", sorted(ONE_DIGEST_PAIRS))
+def test_local_over_a_captured_reference_gives_the_digest_of_the_spelling_it_makes(tmp_path, case):
+    digests = {backlog._build(tmp_path / name, backlog.module(*spelling)).program.digest
+               for name, spelling in zip(("local", "written"), ONE_DIGEST_PAIRS[case], strict=True)}
+    assert len(digests) == 1
