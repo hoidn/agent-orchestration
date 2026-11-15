@@ -93,6 +93,13 @@ _CHILD_TEST_BOUNDARIES = frozenset({"mode_1_decode", "mode_2_compile"})
 _RUN_REF_DURABLE_ACK_TOKEN = object()
 
 
+def _first_compile_diagnostic(machine_fields: Mapping[str, Any] | None) -> str:
+    """The child's first compile refusal, so a parent says why (an older target names its migration)."""
+
+    rows = ((machine_fields or {}).get("compile_diagnostics") or {}).get("diagnostics") or ()
+    return f" ([{rows[0]['code']}] {rows[0]['message']})" if rows else ""
+
+
 class RunRefRuntimeError(ValueError):
     """Closed runtime refusal carrying a stable run-ref diagnostic code."""
 
@@ -150,11 +157,7 @@ class RunRefRuntimeError(ValueError):
         self.code = code
         self.detail = detail
         self._machine_fields_json = frozen_machine_fields
-        message = f"{code}: {detail}"
-        rows = ((machine_fields or {}).get("compile_diagnostics") or {}).get("diagnostics") or ()
-        if rows:  # the child's first compile refusal, so a parent says why (an older target names its migration)
-            message += f" ([{rows[0]['code']}] {rows[0]['message']})"
-        super().__init__(message)
+        super().__init__(f"{code}: {detail}{_first_compile_diagnostic(machine_fields)}")
 
     @property
     def machine_fields(self) -> dict[str, Any]:
