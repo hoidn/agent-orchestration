@@ -36,6 +36,18 @@
     "context_management",
     "thinking"
    ],
+   "body_keys": [
+    "context_management",
+    "max_tokens",
+    "messages",
+    "metadata",
+    "model",
+    "output_config",
+    "stream",
+    "system",
+    "thinking",
+    "tools"
+   ],
    "tools": [
     "Bash",
     "Edit",
@@ -48,6 +60,46 @@
     1200
    ],
    "tool_cache": [],
+   "tool_keys": [
+    [
+     "description",
+     "input_schema",
+     "name"
+    ],
+    [
+     "description",
+     "input_schema",
+     "name"
+    ],
+    [
+     "description",
+     "input_schema",
+     "name"
+    ]
+   ],
+   "input_schema_keys": [
+    [
+     "$schema",
+     "additionalProperties",
+     "properties",
+     "required",
+     "type"
+    ],
+    [
+     "$schema",
+     "additionalProperties",
+     "properties",
+     "required",
+     "type"
+    ],
+    [
+     "$schema",
+     "additionalProperties",
+     "properties",
+     "required",
+     "type"
+    ]
+   ],
    "system": [
     {
      "chars": 74
@@ -233,5 +285,27 @@
    }
   }
  },
- "bearer_matches": []
+ "bearer_matches": [],
+ "message_block_keys": {
+  "tool_result": [
+   [
+    "cache_control",
+    "content",
+    "is_error",
+    "tool_use_id",
+    "type"
+   ]
+  ],
+  "tool_use": [
+   [
+    "id",
+    "input",
+    "name",
+    "type"
+   ]
+  ]
+ },
+ "message_block_keys_unrecorded": {
+  "text": 2
+ }
 }
