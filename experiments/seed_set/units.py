@@ -48,10 +48,26 @@ exit 64
 
 
 def forget_credentials(home):
-    """Remove the provider credentials `prepare` copied into a unit's private home, once the unit has ended."""
-    for path in Path(home).rglob("*"):
-        if path.name in (".credentials.json", "auth.json") and path.is_file():
-            path.unlink()
+    """Remove the provider credentials `prepare` copied into a unit's private home, once the unit has ended; return
+    the paths removed."""
+    removed = [path for path in Path(home).rglob("*") if path.name in (".credentials.json", "auth.json")
+               and path.is_file()]
+    for path in removed:
+        path.unlink()
+    return removed
+
+
+def session_alive(pgid_file):
+    """Whether the process group a launch wrote to `pgid_file` (`study.launch`) still runs; False without the file."""
+    if not Path(pgid_file).is_file():
+        return False
+    try:
+        os.killpg(int(Path(pgid_file).read_text()), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def copy_credentials(home):
@@ -212,8 +228,8 @@ def call_cost(call, table):
     stdout = call / "stdout.txt"
     usage = usage_from_stdout(ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value,
                               stdout.read_bytes() if stdout.is_file() else b"", model=None)
-    if usage.get("status") != "reported" or usage.get("complete") is not True:
-        return None
+    if usage.get("status") != "reported" or usage.get("complete") is not True or not usage.get("rows"):
+        return None  # no usage row names a model: the worst case (review3 minor 4)
     value, reported = table_price(usage["rows"], table), usage.get("reported_cost_usd")
     return None if value is None else max(value, reported or 0)
 

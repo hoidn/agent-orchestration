@@ -567,7 +567,7 @@ def test_a_settled_unit_counts_at_its_metered_price_not_at_its_worst_case(ledger
     spend.record(ledger, "settle", unit="/w/0", usd=0.05, missing=[])
     spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/2", env("smoke"), price=(1.0, 0.4))
     assert spend.priced(ledger)["smoke"] == {"committed_usd": 0.85, "settled_usd": 0.05, "open_usd": 0.8,
-                                             "missing_usage": []}
+                                             "missing_usage": [], "over_reserved": []}
 
 
 def test_the_ceiling_is_per_tranche_over_candidates_and_judges_of_both_models(ledger):
@@ -983,3 +983,129 @@ def test_the_freeze_refuses_worst_cases_the_runtime_or_two_units_in_flight_would
 
 def test_the_freeze_accepts_the_test_spend_terms(runner):
     assert rules.record_freeze(runner)["event"] == "freeze"
+
+
+def private_home(root, name):
+    """A unit's private home under `root` holding a stand-in credential copy (never the real one)."""
+    home = root / ".private-homes" / name
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / ".credentials.json").write_text("stand-in")
+    return home
+
+
+@pytest.fixture
+def live_session():
+    """A process group that lives for the test, as a launched unit's session does."""
+    session = subprocess.Popen(["sleep", "120"], start_new_session=True)
+    yield session.pid
+    session.kill()
+    session.wait()
+
+
+def test_every_unit_command_starts_by_removing_the_copies_no_live_unit_holds(runner, live_session, capsys):  # X5
+    dead, live = private_home(runner.work, "a" * 32), private_home(runner.work, "b" * 32)
+    judge_dead, judge_live = (private_home(runner.pools / task / "first", task * 16) for task in ("t1", "t2"))
+    (run_dir(runner, record={"sandbox": {"home": str(live)}}) / "run.pgid").write_text(str(live_session))
+    run_dir(runner, k=2, record={"sandbox": {"home": str(dead)}})
+    for task, home in (("t1", judge_dead), ("t2", judge_live)):
+        records = pool_dir_of(runner, task)
+        (records / "mapping.json").write_text(json.dumps({"judges": {H: {"sandbox": {"home": str(home)}}}}))
+    (runner.pools / "t2" / "first" / "records" / f"judge-{H}.pgid").write_text(str(live_session))
+    with pytest.raises(SystemExit, match="provider spend refused"):  # refused, but only after the sweep
+        study.candidates(runner, "calibration", "direct", ["t1"])
+    left = sorted(p.parents[1].name for root in (runner.work, runner.pools) for p in root.rglob(".credentials.json"))
+    out = capsys.readouterr().out
+    assert (left, str(dead / ".claude" / ".credentials.json") in out, "stand-in" in out) == (
+        sorted(["b" * 32, "t2" * 16]), True, False)
+
+
+def test_a_second_unit_command_refuses_while_one_runs(runner):  # review3 minor 2: R3 across processes
+    with study.command_lock(runner):
+        with pytest.raises(SystemExit, match="another study command"):
+            study.settle_runs(runner, [])
+
+
+def test_settle_refuses_a_unit_whose_session_still_runs(runner, live_session):  # review3 X6
+    tree = runner.work / "agents" / "x"
+    tree.mkdir(parents=True)
+    records = run_dir(runner, record={"tree": str(tree), "sandbox": {"home": str(runner.work / "home")}})
+    (records / "run.pgid").write_text(str(live_session))
+    with pytest.raises(SystemExit, match="still running"):
+        study.settle_runs(runner, [records])
+    assert (tree.is_dir(), "calls" in json.loads((records / "study.json").read_text())) == (True, False)
+
+
+def test_a_pause_that_named_no_reset_reopens_only_at_a_reset_after_the_limit_was_hit(ledger):  # review3 minor 10
+    pause = spend.record(ledger, "pause", unit="/w/run-1", reset=None)
+    hit = pause["time"]
+    with pytest.raises(SystemExit, match="after the limit was hit"):
+        spend.resume_after_limit(ledger, hit - 60, 1.0, 2.0, hit + 1, now=hit + 2)
+    assert spend.resume_after_limit(ledger, hit + 1, 1.0, 2.0, hit + 2, now=hit + 3)["event"] == "resume"
+
+
+@pytest.mark.parametrize("five_hour, weekly", [(100.0, 3.0), (3.0, 100), (True, 3.0), (3.0, False)])
+def test_resume_refuses_a_meter_at_its_limit_or_a_truth_value(ledger, five_hour, weekly):  # review3 minor 10
+    spend.record(ledger, "pause", unit="/w/run-1", reset=RESET)
+    with pytest.raises(SystemExit, match="percent"):
+        resume(ledger, five_hour=five_hour, weekly=weekly)
+
+
+def test_a_unit_settled_above_its_worst_case_is_flagged_and_closes_starts(runner):  # review3 minor 3
+    records = priced_unit(runner.work / "u", metered(H, cost=0.5))
+    spend.reserve(runner.ledger, "smoke", "candidate", H, 1, records, env("smoke"), price=(1000.0, 0.25))
+    study.settle_price(runner, str(records), records, "smoke", H)
+    settle = spend.latest(spend.rows(runner.ledger), "settle")
+    with pytest.raises(SystemExit, match="above its worst case"):
+        spend.reserve(runner.ledger, "smoke", "candidate", H, 1, "/w/2", env("smoke"), price=P)
+    assert (settle["usd"], settle["over_reserved"]) == (0.5, True)
+
+
+def test_a_call_whose_usage_names_no_model_counts_at_the_worst_case(tmp_path):  # review3 minor 4
+    priced = units.priced(priced_unit(tmp_path, {"total_cost_usd": 0, "modelUsage": {}}), TABLE, 0.5)
+    assert (priced["usd"], priced["missing"]) == (0.5, ["1"])
+
+
+def pools_ready(runner, monkeypatch, *tasks):
+    monkeypatch.setenv(AUTH, "calibration")
+    ready(runner)
+    monkeypatch.setattr(study, "launch", lambda *a, **k: pytest.fail("a judge was launched"))
+    return [pool_dir_of(runner, task, []).parent for task in tasks]
+
+
+def test_judges_skip_every_pool_whose_judges_the_caps_cannot_both_hold_and_say_so(runner, monkeypatch):  # minor 7
+    pools = pools_ready(runner, monkeypatch, "t1", "t2")
+    for k in range(30):
+        spend.reserve(runner.ledger, "calibration", "judge", H, 1, f"/elsewhere/{k}#{H}", env("calibration"), price=P)
+    with pytest.raises(SystemExit) as refused:
+        study.judge(runner, "calibration", "first", ["t1", "t2"])
+    assert (all(str(pool) in str(refused.value) for pool in pools), "room" in str(refused.value),
+            spend.totals(runner.ledger)["calibration"]["judge"][S]["reserved"]) == (True, True, 0)
+
+
+def test_a_pool_whose_first_judge_never_settled_gets_no_second_judge(runner, monkeypatch):  # review3 minor 7
+    (pool,) = pools_ready(runner, monkeypatch, "t1")
+    spend.reserve(runner.ledger, "calibration", "judge", H, 1, f"{pool}#{H}", env("calibration"), price=P)
+    with pytest.raises(SystemExit, match="never settled"):
+        study.judge(runner, "calibration", "first", ["t1"])
+    assert spend.totals(runner.ledger)["calibration"]["judge"][S]["reserved"] == 0
+
+
+def test_re_runs_of_cut_slots_beyond_the_caps_room_are_left_out_not_refused(runner, monkeypatch, capsys):  # minor 8
+    monkeypatch.setenv(AUTH, "calibration")
+    ready(runner)
+    for k in range(1, 5):  # t1's four direct slots started, the first cut
+        records = run_dir(runner, k=k, **({"cut": CUT, "outcome": "failed"} if k == 1 else {"outcome": "completed"}))
+        spend.reserve(runner.ledger, "calibration", "candidate", H, 1, records, task="t1", arm="direct", price=P)
+    for k in range(76):  # the Haiku cap is full
+        spend.reserve(runner.ledger, "calibration", "candidate", H, 1, f"/elsewhere/{k}", task="t2", arm="x", price=P)
+    assert study.candidates(runner, "calibration", "direct", ["t1"]) == []
+    assert "keeps" in capsys.readouterr().out
+
+
+def test_the_smoke_never_runs_a_cut_slot_again(runner, monkeypatch):  # a smoke cut fails the smoke (plan, R1)
+    monkeypatch.setenv(AUTH, "smoke")
+    ready(runner, smoke=False, chosen=False)
+    records = run_dir(runner, tranche="smoke", task="r2", cut=CUT, outcome="failed")
+    spend.reserve(runner.ledger, "smoke", "candidate", H, 1, records, env("smoke"), task="r2", arm="direct", price=P)
+    monkeypatch.setattr(study, "one_run", lambda *a, **k: pytest.fail("a cut smoke slot ran again"))
+    assert study.candidates(runner, "smoke", "direct", ["r2"]) == []

@@ -31,14 +31,12 @@ thresholds or not at all (coordinator ruling, 2026-11-12): a draw short of 20 af
 together hold 11) records a stop, so no calibration call can start, and goes to the owner.
 """
 
-import fcntl
 import json
-import os
 from fractions import Fraction
 from pathlib import Path
 
 from experiments.compare.repos import dump, load, sha256_file
-from experiments.seed_set import host, ladder, rules, spend
+from experiments.seed_set import host, ladder, rules, spend, units
 from experiments.seed_set import study as runner
 from experiments.seed_set.layout import CHOSEN, load_arms, study_runs, task_dir, task_rows
 
@@ -164,49 +162,36 @@ def phase_rungs(study, now):
     return ladder.LADDER if now.get("bisect") else ladder.FLAT
 
 
+@runner.exclusive  # one study command at a time: a second runner would settle the first one's live runs
 def probe(study, rungs=None):
     """Recover what a stopped runner left, then probe the requested rungs (default: the ones the answer asks for
-    next): each probe task without a usable run, once, and once more after an incident."""
+    next): each probe task without a usable run, once, and once more after an incident. A step the redraw
+    allowance cannot hold is a stop (review3 minor 8)."""
     spend.authorize("redraw")
     rules.enforce(study, "redraw")
-    with probe_lock(study):
-        recover(study)
-        rules.enforce(study, "redraw")  # a recovered incident may fire the stop rule
-        now = answer(study)
-        if "await" in now or "probe" not in now:
-            raise SystemExit(f"nothing to probe now: {now}")
-        rungs = rungs or now["probe"]
-        if set(rungs) - set(now["probe"]):
-            raise SystemExit(f"the probe takes {now['probe']} next, not {rungs}")
-        rows, spec = task_rows(study), load_arms(study)["direct"]
-        fixes, tried = ladder.fix_commits(rows), attempts(study, now["phase"])
-        starts = spend.starts(spend.rows(study.ledger))
-        def started(task):
-            return sum((row["tranche"], row.get("task"), row.get("step")) == ("redraw", task, now["phase"])
-                       for row in starts)
-        def due(task):  # never started, or every start an incident or a cut with a start left
-            n, runs = started(task), tried.get(task, [])
-            return n == len(runs) and all(map(ended, runs)) and n < allowed(runs)
-        jobs = [(task, rung) for rung in rungs for task in ladder.probe_tasks(rows, rung) if due(task)]
-        spend.check(study.ledger, "redraw", "candidate", spec["model"], spec["max_calls"] * len(jobs))
-        return runner.run_jobs(jobs, lambda job: probe_run(
-            study, spec, *job, fixes[job[0]], now["phase"], limit=started(job[0]) + 1))
-
-
-class probe_lock:
-    """One probe at a time: a second runner would settle the first one's live runs."""
-    def __init__(self, study):
-        study.ledger.parent.mkdir(parents=True, exist_ok=True)
-        self.file = open(study.ledger.parent / "probe.lock", "w")
-
-    def __enter__(self):
-        try:
-            fcntl.flock(self.file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            raise SystemExit("another probe is running on this study") from None
-
-    def __exit__(self, *_):
-        self.file.close()
+    recover(study)
+    rules.enforce(study, "redraw")  # a recovered incident may fire the stop rule
+    now = answer(study)
+    if "await" in now or "probe" not in now:
+        raise SystemExit(f"nothing to probe now: {now}")
+    rungs = rungs or now["probe"]
+    if set(rungs) - set(now["probe"]):
+        raise SystemExit(f"the probe takes {now['probe']} next, not {rungs}")
+    rows, spec = task_rows(study), load_arms(study)["direct"]
+    fixes, tried = ladder.fix_commits(rows), attempts(study, now["phase"])
+    starts = spend.starts(spend.rows(study.ledger))
+    def started(task):
+        return sum((row["tranche"], row.get("task"), row.get("step")) == ("redraw", task, now["phase"])
+                   for row in starts)
+    def due(task):  # never started, or every start an incident or a cut with a start left
+        n, runs = started(task), tried.get(task, [])
+        return n == len(runs) and all(map(ended, runs)) and n < allowed(runs)
+    jobs = [(task, rung) for rung in rungs for task in ladder.probe_tasks(rows, rung) if due(task)]
+    if (need := spec["max_calls"] * len(jobs)) > (left := spend.remaining(starts, "redraw", "candidate", spec["model"])):
+        rules.stop(study, f"the redraw allowance cannot hold the probe step: {need} calls due, {left} left")
+    spend.check(study.ledger, "redraw", "candidate", spec["model"], need)
+    return runner.run_jobs(jobs, lambda job: probe_run(
+        study, spec, *job, fixes[job[0]], now["phase"], limit=started(job[0]) + 1))
 
 
 def recover(study):
@@ -221,8 +206,8 @@ def recover(study):
         if str(records) not in reserved:  # died between its facts file and its reservation: nothing started
             path.unlink()
             continue
-        if (pgid := records / "run.pgid").is_file() and alive(int(pgid.read_text())):
-            raise SystemExit(f"{records}: its session {pgid.read_text()} is still running; wait for it")
+        if units.session_alive(records / "run.pgid"):
+            raise SystemExit(f"{records}: its session is still running; wait for it")
         if "calls" not in facts:
             tree = load(records / "record.json").get("tree")
             facts = (runner.finish(study, records, facts, fixes[facts["task"]]) if tree and Path(tree).exists()
@@ -233,16 +218,6 @@ def recover(study):
         if not ended(facts):
             probe_check(study, records, facts)
         print(f"{records}: recovered, {facts.get('incident') or facts.get('outcome')}")
-
-
-def alive(pgid):
-    try:
-        os.killpg(pgid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
 
 
 def probe_run(study, spec, task, rung, fix, phase, limit=1):

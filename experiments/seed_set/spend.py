@@ -135,11 +135,16 @@ def resume_after_limit(ledger, reset, five_hour, weekly, read_at, now=None):
         if not pauses:
             raise SystemExit("no start is closed by a usage limit: nothing to resume")
         named = max([reset, *(row["reset"] for row in pauses if row.get("reset") is not None)])
+        hit = max(row["time"] for row in pauses)
+        if all(row.get("reset") is None for row in pauses) and reset < hit:  # review3 minor 10
+            raise SystemExit(f"no open pause named its reset: the reset typed ({when(reset)}) must come after the limit "
+                             f"was hit ({when(hit)})")
         if now < named:
             raise SystemExit(f"the usage limit resets {when(named)}, it is {when(now)}: nothing reopens before the "
                              "reset")
-        if not all(isinstance(v, (int, float)) and 0 <= v <= 100 for v in (five_hour, weekly)):
-            raise SystemExit(f"the owner's meter reading is two percentages, not {five_hour!r} and {weekly!r}")
+        if not all(type(v) in (int, float) and 0 <= v < 100 for v in (five_hour, weekly)):
+            raise SystemExit(f"the owner's meter reading is two percentages below 100 (a meter at 100 percent: its "
+                             f"limit still holds), not {five_hour!r} and {weekly!r}")
         if not named <= read_at <= now:
             raise SystemExit(f"the owner's meter reading must be taken after the reset ({when(named)}) and not later "
                              f"than now, not {when(read_at)}")
@@ -226,7 +231,8 @@ def priced(ledger):
         open_usd = round(sum(row["usd_reserved"] for row in mine if row["unit"] not in done), 6)
         out[tranche] = {"committed_usd": round(settled_usd + open_usd, 6), "settled_usd": settled_usd,
                         "open_usd": open_usd, "missing_usage": [row["unit"] for row in mine
-                                                                if done.get(row["unit"], {}).get("missing")]}
+                                                                if done.get(row["unit"], {}).get("missing")],
+                        "over_reserved": [row["unit"] for row in mine if done.get(row["unit"], {}).get("over_reserved")]}
     return out
 
 

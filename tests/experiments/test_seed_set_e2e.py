@@ -215,7 +215,7 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     assert (spend.priced(s.ledger)["calibration"], {r["cli"]["version"] for r in spend.starts(rows)},
             {path.read_text().split()[-2] for path in [*s.work.glob("records/*/run-*/command.sh"),
                                                            *s.pools.glob("*/*/records/score-*.sh")]}) == (
-        {"committed_usd": 0.4452, "settled_usd": 0.4452, "open_usd": 0.0, "missing_usage": []},
+        {"committed_usd": 0.4452, "settled_usd": 0.4452, "open_usd": 0.0, "missing_usage": [], "over_reserved": []},
         {VERSION}, {"--max-cost-usd"})
     with pytest.raises(SystemExit, match="the study is stopped"):  # the readout's stop decision
         study.candidates(s, "calibration", "direct", tasks)
@@ -323,6 +323,9 @@ def test_offline_withheld_check_runs_through_a_real_launch_and_leaves_no_test_be
     only if the second check found the test and passed."""
     s, task = world.study, f"{SMOKE}-withheld"
     forms.withhold(study.task_dir(s, SMOKE), study.task_dir(s, task))
+    git(s.runtime, "add", "-A", "seedset")  # every start checks the freeze: the new package is committed and frozen
+    git(s.runtime, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "withheld")
+    rules.record_freeze(s)
     plan_file = Path(world.plan)
     plan = json.loads(plan_file.read_text())
     plan["tasks"][task] = {**plan["tasks"][SMOKE], "marker": "sub is correct.", "visible": [sys.executable, "-c", ""]}
@@ -400,16 +403,15 @@ def test_offline_usage_limit_closes_starts_and_its_slots_run_again_from_the_same
             len({r["unit"] for r in starts}), study.candidates(s, "calibration", "direct", [task])) == (
         4, 4 + len(cut), 4 + len(cut), [])  # every slot observed once; each cut slot ran again; nothing more due
 
-    for k in range(19):  # the Sonnet cap (20) holds one more call: the cut run takes it, its re-run is refused
+    for k in range(19):  # the Sonnet cap (20) holds one more call: the cut run takes it, its re-run is left out
         spend.reserve(s.ledger, "calibration", "candidate", S, 1, f"/elsewhere/{k}", task=f"other-{k}",
                       arm="direct_sonnet", price=P)
     limit_plan(world, task=task, model=S, reset=reset)
     study.candidates(s, "calibration", "direct_sonnet", [task])
     limit_plan(world)
     reopen(s, reset)
-    with pytest.raises(SystemExit, match="0 of the cap remain"):
-        study.candidates(s, "calibration", "direct_sonnet", [task])
-    assert spend.totals(s.ledger)["calibration"]["candidate"][S] == {"reserved": 20, "cap": 20}
+    assert (study.candidates(s, "calibration", "direct_sonnet", [task]),
+            spend.totals(s.ledger)["calibration"]["candidate"][S]) == ([], {"reserved": 20, "cap": 20})
 
 
 def test_offline_a_cli_other_than_the_pinned_one_refuses_the_start_and_leaves_nothing(world, monkeypatch):
@@ -508,3 +510,62 @@ def test_offline_the_runtime_cap_lets_every_planned_call_of_a_multi_call_unit_ru
     command = next(s.work.glob("records/*/run-*/command.sh")).read_text().split()
     assert ({k: facts.get(k) for k in ("outcome", "incident", "calls")}, command[-2:]) == (
         {"outcome": "completed", "incident": None, "calls": 2}, ["--max-cost-usd", "0.075"])
+
+
+def unit_processes(world):
+    """Processes of the world's units: every one names a path under its sandbox-visible directory."""
+    found = subprocess.run(["pgrep", "-f", str(world.fakebin.parent)], capture_output=True, text=True).stdout
+    return [int(pid) for pid in found.split()]
+
+
+def test_offline_a_killed_launcher_takes_its_agent_with_it_and_the_next_command_removes_the_copy(world, monkeypatch):
+    """Review 3 X5: kill -9 of the launcher while the stand-in agent is in its call (it would answer after a
+    minute). The unit's session dies with the launcher, the next study command starts by removing the unit's
+    credential copy, and settle then settles the unit."""
+    s, task = world.study, "a0a0a0a0a0"
+    plan = json.loads(Path(world.plan).read_text())
+    Path(world.plan).write_text(json.dumps(plan | {"sleep": 60}))
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    paths = [str(p) for p in (s.runtime, s.work, s.pools, s.results, s.tasks_file, s.criterion, s.state)]
+    code = (f"from pathlib import Path\nfrom experiments.seed_set import layout, rules, study\n"
+            f"rules.loaded_elsewhere = lambda runtime: []\n"
+            f"s = layout.Study(*map(Path, {paths!r}), min_free=10**9)\n"
+            f"study.candidates(s, 'calibration', 'direct_sonnet', [{task!r}])\n")
+    launcher = subprocess.Popen([sys.executable, "-c", code], cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO)})
+    deadline = time.time() + 600
+    while time.time() < deadline and not list(s.work.glob("records/*/run-*/calls/1/prompt.txt")):
+        time.sleep(0.5)
+    time.sleep(3)
+    (records,) = [path.parent for path in study.study_runs(s)]
+    assert len(unit_processes(world)) > 3  # the session, its provider call's own session and the sandbox
+    launcher.kill()
+    launcher.wait()
+    gone = time.time() + 15
+    while time.time() < gone and unit_processes(world):
+        time.sleep(0.5)
+    assert (unit_processes(world), credentials(s) != []) == ([], True)
+    with pytest.raises(SystemExit, match="runs"):  # refused after its start removed the copy
+        study.candidates(s, "calibration", "no_such_arm", [task])
+    assert credentials(s) == []
+    study.settle_runs(s, [records])
+    assert json.loads((records / "study.json").read_text())["calls"] == 1
+
+
+def test_offline_a_criterion_edited_during_a_batch_refuses_the_batchs_later_units(world, monkeypatch):  # minor 6
+    s, task = world.study, "a0a0a0a0a0"
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    monkeypatch.setattr(study, "WIDTH", 1)
+    launch = study.launch
+
+    def edit_after(*args, **kwargs):
+        status = launch(*args, **kwargs)
+        s.frozen.write_text(s.frozen.read_text().replace('"toy"', '"edited"'))
+        return status
+    monkeypatch.setattr(study, "launch", edit_after)
+    with pytest.raises(SystemExit, match="changed since the freeze"):
+        study.candidates(s, "calibration", "direct", [task])
+    assert len(spend.starts(spend.rows(s.ledger))) == 1

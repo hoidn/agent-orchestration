@@ -48,13 +48,16 @@ metered usage priced by the frozen table settles it (a `settle` event).
 """
 
 import argparse
+import fcntl
+import functools
 import json
 import os
 import shutil
-import signal
 import subprocess
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -62,7 +65,7 @@ from experiments.compare import pool as pooling, prepare, scan, summarize as sum
 from experiments.compare.repos import dump, load, sha256_file
 from experiments.orc_structural_search import metering
 from orchestrator.providers.pricing import load_price_table
-from experiments.seed_set import blinding, gates, host, ladder, layout, readout, rules, selection, spend, units
+from experiments.seed_set import blinding, gates, host, ladder, layout, reaper, readout, rules, selection, spend, units
 from experiments.seed_set.layout import (
     PLANNED, RETESTS, WIDTH, Study, chosen, load_arms, load_criterion, require_tasks, study_runs,
     task_dir, task_rows, tranche_tasks,
@@ -110,23 +113,75 @@ def run_jobs(jobs, one):
     return done
 
 
+REAPER = Path(__file__).with_name("reaper.py")  # the launch's guard: the unit dies with its launcher (review3 X5)
+
+
 def launch(command, env, log, timeout):
-    """Run `bash command` in its own session; return its exit status, or "timeout" after killing the session."""
+    """Run `bash command` in its own session; return its exit status, or "timeout" after killing its tree. The
+    unit's whole tree, the provider calls' own sessions with their sandboxes included, dies with the launcher
+    however the launcher ends: a guard (`reaper.py`) kills it unless the launcher tells it "done"."""
     with open(log, "x") as out:
         process = subprocess.Popen(["bash", str(command)], env=env, stdout=out, stderr=subprocess.STDOUT,
                                    start_new_session=True)
         Path(log).with_suffix(".pgid").write_text(str(process.pid))  # a recovery refuses while the session lives
+        guard = subprocess.Popen([sys.executable, "-I", str(REAPER), str(process.pid)], stdin=subprocess.PIPE,
+                                 start_new_session=True)
         try:
             return process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
+            reaper.kill_tree(process.pid)
             process.wait()
             return "timeout"
         except BaseException:
-            os.killpg(process.pid, signal.SIGKILL)
+            reaper.kill_tree(process.pid)
             raise
+        finally:
+            guard.communicate(b"done")
 
 
+@contextmanager
+def command_lock(study):
+    """One study command that starts, prepares or settles units at a time (coordinator ruling R3 across processes:
+    two commands at once would put four units in flight; review3 minor 2)."""
+    study.state.mkdir(parents=True, exist_ok=True)
+    with open(study.state / "study.lock", "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit(f"another study command is running on this study ({study.state / 'study.lock'})") from None
+        yield
+
+
+def exclusive(command):
+    """A command under `command_lock` that starts by removing the credential copies no live unit holds."""
+    @functools.wraps(command)
+    def run(study, *args, **kwargs):
+        with command_lock(study):
+            sweep_credentials(study)
+            return command(study, *args, **kwargs)
+    return run
+
+
+def sweep_credentials(study):
+    """Remove every credential copy in the work root's and the pools' private homes that no live unit holds (a
+    launcher killed with SIGKILL runs no `finally`; review3 X5) and print each path removed, never its content."""
+    live = {Path(home).resolve() for home in live_homes(study)}
+    for home in [*study.work.glob(".private-homes/*"), *study.pools.glob("*/*/.private-homes/*")]:
+        for path in [] if home.resolve() in live else units.forget_credentials(home):
+            print(f"removed a credential copy no live unit holds: {path}")
+
+
+def live_homes(study):
+    """The private homes of the candidate runs and judges whose launched session still runs."""
+    homes = [load(path.parent / "record.json")["sandbox"]["home"] for path in study_runs(study)
+             if units.session_alive(path.parent / "run.pgid")]
+    for mapping in study.pools.glob("*/*/records/mapping.json"):
+        homes += [info["sandbox"]["home"] for judge, info in load(mapping)["judges"].items()
+                  if units.session_alive(mapping.parent / f"judge-{judge}.pgid")]
+    return homes
+
+
+@exclusive
 def candidates(study, tranche, arm, tasks):
     """Launch the planned runs of `arm` not yet started on each task, four at a time (the first wave two)."""
     spend.authorize(tranche)
@@ -138,8 +193,6 @@ def candidates(study, tranche, arm, tasks):
         raise SystemExit(f"{tranche} runs {sorted(PLANNED[tranche])}, not {arm}")
     rules.enforce(study, tranche)
     spec, entries = load_arms(study)[arm], spend.starts(spend.rows(study.ledger))
-    def started(task, where):
-        return sum((row["tranche"], row.get("task"), row.get("arm")) == (where, task, arm) for row in entries)
     facts = {str(path.parent): load(path) for path in study_runs(study)}
     probed = [f for f in facts.values() if f["tranche"] == "redraw" and "incident" not in f and "cut" not in f]
 
@@ -147,10 +200,28 @@ def candidates(study, tranche, arm, tasks):
     # Haiku direct runs; a planned slot cut by a usage limit runs once more
     planned = {task: PLANNED[tranche][arm] - (sum(f["task"] == task and f["arm"] == arm for f in probed)
                                               if tranche == "calibration" else 0) for task in tasks}
-    limits = {task: n + cut_reruns(entries, facts, tranche, task, arm, n) for task, n in planned.items()}
-    jobs = [task for task in tasks for _ in range(limits[task] - started(task, tranche))]
-    spend.check(study.ledger, tranche, "candidate", spec["model"], spec["max_calls"] * len(jobs))
+    limits = {task: n + (cut_reruns(entries, facts, tranche, task, arm, n) if tranche != "smoke" else 0)
+              for task, n in planned.items()}  # the smoke never runs a cut slot again: a cut fails the smoke
+    jobs = due_jobs(entries, tranche, arm, spec, planned, limits)
     return run_jobs(jobs, lambda task: one_run(study, tranche, arm, spec, task, fixes[task], limit=limits[task]))
+
+
+def due_jobs(entries, tranche, arm, spec, planned, limits):
+    """The starts due, one task per start: every planned slot not started (refused unless the cap holds them all),
+    then the re-runs of cut slots that the cap's room still holds; a re-run beyond it is left out and its task keeps
+    the runs it has (review3 minor 8)."""
+    started = {task: sum((row["tranche"], row.get("task"), row.get("arm")) == (tranche, task, arm) for row in entries)
+               for task in planned}
+    first = [task for task, n in planned.items() for _ in range(max(n - started[task], 0))]
+    again = [task for task in planned for _ in range(limits[task] - max(planned[task], started[task]))]
+    left = spend.remaining(entries, tranche, "candidate", spec["model"])
+    if spec["max_calls"] * len(first) > left:
+        raise SystemExit(f"{tranche} candidate {spec['model']}: {spec['max_calls'] * len(first)} calls planned but "
+                         f"{left} of the cap remain")
+    room = (left - spec["max_calls"] * len(first)) // spec["max_calls"]
+    for task in again[room:]:
+        print(f"{tranche} {arm} on {task}: no room in the cap to run a cut slot again; the task keeps the runs it has")
+    return first + again[:room]
 
 
 def cut_reruns(entries, facts, tranche, task, arm, planned):
@@ -197,6 +268,7 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
              "max_calls": spec["max_calls"], **extra}
     dump(records / "study.json", facts)  # before the reservation: every reserved run has its facts file
     try:
+        rules.require_order(study, tranche)  # per unit: an edit in the middle of a batch refuses (review3 minor 6)
         ceiling, per_call, pin = layout.spend_terms(study, tranche, spec["model"])
         cli = rules.check_cli(record["sandbox"]["declaration"], pin)
         units.cap_command(records / "command.sh", spec["max_calls"] * per_call * rules.tier_ratio(study, spec["model"]))
@@ -259,10 +331,18 @@ def settle(study, records, task, fix, cap, model, status):
 
 
 def settle_price(study, unit, calls_root, tranche, model):
-    """The unit's metered usage priced by the runtime's frozen price table, recorded as its `settle` event."""
+    """The unit's metered usage priced by the runtime's frozen price table, recorded as its `settle` event. A price
+    above the unit's reserved worst case is flagged and closes every start with a `pause` (review3 minor 3): the
+    per-call worst case was too low, and the tranche's priced total may pass its ceiling by the excess."""
     per_call = layout.spend_terms(study, tranche, model)[1]
     priced = units.priced(calls_root, load_price_table(study.runtime / rules.PRICE_TABLE), per_call)
-    spend.record(study.ledger, "settle", unit=unit, **priced)
+    reserved = next((row["usd_reserved"] for row in spend.starts(spend.rows(study.ledger)) if row["unit"] == unit),
+                    None)
+    over = reserved is not None and priced["usd"] > reserved
+    spend.record(study.ledger, "settle", unit=unit, **priced, **({"over_reserved": True} if over else {}))
+    if over:
+        spend.record(study.ledger, "pause", unit=unit, reset=None, reason=f"a unit settled above its worst case "
+                     f"(USD {priced['usd']:g} against USD {reserved:g})")
     return priced
 
 
@@ -285,6 +365,7 @@ def provider_end(study, calls_root, unit, out):
     return out
 
 
+@exclusive
 def settle_runs(study, runs):
     """Settle runs whose runner stopped after launching them (their study.json has no settled facts). A probe run
     is recovered by rerunning `probe`, which also gives it its hidden check."""
@@ -293,6 +374,8 @@ def settle_runs(study, runs):
         facts = load(records / "study.json")
         if facts["tranche"] == "redraw":
             raise SystemExit(f"{records} is a probe run: rerun `probe`, which recovers it")
+        if units.session_alive(records / "run.pgid"):  # review3 X6
+            raise SystemExit(f"{records}: its session is still running; wait for it")
         if "calls" in facts or not Path(load(records / "record.json")["tree"]).exists():
             raise SystemExit(f"{records} is already settled")
         print(f"{records}: {finish(study, records, facts, fixes[facts['task']]).get('outcome')}")
@@ -303,9 +386,11 @@ def live_pools(study):
 
 
 def retire(out):
-    """Delete a pool's clones (its records stay: the audit and the ledger name its judges)."""
+    """Delete a pool's clones and any credential copy left in its judges' homes (its records stay: the audit and the
+    ledger name its judges)."""
     (out / "clones").chmod(0o755)
     shutil.rmtree(out / "clones")
+    units.forget_credentials(out / ".private-homes")
 
 
 def probe_only(tranche):
@@ -335,6 +420,7 @@ def pool_to_build(study, task, kind):
     return out
 
 
+@exclusive
 def build_pools(study, tranche, kind, tasks):
     """One pool per task from its collected, scanned runs that are not incidents; both anchors join the batch."""
     probe_only(tranche)
@@ -365,6 +451,7 @@ def build_pools(study, tranche, kind, tasks):
             shutil.rmtree(out)
 
 
+@exclusive
 def judge(study, tranche, kind, tasks):
     """Each pool's judges one after another, each reserved before launch; verify-pool, scan and audit after each.
     Every named pool must hold an identity scan with no hit before the first judge launches (review2 M5)."""
@@ -378,6 +465,7 @@ def judge(study, tranche, kind, tasks):
         scan = out / "records" / "identity-scan.json"
         if not scan.exists() or load(scan).get("hits") != []:
             raise SystemExit(f"{out}: no clean identity scan ({scan}); no judge is launched")
+    skipped = []
     for task in dict.fromkeys(tasks):
         out = layout.current_pool(study, task, kind)
         if out not in pools or layout.cut_judges(out):
@@ -385,15 +473,35 @@ def judge(study, tranche, kind, tasks):
                   "no judge")
             continue
         mapping = load(out / "records" / "mapping.json")
+        if why := judge_blocked(study, tranche, out, len(mapping["batches"])):
+            skipped.append(f"{out}: {why}")
+            continue
         for model in gates.JUDGES:
             if any(row.get("unit") == f"{out}#{model}" for row in spend.rows(study.ledger)):
                 print(f"{out}#{model}: already started, not relaunched")
                 continue
             one_judge(study, tranche, kind, task, out, mapping, model, fixes[task])
+    if skipped:  # the other named pools were judged (review3 minor 7)
+        raise SystemExit("no judge started on " + "; ".join(skipped))
+
+
+def judge_blocked(study, tranche, out, batches):
+    """Why none of a pool's judges may start now, or None: a judge that started and never settled (its pool is an
+    incident at summarize, so the other judge would spend for nothing), or a cap without room for every judge the
+    pool still needs."""
+    entries = spend.rows(study.ledger)
+    started = [model for model in gates.JUDGES if any(row.get("unit") == f"{out}#{model}" for row in entries)]
+    if unsettled := [model for model in started if not (out / "records" / f"study-{model}.json").is_file()]:
+        return f"judge {unsettled} started and never settled: summarize the pool (an incident)"
+    if full := [model for model in gates.JUDGES if model not in started
+                and spend.remaining(entries, tranche, "judge", model) < batches]:
+        return f"no room in the {tranche} judge cap of {full} for both judges"
+    return None
 
 
 def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     batches, records = len(mapping["batches"]), out / "records"
+    rules.require_order(study, tranche)  # per unit (review3 minor 6)
     pooling.verify_pool(out)
     judged = blinding.judged_patches(out, mapping)  # what this judge reads, bound to its ratings in the readout
     ceiling, per_call, pin = layout.spend_terms(study, tranche, model)
@@ -454,6 +562,7 @@ def failed_judges(out, criterion):
     return failed
 
 
+@exclusive
 def summarize_pools(study, kind, tasks):
     """summarize.py per pool behind the guard, then keep its records and delete its clones. A pool it refuses is an
     incident naming the judges that failed; only its task loses its numbers."""

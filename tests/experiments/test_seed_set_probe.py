@@ -445,3 +445,12 @@ def test_host_checks_keep_bytecode_in_their_box_and_reuse_it(monkeypatch):  # th
     flag, dont_write, prefix = done.stdout.split()
     assert (flag, dont_write, Path(prefix).name, Path(prefix).parent.name.startswith("seed-set-host-")) == (
         "None", "False", "pycache", True)
+
+
+def test_a_probe_step_the_redraw_allowance_cannot_hold_is_a_stop(s):  # review3 minor 8
+    for k in range(25):  # 15 calls left for the flat five's 20 runs
+        spend.reserve(s.ledger, "redraw", "candidate", H, 1, f"/elsewhere/{k}", task=f"x{k}", arm="direct", step="first",
+                      price=P)
+    with pytest.raises(SystemExit, match="stopped"):
+        probing.probe(s)
+    assert "redraw allowance" in spend.latest(spend.rows(s.ledger), "stop")["reason"]
