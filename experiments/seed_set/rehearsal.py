@@ -8,13 +8,17 @@ harness's real shims, sandbox and model guard; no model is called. The criterion
 (path and version) and sets the rehearsal's priced ceilings (`TERMS`). The ladder probe meets one injected usage
 limit: the stand-in answers the first probe task's Haiku call as the vendor does at a limit, starts close, the
 limit is lifted, `resume-after-limit` reopens them and the probe runs the cut slot again (rulings R1 and R2). After
-the probe one start that would pass the redraw tranche's priced ceiling is tried on the rehearsal's ledger (R4). The process runs with an empty HOME, no
+the probe one start that would pass the redraw tranche's priced ceiling is tried on the rehearsal's ledger (R4).
+With `--cut-in smoke` the limit cuts the smoke's Haiku `direct` run instead: the other programs run after the
+resume, the smoke check must fail, and the rehearsal ends after showing that neither the probe nor the calibration
+may start (review3 X1). The process runs with an empty HOME, no
 provider credentials, a closed PATH behind the Thread M no-provider stubs, and a ledger under ROOT/state (the
 study's own ledger is never opened). The stand-in fixes T1 and T2 always, every second T3 task (two of the four
 probe tasks), never T4 or T5; Sonnet fixes everything; on the smoke task Haiku fixes from its second attempt.
 
   PATH=<checkout>/experiments/thread_m/no_provider:$PATH PYTHONPATH=<checkout> \
-      python -m experiments.seed_set.rehearsal ROOT [--calibration-tasks N]   # ROOT: new; about two hours at 20
+      python -m experiments.seed_set.rehearsal ROOT [--calibration-tasks N] [--cut-in probe|smoke]
+      # ROOT: new; about two hours at 20 calibration tasks
 
 The setup makes ROOT/runtime, a worktree of this checkout's HEAD, and runs the stages from it (working directory
 and PYTHONPATH): the freeze refuses study modules loaded from anywhere else. The agents' trees and the pools live
@@ -171,6 +175,42 @@ def usage_limit(plan_file, limit):
     Path(plan_file).write_text(json.dumps(plan))
 
 
+def refusal(start):
+    """The refusal `start` meets, or "started"."""
+    try:
+        start()
+    except SystemExit as error:
+        return str(error)
+    return "started"
+
+
+def smoke_with_a_cut(s):
+    """The smoke meeting one usage limit on its Haiku `direct` run: cut, starts closed, lifted, reopened; the other
+    programs run and the pool is judged. The check must fail, and neither the probe nor the calibration may start."""
+    tranche("smoke")
+    (task,) = layout.tranche_tasks(s, "smoke")
+    plan_file, reset = Path(os.environ["SEED_SET_STUB_PLAN"]), int(time.time())
+    usage_limit(plan_file, {"task": task, "model": H, "reset": reset})
+    study.candidates(s, "smoke", "direct", [task])
+    closed = refusal(lambda: study.candidates(s, "smoke", "direct_sonnet", [task]))
+    usage_limit(plan_file, {})
+    spend.resume_after_limit(s.ledger, reset, 0.0, 0.0, time.time())
+    for arm in [arm for arm in layout.PLANNED["smoke"] if arm != "direct"] + ["direct"]:  # direct: no second run
+        study.candidates(s, "smoke", arm, [task])
+    pools(s, "smoke", "first", [task])
+    check = rules.smoke_check(s)
+    tranche("redraw")
+    probe = refusal(lambda: probing.probe(s))
+    tranche("calibration")
+    calibration = refusal(lambda: rules.require_order(s, "calibration"))
+    rows = spend.rows(s.ledger)
+    after = [r for r in spend.starts(rows) if r["seq"] > spend.latest(rows, "smoke")["seq"]]
+    runs = [load(path) for path in layout.study_runs(s)]
+    return {"smoke_check": check, "closed": closed, "probe": probe, "calibration": calibration,
+            "starts_after_the_smoke_check": len(after),
+            "runs": {f["arm"]: ("cut" if "cut" in f else f.get("incident") or f.get("outcome")) for f in runs}}
+
+
 def probe_with_a_cut(s):
     """The ladder probe meeting one usage limit on its first task: cut, starts closed, lifted, reopened, re-run."""
     plan_file, reset = Path(os.environ["SEED_SET_STUB_PLAN"]), int(time.time())
@@ -241,28 +281,35 @@ def main(argv=None):
     top.add_argument("--calibration-tasks", type=int, default=ladder.CALIBRATION_TASKS)
     top.add_argument("--in-runtime", action="store_true", help=argparse.SUPPRESS)
     top.add_argument("--withheld-only", action="store_true", help="only the check-withheld launch")
+    top.add_argument("--cut-in", choices=("probe", "smoke"), default="probe", help="where the usage limit cuts")
     a = top.parse_args(argv)
     root = Path(a.root).resolve()
     if not a.in_runtime:  # set up, then run the stages from the runtime's own modules
         s = setup(root)
         try:
             subprocess.run([sys.executable, "-m", "experiments.seed_set.rehearsal", str(root), "--in-runtime",
-                            "--calibration-tasks", str(a.calibration_tasks)] + ["--withheld-only"] * a.withheld_only,
-                           cwd=s.runtime, check=True,
+                            "--calibration-tasks", str(a.calibration_tasks), "--cut-in", a.cut_in]
+                           + ["--withheld-only"] * a.withheld_only, cwd=s.runtime, check=True,
                            env={**os.environ, "PYTHONPATH": str(s.runtime)})
         finally:
             outside = Path(load(root / "study.json")["outside"])
             open_up(outside)
             shutil.rmtree(outside)
         return
-    stages(root, study_at(root), a.calibration_tasks, a.withheld_only)
+    stages(root, study_at(root), a.calibration_tasks, a.withheld_only, a.cut_in)
 
 
-def stages(root, s, count, withheld_only=False):
+def stages(root, s, count, withheld_only=False, cut_in="probe"):
     if withheld_only:  # the separate check-withheld launch alone, on its own ledger
         dump(root / "withheld-run.json", withheld_run(root, s))
         return
     rules.record_freeze(s)
+    if cut_in == "smoke":  # the smoke fails: nothing after it may start
+        out = smoke_with_a_cut(s) | {"ledger": study.ledger_report(s), "priced_usd": spend.priced(s.ledger)}
+        os.environ.pop(spend.AUTHORIZATION)
+        dump(root / "rehearsal.json", out)
+        print(json.dumps({k: v for k, v in out.items() if k != "ledger"}, indent=1))
+        return
     out = {"smoke_check": smoke(s)}
     tranche("redraw")
     out["usage_limit"] = probe_with_a_cut(s)
