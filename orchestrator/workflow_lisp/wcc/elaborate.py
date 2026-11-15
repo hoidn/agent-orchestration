@@ -2365,25 +2365,18 @@ def _parallel_command_bindings(expr, metadata, scope, bindings, context):
 
 
 def _elaborate_map_body(expr: ListMapExpr, metadata, *, scope: WccIdentityFactory, compile_time_bindings, **inputs):
-    """The body of a pure `list/map`, elaborated as before. A loop's command scope does not bind the map's
-    binder, so a `let*` in the body whose value reads it (one the condition normalisation writes for a
-    `match` in an `if`, `cond` or `and` condition, or one written there) raised `KeyError` for the binder
-    (D1 of the staged-authoring plan). Only then the body is elaborated again with the binder bound in the
-    command scope, as a parallel map binds its item. Nothing catches that `KeyError` on its way to the
-    compiler-defect boundary, so a program that built takes the route it took and keeps its program."""
+    """The body of a pure `list/map`. In a command scope (a loop's) the binder is bound there first, as a
+    parallel map binds its item: a `let*` in the body whose value reads it, one the condition normalisation
+    writes for a `match` in an `if`, `cond` or `and` condition or one written there, raised `KeyError` for the
+    binder without it (D1 of the staged-authoring plan)."""
 
     from .anf import normalize_wcc_body_to_anf
 
-    try:
-        return normalize_wcc_body_to_anf(_elaborate_expr_to_body(expr.body_expr, scope=scope,
-            compile_time_bindings=compile_time_bindings, **inputs))
-    except KeyError as exc:
-        context = compile_time_bindings.get(_COMMAND_SCOPE_CONTEXT)
-        if context is None or exc.args != (expr.binder_name,):
-            raise
-    bound = _parallel_command_bindings(expr, metadata, scope, compile_time_bindings, context)
+    context = compile_time_bindings.get(_COMMAND_SCOPE_CONTEXT)
+    if context is not None:
+        compile_time_bindings = _parallel_command_bindings(expr, metadata, scope, compile_time_bindings, context)
     return normalize_wcc_body_to_anf(_elaborate_expr_to_body(expr.body_expr, scope=scope,
-        compile_time_bindings=bound, **inputs))
+        compile_time_bindings=compile_time_bindings, **inputs))
 
 
 def _elaborate_parallel_map_to_body(

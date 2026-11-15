@@ -131,6 +131,12 @@ class TypecheckSessionState:
     parametric_specialization_requests: dict[
         str, PendingParametricProcedureSpecialization
     ] = field(default_factory=dict)
+    # The specializations the calls of a serial map were renamed to, while the map's own loop is typed again
+    # (`procedure_typecheck.retyping_serial_map`); empty elsewhere.
+    retyped_specializations: frozenset[str] = field(
+        default=frozenset(), compare=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass

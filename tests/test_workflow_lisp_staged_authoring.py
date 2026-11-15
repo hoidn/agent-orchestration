@@ -83,6 +83,20 @@ def test_let_in_a_map_body_reading_the_binder_inside_a_loop(tmp_path):
     assert run_workflow(tmp_path, D1_RUN.replace("BODY", body), f"u={A_3}") == (2, [])
 
 
+def test_local_capturing_the_binder_in_a_map_body_inside_a_loop(tmp_path):
+    """The map's binder is in the loop's command scope from the start, so a local that captures it is typed
+    there too. Compared with a procedure the binder is passed to."""
+    condition = D1_CONDITIONS["if"][0].replace("HEAD", "(or-else (list/head (list/map ((v vs)) CALL)) false)")
+    captures = "(let-proc ((g ((k Int)) -> Bool (match v ((A a) (> k a.n)) ((B b) true)))) (g s))"
+    procedure = "(defproc gp ((w U) (k Int)) -> Bool (match w ((A a) (> k a.n)) ((B b) true)))"
+
+    ran, ran_passed = same_run(tmp_path, D1_RUN.replace("BODY", condition.replace("CALL", captures)),
+                               D1_RUN.replace("BODY", condition.replace("CALL", "(gp v s)")), f"u={A_3}",
+                               definitions=(U, procedure))
+
+    assert ran == ran_passed == (4, [])
+
+
 # ---------------------------------------------------------------------------------------------
 # D2 (finding T8.1 of the corpus rule ledger): a `match` subject written with a list in it. The `match` kept
 # the subject as written, whose lists carry no item types, so elaboration could not lower it; it now carries
@@ -92,10 +106,27 @@ def test_let_in_a_map_body_reading_the_binder_inside_a_loop(tmp_path):
     ('(variant Verdict MET :evidence (list "e"))', []),
     ('(variant Verdict NOT_MET :reasons (list "r" "s"))', ["r", "s"]),
 ])
-def test_empty_list_in_a_match_arm_is_typed_by_the_other_arm(tmp_path, subject, wanted):
+def test_empty_list_in_a_match_arm_is_typed_by_the_workflow_result(tmp_path, subject, wanted):
     run = f"() -> List[String] (match {subject} ((MET m) (list)) ((NOT_MET g) g.reasons))"
 
     assert run_workflow(tmp_path, run, definitions=(VERDICT,)) == (wanted, [])
+
+
+# A list in the call of a `let-proc` local in a subject was lowered from the local's typecheck rewrite, so such
+# a subject built as written; it still does, also beside an `and` or an `or` (B1 of the review of Task 0b).
+LOCAL_CALL = "(let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1)))"
+
+
+@pytest.mark.parametrize("condition", ["(and (> n 0) (> n -1))", "(or (> n 5) (> n 0))"])
+def test_list_in_a_local_call_in_a_match_subject_beside_an_and_or_an_or(tmp_path, condition):
+    subject = f"(if {condition} {LOCAL_CALL} (variant V NO :k 0))"
+    arms = "((HAS h) (list/length h.xs)) ((NO o) o.k)"
+
+    ran, ran_bound = same_run(tmp_path, f"((n Int)) -> Int (match {subject} {arms})",
+                              f"((n Int)) -> Int (let* ((w {subject})) (match w {arms}))", "n=1",
+                              definitions=(HAS,))
+
+    assert ran == ran_bound == (1, [])
 
 
 @pytest.mark.parametrize("subject", ["(variant V HAS :xs (list 1 2))", "(variant V HAS :xs (list))",
@@ -141,6 +172,21 @@ def test_generic_procedure_in_a_local_called_in_a_map_body_runs_once_per_item(tm
         "MAP", MAP_KEEP.replace("CALL", "(h s)"))
 
     assert run_workflow(tmp_path, run, definitions=(KEEP,)) == (["a", "b"], ["a", "b"])
+
+
+# Only the second typing of a serial map's own loop takes a call already renamed to its specialization: a
+# local that captures a name bound to a generic call is refused as before (M1 of the review of Task 0b; row
+# let-proc-generic-capture of the defect record).
+KEEP_INT = ('(defproc keepg :forall (T) ((x T)) -> T '
+            '(let* ((seen (command-result c :argv ("python" "c.py" "g" "1") :returns Int))) x))')
+
+
+@pytest.mark.parametrize("consumer", ["(h 1)", "(+ (h 1) (h 2))",
+                                      "(list/length (list/map-effect ((y (list 1 2))) :max 2 (h y)))"])
+def test_local_capturing_a_generic_call_result_is_refused_as_before(tmp_path, consumer):
+    run = f"((n Int)) -> Int (let* ((a (keepg 5))) (let-proc ((h ((x Int)) -> Int (+ a x))) {consumer}))"
+
+    assert outcome(tmp_path, run, KEEP_INT) == ("refused", "procedure_call_unknown")
 
 
 # ---------------------------------------------------------------------------------------------

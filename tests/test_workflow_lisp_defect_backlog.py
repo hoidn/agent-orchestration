@@ -60,8 +60,9 @@ Rows D5-binder-hidden, D5-binder-hidden-match, D5-if-whole and D5-if-whole-retur
 TD2, D5-if-match and D20-map-argument, found by its re-review, D4-subject-match and D4-subject-loop, found by the
 differential corpus of TD1, and D4-subject-argument and D20-let-proc-subject, found by its second re-review, are
 not in it either. Row D14 has the program of finding T8.1 of the corpus rule ledger (a list in a `match` subject),
-which the Defect Table does not have; rows E7-local (a `let-proc` local written in a serial map body) and D26 (a
-`match` arm whose value is its binder) were found by Task 0b of the staged-authoring plan.
+which the Defect Table does not have; rows E7-local (a `let-proc` local written in a serial map body) and
+match-arm-binder (a `match` arm whose value is its binder) were found by Task 0b of the staged-authoring plan, and
+let-proc-generic-capture (a local capturing a generic call's result) by its review.
 """
 
 from __future__ import annotations
@@ -139,12 +140,13 @@ KNOWN: dict[str, tuple] = {
     "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
-    "D26": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
+    "match-arm-binder": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
     "E6": refused("name_unknown"),
     "E7-local": refused("proc_ref_unknown"),
+    "let-proc-generic-capture": refused("procedure_call_unknown"),
     "E8": refused("proc_ref_binding_parameter_unsupported"),
     "E9": refused("procedure_call_unknown"), "E9-local": refused("procedure_call_unknown"),
     "E11": refused("workflow_signature_mismatch"),
@@ -227,7 +229,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D23-macro": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
     "D24": ("crash", "ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
-    "D26": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
+    "match-arm-binder": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
     "E1-and": ("refused", "variant_ref_unproved"),
     "E1-or": ("refused", "variant_ref_unproved"),
     "E2": ("refused", "variant_ref_unproved"),
@@ -235,6 +237,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "E6": ("refused", "name_unknown"),
     "E7": ("refused", "procedure_call_unknown"),
     "E7-local": ("refused", "proc_ref_unknown"),
+    "let-proc-generic-capture": ("refused", "procedure_call_unknown"),
     "E8": ("refused", "procedure_lowering_unresolved"),
     "E9": ("refused", "procedure_call_unknown"),
     "E9-local": ("refused", "procedure_call_unknown"),
@@ -350,7 +353,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D23-macro": ("value", 705),
     "D24": None,
     "D25": None,
-    "D26": ("value", 5),
+    "match-arm-binder": ("value", 5),
     "E1-and": None,
     "E1-or": None,
     "E2": None,
@@ -364,6 +367,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "E6-uncalled": ("builds",),
     "E7": ("value", 2, "g", "g"),
     "E7-local": ("value", 2),
+    "let-proc-generic-capture": ("value", 6, "g"),
     "E8": ("value", 3),
     "E9": ("value", 1),
     "E9-local": ("value", 5),
@@ -738,7 +742,7 @@ ROWS: dict[str, Row] = {
     "D23": row(value(34), "((n Int)) -> Int (both n)", D23_BOTH, inputs=("n=3",)),
     # Found by Task 0b of the staged-authoring plan: a `match` arm whose value is its own binder, the variant it
     # narrowed to, used as a value of the union; the closed check refuses its type. `(variant V NO :k o.k)` builds.
-    "D26": row(value(5), "((v V)) -> Int (let* ((w (match v ((HAS h) (variant V NO :k 2)) ((NO o) o)))) "
+    "match-arm-binder": row(value(5), "((v V)) -> Int (let* ((w (match v ((HAS h) (variant V NO :k 2)) ((NO o) o)))) "
                "(match w ((HAS h) 0) ((NO o) o.k)))", "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
                inputs=('v={"variant":"NO","k":5}',)),
     "D23-macro": row(value(705), "((n Int)) -> Int (both n)", D23_MACRO,
@@ -768,6 +772,11 @@ ROWS: dict[str, Row] = {
               f"(defproc gstep :forall (T) ((v T)) -> T (let* ((x {E('g', 1, 'Int')})) v))"),
     "E7-local": row(value(2), "() -> Int (list/length (list/map-effect ((x (list 1 2))) :max 2 "
                     "(let-proc ((h ((t Int)) -> Int (+ t 1))) (h x))))"),
+    # Found by the review of Task 0b of the staged-authoring plan: a local that captures a name bound to a generic
+    # call; the capture's call, already renamed to its specialization, is typed again and refused naming that name.
+    "let-proc-generic-capture": row(value(6, "g"), "() -> Int (let* ((a (gstep 5))) (let-proc ((h ((x Int)) -> Int "
+                                    "(+ a x))) (h 1)))",
+                                    f"(defproc gstep :forall (T) ((v T)) -> T (let* ((x {E('g', 1, 'Int')})) v))"),
     "E8": row(value(3), "() -> Int (outer 2)", AP, ADD,
               "(defproc outer ((k Int)) -> Int (apply1 (bind-proc (proc-ref add) :n k) 1))"),
     "E9": row(value(1), E9_RUN, AP, E9_H, inputs=("n=1",)),
@@ -1144,6 +1153,18 @@ def test_no_control_is_a_known_row():
     controls = {control for group in CONTROLS.values() for control in group}
 
     assert (controls - set(WANTED), controls & set(KNOWN)) == (set(), set())
+
+
+def test_no_id_is_written_twice_in_one_table():
+    """A table literal keeps the last of two equal ids without a word, as when two branches add one id."""
+    import ast
+    from collections import Counter
+
+    tables = (node for node in ast.walk(ast.parse(Path(__file__).read_text(encoding="utf-8")))
+              if isinstance(node, ast.Dict))
+    counts = (Counter(key.value for key in table.keys if isinstance(key, ast.Constant)) for table in tables)
+
+    assert {key for count in counts for key, times in count.items() if times > 1} == set()
 
 
 def test_every_key_of_the_pairing_tables_is_a_row():

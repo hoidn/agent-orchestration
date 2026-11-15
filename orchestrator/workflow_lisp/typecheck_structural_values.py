@@ -750,7 +750,10 @@ def typecheck_structural_value_expr(
             effect_place_code=source_place_code,
         )
         _register_map_run_ref_types(type_env, context=context)
-        return recurse(synthetic_loop, expected_type=result_type)
+        from .procedure_typecheck import retyping_serial_map
+
+        with retyping_serial_map(context.session_state, synthetic_loop):
+            return recurse(synthetic_loop, expected_type=result_type)
     if isinstance(expr, PathJoinUnderExpr):
         try:
             path_type = type_env.resolve_type(

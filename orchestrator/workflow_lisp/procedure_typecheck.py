@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, fields, is_dataclass, replace
 
 from .compiler_session import CompilerSession, TypecheckSessionState
@@ -697,11 +698,31 @@ def typecheck_procedure_call_expr(
     )
 
 
-def _typecheck_unknown_callee(expr: ProcedureCallExpr, *, context, recurse, typed_factory, raise_error):
-    """A call whose callee has no signature: the call of a specialization requested earlier in this pass, typed
-    again (`_typecheck_requested_specialization_call`); any other is refused."""
+@contextmanager
+def retyping_serial_map(session_state: TypecheckSessionState, synthetic_loop: ExprNode):
+    """While a serial map's own loop, `synthetic_loop`, is typed: the specializations the first typing of the
+    map's source, `:max` and body renamed their calls to, which `_typecheck_unknown_callee` types again (D3 of
+    the staged-authoring plan). Only there: a call of a specialization's name met anywhere else, as in a
+    `let-proc` local that captures a generic call's result, is refused as before."""
 
-    requested = context.session_state.parametric_specialization_requests.get(expr.callee_name)
+    requested = session_state.parametric_specialization_requests
+    previous = session_state.retyped_specializations
+    session_state.retyped_specializations = previous | {
+        node.callee_name for node in walk_expr(synthetic_loop)
+        if isinstance(node, ProcedureCallExpr) and node.callee_name in requested}
+    try:
+        yield
+    finally:  # also after a refusal, which a typecheck trial may catch and type on from
+        session_state.retyped_specializations = previous
+
+
+def _typecheck_unknown_callee(expr: ProcedureCallExpr, *, context, recurse, typed_factory, raise_error):
+    """A call whose callee has no signature: in a serial map's own loop, the call of a specialization the map's
+    first typing requested, typed again (`_typecheck_requested_specialization_call`); any other is refused."""
+
+    state = context.session_state
+    requested = (state.parametric_specialization_requests.get(expr.callee_name)
+                 if expr.callee_name in state.retyped_specializations else None)
     if requested is not None:
         return _typecheck_requested_specialization_call(expr, requested, context=context, recurse=recurse,
                                                         typed_factory=typed_factory)
