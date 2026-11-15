@@ -290,7 +290,9 @@ def smoke_units(study, task):
 
 
 def smoke_check(study):
-    """The mechanical part of the smoke checklist; records pass or fail in the ledger and returns it."""
+    """The mechanical part of the smoke checklist; records pass or fail in the ledger and returns it. A unit cut by
+    a usage limit, a planned program without its run and a reserved unit not yet settled each fail it (the caps
+    hold no second smoke: a stop for the owner)."""
     (task,) = tranche_tasks(study, "smoke")
     found = smoke_units(study, task)
     runs = [f for name, _, _, _, f in found if not name.startswith("judge")]
@@ -298,9 +300,12 @@ def smoke_check(study):
     results = load(results_path) if results_path.is_file() else {"clones": {}, "excluded_judges": {"pool": "missing"}}
     clones = results["clones"].values()
     reserved = {row["unit"]: row["calls"] for row in spend.starts(spend.rows(study.ledger)) if row["tranche"] == "smoke"}
+    settled = {unit_of(r) for _, r, _, _, f in found if "calls" in f}
     checks = {
         "every_program_ran_without_incident": sorted(f["arm"] for f in runs) == sorted(PLANNED["smoke"])
         and not any("incident" in f for f in runs),
+        "no_unit_cut_by_a_usage_limit": not any("cut" in f for _, _, _, _, f in found),  # review3 X1
+        "every_reserved_unit_settled": set(reserved) <= settled,
         "clone_count": len(results["clones"]) == sum(f.get("outcome") == "completed" for f in runs) + 2,
         "both_judges_rated_every_clone": not results["excluded_judges"] and all(
             set(c.get("ratings", {})) == {spend.HAIKU, spend.SONNET} for c in clones) and bool(clones),
@@ -314,8 +319,9 @@ def smoke_check(study):
     figures = {name: {"calls": units.physical_calls(r), "tokens": tokens(r), "wall_clock_sec_per_call":
                       _per_call(f, r)} for name, r, _, _, f in found}
     passed = all(checks.values()) and len(found) == len(PLANNED["smoke"]) + 2
+    direct = [(f, r) for name, r, _, _, f in found if name == "direct" and "cut" not in f]  # a cut call says nothing
     return spend.record(study.ledger, "smoke", passed=passed, checks=checks, figures=figures,
-                        **bisect_from_start([(f, r) for name, r, _, _, f in found if name == "direct"]))
+                        **bisect_from_start(direct))
 
 
 def ratings_bound(directory, results):

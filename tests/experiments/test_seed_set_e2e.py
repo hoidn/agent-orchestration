@@ -448,3 +448,26 @@ def test_offline_judge_cut_by_a_usage_limit_rebuilds_the_pool_once_from_the_same
         7, True, [(H, "first"), (H, "first.2"), (S, "first.2")], False)
     with pytest.raises(SystemExit, match="built once"):
         study.build_pools(s, "calibration", "first", [task])
+
+
+def test_offline_a_smoke_with_a_program_cut_by_a_usage_limit_fails_and_opens_nothing(world, monkeypatch):
+    """Review 3 X1: the Haiku `direct` smoke run is cut, the limit lifts, the other four programs run, and the pool is
+    judged and summarized. The smoke check fails, nothing after it may start, and the cut run's few seconds never
+    stand for the median Haiku direct run that chooses between the flat and the bisected probe."""
+    s, reset = world.study, int(time.time()) - 60
+    monkeypatch.setenv(spend.AUTHORIZATION, "smoke")
+    limit_plan(world, task=SMOKE, model=H, reset=reset)
+    study.candidates(s, "smoke", "direct", [SMOKE])
+    limit_plan(world)
+    reopen(s, reset)
+    for arm in ("direct_sonnet", "retry_until_check", "implement_check_repair", "implement_review_revise"):
+        study.candidates(s, "smoke", arm, [SMOKE])
+    study.build_pools(s, "smoke", "first", [SMOKE])
+    study.judge(s, "smoke", "first", [SMOKE])
+    study.summarize_pools(s, "first", [SMOKE])
+    check = rules.smoke_check(s)
+    assert (check["passed"], check["checks"]["no_unit_cut_by_a_usage_limit"], check["direct_median_wall_sec"]) == (
+        False, False, None)
+    monkeypatch.setenv(spend.AUTHORIZATION, "redraw")
+    with pytest.raises(SystemExit, match="no passed smoke"):
+        probing.probe(s)

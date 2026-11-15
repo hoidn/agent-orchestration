@@ -878,3 +878,23 @@ def test_the_freeze_refuses_a_package_without_stable_anchors(runner, state):  # 
     commit_runtime(runner)
     with pytest.raises(SystemExit, match="no stable anchors"):
         rules.record_freeze(runner)
+
+
+def smoke_runs(runner, settled=True):
+    """The smoke's five runs, reserved, each settled as completed with no scan hit unless `settled` is False for
+    `direct`."""
+    for k, arm in enumerate(layout.PLANNED["smoke"], 1):
+        facts = {"tranche": "smoke", "task": "r2", "outcome": "completed", "scan_hits": 0}
+        if arm == "direct" and not settled:
+            facts = {"tranche": "smoke", "task": "r2"}
+        records = run_dir(runner, arm=arm, k=k, record={"sandbox": {"home": str(runner.work / "home")}}, **facts)
+        if "outcome" in facts:  # settled: its calls counted
+            (records / "study.json").write_text(json.dumps(json.loads((records / "study.json").read_text()) | {
+                "calls": 1}))
+        spend.reserve(runner.ledger, "smoke", "candidate", H, 1, records, env("smoke"), task="r2", arm=arm, price=P)
+
+
+@pytest.mark.parametrize("settled", [True, False])
+def test_the_smoke_fails_while_a_reserved_unit_is_unsettled(runner, settled):  # review3 X1: unobserved
+    smoke_runs(runner, settled)
+    assert rules.smoke_check(runner)["checks"]["every_reserved_unit_settled"] is settled
