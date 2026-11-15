@@ -471,11 +471,17 @@ every removed test is listed with the code it covered".
      It must be fixed before the one-target cut. A program whose build
      depended on the seed gets one digest after the fix; programs with no
      such collision keep theirs (shown over every tracked `.orc` file and
-     test fixture: no digest moved). Open sibling, deterministic and on every
+     test fixture: no digest moved). Sibling, deterministic and on every
      target: a macro template whose `bind-proc` binds a computed value or a
-     workflow reference gives every expansion the first expansion's value,
-     because a bound value is identified by its source position (known rows
-     `B7-*` of the defect record; next in line, on its own branch).
+     workflow reference gave every expansion the first expansion's value,
+     because a bound value was identified by its source position. Fixed for
+     a value made of stable kinds (literals, operators other than `and`,
+     `or` and `not`, workflow references, enum members, records, variants,
+     lists): its identity is the position plus that content. Still open: a
+     bound value of another kind (`if`, `let*`, `match`, a loop, `and`, `or`,
+     `not`, a call) or one that reads a local, and two equal bound workflow
+     references written at two sites (known rows `B7-macro-*`, `B7-free-*`,
+     `B7-same-written` and `B7-same-ref` of the defect record).
    The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
    (accepted 2026-11-13 after an independent review and one revision) orders
    this list by harm. By the owner's direction of 2026-11-13 it is cut to
@@ -586,7 +592,7 @@ staging.
   verifier, so the family is oracle-scored: its qualification is the oracle
   check (the reference solution passes, an untouched environment fails), not
   a judge.
-- **Seed:** `experiments/long_horizon_seed/milestones.orc` (47 lines of at most 120 columns):
+- **Seed:** `experiments/long_horizon_seed/milestones.orc` (49 lines of at most 120 columns):
   set up the project (directories, `AGENTS.md`, a document catalogue, an
   append-only log, topic notes), write spec targets, then rounds of plan,
   build each milestone (work, check, review), check and acceptance. Three

@@ -776,6 +776,9 @@ entry here or in a heading.
 | `list/rest` | A list without its first element | [§10.3](#103-target-218-bounded-list-traversal) |
 | `list/append` | A list with one element added at the end | [§10.3](#103-target-218-bounded-list-traversal) |
 | `list/length` | A list's length | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/take` | A list's first `n` elements | [§10.2](#102-closed-pure-expression-surface) |
+| `list/all` | Whether every element of a `List[Bool]` is true | [§10.2](#102-closed-pure-expression-surface) |
+| `list/any` | Whether some element of a `List[Bool]` is true | [§10.2](#102-closed-pure-expression-surface) |
 | `print` | Writes a value to stdout and returns it | [§10.2](#102-closed-pure-expression-surface) |
 | `list` | Constructs a `List[T]` from elements of one type | [§10.3](#103-target-218-bounded-list-traversal) |
 | `list/map` | Maps a pure body over a list | [§10.3](#103-target-218-bounded-list-traversal) |
@@ -1363,15 +1366,37 @@ gives a reference to the rest.
   `bind-proc`. A later binding of a name that a bound value reads does not
   change the value.
 
-Two `bind-proc` forms over one procedure are two specializations when they
-bind different literals, names or field reads, also in two expansions of one
-macro. A bound value of another kind, such as `(workflow-ref w)` or the
-computed `(+ k 1)`, is identified by its source position, so two such forms
-written at two places are two specializations. Open defect (rows `B7-chain`,
-`B7-ref`, `B7-deep`, `B7-let` and `B7-int` of the defect record,
+Whether two `bind-proc` forms over one procedure are two specializations
+depends on how their bound values are identified:
+
+- A bound value that is a literal is identified by its value, a name by the
+  name, and a field read by its name and fields. Two forms that bind
+  different literals, names or field reads are two specializations, also in
+  two expansions of one macro.
+- Another bound value is identified by its source position. Two forms
+  written at two places are two specializations.
+- A bound value made only of literals, operator applications other than
+  `and`, `or` and `not`, `(workflow-ref w)`, enum members, records, variants
+  and lists is identified by its position and by its content. Two expansions
+  of one macro template have one position, and they are two specializations
+  when such values differ: `(+ k 0)` expanded with 1 and with 7,
+  `(record Box :n k)`, `(workflow-ref w)`.
+- A bound value that holds anything else (a name or a field read inside a
+  larger value, an `if`, a `let*`, a `match`, a loop, a call, or `and`, `or`,
+  `not`) is identified by its position alone.
+
+Open defect (rows of the defect record,
 `tests/test_workflow_lisp_defect_backlog.py`): two expansions of one macro
-template have one source position, share one specialization, and both use the
-value of the first expansion.
+template whose bound values are of this last kind and differ share one
+specialization. The program then uses the value of the first expansion (rows
+`B7-macro-if-pure`, `B7-macro-not-pure`, `B7-macro-and-pure`,
+`B7-macro-record-call-pure`, `B7-macro-record-map-pure`; finding `T9.19`) or
+stops with `compiler_defect` (rows `B7-macro-if`, `B7-macro-let`,
+`B7-macro-match`, `B7-macro-loop`, `B7-macro-or`, `B7-macro-defun`,
+`B7-free-eff`, `B7-free-pure`, `B7-free-arg`). The
+[versioning](../../specs/versioning.md) entry on bound values (exceptions to
+target stability) says what a run recorded before the content was part of the
+identity meets at `resume`.
 
 **`let-proc`** defines procedures that are local to one expression.
 
@@ -1445,6 +1470,18 @@ value of the first expansion.
     binding of the same name, in `body` or in the procedure that calls the
     local, does not change it. A captured name that holds an effect's result
     is read, not run again, by each call.
+  - From target 2.39, a captured name that holds a `proc-ref` literal, or a
+    `bind-proc` over one whose bound values are literals or value names, is
+    bound in the local's own body when `body` references the local, and the
+    value names it reads are captured instead: the local builds the program of
+    the same local with the reference written in its body. The copy reads the
+    binders the reference read, by binding identity. When a name it reads is
+    bound again between the reference and the local (a loop or `fn` state
+    binder, a `let*`, a `match` arm, a binder a macro takes from its caller) or
+    by a parameter of the local, no copy is made and the local keeps its
+    capture parameters, as at earlier targets; called, such a local is still
+    open defect `D10-rebound-*`. A bound value that is neither a literal nor a
+    name (a field read) stays a capture parameter too.
   - A declared provider extern is used in a `local-body` without being a
     capture and is not listed in `:captures`. An `Agent` value is not
     captured (`let_proc_capture_agent_forbidden`).
@@ -1502,15 +1539,18 @@ that has no row yet; the ledger gives the smallest program of each finding.
 | `E6` | A `ProcRef` parameter bound to another name with `let*` | `name_unknown` where the procedure is called | call or pass the parameter itself |
 | `T9.7` | A `ProcRef` parameter as the `base` of `bind-proc` | `proc_ref_literal_required` at the definition | - |
 | `T9.8` | A `ProcRef` parameter read in a `local-body` of its procedure | `procedure_call_unknown` at the definition | - |
-| `D10`, `D10-R1`, `D11`, `D11-R1`, `D11-R2`, `D11-R5` | A `local-body` calls or passes an outer `let*` name bound to a reference or to a `bind-proc` | `compiler_defect` | write `(proc-ref …)` in the `local-body`; call the bound name in `body` |
-| `E8`, `D25`, `T9.5` | In a `defproc`, a `bind-proc` or a local whose bound or captured value is not a literal or a name bound to a literal: a parameter of the procedure, a computed value, a field of a record | called by name: `compiler_defect`; passed to a procedure that has no effect: `procedure_lowering_unresolved`; with an effect in the procedure or in the local: `compiler_defect` when the procedure is called with a literal argument, a build when it is called with a workflow input | the same form in a workflow body; a literal, or a name bound to a literal; a local passed to a procedure that has an effect |
+| `D10-input-pure`, `D10-field`, `D10-field-pure`, `D10-literal-let`, `D10-literal-let-pure`, `D10-rebound-*` | A `local-body` calls or passes an outer `let*` name bound to a `bind-proc` whose bound value is a name and whose procedure has no effect, a field read, or a name bound to a literal; or whose bound name is bound again between the `bind-proc` and the `let-proc` | `compiler_defect` | a procedure with an effect, for a bound name; rename the inner binder; call the bound name in `body` |
+| `E8`, `D25`, `D25-plain`, `T9.5` | In a `defproc`, a `bind-proc` or a local whose bound or captured value is not a literal or a name bound to a literal: a parameter of the procedure, a computed value, a field of a record | called by name: `compiler_defect`; passed to a procedure that has no effect: `procedure_lowering_unresolved`; with an effect in the procedure or in the local: `compiler_defect` when the procedure is called with a literal argument, a build when it is called with a workflow input | the same form in a workflow body; a literal, or a name bound to a literal; a local passed to a procedure that has an effect |
 | `D24` | In a workflow, a local whose body is a loop that reads a field of a captured `let*` record | `compiler_defect` | - |
 | `E23-local`, `E23-input` | `bind-proc` written as an argument binds a value that reads a name: a name, a field read, a computed value | `name_unknown` | bind the `bind-proc` with `let*`, then pass the name |
 | `E26`, `T9.17` | A `bind-proc` whose bound value holds an effect, passed to a procedure that has no effect: written as the argument (`E26`) or through a `let*` name (`T9.17`) | `procedure_call_unknown` | bind the effect's result with `let*` first; call the result by name |
 | `T9.10` | In a `defproc` with an `:effects` restriction, a `bind-proc` whose bound value is a command or a call of a procedure that has effects | builds and runs the effect: it is not counted against the restriction | with the effect's result bound by `let*` first, the effect is counted (`procedure_effect_ceiling_exceeded`) |
 | `T9.2` | `bind-proc` written as an argument binds a value of the wrong type | `pure_expr_operand_type_mismatch` or `compiler_defect`, not `proc_ref_binding_type_invalid` | bound with `let*`, the form gives `proc_ref_binding_type_invalid` |
 | `T9.14` | `bind-proc` binds a `let*` name that holds a reference to a `ProcRef` parameter, and the result is passed | `procedure_call_unknown` | write `(proc-ref …)` as the value; call the result by name |
-| `B7-same-written` | Two equal `bind-proc` forms over a `(workflow-ref w)`, written at two places and passed to one procedure | `procedure_lowering_unresolved` | - |
+| `B7-same-written`, `B7-same-ref` | Two equal `bind-proc` forms over one `(workflow-ref w)`, written at two places and passed to one procedure | `procedure_lowering_unresolved` | the two forms made by two expansions of one macro |
+| `B7-macro-if-pure`, `B7-macro-not-pure`, `B7-macro-and-pure`, `B7-macro-record-call-pure`, `B7-macro-record-map-pure`, `T9.19` | Two expansions of one macro template whose bound values differ and hold an `if`, `not`, `and`, a function call, a `list/map` or a name inside a larger value; the procedure has no effect | builds; both expansions use the value of the first | a bound value made only of literals, other operators, `(workflow-ref w)`, enum members, records, variants and lists |
+| `B7-macro-if`, `B7-macro-let`, `B7-macro-match`, `B7-macro-loop`, `B7-macro-or`, `B7-macro-defun`, `B7-free-eff`, `B7-free-pure`, `B7-free-arg` | Two such expansions where the procedure calls a workflow (an `if`, a `let*`, a `match`, a loop, `or`, a function call in the bound value); two expansions whose bound value reads a `let*` name of the template, or of the caller when the procedure calls a workflow | `compiler_defect` | - |
+| `D26`, `D28`, `D29` | A `bind-proc` that binds a record to a procedure that reads it and calls a workflow; one name bound in two `let*` scopes, each bound by a `bind-proc` over a procedure that calls a workflow; a `bind-proc` in the body of a pure `list/map` whose bound value reads the item | `compiler_defect` | - |
 | `E9`, `E9-local` | A pure procedure or local whose body is a loop, passed to a pure procedure that calls it | `procedure_call_unknown` | call it by name |
 | `T9.1` | A local that captures an effect's result, called by name inside an operand of an operator, in an `if` condition or in the body of a `list/map-effect`; a `let*` that binds a `bind-proc` whose bound value holds an effect, written inside an operand of an operator or as the body of a `list/map-effect` | `compiler_defect`; for the local in the condition `proc_ref_literal_required` | the local: bind the call with `let*` first, and in a map body pass the local with `proc-ref`. The `bind-proc`: bind the effect's result with `let*` first, or write its `let*` around the operator |
 | `T9.18` | In a loop body, a `let*`-bound `bind-proc` whose bound value holds an effect, called in the `done` value or nested in an operand of the `continue` value | `procedure_lowering_unresolved` | bind the effect's result with `let*` first |
@@ -2189,6 +2229,7 @@ Supported operators are exact and closed:
 | Option | `some?`, `or-else` | `Optional[T]` with typed fallback | Optional access still requires proof or an explicit option operator. |
 | Record | `record-update` | base record plus typed field overrides | Unknown fields remain `record_field_unknown`. |
 | List (target 2.18) | `list/empty?`, `list/head`, `list/rest`, `list/append`, `list/length` | eligible `List[T]`; `list/head` returns `Optional[T]` | All five operators are total; eligibility uses the shared whole-list transportability predicate. |
+| List, cut and reduce | `list/take`, `list/all`, `list/any` | `list/take`: eligible `List[T]` and `Int` -> `List[T]`; `list/all`, `list/any`: `List[Bool]` -> `Bool` | All three are total. `list/take` gives the whole list when the count exceeds its length and the empty list when the count is below 1; `list/all` is `true` and `list/any` is `false` on the empty list. A count that is not an `Int`, or a reduced list that is not a `List[Bool]`, is refused (`pure_expr_operand_type_mismatch`). They need no new target ([versioning](../../specs/versioning.md)); a build that predates them refuses a source that uses one, also on `resume` (`pure_expr_operator_unsupported`), and a closed program that holds one (`closed_program_invalid`, naming the operator). |
 | Observation (target 2.35) | `print` | one operand of any type `T` -> the same `T` | Writes the operand's canonical compact JSON and a newline to the process's stdout, then returns the operand unchanged. Never folded at compile time. Not an effect: it has no identity and no memo record. Only the run's own evaluation writes, so `resume` prints again what it re-evaluates; readers that replay the program (views, `report`, the REPL) evaluate `print` as the identity. |
 
 Deliberate exclusions stay enforced by typed diagnostics:
@@ -2196,7 +2237,8 @@ Deliberate exclusions stay enforced by typed diagnostics:
 - no division or modulo before target 2.34; decimal literals in expressions from
   target 2.34 only (numeric surface rule N1);
 - no path string concatenation;
-- no collection operators beyond the exact target-2.18 list surface;
+- no collection operators beyond the list rows of this table (no fold, `list/filter`,
+  `list/contains?` or `list/concat`);
 - no regex, time, randomness, workflow calls, provider calls, or command execution, and no IO beyond the stdout line `print` writes;
 - no proof creation from computed equality/comparison alone.
 
@@ -2239,20 +2281,34 @@ value that holds no effect is not concerned.
 `List[T]` where `T` is the type of the first element. Each later element has that type; nothing
 is converted, so an `Int` beside a `Float`, an `Int` beside an `Optional[Int]` and two path
 types with one root are each refused. Where the form around the list states its type, the two
-must agree. Diagnostics: `pure_expr_operand_type_mismatch`. An element may hold an effect
-under the rule above. Open defect: a `variant` with a list in a field, written directly as a
-`match` subject, ends in `compiler_defect`; bound with `let*` first, it builds.
+must agree. `(list :of T e1 ...)` writes the element type: `T` is a type name or the name of a
+type parameter in scope, each element has type `T`, and the list is a `List[T]` also when it
+has none. `:of T` comes first: `:of` written again or after an element, and any other keyword,
+are refused; so are `(list :of)` and an operand after `:of` that is not a name. A value's name
+after `:of` is not a type. Where the form around the list states `List[T]`, `(list :of T ...)`
+builds the program the list without `:of` builds. Diagnostics: `pure_expr_operand_type_mismatch`;
+`loop_recur_continue_type_mismatch` for a `continue` value of another type than the loop state
+(§13.1); `keyword_argument_invalid`; `list_item_type_invalid`; `type_unknown`. An element may
+hold an effect under the rule above. Open defect: a `variant` with a list in a field, written
+directly as a `match` subject, ends in `compiler_defect`; bound with `let*` first, it builds.
+Open defect: an argument of a `defun` function called in a workflow or procedure body is not
+checked against its parameter, so `(list :of Int)` passed to a `List[String]` parameter builds.
+Open defect: inside a macro template that binds a value named like a type, `:of` that type is
+refused with `type_unknown`.
 
-**Empty list.** `(list)` has no element to take a type from. It is accepted where the form
-around it states the list's type: the result of a workflow, a procedure or a function; an
-argument of a procedure, a `let-proc` local or a workflow `call`; a record or variant field; a
-typed `loop-state` field (§13.2), also in `:like`; an element of a list whose type is stated;
-and a branch of an `if`, `cond` or `match` that stands in one of these places. It is refused in
-these places, which state no type: a `let*` binding and the body of a `let*`; an operand of a
-list operator; a `list/map` source or body; an argument of a `defun` function; a `record-update`
-field; an `or-else` fallback; a command `:argv` item; an element of a list whose type is not
-stated; and a loop's binder-form or `:state` initial value, its `continue` value and its `done`
-value. Diagnostics: `list_empty_type_context_required`.
+**Empty list.** `(list)` has no element to take a type from; `(list :of T)` states it and is
+accepted wherever a `List[T]` is. `(list)` is accepted where the form around it states the
+list's type: the result of a workflow, a procedure or a function; an argument of a procedure, a
+`let-proc` local, a workflow `call` or a `defun` function; a record or variant field; a typed
+`loop-state` field (§13.2), also in `:like`; an element of a list whose type is stated; a loop's
+`continue` value; and a branch of an `if`, `cond` or `match` that stands in one of these places
+other than a `defun` argument or a `continue` value, where only a bare `(list)` takes the type.
+It is refused in these places, which state no type: a `let*` binding and the body of a `let*`;
+an operand of a list operator; a `list/map` source or body; a `record-update` field; an
+`or-else` fallback; a command `:argv` item; an element of a list whose type is not stated; and
+a loop's binder-form or `:state` initial value, its `done` value and its `:on-exhausted` value.
+It is refused as the result of a `let-proc` local as well. Diagnostics:
+`list_empty_type_context_required`.
 
 **Operators.** The list operators are the rows of this table. Each takes a list as its first
 operand:
@@ -2264,11 +2320,15 @@ operand:
 | `list/rest` | `List[T] -> List[T]` | the list without its first element; the empty list stays empty |
 | `list/append` | `(List[T], T) -> List[T]` | a new list with the element added at the end |
 | `list/length` | `List[T] -> Int` | the number of elements |
+| `list/take` | `(List[T], Int) -> List[T]` | the first `n` elements; the whole list when `n` exceeds its length, the empty list when `n` is below 1 |
+| `list/all` | `List[Bool] -> Bool` | whether every element is true; `true` for the empty list |
+| `list/any` | `List[Bool] -> Bool` | whether some element is true; `false` for the empty list |
 
 Each gives a value for the empty list as for any other. `list/rest` and `list/append` give a
 new list and leave their operand as it was. The value of `list/head` is read with `some?` or
-`or-else`. A first operand that is not a list, a `list/append` element of another type and a
-wrong number of operands are refused. Diagnostics: `pure_expr_operand_type_mismatch`.
+`or-else`. A first operand that is not a list, a `list/append` element of another type, a
+`list/take` count that is not an `Int`, a `list/all` or `list/any` list that is not a
+`List[Bool]` and a wrong number of operands are refused. Diagnostics: `pure_expr_operand_type_mismatch`.
 `(list/nth xs 0)` is refused with `pure_expr_operator_unsupported`: the catalog has no indexing
 operator.
 
@@ -3928,11 +3988,15 @@ and error list are [preserved in the history file](../reports/documentation-hist
   together, so each expansion of a template calls the target resolved for that
   expansion; a call cloned into its caller when a pure procedure is inlined
   keeps its own span. A call site that records two targets stops the build
-  with `compiler_defect` naming the site. Known exception: a value bound by
-  `bind-proc` in a template that is not a literal, a name or a field access
-  (a `(workflow-ref w)`, or a computed value such as `(+ k 0)`) is identified
-  by its position alone, so two expansions that bind different values share
-  one specialization and the first expansion's value is used
+  with `compiler_defect` naming the site. A value bound by `bind-proc` is
+  identified by its position and, when it is made only of literals, operator
+  applications other than `and`, `or` and `not`, workflow references, enum
+  members, records, union variants and lists, also by its content, so two
+  expansions of one template that bind different such values get their own
+  specializations. Known exception: a bound value of any other kind (a
+  conditional, a `let*`, a `match`, a loop, a call) or one that reads a local
+  is identified by its position alone, so two expansions that bind different
+  such values share one specialization
   ([versioning](../../specs/versioning.md), exceptions to target stability).
 
 ## 34. Hygiene

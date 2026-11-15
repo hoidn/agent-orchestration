@@ -746,12 +746,31 @@ own delivery status and captured evidence.
     re-runs what the plan cancels and the code between effects, so the
     result, also of a completed run, can change. During elaboration a call
     site that records two targets stops the build with `compiler_defect`
-    naming the site; no lookup reads such a site. Not corrected: a value bound
-    by `bind-proc` that is not a literal, a name or a field access (a
-    `(workflow-ref w)`, or a computed value such as `(+ k 0)`) is identified
-    by its source position, so two expansions of one template that bind
-    different values share one specialization, and the first expansion's
-    value is used.
+    naming the site; no lookup reads such a site.
+  - A value bound by `bind-proc` that is not a literal, a name or a field
+    access is identified by its source position, as before, and, when it is
+    made only of stable kinds (literals, operator applications other than
+    `and`, `or` and `not`, workflow references, enum members, records, union
+    variants and lists), also by its content: the value without its source
+    position, form path, expansion stack and types. The content only splits
+    what the position joins: two bindings at different positions keep
+    different identities, and two expansions of one macro template, which
+    share a position, get their own specializations when their stable values
+    differ. Corrected, on every target: two expansions of one template that
+    bind different stable values, where every expansion used the first
+    expansion's value, now each use their own. Two expansions of one template
+    whose stable values differ in text but have equal or unobserved results
+    (`(* k 0)` bound with 1 and 7, for example) keep their result and change
+    their digest, because they now build the program their source means; a
+    run recorded by such a build, as by a corrected one, meets a changed
+    program at `resume` and goes through the edited-program route, as for the
+    call-site correction above. Other programs keep their closed program,
+    digest and effect identities. Not corrected: two expansions of one
+    template whose bound value is of another kind (a conditional, a `let*`, a
+    `match`, a loop, a call) or reads a local still share one specialization
+    by position, and such a program can compute the first expansion's value
+    or stop with `compiler_defect`; two equal bound workflow references
+    written at two sites still stop with `procedure_lowering_unresolved`.
   - The refusal of an integer overflow keeps its code, `pure_expr_overflow`,
     its stage and its exit code at every target. Its message, which a failed
     run records in `state.json`, now names the operator and prints its
@@ -1386,6 +1405,15 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   name or field of a type other than `Int` was `provider_result_timeout_literal_required` and is
   `provider_result_timeout_type_invalid`. Every program that compiled
   before keeps its closed program, digest and identities, and its recorded runs resume.
+- **O, three list operators.** `(list/take xs n)` gives the first `n` items of a list (all of
+  them when `n` exceeds its length, none when `n` is below 1); `(list/all bools)` and `(list/any bools)` reduce a `List[Bool]`, `true`
+  and `false` on the empty list. They are pure operators of the list group of the frontend
+  specification's section 10.2, usable in a `defun` and a `list/map` body, under every target the
+  other list operators are. Each was refused before (`pure_expr_operator_unsupported`); a build that
+  predates them still refuses such a source with that code, also on `resume`, and a closed program
+  that holds one with `closed_program_invalid`, naming the operator. A serial map's cap is
+  unchanged. Every program that compiled before keeps its closed program, digest and identities,
+  and its recorded runs resume.
 
 - **E1, an effect inside a value.** A record or variant field, a list element, a
   `path/join-under` child, a `list/map` or `list/map-effect` source and an `:on-exhausted` value
@@ -1423,13 +1451,29 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
     effectful call of a workflow, a `defproc` or a `let-proc` local is refused with
     `effect_not_permitted` (TD1, D19; §16.3);
   - a `done` or `continue` as the value of a `let*` binding is refused by the build with
-    `loop_recur_contract_invalid` (D21; §13.1).
+    `loop_recur_contract_invalid` (D21; §13.1);
+  - a `let-proc` local that captures a `proc-ref`, or a role bound with `bind-proc` over one whose
+    bound values are literals or names, builds from target 2.39 when it is called by name, is a
+    map body or is passed by `proc-ref`, and runs to the value of the same uses written with the
+    reference (TD6, D10, D11; frontend specification §7.8). Where a name the role reads is bound
+    again between the role and the local, the local keeps its capture parameters and builds, or
+    ends in `compiler_defect`, exactly as before (rows `D10-rebound-*`).
 
   Every program that compiled before keeps its closed program, digest and identities, and its
   recorded runs resume; a differential corpus test over the shapes around these fixes and every
   loop and map operand position holds the digests and refusal codes read on `main` before them,
   pins the digest of each program the fixes newly build, and runs a fixed sample of those against
   the value of its `let*`-bound spelling on `main` (`tests/test_workflow_lisp_td21_differential.py`).
+
+- **L, the typed list literal.** `(list :of T item…)` writes a list's item type, at every target,
+  in every position; it was refused (`keyword_argument_invalid`). An empty `(list)` passed to a
+  `defun` or written as a `continue` value takes its type from the parameter or the loop state; it
+  was refused (`list_empty_type_context_required`); a `continue` value of another type keeps
+  `loop_recur_continue_type_mismatch`. A value's name after `:of` is not a type (`type_unknown`).
+  Where the position states `List[T]`,
+  `(list :of T …)` builds the closed program, digest and effect identities of the list without
+  `:of`. A list element that holds an effect is admitted and refused as in a list without `:of`.
+  Every program that compiled before keeps its closed program, digest and identities.
 
 ### Run-time corrections without a new target
 
