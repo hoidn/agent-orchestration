@@ -70,7 +70,7 @@ def _provider_effect(program):
 
 
 def test_target_239_phased_provider_is_a_closed_provider_coordinator(tmp_path: Path) -> None:
-    program = _compile(tmp_path / "phased239.orc", _source("2.39"))
+    program = _compile(tmp_path / "phased239.orc", _source("2.40"))
     effect = _provider_effect(program)
 
     assert effect["class"] == "provider_phased"
@@ -91,7 +91,7 @@ def test_target_239_phased_provider_is_a_closed_provider_coordinator(tmp_path: P
 
 
 def test_target_239_phased_provider_rejects_empty_generated_record_contract(tmp_path: Path) -> None:
-    source = _source("2.39").replace(
+    source = _source("2.40").replace(
         "(defrecord Review (approved Bool))",
         "(defrecord Empty) (defrecord Review (empty Empty))",
     )
@@ -103,7 +103,7 @@ def test_target_239_phased_provider_rejects_empty_generated_record_contract(tmp_
 
 
 def test_target_239_phased_provider_allows_discriminant_only_union_contract(tmp_path: Path) -> None:
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule phased239) (export run)
       (defunion Review (approved) (rejected))
       (defprompt review (:fills (subject :text)) -> Review "Review {subject}")
@@ -119,21 +119,21 @@ def test_target_239_phased_provider_allows_discriminant_only_union_contract(tmp_
 
 def test_target_239_composed_provider_keeps_the_ordinary_closed_shape(tmp_path: Path) -> None:
     program = _compile(
-        tmp_path / "phased239.orc", _source("2.39", ":delivery :composed")
+        tmp_path / "phased239.orc", _source("2.40", ":delivery :composed")
     )
     effect = _provider_effect(program)
 
     assert effect["class"] == "provider"
     assert effect["policy"]["delivery"]["v"] == "composed"
     assert "materialization_attempts" not in effect["policy"]
-    phased = _compile(tmp_path / "other" / "phased239.orc", _source("2.39"))
+    phased = _compile(tmp_path / "other" / "phased239.orc", _source("2.40"))
     assert phased.digest != program.digest
 
 
 def test_target_239_default_composed_provider_omits_new_policy_fields(tmp_path: Path) -> None:
     program = _compile(
         tmp_path / "phased239.orc",
-        _source("2.39", ""),
+        _source("2.40", ""),
     )
     effect = _provider_effect(program)
     assert effect["class"] == "provider"
@@ -146,7 +146,7 @@ def test_target_239_phased_provider_keeps_explicit_literal_attempts(tmp_path: Pa
     program = _compile(
         tmp_path / "phased239.orc",
         _source(
-            "2.39",
+            "2.40",
             f":delivery :phased :timeout-sec 60 :materialization-attempts {attempts}",
         ),
     )
@@ -155,15 +155,15 @@ def test_target_239_phased_provider_keeps_explicit_literal_attempts(tmp_path: Pa
 
 def test_target_239_phased_provider_requires_explicit_timeout(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(tmp_path / "phased239.orc", _source("2.39", ":delivery :phased"))
+        _compile(tmp_path / "phased239.orc", _source("2.40", ":delivery :phased"))
     assert excinfo.value.diagnostics[0].code == "provider_phased_timeout_required"
 
 
 def test_imported_target_239_phased_provider_requires_its_own_timeout(tmp_path: Path) -> None:
-    helper = _source("2.39", ":delivery :phased").replace("phased239", "helper").replace(
+    helper = _source("2.40", ":delivery :phased").replace("phased239", "helper").replace(
         "(export run)", "(export Review run)"
     )
-    main = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    main = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (import helper :as helper :only (Review run)) (export run)
       (defworkflow run ((subject String)) -> helper.Review
         (call helper.run :subject subject)))'''
@@ -184,7 +184,7 @@ def test_imported_target_239_phased_provider_requires_its_own_timeout(tmp_path: 
 def test_target_239_phased_provider_preserves_timeout_value_validation(
     tmp_path: Path, timeout: str, code: str
 ) -> None:
-    source = _source("2.39", f":delivery :phased :timeout-sec {timeout}")
+    source = _source("2.40", f":delivery :phased :timeout-sec {timeout}")
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(tmp_path / "phased239.orc", source)
     assert excinfo.value.diagnostics[0].code == code
@@ -201,7 +201,7 @@ def test_phased_provider_is_refused_before_239_definition_target(tmp_path: Path,
 
 
 def test_target_239_phased_delivery_rejects_agent_valued_provider(tmp_path: Path) -> None:
-    source = _source("2.39").replace(
+    source = _source("2.40").replace(
         '(provider-result providers.review :prompt (review :subject subject)\n'
         '          :model "bound-model" :effort "bound-effort" :delivery :phased :timeout-sec 60)',
         '(let* ((reviewer (agent providers.review)))\n'
@@ -214,7 +214,7 @@ def test_target_239_phased_delivery_rejects_agent_valued_provider(tmp_path: Path
 
 
 def test_target_239_phased_delivery_rejects_extern_prompt(tmp_path: Path) -> None:
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule phased239) (export run)
       (defrecord Review (approved Bool))
       (defworkflow run ((subject String)) -> Review
@@ -241,7 +241,7 @@ def test_target_239_phased_delivery_rejects_extern_prompt(tmp_path: Path) -> Non
 def test_target_239_phased_delivery_rejects_context_and_session_pairings(
     tmp_path: Path, option: str, code: str
 ) -> None:
-    source = _source("2.39", f":delivery :phased :timeout-sec 60 {option}")
+    source = _source("2.40", f":delivery :phased :timeout-sec 60 {option}")
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(tmp_path / "phased239.orc", source)
     assert excinfo.value.diagnostics[0].code == code
@@ -341,7 +341,7 @@ def test_source_free_typed_import_keeps_older_phased_definition_owner_target(
 
 
 def test_closed_checker_rejects_phased_provider_reached_by_parallel_worker(tmp_path: Path) -> None:
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule phased239) (export run)
       (defrecord Review (approved Bool))
       (defprompt review (:fills (subject :text)) -> Review "Review {subject}")
@@ -357,10 +357,10 @@ def test_closed_checker_rejects_phased_provider_reached_by_parallel_worker(tmp_p
 
 
 def test_parallel_worker_refusal_follows_imported_helper_calls(tmp_path: Path) -> None:
-    helper = _source("2.39").replace("phased239", "helper").replace(
+    helper = _source("2.40").replace("phased239", "helper").replace(
         "(export run)", "(export Review run)"
     )
-    main = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    main = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (import helper :as helper :only (Review run)) (export run)
       (defworkflow run ((subjects List[String])) -> List[helper.Review]
         (list/map-effect ((subject subjects)) :max 4 :parallel 2 :workspace "."
@@ -371,7 +371,7 @@ def test_parallel_worker_refusal_follows_imported_helper_calls(tmp_path: Path) -
 
 
 def test_parallel_worker_refusal_follows_specialized_procedure_calls(tmp_path: Path) -> None:
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule phased239) (export run)
       (defrecord Review (approved Bool))
       (defprompt review (:fills (subject :text)) -> Review "Review {subject}")
@@ -388,7 +388,7 @@ def test_parallel_worker_refusal_follows_specialized_procedure_calls(tmp_path: P
 
 
 def test_source_free_checker_rejects_direct_phased_provider_map_forgery(tmp_path: Path) -> None:
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule phased239) (export run)
       (defrecord Review (approved Bool))
       (defprompt review (:fills (subject :text)) -> Review "Review {subject}")
@@ -423,7 +423,7 @@ def test_source_free_checker_rejects_direct_phased_provider_map_forgery(tmp_path
 def test_runtime_phased_without_interactive_capability_has_no_ordinary_fallback(tmp_path: Path) -> None:
     from tests.test_workflow_evaluated_providers import _cli, _fixture, _requests
 
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run)
       (defrecord Result (ok Bool))
       (defprompt review (:fills (message :text)) -> Result "{message}")
@@ -453,7 +453,7 @@ def test_confined_run_ref_provider_walker_recognizes_phased_class(tmp_path: Path
         refuse_confined_run_ref_sites,
     )
 
-    effect = _provider_effect(_compile(tmp_path / "phased239.orc", _source("2.39")))
+    effect = _provider_effect(_compile(tmp_path / "phased239.orc", _source("2.40")))
     program = SimpleNamespace(tree={"children": {
         "child": {"entry": "workflow:child::run", "body": effect},
     }})
@@ -477,7 +477,7 @@ def test_target_239_policy_admission_rejects_forged_attempt_shapes(
     tmp_path: Path, sections: str, reason: str
 ) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(tmp_path / "phased239.orc", _source("2.39", sections))
+        _compile(tmp_path / "phased239.orc", _source("2.40", sections))
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "provider_phased_delivery_policy_invalid"
     assert diagnostic.phased_delivery_diagnostic.reason == reason
@@ -509,7 +509,7 @@ def test_target_239_policy_admission_rejects_forged_attempt_shapes(
 def test_source_free_checker_rejects_phased_class_and_policy_forgery(
     tmp_path: Path, mutation: str, rule: str
 ) -> None:
-    tree = deepcopy(_compile(tmp_path / "phased239.orc", _source("2.39")).tree)
+    tree = deepcopy(_compile(tmp_path / "phased239.orc", _source("2.40")).tree)
     effect = next(
         node for node in _ast_nodes(tree["body"])
         if node.get("k") == "perform" and node.get("class") == "provider_phased"

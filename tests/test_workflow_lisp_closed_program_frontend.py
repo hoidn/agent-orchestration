@@ -39,15 +39,14 @@ BOUNDARIES = {
 
 
 @pytest.mark.parametrize("procedure", [False, True])
-@pytest.mark.parametrize("target", ["2.40"])
-def test_source_free_short_command_keeps_producer_binding(tmp_path, procedure, target):
+def test_source_free_short_command_keeps_producer_binding(tmp_path, procedure):
     from orchestrator.workflow_lisp.expressions import CommandResultExpr
 
     producer = tmp_path / "producer.orc"
     command = '(command-result inspect :returns Int)'
     helper = (f'(defproc probe () -> Int {command})'
               if procedure else '')
-    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
+    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
       (defmodule producer) (export run) {helper}
       (defworkflow run () -> Int {"(probe)" if procedure else command}))''')
     (tmp_path / "original.py").write_text("print(1)\n")
@@ -173,8 +172,8 @@ def test_source_free_typed_imports_keep_each_original_producer_scope(
         assert len(matches) == 1
         return matches[0]
 
-    for target in ("2.35", "2.36"):
-        root = tmp_path / target
+    for route in ("typed", "stage3"):
+        root = tmp_path / route
         root.mkdir()
         native_by_module = {}
         imports = {}
@@ -183,7 +182,7 @@ def test_source_free_typed_imports_keep_each_original_producer_scope(
             producer = install(
                 root,
                 module,
-                f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
+                f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
                   (defmodule {module}) (export run)
                   (defworkflow run ((n Int)) -> Int
                     (provider-result provider :prompt prompt :inputs (n) :returns Int)))''',
@@ -193,7 +192,7 @@ def test_source_free_typed_imports_keep_each_original_producer_scope(
                 "provider_externs": {"provider": f"{module}-provider"},
                 "prompt_externs": {"prompt": {"input_file": f"{module}.txt"}},
             }
-            if target == "2.35":
+            if route == "typed":
                 native = compile_source(producer, **producer_config)
                 imports[module] = native
             else:
@@ -212,7 +211,7 @@ def test_source_free_typed_imports_keep_each_original_producer_scope(
         consumer = install(
             root,
             "consumer",
-            '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+            f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
               (defmodule consumer) (export run)
               (defworkflow run ((n Int)) -> Int
                 (let* ((first (call alpha :n n))
@@ -283,7 +282,7 @@ def test_mixed_schema_typed_imports_keep_each_original_snapshot_after_source_del
     child_path = tmp_path / "cp" / "child.orc"
     child_path.parent.mkdir()
     child_path.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule cp/child) (export run)
           (defworkflow run ((n Int)) -> Int
             (let* ((provider-result (provider-result provider :prompt prompt
@@ -318,7 +317,7 @@ def test_mixed_schema_typed_imports_keep_each_original_snapshot_after_source_del
 
     parent_path = tmp_path / "cp" / "parent.orc"
     parent_path.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule cp/parent) (export run)
           (defworkflow run ((n Int)) -> Int
             (let* ((child-result (call dep :n n))
@@ -359,7 +358,7 @@ def test_mixed_schema_typed_imports_keep_each_original_snapshot_after_source_del
 
     consumer_path = tmp_path / "cp" / "consumer.orc"
     consumer_path.write_text(
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule cp/consumer) (export run)
           (defworkflow run ((n Int)) -> Int (call parent :n n)))''',
         encoding="utf-8",
@@ -810,7 +809,7 @@ def test_old_entry_keeps_compiling_when_imported_snapshots_conflict(
         producer_path.write_text(
             f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule producer)
   (export get)
   (defworkflow get () -> Int {value}))
@@ -830,7 +829,7 @@ def test_old_entry_keeps_compiling_when_imported_snapshots_conflict(
     parent_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule parent)
   (export run)
   (defworkflow run () -> Int (call one)))
@@ -972,18 +971,20 @@ def test_incomplete_transitive_program_snapshot_is_locally_refused(
 
 
 @pytest.mark.parametrize(
-    "consumer_target", [TARGET, "2.36"], ids=["2.35-consumer", "2.36-consumer"]
+    "consumer_target", [TARGET, "2.36"], ids=["current-consumer", "2.36-consumer"]
 )
 @pytest.mark.parametrize("edit_source", [False, True])
 def test_imported_snapshot_must_match_an_overlapping_source_graph(
     tmp_path: Path, edit_source: bool, consumer_target: str,
 ) -> None:
+    # The 2.36 consumer keeps its 2.35 producer: a producer may not be newer than its consumer.
+    producer_target = TARGET if consumer_target == TARGET else "2.35"
     producer_path = tmp_path / "cp" / "shared.orc"
     producer_path.parent.mkdir(parents=True)
     producer_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "{producer_target}")
   (defmodule cp/shared)
   (export get)
   (defworkflow get ((value Int)) -> Int value))
@@ -1037,17 +1038,19 @@ def test_imported_snapshot_must_match_an_overlapping_source_graph(
 
 
 @pytest.mark.parametrize(
-    "consumer_target", [TARGET, "2.36"], ids=["2.35-consumer", "2.36-consumer"]
+    "consumer_target", [TARGET, "2.36"], ids=["current-consumer", "2.36-consumer"]
 )
 def test_imported_snapshot_refuses_a_different_overlapping_definition(
     tmp_path: Path, consumer_target: str,
 ) -> None:
+    # The 2.36 consumer keeps its 2.35 producer: a producer may not be newer than its consumer.
+    producer_target = TARGET if consumer_target == TARGET else "2.35"
     producer_path = tmp_path / "cp" / "shared.orc"
     producer_path.parent.mkdir(parents=True)
     producer_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "{producer_target}")
   (defmodule cp/shared)
   (export get)
   (defworkflow get ((value Int)) -> Int value))
@@ -1428,10 +1431,10 @@ def test_old_source_producer_retains_typed_snapshot_without_flat_bundles(
     entry.parent.mkdir(parents=True)
     source = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cp/producer)
   (export get)
-  (defproc private-inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
+  (defproc private-inc ((n Int)) -> Int (+ n 1))
   (defworkflow get ((n Int)) -> Int (private-inc n)))
     '''
     entry.write_text(source, encoding="utf-8")
@@ -1571,18 +1574,20 @@ def test_typed_program_can_import_an_explicit_source_snapshot(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize(
-    "consumer_target", [TARGET, "2.36"], ids=["2.35-consumer", "2.36-consumer"]
+    "consumer_target", [TARGET, "2.36"], ids=["current-consumer", "2.36-consumer"]
 )
 def test_evaluated_consumer_keeps_the_selected_typed_producer_contract(
     tmp_path: Path, consumer_target: str,
 ) -> None:
     boundaries = {name: replace(binding, closure=()) for name, binding in BOUNDARIES.items()}
+    # The 2.36 consumer keeps its 2.35 producer: a producer may not be newer than its consumer.
+    producer_target = TARGET if consumer_target == TARGET else "2.35"
     producer_path = tmp_path / "cp" / "producer.orc"
     producer_path.parent.mkdir(parents=True)
     producer_path.write_text(
-        '''(workflow-lisp
+        f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "{producer_target}")
   (defmodule cp/producer)
   (export get other)
   (defworkflow get ((n Int)) -> Int n)
@@ -2023,8 +2028,8 @@ def test_standalone_old_source_producer_retains_snapshot_and_passes_trace(
     entry = tmp_path / "producer.orc"
     source = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
-  (defproc private-inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
+  (:target-dsl "2.40")
+  (defproc private-inc ((n Int)) -> Int (+ n 1))
   (defworkflow get ((n Int)) -> Int (private-inc n)))
 '''
     entry.write_text(source, encoding="utf-8")
@@ -2223,7 +2228,7 @@ def test_standalone_old_source_compilation_withholds_conflicting_snapshot(
         producer_path.write_text(
             f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule producer)
   (export get)
   (defworkflow get () -> Int {value}))
@@ -2245,7 +2250,7 @@ def test_standalone_old_source_compilation_withholds_conflicting_snapshot(
     caller_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule caller)
   (export run)
   (defworkflow run () -> Int (call first)))
@@ -2275,11 +2280,11 @@ def test_imported_private_enum_owners_survive_evaluated_retyping(tmp_path: Path)
         pure_check = f"{module}-pure-check"
         (tmp_path / "cp" / f"{module}.orc").write_text(
             f'''(workflow-lisp
-  (:language "0.1") (:target-dsl "2.35")
+  (:language "0.1") (:target-dsl "2.40")
   (defmodule cp/{module}) (export {export_name} {pure_check} legacy)
   (defenum Status {values})
   (defrecord Result (status Status))
-  (defproc {export_name} () -> Result :effects () :lowering inline
+  (defproc {export_name} () -> Result
     (record Result :status Status.{member}))
   (defun {pure_check} () -> Bool (= Status.{member} Status.{member}))
   (defworkflow legacy () -> Result ({export_name})))
@@ -2299,7 +2304,7 @@ def test_imported_private_enum_owners_survive_evaluated_retyping(tmp_path: Path)
         assert f"cp/{module}::legacy" in flat.entry_result.typed_program.workflows
 
     old_source = f'''(workflow-lisp
-  (:language "0.1") (:target-dsl "2.35") (defmodule cp/entry)
+  (:language "0.1") (:target-dsl "2.40") (defmodule cp/entry)
   (import cp/alpha :as alpha :only (get-alpha alpha-pure-check))
   (import cp/beta :as beta :only (get-beta beta-pure-check))
   (export run)
@@ -2356,11 +2361,11 @@ def test_old_imported_enum_snapshot_keeps_its_owner_after_source_deletion(
 ) -> None:
     producer_path = tmp_path / "producer.orc"
     producer_path.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule producer) (export get)
           (defenum Status DONE BLOCKED)
           (defrecord Result (status Status))
-          (defproc make () -> Result :effects () :lowering inline
+          (defproc make () -> Result
             (record Result :status Status.DONE))
           (defworkflow get () -> Bool
             (let* ((result (make))) (= result.status Status.DONE))))''',
@@ -2377,7 +2382,7 @@ def test_old_imported_enum_snapshot_keeps_its_owner_after_source_deletion(
 
     consumer_path = tmp_path / "consumer.orc"
     consumer_path.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule consumer) (export run)
           (defenum Status LOCAL OTHER)
           (defworkflow run () -> Bool (call dep)))''',
@@ -2619,7 +2624,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
             assert Path(diagnostic.span.start.path) == source
 
     invalid_root = tmp_path / "invalid"
-    invalid_source = install_producer(invalid_root, "2.35", ".orchestrate/runs")
+    invalid_source = install_producer(invalid_root, "2.40", ".orchestrate/runs")
     old = compile_stage3_entrypoint(
         invalid_source,
         entry_workflow="producer::entry",
@@ -2646,7 +2651,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
         workflow_type_envs={name: environments[id(env)] for name, env in snapshot.workflow_type_envs.items()},
         procedure_type_envs={name: environments[id(env)] for name, env in snapshot.procedure_type_envs.items()})
 
-    invalid_source.write_text(producer_source("2.35", "state"), encoding="utf-8")
+    invalid_source.write_text(producer_source("2.40", "state"), encoding="utf-8")
     assert_code(
         lambda: compile_typed_program(
             invalid_source,
@@ -2657,10 +2662,10 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
         invalid_source,
     )
 
-    invalid_source.write_text(producer_source("2.35", "state"), encoding="utf-8")
+    invalid_source.write_text(producer_source("2.40", "state"), encoding="utf-8")
     source_consumer = invalid_root / "source-consumer.orc"
     source_consumer.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
  (defmodule source-consumer) (import producer :only (Projection entry)) (export run)
  (defworkflow run () -> Projection (call entry)))''',
         encoding="utf-8",
@@ -2674,7 +2679,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
 
     snapshot_consumer = invalid_root / "snapshot-consumer.orc"
     snapshot_consumer.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
  (defmodule snapshot-consumer) (export run)
  (defpath ResultBundle :kind relpath :under "state" :must-exist false)
  (defrecord Projection (text String))
@@ -2694,7 +2699,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
 
     uncalled_consumer = invalid_root / "uncalled-consumer.orc"
     uncalled_consumer.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
  (defmodule uncalled-consumer) (export run)
  (defpath ResultBundle :kind relpath :under "state" :must-exist false)
  (defrecord Projection (text String))
@@ -2722,7 +2727,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
     assert_code(lambda: consume(snapshot), "provider_bundle_path_target_invalid", invalid_source)
 
     valid_root = tmp_path / "valid"
-    valid_source = install_producer(valid_root, "2.35", ".orchestrate/runs")
+    valid_source = install_producer(valid_root, "2.40", ".orchestrate/runs")
     valid_old = compile_stage3_entrypoint(
         valid_source,
         entry_workflow="producer::entry",
@@ -2731,7 +2736,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
     )
     valid_snapshot = replace(valid_old.entry_result.typed_program,
         entry=valid_old.entry_result.typed_program.workflows["producer::entry"])
-    valid_source.write_text(producer_source("2.35", ".orchestrate/runs"), encoding="utf-8")
+    valid_source.write_text(producer_source("2.40", ".orchestrate/runs"), encoding="utf-8")
     direct = checked(
         compile_typed_program(
             valid_source,
@@ -2741,10 +2746,10 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
     )
     assert len(direct.sites) == 1
 
-    valid_source.write_text(producer_source("2.35", ".orchestrate/runs"), encoding="utf-8")
+    valid_source.write_text(producer_source("2.40", ".orchestrate/runs"), encoding="utf-8")
     source_consumer = valid_root / "source-consumer.orc"
     source_consumer.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
  (defmodule source-consumer) (import producer :only (Projection entry)) (export run)
  (defworkflow run () -> Projection (call entry)))''',
         encoding="utf-8",
@@ -2846,9 +2851,9 @@ def test_old_typed_producer_import_never_emits_flat_workflows(
 
     producer = tmp_path / "producer.orc"
     header = "" if standalone else "(defmodule producer) (export get)"
-    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       {header}
-      (defproc inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
+      (defproc inc ((n Int)) -> Int (+ n 1))
       (defworkflow get ((n Int :default 3)) -> Int (inc n)))''')
     manifest = tmp_path / "imports.json"
     manifest.write_text(json.dumps({"dep": {"kind": "compiled", "path": "producer.orc", "entry_workflow": "get"}}))
@@ -2856,13 +2861,13 @@ def test_old_typed_producer_import_never_emits_flat_workflows(
         manifest, workspace_root=tmp_path, source_roots=(tmp_path,),
     )
     imported = bindings[0].typed_program
-    assert imported.target == "2.35"
+    assert imported.target == "2.40"
     assert imported.entry_module == ("entry" if standalone else "producer")
     assert imported.entry.definition.name == ("entry::get" if standalone else "producer::get")
     assert imported.producer_lowering_schema == 2
     assert imported.source_file_digests["entry" if standalone else "producer"] == hashlib.sha256(producer.read_bytes()).hexdigest()
     consumer = tmp_path / "consumer.orc"
-    consumer.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    consumer.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule consumer) (export run)
       (defworkflow run () -> Int (call dep)))''')
     analysis = build.build_frontend_bundle_in_memory(build.FrontendBuildRequest(
@@ -2871,7 +2876,7 @@ def test_old_typed_producer_import_never_emits_flat_workflows(
 
     ))
     assert analysis.entry_selection.canonical_name == "consumer::run"
-    assert analysis.compile_result.entry_result.typed_program.imported_programs["dep"].target == "2.35"
+    assert analysis.compile_result.entry_result.typed_program.imported_programs["dep"].target == "2.40"
     assert {producer, consumer} <= {path for path, _ in analysis.source_read_trace.revision_vector}
     assert manifest in dict(analysis.configuration_trace.revision_vector)
     from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle

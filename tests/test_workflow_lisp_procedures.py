@@ -161,7 +161,7 @@ def _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(
         "proc_ref_specialization_cycle",
         "proc_ref_specialization_cycle",
     ]
-    assert [diagnostic.span.start.line for diagnostic in diagnostics] == [24, 18]
+    assert [diagnostic.span.start.line for diagnostic in diagnostics] == [20, 16]
     assert [diagnostic.form_path for diagnostic in diagnostics] == [
         ("workflow-lisp", "defproc", "loop-helper"),
         ("workflow-lisp", "defproc", "use-runner"),
@@ -1680,8 +1680,10 @@ def test_selected_hook_recomputes_transitive_effects(tmp_path: Path) -> None:
     assert provisional_provider.transitive_effect_summary == EMPTY_EFFECT_SUMMARY
 
 
-def _selected_hook_lowering_module_lines(*, wrapper_lowering: str) -> list[str]:
-    return [
+def _selected_hook_lowering_module_lines(*, wrapper_lowering: str | None) -> list[str]:
+    """The selected-hook module at 2.35 with `wrapper_lowering`; with None, at the current target
+    (no `:effects` or `:lowering` clause, so the wrapper is inline)."""
+    lines = [
         "(workflow-lisp",
         '  (:language "0.1")',
         '  (:target-dsl "2.35")',
@@ -1722,12 +1724,16 @@ def _selected_hook_lowering_module_lines(*, wrapper_lowering: str) -> list[str]:
         "    -> WorkflowOutput",
         "    (invoke-selected (proc-ref run-command) input)))",
     ]
+    if wrapper_lowering is not None:
+        return lines
+    return [line.replace('(:target-dsl "2.35")', '(:target-dsl "2.40")') for line in lines
+            if not line.lstrip().startswith((":effects", ":lowering"))]
 
 
 def test_inline_lowering_carries_resolved_transitive_effects(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "inline_resolved_transitive_effects.orc",
-        _selected_hook_lowering_module_lines(wrapper_lowering="inline"),
+        _selected_hook_lowering_module_lines(wrapper_lowering=None),
     )
     result = _compile_validated(path, tmp_path=tmp_path)
     specialized = next(
@@ -3199,20 +3205,18 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
                 "    :where ((CompletedT is-record)",
                 "            (InputsT is-record))",
                 "    -> ReviewLoopResult",
-                "    (loop/recur",
-                "      :max max_iterations",
-            "      :state (loop-state",
+                "    (loop/recur ((state (loop-state",
             "               (completed CompletedT completed)",
             "               (inputs InputsT inputs)",
             "               (last_review_report ReviewReportPath initial_review_report)",
-            "               (latest_findings ReviewFindings initial_findings))",
+            "               (latest_findings ReviewFindings initial_findings))))",
+                "      :max max_iterations",
             "      :on-exhausted (variant ReviewLoopResult EXHAUSTED",
             '                      :reason "max_iterations_reached"',
             "                      :last_review_report state.last_review_report",
             "                      :findings (record ReviewFindings",
             "                                  :schema_version state.latest_findings.schema_version",
             "                                  :items_path state.latest_findings.items_path))",
-            "      (fn (state)",
                 "        (let* ((review-decision",
                 "                 (review state.completed state.inputs)))",
                 "          (match review-decision",
@@ -3239,7 +3243,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
                 "                 :findings (record ReviewFindings",
                 "                             :schema_version blocked.findings.schema_version",
                 "                             :items_path blocked.findings.items_path))))",
-                    "            ))))))",
+                    "            )))))",
             ],
         )
     entry_path = _write_module(
@@ -3731,20 +3735,18 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
             "    :where ((CompletedT is-record)",
             "            (InputsT is-record))",
             "    -> ReviewLoopResult",
-            "    (loop/recur",
-            "      :max max_iterations",
-            "      :state (loop-state",
+            "    (loop/recur ((state (loop-state",
             "               (completed CompletedT completed)",
             "               (inputs InputsT inputs)",
             "               (last_review_report ReviewReportPath initial_review_report)",
-            "               (latest_findings CustomFindings initial_findings))",
+            "               (latest_findings CustomFindings initial_findings))))",
+            "      :max max_iterations",
             "      :on-exhausted (variant ReviewLoopResult EXHAUSTED",
             '                      :reason "max_iterations_reached"',
             "                      :last_review_report state.last_review_report",
             "                      :findings (record CustomFindings",
             "                                  :schema_version state.latest_findings.schema_version",
             "                                  :items_path state.latest_findings.items_path))",
-            "      (fn (state)",
             "        (let* ((review-decision",
             "                 (review state.completed state.inputs)))",
             "          (match review-decision",
@@ -3763,7 +3765,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
             "                   :completed fixed-completed",
             "                   :last_review_report revised.review_report",
             "                   :latest_findings revised.findings))))",
-            "            ))))))",
+            "            )))))",
         ],
     )
     entry_path = _write_module(
