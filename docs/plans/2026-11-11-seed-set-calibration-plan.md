@@ -62,7 +62,8 @@ ruling).** Where the text below differs, these hold:
   extra usage" until `resume-after-limit`; a call that ended normally stays an
   observation (its slot does not run again, a judge's pool is not rebuilt),
   one that did not is cut, and
-  either is priced at its metered tokens (final scoped check M1).
+  either is priced at its metered tokens (final scoped check M1). `not-a-limit`
+  refuses a pause by the recorded answer or by paid extra usage.
   When the raw result shows no limit, `study.py not-a-limit UNIT --reason R` records
   that decision while the pause is open: the unit becomes what the rules make
   it (an incident or its outcome), the pause stops closing starts, and nothing
