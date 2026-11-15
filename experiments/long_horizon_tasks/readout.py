@@ -435,6 +435,71 @@ def _listed(starts, efforts):
             "pilot": [_entry(s) for s in starts if s["pilot"]]}
 
 
+def _mean(values):
+    return sum(values) / len(values) if values else None
+
+
+def _level_cost(starts, effort, classes):
+    """D6's cost of one effort level: means per observation; every start's cost over the level's successes."""
+    observations = [s for s in starts if s["effort"] == effort and s["counted"]]
+    started = [s for s in starts if s["effort"] == effort and classes[s["class"]]["starts"]]
+    successes, usd = sum(s["success"] for s in observations), sum(s["usd"] for s in started)
+    return {"observations": len(observations), "mean_usd": _mean([s["usd"] for s in observations]),
+            "mean_minutes": _mean([s["minutes"] for s in observations]),
+            "mean_tokens": {kind: _mean([s["tokens"][kind] for s in observations]) for kind in TOKEN_KINDS},
+            "starts": len(started), "usd_all_starts": usd, "successes": successes,
+            "usd_per_success": usd / successes if successes else None}
+
+
+def _beats(other, effort, per_effort, triples, rule):
+    """Whether other beats effort on the sign-flip test at p <= 0.05 and has a lower mean cost (D6)."""
+    # Open ruling (report, "For the coordinator"): ladder.json states the dominance threshold in prose only
+    # (readout.cost.dominated, "p <= 0.05"); the readout takes effort_test.rises.p_at_most, the same 0.05.
+    difference = _difference(triples, other, effort)
+    mine, theirs = per_effort[effort]["mean_usd"], per_effort[other]["mean_usd"]
+    cheaper = None not in (mine, theirs) and theirs < mine
+    return difference["sum"] > 0 and difference["p_above"] <= _p(rule["rises"]) and cheaper
+
+
+def _dominated(effort, per_effort, triples, rule):
+    """D6: an effort level is named dominated only by a level that beats it; otherwise "not resolved"."""
+    for other in per_effort:
+        if other != effort and _beats(other, effort, per_effort, triples, rule):
+            return {"verdict": "dominated", "by": other}
+    return {"verdict": "not resolved", "by": None}
+
+
+def _cost(starts, efforts, triples, ladder):
+    classes = ladder["classification"]["classes"]
+    per_effort = {e: _level_cost(starts, e, classes) for e in efforts}
+    return {"per_effort": per_effort, "dominated": {
+        e: _dominated(e, per_effort, triples, ladder["readout"]["effort_test"]) for e in efforts}}
+
+
+def _graded(starts, tasks, efforts, verifiers):
+    """D6's graded outcome, per task and effort: sub-tests passed and total, where the task's verifier reports them."""
+    graded = {}
+    for task in tasks:
+        if task not in (verifiers or {}):
+            graded[task] = "pass or fail only"
+            continue
+        graded[task] = {}
+        for effort in efforts:
+            reported = [s["graded"] for s in starts if (s["task"], s["effort"]) == (task, effort) and s["counted"]
+                        and s["graded"] is not None]
+            graded[task][effort] = {"passed": sum(g["passed"] for g in reported),
+                                    "total": sum(g["total"] for g in reported), "observations": len(reported)}
+    return graded
+
+
+def _allowance(allowance, starts):
+    """D6: the share of a weekly allowance the tranche used, in all and per priced dollar (every start, every label)."""
+    if allowance is None:
+        return None
+    usd = sum(s["usd"] for s in starts)
+    return allowance | {"usd": usd, "points_per_usd": allowance["weekly_points"] / usd if usd else None}
+
+
 def _configuration(ladder):
     """The configuration the readout names (D2, D6): model, efforts, CLI, tools, harness, network."""
     attempt, harness = ladder["attempt"], ladder["harness"]
@@ -460,7 +525,10 @@ def compute(ladder, export, standins=None):
     return {"rehearsal": rehearsal, "configuration": _configuration(criterion), "label": export["label"],
             "end": export["end"], "tasks": _placement(_counts(current, tasks, efforts, level), rules),
             "effort": effort_test(triples, efforts, rules) | {"per_task": triples}, "listed": _listed(current, efforts),
-            "earlier": earlier, "rules": {"fall_bound": rules["fall_bound"], "interval": rules["interval"]}}
+            "earlier": earlier, "rules": {"fall_bound": rules["fall_bound"], "interval": rules["interval"]},
+            "cost": _cost(current, efforts, triples, criterion),
+            "graded": _graded(current, tasks, efforts, rules["graded_outcome"]["verifiers"]),
+            "allowance": _allowance(export["allowance"], starts)}
 
 
 # ---- render: the readout as text, formatting compute's figures only ------------------------------------------------
@@ -555,7 +623,48 @@ def _earlier_section(result):
     return lines + (["- none", ""] if not result["earlier"] else [])
 
 
+def _money(value, unit="USD "):
+    return "none" if value is None else f"{unit}{value:.2f}"
+
+
+def _cost_section(result):
+    lines = ["## Cost per effort (current label)", "",
+             "| Effort | Observations | Mean priced cost | Mean minutes | Mean tokens by kind | Starts | Cost of "
+             "every start | Successes | Cost per success | Dominated |", "|" + " --- |" * 10]
+    for effort, c in result["cost"]["per_effort"].items():
+        tokens = ", ".join(f"{k} {'none' if v is None else round(v)}" for k, v in c["mean_tokens"].items())
+        dominated = result["cost"]["dominated"][effort]
+        verdict = dominated["verdict"] + (f" by {dominated['by']}" if dominated["by"] else "")
+        lines.append(f"| {effort} | {c['observations']} | {_money(c['mean_usd'])} | "
+                     f"{_money(c['mean_minutes'], '')} | {tokens} | {c['starts']} | {_money(c['usd_all_starts'])} | "
+                     f"{c['successes']} | {_money(c['usd_per_success'])} | {verdict} |")
+    return lines + [""]
+
+
+def _graded_section(result):
+    lines = ["## Graded outcome (secondary; printed beside k of n, it enters no rule)", ""]
+    for task, graded in result["graded"].items():
+        if isinstance(graded, str):
+            lines.append(f"- {task}: {graded}")
+            continue
+        lines.append(f"- {task}: " + "; ".join(f"{e} {g['passed']} of {g['total']} sub-tests over "
+                                               f"{g['observations']} observations" for e, g in graded.items()))
+    return lines + [""]
+
+
+def _allowance_section(result):
+    allowance = result["allowance"]
+    lines = ["## Allowance (a report tied to this account's plan; it enters no rule)", ""]
+    if allowance is None:
+        return lines + ["No meter readings in the export.", ""]
+    per = "none" if allowance["points_per_usd"] is None else f"{allowance['points_per_usd']:.3f}"
+    return lines + [f"{allowance['weekly_points']} points of a weekly allowance in all, over "
+                    f"{_money(allowance['usd'])} of priced usage: {per} points per priced dollar "
+                    f"(readings: {allowance['readings']}).", ""]
+
+
 def render(result):
     """The readout as Markdown, from compute's result alone."""
-    return "\n".join(_header(result) + _tasks_table(result) + _effort_section(result) + _listed_section(
-        result["listed"]) + _earlier_section(result))
+    return "\n".join(_header(result) + _tasks_table(result) + _effort_section(result) + _cost_section(result)
+                     + _graded_section(result) + _listed_section(result["listed"]) + _earlier_section(result)
+                     + _allowance_section(result))

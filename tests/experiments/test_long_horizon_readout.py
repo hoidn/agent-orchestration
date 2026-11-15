@@ -494,3 +494,66 @@ def test_a_short_cell_is_printed_with_its_count_and_labelled_incomplete():
     row = next(line for line in _section(readout.render(_compute(_export(LABELLED, earlier=(OLD,)))), "Tasks")
                .splitlines() if line.startswith(f"| {TASKS[0]} "))
     assert row.count("0 of 3") == 3 and row.count("incomplete") == 3
+
+
+# ---- 8. Cost per effort; the graded outcome and the allowance are printed and enter no rule ------------------------
+
+def _graded(reward, passed, total=10):
+    return {"reward": reward, "graded": {"passed": passed, "total": total}}
+
+
+GRADED = {TASKS[0]: {"low": [_graded(1, 10), _graded(0, 4)], "medium": [_graded(0, 7), _graded(0, 2)],
+                     "high": [_graded(0, 0), 1]},
+          TASKS[1]: _same([0, 1])}
+ALLOWANCE = {"weekly_points": 12.5, "readings": "ledger rows of 2026-11-20 and 2026-11-27"}
+
+
+def test_the_graded_outcome_is_summed_per_task_and_effort_where_the_verifier_reports_it():
+    graded = _compute(_export(GRADED))["graded"]
+    assert (graded[TASKS[0]]["low"], graded[TASKS[0]]["high"], graded[TASKS[1]]) == (
+        {"passed": 14, "total": 20, "observations": 2}, {"passed": 0, "total": 10, "observations": 1},
+        "pass or fail only")
+
+
+def test_the_graded_outcome_is_printed_beside_the_counts():
+    section = _section(readout.render(_compute(_export(GRADED))), "Graded outcome")
+    assert ("14 of 20 sub-tests" in section, "pass or fail only" in section) == (True, True)
+
+
+def _without(result, *keys):
+    return {key: value for key, value in result.items() if key not in keys}
+
+
+def test_the_graded_outcome_enters_no_rule():
+    regraded = {task: {e: [o | {"graded": {"passed": 0, "total": 99}} if isinstance(o, dict) else o for o in outcomes]
+                       for e, outcomes in by.items()} for task, by in GRADED.items()}
+    assert _without(_compute(_export(GRADED)), "graded") == _without(_compute(_export(regraded)), "graded")
+
+
+def test_the_allowance_is_printed_in_all_and_per_priced_dollar():
+    result = _compute(_export(GRADED, allowance=ALLOWANCE))
+    section = _section(readout.render(result), "Allowance")
+    assert (result["allowance"]["usd"], result["allowance"]["points_per_usd"], "12.5" in section,
+            "ledger rows of 2026-11-20" in section) == (12.0, 12.5 / 12.0, True, True)
+
+
+def test_the_allowance_enters_no_rule():
+    assert _without(_compute(_export(GRADED, allowance=ALLOWANCE)), "allowance") == _without(
+        _compute(_export(GRADED)), "allowance")
+
+
+def test_cost_per_success_takes_every_start_at_its_level_cut_starts_included():
+    cost = _compute(_export({TASKS[0]: {"low": [[CUT | {"usd": 2.0}, 1], 0], "medium": [0, 0],
+                                        "high": [[{"row": 1, "usd": 0.0}, 1], {"row": 15}]}}))["cost"]["per_effort"]
+    assert ((cost["low"]["usd_all_starts"], cost["low"]["successes"], cost["low"]["usd_per_success"]),
+            (cost["medium"]["usd_per_success"]), (cost["high"]["starts"], cost["high"]["mean_usd"])) == (
+        (4.0, 1, 4.0), None, (2, 1.0))
+
+
+def test_a_level_is_dominated_only_by_one_that_beats_it_on_the_test_and_costs_less():
+    beaten = _same([0, 0]) | {"high": [{"reward": 1, "usd": 0.5}, {"reward": 1, "usd": 0.5}]}
+    cheap = _compute(_export({task: beaten for task in TASKS[:5]}))["cost"]["dominated"]
+    dear = {task: beaten | {"high": [{"reward": 1, "usd": 3.0}, {"reward": 1, "usd": 3.0}]} for task in TASKS[:5]}
+    assert (cheap["low"], cheap["high"], _compute(_export(dear))["cost"]["dominated"]["low"]) == (
+        {"verdict": "dominated", "by": "high"}, {"verdict": "not resolved", "by": None},
+        {"verdict": "not resolved", "by": None})
