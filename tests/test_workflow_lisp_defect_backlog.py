@@ -60,8 +60,8 @@ Rows D5-binder-hidden, D5-binder-hidden-match, D5-if-whole and D5-if-whole-retur
 TD2, D5-if-match and D20-map-argument, found by its re-review, D4-subject-match and D4-subject-loop, found by the
 differential corpus of TD1, and D4-subject-argument and D20-let-proc-subject, found by its second re-review, are
 not in it either. Row D14 has the program of finding T8.1 of the corpus rule ledger (a list in a `match` subject),
-which the Defect Table does not have; row E7-local (a `let-proc` local written in a serial map body) was found by
-Task 0b of the staged-authoring plan.
+which the Defect Table does not have; rows E7-local (a `let-proc` local written in a serial map body) and D26 (a
+`match` arm whose value is its binder) were found by Task 0b of the staged-authoring plan.
 """
 
 from __future__ import annotations
@@ -139,6 +139,7 @@ KNOWN: dict[str, tuple] = {
     "D22": crash("AttributeError", "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"),
     "D24": crash("ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": crash("KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D26": crash("CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
@@ -226,6 +227,7 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "D23-macro": ("crash", "ValueError", "workflow_lisp/wcc/elaborate.py:_procedure_edges_by_site"),
     "D24": ("crash", "ValueError", "workflow_lisp/closed/names.py:Renamer.ref"),
     "D25": ("crash", "KeyError", "workflow_lisp/compiler.py:_compile_stage3_graph"),
+    "D26": ("crash", "CheckedFormError", "contracts/closed_program/check.py:_Checker._require_type"),
     "E1-and": ("refused", "variant_ref_unproved"),
     "E1-or": ("refused", "variant_ref_unproved"),
     "E2": ("refused", "variant_ref_unproved"),
@@ -348,6 +350,7 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "D23-macro": ("value", 705),
     "D24": None,
     "D25": None,
+    "D26": ("value", 5),
     "E1-and": None,
     "E1-or": None,
     "E2": None,
@@ -733,6 +736,11 @@ ROWS: dict[str, Row] = {
     "D25": row(None, "((n Int)) -> Int (both n 1)", "(defproc both ((x Int) (k Int)) -> Int (let* ((kk (+ k 0))) "
                + LOOP_LOCAL_ADDING.replace("ADDEND", "kk") + "))", inputs=("n=3",)),
     "D23": row(value(34), "((n Int)) -> Int (both n)", D23_BOTH, inputs=("n=3",)),
+    # Found by Task 0b of the staged-authoring plan: a `match` arm whose value is its own binder, the variant it
+    # narrowed to, used as a value of the union; the closed check refuses its type. `(variant V NO :k o.k)` builds.
+    "D26": row(value(5), "((v V)) -> Int (let* ((w (match v ((HAS h) (variant V NO :k 2)) ((NO o) o)))) "
+               "(match w ((HAS h) 0) ((NO o) o.k)))", "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+               inputs=('v={"variant":"NO","k":5}',)),
     "D23-macro": row(value(705), "((n Int)) -> Int (both n)", D23_MACRO,
                      "(defproc both ((n Int)) -> Int (+ (with-loop n 5) (* 100 (with-loop n 7))))", inputs=("n=3",)),
 

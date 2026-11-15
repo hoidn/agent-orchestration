@@ -1,0 +1,2425 @@
+{
+ "d1-arm-cond-if": [
+  "builds",
+  "sha256:a966dc929b31ccfb1ff913031ada2a854407b9dddaf2ea440073b4cec1a955fb"
+ ],
+ "d1-arm-cond-if~bound": [
+  "builds",
+  "sha256:6ed0b48e979d8c7cd966c856712051f63a5027e14b16aeae6863f162f0d474a9"
+ ],
+ "d1-arm-cond-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-arm-cond-let-free": [
+  "builds",
+  "sha256:0fa58b7075d0cccf05b04d6c690461c35b5720e97d33535db8483cf15288015a"
+ ],
+ "d1-arm-cond-let-free~bound": [
+  "builds",
+  "sha256:aa5e1e8df10dfdc5becb3e4a42c0c9cc605135d5c8205fa7344916fb396b2f4b"
+ ],
+ "d1-arm-cond-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-arm-cond-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-arm-cond-match-let~bound": [
+  "builds",
+  "sha256:c028472d7c50147d7061fa9829ff8691e17c8a4dbfd0cb8c07b50155f3bf2fe0"
+ ],
+ "d1-arm-cond-match~bound": [
+  "builds",
+  "sha256:437819eeb3b98047817cd98932d45a5849152d71e27cf3e3c02cc120fc5f5e60"
+ ],
+ "d1-arm-if-if": [
+  "builds",
+  "sha256:a966dc929b31ccfb1ff913031ada2a854407b9dddaf2ea440073b4cec1a955fb"
+ ],
+ "d1-arm-if-if~bound": [
+  "builds",
+  "sha256:6ed0b48e979d8c7cd966c856712051f63a5027e14b16aeae6863f162f0d474a9"
+ ],
+ "d1-arm-if-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-arm-if-let-free": [
+  "builds",
+  "sha256:0fa58b7075d0cccf05b04d6c690461c35b5720e97d33535db8483cf15288015a"
+ ],
+ "d1-arm-if-let-free~bound": [
+  "builds",
+  "sha256:aa5e1e8df10dfdc5becb3e4a42c0c9cc605135d5c8205fa7344916fb396b2f4b"
+ ],
+ "d1-arm-if-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-arm-if-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-arm-if-match-let~bound": [
+  "builds",
+  "sha256:c028472d7c50147d7061fa9829ff8691e17c8a4dbfd0cb8c07b50155f3bf2fe0"
+ ],
+ "d1-arm-if-match~bound": [
+  "builds",
+  "sha256:437819eeb3b98047817cd98932d45a5849152d71e27cf3e3c02cc120fc5f5e60"
+ ],
+ "d1-loop-and-if": [
+  "builds",
+  "sha256:96b4ce665edc45f091de1c89359b7a2147288d59ec798c89629ddda49ccbb8f1"
+ ],
+ "d1-loop-and-if~bound": [
+  "builds",
+  "sha256:a9496f2f90b7a12fd8d96ed69fd157834084e16ebfae60a864311f57d9039ad1"
+ ],
+ "d1-loop-and-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-and-let-free": [
+  "builds",
+  "sha256:b2fdf0f24ab3543336679a6ebc327fb4089b094a47a7f93df0fdf79304f31a65"
+ ],
+ "d1-loop-and-let-free~bound": [
+  "builds",
+  "sha256:e620836c10acc315f18c992b80d50b5e66f3d40c88d055cd5b645ec70131e655"
+ ],
+ "d1-loop-and-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-and-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-and-match-let~bound": [
+  "builds",
+  "sha256:bad537751b07f039a773dbfe75d39f56127b69bf8d508f762505fe39fae7ebdf"
+ ],
+ "d1-loop-and-match~bound": [
+  "builds",
+  "sha256:fa031c61e7fd3bbde4938c8521ed9627bcf3d755bb8c387ba8b8cfe761380ad1"
+ ],
+ "d1-loop-cond-if": [
+  "builds",
+  "sha256:a45d405602b47316593f5f79b2c14cfd9adc182b31702072c626ac668954752f"
+ ],
+ "d1-loop-cond-if~bound": [
+  "builds",
+  "sha256:605afbe413f52bfefce02c09f240d45681446f75e685ce8c0d368df03f0f9daf"
+ ],
+ "d1-loop-cond-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-cond-let-free": [
+  "builds",
+  "sha256:a89b2077e36258e91238765b8bd575c4cca97e833ca238e1c12455342efd459e"
+ ],
+ "d1-loop-cond-let-free~bound": [
+  "builds",
+  "sha256:a40c152ea8540b6853b46aec5d88079e230365d731b541182e2a27ef81703493"
+ ],
+ "d1-loop-cond-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-cond-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-cond-match-let~bound": [
+  "builds",
+  "sha256:982656e4ca84cedf606327bfa523b3c3717e1e1afa693a2a05cdf388a0851894"
+ ],
+ "d1-loop-cond-match~bound": [
+  "builds",
+  "sha256:b37de7541661c05c0accca0c8faaf51e1b4b8dc6c1ce5ffced059cd7dd5e150f"
+ ],
+ "d1-loop-effect-and-if": [
+  "builds",
+  "sha256:f6f2631b52ebba61f977b8d506e3977456fc4a2f47d11bfa42b842842814ba58"
+ ],
+ "d1-loop-effect-and-if~bound": [
+  "builds",
+  "sha256:846d1bb59526101925b32ca215af6ffbb97cc9a4480d6975c67588a7c42ee004"
+ ],
+ "d1-loop-effect-and-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-effect-and-let-free": [
+  "builds",
+  "sha256:2960883c84235edd27bf51448d5a572f6a93c2c7b72e8dd5fb24ff377b0e029b"
+ ],
+ "d1-loop-effect-and-let-free~bound": [
+  "builds",
+  "sha256:51a496d4537f777072aca062055ab698a1b6155b02d4cd9df9bb199171229ab8"
+ ],
+ "d1-loop-effect-and-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-effect-and-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-effect-and-match-let~bound": [
+  "builds",
+  "sha256:f16a95a00f6f5212d3fa04d0fbee528d2e0782e6928c7eac458b699c2e58d826"
+ ],
+ "d1-loop-effect-and-match~bound": [
+  "builds",
+  "sha256:c93fd437f1714613494988c361d3eaabc2255c33eacc04b264f079906689f8b7"
+ ],
+ "d1-loop-effect-cond-if": [
+  "builds",
+  "sha256:f41c278a7788ca457cfd383639371646aabd21cf317ab7b8402e465d3b5cc50d"
+ ],
+ "d1-loop-effect-cond-if~bound": [
+  "builds",
+  "sha256:e196417a611e9103ae9d509dae331568591b975cc7955ce5cb28b2911abc762b"
+ ],
+ "d1-loop-effect-cond-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-effect-cond-let-free": [
+  "builds",
+  "sha256:af9781bccf5a260538c0b2e12fc56f3e7c6447ceec352740e5e42fa35852d021"
+ ],
+ "d1-loop-effect-cond-let-free~bound": [
+  "builds",
+  "sha256:b7408b350bba7b20d1457061a958a03e6b91f6d7a230f703c469734f879e834a"
+ ],
+ "d1-loop-effect-cond-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-effect-cond-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-effect-cond-match-let~bound": [
+  "builds",
+  "sha256:c0a258b8b962e4f53de84747907afba7a1c7363c7841331fbb39c75c10cd6d5f"
+ ],
+ "d1-loop-effect-cond-match~bound": [
+  "builds",
+  "sha256:a87dc5eefd4632b9b922fd768b7b4679c97348e316944c73708501111753f1fe"
+ ],
+ "d1-loop-effect-if-if": [
+  "builds",
+  "sha256:f41c278a7788ca457cfd383639371646aabd21cf317ab7b8402e465d3b5cc50d"
+ ],
+ "d1-loop-effect-if-if~bound": [
+  "builds",
+  "sha256:e196417a611e9103ae9d509dae331568591b975cc7955ce5cb28b2911abc762b"
+ ],
+ "d1-loop-effect-if-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-effect-if-let-free": [
+  "builds",
+  "sha256:af9781bccf5a260538c0b2e12fc56f3e7c6447ceec352740e5e42fa35852d021"
+ ],
+ "d1-loop-effect-if-let-free~bound": [
+  "builds",
+  "sha256:b7408b350bba7b20d1457061a958a03e6b91f6d7a230f703c469734f879e834a"
+ ],
+ "d1-loop-effect-if-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-effect-if-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-effect-if-match-let~bound": [
+  "builds",
+  "sha256:c0a258b8b962e4f53de84747907afba7a1c7363c7841331fbb39c75c10cd6d5f"
+ ],
+ "d1-loop-effect-if-match~bound": [
+  "builds",
+  "sha256:a87dc5eefd4632b9b922fd768b7b4679c97348e316944c73708501111753f1fe"
+ ],
+ "d1-loop-fn-and-if": [
+  "builds",
+  "sha256:96b4ce665edc45f091de1c89359b7a2147288d59ec798c89629ddda49ccbb8f1"
+ ],
+ "d1-loop-fn-and-if~bound": [
+  "builds",
+  "sha256:a9496f2f90b7a12fd8d96ed69fd157834084e16ebfae60a864311f57d9039ad1"
+ ],
+ "d1-loop-fn-and-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-fn-and-let-free": [
+  "builds",
+  "sha256:b2fdf0f24ab3543336679a6ebc327fb4089b094a47a7f93df0fdf79304f31a65"
+ ],
+ "d1-loop-fn-and-let-free~bound": [
+  "builds",
+  "sha256:e620836c10acc315f18c992b80d50b5e66f3d40c88d055cd5b645ec70131e655"
+ ],
+ "d1-loop-fn-and-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-fn-and-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-fn-and-match-let~bound": [
+  "builds",
+  "sha256:bad537751b07f039a773dbfe75d39f56127b69bf8d508f762505fe39fae7ebdf"
+ ],
+ "d1-loop-fn-and-match~bound": [
+  "builds",
+  "sha256:fa031c61e7fd3bbde4938c8521ed9627bcf3d755bb8c387ba8b8cfe761380ad1"
+ ],
+ "d1-loop-fn-if-if": [
+  "builds",
+  "sha256:a45d405602b47316593f5f79b2c14cfd9adc182b31702072c626ac668954752f"
+ ],
+ "d1-loop-fn-if-if~bound": [
+  "builds",
+  "sha256:605afbe413f52bfefce02c09f240d45681446f75e685ce8c0d368df03f0f9daf"
+ ],
+ "d1-loop-fn-if-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-fn-if-let-free": [
+  "builds",
+  "sha256:a89b2077e36258e91238765b8bd575c4cca97e833ca238e1c12455342efd459e"
+ ],
+ "d1-loop-fn-if-let-free~bound": [
+  "builds",
+  "sha256:a40c152ea8540b6853b46aec5d88079e230365d731b541182e2a27ef81703493"
+ ],
+ "d1-loop-fn-if-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-fn-if-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-fn-if-match-let~bound": [
+  "builds",
+  "sha256:982656e4ca84cedf606327bfa523b3c3717e1e1afa693a2a05cdf388a0851894"
+ ],
+ "d1-loop-fn-if-match~bound": [
+  "builds",
+  "sha256:b37de7541661c05c0accca0c8faaf51e1b4b8dc6c1ce5ffced059cd7dd5e150f"
+ ],
+ "d1-loop-if-if": [
+  "builds",
+  "sha256:a45d405602b47316593f5f79b2c14cfd9adc182b31702072c626ac668954752f"
+ ],
+ "d1-loop-if-if~bound": [
+  "builds",
+  "sha256:605afbe413f52bfefce02c09f240d45681446f75e685ce8c0d368df03f0f9daf"
+ ],
+ "d1-loop-if-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-if-let-free": [
+  "builds",
+  "sha256:a89b2077e36258e91238765b8bd575c4cca97e833ca238e1c12455342efd459e"
+ ],
+ "d1-loop-if-let-free~bound": [
+  "builds",
+  "sha256:a40c152ea8540b6853b46aec5d88079e230365d731b541182e2a27ef81703493"
+ ],
+ "d1-loop-if-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-if-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-if-match-let~bound": [
+  "builds",
+  "sha256:982656e4ca84cedf606327bfa523b3c3717e1e1afa693a2a05cdf388a0851894"
+ ],
+ "d1-loop-if-match~bound": [
+  "builds",
+  "sha256:b37de7541661c05c0accca0c8faaf51e1b4b8dc6c1ce5ffced059cd7dd5e150f"
+ ],
+ "d1-loop-map-in-map-if": [
+  "builds",
+  "sha256:4a4be4edbb89f4103d8b276fad556fd253edcdb98a5e23cca366506119418f4a"
+ ],
+ "d1-loop-map-in-map-if~bound": [
+  "builds",
+  "sha256:147d151f0256a1607c4972f4d276c8614e67dc7cf63c11cb0868157fddaafc5d"
+ ],
+ "d1-loop-map-in-map-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-map-in-map-let-free": [
+  "builds",
+  "sha256:c6eb74301bd61978a2dbd1f1f81aa4861da066129c986ab96bff58d3ffc44082"
+ ],
+ "d1-loop-map-in-map-let-free~bound": [
+  "builds",
+  "sha256:45e2b326233b5a23da6840d7f5b2fab51884ddbda2f65261fe1700f5a5071b9d"
+ ],
+ "d1-loop-map-in-map-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-map-in-map-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-map-in-map-match-let~bound": [
+  "builds",
+  "sha256:011eead2c6db2060403722ff18f2b69cbeb2bc218b6788ec81b8940564576b6b"
+ ],
+ "d1-loop-map-in-map-match~bound": [
+  "builds",
+  "sha256:de744cfea1d868c39f303f2b4214b7df7533bf7b11dd4f35797ba17aafd6e0e4"
+ ],
+ "d1-loop-nested-if-if": [
+  "builds",
+  "sha256:d9b14d2ca670bbe41a6bff08ff284515f41a6bd17ae4a6a4784d5a435d17ef2a"
+ ],
+ "d1-loop-nested-if-if~bound": [
+  "builds",
+  "sha256:c650da920c4f265eb67e74c63d3490184072f7a34fabaae6a3b3dd6815bb4fd6"
+ ],
+ "d1-loop-nested-if-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-nested-if-let-free": [
+  "builds",
+  "sha256:bc8f521a5408fd88c51813cfefdd754f323e52181945ee07fe036e0d51c0dc4d"
+ ],
+ "d1-loop-nested-if-let-free~bound": [
+  "builds",
+  "sha256:8f36b9e10416af61eb4b93ec104de95d564534e22e43f6cd4b076635630b4d1b"
+ ],
+ "d1-loop-nested-if-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-nested-if-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-nested-if-match-let~bound": [
+  "builds",
+  "sha256:1feaa60e1e62c3091e74ce04a81869240d2db64d7b16678dc47230af651a1c27"
+ ],
+ "d1-loop-nested-if-match~bound": [
+  "builds",
+  "sha256:db6ca1f622b16a1ec314cd011daaccbbe112ea8a0a5694620e77450a0ba02460"
+ ],
+ "d1-loop-not-if": [
+  "builds",
+  "sha256:8c3218bbc934069cab25424de8618be745318bc6094208eb272fb6167c459b3e"
+ ],
+ "d1-loop-not-if~bound": [
+  "builds",
+  "sha256:8d6c790d73ceb8bfb9e6c183cb1543a0b0f440a712a51f85bce601a40433c7a0"
+ ],
+ "d1-loop-not-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-not-let-free": [
+  "builds",
+  "sha256:d1c8e6373a3e0bef63d3d9bf11132782bc6d3b32f6298221962b688130bee9dd"
+ ],
+ "d1-loop-not-let-free~bound": [
+  "builds",
+  "sha256:15f5280c9acf5091dd82fd19206d56af2f72a53f7a0b71b702ea88f6dafc048a"
+ ],
+ "d1-loop-not-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-not-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-not-match-let~bound": [
+  "builds",
+  "sha256:6a50bea4fefcc704f26e3e140da582c1e7671ea1608ee8658e1bd374df621b23"
+ ],
+ "d1-loop-not-match~bound": [
+  "builds",
+  "sha256:6f78119fcfc585c8c7c9c700097bdf1d0b211efbea5328ab5d4d1c54b55921c3"
+ ],
+ "d1-loop-or-if": [
+  "builds",
+  "sha256:b30ec451446fe124a699e4069b4cae822379eb0667dda42b07d7bf370dedb5a9"
+ ],
+ "d1-loop-or-if~bound": [
+  "builds",
+  "sha256:5f272ffdc1fc0392ef442480a7ba823a491f519b37f5b447e59516d94c3b7353"
+ ],
+ "d1-loop-or-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-or-let-free": [
+  "builds",
+  "sha256:6d2810e5a492466be896a340999d1b54a7989409c0912354025d864807a72639"
+ ],
+ "d1-loop-or-let-free~bound": [
+  "builds",
+  "sha256:d862d8880943e60e19cebb5c2954e8c4eec2f0ff3dc2c993e5724a3677fae923"
+ ],
+ "d1-loop-or-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-or-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-loop-or-match-let~bound": [
+  "builds",
+  "sha256:bc1c9fd408ff8e2b23b25ea9cf81fa31df22c8f527fe349da3fff63413f9d806"
+ ],
+ "d1-loop-or-match~bound": [
+  "builds",
+  "sha256:b1c66469c3e5501bece8a0009c4727bd396bd3c9e13985a23c1e1199021743cd"
+ ],
+ "d1-outside-and-if": [
+  "builds",
+  "sha256:d0d55c18379f259020535874d813d63176530cb74d69d8b7600b338c3cf360d8"
+ ],
+ "d1-outside-and-if~bound": [
+  "builds",
+  "sha256:1b1451b901ebd4ab9c5bf9e5e6c1ba622708c17b3db09f08f512023fa91af0c7"
+ ],
+ "d1-outside-and-let-binder": [
+  "builds",
+  "sha256:28d1825e64a076e94d3aba413ce79e266d73859af8e94c964fb8651e57f52bac"
+ ],
+ "d1-outside-and-let-free": [
+  "builds",
+  "sha256:deacd9795e3b47999fb8dbecc43fc8eb00745c2084e3cccf0573e8ba28e06661"
+ ],
+ "d1-outside-and-let-free~bound": [
+  "builds",
+  "sha256:73db3aeb182f5eb1ce9b18f915957482549a98dc3cfea93c4f2e5b40ccfb6cf6"
+ ],
+ "d1-outside-and-match": [
+  "builds",
+  "sha256:7c43ade4242e040990797000ac2e11bd9b93540986032e3dd8c1cd11c04bb1c4"
+ ],
+ "d1-outside-and-match-let": [
+  "builds",
+  "sha256:c2493af0f7837f57c394effb7171dd8ef14748af54a20f2af48d2e8e6944bb86"
+ ],
+ "d1-outside-and-match-let~bound": [
+  "builds",
+  "sha256:371df859e3032d03b6f8f5f14fc4a4d69a2a910c907b7ee0a0a3a889a3290474"
+ ],
+ "d1-outside-and-match~bound": [
+  "builds",
+  "sha256:9583af0774c67c45008ad24656199d1bcacaee3e06158aa23364a3c9f385786e"
+ ],
+ "d1-outside-cond-if": [
+  "builds",
+  "sha256:962c4254ccc66656d612ad29d1488e7083252f4c228fc9ea207bd556d52dfc79"
+ ],
+ "d1-outside-cond-if~bound": [
+  "builds",
+  "sha256:8896555d6955af20ddc9db4387d39c9260e09fad4a13521554c761818f5ee1a6"
+ ],
+ "d1-outside-cond-let-binder": [
+  "builds",
+  "sha256:7669ece1b8f5336b1bcbebc623f9bcac02efd84d220ebcb8ab0dbe897a267a71"
+ ],
+ "d1-outside-cond-let-free": [
+  "builds",
+  "sha256:7ec43e57a9dc9cccc625f203db8179d5c84e58eadddee80461aba72d72bc5ec9"
+ ],
+ "d1-outside-cond-let-free~bound": [
+  "builds",
+  "sha256:46931767c15165db082e06d4c80ca8f350dc994dbf36d89286472de2f314c6a0"
+ ],
+ "d1-outside-cond-match": [
+  "builds",
+  "sha256:9e45b0ce36acd4ea7a90871cee81f4c72a3f5d08f7d0b74a717a15e967d5d517"
+ ],
+ "d1-outside-cond-match-let": [
+  "builds",
+  "sha256:ce10f223e77bfba062bd307944dc76a0ffad253f4f3ac97da33b358b1f0ced90"
+ ],
+ "d1-outside-cond-match-let~bound": [
+  "builds",
+  "sha256:7c500442c68b7ad4cbc5a2893b3e4e7dbc30eeff7b8a01df856f0f95e709238a"
+ ],
+ "d1-outside-cond-match~bound": [
+  "builds",
+  "sha256:4e3b67a5d3ce6a90a5289d960a73e075daf2d7c37abe45c0d607b311eb7ee0ef"
+ ],
+ "d1-outside-if-if": [
+  "builds",
+  "sha256:962c4254ccc66656d612ad29d1488e7083252f4c228fc9ea207bd556d52dfc79"
+ ],
+ "d1-outside-if-if~bound": [
+  "builds",
+  "sha256:8896555d6955af20ddc9db4387d39c9260e09fad4a13521554c761818f5ee1a6"
+ ],
+ "d1-outside-if-let-binder": [
+  "builds",
+  "sha256:7669ece1b8f5336b1bcbebc623f9bcac02efd84d220ebcb8ab0dbe897a267a71"
+ ],
+ "d1-outside-if-let-free": [
+  "builds",
+  "sha256:7ec43e57a9dc9cccc625f203db8179d5c84e58eadddee80461aba72d72bc5ec9"
+ ],
+ "d1-outside-if-let-free~bound": [
+  "builds",
+  "sha256:46931767c15165db082e06d4c80ca8f350dc994dbf36d89286472de2f314c6a0"
+ ],
+ "d1-outside-if-match": [
+  "builds",
+  "sha256:9e45b0ce36acd4ea7a90871cee81f4c72a3f5d08f7d0b74a717a15e967d5d517"
+ ],
+ "d1-outside-if-match-let": [
+  "builds",
+  "sha256:ce10f223e77bfba062bd307944dc76a0ffad253f4f3ac97da33b358b1f0ced90"
+ ],
+ "d1-outside-if-match-let~bound": [
+  "builds",
+  "sha256:7c500442c68b7ad4cbc5a2893b3e4e7dbc30eeff7b8a01df856f0f95e709238a"
+ ],
+ "d1-outside-if-match~bound": [
+  "builds",
+  "sha256:4e3b67a5d3ce6a90a5289d960a73e075daf2d7c37abe45c0d607b311eb7ee0ef"
+ ],
+ "d1-parallel-and-if": [
+  "builds",
+  "sha256:5c5717af49d69b58bd7b19d568a8a83620b13d047921098b9543b2b7416999d6"
+ ],
+ "d1-parallel-and-if~bound": [
+  "builds",
+  "sha256:8483bfbebe3ace9b77139cb78ac4d1b2b06e50fc35f1546ae79827013a8dc6b7"
+ ],
+ "d1-parallel-and-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-parallel-and-let-free": [
+  "builds",
+  "sha256:617ab326e06e18e409fbe9a071c2d5ecb56f358df705ac956a6c3ffd2fc9baa3"
+ ],
+ "d1-parallel-and-let-free~bound": [
+  "builds",
+  "sha256:8d0fac4bf29e4b67de27859cb8d7a57b7f7fa972f03a98e1c10831ea489456b1"
+ ],
+ "d1-parallel-and-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-parallel-and-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-parallel-and-match-let~bound": [
+  "builds",
+  "sha256:3e7d0173136c70a261b0b222e9b53f740d56116002702a7b1e202d0f11af5385"
+ ],
+ "d1-parallel-and-match~bound": [
+  "builds",
+  "sha256:900a42cc5c306cf805b38d394c31e4ce97fe47cfe7a1d49a3fd8aa063dd13cf1"
+ ],
+ "d1-parallel-if-if": [
+  "builds",
+  "sha256:094de6e90309491b516edec0741bedf6ba406357f519e19c52c5bcf4a6e17f90"
+ ],
+ "d1-parallel-if-if~bound": [
+  "builds",
+  "sha256:e8f35663f8ee8a83002bac5cdedf1a0c9e9647948bf16c12819c3c8989f3cccb"
+ ],
+ "d1-parallel-if-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-parallel-if-let-free": [
+  "builds",
+  "sha256:094fd8e843bab893dd42e4501d61af9f31e6f264953e26bcd67a1c55aa19cc54"
+ ],
+ "d1-parallel-if-let-free~bound": [
+  "builds",
+  "sha256:f1407943c5bb11d8f7419228715fd643e36076c5e41a52815d6e9aaa69d234a8"
+ ],
+ "d1-parallel-if-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-parallel-if-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-parallel-if-match-let~bound": [
+  "builds",
+  "sha256:48b1e4b5fae858cce4ab90f6efaaf654986eea398777c09eb4eb5a4a265a90bf"
+ ],
+ "d1-parallel-if-match~bound": [
+  "builds",
+  "sha256:f48f53760e818a07dfe0bd24447374191d8c69fc520ebf575eeeca2d30a3f628"
+ ],
+ "d1-proc-if-if": [
+  "builds",
+  "sha256:60fed63e1a27cb0dd5da4c8260177b5aa2386e8e21a09b20d153f9c5a5b01d08"
+ ],
+ "d1-proc-if-if~bound": [
+  "builds",
+  "sha256:6bf2a69ffdc5ecfd7398d10704a3771f0ac3800f48abbaf8ad4bd3f797fedc8c"
+ ],
+ "d1-proc-if-let-binder": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-proc-if-let-free": [
+  "builds",
+  "sha256:e2226f6e23bbf65531803493b24138b5f5e2eb2600b80ee1e8c971ba991031b2"
+ ],
+ "d1-proc-if-let-free~bound": [
+  "builds",
+  "sha256:5c3a0ab1b0803338988adbeb214833f0733cc9c5e91e5b326725d41e35a7162f"
+ ],
+ "d1-proc-if-match": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-proc-if-match-let": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d1-proc-if-match-let~bound": [
+  "builds",
+  "sha256:83f9574be2f17f189a223c6af1fd5f90c066864f190b291e42db83ef27a7b504"
+ ],
+ "d1-proc-if-match~bound": [
+  "builds",
+  "sha256:2e944006b089c7a5bae54e5d5179a5e72d34a1183abcb60b2103dfa8a2d7bae3"
+ ],
+ "d2-empty-arm-cond": [
+  "builds",
+  "sha256:b805f081da24e99d4c3f5bd7e7fbac19a6415de997cf564bfd0b3c804fb292d4"
+ ],
+ "d2-empty-arm-cond-list": [
+  "builds",
+  "sha256:45261c25a2ac50488cb2a36499fc7c6c87b5df63b2e4a02a7fcf4ec3b78a238b"
+ ],
+ "d2-empty-arm-cond-list~bound": [
+  "builds",
+  "sha256:ccc0483617da364416d0ab385d6f11f6b1127fb12b909e83fff7d71782a49ef9"
+ ],
+ "d2-empty-arm-cond~bound": [
+  "builds",
+  "sha256:89a553b7d765947cf489edd097b5c7f3d2ab6b11b12ca6a1b9f361b3cd97ac42"
+ ],
+ "d2-empty-arm-if-branch": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-empty-arm-if-branch~bound": [
+  "builds",
+  "sha256:611e94b7b0f7f38b59a6f965635aae709fd5d5d2bfd029087243de4e383e3179"
+ ],
+ "d2-empty-arm-if-condition": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-empty-arm-if-condition~bound": [
+  "builds",
+  "sha256:ccc0483617da364416d0ab385d6f11f6b1127fb12b909e83fff7d71782a49ef9"
+ ],
+ "d2-empty-arm-input-name": [
+  "builds",
+  "sha256:b702d3a97b8115530995357ad6ef1370e8e65ef9f60664f4daa8cd88bce241a2"
+ ],
+ "d2-empty-arm-input-name~bound": [
+  "builds",
+  "sha256:ff7f42f217ee94c18e536ae96c86ad17a346b61e2c8a316ab154daeceb3537e7"
+ ],
+ "d2-empty-arm-let-map": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-empty-arm-let-map~bound": [
+  "builds",
+  "sha256:42d870f084f70d8f53835d49235524f33d3b84ba5933a8d69bbb094e661b4258"
+ ],
+ "d2-empty-arm-let-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-empty-arm-let-subject~bound": [
+  "builds",
+  "sha256:2513f223a9f67617416d81b97ba96477b0a4f8faebcf6b88af57eb8ca5dd375c"
+ ],
+ "d2-empty-arm-local-argument": [
+  "builds",
+  "sha256:05fc304aa7ab18c6e154c132a7641d2875daf0e71a3a92bafc91f722f8af2121"
+ ],
+ "d2-empty-arm-local-argument~bound": [
+  "builds",
+  "sha256:ed7681f6a7584c206bf9565036031ff973b87675766315fc779956434aa02c1a"
+ ],
+ "d2-empty-arm-local-body": [
+  "builds",
+  "sha256:be041b0bbe16723b1e5e3fe19ecc5bbb486ab946ca84ae9de6f7ad2bbe05e768"
+ ],
+ "d2-empty-arm-local-body~bound": [
+  "builds",
+  "sha256:54cc9dda65375b493eda8e301311689005916fd554a8c7557ed8389292eac188"
+ ],
+ "d2-empty-arm-map-field": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-empty-arm-map-field~bound": [
+  "builds",
+  "sha256:402c4fbd989f70bf2a9bcef76563b191f89d34ce8086790db629bcd52183210f"
+ ],
+ "d2-empty-arm-map-literal": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-empty-arm-map-literal~bound": [
+  "builds",
+  "sha256:24dd84e3eec256df2a28bf03b709a2389a3d016d5e54a00a579cc8ac1086695e"
+ ],
+ "d2-empty-arm-map-name": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-empty-arm-map-name~bound": [
+  "builds",
+  "sha256:55834fc0f33a10ad289c0c0a9a9d13600468b5ca9ca0706e09fb751c3ebee5be"
+ ],
+ "d2-empty-arm-nested-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "d2-empty-arm-nested-match~bound": [
+  "builds",
+  "sha256:411fb317a649b7f4f8b092912482f995756e1766c470cd25c56b25059c514717"
+ ],
+ "d2-empty-arm-proc-arg": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-empty-arm-proc-arg~bound": [
+  "builds",
+  "sha256:fd74c24a76bb9e742d13b35a255e688c138f154d266ef35a5a4f15cfd7c185a9"
+ ],
+ "d2-empty-arm-variant-empty": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-empty-arm-variant-empty~bound": [
+  "builds",
+  "sha256:df22958fbd20fe8c0cffaec9c29bee02ee9b8cb5e5afbc00fe5a79e9ac29d288"
+ ],
+ "d2-empty-arm-variant-length": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-empty-arm-variant-length~bound": [
+  "builds",
+  "sha256:588335544fc843fddd978107a0164575080f2bc03fb50a5614fe1f3e83ec453d"
+ ],
+ "d2-empty-arm-variant-list": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-empty-arm-variant-list~bound": [
+  "builds",
+  "sha256:ed74d6326024056a7cbd20e34331d29fc2eaee22da5c56d490a42797252b3e1e"
+ ],
+ "d2-loop-effect-cond": [
+  "builds",
+  "sha256:ac53c0fb5867278c487927d40c881d798fd8512105eea18d3bc08156e953ce1e"
+ ],
+ "d2-loop-effect-cond-list": [
+  "builds",
+  "sha256:8aaf62413534fe330870456417325b251cb561a362d6ebaecdebbf8d5de28d4a"
+ ],
+ "d2-loop-effect-cond-list~bound": [
+  "builds",
+  "sha256:ceede1ca9eab280d53355fa73c9f2e9a6efa898244c8b634c002fd64d83b9d2b"
+ ],
+ "d2-loop-effect-cond~bound": [
+  "builds",
+  "sha256:924085f54664a7ddfbb84e52bdcad04e359d98e8e3af4138749c23b77387f3e1"
+ ],
+ "d2-loop-effect-if-branch": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-loop-effect-if-branch~bound": [
+  "builds",
+  "sha256:989a50434382b2be3141cc66c90e9dcc09f1bf8a352c59cd08692b1f0cefe487"
+ ],
+ "d2-loop-effect-if-condition": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-effect-if-condition~bound": [
+  "builds",
+  "sha256:ceede1ca9eab280d53355fa73c9f2e9a6efa898244c8b634c002fd64d83b9d2b"
+ ],
+ "d2-loop-effect-input-name": [
+  "builds",
+  "sha256:45d4f9ec524042e6f5ec638b826639d94f41f84118eb159c4c1c851af6042243"
+ ],
+ "d2-loop-effect-input-name~bound": [
+  "builds",
+  "sha256:9f566eb6439039756f45a67eac21730f8d8edeae1ffaf7f022f443a82c436eca"
+ ],
+ "d2-loop-effect-let-map": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-effect-let-map~bound": [
+  "builds",
+  "sha256:dc61e02edcf245cfd43109de16bace5c8a4cf34fb9d3b1a5ab092fa9002eb92c"
+ ],
+ "d2-loop-effect-let-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-effect-let-subject~bound": [
+  "builds",
+  "sha256:a87aa7b207a6dcc9359b1228265c31b2fb1dc1349b68218fefb4969d555b5003"
+ ],
+ "d2-loop-effect-local-argument": [
+  "builds",
+  "sha256:20bddf76321240a6008c6a47d5458a61f33aa5045a65aebf763ebb0fb1a87027"
+ ],
+ "d2-loop-effect-local-argument~bound": [
+  "builds",
+  "sha256:dc914bed3eed840a425940d78478fecc3e1f21cacbce5ca2fa25fda07beb070a"
+ ],
+ "d2-loop-effect-local-body": [
+  "builds",
+  "sha256:7c4f2c2ca63dc27f1dfb5500193a9286a9ada426958cbba10aeec9d81cb53f96"
+ ],
+ "d2-loop-effect-local-body~bound": [
+  "builds",
+  "sha256:97388e8eb771802c6dc9f972bcdceafaa85542e50a398604ee2e477a9d69f317"
+ ],
+ "d2-loop-effect-map-field": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-effect-map-field~bound": [
+  "builds",
+  "sha256:5b9a57cdc6b6c461758dbf2325be8feb8e29a7dfa79f702ea674209033f4cfd7"
+ ],
+ "d2-loop-effect-map-literal": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-effect-map-literal~bound": [
+  "builds",
+  "sha256:32f7b07002b8ba3674df5ead6f92c9dcddc2a537aa35feb5f9234b7c8029d623"
+ ],
+ "d2-loop-effect-map-name": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-effect-map-name~bound": [
+  "builds",
+  "sha256:e376a88b5658c554cb9b066d2344c0dac2871449dd8536c6e28cd811af1c0c49"
+ ],
+ "d2-loop-effect-nested-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-loop-effect-nested-match~bound": [
+  "builds",
+  "sha256:43b6ecc57f107410bd4f51e237e8cda399af4672bdc8dce4eea0b63862652133"
+ ],
+ "d2-loop-effect-proc-arg": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-effect-proc-arg~bound": [
+  "builds",
+  "sha256:9a246ed374656a7effb29e8acbd65594ff216725933b420e42a13e74c1894787"
+ ],
+ "d2-loop-effect-variant-empty": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-effect-variant-empty~bound": [
+  "builds",
+  "sha256:d8f20052a122a531ab4e4f2d52f680ccd4928a5d2f134cf8253d51c1798f31b6"
+ ],
+ "d2-loop-effect-variant-length": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-effect-variant-length~bound": [
+  "builds",
+  "sha256:a6a8cf19d3f75f367373c58fa4f839f6424f624e22f8b115704a6b30e2e80517"
+ ],
+ "d2-loop-effect-variant-list": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-loop-effect-variant-list~bound": [
+  "builds",
+  "sha256:db2778d62998176641585d08fa58c96b4a449698245f6f084021c63fed587f62"
+ ],
+ "d2-loop-plain-cond": [
+  "builds",
+  "sha256:21df7b3ef82c2bf146d45341efae5e38a70e2b3c6235f239f9ecfdb7db0ebf10"
+ ],
+ "d2-loop-plain-cond-list": [
+  "builds",
+  "sha256:3690d1bd17c3c9b06ee34dbc5a68787fa8f23186596d512dd46ca467c880b812"
+ ],
+ "d2-loop-plain-cond-list~bound": [
+  "builds",
+  "sha256:544fc556d5386c9d7c45081f719ede1cad296b574037f59e047a08d5188272ff"
+ ],
+ "d2-loop-plain-cond~bound": [
+  "builds",
+  "sha256:3fd38d48aa24c964a2681e3b12c9037d77c5384babff86b4d297d94b3729a7f3"
+ ],
+ "d2-loop-plain-if-branch": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-loop-plain-if-branch~bound": [
+  "builds",
+  "sha256:ff12951d1fef9f1f51ca13d56fba4074dcb6f625a271d78468df00d6c86a8d5a"
+ ],
+ "d2-loop-plain-if-condition": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-plain-if-condition~bound": [
+  "builds",
+  "sha256:544fc556d5386c9d7c45081f719ede1cad296b574037f59e047a08d5188272ff"
+ ],
+ "d2-loop-plain-input-name": [
+  "builds",
+  "sha256:03e28acf4e6f315fb37c256da73b31253b954d5c2d4229f22b7c5d36ea44bf7b"
+ ],
+ "d2-loop-plain-input-name~bound": [
+  "builds",
+  "sha256:466e39ce2be4fe2a469aa08b66401aca4ed5fb639867862e8f559a84a88753d3"
+ ],
+ "d2-loop-plain-let-map": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-plain-let-map~bound": [
+  "builds",
+  "sha256:452ecebad8f174422d1ceab14e4e3f73e429234ba6e8452430483e1fededfe80"
+ ],
+ "d2-loop-plain-let-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-plain-let-subject~bound": [
+  "builds",
+  "sha256:989ba45d8bc560372aa6d46a87dd7bc04c8a2ff44ed4b2d30690998cff943fe9"
+ ],
+ "d2-loop-plain-local-argument": [
+  "builds",
+  "sha256:245be903e5a13bd871ea57632e297015816a2571f1a12ce69d3315887a5d2a3b"
+ ],
+ "d2-loop-plain-local-argument~bound": [
+  "builds",
+  "sha256:d8bda90336cd6a75810cabe39d1abe7e350f6498019e3fe25f02518529cde97e"
+ ],
+ "d2-loop-plain-local-body": [
+  "builds",
+  "sha256:a480fac1be48a546726b343ab4b3ae7b16bec238af92b49883659ba0afcf116a"
+ ],
+ "d2-loop-plain-local-body~bound": [
+  "builds",
+  "sha256:ed01026095322651787df58ffd107783e87ae473a5e952aaeab1768809410e3b"
+ ],
+ "d2-loop-plain-map-field": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-plain-map-field~bound": [
+  "builds",
+  "sha256:3ad455010628a8c6c1efebd77988835621407b6d5e53628b2f14335caa84f06c"
+ ],
+ "d2-loop-plain-map-literal": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-plain-map-literal~bound": [
+  "builds",
+  "sha256:ee7ac9fe79af606b4d5f2e032e4ba34fd38490b41422d8ab60b75e0a4cd5077a"
+ ],
+ "d2-loop-plain-map-name": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-plain-map-name~bound": [
+  "builds",
+  "sha256:e6f21897c8f07a8413b6fe8edf3caf03cb14da5648f100fc4ac8758514350aa0"
+ ],
+ "d2-loop-plain-nested-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "d2-loop-plain-nested-match~bound": [
+  "builds",
+  "sha256:9cb2e1125ab828149b91f1616ed5ce28931f20a7ce2f6d51113979730f4f4aed"
+ ],
+ "d2-loop-plain-proc-arg": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-plain-proc-arg~bound": [
+  "builds",
+  "sha256:6ef96170ecea9866914c0ed6931593d46000d4b128a273419ccd0ab15ec24d5e"
+ ],
+ "d2-loop-plain-variant-empty": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-plain-variant-empty~bound": [
+  "builds",
+  "sha256:dcfb95e90e9778318e685d5fb4972d6cd33cb08b83f6396f50d435c8d0f1822a"
+ ],
+ "d2-loop-plain-variant-length": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-loop-plain-variant-length~bound": [
+  "builds",
+  "sha256:9915a0959f8c5b333a34b91fe5e430b40b7b694858b7edfa0aed03ade9521eeb"
+ ],
+ "d2-loop-plain-variant-list": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-loop-plain-variant-list~bound": [
+  "builds",
+  "sha256:aae9fe077cad3f83ba27c1159ab4c22006462b7c1096da38b976868a45f36605"
+ ],
+ "d2-proc-effect-cond": [
+  "builds",
+  "sha256:0ba6c2837ec3b1770bcc8af28ec1167eafef9e9d2fbe75f81766e25d7596f315"
+ ],
+ "d2-proc-effect-cond-list": [
+  "builds",
+  "sha256:e46c0c905fcddbe9b63ed0c1bad17dda957a4ea5dda11948e568626f683154e0"
+ ],
+ "d2-proc-effect-cond-list~bound": [
+  "builds",
+  "sha256:36d364455a30dac0b546ae379473727b3625b3b6fd1ca9f372149c563c5958a3"
+ ],
+ "d2-proc-effect-cond~bound": [
+  "builds",
+  "sha256:ca8349fe60f61ecefde8194b64cde269c2e3030f1d780d244d668cb9c215ef87"
+ ],
+ "d2-proc-effect-if-branch": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-proc-effect-if-branch~bound": [
+  "builds",
+  "sha256:d709058b621147f59e4fb0a24a0e2f38e8ceb4cf0f4bda1dd7a1157c858ed874"
+ ],
+ "d2-proc-effect-if-condition": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-effect-if-condition~bound": [
+  "builds",
+  "sha256:36d364455a30dac0b546ae379473727b3625b3b6fd1ca9f372149c563c5958a3"
+ ],
+ "d2-proc-effect-input-name": [
+  "builds",
+  "sha256:f941631f3777512a8dc9609d63ef3bad8230e9eca279858fcb152f76276d68b2"
+ ],
+ "d2-proc-effect-input-name~bound": [
+  "builds",
+  "sha256:c7625d6b020e3bb607a1d11ff7ad5f8051997e60ffa70ad426fe0348e78b3cd0"
+ ],
+ "d2-proc-effect-let-map": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-effect-let-map~bound": [
+  "builds",
+  "sha256:5bba8962ebc2576f63f5adf8da82cc6772130c189ea8ab8bc3542ff2d07b8219"
+ ],
+ "d2-proc-effect-let-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-effect-let-subject~bound": [
+  "builds",
+  "sha256:c6229b84ffa37825cec33f127ed7b8f25b3f013ed91de737b743338e6a25fab4"
+ ],
+ "d2-proc-effect-local-argument": [
+  "builds",
+  "sha256:aa72b4afaf7b587c1894ca4bd6551766c2254654363ab56a89eb5e1816b2ae91"
+ ],
+ "d2-proc-effect-local-argument~bound": [
+  "builds",
+  "sha256:6ed8b7ddbf6a0eef2062587147b7e0422bc8239cdb40dfbee6dea78474101795"
+ ],
+ "d2-proc-effect-local-body": [
+  "builds",
+  "sha256:b1e0cb4970f8410baadc2d3e92934d38e9ee2f0ffd9de6e6f18e2d2b7730abfc"
+ ],
+ "d2-proc-effect-local-body~bound": [
+  "builds",
+  "sha256:705f077815ffbcb9adfa83a477cfd4fa2c60afc7a4c87e5f35118bcfecfc7183"
+ ],
+ "d2-proc-effect-map-field": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-effect-map-field~bound": [
+  "builds",
+  "sha256:aaa198de9596faf21a2f90e5f7974538311cc32abc8721830ce010afad79f501"
+ ],
+ "d2-proc-effect-map-literal": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-effect-map-literal~bound": [
+  "builds",
+  "sha256:c8274a3fb7badfbb71bd949557606e1183a7274cd6a2dc0bc276d8e261392a3d"
+ ],
+ "d2-proc-effect-map-name": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-effect-map-name~bound": [
+  "builds",
+  "sha256:e8d0ae542389748458ae0278c86f749bbe002dfc2d51516bcb76a1567225cd31"
+ ],
+ "d2-proc-effect-nested-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "d2-proc-effect-nested-match~bound": [
+  "builds",
+  "sha256:a1c292eed26e8a8c40cf645ab6cbd6108b3475222e673e3607da9110b0e82d29"
+ ],
+ "d2-proc-effect-proc-arg": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-effect-proc-arg~bound": [
+  "builds",
+  "sha256:269b0b9e27bcec0fc5a2153f3a7e6971b56ea0be5c5a6466487fb177b2819f67"
+ ],
+ "d2-proc-effect-variant-empty": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-effect-variant-empty~bound": [
+  "builds",
+  "sha256:c441987b0e66bf8a11ee31fa892e53a40307eb03fe0d667e7cac053d414ed31d"
+ ],
+ "d2-proc-effect-variant-length": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-effect-variant-length~bound": [
+  "builds",
+  "sha256:3d2b605f43b86a35c2fc82310aa9757cf7e6587d925148ad2324f0b64eb50b27"
+ ],
+ "d2-proc-effect-variant-list": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-proc-effect-variant-list~bound": [
+  "builds",
+  "sha256:daca34ecfc06c62f947007c73603f69ab8c802e5e01fc063d94ff497e419c0e3"
+ ],
+ "d2-proc-plain-cond": [
+  "builds",
+  "sha256:73ae7b858ca30de7dad925117881f4a8de77ec2aaa9acb7662c08c6b38bb4254"
+ ],
+ "d2-proc-plain-cond-list": [
+  "builds",
+  "sha256:09e7f930712fa4e05b53e2a2adfb21dfd3fa89d172ef92714ff1e7be083dd8f4"
+ ],
+ "d2-proc-plain-cond-list~bound": [
+  "builds",
+  "sha256:638fdd784a7785350c17a80c03e38b6e5440e2759a8e610645fa4ba490832e27"
+ ],
+ "d2-proc-plain-cond~bound": [
+  "builds",
+  "sha256:f5a0f911ac92a41e3f9e99fd75ec8d2bfb252bc919da0741a3240ec9cc690203"
+ ],
+ "d2-proc-plain-if-branch": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-proc-plain-if-branch~bound": [
+  "builds",
+  "sha256:2bd0abd203bccf32f08242976448743f2b76307a66439000c5610bac2b552752"
+ ],
+ "d2-proc-plain-if-condition": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-plain-if-condition~bound": [
+  "builds",
+  "sha256:638fdd784a7785350c17a80c03e38b6e5440e2759a8e610645fa4ba490832e27"
+ ],
+ "d2-proc-plain-input-name": [
+  "builds",
+  "sha256:fb350ccf20923076f98d7de5eff48a39b6752f4344282509632075e353b58bad"
+ ],
+ "d2-proc-plain-input-name~bound": [
+  "builds",
+  "sha256:c15c4080779b5a66fcda988a6fa1af1a78733838644c492810d292e30d7b02f3"
+ ],
+ "d2-proc-plain-let-map": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-plain-let-map~bound": [
+  "builds",
+  "sha256:5f96427f8d858421cfe1554756e28b1b57578f2cf712e5d582dcee4982aa33e0"
+ ],
+ "d2-proc-plain-let-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-plain-let-subject~bound": [
+  "builds",
+  "sha256:18047a81eec64f5a80c233eb1a78c4b9d5a36ccf9e5f08a1819155d08258c460"
+ ],
+ "d2-proc-plain-local-argument": [
+  "builds",
+  "sha256:c1de4b36e30853813c9a0714b8ea33a19b1df4dcf0ee97d47bc42e3782b45fc6"
+ ],
+ "d2-proc-plain-local-argument~bound": [
+  "builds",
+  "sha256:f92012594a944fd84c286aa3fef973de273335098006fd2420f146af669bf167"
+ ],
+ "d2-proc-plain-local-body": [
+  "builds",
+  "sha256:ae32cc2c959032719808eca3301d9625b598ca3b5df0002527fb3516810a670a"
+ ],
+ "d2-proc-plain-local-body~bound": [
+  "builds",
+  "sha256:fc65dc1ebeb6ed4fe5bc4db95c328c13ed3319ace54854dd9a02b66a35283436"
+ ],
+ "d2-proc-plain-map-field": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-plain-map-field~bound": [
+  "builds",
+  "sha256:93623a1e09603a007a751cd1a1d7c32cb38603cbaee227812dde98641e86a364"
+ ],
+ "d2-proc-plain-map-literal": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-plain-map-literal~bound": [
+  "builds",
+  "sha256:93b337a789a56d839a3a571fd2d4aa535d09360bc82c95cfdfe69aff54f1a2f8"
+ ],
+ "d2-proc-plain-map-name": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-plain-map-name~bound": [
+  "builds",
+  "sha256:75712469fdb4397b1b922ddfa724196c13457dc0508b5a5415cfef5bb5f3167c"
+ ],
+ "d2-proc-plain-nested-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "d2-proc-plain-nested-match~bound": [
+  "builds",
+  "sha256:bf2d735dac75c1db0b6f48b4e890cc81c1e412e216608c6be52f3f08aed92246"
+ ],
+ "d2-proc-plain-proc-arg": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-plain-proc-arg~bound": [
+  "builds",
+  "sha256:1f91a9a4390194d2c4d81ae09afdbfd0de040928578517eb6014a07451d07778"
+ ],
+ "d2-proc-plain-variant-empty": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-plain-variant-empty~bound": [
+  "builds",
+  "sha256:c72058b33294cc4c522dc4c77d320e7910362e5aaed53344e02145b6070dd039"
+ ],
+ "d2-proc-plain-variant-length": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-proc-plain-variant-length~bound": [
+  "builds",
+  "sha256:c69d3ce6bf140d5018756b56cec1e7dfc15940ff77ad4af64039fecbaaf8634c"
+ ],
+ "d2-proc-plain-variant-list": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-proc-plain-variant-list~bound": [
+  "builds",
+  "sha256:ebdfa01dcdcd807feea5c84f1d6398bc7f9ba8806a58f1d9734c689ee2766134"
+ ],
+ "d2-uncalled-cond": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-cond-list": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-if-branch": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-if-condition": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-input-name": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-let-map": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-let-subject": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-local-argument": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-local-body": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-map-field": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-map-literal": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-map-name": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-nested-match": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-proc-arg": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-variant-empty": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-variant-length": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-uncalled-variant-list": [
+  "builds",
+  "sha256:a7d799a35681c472bdf1b102ad75a1b5ded709eddf8fdaec3e74680328c80612"
+ ],
+ "d2-workflow-effect-cond": [
+  "builds",
+  "sha256:ce273e2db8786e7a47b10bb975b62fd97dd44184d0f88400d95240084133b330"
+ ],
+ "d2-workflow-effect-cond-list": [
+  "builds",
+  "sha256:01fb425d36bdf4d891cafdfa007bf684462d0b6e718a6a766a77907f9d7bf0f1"
+ ],
+ "d2-workflow-effect-cond-list~bound": [
+  "builds",
+  "sha256:cfcf35eb5563a66922b4e6dc5c5cd314dcf1f687de7f5f86ea6b17cc1c4c611e"
+ ],
+ "d2-workflow-effect-cond~bound": [
+  "builds",
+  "sha256:7719ed871ec54f141a416bd2da1ee5db63e4c96ac8740e3fc67689a99c9e2515"
+ ],
+ "d2-workflow-effect-if-branch": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-workflow-effect-if-branch~bound": [
+  "builds",
+  "sha256:d92060e763359309f07be1d103a0a8a91b0637a4967ba31b6f509bf99835b4f4"
+ ],
+ "d2-workflow-effect-if-condition": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-effect-if-condition~bound": [
+  "builds",
+  "sha256:cfcf35eb5563a66922b4e6dc5c5cd314dcf1f687de7f5f86ea6b17cc1c4c611e"
+ ],
+ "d2-workflow-effect-input-name": [
+  "builds",
+  "sha256:d7ff6d7fabd810c4acd5e8a99b9705ad77279e6daa6c49a1fcf2b09261c21eb2"
+ ],
+ "d2-workflow-effect-input-name~bound": [
+  "builds",
+  "sha256:608ea30a8449330ac49d3a121a24c5150fcbd2b4a9c101e77c8b0522609c9c64"
+ ],
+ "d2-workflow-effect-let-map": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-effect-let-map~bound": [
+  "builds",
+  "sha256:ff549bc5ddf4082381745c6e4c39fbb02663eed373125f9b019c7b056c998a49"
+ ],
+ "d2-workflow-effect-let-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-effect-let-subject~bound": [
+  "builds",
+  "sha256:372c39207732b11fa15e90584efbd89ba0618ec5149a3d4a091b35d882cb0d64"
+ ],
+ "d2-workflow-effect-local-argument": [
+  "builds",
+  "sha256:2d885fde9a3bae42cb92cc1c561c139a3c23c04b2c147c20f47437eb8071bc63"
+ ],
+ "d2-workflow-effect-local-argument~bound": [
+  "builds",
+  "sha256:c8fd3330f44d1a42c7ca07f8af5a8fd52e609fa9197ff1465ea69ce3791d36b8"
+ ],
+ "d2-workflow-effect-local-body": [
+  "builds",
+  "sha256:4241d75ddb3e88633e6ae9e04ca7bc794da52070032d4d6bae1004683784d7ef"
+ ],
+ "d2-workflow-effect-local-body~bound": [
+  "builds",
+  "sha256:d85ca3eae8d7dbf0ad86e0d7ff448bf96f6f69eed08716a388ad98b865bce694"
+ ],
+ "d2-workflow-effect-map-field": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-effect-map-field~bound": [
+  "builds",
+  "sha256:3a6f01170df284645aa9394cfd45cb59ad5bfd191c8f178533b70c502d087d03"
+ ],
+ "d2-workflow-effect-map-literal": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-effect-map-literal~bound": [
+  "builds",
+  "sha256:f56ea6c42df3784c7cd98b89da23d9d635fdecae205345ab162db3d88204b859"
+ ],
+ "d2-workflow-effect-map-name": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-effect-map-name~bound": [
+  "builds",
+  "sha256:3bcbf310044b3de73fad176e04edd0a99c1b9e57df6081b14cc437856038cbcc"
+ ],
+ "d2-workflow-effect-nested-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "d2-workflow-effect-nested-match~bound": [
+  "builds",
+  "sha256:9e4c339f349ba4c151e9cfd49ec1101597e4a559bc9d1101124a1cb859fdf6cc"
+ ],
+ "d2-workflow-effect-proc-arg": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-effect-proc-arg~bound": [
+  "builds",
+  "sha256:513f31b9ae4234623411db3a05e472181f218976d2f7a6b92dc17eefcabae363"
+ ],
+ "d2-workflow-effect-variant-empty": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-effect-variant-empty~bound": [
+  "builds",
+  "sha256:99190a7bae277e9a4af6d5048ff9ee9d6ac2f8ed9705c97957a62fa5e22aad30"
+ ],
+ "d2-workflow-effect-variant-length": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-effect-variant-length~bound": [
+  "builds",
+  "sha256:e84c6c747b3c8b8ae4d9c372af9cf1237491ec4f4ad55c33153eb0df6b5743e6"
+ ],
+ "d2-workflow-effect-variant-list": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-workflow-effect-variant-list~bound": [
+  "builds",
+  "sha256:ddfd66c4f6fa8ff00bd59c5317b0567a49370bc8811f4e84dad41e9e137fd670"
+ ],
+ "d2-workflow-plain-cond": [
+  "builds",
+  "sha256:cd9ab92fa353350f00af85ef2486c0646d9fb4603d1ddae0282b80bde8b8e75f"
+ ],
+ "d2-workflow-plain-cond-list": [
+  "builds",
+  "sha256:78896d7636acaf68ab0e100ae8fb13afcc74d2b0143024d4f92246960644374c"
+ ],
+ "d2-workflow-plain-cond-list~bound": [
+  "builds",
+  "sha256:27190f774df694029ec5d04dddab7c49a47a719d7260c7f5c9f690794dd84f5d"
+ ],
+ "d2-workflow-plain-cond~bound": [
+  "builds",
+  "sha256:53cb77f8f19b81b0b8b3ceb12971f78e6abd16b42402f301ee9d1d0032bb0c33"
+ ],
+ "d2-workflow-plain-if-branch": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-workflow-plain-if-branch~bound": [
+  "builds",
+  "sha256:1d731c37f8002f4244bbb18d80ffc8b5a5ce248e4ccef5dbf349ac6e65a551bf"
+ ],
+ "d2-workflow-plain-if-condition": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-plain-if-condition~bound": [
+  "builds",
+  "sha256:27190f774df694029ec5d04dddab7c49a47a719d7260c7f5c9f690794dd84f5d"
+ ],
+ "d2-workflow-plain-input-name": [
+  "builds",
+  "sha256:979f268dca45a35432654e95be5fc76e86a16f3681fe159a6f1c82c8e7afa1da"
+ ],
+ "d2-workflow-plain-input-name~bound": [
+  "builds",
+  "sha256:266588ad5390b03f52678af7e2690f7416f32be842a2fc330c9be6aff55e326a"
+ ],
+ "d2-workflow-plain-let-map": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-plain-let-map~bound": [
+  "builds",
+  "sha256:222645a5cc297599ff14bec3ae9c41a7c214d1faa16f76e811f2ff55c14307a3"
+ ],
+ "d2-workflow-plain-let-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-plain-let-subject~bound": [
+  "builds",
+  "sha256:1eeed2ae7239c147cdbad803701dd0451b544f742135fcce3df329a8d2834687"
+ ],
+ "d2-workflow-plain-local-argument": [
+  "builds",
+  "sha256:3bd06fb7fa5542f7ab23b1f40ecad1a066c89c37a08efa882463ccddbb29e796"
+ ],
+ "d2-workflow-plain-local-argument~bound": [
+  "builds",
+  "sha256:0b026cbe4954c25c68389323d388d82be15f8ea0952dca6b9f58bac8cd8446c2"
+ ],
+ "d2-workflow-plain-local-body": [
+  "builds",
+  "sha256:1e48d76b2332dba1538dcf43a597c3a88a0b6a0e7f7475876800ad8d3d69d288"
+ ],
+ "d2-workflow-plain-local-body~bound": [
+  "builds",
+  "sha256:b816a06903453b568c890afb30ad8d8380c0ab0c63c2a367902eee19d534cd6c"
+ ],
+ "d2-workflow-plain-map-field": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-plain-map-field~bound": [
+  "builds",
+  "sha256:6df8604e722aec3004f0efed13bb6359968950fefeba9211153e9f781cb95567"
+ ],
+ "d2-workflow-plain-map-literal": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-plain-map-literal~bound": [
+  "builds",
+  "sha256:7be8a0543fc3878f7f02ba95f41bc6f3f1a7292b81288307cfda1bcba9b1055e"
+ ],
+ "d2-workflow-plain-map-name": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-plain-map-name~bound": [
+  "builds",
+  "sha256:76993587de11bafa1d242de871c4e8ce8057282b7bb5dbf574ddecc72632dd35"
+ ],
+ "d2-workflow-plain-nested-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "d2-workflow-plain-nested-match~bound": [
+  "builds",
+  "sha256:1b953de2dc2705b231a80bc4a64b6644c87befdfc185175a6f9cf9ab00e7f535"
+ ],
+ "d2-workflow-plain-proc-arg": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-plain-proc-arg~bound": [
+  "builds",
+  "sha256:122c021fa132f8513d7e886f99cd5c2d88541c5f584e0be9cea64083a9a9aa8a"
+ ],
+ "d2-workflow-plain-variant-empty": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-plain-variant-empty~bound": [
+  "builds",
+  "sha256:98b2a2c98bcf51970b5cec838bed306ef740d461663f09a663ba27946f379c77"
+ ],
+ "d2-workflow-plain-variant-length": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "d2-workflow-plain-variant-length~bound": [
+  "builds",
+  "sha256:358965f9d8b6e52cb595b28e6fd309a57edf9526e90b3122c02746cf2aa38bbc"
+ ],
+ "d2-workflow-plain-variant-list": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_list_to_value"
+ ],
+ "d2-workflow-plain-variant-list~bound": [
+  "builds",
+  "sha256:6f67cf86eb0f12859bcec52648d24f4bc2d703d86a5504474f40448f71b984df"
+ ],
+ "d3-loop-body-direct": [
+  "builds",
+  "sha256:11b057ca0dddb0397c61d4440fd0d77317f18cd069821015d7c5aafaf3f0acc2"
+ ],
+ "d3-loop-body-if": [
+  "builds",
+  "sha256:377f93d253d905196b41f3decd61e8b76ee918ff5b1c568864a73a787aea9d5d"
+ ],
+ "d3-loop-body-let": [
+  "builds",
+  "sha256:05880685ab8d506c41f5b9a8979743ab9a6b48e92490f064e11503e94e80082f"
+ ],
+ "d3-loop-body-nested": [
+  "builds",
+  "sha256:416d3fa782de683fd6729677c6616af8ed553e88f681081a3391079c657c6c53"
+ ],
+ "d3-loop-body-operand": [
+  "builds",
+  "sha256:3401db0a0f2d3fe192b3d8266da601b9225676f73cb9a323ad9361ceb2b73057"
+ ],
+ "d3-loop-body-plain": [
+  "builds",
+  "sha256:d940513d6d422a65f7ff16e49810508cc6b0f7345e825f09e783735fea0851b9"
+ ],
+ "d3-loop-body-proc-ref": [
+  "builds",
+  "sha256:ef93b2e8d1758d9d1640e7b26ad0a3f153a89fb979634ba1424134cfba18ee02"
+ ],
+ "d3-loop-body-pure": [
+  "builds",
+  "sha256:9f529f810638f0611dcd37647505ff2bc85a0197dc43796561d8d7825526059e"
+ ],
+ "d3-loop-body-two-params": [
+  "builds",
+  "sha256:e2e2cd7fa8b8f19b1df9b649def6d9de56f48045fff44e687bc514d9a0c591f6"
+ ],
+ "d3-parallel-direct": [
+  "builds",
+  "sha256:97a8744e6b1f46599b5e2d1da0aab4f3582db9c5f0b16d51f6376ad748672fe4"
+ ],
+ "d3-parallel-nested": [
+  "builds",
+  "sha256:fe17a55191388c8bc78b87f8e3c975ea094c1c855a13b28c2d09779aaa805365"
+ ],
+ "d3-parallel-pure": [
+  "builds",
+  "sha256:7b4afeeae06e95ad7030286deaf7e4119cf9c75989039131e5ca68876c6bd0ff"
+ ],
+ "d3-pure-map-proc-ref": [
+  "builds",
+  "sha256:8694e6e5c59d6403f69a1a7fb4a8315cf03184cc4f974d311306e21c7c26e1d5"
+ ],
+ "d3-pure-map-pure": [
+  "builds",
+  "sha256:394fee8c1449e977bae98005e1f76bb3fc7b700ba0806de1826a6ddd1c7501ce"
+ ],
+ "d3-serial-direct": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-direct~bound": [
+  "builds",
+  "sha256:8991db54d11cdbc8cc2931d96ddbe063268dce2e31f2a51f599669c1a51c09ba"
+ ],
+ "d3-serial-if": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-if~bound": [
+  "builds",
+  "sha256:5e28c6c79c1875a094d408114ad15515f4cbcc5dc0bb254aae2915a6d5c0e4a4"
+ ],
+ "d3-serial-input-direct": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-input-direct~bound": [
+  "builds",
+  "sha256:b2391cc70e62062a664e9aa593888b016c6e49223aebc87363dd8c0f7210d447"
+ ],
+ "d3-serial-input-if": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-input-if~bound": [
+  "builds",
+  "sha256:4546ab10054a4be47b10e79930d1097700e95e9bd2c69c68ed28bc84871cd08b"
+ ],
+ "d3-serial-input-let": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-input-let~bound": [
+  "builds",
+  "sha256:387ecf36f3e134be440224e5e630bed3e7755c042743935e76289e5b37c4af69"
+ ],
+ "d3-serial-input-nested": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-input-nested~bound": [
+  "builds",
+  "sha256:640b29970f926bb8cae0cae935ec009f7254c1273e440f6c097ec8d51f94929a"
+ ],
+ "d3-serial-input-operand": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-input-operand~bound": [
+  "builds",
+  "sha256:f547b6501a673034a125188f58e68162473959719ea96fcb8b5159f575419d3f"
+ ],
+ "d3-serial-input-plain": [
+  "builds",
+  "sha256:2e84207ae24404259fd82b1bab46d13180a7e87d97db10709a554b6de18e051c"
+ ],
+ "d3-serial-input-plain~bound": [
+  "builds",
+  "sha256:2726c65d45282579ba76093311b86bdf6f2c20f826cae671a0346a998dfacce5"
+ ],
+ "d3-serial-input-proc-ref": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-input-proc-ref~bound": [
+  "builds",
+  "sha256:a625343900f0545fec9890740b8099b52c459d4b8944359fde28581480c0f2a4"
+ ],
+ "d3-serial-input-pure": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-input-pure~bound": [
+  "builds",
+  "sha256:9e8563b7ad5a1337fb1181a96de85d4c5b70ff4d73f8ac5a98ac630204061356"
+ ],
+ "d3-serial-input-two-params": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-input-two-params~bound": [
+  "builds",
+  "sha256:1e47d79c1b4b8c6017dd8c95bf3375cd75536618ec1eae7bd876d5b90fde9967"
+ ],
+ "d3-serial-let": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-let~bound": [
+  "builds",
+  "sha256:3689503cf3d8cb1329c2e74b4e7d79fdc59d0f7881b4a71213530d74dd517f24"
+ ],
+ "d3-serial-loop-direct": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-loop-direct~bound": [
+  "builds",
+  "sha256:9341b1375a68d20292c08a65cc303979d04404c5cf279898dd646c04ad5346e6"
+ ],
+ "d3-serial-loop-if": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-loop-if~bound": [
+  "builds",
+  "sha256:3259a4aa1d04019a0525dadb1ae453c75d15144442b6dc27bb9ff0b28ce8e53c"
+ ],
+ "d3-serial-loop-let": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-loop-let~bound": [
+  "builds",
+  "sha256:d84aed714ad2f3bb21a7638c84e1f21be4b36ef7afeba23aa08df41c0f651380"
+ ],
+ "d3-serial-loop-nested": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-loop-nested~bound": [
+  "builds",
+  "sha256:5508d80e7f9375c76f18cce06b75ba2eb6f86285899d0b566e37f472ce8f8fdc"
+ ],
+ "d3-serial-loop-operand": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-loop-operand~bound": [
+  "builds",
+  "sha256:50ff18db5c660402f5cb42ff18efd0cc8dcd8fd45d915ea1842331aa4136fe39"
+ ],
+ "d3-serial-loop-plain": [
+  "builds",
+  "sha256:fa70fd9f16efade6aa7a9d898ea17c5c08d44e62503813520be9769e44225339"
+ ],
+ "d3-serial-loop-plain~bound": [
+  "builds",
+  "sha256:6af1b4045a4eddfba8efbb79993ea9564f7ce2d751f9a183816caf8f3fd733e4"
+ ],
+ "d3-serial-loop-proc-ref": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-loop-proc-ref~bound": [
+  "builds",
+  "sha256:d7d4adef573512bdab928376de007aac098870c39eadf2bfd20721903fb65d14"
+ ],
+ "d3-serial-loop-pure": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-loop-pure~bound": [
+  "builds",
+  "sha256:6503f42cd50ab09b5695319d02dd0565595a46d79da63600852ca9dd6a084370"
+ ],
+ "d3-serial-loop-two-params": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-loop-two-params~bound": [
+  "builds",
+  "sha256:83235e486ee513b323d3de3efba6414f57ed5ff865d58b2cae6e16f55373649d"
+ ],
+ "d3-serial-nested": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-nested-direct": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-nested-direct~bound": [
+  "builds",
+  "sha256:48f57984cf788149545a4ccf17ab50d7b28b6edfdf323e29c1e0172bc017a2cd"
+ ],
+ "d3-serial-nested-if": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-nested-if~bound": [
+  "builds",
+  "sha256:22c00e3a21559a49f16876502615fdade0a20ed729b61e7e0252737eb2479060"
+ ],
+ "d3-serial-nested-let": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-nested-let~bound": [
+  "builds",
+  "sha256:20de445d18359013cd36e449d6affc3bfe2ea465894d88e10deb7a6411a940be"
+ ],
+ "d3-serial-nested-nested": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-nested-nested~bound": [
+  "builds",
+  "sha256:d839b54216a720bd44e0633b52068f4aa909178fac2b6172039a4e3ccd1fc6ef"
+ ],
+ "d3-serial-nested-operand": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-nested-operand~bound": [
+  "builds",
+  "sha256:9730f6057b45878aac38830ad8074fffa60da4f2106bf959b1e1caec610b7f03"
+ ],
+ "d3-serial-nested-plain": [
+  "builds",
+  "sha256:82f232941c0bf6a0b455eae57337b16cce06d3ef6472d7ffcaf91cdb8b3163b4"
+ ],
+ "d3-serial-nested-plain~bound": [
+  "builds",
+  "sha256:924fa5e8ff28e9b55976e590a6f873fde07295844328002e3adfc10d9a4f8340"
+ ],
+ "d3-serial-nested-proc-ref": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-nested-proc-ref~bound": [
+  "builds",
+  "sha256:8cc92d39702710832fd13110110c21d49d7fcc7f57620c4e6e6d8dc565f88c8e"
+ ],
+ "d3-serial-nested-pure": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-nested-pure~bound": [
+  "builds",
+  "sha256:694f7e32bcdc12b3b50c0f6bcdea09aeb34d9d21b31a8de7b916c1ce0581bba0"
+ ],
+ "d3-serial-nested-two-params": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-nested-two-params~bound": [
+  "builds",
+  "sha256:195e8da0647f04597103a17efa8a9897cdfab0ab4ae124fe2d219802f0ff8b40"
+ ],
+ "d3-serial-nested~bound": [
+  "builds",
+  "sha256:8a73e375468d45700656545310abe471d75d812286c1310b01454ce578104ec6"
+ ],
+ "d3-serial-operand": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-operand~bound": [
+  "builds",
+  "sha256:94fef294e114849d7a0f60da9b9733f05193a0d5849caf7cfb1ad92eb2ecde01"
+ ],
+ "d3-serial-plain": [
+  "builds",
+  "sha256:7a64a4875bc6c08aff8caed72e1142846a33cafdc4cc7177bcc20683250c29af"
+ ],
+ "d3-serial-plain~bound": [
+  "builds",
+  "sha256:f0c0249b99dc6f9656538ff78bd80dc35ac06fb886cb21d6faa2b9abc1c7d452"
+ ],
+ "d3-serial-proc-direct": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-proc-direct~bound": [
+  "builds",
+  "sha256:fd3a3d64d6596cd67088dbd45088f31a28308712e110da45e516ce7134676c74"
+ ],
+ "d3-serial-proc-if": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-proc-if~bound": [
+  "builds",
+  "sha256:8885d63f9fc80fd64ed41328abd4ddddf899ba7faf3c46c52716e278b123a2d3"
+ ],
+ "d3-serial-proc-let": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-proc-let~bound": [
+  "builds",
+  "sha256:2da01ab9b5ffdf612a6b952a0d1d531cc4cfd65f8b4846072fcd3efd01a3fa87"
+ ],
+ "d3-serial-proc-nested": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-proc-nested~bound": [
+  "builds",
+  "sha256:97df7ca549d83f26275dd30a1ca3c22fc971ba7eb6b8f157baed860aa83eb48c"
+ ],
+ "d3-serial-proc-operand": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-proc-operand~bound": [
+  "builds",
+  "sha256:1035eb5f39f1e2ea60e1c2428fedbb22d6b1b767d9cef37311082161b7486054"
+ ],
+ "d3-serial-proc-plain": [
+  "builds",
+  "sha256:021d8a745a8bb007fdffff80d07c3ff8235850a13f5ded11d4ad17c12a3c8a09"
+ ],
+ "d3-serial-proc-plain~bound": [
+  "builds",
+  "sha256:bdc450c5173368b3c67d18f084ef18851820ff5205d5fd35f6f329ac30c43c1a"
+ ],
+ "d3-serial-proc-proc-ref": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-proc-proc-ref~bound": [
+  "builds",
+  "sha256:b1d864b5c5c5984829e736b4a0a0f60f4bd7f8ef24a41d2c6d798fc953e49e01"
+ ],
+ "d3-serial-proc-pure": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-proc-pure~bound": [
+  "builds",
+  "sha256:c71ac1312b6e9ac794dc730327ab56c1190113416254732724120e795340f3a1"
+ ],
+ "d3-serial-proc-ref": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-proc-ref~bound": [
+  "builds",
+  "sha256:5fe58ed806c3b53e3ea71e01c987d68f810eb0e4bd745d1f91d1e437e29cd6ff"
+ ],
+ "d3-serial-proc-two-params": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-proc-two-params~bound": [
+  "builds",
+  "sha256:4bcfbea3aaa9e0b553f8232cc93da7833a720b85728195c057d3313ae5018737"
+ ],
+ "d3-serial-pure": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-pure~bound": [
+  "builds",
+  "sha256:9c477589af64191791d63c5544df91da0f32ec4c0a11ce700caf83014d4506c0"
+ ],
+ "d3-serial-two-params": [
+  "refused",
+  "procedure_call_unknown"
+ ],
+ "d3-serial-two-params~bound": [
+  "builds",
+  "sha256:85ef182e82e622c6caae5244ebe5fcffc34a2a6b6460ad808dd31f4ace95931b"
+ ],
+ "d5-call-called-where-bound": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/compiler.py:_compile_stage3_graph"
+ ],
+ "d5-call-computed": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-call-direct": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-call-effect": [
+  "refused",
+  "name_unknown"
+ ],
+ "d5-call-let": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-call-literal": [
+  "builds",
+  "sha256:37546bd0454aa41578874505bb5ed9d483ab5e525312345462575160deaf78ca"
+ ],
+ "d5-call-two-bound": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-call-two-uses": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-loop-called-where-bound": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/compiler.py:_compile_stage3_graph"
+ ],
+ "d5-loop-computed": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-loop-direct": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-loop-effect": [
+  "refused",
+  "name_unknown"
+ ],
+ "d5-loop-let": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-loop-literal": [
+  "builds",
+  "sha256:bd2ca507f69c256a5e057243043899fe7db59808586afcdbcf63e1bdc08f6ced"
+ ],
+ "d5-loop-two-bound": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-loop-two-uses": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-map-called-where-bound": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/compiler.py:_compile_stage3_graph"
+ ],
+ "d5-map-computed": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-map-direct": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-map-effect": [
+  "refused",
+  "name_unknown"
+ ],
+ "d5-map-let": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-map-literal": [
+  "builds",
+  "sha256:0c3a4000af7a914fca468b89f73fee651acf614d0bebfedaddc72b1441f82722"
+ ],
+ "d5-map-two-bound": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-map-two-uses": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-operand-called-where-bound": [
+  "crash",
+  "KeyError",
+  "workflow_lisp/compiler.py:_compile_stage3_graph"
+ ],
+ "d5-operand-computed": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-operand-direct": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-operand-effect": [
+  "refused",
+  "name_unknown"
+ ],
+ "d5-operand-let": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-operand-literal": [
+  "builds",
+  "sha256:8e489deee0f49f2c3cbfde27f0f539da49f219fe7714a3212b133bebe261abda"
+ ],
+ "d5-operand-two-bound": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ],
+ "d5-operand-two-uses": [
+  "refused",
+  "procedure_lowering_unresolved"
+ ]
+}

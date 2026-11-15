@@ -1,0 +1,733 @@
+{
+ "d1-arm-cond-let-binder": [
+  4
+ ],
+ "d1-arm-cond-match": [
+  4
+ ],
+ "d1-arm-cond-match-let": [
+  4
+ ],
+ "d1-arm-if-let-binder": [
+  4
+ ],
+ "d1-arm-if-match": [
+  4
+ ],
+ "d1-arm-if-match-let": [
+  4
+ ],
+ "d1-loop-and-let-binder": [
+  4
+ ],
+ "d1-loop-and-match": [
+  4
+ ],
+ "d1-loop-and-match-let": [
+  4
+ ],
+ "d1-loop-cond-let-binder": [
+  4
+ ],
+ "d1-loop-cond-match": [
+  4
+ ],
+ "d1-loop-cond-match-let": [
+  4
+ ],
+ "d1-loop-effect-and-let-binder": [
+  4,
+  "r",
+  "r",
+  "r",
+  "r",
+  "r"
+ ],
+ "d1-loop-effect-and-match": [
+  4,
+  "r",
+  "r",
+  "r",
+  "r",
+  "r"
+ ],
+ "d1-loop-effect-and-match-let": [
+  4,
+  "r",
+  "r",
+  "r",
+  "r",
+  "r"
+ ],
+ "d1-loop-effect-cond-let-binder": [
+  4,
+  "r",
+  "r",
+  "r",
+  "r",
+  "r"
+ ],
+ "d1-loop-effect-cond-match": [
+  4,
+  "r",
+  "r",
+  "r",
+  "r",
+  "r"
+ ],
+ "d1-loop-effect-cond-match-let": [
+  4,
+  "r",
+  "r",
+  "r",
+  "r",
+  "r"
+ ],
+ "d1-loop-effect-if-let-binder": [
+  4,
+  "r",
+  "r",
+  "r",
+  "r",
+  "r"
+ ],
+ "d1-loop-effect-if-match": [
+  4,
+  "r",
+  "r",
+  "r",
+  "r",
+  "r"
+ ],
+ "d1-loop-effect-if-match-let": [
+  4,
+  "r",
+  "r",
+  "r",
+  "r",
+  "r"
+ ],
+ "d1-loop-fn-and-let-binder": [
+  4
+ ],
+ "d1-loop-fn-and-match": [
+  4
+ ],
+ "d1-loop-fn-and-match-let": [
+  4
+ ],
+ "d1-loop-fn-if-let-binder": [
+  4
+ ],
+ "d1-loop-fn-if-match": [
+  4
+ ],
+ "d1-loop-fn-if-match-let": [
+  4
+ ],
+ "d1-loop-if-let-binder": [
+  4
+ ],
+ "d1-loop-if-match": [
+  4
+ ],
+ "d1-loop-if-match-let": [
+  4
+ ],
+ "d1-loop-map-in-map-let-binder": [
+  4
+ ],
+ "d1-loop-map-in-map-match": [
+  4
+ ],
+ "d1-loop-map-in-map-match-let": [
+  4
+ ],
+ "d1-loop-nested-if-let-binder": [
+  4
+ ],
+ "d1-loop-nested-if-match": [
+  4
+ ],
+ "d1-loop-nested-if-match-let": [
+  4
+ ],
+ "d1-loop-not-let-binder": [
+  4
+ ],
+ "d1-loop-not-match": [
+  4
+ ],
+ "d1-loop-not-match-let": [
+  4
+ ],
+ "d1-loop-or-let-binder": [
+  4
+ ],
+ "d1-loop-or-match": [
+  4
+ ],
+ "d1-loop-or-match-let": [
+  4
+ ],
+ "d1-parallel-and-let-binder": [
+  [
+   4
+  ]
+ ],
+ "d1-parallel-and-match": [
+  [
+   4
+  ]
+ ],
+ "d1-parallel-and-match-let": [
+  [
+   4
+  ]
+ ],
+ "d1-parallel-if-let-binder": [
+  [
+   4
+  ]
+ ],
+ "d1-parallel-if-match": [
+  [
+   4
+  ]
+ ],
+ "d1-parallel-if-match-let": [
+  [
+   4
+  ]
+ ],
+ "d1-proc-if-let-binder": [
+  4
+ ],
+ "d1-proc-if-match": [
+  4
+ ],
+ "d1-proc-if-match-let": [
+  4
+ ],
+ "d2-empty-arm-if-branch": [
+  [
+   1
+  ]
+ ],
+ "d2-empty-arm-if-condition": [
+  []
+ ],
+ "d2-empty-arm-let-map": [
+  []
+ ],
+ "d2-empty-arm-let-subject": [
+  [
+   1
+  ]
+ ],
+ "d2-empty-arm-map-field": [
+  []
+ ],
+ "d2-empty-arm-map-literal": [
+  []
+ ],
+ "d2-empty-arm-map-name": [
+  []
+ ],
+ "d2-empty-arm-proc-arg": [
+  [
+   1,
+   2
+  ]
+ ],
+ "d2-empty-arm-variant-empty": [
+  []
+ ],
+ "d2-empty-arm-variant-length": [
+  []
+ ],
+ "d2-empty-arm-variant-list": [
+  [
+   1,
+   2
+  ]
+ ],
+ "d2-loop-effect-if-branch": [
+  2,
+  "arm"
+ ],
+ "d2-loop-effect-if-condition": [
+  2
+ ],
+ "d2-loop-effect-let-map": [
+  2
+ ],
+ "d2-loop-effect-let-subject": [
+  2,
+  "arm"
+ ],
+ "d2-loop-effect-map-field": [
+  2
+ ],
+ "d2-loop-effect-map-literal": [
+  2
+ ],
+ "d2-loop-effect-map-name": [
+  2
+ ],
+ "d2-loop-effect-nested-match": [
+  1
+ ],
+ "d2-loop-effect-proc-arg": [
+  3,
+  "arm"
+ ],
+ "d2-loop-effect-variant-empty": [
+  1,
+  "arm"
+ ],
+ "d2-loop-effect-variant-length": [
+  3
+ ],
+ "d2-loop-effect-variant-list": [
+  3,
+  "arm"
+ ],
+ "d2-loop-plain-if-branch": [
+  1
+ ],
+ "d2-loop-plain-if-condition": [
+  2
+ ],
+ "d2-loop-plain-let-map": [
+  2
+ ],
+ "d2-loop-plain-let-subject": [
+  1
+ ],
+ "d2-loop-plain-map-field": [
+  2
+ ],
+ "d2-loop-plain-map-literal": [
+  2
+ ],
+ "d2-loop-plain-map-name": [
+  2
+ ],
+ "d2-loop-plain-proc-arg": [
+  2
+ ],
+ "d2-loop-plain-variant-empty": [
+  0
+ ],
+ "d2-loop-plain-variant-length": [
+  3
+ ],
+ "d2-loop-plain-variant-list": [
+  2
+ ],
+ "d2-proc-effect-if-branch": [
+  2,
+  "arm"
+ ],
+ "d2-proc-effect-if-condition": [
+  2
+ ],
+ "d2-proc-effect-let-map": [
+  2
+ ],
+ "d2-proc-effect-let-subject": [
+  2,
+  "arm"
+ ],
+ "d2-proc-effect-map-field": [
+  2
+ ],
+ "d2-proc-effect-map-literal": [
+  2
+ ],
+ "d2-proc-effect-map-name": [
+  2
+ ],
+ "d2-proc-effect-proc-arg": [
+  3,
+  "arm"
+ ],
+ "d2-proc-effect-variant-empty": [
+  1,
+  "arm"
+ ],
+ "d2-proc-effect-variant-length": [
+  3
+ ],
+ "d2-proc-effect-variant-list": [
+  3,
+  "arm"
+ ],
+ "d2-proc-plain-if-branch": [
+  1
+ ],
+ "d2-proc-plain-if-condition": [
+  2
+ ],
+ "d2-proc-plain-let-map": [
+  2
+ ],
+ "d2-proc-plain-let-subject": [
+  1
+ ],
+ "d2-proc-plain-map-field": [
+  2
+ ],
+ "d2-proc-plain-map-literal": [
+  2
+ ],
+ "d2-proc-plain-map-name": [
+  2
+ ],
+ "d2-proc-plain-proc-arg": [
+  2
+ ],
+ "d2-proc-plain-variant-empty": [
+  0
+ ],
+ "d2-proc-plain-variant-length": [
+  3
+ ],
+ "d2-proc-plain-variant-list": [
+  2
+ ],
+ "d2-workflow-effect-if-branch": [
+  2,
+  "arm"
+ ],
+ "d2-workflow-effect-if-condition": [
+  2
+ ],
+ "d2-workflow-effect-let-map": [
+  2
+ ],
+ "d2-workflow-effect-let-subject": [
+  2,
+  "arm"
+ ],
+ "d2-workflow-effect-map-field": [
+  2
+ ],
+ "d2-workflow-effect-map-literal": [
+  2
+ ],
+ "d2-workflow-effect-map-name": [
+  2
+ ],
+ "d2-workflow-effect-proc-arg": [
+  3,
+  "arm"
+ ],
+ "d2-workflow-effect-variant-empty": [
+  1,
+  "arm"
+ ],
+ "d2-workflow-effect-variant-length": [
+  3
+ ],
+ "d2-workflow-effect-variant-list": [
+  3,
+  "arm"
+ ],
+ "d2-workflow-plain-if-branch": [
+  1
+ ],
+ "d2-workflow-plain-if-condition": [
+  2
+ ],
+ "d2-workflow-plain-let-map": [
+  2
+ ],
+ "d2-workflow-plain-let-subject": [
+  1
+ ],
+ "d2-workflow-plain-map-field": [
+  2
+ ],
+ "d2-workflow-plain-map-literal": [
+  2
+ ],
+ "d2-workflow-plain-map-name": [
+  2
+ ],
+ "d2-workflow-plain-proc-arg": [
+  2
+ ],
+ "d2-workflow-plain-variant-empty": [
+  0
+ ],
+ "d2-workflow-plain-variant-length": [
+  3
+ ],
+ "d2-workflow-plain-variant-list": [
+  2
+ ],
+ "d3-serial-direct": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-if": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-input-direct": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-input-if": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-input-let": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-input-nested": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g",
+  "g",
+  "g"
+ ],
+ "d3-serial-input-operand": [
+  [
+   2,
+   3
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-input-proc-ref": [
+  [
+   2,
+   3
+  ]
+ ],
+ "d3-serial-input-pure": [
+  [
+   1,
+   2
+  ]
+ ],
+ "d3-serial-input-two-params": [
+  [
+   1,
+   2
+  ],
+  "p",
+  "p"
+ ],
+ "d3-serial-let": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-loop-direct": [
+  2,
+  "g",
+  "g"
+ ],
+ "d3-serial-loop-if": [
+  2,
+  "g",
+  "g"
+ ],
+ "d3-serial-loop-let": [
+  2,
+  "g",
+  "g"
+ ],
+ "d3-serial-loop-nested": [
+  2,
+  "g",
+  "g",
+  "g",
+  "g"
+ ],
+ "d3-serial-loop-operand": [
+  2,
+  "g",
+  "g"
+ ],
+ "d3-serial-loop-proc-ref": [
+  2
+ ],
+ "d3-serial-loop-pure": [
+  2
+ ],
+ "d3-serial-loop-two-params": [
+  2,
+  "p",
+  "p"
+ ],
+ "d3-serial-nested": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g",
+  "g",
+  "g"
+ ],
+ "d3-serial-nested-direct": [
+  1,
+  "g",
+  "g"
+ ],
+ "d3-serial-nested-if": [
+  1,
+  "g",
+  "g"
+ ],
+ "d3-serial-nested-let": [
+  1,
+  "g",
+  "g"
+ ],
+ "d3-serial-nested-nested": [
+  1,
+  "g",
+  "g",
+  "g",
+  "g"
+ ],
+ "d3-serial-nested-operand": [
+  1,
+  "g",
+  "g"
+ ],
+ "d3-serial-nested-proc-ref": [
+  1
+ ],
+ "d3-serial-nested-pure": [
+  1
+ ],
+ "d3-serial-nested-two-params": [
+  1,
+  "p",
+  "p"
+ ],
+ "d3-serial-operand": [
+  [
+   2,
+   3
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-proc-direct": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-proc-if": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-proc-let": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-proc-nested": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g",
+  "g",
+  "g"
+ ],
+ "d3-serial-proc-operand": [
+  [
+   2,
+   3
+  ],
+  "g",
+  "g"
+ ],
+ "d3-serial-proc-proc-ref": [
+  [
+   2,
+   3
+  ]
+ ],
+ "d3-serial-proc-pure": [
+  [
+   1,
+   2
+  ]
+ ],
+ "d3-serial-proc-ref": [
+  [
+   2,
+   3
+  ]
+ ],
+ "d3-serial-proc-two-params": [
+  [
+   1,
+   2
+  ],
+  "p",
+  "p"
+ ],
+ "d3-serial-pure": [
+  [
+   1,
+   2
+  ]
+ ],
+ "d3-serial-two-params": [
+  [
+   1,
+   2
+  ],
+  "p",
+  "p"
+ ]
+}
