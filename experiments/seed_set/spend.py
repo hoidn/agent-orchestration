@@ -22,7 +22,7 @@ It holds starts and events. Every provider start goes through `reserve` before i
 
 Rows are appended and fsynced under an exclusive lock, so a crash after the append cannot lose a start and two
 study processes cannot both take the last call or the last planned run; `rows` reads under a shared lock, so a
-reader never sees a row half written. A unit reserves its maximum calls, which
+reader never sees a row half written, and parses after releasing it. A unit reserves its maximum calls, which
 the caller passes to the shims as `COMPARE_MAX_CALLS`: that bounds the recorded provider launches, not a CLI an
 agent starts by absolute path inside the sandbox (the runner's session audit covers those). Events (`freeze`,
 `smoke`, `decision`, `stop`, `pause`) are appended by `record`; the latest of each kind governs. Standard library
@@ -75,13 +75,15 @@ def authorize(tranche, environ=None):
 
 
 def rows(ledger):
-    """The ledger's rows, read under a shared lock: an append (under the exclusive lock) is never seen half written."""
+    """The ledger's rows: its text read under a shared lock (an append, under the exclusive lock, is never seen half
+    written) and parsed once the lock is released, so a reader holds it only while it reads (re-review n7)."""
     path = Path(ledger)
     if not path.exists():
         return []
     with path.open() as stream:
         fcntl.flock(stream, fcntl.LOCK_SH)
-        return [json.loads(line) for line in stream.read().splitlines()]
+        text = stream.read()
+    return [json.loads(line) for line in text.splitlines()]
 
 
 def starts(entries):

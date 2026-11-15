@@ -1297,3 +1297,79 @@ def test_a_reader_never_sees_a_row_half_written(ledger):  # the runner reads the
     stop.set()
     reader.join()
     assert errors == []
+
+
+def test_a_reader_parses_the_ledger_after_releasing_its_lock(ledger, monkeypatch):  # re-review n7
+    """While `rows` parses, a writer can take the exclusive lock: a reader holds the lock only while it reads."""
+    import fcntl
+    spend.record(ledger, "pause", unit="/w/1", reset=None)
+    held = []
+
+    class Parser:  # json as `rows` uses it, asking for the writers' lock at each row it parses
+        @staticmethod
+        def loads(line):
+            with open(ledger) as other:
+                try:
+                    fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    held.append(False)
+                except BlockingIOError:
+                    held.append(True)
+            return json.loads(line)
+    monkeypatch.setattr(spend, "json", Parser)
+    spend.rows(ledger)
+    assert held == [False]
+
+
+def test_writers_finish_beside_readers_looping_on_the_ledger(ledger):  # re-review n7: 120 writers, 16 readers
+    """120 writer threads (reservations of two tranches, judges, pauses with 200 KB rows, resumes) released at once
+    beside 16 threads reading the ledger the whole time: every writer finishes, no reader sees a half-written row,
+    the caps and the pauses hold; the longest writer wait is printed."""
+    import random
+    import time
+    rng, price = random.Random(0), (5.0, 0.05)
+    barrier, stop, errors, waits = threading.Barrier(136), threading.Event(), [], []
+
+    def reader():
+        barrier.wait()
+        while not stop.is_set():
+            try:
+                spend.rows(ledger)
+            except ValueError as error:
+                errors.append(repr(error))
+
+    def writer(k, kind, task):
+        barrier.wait()
+        start = time.time()
+        try:
+            if kind == "pause":
+                spend.record(ledger, "pause", unit=f"/w/p{k}", reset=RESET - 7200, text="x" * 200_000)
+            elif kind == "resume":
+                spend.resume_after_limit(ledger, RESET - 7200, 10.0, 20.0, time.time() - 1)
+            elif kind == "judge":
+                spend.reserve(ledger, "calibration", "judge", rng.choice([H, S]), 1, f"/p/{task}#{k}",
+                              env("calibration"), price=price, task=task, pool="first")
+            else:
+                spend.reserve(ledger, kind, "candidate", H, 1, f"/w/{kind}{k}", env(kind), limit=5, price=price,
+                              task=task, arm="direct", step="first")
+        except SystemExit:
+            pass
+        waits.append(time.time() - start)
+
+    jobs = [(k, rng.choice(["calibration", "calibration", "redraw", "judge", "pause", "resume"]), f"t{rng.randrange(6)}")
+            for k in range(120)]
+    readers = [threading.Thread(target=reader) for _ in range(16)]
+    writers = [threading.Thread(target=writer, args=job) for job in jobs]
+    for thread in readers + writers:
+        thread.start()
+    for thread in writers:
+        thread.join(timeout=120)
+    hung = sum(thread.is_alive() for thread in writers)
+    stop.set()
+    for thread in readers:
+        thread.join(timeout=30)
+    rows = spend.rows(ledger)
+    print(f"120 writers beside 16 readers: {hung} hung, longest writer wait {max(waits):.2f} s, {len(rows)} rows")
+    closed = [r["seq"] for r in spend.starts(rows) if spend.open_pauses([x for x in rows if x["seq"] < r["seq"]])]
+    over = [(t, k, m) for t, kinds in spend.CAPS.items() for k, caps in kinds.items() for m, cap in caps.items()
+            if spend.reserved(rows, t, k, m) > cap]
+    assert (hung, errors, closed, over) == (0, [], [], [])
