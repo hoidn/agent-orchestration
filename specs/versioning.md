@@ -1451,7 +1451,13 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
     effectful call of a workflow, a `defproc` or a `let-proc` local is refused with
     `effect_not_permitted` (TD1, D19; §16.3);
   - a `done` or `continue` as the value of a `let*` binding is refused by the build with
-    `loop_recur_contract_invalid` (D21; §13.1).
+    `loop_recur_contract_invalid` (D21; §13.1);
+  - a `let-proc` local that captures a `proc-ref`, or a role bound with `bind-proc` over one whose
+    bound values are literals or names, builds from target 2.39 when it is called by name, is a
+    map body or is passed by `proc-ref`, and runs to the value of the same uses written with the
+    reference (TD6, D10, D11; frontend specification §7.8). Where a name the role reads is bound
+    again between the role and the local, the local keeps its capture parameters and builds, or
+    ends in `compiler_defect`, exactly as before (rows `D10-rebound-*`).
 
   Every program that compiled before keeps its closed program, digest and identities, and its
   recorded runs resume; a differential corpus test over the shapes around these fixes and every
