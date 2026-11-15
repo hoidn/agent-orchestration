@@ -128,7 +128,7 @@ unimplemented case, **(c)** historical accident, named as such by its owning
 design: pure fields and a pure `:on-exhausted` are "rules" of the flat 2.33
 route ([composition first](workflow_lisp_composition_first.md) §11.1), the
 one-call map body and literal `:max` the "first tranche" of 2.18
-([list traversal](workflow_lisp_pure_list_traversal.md)), a local called by
+([list traversal](workflow_lisp_pure_list_traversal.md), historical record), a local called by
 name "deferred" ([let-proc](workflow_lisp_let_proc_local_proc_refs.md) §7.3).
 `tsv` is `typecheck_structural_values.py`; paths are under
 `orchestrator/workflow_lisp/`, or `orchestrator/` if they start with
@@ -520,7 +520,7 @@ run-reference exception instead of leaving.
 | --- | --- | --- |
 | `specs/dsl.md` | It has no section for these forms and gains none. In "Workflow Lisp rich loop values": "not an exhaustion-time evaluator" and "arbitrary computed/effectful exhaustion expressions remain unsupported" become "`:on-exhausted` is an expression evaluated on exhaustion with the last state in scope; top-level Optional/Map state remains unsupported". In the run-reference placement note: "exhaustion guards and other pure contexts stay pure" becomes "a run reference stays refused in `:on-exhausted`, a map source and the pure places" | No |
 | `specs/versioning.md` | The same run-reference sentence; one compatibility entry per change under "Source admitted without a new target (surface coherence)", none moving an identity of source that still compiles; C1's entry states its one refusal; the macro templates of §13 are not in I2a's entry | No |
-| [List traversal](workflow_lisp_pure_list_traversal.md) | I1 corrected the body, `:max` and code sentences of "Bounded effectful binder" in place; the section leaves with the document | When the specification's §10.3, which defers to it today, carries its operator, constructor-typing, `list/map` and `path/join-under` rules |
+| [List traversal](workflow_lisp_pure_list_traversal.md) (historical record since 2026-11-14) | I1 corrected the body, `:max` and code sentences of "Bounded effectful binder" in place; the section leaves with the document | Done: the specification's §10.3 carries its operator, constructor-typing, `list/map` and `path/join-under` rules and no longer defers to it |
 | [let-proc](workflow_lisp_let_proc_local_proc_refs.md) | §7.3 and §27.2 are reversed by §6 here | When the release that removes the older targets removes the V1 form it specifies; write once §6.3 and the specification's §7.8 are then the contract |
 | [Composition first](workflow_lisp_composition_first.md) | Loses §11.1's rule on pure fields and `:on-exhausted` and §11.3's `on-exhausted-call-edge` row | No |
 | [Evaluated execution](workflow_lisp_evaluated_execution.md) | §1.2's map-body sentence states rule 2's run-reference exception (done with I1); §1.2's "`:on-exhausted` remains a pure projection" keeps only the run-reference guard; §4.3's argument-position bullet points to the specification's §16; with I2b the keyword-order sentences of its last bullet go | No |
