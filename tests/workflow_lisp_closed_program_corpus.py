@@ -24,6 +24,7 @@ from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bund
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.contracts.closed_program.program import ClosedProgram, _sites_from_nodes
+from orchestrator.contracts.closed_program.targets import SUPPORTED_TARGET_DSL_VERSIONS
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr, SymbolAtom, StringAtom
@@ -764,7 +765,7 @@ def compile(prepared: Prepared):
 
 
 def try_build(workflow: Workflow, scratch: Path) -> BuildResult:
-    if not syntax.target_dsl_uses_evaluated_execution(target_dsl_version(workflow.source)):
+    if target_dsl_version(workflow.source) not in SUPPORTED_TARGET_DSL_VERSIONS:  # retired, or closed at the cut
         original = workflow.source.read_bytes()
         workspace_before = {path.relative_to(scratch): path.read_bytes()
             for path in scratch.rglob("*") if path.is_file()}

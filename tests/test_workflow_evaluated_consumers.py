@@ -347,7 +347,7 @@ def _candidate(root: Path, repos=CANDIDATES) -> dict:
 @pytest.mark.parametrize("marker,paused", [("loop:#1[1]", 1), ("loop:#1[2]", 2)],
                          ids=["after-first-candidate", "after-second-candidate"])
 def test_public_best_of_n_runs_isolated_candidates_serially_then_the_judge(tmp_path, monkeypatch, marker, paused):
-    assert entry_target_dsl_version(ROOT / PROGRAMS["best_of_n"].source) == "2.35"
+    assert entry_target_dsl_version(ROOT / PROGRAMS["best_of_n"].source_fixture) == "2.40"
     inputs = {"task": "Fix add in calc.py so that it returns the sum.", "intent": "add returns a + b",
               "repos": list(CANDIDATES)}
 
@@ -369,7 +369,7 @@ def test_public_best_of_n_runs_isolated_candidates_serially_then_the_judge(tmp_p
                   "--runs-root", str(new.authority.run_root.parent), "--format", "json")
     candidates = _candidate(new.root)
     assert (new.root / PROGRAMS["best_of_n"].source).read_bytes() == (
-        ROOT / PROGRAMS["best_of_n"].source).read_bytes()
+        ROOT / PROGRAMS["best_of_n"].source_fixture).read_bytes()
     summary = json.loads((new.root / "compile.stdout").read_text())
     build = Path(summary["build_root"])
     closed = ClosedProgram.from_artifact((build / "closed_program.json").read_text())
@@ -387,7 +387,7 @@ def test_public_best_of_n_runs_isolated_candidates_serially_then_the_judge(tmp_p
         "lineage": [[], [0, 1]], "candidates": {"calc": [FIXED, FIXED_ALT], "bases": 1,
                        "status": {repo: " M calc.py\n" for repo in CANDIDATES}}, "report": True}
     assert (closed.tree["target"], manifest["target"], run_header["result_persistence_profile"]) == (
-        "2.35", "2.35", "evaluated_execution.v1")
+        "2.40", "2.40", "evaluated_execution.v1")
     assert dry_run.returncode == 0, dry_run.stderr
     assert report.returncode == 0, report.stderr
     assert json.loads(report.stdout)["run"]["workflow_outputs"] == new.value
@@ -400,7 +400,7 @@ FOUR_CANDIDATES = (*CANDIDATES, "candidates/gamma", "candidates/delta")
 
 
 def test_public_best_of_n_runs_four_candidates_in_order(tmp_path, monkeypatch):
-    assert entry_target_dsl_version(ROOT / PROGRAMS["best_of_n"].source) == "2.35"
+    assert entry_target_dsl_version(ROOT / PROGRAMS["best_of_n"].source_fixture) == "2.40"
     accounts = [f"candidate-account-{index}" for index in range(4)]
     selection = {"winner": FOUR_CANDIDATES[-1],
                  "ranking": [f"{repo}: 2 2 2 2" for repo in reversed(FOUR_CANDIDATES)],
@@ -445,7 +445,7 @@ def test_public_best_of_n_runs_four_candidates_in_order(tmp_path, monkeypatch):
 
 
 def test_public_best_of_n_select_only_preserves_ordered_accounts(tmp_path, monkeypatch):
-    assert entry_target_dsl_version(ROOT / PROGRAMS["best_of_n"].source) == "2.35"
+    assert entry_target_dsl_version(ROOT / PROGRAMS["best_of_n"].source_fixture) == "2.40"
     accounts = ["alpha account", "beta account"]
     inputs = {"intent": "add returns a + b", "repos": list(CANDIDATES), "accounts": accounts}
     plan = {"repos": list(CANDIDATES),
@@ -460,7 +460,7 @@ def test_public_best_of_n_select_only_preserves_ordered_accounts(tmp_path, monke
     _assert_provider_policy(route)
     assert_request_lineage(route)
     prompt = route.requests[0]["prompt"]
-    assert (root / program.source).read_bytes() == (ROOT / program.source).read_bytes()
+    assert (root / program.source).read_bytes() == (ROOT / program.source_fixture).read_bytes()
     assert (route.value, len(route.requests), route.requests[0]["tool"], route.requests[0]["repos"],
             [prompt.index(account) for account in accounts], _owners(route), lineage(route),
             (root / SELECTION["report"]).is_file(), set(route.started().values())) == (
