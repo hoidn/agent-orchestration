@@ -2100,12 +2100,10 @@ source's order. An empty source gives the empty list and evaluates no body.
   effect and a procedure with two are refused there. The program is the final closed program:
   the entry and every definition it reaches. A workflow the entry does not reach does not count.
   `list/map` is not concerned. Diagnostics: `list_map_effect_body_unsupported`.
-- *`:max`* of a serial map is a positive integer literal or any `Int` expression, which may hold
-  an effect. It is evaluated once, after the source and before the first element, and does not
-  see the binder. Diagnostics: `list_map_effect_max_invalid` (absent, a literal below 1, or not
-  an `Int`). Open defects D4-map-value and D4-map-bound: a `:max` that is a `match` ends in
-  `compiler_defect` when the map is a workflow's result or a `let*` binding; as an operand, of
-  `list/length` for example, it builds.
+- *`:max`* of a serial map is a positive integer literal or any `Int` expression: an `if`, a
+  `match`, a loop or another map among them, with or without an effect. It is evaluated once,
+  after the source and before the first element, and does not see the binder. Diagnostics:
+  `list_map_effect_max_invalid` (absent, a literal below 1, or not an `Int`).
 - *More elements than `:max`.* A serial map evaluates the body for the first `:max` elements and
   then fails the run with `list_map_effect_cap_exceeded`; a list of exactly `:max` elements
   succeeds. A computed `:max` below 1 fails with the same code before the first element of a
