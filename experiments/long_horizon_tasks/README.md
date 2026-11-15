@@ -216,7 +216,8 @@ observation, and on any other class is listed and counted for D7.7 without chang
 normal ending still with no reward file after its regrades) is an infrastructure failure, never scored. A null
 `minutes`, token count or `api_retry` was not recorded: the readout prints "not recorded", leaves it out of its
 means and gives how many it left out; it never reads a null as zero. The launcher writes that layout and the readout
-reads it; both load the module by its path (the kit runs under `python -I`) and neither
+reads it. The export lists the attempts still open (`open`), which enter no count, and the readout says how many
+there are. Both load the module by its path (the kit runs under `python -I`) and neither
 imports the other.
 
 `readout.py` turns the export into the readout of D6 and, at the end of the tranche, into `results/family.json` (step

@@ -485,7 +485,7 @@ def compute(ladder, export, standins=None, dropped=None):
     # D6: a readout that ends in a stop places nothing; it still reports the bound on the fall (ruling R2).
     place = export["end"] is None or export["end"]["by"] != "stop"
     return {"rehearsal": rehearsal, "configuration": _configuration(criterion), "label": export["label"],
-            "end": export["end"], "stop": not place,
+            "end": export["end"], "open": len(export["open"]), "stop": not place,
             "tasks": _placement(_counts(current, tasks, efforts, level), rules, place, _drops(dropped, tasks)),
             "effort": _effort(triples, efforts, rules, place),
             "listed": _listed(current, efforts, criterion) | {"contaminated": _contaminated(starts, criterion)},
@@ -525,8 +525,9 @@ def _header(result):
               f"{configuration['cli_version']}; tools {', '.join(configuration['tools'])}; Harbor "
               f"{configuration['harbor']}, podman-compose {configuration['podman_compose']}; agent network "
               f"{network['network_mode']}, hosts {', '.join(network['allowed_hosts'] or ['(pending)'])}",
-              f"- Configuration label: `{result['label']}`", f"- Tranche: {ended}",
-              f"- Computed under Python {result['python']} (the bootstrap's draws are Python's random.Random)", ""]
+              f"- Configuration label: `{result['label']}`", f"- Tranche: {ended}"]
+    lines += [f"- {result['open']} attempt(s) still open: in no count until they close"] if result["open"] else []
+    lines += [f"- Computed under Python {result['python']} (the bootstrap's draws are Python's random.Random)", ""]
     return lines
 
 

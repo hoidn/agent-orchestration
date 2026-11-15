@@ -50,6 +50,8 @@ neither imports the other. Standard library only.
                   }]; per slot, in start order, a start follows only a cut or a pre-session failure, and nothing
                   follows the slot's third pre-session failure, counted in all (D5: relaunched at most twice, lost
                   after the third)
+  open            the attempts still open when the export was written: [{"slot": a slot id above, "start": its start
+                  number}]. They enter no count; the readout names how many there are (Task 8 part A m11)
   allowance       null, or {"weekly_points": meter points of a weekly allowance the tranche used, summed from the
                   owner's readings, finite and not negative, "readings": the ledger rows they come from} (D6)
 
@@ -93,7 +95,7 @@ LAUNCHER_STOPS = {"an init event with another tool list": "a session",
 AGAIN_AFTER = ("cut", "pre_session_failure")  # D5: the only classes whose slot is run again
 NUMBER = (int, float)
 EXPORT = {"label": str, "earlier_labels": list, "end": (dict, type(None)), "slots": list, "starts": list,
-          "allowance": (dict, type(None))}
+          "allowance": (dict, type(None)), "open": list}
 SLOT = {"slot": str, "task": str, "effort": str, "round": int, "pilot": bool}
 START = {"slot": str, "start": int, "label": str, "row": int, "class": str, "stop_cause": (str, type(None)),
          "reward": (int, float, type(None)), "excluded": (str, type(None)), "contamination": list, "usd": NUMBER,
@@ -363,6 +365,10 @@ def load(export, ladder):
     slots = _slots(export["slots"], ladder)
     starts = [_start(start, slots, labels, ladder) for start in export["starts"]]
     _once(starts)
+    for entry in export["open"]:
+        fields(entry, {"slot": str, "start": int}, "an open attempt")
+        if entry["slot"] not in slots:
+            raise RecordError(f"an open attempt: slot {entry['slot']!r} joins no slot of the schedule")
     _end(export["end"], starts, ladder)
     if export["allowance"] is not None:
         fields(export["allowance"], {"weekly_points": NUMBER, "readings": str}, "allowance")

@@ -74,6 +74,17 @@ def test_a_record_that_does_not_fit_the_layout_is_refused(change, message):
         _load(_broken(change))
 
 
+def test_an_attempt_still_open_is_listed_apart_and_one_that_names_no_slot_is_refused():
+    """Task 8 part A m11: an open attempt is in no count, and the record says it is there."""
+    record = export({TASKS[0]: {"low": [1, "-"], "medium": [0], "high": [0]}},
+                    open_=[{"slot": f"r2-{TASKS[0]}-low", "start": 9}])
+    loaded = len(_load(record))
+    record["open"].append({"slot": "r9-nowhere-low", "start": 10})
+    with pytest.raises(slot_record.RecordError, match="open"):
+        _load(record)
+    assert loaded == 3
+
+
 def test_a_record_that_fits_loads_joined_to_its_slot_and_its_row():
     first = _load(export({TASKS[0]: {"low": [{"row": 8, "reward": 1}], "medium": [0], "high": [0]}}))[0]
     assert {key: first[key] for key in ("task", "effort", "round", "class", "flagged", "counted", "success")} == {

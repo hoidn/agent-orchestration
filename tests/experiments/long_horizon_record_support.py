@@ -71,7 +71,7 @@ def _outcomes(outcome):
     return [{"reward": o} if isinstance(o, int) else o for o in (outcome if isinstance(outcome, list) else [outcome])]
 
 
-def export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot=()):
+def export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot=(), open_=()):
     """table: {task: {effort: [outcome of round 1, 2, ...]}}. An outcome is 0 or 1 (an observation ending normally),
     "-" (a slot not started), a dict of start fields, or a list of such dicts (one slot's starts, in order). A start's
     class is its row's unless the dict names one."""
@@ -87,7 +87,7 @@ def export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot
                     starts.append(made | {"class": fields.get("class", ROW_CLASS[made["row"]])})
     return {"label": label, "earlier_labels": [{"label": old, "ended_by": f"ledger row ending {old[:8]}"}
                                                for old in earlier],
-            "end": end, "slots": slots, "starts": starts, "allowance": allowance}
+            "end": end, "slots": slots, "starts": starts, "allowance": allowance, "open": list(open_)}
 
 
 def same(rewards):

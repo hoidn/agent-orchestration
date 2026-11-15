@@ -886,6 +886,12 @@ def test_the_allowance_and_the_cost_table_total_the_same_starts():
     assert result["allowance"]["usd"] == sum(c["usd_all_starts"] for c in result["cost"]["per_effort"].values()) == 3.0
 
 
+def test_an_interim_readout_names_the_attempts_still_open():
+    """Task 8 part A m11: they enter no count, and the readout says how many there are."""
+    record = _export(EXCLUDING, end=None) | {"open": [{"slot": f"r1-{TASKS[0]}-low", "start": 40}]}
+    assert "1 attempt(s) still open" in readout.render(_compute(record))
+
+
 def test_the_readout_names_its_classes_and_its_ending_in_words():
     text = readout.render(_compute(_export(EXCLUDING, end={"by": "schedule", "cause": None})))
     assert ("Tranche: ended: the schedule ran out" in text, "(pre-session failure)" in text,

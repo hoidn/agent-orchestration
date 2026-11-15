@@ -2504,6 +2504,16 @@ def test_the_allowance_export_sums_the_weekly_points_the_owner_s_readings_show_m
         7, 3, None)
 
 
+def test_an_attempt_still_open_is_listed_in_the_export_marked_open(short):
+    """Task 8 part A m11: it is in no count, and the record says it is there."""
+    root, attempt, record = _closed(short, "token-three-tools-normal-end", [], reward=1.0)
+    still = ladder.reserve(root, _entry(rnd=2), CRITERION, 0.0)
+    ctx = _ctx(short)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    doc = ladder.export(ctx, ladder.criterion(ctx))
+    assert (len(doc["starts"]), doc["open"]) == (1, [{"slot": ladder.slot_id(still), "start": still["index"]}])
+
+
 def test_a_row_16_start_is_exported_only_under_the_row_the_ledger_s_ruling_names(short):
     root, attempt, record = _closed(short, "token-usage-limit-NonZeroAgentExitCodeError", [{"status": 429}])
     ctx = _ctx(short)

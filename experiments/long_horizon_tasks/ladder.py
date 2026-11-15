@@ -2376,7 +2376,8 @@ def export(ctx, ladder):
     doc = {"label": label, "earlier_labels": earlier_labels(ledger_text(ctx), label), "end": _end(ctx.root),
            "slots": [{"slot": slot_id(e), "task": e["task"], "effort": e["effort"], "round": e["round"],
                       "pilot": e["kind"] == "pilot"} for e in schedule(ladder)],
-           "starts": [_start_record(ctx.root, a, ladder) for a in every], "allowance": allowance_used(ctx.root)}
+           "starts": [_start_record(ctx.root, a, ladder) for a in every], "allowance": allowance_used(ctx.root),
+           "open": [{"slot": slot_id(a), "start": a["index"]} for a in attempts(ctx.root) if a["settled"] is None]}
     try:
         slot_record.load(json.loads(json.dumps(doc)), ladder)
     except slot_record.RecordError as exc:
