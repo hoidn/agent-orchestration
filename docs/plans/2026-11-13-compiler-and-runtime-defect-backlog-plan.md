@@ -1,8 +1,9 @@
 # Compiler And Runtime Defect Backlog: Implementation Plan
 
 **Status: Plan, revised 2026-11-13 after the owner's scope cut, an independent review (accept after
-fixes: no blocker, six majors, ten minors) and the coordinator's rulings on both; not yet
-accepted.** It plans the fixes for the open defect list of
+fixes: no blocker, six majors, ten minors) and the coordinator's rulings on both; accepted
+2026-11-13.** Tasks T0, TA2, TP1, TD2, TD1, TD5 and TD6 are on `main`; the closeout (TF) is
+[parked](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#parked-work). It plans the fixes for the open defect list of
 [Lane D, stage 5](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#lane-d-delete-and-unify-background-time-boxed)
 ("Compiler and runtime defects found by probes on the way", nine dated batches). It is a plan, not
 a contract and not copy-safe guidance. Behavior is owned by `specs/`, the
