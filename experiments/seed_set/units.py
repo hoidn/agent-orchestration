@@ -28,6 +28,7 @@ import shutil
 from pathlib import Path
 
 from experiments.compare import scan
+from experiments.seed_set import reaper
 from orchestrator.providers.pricing import priced as table_price
 from orchestrator.providers.types import ProviderSessionMetadataMode
 from orchestrator.providers.usage import usage_from_stdout
@@ -70,11 +71,15 @@ def forget_credentials(home):
 
 def session_alive(pgid_file):
     """Whether the process group a launch's guard wrote to `pgid_file` (`reaper.guard`: the session's id, then its
-    start time) still runs; False without the file."""
+    start time) still runs; False without the file, or when a live process has that pid but another start time (a
+    stale file, n9: Linux reuses no pid while its process group lives, so that group is gone)."""
     if not Path(pgid_file).is_file():
         return False
+    sid, *started = map(int, Path(pgid_file).read_text().split())
+    if (leader := reaper.stat(sid)) is not None and started and leader[1] != started[0]:
+        return False
     try:
-        os.killpg(int(Path(pgid_file).read_text().split()[0]), 0)
+        os.killpg(sid, 0)
     except ProcessLookupError:
         return False
     except PermissionError:

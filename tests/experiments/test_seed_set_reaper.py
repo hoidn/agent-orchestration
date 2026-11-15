@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from experiments.seed_set import host, reaper, study
+from experiments.seed_set import host, reaper, study, units
 from tests.experiments.seed_set_offline_support import hanging_harness
 
 
@@ -110,6 +110,18 @@ def test_a_killed_guard_leaves_the_launcher_to_kill_the_unit(tmp_path):
     killer.join()
     root = int((tmp_path / "run.pgid").read_text().split()[0])
     assert (status, gone(wait_for(tmp_path / "child.pid"), root)) == ("guard killed by signal 9", True)
+
+
+@pytest.mark.parametrize("offset, alive", [(0, True), (1, False)])
+def test_a_session_reads_alive_only_while_its_leader_is_the_recorded_process(tmp_path, offset, alive):  # n9
+    """A stale session file (a reboot, a reused pid) names a live group leader that started at another time."""
+    leader = subprocess.Popen(["sleep", "60"], start_new_session=True)
+    try:
+        (tmp_path / "run.pgid").write_text(f"{leader.pid} {reaper.stat(leader.pid)[1] + offset}\n")
+        assert units.session_alive(tmp_path / "run.pgid") is alive
+    finally:
+        leader.kill()
+        leader.wait()
 
 
 REAL = Path(__file__).resolve().parents[2] / "experiments" / "seed_set" / "tasks" / "1f424cc9ae"  # a T3 package
