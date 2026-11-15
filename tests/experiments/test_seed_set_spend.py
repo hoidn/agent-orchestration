@@ -505,6 +505,13 @@ def call_printing(records, stdout=(), stderr=""):
     ([{"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": RESET}},
       {**ERROR, "result": "something else"}], ""),
     ([], "Error: You've hit your session limit · resets 3:43am (UTC)\n"),
+    ([{**ERROR, "api_error_status": "429", "api_error": "x", "result": "x"}], ""),  # re-review N1: still cut
+    ([{**ERROR, "result": "You've hit your session limit · resets 3:43am (UTC)"}], ""),
+    ([], "Error: Claude AI usage limit reached|1794627837\n"),  # a CLI crash: no result event at all
+    ([{"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "resetsAt": RESET}},
+      {**ERROR, "api_error_status": 403, "result": "You've hit your limit"}], ""),
+    ([{"type": "system", "subtype": "init"}], "Error: You've hit your weekly limit\n"),  # no result: a failed call
+    ([{**ERROR, "result": "x"}], "You've hit your session limit\n"),  # an error naming no status, the wording on stderr
 ])
 def test_a_possible_usage_limit_in_another_shape_is_cut_flagged_unrecognised(tmp_path, stdout, stderr):
     assert units.usage_limit(call_printing(tmp_path, stdout, stderr))["flag"] == units.UNRECOGNISED
@@ -528,6 +535,34 @@ QUOTED = json.dumps({**ERROR, "api_error": "usage_limit_reached", "api_error_sta
 ])
 def test_a_model_or_tool_quoting_the_wording_or_another_named_error_is_no_usage_limit(tmp_path, stdout):
     assert units.usage_limit(call_printing(tmp_path, stdout)) is None
+
+
+OK_END = {"type": "result", "subtype": "success", "is_error": False, "result": "done"}
+CUT_TOOL_LINE = '{"type": "user", "message": {"content": [{"type": "tool_result", "content": "docs: the usage limit of'
+CUT_TEXT_LINE = '{"type":"assistant","message":{"content":[{"type":"text","text":"I will check the weekly limit handling'
+
+
+@pytest.mark.parametrize("stdout, stderr", [  # re-review N1: the wording rule reads a failed call's own errors only
+    ([OK_END], "Approaching usage limit · resets 5pm\n"),  # a warning on stderr beside a call that succeeded
+    ([{"type": "system", "subtype": "init"}, CUT_TOOL_LINE], ""),  # a tool result cut mid-write, no result event
+    ([CUT_TEXT_LINE], ""),  # the model's text cut mid-write (a timeout's SIGKILL), no result event
+    ([{**ERROR, "api_error_status": 403, "result": "You've hit your limit"}], ""),  # another status, no rejected event
+    ([{**ERROR, "api_error_status": 529, "result": "API Error: 529 overloaded; retrying would pass your usage limit"}],
+     ""),
+    ([{**ERROR, "api_error_status": 500, "result": "x"}], "API Error (500) · Retrying… you may hit your rate limit\n"),
+])
+def test_a_limit_wording_outside_a_failed_calls_own_errors_is_no_usage_limit(tmp_path, stdout, stderr):
+    assert units.usage_limit(call_printing(tmp_path, stdout, stderr)) is None
+
+
+@pytest.mark.parametrize("stderr", ["Approaching usage limit · resets 5pm\n", "API Error (500) · Retrying in 2s\n"])
+def test_a_warning_beside_a_call_that_succeeded_is_no_provider_error(tmp_path, stderr):  # re-review N1
+    assert units.provider_incident(call_printing(tmp_path, [OK_END], stderr)) is None
+
+
+def test_a_tool_line_cut_mid_write_is_no_provider_error(tmp_path):  # re-review N1: tool text is never read
+    line = '{"type": "user", "message": {"content": [{"type": "tool_result", "content": "401 oauth token expired'
+    assert units.provider_incident(call_printing(tmp_path, [{"type": "system", "subtype": "init"}, line])) is None
 
 
 def test_a_pause_of_an_unrecognised_shape_tells_the_operator_to_read_the_raw_result(ledger, tmp_path):

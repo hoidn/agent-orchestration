@@ -90,8 +90,10 @@ def physical_calls(records):
 
 
 def provider_incident(records):
-    """The first provider or apparatus error line in the run's calls, or None."""
+    """The first provider or apparatus error line in the run's calls that did not succeed (`succeeded`), or None."""
     for call in calls(records):
+        if succeeded(stream_events(call / "stdout.txt")):
+            continue
         for name in ("stderr.txt", "stdout.txt"):
             path = call / name
             for line in error_lines(path.read_text(errors="replace"), name) if path.is_file() else []:
@@ -120,8 +122,9 @@ def usage_limit(records):
 
 def limit_shape(call, events):
     """"recorded" for the vendor's recorded answer; `UNRECOGNISED` for an error result with status 429 (a number or
-    a string), an error result beside a rejected `rate_limit_event`, or an error line in a limit wording that no
-    other named status explains; else None. A model's or a tool's text is never read (`error_lines`)."""
+    a string), an error result beside a rejected `rate_limit_event`, or, in a call that failed (an error result, or
+    no result event at all), an error line in a limit wording that no other named status explains; else None. A
+    model's or a tool's text is never read (`error_lines`)."""
     results = [e for e in events if e.get("type") == "result"]
     if recorded_answer(results):
         return "recorded"
@@ -129,9 +132,21 @@ def limit_shape(call, events):
     statuses = error_statuses(errors)
     if "429" in statuses or (errors and any(map(rejected_event, events))):
         return UNRECOGNISED
-    if not statuses and next(limit_lines(call), None) is not None:  # another status: positively something else
-        return UNRECOGNISED
-    return None
+    return UNRECOGNISED if worded_failure(call, events, statuses) else None
+
+
+def worded_failure(call, events, statuses):
+    """A call that did not succeed with an error line in a limit wording, and no named status, which would be
+    something else."""
+    return not succeeded(events) and not statuses and next(limit_lines(call), None) is not None
+
+
+def succeeded(events):
+    """Whether the call ended with a result event and no error result. A warning such a call printed is neither a
+    usage limit nor a provider error (re-review N1); a call with an error result, or with no result event at all
+    (a crash, a kill, a refusal by the shim), did not succeed."""
+    results = [e for e in events if e.get("type") == "result"]
+    return bool(results) and not any(e.get("is_error") for e in results)
 
 
 def recorded_answer(results):
@@ -170,19 +185,26 @@ def stream_events(path):
 
 
 def error_lines(text, name):
-    """The lines that can carry the provider's own error: all of stderr (the CLI's); of the stream-json stdout,
-    lines that are not JSON and the text of a `result` event marked `is_error`, never the transcript's tool output,
-    where a task's own text can name 401 or oauth (review2 minor 6)."""
+    """The lines that can carry the provider's own error: all of stderr (the CLI's); of the stream-json stdout, the
+    plain lines and the text of a `result` event marked `is_error`. Never the transcript's tool output or model
+    text, where a task's own text can name 401 or oauth (review2 minor 6), and never a stream event cut mid-write
+    (a line that starts with `{` and is not JSON: a SIGKILL during a write leaves one; re-review N1)."""
     for line in text.splitlines():
-        try:
-            event = json.loads(line) if name == "stdout.txt" else None
-        except ValueError:
-            event = None
-        if not isinstance(event, dict):
+        if name != "stdout.txt" or not line.lstrip().startswith("{"):
             yield line
-        elif event.get("type") == "result" and event.get("is_error"):
+            continue
+        event = json_object(line)
+        if event.get("type") == "result" and event.get("is_error"):
             yield str(event.get("result"))
-    return None
+
+
+def json_object(line):
+    """The JSON object a stream line holds, or {} for a line cut mid-write."""
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return {}
+    return event if isinstance(event, dict) else {}
 
 
 def _session(path):
