@@ -516,6 +516,14 @@ def test_a_manifest_hash_that_is_not_the_ledgers_current_label_is_refused(live_k
     assert (code, "not the ledger's current configuration label" in reason) == (3, True)
 
 
+def test_a_ledger_label_whose_runtime_commit_is_not_this_checkout_s_is_refused(live_kit):
+    """Task 8 part A M9: the label row's runtime commit is checked, not only LH_RUNTIME_COMMIT."""
+    live_kit.ledger_row("Configuration label", f"{live_kit.label} {'0' * 40} another commit")
+    env = live_kit.env(live=True)
+    live_kit.allowance_inputs(env)
+    assert "the ledger's runtime commit" in _refused(live_kit, env)[1]
+
+
 def test_a_checkout_on_a_branch_is_refused(live_kit):
     _git(live_kit.repo, "checkout", "-q", "-B", "elsewhere", live_kit.commit)
     env = live_kit.env(live=True)
@@ -670,7 +678,7 @@ def test_a_rehearsal_with_every_input_right_passes_the_preflight(short):
 
 
 @pytest.mark.parametrize("token", ["", "lh-fake-slot-", "lh-fake-slot-" + "g" * 32, "real-looking-token",
-                                   "lh-fake-slot-" + "0" * 31])
+                                   "lh-fake-slot-" + "0" * 31, "lh-fake-slot-" + "0" * 32 + "x"])
 def test_a_slot_without_a_fake_token_in_the_launcher_s_form_is_refused(token):
     assert ladder.token_refusal(token) == "a slot without a fake token in the launcher's form"
 
@@ -979,6 +987,14 @@ def _ctx(short, lh=None):
 
 def _closed(short, fixture, rows, entry=None, reward=None):
     """Reserve an attempt, replay `fixture` as its trial, log `rows` for its slot and close it."""
+    ctx, root, attempt = _unclosed(short, fixture, rows, entry, reward)
+    record = ladder.close(ctx, root, attempt, CRITERION, 0.0, ended_at=attempt["opened"] + 1)
+    return root, attempt, record
+
+
+def _unclosed(short, fixture, rows, entry=None, reward=None):
+    """Reserve an attempt, replay `fixture` as its trial and log `rows` for its slot (a row may name another slot
+    or time); (ctx, root, attempt), not closed."""
     ctx = _ctx(short)
     root = ctx.root
     ladder.ensure_state(root)
@@ -993,8 +1009,7 @@ def _closed(short, fixture, rows, entry=None, reward=None):
             fh.write(json.dumps({"time": now + 0.001 * (i + 1), "slot": attempt["id"], **row}) + "\n")
     while time.time() <= now + 0.001 * (len(rows) + 1):  # the window ends at the close: every row is in it
         time.sleep(0.001)
-    record = ladder.close(ctx, root, attempt, CRITERION, 0.0, ended_at=now + 1)
-    return root, attempt, record
+    return ctx, root, attempt
 
 
 def test_a_cut_slot_is_run_again_at_the_head_of_the_queue_as_a_new_counted_start_and_its_reward_is_never_read(short):
@@ -1006,6 +1021,41 @@ def test_a_cut_slot_is_run_again_at_the_head_of_the_queue_as_a_new_counted_start
     assert ((record["row"], record["class"], record["reward"]), queue[0]["round"], queue[0]["rerun_of"],
             [e["round"] for e in queue], starts, committed) == (
         (10, "cut", None), 2, attempt["id"], [2, 1], 1, 0.01)
+
+
+def test_another_slot_s_usage_limit_row_in_the_window_never_cuts_this_attempt(short):
+    """Task 8 part A M32: D5 row 10 reads the attempt's own rows; the tranche's are read only for the limit."""
+    _, _, record = _closed(short, "token-three-tools-normal-end",
+                           [{"status": 200, "usd": 0.01}, {"slot": "another-slot", "status": 429, "headers": SIGNAL_1}],
+                           reward=1.0)
+    assert (record["row"], record["class"], record["reward"]) == (5, "observation", 1.0)
+
+
+def test_a_row_of_the_slot_timed_before_its_opening_is_outside_its_window(short):
+    """Task 8 part A M31: D5's join is the attempt's window, from the slot's opening to its closing."""
+    _, _, record = _closed(short, "token-three-tools-normal-end",
+                           [{"status": 200, "usd": 0.01}, {"time": 0, "status": 429, "headers": SIGNAL_1, "usd": 5.0}],
+                           reward=1.0)
+    assert (record["row"], record["class"], record["usd"] < 5.0) == (5, "observation", True)
+
+
+def test_a_cut_s_reward_is_never_read_by_the_judge(short):
+    """Task 8 part A M54: the verifier's 1 in a cut attempt's trial is not its reward."""
+    _, root, attempt = _unclosed(short, "token-three-tools-normal-end", [{"status": 429, "headers": SIGNAL_1}],
+                              reward=1.0)
+    judged = ladder.judge(root, attempt, CRITERION, ended_at=attempt["opened"] + 1)
+    assert (judged["class"], judged["reward"]) == ("cut", None)
+
+
+def test_a_ruling_to_the_cut_row_records_no_reward(short):
+    """Task 8 part A M5: a start ruled a cut keeps no reward, whatever its trial's verifier gave."""
+    root, attempt, _ = _closed(short, "token-usage-limit-NonZeroAgentExitCodeError", [{"status": 429}], reward=1.0)
+    ctx = _ctx(short)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    (ctx.rehearsal / "ledger.md").write_text(f"| 2026-11-21 | Ruling | {attempt['id']} row 10: a usage limit |\n")
+    code = ladder.main(["ruling", attempt["id"], "--row", "10", "--date", "2026-11-21"], env=ctx.env)
+    settled = ladder.attempts(root)[0]["settled"]
+    assert (code, settled["class"], settled["reward"]) == (0, "cut", None)
 
 
 @pytest.mark.parametrize("fixture,rows,cls", [
@@ -1079,6 +1129,17 @@ def test_a_subagent_file_is_a_stop(short):
     assert (before, [p.name for p in ladder.subagent_files(trial)]) == ([], ["agent-1.jsonl"])
 
 
+def test_an_attempt_whose_trial_holds_a_subagent_file_is_judged_a_stop(short):
+    """Task 8 part A M33: the judge's teardown look names the subagent file as the stop."""
+    _, root, attempt = _unclosed(short, "token-three-tools-normal-end", [{"status": 200, "usd": 0.01}], reward=1.0)
+    trial = ladder.trial_dir(root / "slots" / attempt["id"])
+    sub = trial / "agent" / "sessions" / "projects" / "-app" / "sess" / "subagents"
+    sub.mkdir(parents=True)
+    (sub / "agent-1.jsonl").write_text("{}\n")
+    judged = ladder.judge(root, attempt, CRITERION, ended_at=attempt["opened"] + 1)
+    assert (judged["class"], judged["stop"], judged["reward"]) == ("stop", "a subagent file", None)
+
+
 # Regrade (D5): verifier only, no model call.
 
 def _calls(lh):
@@ -1120,6 +1181,18 @@ def test_a_load_sensitive_task_s_zero_under_load_is_regraded_once_below_the_gate
     loud = ladder.regraded(_ctx(short, lh), criterion, attempt, {**record, "verifier_load_above_gate": True},
                            gate=lambda: True)
     assert ((quiet["reward"], loud["reward"], loud["regrades"]), len(_calls(lh))) == ((0.0, 1.0, 1), 1)
+
+
+def test_a_cut_on_a_load_sensitive_task_is_never_regraded(short):
+    """Task 8 part A M23: case 2 regrades only an observation's 0; a cut's reward is never read."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    (lh / "standin" / "regrade.json").write_text(json.dumps({"wal-recovery-ordering__abcdefg": [{"reward": 1.0}]}))
+    criterion = {**CRITERION, "tasks": {**CRITERION["tasks"], "load_sensitive": ["wal-recovery-ordering"]}}
+    root, attempt, record = _closed(short, "token-usage-limit-NonZeroAgentExitCodeError",
+                                    [{"status": 429, "headers": SIGNAL_1}])
+    after = ladder.regraded(_ctx(short, lh), criterion, attempt, {**record, "verifier_load_above_gate": True},
+                            gate=lambda: True)
+    assert ((record["class"], after["class"], after["reward"]), len(_calls(lh))) == (("cut", "cut", None), 0)
 
 
 def test_a_case_2_regrade_that_never_ran_is_indeterminate_never_a_scored_zero(short):
@@ -1546,6 +1619,13 @@ def test_a_sign_of_paid_extra_usage_in_a_session_s_stream_stops_the_tranche(shor
     root, attempt, record = _closed(short, "token-paid-extra-usage-normal-end", [])
     assert ([r for r in reasons if r], record["class"], ladder.starts_gate(root, 10 ** 9)["kind"]) == (
         ["a sign of paid extra usage in the session's stream"], "stop", "stop")
+
+
+@pytest.mark.parametrize("info,stops", [({}, True), ({"isUsingOverage": None}, True), ({"isUsingOverage": True}, True),
+                                        ({"isUsingOverage": False}, False)])
+def test_a_rate_limit_event_stops_unless_it_says_no_paid_usage(info, stops):
+    """Task 8 part A M35 (D4, paid_usage.stream_stop): only an explicit false is no paid usage."""
+    assert (ladder.stream_stop({"type": "rate_limit_event", "rate_limit_info": info}) is not None) == stops
 
 
 # The guard reads the owner's meter.
