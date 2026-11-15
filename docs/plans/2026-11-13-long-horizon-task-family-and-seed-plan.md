@@ -757,7 +757,8 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
   verifier ran after a timeout kill (recorded). An *infrastructure failure* counts against both and is
   excluded from k and n, listed, never scored zero; its slot is not run again. A *pre-session
   failure* counts against neither; the slot is relaunched at most twice and is lost after the
-  third failure. A *stop* halts the tranche: no new start. The attempt in which it occurred is
+  third failure. It is one for which the passthrough metered no usage: an ending of its form
+  with metered usage keeps its row and is an infrastructure failure (coordinator ruling on Task 8). A *stop* halts the tranche: no new start. The attempt in which it occurred is
   not an observation and is not scored. It counts against the 240 and the USD 200, as every start
   does (D4: every start's settled cost is committed, and launches stop at 240 starts); for row
   2's second form, which ends before a session, that is the conservative count. Its slot is not

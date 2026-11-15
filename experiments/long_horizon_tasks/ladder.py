@@ -837,13 +837,26 @@ def judge(root, attempt, ladder, ended_at=None, closed=None):
     session = session_of(attempt_dir, window, ended_at, attempt["id"])
     row = 16 if session is None else classify(session, ladder)
     spec = ladder["classification"]["rows"][row - 1]
-    stop = _launcher_stop(trial, ladder)
-    cls, own = "stop" if stop else spec["class"], [r for r in window if r.get("slot") == attempt["id"]]
+    stop, own = _launcher_stop(trial, ladder), [r for r in window if r.get("slot") == attempt["id"]]
+    cls = "stop" if stop else _row_class(spec, own)
     return {"row": row, "class": cls, "flagged": spec.get("flagged", False), "reward": _observed(cls, trial),
             "stop": stop or (f"D5 row {row}" if cls == "stop" or spec.get("stop") else None),
             "api_retry": None if session is None else session["n_api_retry"], "minutes": session_minutes(trial),
             "graded": graded(trial, ladder, attempt["task"]), "load_refused": _load_refused(own, ladder),
             "slot_rows": own}
+
+
+def _row_class(spec, own):
+    """The row's class, except that an ending of a pre-session row's form for which the passthrough metered usage is
+    an infrastructure failure on that row: a pre-session failure has no metered request (D5; coordinator ruling on
+    Task 8 part A m12). An unpriced row counts as metered."""
+    if spec["class"] != "pre_session_failure":
+        return spec["class"]
+    try:
+        metered = _meter(own) > 0
+    except ValueError:
+        metered = True
+    return "infrastructure_failure" if metered else spec["class"]
 
 
 def _load_refused(own, ladder):

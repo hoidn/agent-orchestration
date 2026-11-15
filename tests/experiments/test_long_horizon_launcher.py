@@ -1025,6 +1025,18 @@ def test_a_cut_slot_is_run_again_at_the_head_of_the_queue_as_a_new_counted_start
         (10, "cut", None), 2, attempt["id"], [2, 1], 1, 0.01)
 
 
+@pytest.mark.parametrize("rows,want", [([], ("pre_session_failure", 0, 0.0)),
+                                       ([{"status": 200, "usd": 0.02}], ("infrastructure_failure", 1, 0.02))])
+def test_an_ending_before_a_session_that_the_passthrough_metered_usage_for_is_an_infrastructure_failure(
+        short, rows, want):
+    """Coordinator ruling on part A m12 (D5): a pre-session failure is one with no metered request, so it counts
+    against neither the 240 nor the USD 200; an ending of row 1's form with metered usage keeps its row and is an
+    infrastructure failure, which counts against both."""
+    root, _, record = _closed(short, "pre-session-agent-install-RuntimeError", rows)
+    starts, committed, _ = ladder.tally(root, CRITERION, 0.0)
+    assert (record["row"], (record["class"], starts, committed)) == (1, want)
+
+
 def test_another_slot_s_usage_limit_row_in_the_window_never_cuts_this_attempt(short):
     """Task 8 part A M32: D5 row 10 reads the attempt's own rows; the tranche's are read only for the limit."""
     _, _, record = _closed(short, "token-three-tools-normal-end",

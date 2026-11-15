@@ -191,7 +191,9 @@ At teardown the runtime check reads every container of the attempt: each contain
 container's (`*_main_1`) exported file system. A failed `podman inspect`, `logs` or `export` is an incomplete scan,
 a stop; each read's exit code is kept in the slot's `podman.jsonl`. The process environments are sampled every 2 s
 while the harness runs, from running containers only: at teardown every container has exited. A failed `podman exec`
-on a running container is logged there and does not by itself make the scan incomplete. The pids limit
+on a running container is logged there and does not by itself make the scan incomplete. A limit of the check: a
+container that ran too briefly for any 2 s sample is scanned only through its inspected configuration, so what its
+processes held at run time is not read. The pids limit
 (`limits-compose.yaml`) reaches the agent's environment only: Harbor does not apply runtime overrides to the
 separate verifier containers.
 

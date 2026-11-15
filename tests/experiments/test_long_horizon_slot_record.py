@@ -284,6 +284,19 @@ def test_an_infrastructure_failure_on_an_observation_s_row_is_only_regrade_case_
         _load(_one(fields))
 
 
+@pytest.mark.parametrize("usd,loads", [(0.02, True), (0.0, False)])
+def test_an_infrastructure_failure_on_the_pre_session_row_is_one_the_passthrough_metered_usage_for(usd, loads):
+    """Coordinator ruling on part A m12 (D5): row 1's form with metered usage is an infrastructure failure on its own
+    row; with nothing metered it is a pre-session failure."""
+    start = {"row": 1, "class": "infrastructure_failure", "reward": None, "usd": usd}
+    try:
+        loaded = _load(_one(start))[0]
+    except slot_record.RecordError:
+        loaded = None
+    assert (loaded is not None, loaded and (loaded["class"], loaded["counted"])) == (
+        loads, ("infrastructure_failure", False) if loads else None)
+
+
 def _with_pilot(cells):
     return export({PILOT: {e: [0] for e in EFFORTS}, TASKS[0]: {e: [0, 0, 0] for e in EFFORTS}}, pilot=cells)
 
