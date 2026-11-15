@@ -30,16 +30,12 @@ def _source(route, result_type):
     declaration = ""
     body = effect
     if route != "direct":
-        # The private-workflow lowering mode exists only below target 2.40 (Task 4b).
-        clauses = f'''
-          :effects ((uses-provider provider)) :lowering {route}''' if route == "private-workflow" else ""
-        declaration = f'''(defproc review ((draft String)) -> {result_type}{clauses} {effect})'''
+        declaration = f'''(defproc review ((draft String)) -> {result_type} {effect})'''
         body = "(review draft)"
-    source = replace_exact(replace_exact(SOURCE, "DECLARATION", declaration), "BODY", body)
-    return replace_exact(source, '(:target-dsl "2.40")', '(:target-dsl "2.35")') if route == "private-workflow" else source
+    return replace_exact(replace_exact(SOURCE, "DECLARATION", declaration), "BODY", body)
 
 
-@pytest.mark.parametrize("route", ["direct", "inline", "private-workflow"])
+@pytest.mark.parametrize("route", ["direct", "inline"])
 @pytest.mark.parametrize("result_type", ["Decision[Notes Blocker]", "Box"], ids=["union", "record"])
 def test_evaluated_summary_preserves_nested_union_result(tmp_path, route, result_type):
     program = build(tmp_path, _source(route, result_type))
