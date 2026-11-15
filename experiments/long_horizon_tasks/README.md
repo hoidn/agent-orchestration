@@ -130,7 +130,10 @@ pytest -q -n 4 tests/experiments/test_long_horizon_passthrough.py
 
 `slot_record.py` is the one definition of the launcher's export: its fields and types (in its docstring) and
 `load`, which joins every start to its schedule slot and its D5 row and refuses anything that does not fit, naming the
-record. The launcher writes that layout and the readout reads it; both load the module by its path (the kit runs
+record. Each start carries the class the launcher decided (`class`, with `stop_cause` for a stop from the closed
+list `LAUNCHER_STOPS` found on a row of another class) and its D5 row as evidence; a stop is never scored. A
+`contamination` result may sit on a start of any class: it excludes an observation, and on any other class is listed
+and counted for D7.7 without changing the class. The launcher writes that layout and the readout reads it; both load the module by its path (the kit runs
 under `python -I`) and neither imports the other.
 
 `readout.py` turns the export into the readout of D6 and, at the end of the tranche, into
@@ -140,7 +143,9 @@ slots by slot id: the cells and pooled counts with their exact intervals and lab
 over complete triples with its verdict and the bound on the fall, the cost per effort, the lists (exclusions, a
 contaminated attempt by the SHA-256 of each term found, flags, cuts per effort, the pilot's attempts, refused
 connections), the graded outcome, an earlier label's counts and the allowance. The last three enter no rule. The
-pooled screen applies at the planned 15 attempts only; with fewer a task is "not screened". A readout that ends in a
+pooled screen applies when every effort has at least four scored observations (`readout.pooled.min_per_effort`), and
+is printed "screened at n of 15 attempts"; with fewer at any effort a task is "not screened", with its counts per
+effort. A readout that ends in a
 stop places nothing and still prints the bound on the fall over the complete triples there are.
 
 ```
@@ -149,11 +154,12 @@ python -I experiments/long_horizon_tasks/readout.py <export.json> --rehearsal <s
 pytest -q -n 4 tests/experiments/test_long_horizon_slot_record.py tests/experiments/test_long_horizon_readout.py
 ```
 
-A final readout is refused while `ladder.json` marks a `readout.*` field pending, and unless the export's label is
-the SHA-256 of `manifest.json` and that manifest holds the SHA-256 of the `ladder.json` read. `--rehearsal` takes a
+A final readout is refused unless `manifest.json` is frozen, its SHA-256 is the export's label, `ladder.json`,
+`tasks.json`, `readout.py` and `slot_record.py` equal its records and no field is pending; the refusal names the
+reason. `--rehearsal` takes a
 JSON object with a stand-in for each pending readout field (and for nothing else) and stamps the readout and
 `family.json` as a rehearsal. `--dropped` takes the coordinator's drops, a JSON list of `{"task", "reason"}`, the
-reason naming the ledger row. `family.json` is written only from a readout whose tranche ended and did not end in a
-stop, with every task screened at 15 attempts or dropped; the same records give the same bytes. `readout.py` and
+reason naming the ledger row by its date. `family.json` is written only from a readout whose tranche ended and did not end in a
+stop, with every task screened or dropped; the same records give the same bytes. `readout.py` and
 `slot_record.py` are kit files, so the manifest covers them and a change to either makes a new label; their test
 modules are not covered.
