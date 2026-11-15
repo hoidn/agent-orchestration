@@ -2634,7 +2634,7 @@ def test_guidance_constant_retains_lexical_bindings_and_lazy_branches(
     type_name: str, source: str, expected: object,
 ) -> None:
     syntax_module = build_syntax_module(read_sexpr_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35"))',
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40"))',
         source_path="guidance_constants.orc",
     ))
     env = FrontendTypeEnvironment.from_module(elaborate_definition_module(syntax_module))

@@ -49,7 +49,7 @@ def test_suffix_binding_resolver_preserves_unavailable_alias_and_caller():
 
 
 _CONTROL_PROC = '(defproc pick ((flag Bool) (left String) (right String)) -> Pair :effects ((uses-command echo)) :lowering MODE (if flag (command-result echo :argv ("python" "probe.py" left) :returns Pair) (command-result echo :argv ("python" "probe.py" right) :returns Pair)))'
-_PURE_PROC = '(defproc pick ((flag Bool) (left String) (right String)) -> Pair :effects () :lowering inline (let* ((x (if flag left right))) (record Pair :left x :right right)))'
+_PURE_PROC = '(defproc pick ((flag Bool) (left String) (right String)) -> Pair (let* ((x (if flag left right))) (record Pair :left x :right right)))'
 
 
 
@@ -109,7 +109,7 @@ def test_selected_inline_helper_uses_its_real_lexical_types(tmp_path, monkeypatc
 
     program, inputs, facts = _compile(tmp_path,
         f'(let* ((shadow {caller_value}) (hook (bind-proc (proc-ref helper) :fixed true))) (hook 1))',
-        declarations='(defproc helper ((fixed Bool) (n Int)) -> Result :effects ((uses-command echo)) :lowering inline '
+        declarations='(defproc helper ((fixed Bool) (n Int)) -> Result '
         '(let* ((shadow true) (r (command-result echo :argv ("python" "probe.py" fixed n) :returns Result))) r))')
     typed = summary.ControlFacts(**facts,
         workflow_return_types=inputs["workflow_return_types"], procedure_return_types=inputs["procedure_return_types"])
@@ -139,7 +139,7 @@ def _compile_imported_helper_snapshot(tmp_path, reference, provider):
     leaf_path = tmp_path / "leaf.orc"
     (tmp_path / "prompt.md").write_text("Return the requested Leaf record.")
     leaf_body = '(provider-result providers.execute :prompt prompts.execute :inputs () :returns Leaf)' if provider else '(record Leaf :n 7)'
-    leaf_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+    leaf_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule leaf) (export get) (defrecord Leaf (n Int)) '
         f'(defworkflow get () -> Leaf {leaf_body}))')
     leaf = compile_stage3_entrypoint(leaf_path, source_roots=(tmp_path,), workspace_root=tmp_path,
@@ -148,9 +148,9 @@ def _compile_imported_helper_snapshot(tmp_path, reference, provider):
          validate_shared=True).entry_result.typed_program
     leaf = replace(leaf, entry=leaf.workflows["leaf::get"])
     owner_path = tmp_path / "owner.orc"
-    owner_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+    owner_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule owner) (export get) (defrecord Leaf (n Int)) (defrecord Result (i Int) (s String)) '
-        '(defproc helper () -> Result :effects ((calls-workflow dep)) :lowering inline '
+        '(defproc helper () -> Result '
         '(let* ((r (call dep)) (shadow true)) (record Result :i r.n :s "owner"))) '
         '(defworkflow get () -> Result (helper)))')
     if reference:
@@ -173,7 +173,7 @@ def _compile_imported_snapshot_caller(tmp_path, snapshot):
     from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 
     caller_path = tmp_path / "caller.orc"
-    caller_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+    caller_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule caller) (export run) (defrecord Result (i Int) (s String)) (defworkflow run ((shadow String)) -> String '
         '(let* ((r (call dep))) shadow)))')
     return compile_typed_program(caller_path, entry_workflow="run", workspace_root=tmp_path,
@@ -267,7 +267,7 @@ def test_imported_helper_reads_its_original_snapshot_alias_view(tmp_path, monkey
 def _command_preparation_call_shapes(call_kind, command):
     if call_kind == "procedure":
         declaration = '(defproc helper ((flag Bool)) -> Int '
-        declaration += ':effects ((uses-command echo)) :lowering inline ' + command('flag') + ')'
+        declaration += command('flag') + ')'
         first, second = '(helper alias)', '(helper materialized)'
     else:
         declaration = '(defworkflow helper ((flag Bool)) -> Int ' + command('flag') + ')'

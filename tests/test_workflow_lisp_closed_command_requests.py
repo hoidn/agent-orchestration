@@ -48,8 +48,8 @@ def test_workflow_context_capture_shape_exists_before_complete_key(tmp_path):
 
 def test_stable_command_descendant_does_not_promote_irrelevant_inline_literal(tmp_path):
     stable = '(command-result echo :argv ("python" "probe.py") :returns Int)'
-    declaration = '(defproc helper ((flag Bool)) -> Int :effects ((uses-command echo)) '
-    declaration += ':lowering inline ' + stable + ')'
+    declaration = '(defproc helper ((flag Bool)) -> Int '
+    declaration += stable + ')'
     _, children, _ = _prepared_entry(_compile(tmp_path, '(helper true)', declarations=declaration))
     (request,) = children.values()
     assert request.command_fact_demand is False
@@ -63,7 +63,7 @@ def test_stable_command_child_still_makes_its_actual_case_arm_command_bearing(tm
 
     stable = '(command-result echo :argv ("python" "probe.py") :returns Int)'
     declarations = '(defunion Choice (A) (B))'
-    declarations += '(defproc helper () -> Int :effects ((uses-command echo)) :lowering inline ' + stable + ')'
+    declarations += '(defproc helper () -> Int ' + stable + ')'
     match = '(match choice ((A a) (if flag (helper) 1)) ((B b) 0))'
     program = _compile(tmp_path, '(loop/recur :max 1 :state 0 :on-exhausted 0 '
         '(fn (state) (let* ((result ' + match + ')) (done result))))',
@@ -288,8 +288,8 @@ def test_source_free_checker_rederives_command_decisions_after_consistent_renami
     from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid, program_digest
     from orchestrator.contracts.closed_program.sites import _ast_nodes, assign_sites
 
-    declaration = '(defproc helper ((flag Bool)) -> Int :effects ((uses-command echo)) '
-    declaration += ':lowering inline ' + _command('flag') + ')'
+    declaration = '(defproc helper ((flag Bool)) -> Int '
+    declaration += _command('flag') + ')'
     closed = build_closed_program(_compile(tmp_path, '(helper true)', declarations=declaration))
     tree = deepcopy(closed.tree)
     (old_name, definition), = tree['definitions'].items()
@@ -388,10 +388,12 @@ def _assert_native_literal_arguments(closed, type_name, keys):
 @pytest.mark.parametrize("mode", ["inline", "private-workflow"])
 def test_inline_literal_actuals_use_existing_tagged_value_key_rows(tmp_path, type_name, arguments, mode):
     declaration = '(defproc helper ((argument ' + type_name + ')) -> Int '
-    declaration += ':effects ((uses-command echo)) :lowering ' + mode + ' ' + _command('argument') + ')'
+    if mode == "private-workflow":
+        declaration += ':effects ((uses-command echo)) :lowering private-workflow '
+    declaration += _command('argument') + ')'
     program = _compile(tmp_path,
         '(let* ((first (helper ' + arguments[0] + '))) (helper ' + arguments[1] + '))',
-        declarations=declaration)
+        declarations=declaration, target="2.35" if mode == "private-workflow" else "TARGET")
     closed = build_closed_program(program)
     keys = [row["key"] for row in closed.tree["definitions"].values() if row["key"][2] == "helper"]
     if mode == "private-workflow":

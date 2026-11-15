@@ -16,7 +16,7 @@ def test_documented_command_compiles_two_agents_and_four_turns() -> None:
     assert result.returncode == 0, result.stderr
     built = json.loads(result.stdout)
     program = json.loads(Path(built["artifact_paths"]["closed_program"]).read_text(encoding="utf-8"))
-    assert (built["entry_workflow"], built["sites"], program["target"]) == ("design_review_execute_agents::run", 6, "2.38")
+    assert (built["entry_workflow"], built["sites"], program["target"]) == ("design_review_execute_agents::run", 6, "2.40")
     performs = [n for n in _ast_nodes(program["body"]) if n.get("k") == "perform"]
     providers = json.loads((REPO_ROOT / argv[-1]).read_text(encoding="utf-8"))
     assert {n["site"]: n["provider"] for n in performs if n["class"] == "agent"} == {

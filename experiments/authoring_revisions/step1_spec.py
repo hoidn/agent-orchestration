@@ -1,0 +1,55 @@
+# Step 1: each finding reproduced on main at target 2.40 with the smallest program.
+P = '(provider-result providers.a :model model :effort "low" :timeout-sec 60 :prompt (ask :q "x"))'
+LOOP = '(loop/recur :max 2 :state {init} :on-exhausted (list "x") (fn (s) (done {out})))'
+PROBES = [
+    # 1 roles
+    ("f1_inline", "Pair", P),
+    ("f1_alias", "Pair", '(let* ((p providers.a)) (provider-result p :model model :timeout-sec 60 :prompt (ask :q "x")))'),
+    ("f1_agent_timeout", "Pair", '(let* ((a (agent providers.a :model model :timeout-sec 60))) (provider-result a :prompt (ask :q "x")))'),
+    ("f1_agent_ok", "Pair", '(let* ((a (agent providers.a :model model :effort "low"))) (provider-result a :timeout-sec 60 :prompt (ask :q "x")))'),
+    ("f1_agent_override", "Pair", '(let* ((a (agent providers.a :model model))) (provider-result a :effort "low" :prompt (ask :q "x")))'),
+    ("f1_role_record", "Pair", '(let* ((r (record Role :model model :effort "low"))) (provider-result providers.a :model r.model :effort r.effort :timeout-sec 60 :prompt (ask :q "x")))'),
+    ("f1_model_expr", "Pair", '(provider-result providers.a :model (string/concat model "") :prompt (ask :q "x"))'),
+    ("f1_provider_param", "Pair", '(go providers.a model)', '  (defproc go ((p Provider) (m String)) -> Pair (provider-result p :model m :prompt (ask :q "x")))'),
+    ("f1_default_literal", "Pair", '(call inner :n n)', '  (defworkflow inner ((n Int) (coder String :default "claude-haiku-5-5") (effort String :default "low")) -> Pair\n    (provider-result providers.a :model coder :effort effort :prompt (ask :q "x")))'),
+    ("f1_default_name", "Pair", '(call inner :n n :m model)', '  (defworkflow inner ((n Int) (m String) (coder String :default m)) -> Pair\n    (provider-result providers.a :model coder :prompt (ask :q "x")))'),
+    # 2 timeout
+    ("f2_timeout_input", "Pair", '(provider-result providers.a :model model :timeout-sec t :prompt (ask :q "x"))'),
+    ("f2_timeout_let", "Pair", '(let* ((limit 60)) (provider-result providers.a :model model :timeout-sec limit :prompt (ask :q "x")))'),
+    ("f2_agent_turn_timeout_input", "Pair", '(let* ((a (agent providers.a))) (provider-result a :timeout-sec t :prompt (ask :q "x")))'),
+    ("f2_request_input_timeout_input", "String", '(request-input "go on?" :returns String :timeout-sec t)'),
+    # 3 empty list
+    ("f3_loop_state_bare", "List[String]", LOOP.format(init="(list)", out="s")),
+    ("f3_loop_state_carrier", "List[String]", LOOP.format(init="(loop-state (notes List[String] (list)))", out="s.notes")),
+    ("f3_record_field", "Pair", '(record Pair :a 1 :b (list))'),
+    ("f3_variant_field", "Verdict", '(variant Verdict MET :evidence (list))'),
+    ("f3_proc_arg", "Int", '(count (list))', '  (defproc count ((xs List[String])) -> Int (list/length xs))'),
+    ("f3_defun_arg", "Int", '(count (list))', '  (defun count ((xs List[String])) -> Int (list/length xs))'),
+    ("f3_call_arg", "Int", '(call inner :xs (list))', '  (defworkflow inner ((xs List[String])) -> Int (list/length xs))'),
+    ("f3_let", "List[String]", '(let* ((xs (list))) xs)'),
+    ("f3_body_result", "List[String]", '(list)'),
+    ("f3_if_arm", "List[String]", '(if (> n 0) (list "a") (list))'),
+    ("f3_if_arm_first", "List[String]", '(if (> n 0) (list) (list "a"))'),
+    ("f3_match_arm", "List[String]", '(match (variant Verdict MET :evidence (list "e")) ((MET m) (list)) ((NOT_MET g) g.reasons))'),
+    ("f3_append_both", "List[String]", '(list/append (list) "a")'),
+    ("f3_continue", "List[String]", '(loop/recur :max 2 :state (list "a") :on-exhausted (list "x") (fn (s) (if (> n 0) (continue (list)) (done s))))'),
+    ("f3_done", "List[String]", '(loop/recur :max 2 :state 0 :on-exhausted (list "x") (fn (s) (done (list))))'),
+    ("f3_on_exhausted", "List[String]", '(loop/recur :max 2 :state 0 :on-exhausted (list) (fn (s) (done (list "a"))))'),
+    ("f3_loop_state_update", "List[String]", '(loop/recur :max 2 :state (loop-state (notes List[String] (list "a"))) :on-exhausted (list "x") (fn (s) (if (> n 0) (continue (loop-state :like s :notes (list))) (done s.notes))))'),
+    ("f3_map_source", "List[Int]", f'(list/map-effect ((x (list))) :max 2 {E(1)})'),
+    ("f3_eq", "Bool", '(= (list "a") (list))'),
+    # 5 the map cap
+    ("f5_nine_under_eight", "List[Int]", f'(let* ((xs {E([1,2,3,4,5,6,7,8,9], "List[Int]")})) (list/map-effect ((x xs)) :max 8 {E(1)}))', "", ["n=1", "model=m", "t=1"]),
+    ("f5_guard_length", "List[Int]", f'(let* ((xs {E([1,2,3], "List[Int]")})) (if (> (list/length xs) 2) (list 0) (list/map-effect ((x xs)) :max 2 {E(1)})))', "", ["n=1", "model=m", "t=1"]),
+    ("f5_take", "List[Int]", '(list/take (list 1 2 3) 2)'),
+    # 6 reduction
+    ("f6_fold", "Int", '(list/fold ((acc 0) (x (list 1 2 3))) (+ acc x))'),
+    ("f6_all", "Bool", '(list/all ((x (list 1 2 3))) (> x 0))'),
+    ("f6_any", "Bool", '(list/any ((x (list 1 2 3))) (> x 0))'),
+    ("f6_contains", "Bool", '(list/contains? (list 1 2 3) 2)'),
+    ("f6_map_bool", "List[Bool]", '(list/map ((x (list 1 2 3))) (> x 0))', "", ["n=1", "model=m", "t=1"]),
+    ("f6_cursor_loop", "Bool", '(loop/recur :max (+ (list/length xs) 1) :state xs :on-exhausted false (fn (left) (if (list/empty? left) (done true) (if (> (or-else (list/head left) 0) 0) (continue (list/rest left)) (done false)))))', '', None),
+    ("f6_cursor_loop_run", "Bool", '(let* ((xs (list 1 2 3))) (loop/recur :max (+ (list/length xs) 1) :state xs :on-exhausted false (fn (left) (if (list/empty? left) (done true) (if (> (or-else (list/head left) 0) 0) (continue (list/rest left)) (done false))))))', '', ["n=1", "model=m", "t=1"]),
+    ("f6_cursor_in_defun", "Bool", '(allpos (list 1 2 3))', '  (defun allpos ((xs List[Int])) -> Bool (loop/recur :max 9 :state xs :on-exhausted false (fn (left) (if (list/empty? left) (done true) (continue (list/rest left))))))', ["n=1", "model=m", "t=1"]),
+    ("f6_match_verdicts", "Bool", '(let* ((vs (list (variant Verdict MET :evidence (list "e"))))) (list/empty? (list/map ((v vs)) (match v ((MET m) true) ((NOT_MET g) false)))))', "", ["n=1", "model=m", "t=1"]),
+]

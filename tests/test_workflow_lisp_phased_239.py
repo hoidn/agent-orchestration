@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -565,3 +566,27 @@ def test_source_free_checker_rejects_phased_class_and_policy_forgery(
     with pytest.raises(CheckedFormError) as excinfo:
         validate(tree)
     assert excinfo.value.rule == rule
+
+
+def _timeout_source(sections: str) -> str:
+    return _source("2.40", sections).replace("((subject String))", "((subject String) (limit Int))")
+
+
+@pytest.mark.parametrize("operand", ["limit", "subject"])
+def test_phased_timeout_stays_a_literal(tmp_path: Path, operand: str) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(tmp_path / "phased239.orc", _timeout_source(f":delivery :phased :timeout-sec {operand}"))
+    assert excinfo.value.diagnostics[0].code == "provider_result_timeout_literal_required"
+
+
+def test_closed_check_admits_an_inline_timeout_for_a_composed_call_only(tmp_path: Path) -> None:
+    composed = deepcopy(_compile(tmp_path / "composed" / "phased239.orc", _timeout_source(":timeout-sec limit")).tree)
+    phased = deepcopy(_compile(tmp_path / "phased" / "phased239.orc", _timeout_source(":delivery :phased :timeout-sec 60")).tree)
+    name = _provider_effect(SimpleNamespace(tree=composed))["policy"]["timeout_sec"]
+    _provider_effect(SimpleNamespace(tree=phased))["policy"]["timeout_sec"] = name
+    phased["sites"] = [list(row) for row in assign_sites(phased)]
+
+    validate(composed)
+    with pytest.raises(CheckedFormError) as excinfo:
+        validate(phased)
+    assert (name["k"], excinfo.value.rule) == ("name", "effect_shape")

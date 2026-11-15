@@ -477,13 +477,6 @@ def test_sample_refuses_a_negative_cap():
 
 PROVIDERS = {f"providers.{role}": "claude_unrestricted_workspace" for role in ("planner", "coder", "reviewer")}
 COMMANDS = {"dev-check": {"stable_command": ["python", "dev_check.py"], "closure": ["dev_check.py"]}}
-# P8's crash (backlog row D21): the `graft` of the binding's value by the `done` form.
-CRASH_SEED = """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
-  (defmodule crash) (export run)
-  (defworkflow run () -> Int
-    (loop/recur :max 2 :state (loop-state (i Int 0)) :on-exhausted 0
-      (fn (state) (let* ((x (+ state.i 1))) (done state.i))))))
-"""
 # The kinds of the backlog's signatures; the mutants' crash keys are those of the first two.
 KINDS = ("crash", "traceback", "refused", "builds", "value", "digests", "ran")
 
@@ -556,13 +549,6 @@ def test_a_coded_crash_and_its_traceback_have_one_key(kind, tmp_path, monkeypatc
         (["RuntimeError", "workflow_lisp/closed/build.py:build_closed_program"], [kind], COUNTS["rounds"])]
 
 
-def test_a_crashing_mutant_is_reported_under_the_backlog_key(tmp_path):
-    # Deleted with the backlog's row D21 when its defect is fixed.
-    report = check.compile_report(seed_dir(tmp_path / "seed", {"crash": CRASH_SEED}), ["crash"], 100, 0,
-                                  operators=("graft",))
-    assert [record["key"] for record in report["crashes"]] == [list(KNOWN["D21"][1:])]
-
-
 def test_the_fixture_sample_has_no_crash(tmp_path):
     seed = seed_dir(tmp_path / "seed", {"fixture": SEED})
     before = snapshot(seed)
@@ -623,6 +609,13 @@ def test_the_readout_keys_are_the_documented_ones(tmp_path):
     report = check.compile_report(seed_dir(tmp_path / "seed", {"fixture": SEED}), ["fixture"], 1, 0,
                                   operators=("rounds",))
     assert list(report) == documented
+
+
+def test_the_committed_readout_has_the_documented_keys():
+    # The readout of Task T5 is made with `--standin`, so it also holds `reuse`.
+    documented = re.findall(r"^- `(\w+)`:", check.__doc__, re.MULTILINE)
+    readout = json.loads(check.READOUT.read_text(encoding="utf-8"))
+    assert list(readout) == [*documented, "reuse"]
 
 
 def test_digests_and_long_mutants_are_counted(tmp_path, monkeypatch):
@@ -807,6 +800,20 @@ def test_no_mutant_is_ever_run(recorded):
 def test_the_seed_source_is_restored_and_the_world_removed(recorded):
     assert recorded["after"]["source"] == recorded["before"]["source"] == SEED.encode("utf-8")
     assert recorded["left"] == []
+
+
+NO_REPO_SEED = (SEED.replace("(defmodule fixture)", "(defmodule norepo)").replace(" (repo String)", "")
+                .replace("(repo :text) ", "").replace(" (repo :text)", "").replace("{repo}", "here")
+                .replace(":repo repo ", "").replace(" :repo repo", ""))
+
+
+@pytest.mark.parametrize("program", ["fixture", "norepo"])
+def test_a_stand_in_run_binds_repo_only_when_the_entry_declares_it(program, tmp_path):
+    seed = seed_dir(tmp_path / "seed", {program: {"fixture": SEED, "norepo": NO_REPO_SEED}[program]})
+    standin = {**STANDIN, "answers": {program: {"clean": [CHANGE, CHANGE, MET]}}}
+    with check.recorded_run(seed, program, standin, "clean") as run:
+        bound = json.loads((run["world"] / "inputs.json").read_text(encoding="utf-8"))
+        assert (run["steps"], run["calls"], "repo" in bound) == (4, 3, program == "fixture")
 
 
 def test_a_coded_refusal_is_no_plan_with_its_code(recorded, tmp_path, monkeypatch):
