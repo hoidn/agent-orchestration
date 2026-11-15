@@ -468,12 +468,11 @@ class Passthrough:
 
     def _append(self, name, row):
         hit = self.guard.find(_leaves(row))
-        if hit:  # a vendor value carried the token: the row keeps its numbers only, and the tranche stops
+        if hit:  # a vendor value carried the token: the tranche stops, and the row keeps its numbers only
+            self.event("stop", reason="token in a log row", form=hit[0])
             row = {**{key: row[key] for key in NUMBERS if key in row}, "withheld": hit[0]}
         with self.write_lock, open(self.state / name, "a") as fh:
             fh.write(json.dumps(row) + "\n")
-        if hit:
-            self.event("stop", reason="token in a log row", form=hit[0])
 
     def log(self, row):
         self._append("requests.jsonl", row)
@@ -578,11 +577,11 @@ class Passthrough:
         with self.lock:
             self._add(slot, usd or 0.0, 0)
             row.update(usd=usd, slot_usd=self.spent[slot], total_usd=sum(self.spent.values()), worst_case=worst)
-        self.log({**row, "usage": usage, "response_model": model, "message_id": message_id})
-        if worst:
+        if worst:  # the events first: once a request's row is written, so are they
             self.event("close_starts", slot=slot, reason="usage incomplete", reset=None)
         if model not in (None, MODEL):
             self.event("stop", slot=slot, reason=f"response model {model}")
+        self.log({**row, "usage": usage, "response_model": model, "message_id": message_id})
 
     def logged_headers(self, headers):
         names = {name for name, _ in self.paid_usage}
@@ -791,10 +790,10 @@ class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
     def process_request(self, request, client_address):
         if not self.connections.acquire(blocking=False):  # over the cap: refused without a thread
+            self.pt.log({"time": time.time(), "slot": None, "status": 403, "refused": "too many connections"})
             with contextlib.suppress(OSError):
                 request.settimeout(1)
                 request.sendall(_refusal("too many connections"))
-            self.pt.log({"time": time.time(), "slot": None, "status": 403, "refused": "too many connections"})
             self.shutdown_request(request)
             return
         super().process_request(request, client_address)
