@@ -1631,6 +1631,15 @@ def harness_env(ctx, attempt):
             "CLAUDE_CODE_OAUTH_TOKEN": attempt["token"]}
 
 
+def passthrough_mode_refusal(ctx):
+    """A passthrough whose recorded mode (fingerprint.json's, written at its start) is not this launch's: a
+    rehearsal never runs against a live passthrough, nor a live launch against a rehearsal's (Task 8 M3)."""
+    want = "live" if ctx.live else "rehearsal"
+    path = ctx.root / "passthrough" / "fingerprint.json"
+    mode = (_read_json(path) if path.is_file() else {}).get("mode")
+    return None if mode == want else f"the passthrough records mode {mode or 'none'}, and this launch is {want}"
+
+
 def passthrough_up(ctx):
     """Whether the passthrough answers on the socket the relay forwards to (a connection closed before a request
     line is dropped by it unlogged)."""
@@ -2040,6 +2049,10 @@ class Tranche:
         if not passthrough_up(self.ctx):
             tranche_event(self.root, "pause", reason="the passthrough down")
             return None
+        reason = passthrough_mode_refusal(self.ctx)
+        if reason:
+            self.stop(reason)
+            return None
         if not self.load_ok(now):
             return None
         ok, _, most = guard(self.root, self.ladder, head, now)
@@ -2244,10 +2257,14 @@ def record_resume(ctx, args):
 
 
 def passthrough_command(ctx):
+    """The passthrough's start, as a person runs it: with the token file for a live launch; in a rehearsal, with the
+    stand-in's socket and a canary it makes itself, never a token file (Task 8 M3)."""
     root = ctx.root
+    credential = (f"--rehearsal <the stand-in API's socket> --canary-out {ctx.rehearsal / 'canary'}" if ctx.rehearsal
+                  else "--token-file <the owner's token file>")
     return (f"env -i PATH=/usr/bin:/bin python3 -I {KIT / 'passthrough.py'} --socket {root / 'relay' / 'passthrough.sock'}"
-            f" --state {root / 'passthrough'} --slots {root / 'passthrough' / 'slots.json'} --token-file <the owner's"
-            f" token file> >> {root / 'passthrough' / 'output.log'} 2>&1")
+            f" --state {root / 'passthrough'} --slots {root / 'passthrough' / 'slots.json'} {credential}"
+            f" >> {root / 'passthrough' / 'output.log'} 2>&1")
 
 
 def status(ctx, path=None):
@@ -2258,7 +2275,8 @@ def status(ctx, path=None):
     gate = starts_gate(ctx.root, time.time())
     print(f"state {ctx.root}\nstarts {starts}, committed USD {committed:.2f}, in flight {len(open_)}")
     print(f"starts: {'open' if gate['open'] else 'closed'} {gate['kind'] or ''} {gate['why'] or ''}".rstrip())
-    print(f"passthrough: {'up' if passthrough_up(ctx) else 'down'}; a person starts it, with the token file:")
+    how = "in rehearsal mode" if ctx.rehearsal else "with the token file"
+    print(f"passthrough: {'up' if passthrough_up(ctx) else 'down'}; a person starts it, {how}:")
     print(f"  {passthrough_command(ctx)}")
     if path:
         _write_json(Path(path).resolve(), export(ctx, ladder))

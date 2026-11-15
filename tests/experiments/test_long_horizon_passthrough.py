@@ -829,7 +829,15 @@ def test_at_its_start_the_passthrough_reads_the_token_file_and_writes_its_finger
     _stop(proc)
     fp = json.loads((state / "fingerprint.json").read_text())
     assert (token_scan.matches(fp, real), real in out.read_text(), real.encode() in cmdline,
-            real in (state / "fingerprint.json").read_text()) == (True, False, False, False)
+            real in (state / "fingerprint.json").read_text(), fp["mode"]) == (True, False, False, False, "live")
+
+
+def test_a_rehearsal_passthrough_records_its_mode_beside_its_fingerprint(short, stub):
+    """Task 8 M3: the launcher reads the mode and refuses a passthrough in the other one."""
+    upstream, _ = stub("normal")
+    proc, _, state, out = _start(short, _slots(short / "slots.json", {}), *_rehearsal(short, upstream))
+    _stop(proc)
+    assert json.loads((state / "fingerprint.json").read_text())["mode"] == "rehearsal"
 
 
 def test_with_the_rehearsal_switch_no_token_file_is_opened(short, stub):

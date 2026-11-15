@@ -148,7 +148,9 @@ python -I experiments/long_horizon_tasks/ladder.py allowance inputs|reading|figu
 ```
 
 The launcher never holds the token. A person starts the passthrough with the token file, and `status` prints its
-command line. The launcher refuses to run while `LH_TOKEN_FILE` is in its environment. Each harness starts from an
+command line; in a rehearsal it prints the rehearsal start (`--rehearsal`, a canary, no token file). The passthrough
+records its mode in `fingerprint.json`, and the launcher starts no attempt against a passthrough in the other mode
+(it stops the tranche). The launcher refuses to run while `LH_TOKEN_FILE` is in its environment. Each harness starts from an
 empty environment that holds `HOME`, `PATH`, telemetry off, the runtime directory, the containers override, its
 slot's relay socket directory and the slot's fake token. It runs under the CPU set in its own session. Each attempt
 has its own passthrough socket (`<state>/relay/<slot>/passthrough.sock`) with a cap of 16 connections of its own,

@@ -61,7 +61,8 @@ State, in DIR (mode 700, this user's; the output file belongs there too):
                   numbers only (`withheld`: the form), and the tranche stops.
   tranche.jsonl   events: close_starts and stop (written here), stop and resume (written by the launcher or a
                   person); every request is refused while the last stop or resume is a stop.
-  fingerprint.json  one salt and each form's length and salted SHA-256 (token_scan.py), written at the start.
+  fingerprint.json  one salt and each form's length and salted SHA-256 (token_scan.py), and the mode ("live" or
+                    "rehearsal"), written at the start.
 The slots file, re-read on every request (the launcher replaces it atomically):
   {"total_usd": T (at most 200), "total_requests": N or null,
    "slots": {NAME: {"token": FAKE, "cap_usd": C, "cap_requests": M or null[, "own_socket": true]}}}
@@ -1011,7 +1012,8 @@ def _start(args):
         raise Refused("--paid-usage takes HEADER=VALUE")
     token, credential, upstream = _credential(args)
     pt = Passthrough(args.state, args.slots, token, credential, upstream, paid, args.stop_on_non_200)
-    (Path(args.state) / "fingerprint.json").write_text(json.dumps(token_scan.fingerprint(token)))
+    fingerprint = {**token_scan.fingerprint(token), "mode": credential}  # the launcher reads the mode (Task 8 M3)
+    (Path(args.state) / "fingerprint.json").write_text(json.dumps(fingerprint))
     _clear_stale(args.socket)
     return pt, serve(args.socket, pt)
 

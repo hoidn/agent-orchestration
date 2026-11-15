@@ -1187,6 +1187,37 @@ def test_reconcile_closes_a_dead_launcher_s_attempt_as_its_stop_never_as_a_score
         (5, "stop", cause, None), [cause])
 
 
+# The passthrough's mode (Task 8 M3): a rehearsal never runs against a live passthrough, nor the other way.
+
+@pytest.mark.parametrize("live, mode, refused", [(False, "live", True), (True, "rehearsal", True),
+                                                 (False, None, True), (False, "rehearsal", False),
+                                                 (True, "live", False)])
+def test_the_launcher_refuses_a_passthrough_whose_recorded_mode_is_not_its_own(short, live, mode, refused):
+    env = {"HOME": str(short / "home")} | ({} if live else {"LH_REHEARSAL": str(short / "reh")})
+    ctx = ladder.Ctx(env)
+    ladder.ensure_state(ctx.root)
+    (ctx.root / "passthrough" / "fingerprint.json").write_text(json.dumps({"salt": "00", "forms": []} | (
+        {"mode": mode} if mode else {})))
+    assert bool(ladder.passthrough_mode_refusal(ctx)) == refused
+
+
+def test_a_rehearsal_against_a_live_passthrough_starts_no_attempt_and_stops_the_tranche(rig):
+    r = rig()
+    fingerprint = r.root / "passthrough" / "fingerprint.json"
+    fingerprint.write_text(json.dumps({**json.loads(fingerprint.read_text()), "mode": "live"}))
+    r.launch()
+    stops = [e["reason"] for e in r.events() if e["event"] == "stop"]
+    assert (r.calls(), r.attempts(), len(stops), "live" in stops[0]) == ([], [], 1, True)
+
+
+def test_in_a_rehearsal_status_prints_the_passthrough_s_rehearsal_start_and_never_the_token_file(rig):
+    r = rig()
+    out = subprocess.run([sys.executable, "-I", str(r.kit.kit / "ladder.py"), "status"], cwd=r.kit.repo,
+                         env=r.kit.env(), capture_output=True, text=True, timeout=WAIT).stdout
+    assert ("--rehearsal" in out, "--canary-out" in out, "--token-file" in out, "token file" in out) == (
+        True, True, False, False)
+
+
 # The runtime check (Task 8 part B): any finding in any container is the attempt's; what it cannot read is
 # an incomplete scan, never clean.
 
