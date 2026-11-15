@@ -17,7 +17,7 @@ from orchestrator.py.diagnostics import PythonFrontendError
 from tests.test_workflow_python_declarations import module_source
 
 
-def orc(root, name, body, *, target="2.39"):
+def orc(root, name, body, *, target="2.40"):
     path = root / (name + ".orc")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f'(workflow-lisp (:language "0.1") (:target-dsl "{target}") '

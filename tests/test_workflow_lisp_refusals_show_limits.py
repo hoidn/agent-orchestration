@@ -55,8 +55,8 @@ def test_public_bounded_loop_without_fallback_records_failed_terminal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = _source(
-        "(loop/recur :max 2 :state 0 (fn (state) "
-        "(if (< state 10) (continue (+ state 1)) (done state))))"
+        "(loop/recur ((state 0)) :max 2 "
+        "(if (< state 10) (continue (+ state 1)) (done state)))"
     )
     entry = tmp_path / "grt" / "entry.orc"
     entry.parent.mkdir(parents=True, exist_ok=True)

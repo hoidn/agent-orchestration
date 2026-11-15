@@ -5,8 +5,6 @@
   (export run)
   (defrecord Box (n Int))
   (defproc fetch ((n Int)) -> Box
-    :effects ((uses-command fetch))
-    :lowering inline
     (command-result fetch :argv ("python" "probe.py" "fetch" n) :returns Box))
   (defworkflow run () -> Box
     (let* ((a (fetch 1))

@@ -210,12 +210,13 @@ COMMITTED = {"attempt", "depends_on", "effect_class", "identity", "implementatio
              "input_parts", "record", "result_digest", "result_path", "time", "value"}
 PARTS = {"declaration", "delivery", "dependency_rows", "params", "policy", "prompt", "source:asset_file:prompt.md",
          "values"}
-# Recorded with `orchestrator compile` before usage.json existed (B1 commit c238e5cf). `reviewed_change` was
-# recorded again when its source moved to target 2.40: the target is a digest input, the program is otherwise the same.
+# Recorded with `orchestrator compile` before usage.json existed (B1 commit c238e5cf). `reviewed_change` and
+# `design_review_execute_agents` were recorded again when their sources moved to target 2.40: the target is a digest
+# input, the program is otherwise the same.
 DIGESTS = {"best_of_n": "sha256:991a8302be2705206e88f385fc4c82f3b43480b81a0770da0727255b7b0271a7",
            "reviewed_change": "sha256:5596cc62c132c1975d48be065d602d2f5b3094e682d863fa834eb891a92d47ef",
            "design_review_execute_agents":
-               "sha256:4eb2e5cfb2fa9eee9889b90ab6f4b8c171b4f53ed713d1276e9b7fb961f991a8"}
+               "sha256:7eb6378f21b3c533a382c2947dfe66b930e2357f66093a4244d8a2649cd62291"}
 
 
 def test_memo_rows_and_program_digests_are_unchanged(tmp_path):

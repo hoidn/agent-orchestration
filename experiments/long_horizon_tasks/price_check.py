@@ -33,12 +33,11 @@ def requests(trial):
 
 
 def _writes(usage):
-    """(five-minute, one-hour) write tokens; an unsplit write counts as one-hour."""
+    """(five-minute, one-hour) write tokens; written tokens the split does not name count as one-hour."""
     created = usage.get("cache_creation_input_tokens", 0)
-    split = usage.get("cache_creation")
-    if not split:
-        return 0, created
-    return split.get("ephemeral_5m_input_tokens", 0), split.get("ephemeral_1h_input_tokens", 0)
+    split = usage.get("cache_creation") or {}
+    five, hour = split.get("ephemeral_5m_input_tokens", 0), split.get("ephemeral_1h_input_tokens", 0)
+    return five, hour + max(created - five - hour, 0)
 
 
 def price(usage, rule):

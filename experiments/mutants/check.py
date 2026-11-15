@@ -70,9 +70,10 @@ commit), a call inside a map once per item, an agent turn counts, and opening or
 session is not provider class and logs no request. A completed run has no pending start to retire.
 
 The stand-in file (`--standin`) is `{"inputs": {...}, "files": {...}, "answers": {program:
-{scenario: [answer, ...]}}}`: the run's inputs (`repo` is set to the workspace), the workspace's
-files (the token `{python}` in a file's text becomes the running interpreter), and the fake's
-answers in call order (`tests/agent_session_shims.py`'s plan steps).
+{scenario: [answer, ...]}}}`: the run's inputs (`repo` is set to the workspace when the entry
+declares that input), the workspace's files (the token `{python}` in a file's text becomes the
+running interpreter), and the fake's answers in call order (`tests/agent_session_shims.py`'s plan
+steps).
 
 Command: `python -m experiments.mutants.check SEED_DIR --programs a,b [--operators x,y] [--cap 100]
 [--number 0] [--out PATH] [--standin FILE.json [--scenarios a,b]]`. It prints a table and every
@@ -103,7 +104,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
-from experiments.mutants.operators import OPERATORS, Mutation, apply, sample
+from experiments.mutants.operators import OPERATORS, Mutation, apply, entry_inputs, sample
 from orchestrator.providers.pricing import load_price_table
 from orchestrator.providers.usage import summed_usage
 from orchestrator.workflow.evaluated.rebase import _PROVIDER_CLASSES as PROVIDER_CLASSES  # what `plan.costs` counts
@@ -301,7 +302,9 @@ def _build_world(world: Path, seed_dir: Path, program: str, standin: Mapping) ->
     for name, text in standin["files"].items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(text.replace("{python}", sys.executable), encoding="utf-8")
-    (world / "inputs.json").write_text(json.dumps({**standin["inputs"], "repo": str(repo)}), encoding="utf-8")
+    declared = entry_inputs((src / f"{program}.orc").read_text(encoding="utf-8"))
+    workspace = {"repo": str(repo)} if "repo" in declared else {}  # an entry without the input refuses it
+    (world / "inputs.json").write_text(json.dumps({**standin["inputs"], **workspace}), encoding="utf-8")
 
 
 def _run_argv(world: Path, program: str) -> list[str]:

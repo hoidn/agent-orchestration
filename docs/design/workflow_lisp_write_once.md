@@ -24,7 +24,7 @@ The historical body begins below; original results and qualifications are unchan
   [local ProcRef bindings](workflow_lisp_let_proc_local_proc_refs.md),
   [parametric type system](workflow_lisp_parametric_type_system.md),
   [composition-first procedures](workflow_lisp_composition_first.md),
-  [pure list traversal](workflow_lisp_pure_list_traversal.md)
+  [pure list traversal](workflow_lisp_pure_list_traversal.md) (historical record; current owner: [frontend specification §10.3](workflow_lisp_frontend_specification.md#103-target-218-bounded-list-traversal))
 
 ## 1. Summary
 

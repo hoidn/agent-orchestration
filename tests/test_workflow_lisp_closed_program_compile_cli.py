@@ -9,14 +9,14 @@ import sys
 from pathlib import Path
 
 import orchestrator
+from orchestrator.contracts.closed_program.targets import CURRENT_TARGET_DSL_VERSION
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
-from orchestrator.workflow_lisp import syntax
 import pytest
 
 
-TARGET = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+TARGET = CURRENT_TARGET_DSL_VERSION
 
 
 PROGRAM = """(workflow-lisp
@@ -28,8 +28,6 @@ PROGRAM = """(workflow-lisp
   (defproc revise-candidate
     ((candidate Candidate))
     -> Candidate
-    :effects ((uses-command probe_revise))
-    :lowering inline
     (command-result probe_revise
       :argv (\"python\" \"probe_revise.py\" candidate.title \"tidy\" \"fb\")
       :returns Candidate))
@@ -173,13 +171,13 @@ def _write_transitive_import_workspace(
   (:target-dsl "{TARGET}")
   (defmodule producer/helper)
   (export increment)
-  (defproc increment ((value Int)) -> Int :effects () :lowering inline (+ value 1)))
+  (defproc increment ((value Int)) -> Int (+ value 1)))
 """)
     old_producer = root / "src" / "unused" / "entry.orc"
     old_producer.parent.mkdir(parents=True)
     old_producer.write_text("""(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule unused/entry)
   (export run)
   (defworkflow run () -> Int 9))
@@ -218,8 +216,6 @@ def _write_injected_source_graph(root: Path) -> dict[str, Path]:
   (defpath ReviewFindingsJsonPath :kind relpath :under "artifacts" :must-exist true)
   (defrecord ReviewFindings (schema_version String) (items_path String))
   (defproc fetch ((items ReviewFindingsJsonPath)) -> ReviewFindings
-    :effects ((uses-command validate_review_findings_v1))
-    :lowering inline
     (command-result validate_review_findings_v1
       :adapter validate_review_findings_v1
       :inputs ((items_path items))
@@ -248,8 +244,6 @@ def _write_injected_import_workspace(root: Path) -> dict[str, Path]:
   (defpath ReviewFindingsJsonPath :kind relpath :under "artifacts" :must-exist true)
   (defrecord ReviewFindings (schema_version String) (items_path String))
   (defproc fetch ((items ReviewFindingsJsonPath)) -> ReviewFindings
-    :effects ((uses-command validate_review_findings_v1))
-    :lowering inline
     (command-result validate_review_findings_v1
       :adapter validate_review_findings_v1
       :inputs ((items_path items))
@@ -684,14 +678,14 @@ def test_source_only_comments_preserve_specialized_closed_programs(
 ) -> None:
     files = _write_workspace(tmp_path)
     source = files["source"]
-    target = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+    target = CURRENT_TARGET_DSL_VERSION
     if shape == "specialized_import":
         helper = files["source_root"] / "lib" / "generic.orc"
         helper.parent.mkdir(parents=True)
         helper.write_text(f'''(workflow-lisp (:language "0.1")
   (:target-dsl "{target}")
   (defmodule lib/generic) (export identity)
-  (defproc identity :forall (T) ((value T)) -> T :effects () :lowering inline value))''')
+  (defproc identity :forall (T) ((value T)) -> T value))''')
         source.write_text(f'''(workflow-lisp (:language "0.1")
   (:target-dsl "{target}")
   (defmodule grt/entry) (import lib/generic :as generic :only (identity))
@@ -711,7 +705,7 @@ def test_source_only_comments_preserve_specialized_closed_programs(
   (:target-dsl "{target}")
   (defmodule grt/entry) (export run)
   (defproc apply-int ((hook ProcRef[Int -> Int]) (value Int)) -> Int
-    :effects () :lowering inline (hook value))
+    (hook value))
   (defworkflow run ((input Int)) -> Int
     (let* ((fixed 7))
       (let-proc (local ((value Int)) -> Int :captures (fixed) (+ value fixed))
@@ -720,9 +714,9 @@ def test_source_only_comments_preserve_specialized_closed_programs(
         source.write_text(f'''(workflow-lisp (:language "0.1")
   (:target-dsl "{target}")
   (defmodule grt/entry) (export run)
-  (defproc helper ((fixed Int) (x Int)) -> Int :effects () :lowering inline (+ fixed x))
+  (defproc helper ((fixed Int) (x Int)) -> Int (+ fixed x))
   (defproc invoke ((runner ProcRef[Int -> Int]) (x Int)) -> Int
-    :effects () :lowering inline (runner x))
+    (runner x))
   (defworkflow run ((x Int)) -> Int
     (invoke (bind-proc (proc-ref helper) :fixed x) x)))''')
 
@@ -1236,15 +1230,14 @@ def test_build_key_uses_the_compiler_retained_source_snapshot(
     assert first.program.digest == second.program.digest
 
 
-@pytest.mark.parametrize("producer_target", ["2.35", "2.36"])
 def test_imported_producer_peek_and_compile_share_a_separate_trace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, producer_target: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from orchestrator.workflow_lisp.closed import artifact as artifact_module
     from orchestrator.workflow_lisp import build as build_module
     from orchestrator.workflow_lisp.reader import SourceReadTrace
 
-    files = _write_import_workspace(tmp_path, producer_target)
+    files = _write_import_workspace(tmp_path, CURRENT_TARGET_DSL_VERSION)
     producer = files["source_root"] / "producer" / "entry.orc"
     consumer_trace = SourceReadTrace()
     producer_traces: list[SourceReadTrace] = []
@@ -1282,19 +1275,15 @@ def test_imported_producer_peek_and_compile_share_a_separate_trace(
     assert not (files["workspace"] / ".orchestrate" / "build").exists()
 
 
-@pytest.mark.parametrize(
-    "producer_target",
-    [syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION, "2.36"],
-)
 def test_root_target_peek_and_selected_compile_share_a_fail_closed_trace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, producer_target: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from argparse import Namespace
 
     from orchestrator.cli.commands import compile as compile_module
     from orchestrator.workflow_lisp.closed import target as target_module
 
-    files = _write_workspace(tmp_path, target=producer_target)
+    files = _write_workspace(tmp_path, target=CURRENT_TARGET_DSL_VERSION)
     monkeypatch.chdir(files["workspace"])
     original_check = target_module.refuse_retired_entry_target
 

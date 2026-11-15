@@ -150,7 +150,7 @@ def test_imported_provider_carrier_under_parallel_map(tmp_path):
         selected.write_text(PRODUCER)
         imports[side] = replace(staged, _io_source_paths={"cp/producer": selected})
     original.unlink()
-    text = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+    text = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run) (defrecord Box (n Int))
       (defworkflow worker ((input Box)) -> Box
           (let* ((a (call left :input input)) (b (call right :input a))) b))

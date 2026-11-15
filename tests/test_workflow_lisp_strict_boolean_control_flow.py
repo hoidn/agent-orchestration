@@ -151,13 +151,13 @@ def test_cond_reservation_blocks_defmacro_at_current_target(tmp_path: Path) -> N
 
 def test_cond_reservation_rejects_imported_macro_at_current_target(tmp_path: Path) -> None:
     (tmp_path / "condlib.orc").write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         "(defmodule condlib) (export cond) (defmacro cond (x) x))\n",
         encoding="utf-8",
     )
     importer = tmp_path / "importer.orc"
     importer.write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         "(defmodule importer) (import condlib :only (cond)) "
         '(export run) (defworkflow run () -> String "ok"))\n',
         encoding="utf-8",

@@ -36,13 +36,11 @@ LITERALS = [
     ("-1.25e+2", -125.0),
 ]
 
-LOOP = """(loop/recur :max 2
-      :state (loop-state (v Float {lit}) (turn Int 0))
+LOOP = """(loop/recur ((state (loop-state (v Float {lit}) (turn Int 0)))) :max 2
       :on-exhausted 0.0
-      (fn (state)
-        (if (= state.turn 0)
-          (continue (loop-state :like state :turn 1))
-          (done state.v))))"""
+      (if (= state.turn 0)
+        (continue (loop-state :like state :turn 1))
+        (done state.v)))"""
 
 # position: (result type, workflow body, expected result from the literal's value)
 POSITIONS = {

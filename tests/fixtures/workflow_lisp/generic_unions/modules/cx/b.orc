@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule cx/b)
   (import cx/lib :only (Tagged))
   (export Item make-b)
@@ -9,5 +9,4 @@
   (defproc make-b
     ((n Int))
     -> Tagged[Item]
-    :effects ()
     (variant Tagged[Item] VAL :value n)))

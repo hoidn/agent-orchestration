@@ -12,13 +12,13 @@ from tests.workflow_lisp_closed_program_helpers import build
 
 
 @pytest.mark.parametrize(("body", "return_type", "params", "inputs", "expected"), [
-    ("(loop/recur :max 1 :state (loop-state (n Int (+ 1 2))) :on-exhausted state.n "
-     "(fn (state) (if (< state.n 10) "
-     "(continue (loop-state :like state :n (let* ((x (+ state.n 1))) x))) (done state.n))))",
+    ("(loop/recur ((state (loop-state (n Int (+ 1 2))))) :max 1 :on-exhausted state.n "
+     "(if (< state.n 10) "
+     "(continue (loop-state :like state :n (let* ((x (+ state.n 1))) x))) (done state.n)))",
      "Int", "", {}, 4),
-    ("(let* ((x 10)) (loop/recur :max 1 :state "
-     "(loop-state (a Int (let* ((x (+ x 1))) x)) (b Int x)) :on-exhausted 0 "
-     "(fn (state) (done (+ state.a state.b)))))", "Int", "", {}, 21),
+    ("(let* ((x 10)) (loop/recur ((state (loop-state (a Int (let* ((x (+ x 1))) x)) (b Int x)))) :max 1"
+     " :on-exhausted 0 "
+     "(done (+ state.a state.b))))", "Int", "", {}, 21),
     ("(path/join-under Report (let* ((suffix child)) suffix))", "Report", "(child String)",
      {"child": "note.md"}, "artifacts/reports/note.md"),
     ("(list/map-effect ((item items)) :max 3 "
@@ -59,8 +59,8 @@ def test_updates_of_the_same_carrier_keep_their_value_boundaries(tmp_path, updat
     source = f'''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
       (defmodule cp/update_boundary) (export run)
       (defworkflow run () -> Int
-        (loop/recur :max 1 :state (loop-state (n Int 0)) :on-exhausted 0
-          (fn (state) (done (list/length (list {update})))))))'''
+        (loop/recur ((state (loop-state (n Int 0)))) :max 1 :on-exhausted 0
+          (done (list/length (list {update}))))))'''
     restored = ClosedProgram.from_artifact(build(tmp_path, source).artifact())
 
     def nodes(value):
