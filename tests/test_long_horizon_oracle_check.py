@@ -91,21 +91,24 @@ trial() { echo "start $2 $3" >> "$JOBS/log"; sleep 1; echo "end $2 $3" >> "$JOBS
 '''
 
 
-def _schedule(tmp_path, repeats, concurrency, free=30 * 10**9, gate_open=1, stand_ins=STAND_INS):
+def _schedule(tmp_path, repeats, concurrency, free=30 * 10**9, gate_open=1, stand_ins=STAND_INS, extra=None):
+    """check_task t1 with stand-ins (a timeout of 60 s catches a hang: exit 124): exit code, starts, peak, seconds."""
     env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "JOBS": str(tmp_path), "REPEATS": str(repeats), "CONCURRENCY": str(concurrency),
-           "LAUNCH_GAP_S": "0", "FREE": str(free), "OPEN": str(gate_open)}
-    done = subprocess.run(["bash", "-c", 'source "$1" && eval "$2" && check_task t1', "lh-test", str(SCRIPT), stand_ins],
-                          capture_output=True, text=True, env=env)
+           "LAUNCH_GAP_S": "0", "FREE": str(free), "OPEN": str(gate_open)} | (extra or {})
+    start = time.monotonic()
+    done = subprocess.run(["timeout", "60", "bash", "-c", 'source "$1" && eval "$2" && check_task t1', "lh-test",
+                           str(SCRIPT), stand_ins], capture_output=True, text=True, env=env)
+    elapsed = time.monotonic() - start
     log = (tmp_path / "log").read_text().split("\n") if (tmp_path / "log").exists() else []
     running = peak = 0
     for line in filter(None, log):
         running += 1 if line.startswith("start") else -1
         peak = max(peak, running)
-    return done.returncode, sorted(line for line in log if line.startswith("start")), peak
+    return done.returncode, sorted(line for line in log if line.startswith("start")), peak, elapsed
 
 
 def test_every_round_runs_the_reference_and_the_untouched_trial_at_most_concurrency_at_once(tmp_path):
-    rc, starts, peak = _schedule(tmp_path, repeats=3, concurrency=2)
+    rc, starts, peak, _ = _schedule(tmp_path, repeats=3, concurrency=2)
     assert (rc, len(starts), peak) == (0, 6, 2)
 
 
@@ -120,6 +123,25 @@ def test_low_free_space_ends_the_task_with_exit_3_before_any_trial(tmp_path):
 def test_a_stop_request_ends_the_task_with_exit_5_before_any_trial(tmp_path):
     (tmp_path / ".stop").touch()
     assert _schedule(tmp_path, repeats=2, concurrency=2)[:2] == (5, [])
+
+
+# The real wait_gate: the gate opens for the first launch only, and that trial lasts 4 s.
+REAL_GATE = '''
+prepare() { :; }
+free_bytes() { echo "$FREE $FREE"; }
+gate_open() { [ ! -e "$JOBS/opened" ] && touch "$JOBS/opened"; }
+trial() { echo "start $2 $3" >> "$JOBS/log"; sleep 4; echo "end $2 $3" >> "$JOBS/log"; }
+'''
+
+
+@pytest.mark.parametrize("concurrency", [1, 4])
+def test_a_gate_that_closes_ends_the_task_with_exit_4_once_no_trial_has_been_in_flight_for_the_idle_limit(
+        tmp_path, concurrency):
+    rc, starts, _, elapsed = _schedule(tmp_path, repeats=2, concurrency=concurrency, stand_ins=REAL_GATE,
+                                       extra={"GATE_WAIT_S": "2", "GATE_POLL_S": "1"})
+    # 4 s in flight, then 2 s idle (whole seconds and 1 s polls: 4 s at least); a clock that ran during the
+    # trial would end near 2 s, and a finished trial still counted in flight would never end (exit 124)
+    assert (rc, starts, 4 <= elapsed < 12) == (4, ["start oracle 1"], True)
 
 
 def test_a_stop_request_during_a_run_ends_the_task_with_exit_5_and_launches_no_more_trials(tmp_path):

@@ -29,7 +29,7 @@
 # (exit 5: every running trial is stopped this way, then the images are released).
 # vba-userform-port-uidfix is the labelled modified task of owner question 4 (coordinator ruling, Task 2b fix
 # round 1): the package with the verifier's one-line uid bound change (1000000000 -> 55000), run on the verifier
-# image recorded under `variant` in tasks.json (`image_check.py variant` builds and records it once; this script
+# image recorded under `variant` in tasks.json (`uidfix_variant.py` builds and records it once; this script
 # only checks its id, and restores its name from the keeper name if a teardown removed it).
 # Results: $JOBS/<agent>/<label>/<round>/ (agent oracle, nop or install); summarize.py reads them. JOBS must be
 # empty or new, unless RESUME=1.
@@ -208,7 +208,7 @@ trial() {  # <label> <agent: oracle, nop or install> <round> <harness args>...: 
     >> "$out/meta.txt"
   kill $(jobs -p) 2> /dev/null  # the egress log followers
   echo "$label $agent round=$round rc=$rc wall_s=$(($(date +%s) - start)) load=$(cut -d' ' -f1-3 /proc/loadavg)" \
-    | tee -a "$JOBS/oracle_check.log"
+    | tee -a "$JOBS/oracle_check.log" >&2
 }
 
 wait_gate() {  # D2: the two-hour clock runs only while no trial of this run is in flight
@@ -217,7 +217,7 @@ wait_gate() {  # D2: the two-hour clock runs only while no trial of this run is 
     [ -e "$STOP_FLAG" ] && return 1
     [ -z "$(jobs -rp)" ] || idle_since=$SECONDS
     [ $((SECONDS - idle_since)) -lt "$GATE_WAIT_S" ] \
-      || { echo "gate closed for two hours with no trial in flight" | tee -a "$JOBS/oracle_check.log"; return 1; }
+      || { echo "gate closed for two hours with no trial in flight" | tee -a "$JOBS/oracle_check.log" >&2; return 1; }
     sleep "$GATE_POLL_S"
   done
 }
@@ -251,11 +251,11 @@ ensure_image() {  # <ref> <bytes a pull needs>: pull by digest unless present (r
 variant_image() {  # the labelled variant's recorded verifier image: name restored from the keeper if missing
   local name keeper id
   read -r name keeper id < <(task_json '" ".join(t["variant"][k] for k in ("image", "keeper", "image_id"))' vba-userform-port) \
-    || { echo "uidfix: no recorded variant in tasks.json (run image_check.py variant)" >&2; return 2; }
+    || { echo "uidfix: no recorded variant in tasks.json (run uidfix_variant.py)" >&2; return 2; }
   [ "$(podman image inspect -f '{{.Id}}' "$name" 2> /dev/null)" = "$id" ] && { echo "$name $id"; return 0; }
   [ "$(podman image inspect -f '{{.Id}}' "$keeper" 2> /dev/null)" = "$id" ] && podman tag "$id" "$name" \
     && { echo "$name $id"; return 0; }
-  echo "uidfix: the recorded variant image $id is not in the store (run image_check.py variant)" >&2
+  echo "uidfix: the recorded variant image $id is not in the store (run uidfix_variant.py)" >&2
   return 2
 }
 
@@ -291,11 +291,15 @@ images_ok() {  # every image id the task needs is still in the store (a teardown
   for entry in $IMAGES; do podman image exists "${entry#*:}" || { echo "image gone: $entry" >&2; return 1; }; done
 }
 
-launch_ok() {  # the checks before every launch; prints the exit code that ends the task, if one does
-  [ -e "$STOP_FLAG" ] && { echo 5; return; }
-  room_ok $(free_bytes) || { echo "disk stop" | tee -a "$JOBS/oracle_check.log" >&2; echo 3; return; }
-  images_ok || { echo 6; return; }
-  wait_gate || { [ -e "$STOP_FLAG" ] && echo 5 || echo 4; }
+launch_ok() {  # the checks before every launch: 0 to launch, else the exit code that ends the task
+  # Called in the shell that started the trials, never inside $(...): wait_gate reads that shell's job list,
+  # and a subshell's copy would show a finished trial as still in flight.
+  [ -e "$STOP_FLAG" ] && return 5
+  room_ok $(free_bytes) || { echo "disk stop" | tee -a "$JOBS/oracle_check.log" >&2; return 3; }
+  images_ok || return 6
+  wait_gate && return 0
+  [ -e "$STOP_FLAG" ] && return 5
+  return 4
 }
 
 check_task() {  # <label>
@@ -306,8 +310,7 @@ check_task() {  # <label>
   for round in $(seq 1 "$REPEATS"); do
     for agent in oracle nop; do
       while [ "$(jobs -rp | wc -l)" -ge "$CONCURRENCY" ]; do wait -n; done
-      code=$(launch_ok)
-      [ -z "$code" ] || { wait_all; return "$code"; }
+      launch_ok || { code=$?; wait_all; return "$code"; }
       trial "$label" "$agent" "$round" --agent "$agent" &
       sleep "$LAUNCH_GAP_S"
     done
@@ -322,7 +325,7 @@ release() {  # delete what this run pulled: never -f; an image still in use stay
   local ref kept=()
   [ "$KEEP_IMAGES" = 1 ] || [ ! -s "$PULLED" ] && return 0
   while read -r ref; do
-    podman rmi "$ref" > /dev/null 2>&1 || { kept=("$ref" "${kept[@]}"); echo "left in place: $ref" | tee -a "$JOBS/oracle_check.log"; }
+    podman rmi "$ref" > /dev/null 2>&1 || { kept=("$ref" "${kept[@]}"); echo "left in place: $ref" | tee -a "$JOBS/oracle_check.log" >&2; }
   done < <(tac "$PULLED")
   printf '%s' "${kept[@]/%/$'\n'}" > "$PULLED"
 }

@@ -2,13 +2,15 @@
 
 Reads what oracle_check.sh writes: <jobs>/<agent>/<label>/<round>/ with meta.txt, samples and the harness's
 <job>/<trial>/result.json (Harbor 0.25.0); agent is oracle (the reference), nop (untouched) or install (the CLI).
-A label passes when every reference run earns reward 1 and no untouched run does.
+A label qualifies when every reference run passes and every untouched run fails, with none missing; a run with
+an error, a stop, no reward, another reward or no tests shown to have run is no evidence and blocks it (verdict).
 
 Usage: python -I summarize.py <jobs> [--write <records.json>]
-  prints one line per label: reference k of n, untouched k of n, install, wall time, load at start and end;
+  prints one line per label: reference k of n, untouched k of n, install, wall time, load at start and end,
+  what is no evidence, the verdict;
   --write also writes one JSON line per trial (outcomes, CTRF and hidden-trace counts, timings, load, images,
-  digests, network policies seen, connections the egress sidecar refused, by address; no log text) and puts each task's counts, under the records file's stem, and its
-  overlay digest into tasks.json.
+  digests, network policies seen, connections the egress sidecar refused, by address; no log text) and puts
+  each task's counts, under the records file's stem, and its overlay digest into tasks.json.
 """
 
 import hashlib
@@ -157,24 +159,31 @@ def trial_record(round_dir):
 def verdict(r):
     """A graded run's outcome: "pass" (reward exactly 1), "fail" (reward exactly 0), or why it is no evidence.
 
-    A run is evidence only without an error or a stop and with the verifier's tests run (its output kept and,
-    where it wrote a CTRF report, at least one test in it); D1 counts reward 1 and reward 0 only."""
+    A run is evidence only without an error or a stop and with the verifier's tests shown to have run: its output
+    kept and a CTRF report with at least one test (every verifier of the 16 writes one; vba-userform-port's holds
+    the wrapper that scores its hidden traces). A pass also needs every test of that report passed. D1 counts
+    reward 1 and reward 0 only."""
     if r.get("stop"):
         return "stopped: " + r["stop"]
     if r["error"]:
         return r["error"]
     if r["reward"] is None:
         return "no reward"
-    if r["verifier_output"] is None or (r["ctrf"] is not None and r["ctrf"]["tests"] == 0):
+    ctrf = r["ctrf"]
+    if r["verifier_output"] is None or not ctrf or ctrf["tests"] == 0:
         return "no tests ran"
+    if r["reward"] == 1 and ctrf["passed"] != ctrf["tests"]:
+        return f"reward 1 with {ctrf['passed']} of {ctrf['tests']} tests passed"
     return {1: "pass", 0: "fail"}.get(r["reward"], f"reward {r['reward']}")
 
 
 def _errors(runs):
-    """Every run that is no evidence, and an install that failed."""
+    """Every run that is no evidence, a half with no run, and an install that failed."""
     graded = [f"{r['agent']} {r['round']}: {verdict(r)}" for r in runs
               if r["agent"] != "install" and verdict(r) not in ("pass", "fail")]
-    return graded + [f"install {r['round']}: {r['error']}" for r in runs if r["agent"] == "install" and r["error"]]
+    missing = [f"{agent}: no run" for agent in ("oracle", "nop") if not _of(runs, agent)]
+    return graded + missing + [f"install {r['round']}: {r['error']}" for r in runs
+                               if r["agent"] == "install" and r["error"]]
 
 
 def _of(runs, agent):

@@ -58,6 +58,9 @@ recording's harness arguments back from its trial's `config.json`; its decoy tes
   `stop=<reason>` to `meta.txt`, and `summarize.py` counts that run as no evidence.
 - The run's state: `JOBS` must be new or empty unless `RESUME=1`; `pulled.txt` keeps listed any image a release
   could not delete.
+- Anything that reads the shell's list of running trials (the gate's idle clock, the concurrency count) runs in
+  the shell that started them, never inside `$(…)`. A subshell's list is a frozen copy, so a finished trial
+  would still count as in flight (the re-review's N1). Results come back by exit code, and messages go to stderr.
 
 ## The criterion and the manifest (plan Task 3)
 

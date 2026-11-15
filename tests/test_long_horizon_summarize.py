@@ -121,7 +121,8 @@ def test_a_task_passes_when_every_reference_run_passes_and_no_untouched_run_does
     ({"reward": None, "error": "RuntimeError"}, "nop 1: RuntimeError"),
     ({"reward": None}, "nop 1: no reward"),
     ({"reward": 0.5}, "nop 1: reward 0.5"),
-    ({"reward": 0.0, "error": "AgentTimeoutError"}, "nop 1: AgentTimeoutError")])
+    ({"reward": 0.0, "error": "AgentTimeoutError"}, "nop 1: AgentTimeoutError"),
+    ({"ctrf": None}, "nop 1: no tests ran")])
 def test_an_untouched_run_counts_only_with_reward_exactly_0_and_no_error(tmp_path, nop, listed):
     ref, untouched = _records(tmp_path, [("t1", "oracle", 1, 1.0, None), ("t1", "nop", 1, 0.0, None)])
     got = summarize.counts([ref, untouched | nop])["t1"]
@@ -131,11 +132,18 @@ def test_an_untouched_run_counts_only_with_reward_exactly_0_and_no_error(tmp_pat
 @pytest.mark.parametrize(("ref", "listed"), [
     ({"ctrf": {"tests": 0, "passed": 0, "failed": 0, "skipped": 0}}, "oracle 1: no tests ran"),
     ({"verifier_output": None}, "oracle 1: no tests ran"),
+    ({"ctrf": None}, "oracle 1: no tests ran"),
+    ({"ctrf": {"tests": 3, "passed": 2, "failed": 1, "skipped": 0}}, "oracle 1: reward 1 with 2 of 3 tests passed"),
     ({"error": "VerifierOutputParseError"}, "oracle 1: VerifierOutputParseError")])
 def test_a_reference_run_counts_only_with_reward_exactly_1_tests_run_and_no_error(tmp_path, ref, listed):
     reference, nop = _records(tmp_path, [("t1", "oracle", 1, 1.0, None), ("t1", "nop", 1, 0.0, None)])
     got = summarize.counts([reference | ref, nop])["t1"]
     assert (got["reference"], got["errors"], got["passes"]) == ([0, 1], [listed], False)
+
+
+def test_a_label_without_untouched_runs_does_not_qualify_and_says_so(tmp_path):
+    got = summarize.counts(_records(tmp_path, [("t1", "oracle", 1, 1.0, None)]))["t1"]
+    assert (got["errors"], got["passes"]) == (["nop: no run"], False)
 
 
 def test_the_table_says_whether_a_label_qualifies(tmp_path):
