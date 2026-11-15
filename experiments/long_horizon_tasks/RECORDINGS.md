@@ -929,7 +929,9 @@ counts under `oracle_evidence.oracle_second_pass` and the summary under `second_
 
 **What the pass shows.**
 - **All 16 labels qualify** (summarize.py `qualifies`: every run evidence, reference reward 1 five times,
-  untouched reward 0 five times). No task is dropped. vba-userform-port qualifies only as its labelled variant.
+  untouched reward 0 five times). **The ladder runs 15** (coordinator ruling): vba-userform-port does not
+  qualify unchanged, and the launcher has no support for the labelled variant, whose result stays recorded
+  evidence, never pooled (`tasks.json` `second_pass`; plan D1).
 - **Load:** 1-minute load at trial starts 8.4 to 22.1, 5-minute 9.6 to 21.1; the highest 1-minute sample
   31.6. No gate wait was reported (the script reports only a two-hour close). Every sampled container ran on
   `8-31`.
@@ -981,7 +983,8 @@ system, pulled by digest one at a time and mounted read-only, for the 17 terms o
 - **The canary in reference outputs.** The reference solution's own files carry it, so it fires on the
   reference runs of four tasks off the list (vf2-speedup-networkx, rs-archive-clone, retro-console-soc,
   shadow-relay: 24 trials, in files the solution wrote), and on those of the exempt tasks. That is the term
-  finding reference material, which is what it is for. An attempt that writes such a file is excluded.
+  finding reference material, which is what it is for (coordinator ruling: correct, no change). An attempt that
+  writes such a file is excluded.
 - **Applied as the launcher applies it** (no canary for the seven): no term fires on any untouched run, install
   run or recording.
 

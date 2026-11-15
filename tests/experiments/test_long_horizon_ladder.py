@@ -634,6 +634,34 @@ def test_the_canary_exempt_tasks_are_those_whose_agent_image_holds_the_canary():
     assert (_ladder()["readout"]["contamination_scan"]["canary_exempt_tasks"], len(holding)) == (holding, 7)
 
 
+# ---- D1 and D7: the qualified tasks (Task 2b's second pass) ----------------------------------------------
+
+def test_the_qualified_tasks_are_those_whose_unchanged_task_passed_the_second_pass_five_and_five():
+    """D1's rule on the unchanged task: a labelled variant's result is evidence and qualifies nothing (coordinator
+    ruling on Task 2b)."""
+    passed = [t["name"].rsplit("/", 1)[-1] for t in _tasks_json()["tasks"]
+              if any(c["label"] == t["name"].rsplit("/", 1)[-1] and c["passes"] and c["reference"] == [5, 5]
+                     and c["untouched"] == [0, 5] for c in t["oracle_evidence"].get("oracle_second_pass", []))]
+    assert (_ladder()["tasks"]["qualified"], _tasks_json()["second_pass"]["qualified"]) == (passed, passed)
+
+
+def test_the_schedule_has_one_block_per_qualified_task_in_each_of_five_rounds():
+    criterion = _ladder()
+    criterion["schedule"]["order"]["seed"] = "a stand-in seed"
+    slots = ladder.schedule(criterion)
+    qualified = criterion["tasks"]["qualified"]
+    assert (len(slots), {s["task"] for s in slots} == set(qualified), criterion["schedule"]["blocks_per_round"]["count"],
+            len(slots) <= criterion["ceiling"]["starts"]) == (len(qualified) * 3 * 5, True, len(qualified), True)
+
+
+def test_each_qualified_task_s_overlay_digest_is_the_launcher_s_digest_of_its_allowlist_and_the_pass_s():
+    criterion, tasks = _ladder(), {t["name"].rsplit("/", 1)[-1]: t for t in _tasks_json()["tasks"]}
+    qualified = criterion["tasks"]["qualified"]
+    assert criterion["tasks"]["overlay_digests"] == {
+        t: ladder.overlay_digest(ladder.allowlist(criterion, t)) for t in qualified} == {
+        t: tasks[t]["overlay_digest"] for t in qualified}
+
+
 # ---- pending, manifest and freeze ---------------------------------------------------------------------------
 
 PENDING_OR_FILLED = {

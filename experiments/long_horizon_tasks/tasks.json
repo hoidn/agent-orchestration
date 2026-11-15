@@ -1519,7 +1519,6 @@
   "run": "2026-11-15 07:12:12 to 08:59:01 PST (1 h 46 min 49 s), oracle_check.sh REPEATS=5 CONCURRENCY=4 GATE=24 CPUS=8-31 INSTALL=0, one task at a time in this file's order, vba-userform-port as its labelled variant only (owner question 4 not decided); records oracle_second_pass.json (160 trials); per-task counts under oracle_evidence.oracle_second_pass",
   "network": "the agent phase on oracle_check.sh's allowlist (D3's list: 13 names; overlay_digest 3f99fe3c...c4f6 for all 16, no extra hosts)",
   "qualified": [
-   "vba-userform-port-uidfix",
    "vf2-speedup-networkx",
    "wal-recovery-ordering",
    "session-window-debug",
@@ -1536,7 +1535,7 @@
    "retro-console-soc",
    "roy-polymorph-cn"
   ],
-  "qualified_rule": "D1: reference reward 1 five times of five and untouched reward 0 five times of five, every run evidence (summarize.py `qualifies`); all 16 labels qualify, none is dropped. vba-userform-port qualifies only as the labelled modified task vba-userform-port-uidfix, never pooled with the unchanged task",
+  "qualified_rule": "D1: reference reward 1 five times of five and untouched reward 0 five times of five, every run evidence (summarize.py `qualifies`), on the unchanged task. The 15 above qualify. vba-userform-port does not: the unchanged task fails the rule on this machine (its verifier writes no reward here), and the launcher has no support for the labelled variant (coordinator ruling, plan ledger row 'Task 2b, second oracle pass'). The owner can bring it back before the freeze by deciding question 4 (`podman system migrate`), after which the unchanged task must pass the oracle check itself",
   "load": "1-minute load at trial starts 8.4 to 22.1, 5-minute 9.6 to 21.1, highest 1-minute sample 31.6 (gate 24; no gate wait was reported)",
   "sub_tests": {
    "batched-eval-parity": "CTRF (verifier/ctrf.json): reference 5 of 5, untouched 0 of 5",
@@ -1555,6 +1554,7 @@
    "vf2-speedup-networkx": "CTRF (verifier/ctrf.json): reference 60 of 60, untouched 0 of 60",
    "vpp-loss-divergence": "CTRF (verifier/ctrf.json): reference 5 of 5, untouched 4 of 5",
    "wal-recovery-ordering": "CTRF (verifier/ctrf.json): reference 97 of 97, untouched 1 of 2; the gates run first (ctrf_gates.json) and the suite only when they pass, so the report's total is the suite's on a pass and the gates' on a gate failure"
-  }
+  },
+  "variant_evidence": "vba-userform-port-uidfix, the labelled modified task (never pooled with vba-userform-port): reference 5 of 5 (29 of 29 hidden traces each), untouched 0 of 5 (0 of 29), summarize.py `qualifies`; recorded evidence only, not in the ladder"
  }
 }

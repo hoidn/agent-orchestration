@@ -266,7 +266,12 @@ flags, cuts per effort, the pilot's attempts, refused connections, relay lookup 
 regrades refused for a declared artifact never collected, per task and effort), the graded outcome, an earlier
 label's counts and the allowance. The sidecar logs `bypass` when its lookup of `relay` times out; the launcher counts
 a `bypass` toward the relay itself (an address the sidecar resolved `relay` to in the same log) as a relay lookup
-timeout, never as a refused connection, so `egress_refused` holds only destinations outside the kit. The last three enter no rule. The pooled screen applies when every effort has at least four scored
+timeout, never as a refused connection, so `egress_refused` holds only destinations outside the kit. The last three enter no rule.
+**The graded outcome** is read only for the tasks in `readout.graded_outcome.verifiers` (`"ctrf"`: passed and total
+of the verifier's `verifier/ctrf.json`), 13 of the 15 qualified tasks (Task 2b's second pass). For the other three of
+the 16 the readout prints "pass or fail only": lake-temp-glm's report holds one test; wal-recovery-ordering's total is
+the suite's on a pass and its gates' on a gate failure, so it counts unlike things; vba-userform-port runs no attempt
+(not qualified; its labelled variant's report is a scoring wrapper, its graded checks hidden traces). The pooled screen applies when every effort has at least four scored
 observations (`readout.pooled.min_per_effort`), and is printed "screened at n of 15 attempts"; with fewer at any effort
 a task is "not screened", with its counts per effort. A readout that ends in a stop places nothing and still prints the
 bound on the fall over the complete triples there are.

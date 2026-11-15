@@ -30,9 +30,13 @@ CANARY_SHA256 = SCAN["canary_sha256"] or "c" * 64
 STAND_IN_VALUES = {"readout.contamination_scan.terms": [TERM],
                    "readout.contamination_scan.canary_sha256": CANARY_SHA256,
                    "readout.contamination_scan.canary_exempt_tasks": [],
-                   "readout.graded_outcome.verifiers": {TASKS[0]: "passed and total sub-tests"},
+                   "readout.graded_outcome.verifiers": {TASKS[0]: "ctrf"},
                    "readout.fall_bound.seed": 20261114}
 STANDINS = {p["field"]: STAND_IN_VALUES[p["field"]] for p in LADDER["pending"] if p["field"].startswith("readout.")}
+# a task whose verifier reports sub-tests and one whose does not: the criterion's once filled, else the stand-in's
+VERIFIERS = LADDER["readout"]["graded_outcome"]["verifiers"] or STAND_IN_VALUES["readout.graded_outcome.verifiers"]
+GRADED_TASK = next(task for task in TASKS if task in VERIFIERS)
+UNGRADED_TASK = next(task for task in TASKS if task not in VERIFIERS)
 CEILING = {"by": "ceiling", "cause": None}
 ROW_CLASS = {row["row"]: row["class"] for row in LADDER["classification"]["rows"]}
 
