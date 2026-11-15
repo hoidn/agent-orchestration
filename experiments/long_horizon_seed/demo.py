@@ -145,15 +145,22 @@ MILESTONES = {  # per milestone: work, review; then the acceptance
     "setup-incomplete": NO_SETUP,
 }
 MILESTONES["guide-under-another-name"] = elsewhere(MILESTONES["clean"])
+
+
+def planned(count):
+    """A clean run of a plan of `count` milestones: at most eight of them are built, each accepted at once."""
+    built = min(count, 8)
+    answers = [GUIDES, SPEC, plan(*(f"M{i}" for i in range(1, count + 1))), work(m1="ok", m2="ok"), MET]
+    return DONE, 5 + 3 * built, answers + (built - 1) * [work(), MET] + [MET]
+
+
 # `roles` takes these answers; opening a conversation is a step too: two for the run, two per milestone built
 OPENED = {"check-fails-once": 8, "setup-incomplete": 2}
 ROLES = {name: (result, steps + OPENED.get(name, 6), answers) for name, (result, steps, answers) in MILESTONES.items()}
-MILESTONES |= {  # the map's bound and the round loop's exhaustion are the same code with conversations: once is enough
-    "plan-of-nine": (DONE, 32, [GUIDES, SPEC, plan(*(f"M{i}" for i in range(1, 10))), work(m1="ok", m2="ok"), MET]
-                     + 8 * [work(), MET] + [MET]),  # more milestones than the planner is advised to write
-    "refused-then-check-fails": (blocked("acceptance round limit reached", *REASONS, FAILING), 13,
-                                 [GUIDES, SPEC, plan("M1"), *OPEN[:1], MET, NOT_MET, plan("M1"), OPEN[2], MET]),
-}
+ROLES["plan-of-9"] = (DONE, planned(9)[1] + 18, planned(9)[2])  # the cut once with conversations; the rest once is enough
+MILESTONES |= {f"plan-of-{count}": planned(count) for count in (3, 8, 9, 20, 50)}  # 9 and more: the calls of 8
+MILESTONES["refused-then-check-fails"] = (blocked("acceptance round limit reached", *REASONS, FAILING), 13,
+                                          [GUIDES, SPEC, plan("M1"), *OPEN[:1], MET, NOT_MET, plan("M1"), OPEN[2], MET])
 PROGRAMS = {"staged": FLAT, "designed": DESIGNED, "milestones": MILESTONES, "roles": ROLES}
 FLAGS = ("--provider-externs-file", str(HERE / "providers.json"), "--command-boundaries-file", str(HERE / "commands.json"))
 

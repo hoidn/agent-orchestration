@@ -17,6 +17,18 @@ uses a scripted `claude`.
 bounds are literals in the program. `providers.json` and `commands.json` bind the three roles and the `dev-check`
 command.
 
+Every loop and map has a literal bound, so each program has a worst case in provider calls:
+
+| Program | Bounds | Worst case |
+| --- | --- | ---: |
+| `staged` | 4 rounds | 11 |
+| `designed` | 2 design reviews, 4 rounds | 15 (6 when the design is refused twice) |
+| `milestones`, `roles` | 2 rounds, the first 8 milestones of a plan, 2 attempts a milestone | 6 + 8 × 8 = 70 |
+
+A plan of more than eight milestones is cut to its first eight (`(list/take plan.milestones 8)` with `:max 8`) and
+the run goes on; the planner is still told "at most eight". The milestones after the eighth are not built in that
+round; the next round's plan is written after the round's check and acceptance and can take them up.
+
 ## Run
 
 ```bash
@@ -56,8 +68,8 @@ its timeout, or the missing `dev-check.json`). The seeds pass that output to the
 
 ## Known gaps
 
-- Nothing reads a milestone's verdict (`milestones`, `roles`): waits for `list/any`.
-- The number of milestones, and so of provider calls, is bounded only by the plan: waits for `list/take`.
+- Nothing reads a milestone's verdict (`milestones`, `roles`): one refused twice is built upon and its reasons do
+  not reach the planner. `list/any`, which the fix needs, is on `main`; the seeds do not use it yet.
 - The check is protected by prompt wording only, its command inherits the orchestrator's environment, and its output
   goes into the next prompt unfiltered: for step 9's design.
 - The guide path the setup step reports may be any existing path under the workspace, a directory included: the
