@@ -1812,37 +1812,40 @@ def _is_held_reference(name, reads, value_env) -> bool:
         read in value_env and not isinstance(value_env[read], ProcRefTypeRef) for read, _ in reads)
 
 
-def _refuse_rebound_read(expr, *, role, read, inner):
-    _raise_error(
-        f"`let-proc` local `{expr.binding.local_name}` uses `{role}`, which reads `{read}`; here `{read}` is "
-        f"bound again by a {inner} binder: rename one of them",
-        code="let_proc_capture_rebound",
-        span=expr.binding.span,
-        form_path=expr.binding.form_path,
-        expansion_stack=expr.binding.expansion_stack,
-    )
+def _refuse_a_rebound_read(expr, role, reads, binding_env):
+    """The copy of `role` in the local's body must read the binders `role` read: by the typechecker's binding
+    identity, the one visible at the local is the one recorded where `role` was typed, and no parameter of the
+    local (always a new binder) takes the name."""
+    params = {param.name for param in expr.binding.params}
+    for read, origin in reads:
+        inner = "local parameter" if read in params else getattr(binding_env.get(read), "kind", "unrecorded")
+        if read in params or origin is None or binding_env.get(read) != origin:
+            _raise_error(
+                f"`let-proc` local `{expr.binding.local_name}` uses `{role}`, which reads `{read}`; here `{read}` "
+                f"is bound again by a {inner} binder: rename one of them",
+                code="let_proc_capture_rebound",
+                span=expr.binding.span,
+                form_path=expr.binding.form_path,
+                expansion_stack=expr.binding.expansion_stack,
+            )
 
 
 def _bind_captured_references(expr, *, type_env, value_env, binding_env, value_exprs):
     """A captured name that holds a compile-time procedure reference is bound by `let*` in the local's own body,
     instead of becoming a capture parameter of the local; the value names that reference reads are captured.
-    Applied from the target where locals lower inline; an earlier target keeps the capture parameter and the
-    identity it has. The copied reference must read the bindings the original read: a read name bound again
-    between the reference and the local, or by a parameter of the local, is refused."""
+    Applied from the target where locals lower inline, to a local its `let-proc` body references; an earlier
+    target, or a local never referenced, keeps the capture parameter and the identity it has. The copied
+    reference must read the bindings the original read; where it would not, the program is refused."""
     if not target_dsl_supports_effect_ceilings(type_env.target_dsl_version):
         return expr
-    params = {param.name for param in expr.binding.params}
+    if not _collect_proc_ref_use_spans(expr.body, authored_name=expr.binding.local_name):
+        return expr
     held, read_names = [], []
     for name in expr.binding.capture_names:
         reads = _reference_reads(value_exprs.get(name))
         if not _is_held_reference(name, reads, value_env):
             continue
-        for read, origin in reads:
-            if read in params:
-                _refuse_rebound_read(expr, role=name, read=read, inner="local parameter")
-            if origin is None or binding_env.get(read) != origin:
-                inner = getattr(binding_env.get(read), "kind", "lexical")
-                _refuse_rebound_read(expr, role=name, read=read, inner=inner)
+        _refuse_a_rebound_read(expr, name, reads, binding_env)
         held.append((name, value_exprs[name]))
         read_names.extend(read for read, _ in reads)
     if not held:
@@ -2582,8 +2585,8 @@ def _replace_eliminated_let_procs(
     )
     if not rewrite_results:
         return node  # nothing to replace; skip the full-tree copy
-    entry = rewrite_results.get(id(node))
-    if entry is not None and entry[0] is node:
+    entry = rewrite_results.get(id(node))  # the map holds each keyed node, so a found id is that node's
+    if entry is not None:
         return _replace_eliminated_let_procs(
             entry[1],
             let_proc_rewrite_results=rewrite_results,

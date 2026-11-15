@@ -884,3 +884,21 @@ def _assert_runs_to(tmp_path, run, wanted):
     assert cold == wanted, detail
     warm, detail = _run_in_one_process_after_a_compile(path.parent, path, ("k=1",))
     assert warm == wanted, detail
+
+
+# A local the `let-proc` body never references keeps the capture parameter, as on `main`, where each of these
+# builds and runs to 7: the copied role is never made, so a read name bound again before it is not refused.
+UNREFERENCED = "(let-proc ((step ((x Int)) -> Int (role x))) 7)"
+UNREFERENCED_LOCALS = {
+    "loop-binder": f"(loop/recur ((k 100)) :max 1 :on-exhausted 0 (done {UNREFERENCED}))",
+    "let-binder": f"(let* ((k 100)) {UNREFERENCED})",
+    "local-parameter": "(let-proc ((step ((k Int)) -> Int (role k))) 7)",
+    "group-member": "(let* ((k 100)) (let-proc ((step ((x Int)) -> Int (role x)) (other ((x Int)) -> Int (+ x 0))) "
+                    "(other 7)))",
+}
+
+
+@pytest.mark.parametrize("case", sorted(UNREFERENCED_LOCALS))
+def test_unreferenced_local_over_a_role_whose_read_name_is_bound_again_builds(tmp_path, case):
+    _assert_runs_to(tmp_path, "((k Int)) -> Int " + ROLE_OVER_K.replace("BODY", UNREFERENCED_LOCALS[case]),
+                    backlog.value(7))
