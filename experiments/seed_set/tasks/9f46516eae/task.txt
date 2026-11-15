@@ -1,0 +1,5 @@
+Fix strict Boolean Task 2 spec-review findings
+
+The change is in orchestrator/workflow_lisp/wcc/defunctionalize.py and orchestrator/workflow_lisp/wcc/elaborate.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_strict_boolean_control_flow.py::test_target_226_admits_effectful_and_nonprojectable_if` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

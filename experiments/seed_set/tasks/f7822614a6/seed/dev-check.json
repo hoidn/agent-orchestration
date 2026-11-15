@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_closed_phase_target.py::test_generic_phase_target_build_readback_and_runtime"
+  ],
+  "timeout_sec": 600
+}

@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_prompt_contract_injection.py::test_render_output_bundle_contract_block_root_field_renders_json_value_schema"
+  ],
+  "timeout_sec": 600
+}

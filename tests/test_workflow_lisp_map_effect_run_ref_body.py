@@ -17,6 +17,7 @@ import pytest
 
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_run_ref import _public_fixture
+from tests.source_edits import replace_exact
 
 DEFINITIONS = '''
   (defrecord Tag (n Int))
@@ -151,9 +152,9 @@ def run(tmp_path, count: str):
     calls = []
     parent, source, refs = _public_fixture(
         tmp_path, parent_target="2.40", imports="(import lib :only (lib-w0 lib-w1))",
-        definitions=lambda call: calls.append(call) or DEFINITIONS.replace("CALL", call),
-        body=lambda call: f"(= {count.replace('CALL', call)} 2)")
-    (parent / "lib.orc").write_text(LIB.replace("CALL", calls[0]))
+        definitions=lambda call: calls.append(call) or replace_exact(DEFINITIONS, "CALL", call, count=9),
+        body=lambda call: f"(= {count.replace('CALL', call)} 2)")  # a body may hold the call or not
+    (parent / "lib.orc").write_text(replace_exact(LIB, "CALL", calls[0]))
     for item in ("a", "b"):
         (parent / item).mkdir()
     return _run_cli(parent, str(source), "--run-ref-root", str(refs)), refs, source
@@ -226,15 +227,15 @@ def test_run_reference_in_a_serial_max_runs_once(tmp_path):
 
 
 def test_run_reference_one_call_body_of_a_parallel_map_in_an_inline_helper_runs(tmp_path):
-    """Target 2.37: a parallel map whose one call holds a run reference, inside an inline helper that an outer
+    """A parallel map whose one call holds a run reference, inside an inline helper that an outer
     parallel map calls, is admitted and runs both items."""
     definitions = (
-        "(defproc one-ref ((n Int)) -> Bool :effects ((runs-ref run)) :lowering inline "
+        "(defproc one-ref ((n Int)) -> Bool "
         "(let* ((attempt CALL)) attempt.value)) "
-        "(defproc pmap ((xs List[String])) -> Int :effects ((runs-ref run)) :lowering inline "
+        "(defproc pmap ((xs List[String])) -> Int "
         "(list/length (list/map-effect ((repo xs)) :max 2 :parallel 2 :workspace repo (one-ref 1))))")
     parent, source, refs = _public_fixture(
-        tmp_path, parent_target="2.37", definitions=lambda call: definitions.replace("CALL", call),
+        tmp_path, definitions=lambda call: replace_exact(definitions, "CALL", call),
         body=lambda _call: ('(= (list/length (list/map-effect ((outer (list "o"))) :max 1 :parallel 1 '
                             ':workspace outer (pmap (list "a" "b")))) 1)'))
     for item in ("o", "a", "b", "o/a", "o/b"):

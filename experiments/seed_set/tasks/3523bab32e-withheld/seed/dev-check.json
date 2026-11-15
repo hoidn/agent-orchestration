@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_workflow_evaluated_agent_allocation.py::test_malformed_receipt_field_is_refused_on_read_and_write"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

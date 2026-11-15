@@ -140,7 +140,7 @@ def test_reader_rejects_quoted_phase_target_symbol_with_frontend_parse_error() -
 
 def test_build_syntax_module_requires_workflow_lisp_root() -> None:
     parse_tree = read_sexpr_text(
-        '(not-workflow-lisp (:language "0.1") (:target-dsl "2.35"))',
+        '(not-workflow-lisp (:language "0.1") (:target-dsl "2.40"))',
         source_path="invalid_root.orc",
     )
 
@@ -170,7 +170,7 @@ def test_build_syntax_module_assigns_form_paths_to_top_level_forms() -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord ChecksResult",
                 "    (status String)))",
             ]
@@ -181,7 +181,7 @@ def test_build_syntax_module_assigns_form_paths_to_top_level_forms() -> None:
     module = build_syntax_module(parse_tree)
 
     assert module.language_version == "0.1"
-    assert module.target_dsl_version == "2.35"
+    assert module.target_dsl_version == "2.40"
     assert len(module.forms) == 1
     assert module.forms[0].form_path == ("workflow-lisp", "defrecord", "ChecksResult")
 

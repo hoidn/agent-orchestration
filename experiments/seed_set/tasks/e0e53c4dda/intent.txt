@@ -1,0 +1,3 @@
+Check cond else body under emitted-clause false facts only
+
+The change is in orchestrator/workflow_lisp/typecheck_proofs.py.

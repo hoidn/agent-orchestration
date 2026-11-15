@@ -1,0 +1,57 @@
+diff --git a/orchestrator/workflow_lisp/wcc/defunctionalize.py b/orchestrator/workflow_lisp/wcc/defunctionalize.py
+index 2d1a3d60fb1e851a1a483ebe5211ef6bf260880c..64f4752f4f6b00329c1d76033600a59054d60f2c 100644
+--- a/orchestrator/workflow_lisp/wcc/defunctionalize.py
++++ b/orchestrator/workflow_lisp/wcc/defunctionalize.py
+@@ -4189,20 +4189,28 @@ def _materialize_member_conditional_preludes(
+ 
+     prelude_steps: list[dict[str, Any]] = []
+     refs: dict[str, str] = {}
++    mutable_locals: dict[str, Any] = dict(local_values)
++    mutable_context = context
+     for binding_name, ifexpr, type_ref in preludes:
+         step_name = f"{member_step_name}__{binding_name}"
+         step_id = lowering_core._normalize_generated_step_id(step_name)
+         lowered = lower_pure_projection_step(
+             ifexpr,
+             result_type=type_ref,
+-            context=context,
+-            local_values=local_values,
++            context=mutable_context,
++            local_values=mutable_locals,
+             step_name=step_name,
+             step_id=step_id,
+             stable_target="binding_projection",
+         )
+         prelude_steps.append(lowered.step)
+         refs[binding_name] = lowered.output_refs["return"]
++        mutable_locals[binding_name] = lowered.output_refs["return"]
++        mutable_context = _context_with_local_type_binding(
++            mutable_context,
++            binding_name=binding_name,
++            binding_type=type_ref,
++        )
+     return prelude_steps, refs
+ 
+ 
+diff --git a/orchestrator/workflow_lisp/wcc/elaborate.py b/orchestrator/workflow_lisp/wcc/elaborate.py
+index ac5303d81fb60559326195a72ce2cc7983bb5457..90d3f20f6620da9579f0466511c2dc8b80746420 100644
+--- a/orchestrator/workflow_lisp/wcc/elaborate.py
++++ b/orchestrator/workflow_lisp/wcc/elaborate.py
+@@ -2807,7 +2807,7 @@ def _elaborate_if_to_value(
+                 expr=expr,
+             ),
+         )
+-    condition = _elaborate_atomic_value(
++    condition_prefix, condition = _elaborate_expr_to_value(
+         expr.condition_expr,
+         scope=scope.child_scope("select-condition"),
+         type_env=type_env,
+@@ -2844,7 +2844,7 @@ def _elaborate_if_to_value(
+         active_phase_scope=active_phase_scope,
+     )
+     return (
+-        (),
++        condition_prefix,
+         WccSelect(
+             metadata=scope.value_metadata(
+                 role="select",

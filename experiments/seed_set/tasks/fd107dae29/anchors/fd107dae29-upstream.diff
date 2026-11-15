@@ -1,0 +1,400 @@
+diff --git a/orchestrator/cli/commands/resume.py b/orchestrator/cli/commands/resume.py
+index 0c82046077d146886a227751ccdeacc8589726cf..0868ad8235a5cc62eb592ca7b365318cc89a071d 100644
+--- a/orchestrator/cli/commands/resume.py
++++ b/orchestrator/cli/commands/resume.py
+@@ -29,6 +29,7 @@ from orchestrator.workflow.resume_projection_integrity import (
+ from orchestrator.workflow.resume_planner import ResumePlanner
+ from orchestrator.workflow.pure_result_replay import (
+     DERIVED_PURE_REPLAY_PROFILE,
++    PureResultReplayIndexError,
+ )
+ from orchestrator.monitor.process import (
+     process_start_time_token,
+@@ -45,6 +46,7 @@ from orchestrator.workflow_lisp.wcc.route import (
+     workflow_lisp_context_with_lowering_schema,
+ )
+ from orchestrator.cli.run_ref_root import resolve_run_ref_root
++from orchestrator.cli.commands.run import render_replay_index_rejection
+ 
+ 
+ logger = logging.getLogger(__name__)
+@@ -659,6 +661,10 @@ def _resume_workflow_with_writer_lock_held(
+         session_status = "interrupted"
+         state_manager.update_status('suspended')
+         return 130  # Standard exit code for SIGINT
++    except PureResultReplayIndexError as e:
++        logger.error(render_replay_index_rejection(e, workflow_bundle))
++        state_manager.update_status('failed')
++        return 1
+     except Exception as e:
+         logger.error(f"Workflow execution failed: {e}", exc_info=True)
+         print(f"Error during workflow execution: {e}", file=sys.stderr)
+diff --git a/orchestrator/cli/commands/run.py b/orchestrator/cli/commands/run.py
+index d35000b796e531567d9bf38f41d409f464e4b8c7..783fed2d28ffd9a0877a2a29cad87ad7d7b2d82d 100644
+--- a/orchestrator/cli/commands/run.py
++++ b/orchestrator/cli/commands/run.py
+@@ -26,11 +26,14 @@ from orchestrator.run_lock import (
+ )
+ from orchestrator.workflow.executor import WorkflowExecutor
+ from orchestrator.workflow.loaded_bundle import (
++    LoadedWorkflowBundle,
+     workflow_bundle as loaded_workflow_bundle,
+     workflow_context,
+     workflow_public_input_contracts,
+ )
+ from orchestrator.workflow.linting import lint_workflow
++from orchestrator.workflow.calls import replay_profile_bundles
++from orchestrator.workflow.frontend_origins import workflow_node_origin
+ from orchestrator.workflow.pure_result_replay import (
+     DERIVED_PURE_REPLAY_PROFILE,
+     PureReplayRuntime,
+@@ -221,33 +224,58 @@ def _cli_exception_error(exc: BaseException) -> dict[str, object]:
+     }
+ 
+ 
+-def _replay_index_diagnostic(exc: PureResultReplayIndexError, workflow_path: Path) -> str:
++def render_replay_index_rejection(
++    exc: PureResultReplayIndexError, bundle: LoadedWorkflowBundle
++) -> str:
+     """Render a replay-index rejection as a frontend diagnostic at its authored form.
+ 
+-    The location is the rejected node's ``source_origin`` from the compiled
+-    source trace; without one it is the workflow file itself (line 1, column 1).
++    The rejection names its workflow and node (and, from ``--dry-run``, the call
++    sites that reach that workflow); ``bundle`` is the run's root, whose source
++    map covers every workflow of the build. The location only improves the
++    rejection: when it cannot be found, the diagnostic sits at the workflow file
++    without a line, and a note says why.
+     """
+     context = dict(exc.context)
+-    origin = context.pop("source_origin", None) or {}
+-    position = SourcePosition(
+-        path=str(origin.get("path", workflow_path)),
+-        line=origin.get("line", 1),
+-        column=origin.get("column", 1),
+-        offset=0,
+-    )
+-    return render_diagnostic(
++    path = context.pop("workflow_path", None) or bundle.provenance.workflow_path
++    call_sites = context.pop("call_sites", ())
++    source_map = bundle.provenance.frontend_source_trace_path
++    try:
++        if "workflow" not in context or "node_id" not in context:
++            raise LookupError("the rejection names no workflow node")
++        origin = workflow_node_origin(source_map, context["workflow"], context["node_id"])
++        path, line, column = origin["path"], origin["line"], origin["column"]
++        notes = list(origin.get("notes", ()))
++    except Exception as lookup_error:  # The lookup must never replace the rejection.
++        origin, line, column = {}, 1, 1
++        notes = [f"source location could not be determined: {_lookup_failure(lookup_error, source_map)}"]
++    for caller, node_id in call_sites:
++        try:
++            site = workflow_node_origin(source_map, caller, node_id)
++            notes.append(f"workflow call site at {site['path']}:{site['line']}:{site['column']}")
++        except Exception as lookup_error:  # As above: a note, never a replacement.
++            notes.append(f"workflow call site in {caller} could not be located: {_lookup_failure(lookup_error, source_map)}")
++    position = SourcePosition(path=str(path), line=line, column=column, offset=0)
++    text = render_diagnostic(
+         LispFrontendDiagnostic(
+             code=exc.code,
+             message=str(exc),
+             span=SourceSpan(start=position, end=position),
+             form_path=tuple(origin.get("form_path", ())),
+             notes=(
+-                *origin.get("notes", ()),
++                *notes,
+                 f"reason: {exc.reason}",
+                 *(f"{key}: {value}" for key, value in context.items()),
+             ),
+         )
+     )
++    # Without an origin the file is known and the line is not: drop the placeholder.
++    return text if origin else text.replace(f"{path}:1:1: ", f"{path}: ", 1)
++
++
++def _lookup_failure(error: Exception, source_map: Path | None) -> str:
++    if type(error) is LookupError:  # Raised with its own explanation.
++        return str(error)
++    return f"reading {source_map} raised {type(error).__name__}: {error}"
+ 
+ 
+ def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
+@@ -628,17 +656,32 @@ def run_workflow(
+                     warning.get("code"),
+                     warning.get("path"),
+                 )
+-            # A run builds this runtime at start, before any effect
+-            # (WorkflowExecutor._configure_pure_replay_runtime). Building it
+-            # here reports the same rejection; it reads only the bundle.
+-            PureReplayRuntime(
+-                bundle=bundle,
+-                scope_path=ResumeScopePath.root(
+-                    _workflow_path_for_state(
+-                        workspace, logical_workflow_path or workflow_path
+-                    )
+-                ),
++            # A run builds this runtime at its start and in each call frame it
++            # opens, before any effect there
++            # (WorkflowExecutor._configure_pure_replay_runtime). Building each
++            # here reports the same rejections; it reads only the bundles.
++            scope_path = ResumeScopePath.root(
++                _workflow_path_for_state(
++                    workspace, logical_workflow_path or workflow_path
++                )
+             )
++            for frame_bundle, call_path in replay_profile_bundles(bundle):
++                try:
++                    # The scope path is only type-checked here; derivation
++                    # reads the bundle alone.
++                    PureReplayRuntime(bundle=frame_bundle, scope_path=scope_path)
++                except PureResultReplayIndexError as exc:
++                    raise PureResultReplayIndexError(
++                        exc.reason,
++                        str(exc),
++                        context={
++                            **exc.context,
++                            "call_sites": [
++                                (caller.surface.name, boundary.node_id)
++                                for caller, boundary in reversed(call_path)
++                            ],
++                        },
++                    ) from exc
+             return _run_result(0)
+ 
+         # Parse context
+@@ -821,7 +864,7 @@ def run_workflow(
+             session_status="failed" if session_id is not None else None)
+     except PureResultReplayIndexError as e:
+         # Raised by the replay-index build in --dry-run and at run start alike.
+-        logger.error(_replay_index_diagnostic(e, workflow_path))
++        logger.error(render_replay_index_rejection(e, bundle))
+         return _run_result(
+             2, state_manager=state_manager, session_id=session_id,
+             session_status="failed" if session_id is not None else None)
+diff --git a/orchestrator/workflow/calls.py b/orchestrator/workflow/calls.py
+index d6af8531cb368314948af066f03479f3ac5ef655..b48a12aa67cc611b17fcd4dfca0edf6ecb06a2b8 100644
+--- a/orchestrator/workflow/calls.py
++++ b/orchestrator/workflow/calls.py
+@@ -2,10 +2,11 @@
+ 
+ from __future__ import annotations
+ 
++from collections import deque
+ from copy import deepcopy
+ import hashlib
+ from pathlib import Path
+-from typing import Any, Dict, Mapping, Optional
++from typing import Any, Dict, Iterator, Mapping, Optional
+ 
+ from ..contracts.output_contract import OutputContractError, validate_contract_value
+ from .executable_ir import (
+@@ -17,6 +18,7 @@ from .executable_ir import (
+ )
+ from .executor_runtime import CallFrameStateManager, CallRuntime, RuntimeStepInput
+ from .loaded_bundle import (
++    LoadedWorkflowBundle,
+     workflow_boundary_projection,
+     workflow_bundle,
+     workflow_generated_path_allocations,
+@@ -42,7 +44,7 @@ from .resume_projection_integrity import (
+     next_unused_retry_frame_id,
+     projection_integrity_failed_result,
+ )
+-from .state_projection import ResumeProjectionValidationError
++from .state_projection import CallBoundaryProjection, ResumeProjectionValidationError
+ from . import step_results
+ 
+ 
+@@ -1235,9 +1237,10 @@ class CallExecutor:
+             result_persistence_profile=(
+                 DERIVED_PURE_REPLAY_PROFILE
+                 if (
+-                    workflow_lisp_target
+-                    and child_existing_frame is None
+-                    and boundary.iteration_owner_node_id is None
++                    child_existing_frame is None
++                    and fresh_call_frame_uses_replay_profile(
++                        imported_target, boundary
++                    )
+                 )
+                 else None
+             ),
+@@ -1323,3 +1326,58 @@ class CallExecutor:
+             "artifacts": workflow_outputs,
+             "debug": {"call": debug_payload},
+         }
++
++
++def fresh_call_frame_uses_replay_profile(
++    imported_workflow: Any,
++    boundary: CallBoundaryProjection,
++) -> bool:
++    """Whether a new frame for ``boundary`` runs under the pure-result replay profile.
++
++    Only a Workflow Lisp callee does, and only outside loop iterations. The
++    frame derives its callee's replay index when it starts.
++    """
++    return (
++        boundary.iteration_owner_node_id is None
++        and CallExecutor._is_workflow_lisp_target(imported_workflow)
++    )
++
++
++def replay_profile_bundles(
++    bundle: LoadedWorkflowBundle,
++) -> Iterator[
++    tuple[
++        LoadedWorkflowBundle,
++        tuple[tuple[LoadedWorkflowBundle, CallBoundaryProjection], ...],
++    ]
++]:
++    """Yield each bundle a fresh run of ``bundle`` derives a replay index for.
++
++    The root comes first, with an empty call path. Then, once each, every
++    callee a frame opens under the replay profile, with the first call path
++    (outermost call first) the breadth-first walk finds. Callees are resolved as
++    ``CallExecutor.execute_call`` resolves them, from the caller's imports by
++    the call boundary's alias. A callee reached only inside a loop iteration is
++    not yielded but is still walked, since its own calls may use the profile.
++    Nothing runs: no frame, run directory or state is created. Bundles are
++    shared across import paths, so each is walked once.
++    """
++    yield bundle, ()
++    yielded = {id(bundle)}
++    walked = {id(bundle)}
++    pending = deque([(bundle, ())])
++    while pending:
++        caller, path = pending.popleft()
++        for boundary in caller.projection.call_boundaries.values():
++            callee = workflow_import_bundle(caller, boundary.import_alias)
++            if callee is None:
++                continue
++            callee_path = (*path, (caller, boundary))
++            if id(callee) not in yielded and fresh_call_frame_uses_replay_profile(
++                callee, boundary
++            ):
++                yielded.add(id(callee))
++                yield callee, callee_path
++            if id(callee) not in walked:
++                walked.add(id(callee))
++                pending.append((callee, callee_path))
+diff --git a/orchestrator/workflow/frontend_origins.py b/orchestrator/workflow/frontend_origins.py
+index ca9d2a82f3726cc7356f973691db910ea5dbc52f..a538ac73effbce91f7ffdc4e441f4f05da8c7863 100644
+--- a/orchestrator/workflow/frontend_origins.py
++++ b/orchestrator/workflow/frontend_origins.py
+@@ -17,6 +17,56 @@ from orchestrator.exceptions import ValidationSubjectRef, parse_validation_subje
+ # Preserve the established observability logger while moving its implementation.
+ logger = logging.getLogger("orchestrator.workflow.executor")
+ _DEFAULT_PROVENANCE = object()
++_NODE_ORIGIN_SECTIONS = (
++    "step_ids",
++    "generated_inputs",
++    "generated_outputs",
++    "generated_paths",
++    "generated_internal_inputs",
++)
++
++
++def workflow_node_origin(
++    source_trace_path: Path | None,
++    workflow_name: str,
++    node_id: str,
++) -> Mapping[str, Any]:
++    """Return the authored origin of one executable node of one workflow.
++
++    One build's source trace covers every workflow of the build, the entry and
++    each workflow it calls. Node ids are local to a workflow's bundle, so the
++    lookup is scoped to ``workflow_name``. Unlike ``CompiledFrontendIndex``,
++    which reads an unusable trace as empty, this raises: ``LookupError`` saying
++    what the trace lacks, or whatever reading or decoding it raised.
++    """
++    if source_trace_path is None:
++        raise LookupError("the build recorded no source map")
++    payload = json.loads(Path(source_trace_path).read_text(encoding="utf-8"))
++    workflow = payload["workflows"].get(workflow_name)
++    if workflow is None:
++        raise LookupError(f"{source_trace_path} has no workflow {workflow_name}")
++    origin_key = next(
++        (node["origin_key"] for node in workflow["executable_nodes"] if node["node_id"] == node_id),
++        None,
++    )
++    if origin_key is None:
++        raise LookupError(f"{source_trace_path} has no node {node_id} in workflow {workflow_name}")
++    origins = (
++        workflow["workflow_origin"],
++        *(
++            origin
++            for section in _NODE_ORIGIN_SECTIONS
++            for origin in (workflow.get(section) or {}).values()
++        ),
++    )
++    origin = next((item for item in origins if item["origin_key"] == origin_key), None)
++    if origin is None:
++        raise LookupError(f"{source_trace_path} has no origin {origin_key} for node {node_id}")
++    if not Path(origin["path"]).is_file():
++        raise LookupError(
++            f"{source_trace_path} places node {node_id} in {origin['path']}, which does not exist"
++        )
++    return origin
+ 
+ 
+ class CompiledFrontendIndex:
+diff --git a/orchestrator/workflow/pure_result_replay.py b/orchestrator/workflow/pure_result_replay.py
+index 8d8de2eca4d41c27755a91897fdb6a08f7c4fadb..24538028c9625a21567e03458e1136d1e967cc7b 100644
+--- a/orchestrator/workflow/pure_result_replay.py
++++ b/orchestrator/workflow/pure_result_replay.py
+@@ -27,7 +27,6 @@ from .executable_ir import (
+     RepeatUntilFrameNode,
+     WorkflowInputAddress,
+ )
+-from .frontend_origins import CompiledFrontendIndex
+ from .loaded_bundle import (
+     LoadedWorkflowBundle,
+     workflow_runtime_input_contracts,
+@@ -1684,10 +1683,10 @@ def derive_pure_result_replay_index(
+     """Derive replay dependencies without mutating or serializing the program.
+ 
+     The bundle passed typecheck, so any rejection of its contents is a compiler
+-    defect (core calculus §13.3). The raised error says so and, when it names a
+-    node, carries that node's authored source origin under
+-    ``context["source_origin"]``; reading that origin is the one file read here,
+-    from the bundle's own compiled source trace, and only on rejection.
++    defect (core calculus §13.3). The raised error says so and names the
++    workflow (``context["workflow"]``, ``context["workflow_path"]``) beside the
++    rejected ``node_id``, so that a caller holding the build's source map can
++    place it. Nothing here reads a file.
+     """
+ 
+     if scope_kind not in {"root", "self"}:
+@@ -1711,24 +1710,16 @@ def _compiler_defect(
+     exc: PureResultReplayIndexError,
+     bundle: LoadedWorkflowBundle,
+ ) -> PureResultReplayIndexError:
+-    """Restate one index rejection as a compiler defect at its node's authored form."""
+-
+-    context = dict(exc.context)
+-    node_id = context.get("node_id")
+-    node = bundle.ir.nodes.get(node_id) if isinstance(node_id, str) else None
+-    if node is not None:
+-        entry = bundle.projection.entries_by_node_id.get(node_id)
+-        origin = CompiledFrontendIndex(bundle.provenance).origin_for_step(
+-            entry.presentation_key if entry is not None else node_id,
+-            node.step_id,
+-            node_id=node_id,
+-        )
+-        if origin is not None:
+-            context["source_origin"] = dict(origin)
++    """Restate one index rejection as a compiler defect of the workflow it names."""
++
+     return PureResultReplayIndexError(
+         exc.reason,
+         f"{exc}; this is a compiler defect: the program passed typecheck",
+-        context=context,
++        context={
++            "workflow": bundle.surface.name,
++            "workflow_path": bundle.provenance.workflow_path,
++            **exc.context,
++        },
+     )
+ 
+ 

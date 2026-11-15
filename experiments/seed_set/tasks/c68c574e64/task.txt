@@ -1,0 +1,12 @@
+fix: remove a stale result file before every command and provider call
+
+A command or provider call delivers its result as a JSON file at
+ORCHESTRATOR_OUTPUT_BUNDLE_PATH. The runtime only created the parent
+directory, so a file left by an earlier loop iteration, an earlier run or an
+interrupted or failed attempt satisfied a call that wrote nothing. The runtime
+now removes any file at the bundle path before each command and provider call,
+including provider retry attempts; a call that writes nothing fails with
+missing_bundle_file. Supervision, peer-group and phased-delivery calls keep
+their own absence rule.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_result_file_freshness.py::test_a_call_that_writes_its_result_only_in_the_first_iteration_fails_in_the_second` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

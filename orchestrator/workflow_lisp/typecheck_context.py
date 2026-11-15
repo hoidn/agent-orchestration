@@ -126,6 +126,7 @@ def snapshot_session_state(state: TypecheckSessionState) -> TypecheckSessionStat
         parametric_specialization_requests=dict(
             state.parametric_specialization_requests
         ),
+        retyped_specializations=state.retyped_specializations,
     )
 
 
@@ -169,6 +170,7 @@ def restore_session_state(
     state.parametric_specialization_requests = dict(
         snapshot.parametric_specialization_requests
     )
+    state.retyped_specializations = snapshot.retyped_specializations
 
 
 def _values_match(left: object, right: object) -> bool:

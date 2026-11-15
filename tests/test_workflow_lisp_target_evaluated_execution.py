@@ -1,4 +1,4 @@
-"""Target 2.35 registration and public entry behavior during rollout."""
+"""Public entry behavior of the evaluated route at the current target: dispatch, authority publication and source roots."""
 
 from __future__ import annotations
 
@@ -21,15 +21,13 @@ from tests.test_workflow_evaluated_cli import _run_args, _run_argv
 
 PROGRAM = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
   (export run)
   (defrecord Candidate (title String) (score Int))
   (defproc revise-candidate
     ((candidate Candidate))
     -> Candidate
-    :effects ((uses-command probe_revise))
-    :lowering inline
     (command-result probe_revise
       :argv ("python" "PROBE_REVISE" candidate.title "tidy" "fb")
       :returns Candidate))
@@ -148,18 +146,18 @@ def test_evaluated_run_imports_admitted_external_source_root(
     external_module = external_root / "shared" / "types.orc"
     external_module.parent.mkdir(parents=True)
     external_module.write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule shared/types) (export Out) (defrecord Out (value String)))\n',
         encoding="utf-8",
     )
     files["source"].parent.mkdir(parents=True)
     files["source"].write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule grt/entry) (import shared/types :only (Out)) (export run) '
         '(defworkflow run () -> Out (record Out :value "ok")))\n',
         encoding="utf-8",
     )
-    assert entry_target_dsl_version(files["source"]) == "2.35"
+    assert entry_target_dsl_version(files["source"]) == "2.40"
     args = _run_args(files)
     args.source_root.append(str(external_root))
     argv = [*_run_argv(files), "--source-root", str(external_root)]
@@ -182,13 +180,13 @@ def test_evaluated_run_keeps_external_source_roots(
     external_module = external_root / "shared" / "types.orc"
     external_module.parent.mkdir(parents=True)
     external_module.write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule shared/types) (export Out) (defrecord Out (value String)))\n',
         encoding="utf-8",
     )
     files["source"].parent.mkdir(parents=True)
     files["source"].write_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40") '
         '(defmodule grt/entry) (import shared/types :only (Out)) (export run) '
         '(defworkflow run () -> Out (record Out :value "ok")))\n',
         encoding="utf-8",

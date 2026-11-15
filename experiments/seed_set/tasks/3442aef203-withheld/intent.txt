@@ -1,0 +1,3 @@
+Activate pure replay for new roots
+
+The change is in orchestrator/cli/commands/resume.py and orchestrator/cli/commands/run.py.

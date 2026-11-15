@@ -1,0 +1,11 @@
+fix: reject unsupported payloads in applied generic unions
+
+Apply the declared-union payload rules (proc refs in payloads, workflow and
+proc refs nested in collections) to the substituted payload of an applied
+union at its use site, instead of crashing later in contract derivation.
+Compare discriminant union names token by token so applied names keep their
+head, reject comma-separated application arguments as invalid syntax, and
+keep the new union fields out of repr and empty build JSON so existing
+specialization identities and build bytes are unchanged.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_generic_unions.py::test_non_generic_union_identity_and_build_encoding_are_unchanged` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

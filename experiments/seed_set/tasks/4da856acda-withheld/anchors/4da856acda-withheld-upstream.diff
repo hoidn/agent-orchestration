@@ -1,0 +1,218 @@
+diff --git a/orchestrator/providers/observation.py b/orchestrator/providers/observation.py
+index 1f3426355bb621007d9ee0a5b0788ab125834948..b391bff9657c36b1549cf967c5b9acdb080b730a 100644
+--- a/orchestrator/providers/observation.py
++++ b/orchestrator/providers/observation.py
+@@ -461,7 +461,7 @@ class ProviderObservationManager:
+             digest = hashlib.sha256(
+                 (
+                     f"{invocation_id}\0{member_id}\0{turn_id}\0"
+-                    f"{self._allocation_index}"
++                    f"{self._allocation_index}\0{self._session_name}"
+                 ).encode("utf-8")
+             ).hexdigest()[:16]
+             stem = f"{self._allocation_index:06d}-{digest}"
+diff --git a/orchestrator/workflow/evaluated/agent_turns.py b/orchestrator/workflow/evaluated/agent_turns.py
+index 652386dd2f8f8a9ca802feb14cc9729a5511480d..b97323aed4041ede392402fa819ff35a710c9966 100644
+--- a/orchestrator/workflow/evaluated/agent_turns.py
++++ b/orchestrator/workflow/evaluated/agent_turns.py
+@@ -15,9 +15,7 @@ or env-selected homes), the attempt directory's receipt (`agent_sessions`), and
+ 
+ from __future__ import annotations
+ 
+-import hashlib
+ import json
+-import logging
+ import time
+ from concurrent.futures import ThreadPoolExecutor
+ from dataclasses import dataclass, replace
+@@ -40,8 +38,6 @@ from .commands import workspace_relative_path
+ from .memo import MemoError, append_record, read_memo
+ from .providers import ProviderPerformerError, launch_provider, provider_delivery_name_for_template, provider_result, resolve_provider_input
+ 
+-logger = logging.getLogger(__name__)
+-
+ 
+ class AgentTurnError(RuntimeError):
+     def __init__(self, code, message, *, exit_info=None, violations=None, keep_pending=False):
+@@ -62,46 +58,6 @@ class ResolvedTurn:
+     pending: Any = None         # PendingTurn | None (Task 11), set with dataclasses.replace
+ 
+ 
+-class AgentViews:
+-    """D6: one read-only observation view per agent instance for the life of this process; every turn of the agent
+-    appends to it with turn/idle boundary lines. Targets are transient and never persisted; every failure is
+-    best-effort (no handle) and never affects a turn. `close` finalizes the views and closes the run's manager."""
+-
+-    def __init__(self, manager) -> None:
+-        self._manager, self._handles = manager, {}
+-
+-    def handle_for(self, agent_identity: str, turn_identity: str, ordinal: int):
+-        if self._manager is None:
+-            return None
+-        handle = self._handles.get(agent_identity)
+-        try:
+-            if handle is None:
+-                digest = hashlib.sha256(agent_identity.encode("utf-8")).hexdigest()[:16]
+-                handle = self._manager.open_observation(invocation_id=f"agent-{digest}", member_id="agent", turn_id="all")
+-                self._handles[agent_identity] = handle
+-                logger.info("[provider_observation] agent view: tmux -S %s attach -r -t %s (pane %s)",
+-                            handle.socket_path, self._manager.session_name, handle.target)
+-            handle.append_display(f"\n--- turn {turn_identity} attempt {ordinal} ---\n".encode("utf-8"))
+-        except Exception:
+-            pass
+-        return handle
+-
+-    def idle(self, agent_identity: str) -> None:
+-        try:
+-            self._handles[agent_identity].append_display(b"\n--- idle ---\n")
+-        except Exception:
+-            pass
+-
+-    def close(self) -> None:
+-        for closable in (*self._handles.values(), self._manager):
+-            try:
+-                if closable is not None:
+-                    closable.close()
+-            except Exception:
+-                pass
+-        self._handles.clear()
+-
+-
+ def update_receipt(attempt_files, **changes) -> Receipt:
+     """Monotone receipt update; every receipt write of a turn goes through this module's `write_receipt`."""
+     updated = merged_receipt(attempt_files, **changes)
+diff --git a/orchestrator/workflow/evaluated/agent_views.py b/orchestrator/workflow/evaluated/agent_views.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..8dbd63c20a104dfe4ed45a7692ea7834ab543861
+--- /dev/null
++++ b/orchestrator/workflow/evaluated/agent_views.py
+@@ -0,0 +1,74 @@
++"""D6: one read-only observation view per agent instance for the life of this process.
++
++Every turn of an agent appends to its one view with turn/idle boundary lines. Targets are transient and never
++persisted. Every failure is best-effort: an agent whose view cannot open gets a cached no-op view, so the executor
++never opens a second (ordinary) pane for it and the open is not retried each turn.
++
++Depends on: a `ProviderObservationManager` (or None when observation is disabled for the run).
++"""
++
++from __future__ import annotations
++
++import hashlib
++import logging
++
++logger = logging.getLogger(__name__)
++
++
++class _NoView:
++    """Stands in for an agent view that failed to open; the executor treats it as a pre-opened handle."""
++
++    def append_display(self, data: bytes) -> None:
++        pass
++
++    def check_health(self) -> bool:
++        return False
++
++    def finalize(self) -> dict:
++        return {}
++
++    close = finalize
++
++
++class AgentViews:
++    """`close` finalizes the views and closes the run's manager."""
++
++    def __init__(self, manager) -> None:
++        self._manager, self._handles = manager, {}
++
++    def handle_for(self, agent_identity: str, turn_identity: str, ordinal: int):
++        if self._manager is None:
++            return None
++        handle = self._handles.get(agent_identity) or self._open(agent_identity)
++        try:
++            handle.append_display(f"\n--- turn {turn_identity} attempt {ordinal} ---\n".encode("utf-8"))
++        except Exception as exc:
++            logger.warning("[provider_observation] agent view append failed: %s", type(exc).__name__)
++        return handle
++
++    def _open(self, agent_identity: str):
++        digest = hashlib.sha256(agent_identity.encode("utf-8")).hexdigest()[:16]
++        try:
++            handle = self._manager.open_observation(invocation_id=f"agent-{digest}", member_id="agent", turn_id="all")
++            logger.info("[provider_observation] agent view: tmux -S %s attach -r -t %s (pane %s)",
++                        handle.socket_path, self._manager.session_name, handle.target)
++        except Exception as exc:
++            logger.warning("[provider_observation] agent view unavailable: %s", type(exc).__name__)
++            handle = _NoView()
++        self._handles[agent_identity] = handle
++        return handle
++
++    def idle(self, agent_identity: str) -> None:
++        try:
++            self._handles[agent_identity].append_display(b"\n--- idle ---\n")
++        except Exception:
++            pass
++
++    def close(self) -> None:
++        for closable in (*self._handles.values(), self._manager):
++            try:
++                if closable is not None:
++                    closable.close()
++            except Exception:
++                pass
++        self._handles.clear()
+diff --git a/orchestrator/workflow/evaluated/runtime.py b/orchestrator/workflow/evaluated/runtime.py
+index 2ce63aa6fb5a5b0d9a57aa515f2411b0ce4a2a3d..64a6bac58b36775a473b8d6ba53b8f5e514053e3 100644
+--- a/orchestrator/workflow/evaluated/runtime.py
++++ b/orchestrator/workflow/evaluated/runtime.py
+@@ -49,6 +49,7 @@ from .resume_prefix import (
+ from .views import ViewPublicationError
+ from . import effect_inputs
+ from . import agent_turns
++from .agent_views import AgentViews
+ 
+ 
+ logger = logging.getLogger(__name__)
+@@ -91,7 +92,7 @@ def execute_pure_run(
+     owns_run_files = authority.run_files is None
+     authority = replace(authority, run_files=run_files)
+     workspace_files = WorkspaceFiles(workspace)
+-    views = agent_turns.AgentViews(None)
++    views = AgentViews(None)
+     try:
+         _require_retained_root(run_files)
+         before = read_memo(authority.memo_path, checked_site_classes, run_files=authority.run_files)
+@@ -107,7 +108,7 @@ def execute_pure_run(
+             if node["class"] in {"provider", "agent_turn"} and provider_executor is None:
+                 provider_executor, manager = provider_executor_for_run(workspace, authority.run_root,
+                     agents_present=not {"agent", "agent_turn"}.isdisjoint(checked_site_classes.values()))
+-                views = agent_turns.AgentViews(manager)
++                views = AgentViews(manager)
+             return _execute_effect(
+                 authority,
+                 node,
+diff --git a/specs/observability.md b/specs/observability.md
+index bd0abf858dc92612aa413d4e485bffd7de63b77c..b3b8b357ca853fb903f6f0e5891e600c7429db09 100644
+--- a/specs/observability.md
++++ b/specs/observability.md
+@@ -40,13 +40,18 @@
+   - An evaluated run whose checked program contains `agent`/`agent_turn`
+     effects constructs the run-scoped observation manager best-effort;
+     evaluated runs of programs without agents keep observation disabled as
+-    before, so 2.35–2.37 behaviour is unchanged (R2). Within an agent-bearing
++    before, so 2.35–2.37 behaviour is unchanged: observation is enabled only
++    where an agent instance needs a durable view. Within an agent-bearing
+     run, ordinary `provider-result` effects keep the one-invocation/one-pane
+     contract.
+   - Each agent instance owns one logical read-only view: every turn of that
+     agent appends to the same pane and transcript, with
+     `--- turn <identity> attempt <n> ---` and `--- idle ---` boundary lines;
+-    invoking the agent again never opens a second pane. Attach is read-only
++    invoking the agent again never opens a second pane. If an agent's view
++    cannot open, that agent stays unobserved for the rest of the process: its
++    turns never fall back to ordinary per-invocation panes and the open is not
++    retried each turn. View files are unique per process, so a resumed run
++    opens fresh views beside the earlier ones. Attach is read-only
+     (`tmux -S <socket> attach -r -t <session>`); the session is logged once per
+     run at manager creation and each agent view's socket and pane target are
+     logged when that view opens. They are transient: a runtime restart may

@@ -1,0 +1,2833 @@
+[
+ [
+  "d1-r-d1-base",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1-base~b"
+ ],
+ [
+  "d1-r-d1-base~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-shadow-outer-int",
+  "((u U)) -> Int (let* ((v 7) (vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1-shadow-outer-int~b"
+ ],
+ [
+  "d1-r-d1-shadow-outer-int~b",
+  "((u U)) -> Int (let* ((v 7) (vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-shadow-outer-union",
+  "((u U)) -> Int (let* ((v (variant U B :why \"x\")) (vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1-shadow-outer-union~b"
+ ],
+ [
+  "d1-r-d1-shadow-outer-union~b",
+  "((u U)) -> Int (let* ((v (variant U B :why \"x\")) (vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-binder-named-s",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((s vs)) (match s ((A a) (> 3 a.n)) ((B b) true)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1-binder-named-s~b"
+ ],
+ [
+  "d1-r-d1-binder-named-s~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((s vs)) (match s ((A a) (> 3 a.n)) ((B b) true)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-binder-named-n",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((n vs)) (match n ((A a) (> s a.n)) ((B b) true)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1-binder-named-n~b"
+ ],
+ [
+  "d1-r-d1-binder-named-n~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((n vs)) (match n ((A a) (> s a.n)) ((B b) true)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-inner-rebind",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (let* ((v (match v ((A a) a.n) ((B b) 0)))) (> s v)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1-inner-rebind~b"
+ ],
+ [
+  "d1-r-d1-inner-rebind~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (let* ((v (match v ((A a) a.n) ((B b) 0)))) (> s v)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-nested-same-binder",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v (list vs))) (or-else (list/head (list/map ((v v)) (match v ((A a) (> s a.n)) ((B b) true)))) false))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1-nested-same-binder~b"
+ ],
+ [
+  "d1-r-d1-nested-same-binder~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v (list vs))) (or-else (list/head (list/map ((v v)) (match v ((A a) (> s a.n)) ((B b) true)))) false))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-pure-call-before",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (let* ((q (pp s)) (k (match v ((A a) a.n) ((B b) 0)))) (> q k)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1-pure-call-before~b"
+ ],
+ [
+  "d1-r-d1-pure-call-before~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (let* ((q (pp s)) (k (match v ((A a) a.n) ((B b) 0)))) (> q k)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-pure-workflow-before",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (let* ((q (call wp :k s)) (k (match v ((A a) a.n) ((B b) 0)))) (> q k)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1-pure-workflow-before~b"
+ ],
+ [
+  "d1-r-d1-pure-workflow-before~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (let* ((q (call wp :k s)) (k (match v ((A a) a.n) ((B b) 0)))) (> q k)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-two-maps",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (and (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false) (or-else (list/head (list/map ((w vs)) (match w ((A a) (> s a.n)) ((B b) true)))) false)) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1-two-maps~b"
+ ],
+ [
+  "d1-r-d1-two-maps~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (and (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false) (or-else (list/head (list/map ((w vs)) (match w ((A a) (> s a.n)) ((B b) true)))) false)))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-effect-after",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false) (done (+ s (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1-effect-after~b"
+ ],
+ [
+  "d1-r-d1-effect-after~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false))) (if ok (done (+ s (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-later-with-retry-pre",
+  "((u U)) -> Int (+ (pre u) (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false) (done (+ s (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pre ((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false) (done s) (continue (+ s 1))))))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1-later-with-plain-pre",
+  "((u U)) -> Int (+ (pre u) (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (match v ((A a) (> s a.n)) ((B b) true)))) false) (done (+ s (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pre ((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (if (= v.variant A) (> s 3) true))) false) (done s) (continue (+ s 1))))))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1b-local-captures-binder",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (let-proc ((g ((k Int)) -> Bool (match v ((A a) (> k a.n)) ((B b) true)))) (g s)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1b-local-captures-binder~b"
+ ],
+ [
+  "d1-r-d1b-local-captures-binder~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (let-proc ((g ((k Int)) -> Bool (match v ((A a) (> k a.n)) ((B b) true)))) (g s)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1b-loop-in-body",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (loop/recur ((t 0)) :max 1 :on-exhausted false (let* ((k (match v ((A a) a.n) ((B b) 0)))) (done (> s k)))))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1b-loop-in-body~b"
+ ],
+ [
+  "d1-r-d1b-loop-in-body~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (loop/recur ((t 0)) :max 1 :on-exhausted false (let* ((k (match v ((A a) a.n) ((B b) 0)))) (done (> s k)))))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1b-let-outer-name",
+  "((u U)) -> Int (let* ((o 3) (vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (let* ((k (+ o 0))) (> s k)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1b-let-outer-name~b"
+ ],
+ [
+  "d1-r-d1b-let-outer-name~b",
+  "((u U)) -> Int (let* ((o 3) (vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (let* ((k (+ o 0))) (> s k)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1b-let-outer-and-binder",
+  "((u U)) -> Int (let* ((o 0) (vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (let* ((k (+ o (match v ((A a) a.n) ((B b) 0))))) (> s k)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1b-let-outer-and-binder~b"
+ ],
+ [
+  "d1-r-d1b-let-outer-and-binder~b",
+  "((u U)) -> Int (let* ((o 0) (vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (let* ((k (+ o (match v ((A a) a.n) ((B b) 0))))) (> s k)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1b-binder-named-pp",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((pp vs)) (let* ((k (match pp ((A a) a.n) ((B b) 0)))) (> s k)))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1b-binder-named-pp~b"
+ ],
+ [
+  "d1-r-d1b-binder-named-pp~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((pp vs)) (let* ((k (match pp ((A a) a.n) ((B b) 0)))) (> s k)))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d1-r-d1b-let-star-two-reads",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (if (or-else (list/head (list/map ((v vs)) (let* ((k (match v ((A a) a.n) ((B b) 0))) (j (match v ((A a) 1) ((B b) 2)))) (> s (+ k j))))) false) (done s) (continue (+ s 1)))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  "d1-r-d1b-let-star-two-reads~b"
+ ],
+ [
+  "d1-r-d1b-let-star-two-reads~b",
+  "((u U)) -> Int (let* ((vs (list u u))) (loop/recur ((s 0)) :max 6 :on-exhausted 99 (let* ((ok (or-else (list/head (list/map ((v vs)) (let* ((k (match v ((A a) a.n) ((B b) 0))) (j (match v ((A a) 1) ((B b) 2)))) (> s (+ k j))))) false))) (if ok (done s) (continue (+ s 1))))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))",
+   "(defworkflow wp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-macro",
+  "((n Int) (xs List[Int])) -> Int (match (wrap n) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-macro~b"
+ ],
+ [
+  "d2-r-d2-macro~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (wrap n))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-defun-arg",
+  "((n Int) (xs List[Int])) -> Int (match (mk2 (len (list 1 2))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-defun-arg~b"
+ ],
+ [
+  "d2-r-d2-defun-arg~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (mk2 (len (list 1 2))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-record-field",
+  "((n Int) (xs List[Int])) -> Int (match (let* ((r (record R :xs (list 1)))) (mk r.xs)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-record-field~b"
+ ],
+ [
+  "d2-r-d2-record-field~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (let* ((r (record R :xs (list 1)))) (mk r.xs)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-nested-let",
+  "((n Int) (xs List[Int])) -> Int (match (let* ((a 1)) (let* ((ys (list a))) (mk ys))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-nested-let~b"
+ ],
+ [
+  "d2-r-d2-nested-let~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (let* ((a 1)) (let* ((ys (list a))) (mk ys))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-serial-map",
+  "((n Int) (xs List[Int])) -> Int (match (mk2 (list/length (list/map-effect ((x (list 1 2))) :max 2 x))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-serial-map~b"
+ ],
+ [
+  "d2-r-d2-serial-map~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (mk2 (list/length (list/map-effect ((x (list 1 2))) :max 2 x))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-serial-map-effect",
+  "((n Int) (xs List[Int])) -> Int (match (mk2 (list/length (list/map-effect ((x (list 1 2))) :max 2 (command-result c :argv (\"python\" \"c.py\" \"m\" \"1\") :returns Int)))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-serial-map-effect~b"
+ ],
+ [
+  "d2-r-d2-serial-map-effect~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (mk2 (list/length (list/map-effect ((x (list 1 2))) :max 2 (command-result c :argv (\"python\" \"c.py\" \"m\" \"1\") :returns Int)))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-empty-argument",
+  "((n Int) (xs List[Int])) -> Int (match (mk (list)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-empty-argument~b"
+ ],
+ [
+  "d2-r-d2-empty-argument~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (mk (list)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-head",
+  "((n Int) (xs List[Int])) -> Int (match (mk2 (or-else (list/head (list 3)) 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-head~b"
+ ],
+ [
+  "d2-r-d2-head~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (mk2 (or-else (list/head (list 3)) 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-loop-state",
+  "((n Int) (xs List[Int])) -> Int (match (mk2 (loop/recur ((t (list 1))) :max 1 :on-exhausted 0 (done (list/length t)))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-loop-state~b"
+ ],
+ [
+  "d2-r-d2-loop-state~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (mk2 (loop/recur ((t (list 1))) :max 1 :on-exhausted 0 (done (list/length t)))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-with-local",
+  "((n Int) (xs List[Int])) -> Int (match (let-proc ((f ((k Int)) -> Int k)) (mk (list (f 1)))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-with-local~b"
+ ],
+ [
+  "d2-r-d2-with-local~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (let-proc ((f ((k Int)) -> Int k)) (mk (list (f 1)))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-map-cond-body",
+  "((n Int) (xs List[Int])) -> Int (match (mk2 (list/length (list/map ((x xs)) (cond ((> x 1) 1) (else 0))))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-map-cond-body~b"
+ ],
+ [
+  "d2-r-d2-map-cond-body~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (mk2 (list/length (list/map ((x xs)) (cond ((> x 1) 1) (else 0))))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-list-effect-item",
+  "((n Int) (xs List[Int])) -> Int (match (mk (list (command-result c :argv (\"python\" \"c.py\" \"i\" \"1\") :returns Int) 2)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-list-effect-item~b"
+ ],
+ [
+  "d2-r-d2-list-effect-item~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (mk (list (command-result c :argv (\"python\" \"c.py\" \"i\" \"1\") :returns Int) 2)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2-match-in-arm",
+  "((n Int) (xs List[Int])) -> Int (match (match (mk2 1) ((HAS h) (mk h.xs)) ((NO o) (mk (list o.k o.k)))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  "d2-r-d2-match-in-arm~b"
+ ],
+ [
+  "d2-r-d2-match-in-arm~b",
+  "((n Int) (xs List[Int])) -> Int (let* ((w (match (mk2 1) ((HAS h) (mk h.xs)) ((NO o) (mk (list o.k o.k)))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-s6-if-let",
+  "((n Int)) -> Int (let* ((ys (if (> n 0) (list 1) (list)))) (list/length ys))",
+  [],
+  null
+ ],
+ [
+  "d2-r-s6-if-operand",
+  "((n Int)) -> Int (list/length (if (> n 0) (list 1) (list)))",
+  [],
+  null
+ ],
+ [
+  "d2-r-s6-if-result",
+  "((n Int)) -> List[Int] (if (> n 0) (list 1) (list))",
+  [],
+  null
+ ],
+ [
+  "d2-r-s6-if-empty-first",
+  "((n Int)) -> Int (let* ((ys (if (> n 0) (list) (list 1)))) (list/length ys))",
+  [],
+  null
+ ],
+ [
+  "d2-r-s6-match-arm-let",
+  "((n Int)) -> Int (let* ((ys (match (mk2 n) ((HAS h) h.xs) ((NO o) (list))))) (list/length ys))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2b-lp-if",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (if (> n 0) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  "d2-r-d2b-lp-if~b"
+ ],
+ [
+  "d2-r-d2b-lp-if~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (if (> n 0) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2b-lp-tag",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (if (= u.variant A) (let-proc ((f ((k Int)) -> V (variant V NO :k k))) (f (+ u.n (list/length (list 1))))) (mk2 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  "d2-r-d2b-lp-tag~b"
+ ],
+ [
+  "d2-r-d2b-lp-tag~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (if (= u.variant A) (let-proc ((f ((k Int)) -> V (variant V NO :k k))) (f (+ u.n (list/length (list 1))))) (mk2 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2b-lp-and",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (if (and (> n 0) (> n -1)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  "d2-r-d2b-lp-and~b"
+ ],
+ [
+  "d2-r-d2b-lp-and~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (if (and (> n 0) (> n -1)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2b-lp-macro",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (wrapk (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1)))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  "d2-r-d2b-lp-macro~b"
+ ],
+ [
+  "d2-r-d2b-lp-macro~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (wrapk (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1)))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2b-lp-let",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (let* ((q 1)) (mk2 (+ q (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1)))))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  "d2-r-d2b-lp-let~b"
+ ],
+ [
+  "d2-r-d2b-lp-let~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (let* ((q 1)) (mk2 (+ q (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1)))))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2b-lp-or-else",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (mk2 (or-else (list/head (let-proc ((f ((ys List[Int])) -> List[Int] ys)) (f (list 1)))) 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  "d2-r-d2b-lp-or-else~b"
+ ],
+ [
+  "d2-r-d2b-lp-or-else~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (mk2 (or-else (list/head (let-proc ((f ((ys List[Int])) -> List[Int] ys)) (f (list 1)))) 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2b-lp-match-inner",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (mk2 (+ 1 (match u ((A a) a.n) ((B b) 0)) (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  "d2-r-d2b-lp-match-inner~b"
+ ],
+ [
+  "d2-r-d2b-lp-match-inner~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (mk2 (+ 1 (match u ((A a) a.n) ((B b) 0)) (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2b-defun",
+  "((n Int) (xs List[Int]) (u U)) -> Int (dsel n)",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2b-local-body-match",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let-proc ((g ((k Int)) -> Int (match (variant V HAS :xs (list k)) ((HAS h) (list/length h.xs)) ((NO o) 0)))) (g n))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2b-local-body-match-map",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let-proc ((g ((k Int)) -> Int (match (mk2 (list/length (list/map ((x xs)) x))) ((HAS h) (list/length h.xs)) ((NO o) o.k)))) (g n))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2c-and-cond",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (if (and (> n 0) (> n -1)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  "d2-r-d2c-and-cond~b"
+ ],
+ [
+  "d2-r-d2c-and-cond~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (if (and (> n 0) (> n -1)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2c-or-cond",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (if (or (> n 5) (> n 0)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  "d2-r-d2c-or-cond~b"
+ ],
+ [
+  "d2-r-d2c-or-cond~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (if (or (> n 5) (> n 0)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2c-not-cond",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (if (not (> n 5)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  "d2-r-d2c-not-cond~b"
+ ],
+ [
+  "d2-r-d2c-not-cond~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (if (not (> n 5)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2c-and-value",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (mk2 (+ (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) (if (and (> n 0) (> n -1)) 1 2))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  "d2-r-d2c-and-value~b"
+ ],
+ [
+  "d2-r-d2c-and-value~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (mk2 (+ (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) (if (and (> n 0) (> n -1)) 1 2))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2c-and-arg",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (mk2 (+ (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) (bsel (and (> n 0) (> n -1))))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  "d2-r-d2c-and-arg~b"
+ ],
+ [
+  "d2-r-d2c-and-arg~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (mk2 (+ (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) (bsel (and (> n 0) (> n -1))))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2c-and-map",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (if (and (> n 0) (> n -1)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list/map ((x xs)) x))) (mk2 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  "d2-r-d2c-and-map~b"
+ ],
+ [
+  "d2-r-d2c-and-map~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (if (and (> n 0) (> n -1)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list/map ((x xs)) x))) (mk2 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2c-and-in-local-cond",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (if (> (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) 0) (if (and (> n 0) (> n -1)) (mk2 1) (mk2 2)) (mk2 3)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  "d2-r-d2c-and-in-local-cond~b"
+ ],
+ [
+  "d2-r-d2c-and-in-local-cond~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (if (> (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) 0) (if (and (> n 0) (> n -1)) (mk2 1) (mk2 2)) (mk2 3)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2c-and-cond-plain",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (if (and (> n 0) (> n -1)) (mk2 1) (mk2 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  "d2-r-d2c-and-cond-plain~b"
+ ],
+ [
+  "d2-r-d2c-and-cond-plain~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (if (and (> n 0) (> n -1)) (mk2 1) (mk2 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2c-nested-if",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (if (> n 0) (if (> n -1) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 1)) (mk2 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  "d2-r-d2c-nested-if~b"
+ ],
+ [
+  "d2-r-d2c-nested-if~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (if (> n 0) (if (> n -1) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 1)) (mk2 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2d-and-inside-consumer",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (let-proc ((f ((ys List[Int])) -> V (mk ys))) (if (and (> n 0) (> n -1)) (f (list 1)) (mk2 0))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  "d2-r-d2d-and-inside-consumer~b"
+ ],
+ [
+  "d2-r-d2d-and-inside-consumer~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (let-proc ((f ((ys List[Int])) -> V (mk ys))) (if (and (> n 0) (> n -1)) (f (list 1)) (mk2 0))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2d-and-let-binding",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (let* ((b (and (> n 0) (> n -1)))) (if b (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  "d2-r-d2d-and-let-binding~b"
+ ],
+ [
+  "d2-r-d2d-and-let-binding~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (let* ((b (and (> n 0) (> n -1)))) (if b (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2d-loop-beside",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (mk2 (+ (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) (loop/recur ((t 0)) :max 2 :on-exhausted 0 (if (> t 0) (done t) (continue (+ t 1)))))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  "d2-r-d2d-loop-beside~b"
+ ],
+ [
+  "d2-r-d2d-loop-beside~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (mk2 (+ (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) (loop/recur ((t 0)) :max 2 :on-exhausted 0 (if (> t 0) (done t) (continue (+ t 1)))))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2d-or-value",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (mk2 (+ (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) (if (or (> n 5) (> n 0)) 1 2))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  "d2-r-d2d-or-value~b"
+ ],
+ [
+  "d2-r-d2d-or-value~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (mk2 (+ (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) (if (or (> n 5) (> n 0)) 1 2))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2d-generic-list-arg",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (keepv (variant V HAS :xs (list 1))) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  "d2-r-d2d-generic-list-arg~b"
+ ],
+ [
+  "d2-r-d2d-generic-list-arg~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (keepv (variant V HAS :xs (list 1))))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  null
+ ],
+ [
+  "d2-r-d2d-two-locals-and",
+  "((n Int) (xs List[Int]) (u U)) -> Int (match (if (and (> (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) 0) (> n 0)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)) ((HAS h) (list/length h.xs)) ((NO o) o.k))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  "d2-r-d2d-two-locals-and~b"
+ ],
+ [
+  "d2-r-d2d-two-locals-and~b",
+  "((n Int) (xs List[Int]) (u U)) -> Int (let* ((w (if (and (> (let-proc ((f ((ys List[Int])) -> Int (list/length ys))) (f (list 1))) 0) (> n 0)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list 1))) (mk2 0)))) (match w ((HAS h) (list/length h.xs)) ((NO o) o.k)))",
+  [
+   "(defunion V (HAS (xs List[Int])) (NO (k Int)))",
+   "(defproc mk ((xs List[Int])) -> V (variant V HAS :xs xs))",
+   "(defproc mk2 ((k Int)) -> V (variant V NO :k k))",
+   "(defrecord R (xs List[Int]))",
+   "(defmacro wrap (x) (variant V HAS :xs (list x)))",
+   "(defun len ((ys List[Int])) -> Int (list/length ys))",
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defmacro wrapk (x) (mk2 x))",
+   "(defun dsel ((n Int)) -> Int (match (variant V HAS :xs (list n)) ((HAS h) (list/length h.xs)) ((NO o) 0)))",
+   "(defun bsel ((b Bool)) -> Int (if b 1 2))",
+   "(defproc keepv :forall (T) ((x T)) -> T x)"
+  ],
+  null
+ ],
+ [
+  "d3-r-d3-two-types",
+  "((n Int)) -> List[Int] (list/map-effect ((x (list 1 2))) :max 2 (+ (keep x) (list/length (keep (list x)))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  "d3-r-d3-two-types~b"
+ ],
+ [
+  "d3-r-d3-two-types~b",
+  "((n Int)) -> List[Int] (let-proc ((h ((x Int)) -> Int (+ (keep x) (list/length (keep (list x)))))) (list/map-effect ((x (list 1 2))) :max 2 (h x)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-d3-if-both",
+  "((n Int)) -> List[Int] (list/map-effect ((x (list 1 2))) :max 2 (if (> x 1) (keep x) (keep (+ x 10))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  "d3-r-d3-if-both~b"
+ ],
+ [
+  "d3-r-d3-if-both~b",
+  "((n Int)) -> List[Int] (let-proc ((h ((x Int)) -> Int (if (> x 1) (keep x) (keep (+ x 10))))) (list/map-effect ((x (list 1 2))) :max 2 (h x)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-d3-recursive",
+  "((n Int)) -> List[Int] (list/map-effect ((x (list 1 2))) :max 2 (rk x 1))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  "d3-r-d3-recursive~b"
+ ],
+ [
+  "d3-r-d3-recursive~b",
+  "((n Int)) -> List[Int] (let-proc ((h ((x Int)) -> Int (rk x 1))) (list/map-effect ((x (list 1 2))) :max 2 (h x)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-d3-string-arg",
+  "((n Int)) -> List[Int] (list/map-effect ((x (list 1 2))) :max 2 (+ x (list/length (keep (list \"a\")))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  "d3-r-d3-string-arg~b"
+ ],
+ [
+  "d3-r-d3-string-arg~b",
+  "((n Int)) -> List[Int] (let-proc ((h ((x Int)) -> Int (+ x (list/length (keep (list \"a\")))))) (list/map-effect ((x (list 1 2))) :max 2 (h x)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-d3-enclosing-request",
+  "((n Int)) -> List[Int] (let* ((a (keep 5))) (list/map-effect ((x (list 1 2))) :max 2 (+ a (keep x))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  "d3-r-d3-enclosing-request~b"
+ ],
+ [
+  "d3-r-d3-enclosing-request~b",
+  "((n Int)) -> List[Int] (let* ((a (keep 5))) (let-proc ((h ((x Int)) -> Int (+ a (keep x)))) (list/map-effect ((x (list 1 2))) :max 2 (h x))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-d3-map-in-map-values",
+  "((n Int)) -> List[Int] (list/map-effect ((y (list 10 20))) :max 2 (or-else (list/head (list/map-effect ((x (list 1 2))) :max 2 (keep (+ x y)))) 0))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  "d3-r-d3-map-in-map-values~b"
+ ],
+ [
+  "d3-r-d3-map-in-map-values~b",
+  "((n Int)) -> List[Int] (let-proc ((h ((x Int) (y Int)) -> Int (keep (+ x y)))) (list/map-effect ((y (list 10 20))) :max 2 (or-else (list/head (list/map-effect ((x (list 1 2))) :max 2 (h x y))) 0)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-d3-max-operand",
+  "((n Int)) -> List[Int] (list/map-effect ((x (list 1 2))) :max (keepp 2) (keep x))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-d3-in-local",
+  "((n Int)) -> List[Int] (let-proc ((h ((k Int)) -> List[Int] (list/map-effect ((x (list 1 2))) :max 2 (keep (+ x k))))) (h n))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-d3-in-proc-called-twice",
+  "((n Int)) -> Int (+ (list/length (q 1)) (list/length (q 2)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc q ((k Int)) -> List[Int] (list/map-effect ((x (list 1 2))) :max 2 (keep (+ x k))))"
+  ],
+  null
+ ],
+ [
+  "d3-r-d3-parallel-two-types",
+  "() -> List[Int] (list/map-effect ((w (list \"a\" \"b\"))) :max 2 :parallel 2 :workspace w (list/length (keep (list (keep w)))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-e7-local",
+  "() -> Int (list/length (list/map-effect ((x (list 1 2))) :max 2 (let-proc ((h ((t Int)) -> Int (+ t 1))) (h x))))",
+  [],
+  null
+ ],
+ [
+  "d3-r-e7-local-generic-call",
+  "() -> Int (list/length (list/map-effect ((x (list 1 2))) :max 2 (let-proc ((h ((t Int)) -> Int (keep t))) (h x))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-e7-local-parallel",
+  "() -> Int (list/length (list/map-effect ((w (list \"a\" \"b\"))) :max 2 :parallel 2 :workspace w (let-proc ((h ((t String)) -> Int 1)) (h w))))",
+  [],
+  null
+ ],
+ [
+  "d3-r-adversarial-internal-name",
+  "((n Int)) -> Int (+ (keep 1) (%parametric-call.m.keep.abe1fa75360a \"s\"))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-adversarial-internal-name-in-map",
+  "((n Int)) -> Int (+ (keep 1) (list/length (list/map-effect ((x (list 1 2))) :max 2 (%parametric-call.m.keep.abe1fa75360a x))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))"
+  ],
+  null
+ ],
+ [
+  "d3-r-v1-generic-let-capture-generic-call-serial",
+  "((n Int)) -> List[Int] (let* ((a (keep 5))) (let-proc ((h ((x Int)) -> Int (+ a (keep x)))) (list/map-effect ((x (list 1 2))) :max 2 (h x))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-v2-pure-let-capture-generic-call-serial",
+  "((n Int)) -> List[Int] (let* ((a 5)) (let-proc ((h ((x Int)) -> Int (+ a (keep x)))) (list/map-effect ((x (list 1 2))) :max 2 (h x))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-v3-generic-let-capture-no-generic-call-serial",
+  "((n Int)) -> List[Int] (let* ((a (keep 5))) (let-proc ((h ((x Int)) -> Int (+ a x))) (list/map-effect ((x (list 1 2))) :max 2 (h x))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-v4-generic-let-capture-generic-call-outside-map",
+  "((n Int)) -> Int (let* ((a (keep 5))) (let-proc ((h ((x Int)) -> Int (+ a (keep x)))) (h 1)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-v5-plain-let-capture-generic-call-serial",
+  "((n Int)) -> List[Int] (let* ((a (plain 5))) (let-proc ((h ((x Int)) -> Int (+ a (keep x)))) (list/map-effect ((x (list 1 2))) :max 2 (h x))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-v6-generic-let-capture-plain-call-serial",
+  "((n Int)) -> List[Int] (let* ((a (keep 5))) (let-proc ((h ((x Int)) -> Int (+ a (plain x)))) (list/map-effect ((x (list 1 2))) :max 2 (h x))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-v7-input-capture-generic-call-serial",
+  "((n Int)) -> List[Int] (let-proc ((h ((x Int)) -> Int (+ n (keep x)))) (list/map-effect ((x (list 1 2))) :max 2 (h x)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-v8-generic-let-capture-generic-call-loop",
+  "((n Int)) -> Int (let* ((a (keep 5))) (let-proc ((h ((x Int)) -> Int (+ a (keep x)))) (loop/recur ((s 0)) :max 2 :on-exhausted 0 (done (h s)))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-v9-generic-let-capture-generic-call-parallel",
+  "() -> List[Int] (let* ((a (keep 5))) (let-proc ((h ((w String)) -> Int (+ a (list/length (keep (list w)))))) (list/map-effect ((w (list \"a\" \"b\"))) :max 2 :parallel 2 :workspace w (h w))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-c1-generic-capture-pure-body",
+  "((n Int)) -> Int (let* ((a (keep 5))) (let-proc ((h ((x Int)) -> Int (+ a x))) (h 1)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-c2-pure-generic-capture-pure-body",
+  "((n Int)) -> Int (let* ((a (keepp 5))) (let-proc ((h ((x Int)) -> Int (+ a x))) (h 1)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-c3-pure-generic-capture-effect-body",
+  "((n Int)) -> Int (let* ((a (keepp 5))) (let-proc ((h ((x Int)) -> Int (+ a (plain x)))) (h 1)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-c4-generic-capture-effect-body",
+  "((n Int)) -> Int (let* ((a (keep 5))) (let-proc ((h ((x Int)) -> Int (+ a (plain x)))) (h 1)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-c5-plain-capture-effect-body",
+  "((n Int)) -> Int (let* ((a (plain 5))) (let-proc ((h ((x Int)) -> Int (+ a (plain x)))) (h 1)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-c6-plain-capture-pure-body",
+  "((n Int)) -> Int (let* ((a (plain 5))) (let-proc ((h ((x Int)) -> Int (+ a x))) (h 1)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-c7-generic-capture-called-twice",
+  "((n Int)) -> Int (let* ((a (keep 5))) (let-proc ((h ((x Int)) -> Int (+ a x))) (+ (h 1) (h 2))))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-c8-generic-in-local-no-capture",
+  "((n Int)) -> Int (let-proc ((h ((x Int)) -> Int (keep x))) (+ (h 1) (h 2)))",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))"
+  ],
+  null
+ ],
+ [
+  "d3-r-c9-generic-capture-in-proc",
+  "((n Int)) -> Int (pp 1)",
+  [
+   "(defproc keep :forall (T) ((x T)) -> T (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) x))",
+   "(defproc keepp :forall (T) ((x T)) -> T x)",
+   "(defproc rk :forall (T) ((x T) (k Int)) -> T (if (> k 0) (rk x (- k 1)) (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"r\" \"1\") :returns Int))) x)))",
+   "(defproc plain ((x Int)) -> Int (let* ((seen (command-result c :argv (\"python\" \"c.py\" \"q\" \"1\") :returns Int))) x))",
+   "(defproc pp ((k Int)) -> Int (let* ((a (keep k))) (let-proc ((h ((x Int)) -> Int (+ a x))) (h 1))))"
+  ],
+  null
+ ],
+ [
+  "d5-r-d5-let-over-param",
+  "() -> Int (outer 2)",
+  [
+   "(defproc add ((n Int) (x Int)) -> Int (+ n x))",
+   "(defproc apply1 ((f ProcRef[Int -> Int]) (v Int)) -> Int (f v))",
+   "(defproc outer ((k Int)) -> Int (let* ((j (+ k 0))) (apply1 (bind-proc (proc-ref add) :n j) 1)))"
+  ],
+  null
+ ],
+ [
+  "d5-r-d5-let-literal",
+  "() -> Int (outer 2)",
+  [
+   "(defproc add ((n Int) (x Int)) -> Int (+ n x))",
+   "(defproc apply1 ((f ProcRef[Int -> Int]) (v Int)) -> Int (f v))",
+   "(defproc outer ((k Int)) -> Int (let* ((j 5)) (apply1 (bind-proc (proc-ref add) :n j) k)))"
+  ],
+  null
+ ],
+ [
+  "d5-r-d5-mid",
+  "() -> Int (outer 2)",
+  [
+   "(defproc add ((n Int) (x Int)) -> Int (+ n x))",
+   "(defproc apply1 ((f ProcRef[Int -> Int]) (v Int)) -> Int (f v))",
+   "(defproc mid ((j Int)) -> Int (apply1 (bind-proc (proc-ref add) :n j) 1))",
+   "(defproc outer ((k Int)) -> Int (mid k))"
+  ],
+  null
+ ],
+ [
+  "d5-r-d5-workflow-input",
+  "((k Int)) -> Int (apply1 (bind-proc (proc-ref add) :n k) 1)",
+  [
+   "(defproc add ((n Int) (x Int)) -> Int (+ n x))",
+   "(defproc apply1 ((f ProcRef[Int -> Int]) (v Int)) -> Int (f v))"
+  ],
+  null
+ ],
+ [
+  "d5-r-d5-two-calls",
+  "() -> Int (+ (outer 2) (outer 3))",
+  [
+   "(defproc add ((n Int) (x Int)) -> Int (+ n x))",
+   "(defproc apply1 ((f ProcRef[Int -> Int]) (v Int)) -> Int (f v))",
+   "(defproc outer ((k Int)) -> Int (apply1 (bind-proc (proc-ref add) :n k) 1))"
+  ],
+  null
+ ],
+ [
+  "d5-r-d5-other-param-literal-ref",
+  "() -> Int (outer 2)",
+  [
+   "(defproc add ((n Int) (x Int)) -> Int (+ n x))",
+   "(defproc apply1 ((f ProcRef[Int -> Int]) (v Int)) -> Int (f v))",
+   "(defproc inc ((x Int)) -> Int (+ x 1))",
+   "(defproc outer ((k Int)) -> Int (apply1 (proc-ref inc) k))"
+  ],
+  null
+ ],
+ [
+  "d5-r-d5-param-bound-not-passed",
+  "() -> Int (outer 2)",
+  [
+   "(defproc add ((n Int) (x Int)) -> Int (+ n x))",
+   "(defproc outer ((k Int)) -> Int (let* ((g (bind-proc (proc-ref add) :n k))) (g 1)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-state-record-let-match",
+  "((u U) (n Int)) -> Int (loop/recur ((s (record Rk :n (let* ((k 1)) (match u ((A a) (+ k a.n)) ((B b) 1)))))) :max 2 :on-exhausted 9 (done s.n))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defrecord Rk (n Int))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-fnstate-record-let-match",
+  "((u U) (n Int)) -> Int (loop/recur :max 2 :state (record Rk :n (let* ((k 1)) (match u ((A a) (+ k a.n)) ((B b) 1)))) :on-exhausted 9 (fn (s) (done s.n)))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defrecord Rk (n Int))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-state-record-cond-match",
+  "((u U) (n Int)) -> Int (loop/recur ((s (record Rk :n (cond ((> n 5) 1) (else (match u ((A a) a.n) ((B b) 1))))))) :max 2 :on-exhausted 9 (done s.n))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defrecord Rk (n Int))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-fnstate-record-cond-match",
+  "((u U) (n Int)) -> Int (loop/recur :max 2 :state (record Rk :n (cond ((> n 5) 1) (else (match u ((A a) a.n) ((B b) 1))))) :on-exhausted 9 (fn (s) (done s.n)))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defrecord Rk (n Int))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-state-record-of-call",
+  "((u U) (n Int)) -> Int (loop/recur ((s (record Rk :n (pp (match u ((A a) a.n) ((B b) 1)))))) :max 2 :on-exhausted 9 (done s.n))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defrecord Rk (n Int))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-fnstate-record-of-call",
+  "((u U) (n Int)) -> Int (loop/recur :max 2 :state (record Rk :n (pp (match u ((A a) a.n) ((B b) 1)))) :on-exhausted 9 (fn (s) (done s.n)))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defrecord Rk (n Int))",
+   "(defproc pp ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-state-loop-in-state",
+  "((u U) (n Int)) -> Int (loop/recur ((s (loop/recur ((t 0)) :max (match u ((A a) a.n) ((B b) 1)) :on-exhausted t (if (> t 9) (done t) (continue (+ t 1)))))) :max 2 :on-exhausted 9 (done s))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-fnstate-loop-in-state",
+  "((u U) (n Int)) -> Int (loop/recur :max 2 :state (loop/recur ((t 0)) :max (match u ((A a) a.n) ((B b) 1)) :on-exhausted t (if (> t 9) (done t) (continue (+ t 1)))) :on-exhausted 9 (fn (s) (done s)))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-nested-max-1",
+  "((u U) (n Int)) -> Int (loop/recur ((s 0)) :max (loop/recur ((t1 0)) :max (match u ((A a) a.n) ((B b) 1)) :on-exhausted t1 (if (> t1 9) (done t1) (continue (+ t1 1)))) :on-exhausted s (if (> s 20) (done s) (continue (+ s 1))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-nested-max-2",
+  "((u U) (n Int)) -> Int (loop/recur ((s 0)) :max (loop/recur ((t2 0)) :max (loop/recur ((t1 0)) :max (match u ((A a) a.n) ((B b) 1)) :on-exhausted t1 (if (> t1 9) (done t1) (continue (+ t1 1)))) :on-exhausted t2 (if (> t2 9) (done t2) (continue (+ t2 1)))) :on-exhausted s (if (> s 20) (done s) (continue (+ s 1))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-nested-max-3",
+  "((u U) (n Int)) -> Int (loop/recur ((s 0)) :max (loop/recur ((t3 0)) :max (loop/recur ((t2 0)) :max (loop/recur ((t1 0)) :max (match u ((A a) a.n) ((B b) 1)) :on-exhausted t1 (if (> t1 9) (done t1) (continue (+ t1 1)))) :on-exhausted t2 (if (> t2 9) (done t2) (continue (+ t2 1)))) :on-exhausted t3 (if (> t3 9) (done t3) (continue (+ t3 1)))) :on-exhausted s (if (> s 20) (done s) (continue (+ s 1))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-b3-nested-max-4",
+  "((u U) (n Int)) -> Int (loop/recur ((s 0)) :max (loop/recur ((t4 0)) :max (loop/recur ((t3 0)) :max (loop/recur ((t2 0)) :max (loop/recur ((t1 0)) :max (match u ((A a) a.n) ((B b) 1)) :on-exhausted t1 (if (> t1 9) (done t1) (continue (+ t1 1)))) :on-exhausted t2 (if (> t2 9) (done t2) (continue (+ t2 1)))) :on-exhausted t3 (if (> t3 9) (done t3) (continue (+ t3 1)))) :on-exhausted t4 (if (> t4 9) (done t4) (continue (+ t4 1)))) :on-exhausted s (if (> s 20) (done s) (continue (+ s 1))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-direct",
+  "((n Int)) -> Int (match (cond ((> n 0) (variant Shape CIRCLE :r 1)) (else (variant Shape SQUARE :side 1))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-argument",
+  "((n Int)) -> Int (match (mkshape (cond ((> n 0) 1) (else 2))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-variant-field",
+  "((n Int)) -> Int (match (variant Shape CIRCLE :r (cond ((> n 0) 1) (else 2))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-record-field-read",
+  "((n Int)) -> Int (match (let* ((r (record Rk :n (cond ((> n 0) 1) (else 2))))) (mkshape r.n)) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-let-binding",
+  "((n Int)) -> Int (match (let* ((q (cond ((> n 0) 1) (else 2)))) (mkshape q)) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-let-body",
+  "((n Int)) -> Int (match (let* ((q 1)) (mkshape (+ q (cond ((> n 0) 1) (else 2))))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-let-in-argument",
+  "((n Int)) -> Int (match (mkshape (let* ((q (cond ((> n 0) 1) (else 2)))) (+ q 1))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-record-in-argument",
+  "((n Int)) -> Int (match (mkshape (let* ((r (record Rk :n (cond ((> n 0) 1) (else 2))))) r.n)) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-variant-in-argument-match",
+  "((n Int)) -> Int (match (mkshape (match (variant U A :n (cond ((> n 0) 1) (else 2))) ((A a) a.n) ((B b) 0))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-letproc-local-effect-body",
+  "((n Int)) -> Int (match (let-proc ((f ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"l\" \"1\") :returns Int))) (mkshape (+ e (cond ((> k 0) 1) (else 2))))))) (f n)) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-effect-let-then-cond",
+  "((n Int)) -> Int (match (let* ((e (command-result c :argv (\"python\" \"c.py\" \"e\" \"1\") :returns Int))) (mkshape (cond ((> e 0) 1) (else 2)))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-letproc-local-body",
+  "((n Int)) -> Int (match (let-proc ((f ((k Int)) -> Shape (mkshape (cond ((> k 0) 1) (else 2))))) (f n)) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-letproc-local-and-consumer",
+  "((n Int)) -> Int (match (let-proc ((f ((k Int)) -> Shape (mkshape (cond ((> k 0) 1) (else 2))))) (if (> (cond ((> n 0) 1) (else 2)) 1) (f n) (f 0))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-letproc-nested-local",
+  "((n Int)) -> Int (match (let-proc ((f ((k Int)) -> Shape (let-proc ((g ((j Int)) -> Int (cond ((> j 0) 1) (else 2)))) (mkshape (g k))))) (f n)) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-letproc-consumer-only",
+  "((n Int)) -> Int (match (let-proc ((f ((k Int)) -> Int (+ k 1))) (mkshape (cond ((> n 0) (f n)) (else 2)))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-letproc-local-returns-int",
+  "((n Int)) -> Int (match (let-proc ((f ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))) (mkshape (f n))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-macro-subject",
+  "((n Int)) -> Int (match (pick (> n 0) (mkshape 1) (mkshape 2)) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-macro-argument",
+  "((n Int)) -> Int (match (mkshape (pick (> n 0) 1 2)) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-macro-whole",
+  "((n Int)) -> Int (match (mk-sel n) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-defun-argument",
+  "((n Int)) -> Int (match (mkshape (sel n)) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-defproc-pure",
+  "((n Int)) -> Int (match (pc n) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-defproc-effect",
+  "((n Int)) -> Int (match (pce n) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-loop-body-in-argument",
+  "((n Int)) -> Int (match (mkshape (loop/recur ((s 0)) :max 3 :on-exhausted 0 (cond ((> s 1) (done s)) (else (continue (+ s 1)))))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-fn-loop-body-in-argument",
+  "((n Int)) -> Int (match (mkshape (loop/recur :max 3 :state 0 :on-exhausted 0 (fn (s) (cond ((> s 1) (done s)) (else (continue (+ s 1))))))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-inner-match-subject",
+  "((n Int)) -> Int (match (mkshape (match (if (> n 0) (variant U A :n 1) (variant U B :why \"x\")) ((A a) (cond ((> a.n 0) 1) (else 2))) ((B b) 3))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-if-condition",
+  "((n Int)) -> Int (match (if (cond ((> n 0) true) (else false)) (mkshape 1) (mkshape 2)) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-and-operand",
+  "((n Int)) -> Int (match (if (and (> n 0) (cond ((> n 1) true) (else false))) (mkshape 1) (mkshape 2)) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-cond-effect-argument",
+  "((n Int)) -> Int (match (mkshape (cond ((> n 0) (command-result c :argv (\"python\" \"c.py\" \"e\" \"1\") :returns Int)) (else 2))) ((CIRCLE c) c.r) ((SQUARE s) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))",
+   "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))",
+   "(defrecord Rk (n Int))",
+   "(defun sel ((k Int)) -> Int (cond ((> k 0) 1) (else 2)))",
+   "(defproc pc ((k Int)) -> Shape (variant Shape CIRCLE :r (cond ((> k 0) 1) (else 2))))",
+   "(defproc pce ((k Int)) -> Shape (let* ((e (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))) (variant Shape CIRCLE :r (+ e (cond ((> k 0) 1) (else 2))))))",
+   "(defmacro pick (t a b) (cond (t a) (else b)))",
+   "(defmacro mk-sel (k) (mkshape (cond ((> k 0) 1) (else 2))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d19-and-inner",
+  "((n Int)) -> Bool (loop/recur ((s false)) :max 2 :on-exhausted false (if s (done s) (continue (if (> n 0) (and (> n 0) (> (command-result c :argv (\"python\" \"c.py\" \"e\" \"1\") :returns Int) 0)) false))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pr ((k Int)) -> Int (+ (print k) 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d19-or-inner",
+  "((n Int)) -> Bool (loop/recur ((s false)) :max 2 :on-exhausted false (if s (done s) (continue (if (> n 0) (or (> n 5) (> (command-result c :argv (\"python\" \"c.py\" \"e\" \"1\") :returns Int) 0)) false))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pr ((k Int)) -> Int (+ (print k) 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d19-not-and-inner",
+  "((n Int)) -> Bool (loop/recur ((s false)) :max 2 :on-exhausted false (if s (done s) (continue (if (> n 0) (not (and (> n 0) (> (command-result c :argv (\"python\" \"c.py\" \"e\" \"1\") :returns Int) 0))) false))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pr ((k Int)) -> Int (+ (print k) 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d19-let-then-if",
+  "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (continue (if (> n 0) (let* ((y 1)) (if (> n 0) (command-result c :argv (\"python\" \"c.py\" \"e\" \"1\") :returns Int) y)) 0))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pr ((k Int)) -> Int (+ (print k) 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d19-print-proc-L2",
+  "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (continue (if (> n 0) (if (> n 0) (pr n) 0) 0))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pr ((k Int)) -> Int (+ (print k) 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d19-print-L2",
+  "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (continue (if (> n 0) (if (> n 0) (print n) 0) 0))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pr ((k Int)) -> Int (+ (print k) 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-d19-match-inner-cmd",
+  "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (continue (if (> n 0) (match (variant U A :n n) ((A a) (command-result c :argv (\"python\" \"c.py\" \"e\" \"1\") :returns Int)) ((B b) 0)) 0))))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc pr ((k Int)) -> Int (+ (print k) 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-unreached-defproc-d19",
+  "((n Int)) -> Int (+ n 1)",
+  [
+   "(defproc lp ((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (continue (if (> n 0) (if (> n 0) (command-result c :argv (\"python\" \"c.py\" \"e\" \"1\") :returns Int) 0) 0)))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-unreached-workflow-d19",
+  "((n Int)) -> Int (+ n 1)",
+  [
+   "(defworkflow other ((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (continue (if (> n 0) (if (> n 0) (command-result c :argv (\"python\" \"c.py\" \"e\" \"1\") :returns Int) 0) 0)))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-unreached-defproc-d21",
+  "((n Int)) -> Int (+ n 1)",
+  [
+   "(defproc lp ((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted s (let* ((x (done 1))) x)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-unreached-workflow-d21",
+  "((n Int)) -> Int (+ n 1)",
+  [
+   "(defworkflow other ((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted s (let* ((x (done 1))) x)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-dead-branch-d21",
+  "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted s (if false (let* ((x (done 1))) x) (done 2)))",
+  [],
+  null
+ ],
+ [
+  "d2-r-unreached-defproc-td2",
+  "((n Int)) -> Int (+ n 1)",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc rd ((u U)) -> Int (match u ((A a) (if (= u.variant A) u.n 0)) ((B b) 0)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-unreached-defproc-b3",
+  "((n Int)) -> Int (+ n 1)",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defrecord Rk (n Int))",
+   "(defproc lp ((u U)) -> Int (loop/recur ((s (record Rk :n (match u ((A a) a.n) ((B b) 1))))) :max 2 :on-exhausted 9 (done s.n)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-td2-letproc-consumer",
+  "((u U) (v U)) -> Int (match u ((A a) (let-proc ((g ((k Int)) -> Int (+ k 1))) (g u.n))) ((B b) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc f2 ((k Int)) -> Int (+ k 1))",
+   "(defworkflow w2 ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-td2-on-exhausted",
+  "((u U) (v U)) -> Int (match u ((A a) (loop/recur ((s 0)) :max 2 :on-exhausted u.n (if (> s 5) (done s) (continue (+ s 1))))) ((B b) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc f2 ((k Int)) -> Int (+ k 1))",
+   "(defworkflow w2 ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-td2-other-name-test",
+  "((u U) (v U)) -> Int (match u ((A a) (if (= v.variant A) u.n 0)) ((B b) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc f2 ((k Int)) -> Int (+ k 1))",
+   "(defworkflow w2 ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-td2-list-element",
+  "((u U) (v U)) -> Int (match u ((A a) (list/length (list u.n 2))) ((B b) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc f2 ((k Int)) -> Int (+ k 1))",
+   "(defworkflow w2 ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-td2-workflow-argument",
+  "((u U) (v U)) -> Int (match u ((A a) (call w2 :k u.n)) ((B b) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc f2 ((k Int)) -> Int (+ k 1))",
+   "(defworkflow w2 ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-td2-procedure-argument",
+  "((u U) (v U)) -> Int (match u ((A a) (f2 u.n)) ((B b) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc f2 ((k Int)) -> Int (+ k 1))",
+   "(defworkflow w2 ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-td2-nested-other-subject-arm",
+  "((u U) (v U)) -> Int (match u ((A a) (match v ((A z) (+ z.n u.n)) ((B y) 0))) ((B b) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc f2 ((k Int)) -> Int (+ k 1))",
+   "(defworkflow w2 ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-td2-cond-test-read",
+  "((u U) (v U)) -> Int (match u ((A a) (cond ((> u.n 5) 1) (else 0))) ((B b) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc f2 ((k Int)) -> Int (+ k 1))",
+   "(defworkflow w2 ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-td2-and-operand",
+  "((u U) (v U)) -> Int (match u ((A a) (if (and (> 1 0) (> u.n 1)) 1 0)) ((B b) 0))",
+  [
+   "(defunion U (A (n Int)) (B (why String)))",
+   "(defproc f2 ((k Int)) -> Int (+ k 1))",
+   "(defworkflow w2 ((k Int)) -> Int (+ k 1))"
+  ],
+  null
+ ],
+ [
+  "d2-r-m1-collision-user-proc",
+  "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (let-proc ((g ((k Int)) -> Int (+ k 1))) (continue (if (> n 0) (if (> n 0) (g n) 0) 0)))))",
+  [
+   "(defproc g ((k Int)) -> Int (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))"
+  ],
+  null
+ ],
+ [
+  "d2-r-m1-two-locals-pure-called",
+  "((n Int)) -> Int (+ (let-proc ((g ((k Int)) -> Int (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) (g n)) (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (let-proc ((g ((k Int)) -> Int (+ k 1))) (continue (if (> n 0) (if (> n 0) (g n) 0) 0))))))",
+  [],
+  null
+ ],
+ [
+  "d2-r-m1-two-locals-effect-called",
+  "((n Int)) -> Int (+ (let-proc ((g ((k Int)) -> Int (+ k 1))) (g n)) (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (let-proc ((g ((k Int)) -> Int (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) (continue (if (> n 0) (if (> n 0) (g n) 0) 0))))))",
+  [],
+  null
+ ],
+ [
+  "d2-r-m1-other-workflow-effect-local",
+  "((n Int)) -> Int (+ (call other :n n) (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (let-proc ((g ((k Int)) -> Int (+ k 1))) (continue (if (> n 0) (if (> n 0) (g n) 0) 0))))))",
+  [
+   "(defworkflow other ((n Int)) -> Int (let-proc ((g ((k Int)) -> Int (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) (g n)))"
+  ],
+  null
+ ],
+ [
+  "d2-r-m1-local-outside-loop",
+  "((n Int)) -> Int (let-proc ((g ((k Int)) -> Int (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (continue (if (> n 0) (if (> n 0) (g n) 0) 0)))))",
+  [],
+  null
+ ],
+ [
+  "d2-r-m1-local-calls-effect-proc",
+  "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (let-proc ((g ((k Int)) -> Int (pe k))) (continue (if (> n 0) (if (> n 0) (g n) 0) 0)))))",
+  [
+   "(defproc pe ((k Int)) -> Int (command-result c :argv (\"python\" \"c.py\" \"p\" \"1\") :returns Int))"
+  ],
+  null
+ ],
+ [
+  "d2-r-m1-local-calls-pure-workflow",
+  "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (let-proc ((g ((k Int)) -> Int (call wp :n k))) (continue (if (> n 0) (if (> n 0) (g n) 0) 0)))))",
+  [
+   "(defworkflow wp ((n Int)) -> Int (+ n 0))"
+  ],
+  null
+ ],
+ [
+  "d2-r-m1-local-in-defproc",
+  "((n Int)) -> Int (lp n)",
+  [
+   "(defproc lp ((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (let-proc ((g ((k Int)) -> Int (command-result c :argv (\"python\" \"c.py\" \"g\" \"1\") :returns Int))) (continue (if (> n 0) (if (> n 0) (g n) 0) 0))))))"
+  ],
+  null
+ ],
+ [
+  "d2-r-m1-local-named-like-proc-other-module-style",
+  "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (let-proc ((pe ((k Int)) -> Int (+ k 1))) (continue (if (> n 0) (if (> n 0) (pe n) 0) 0)))))",
+  [],
+  null
+ ],
+ [
+  "d2-r-m1-pure-local-L1",
+  "((n Int)) -> Int (loop/recur ((s 0)) :max 2 :on-exhausted 0 (if (> s 0) (done s) (let-proc ((g ((k Int)) -> Int (+ k 1))) (continue (if (> n 0) (g n) 0)))))",
+  [],
+  null
+ ]
+]

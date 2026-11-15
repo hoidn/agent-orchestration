@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_provider_isolation_policy.py::test_lone_surrogate_filesystem_paths_are_stable_policy_issues"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

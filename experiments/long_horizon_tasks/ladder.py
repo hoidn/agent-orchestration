@@ -1819,7 +1819,8 @@ def _kept(ctx, attempt_dir, name):
         ("inspect", attempt_dir / "containers" / f"{name}.inspect.json")]
     code = 0
     for verb, path in reads:
-        done = podman(ctx, verb, name)
+        done = subprocess.run(["podman", verb, name], env=base_env(ctx), stdout=subprocess.PIPE, timeout=300,
+                              stderr=subprocess.STDOUT if verb == "logs" else subprocess.PIPE, check=False)
         if done.returncode != 0 or (verb == "inspect" and not done.stdout.strip()):
             code = 2
             continue
@@ -1836,7 +1837,8 @@ def had_session(attempt_dir):
 def runtime_check(ctx, attempt_dir, export):
     """D4's runtime check on the attempt's containers before they are removed: every container's inspected
     configuration and the process environments read while it ran; with `export`, the file system of every agent
-    container (`*_main_1`) too. The egress sidecar's log is read to its end and kept first. The finding, or None:
+    container (`*_main_1`) too. The egress sidecar's log is read to its end and kept first, both of its streams: the proxy
+    writes every connection and refusal to standard error (Task 7). The finding, or None:
     any finding in any container is the attempt's. A session with no container under the trial's prefix, or an
     export due with no agent container, is an incomplete scan, never clean (Task 8 B2); so are a container whose
     process environments no sample over the attempt read (M1) and a podman read that failed (M2)."""

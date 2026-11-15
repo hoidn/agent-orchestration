@@ -1,0 +1,8 @@
+fix: prevent provider attempt rollback on repair
+
+Review-Tree: 5da58189921a09b6c8d6089761d2617563d855dd
+Review-Patch-SHA256: b4d97238c6b58ace40a5dd5d25f6ae812e52d52d4d12edac821eed5ce7920a12
+Spec-Review: PASS ALLOCATOR-REPAIR-SPEC-PASS-20260718-5DA58189-01
+Quality-Review: APPROVED ALLOCATOR-REPAIR-QUALITY-APPROVED-20260718-5DA58189-01
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_provider_attempt_allocation.py::test_provider_attempt_barrier_failure_prevents_allocator_commit` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

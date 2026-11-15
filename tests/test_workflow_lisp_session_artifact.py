@@ -73,7 +73,7 @@ def _session_source(clause: str = ":session-artifact omp_session", *, extra: str
     )
 
 
-def _elaborate_session(source: str, *, target: str = "2.35"):
+def _elaborate_session(source: str, *, target: str = "2.40"):
     return elaborate_expression(
         _expression_syntax(source),
         bound_names=frozenset({"providers.session", "prompts.session"}),
@@ -81,7 +81,7 @@ def _elaborate_session(source: str, *, target: str = "2.35"):
     )
 
 
-def _elaborate_diagnostic_code(source: str, *, target: str = "2.35") -> str:
+def _elaborate_diagnostic_code(source: str, *, target: str = "2.40") -> str:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _elaborate_session(source, target=target)
     return excinfo.value.diagnostics[0].code
@@ -106,7 +106,7 @@ def _typecheck_session(
     source: str,
     *,
     session_artifact_allowed: bool = False,
-    target: str = "2.35",
+    target: str = "2.40",
 ):
     expr = _elaborate_session(source, target=target)
     return typecheck_expression(
@@ -176,7 +176,7 @@ def _compile_source(
 
 
 def test_syntax_supported_versions_include_current_source() -> None:
-    assert "2.35" in _syntax_module().SUPPORTED_TARGET_DSL_VERSIONS
+    assert "2.40" in _syntax_module().SUPPORTED_TARGET_DSL_VERSIONS
 
 
 def test_elaborate_admits_session_artifact_for_current_source_as_bare_symbol_declaration() -> None:
@@ -320,8 +320,9 @@ def test_stage3_phase_placement_rejected(tmp_path: Path) -> None:
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule phase)",
+            "  (import std/phase :only (with-phase))",
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',

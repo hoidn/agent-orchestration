@@ -1,0 +1,19 @@
+fix: pin the effective cwd at allocation and make the receipt owner enforce its rules (Task 9 review findings)
+
+perform_allocation pinned pinned_config_digest(..., attempt.launch_cwd),
+which is None on an ordinary run, so a moved default-cwd workspace (Claude's
+native store is keyed by cwd) did not fail closed. effective_cwd(launch_cwd,
+workspace) is now the one expression for the pinned directory.
+
+write_receipt is the one receipt writer: it validates field types and enums
+(mode, completion, schema, attempt, positions) and refuses a change to a
+binding field (run_id, agent, turn, attempt, input_digest, predecessor) or a
+backward completion transition. update_receipt (monotone merge) lives beside
+it; read_receipt refuses a malformed receipt as memo_inconsistent.
+
+wc -l:
+  184 orchestrator/workflow/evaluated/agent_sessions.py
+
+complexity check: agent_sessions.py ok
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

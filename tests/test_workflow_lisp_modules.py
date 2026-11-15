@@ -320,7 +320,7 @@ def test_compile_stage1_entrypoint_resolves_builtin_stdlib_imports_without_manua
 
 @pytest.mark.parametrize(
     ("entry_target", "w3_selected"),
-    [("2.35", False), ("2.36", True)],
+    [("2.35", False), ("2.40", True)],
 )
 @pytest.mark.parametrize("entry_api", ["stage1", "stage3"])
 def test_w3_graph_selects_one_improve_api(
@@ -583,7 +583,7 @@ def test_compile_stage1_entrypoint_exposes_review_loop_macro_from_builtin_stdlib
     assert result.graph.export_surfaces_by_name["std/phase"].binding_for("review-revise-loop-proc") is not None
 
 
-@pytest.mark.parametrize("entry_target", ["2.35", "2.36"])
+@pytest.mark.parametrize("entry_target", ["2.35", "2.40"])
 @pytest.mark.parametrize("entry_api", ["stage1", "stage3"])
 def test_project_std_improve_shadow_remains_ambiguous(
     tmp_path: Path, entry_target: str, entry_api: str
@@ -972,7 +972,7 @@ def test_compile_stage3_entrypoint_keeps_native_analysis_for_old_source(tmp_path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (export run)",
                 "  (defpath EscapedReport",
@@ -1004,7 +1004,7 @@ def test_compile_stage3_entrypoint_keeps_native_analysis_for_old_source(tmp_path
         validate_shared=False,
         workspace_root=tmp_path,
     )
-    assert result.entry_result.typed_program.target == "2.35"
+    assert result.entry_result.typed_program.target == "2.40"
     assert "demo/entry::run" in result.entry_result.typed_program.workflows
 
 

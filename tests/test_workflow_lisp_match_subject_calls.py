@@ -1,4 +1,4 @@
-"""A procedure call written directly as a `match` subject at target 2.35.
+"""A procedure call written directly as a `match` subject.
 
 A subject that calls a generic helper through a hook whose type uses a type
 parameter is carried in its typechecked form, so the helper is specialized like
@@ -21,18 +21,24 @@ from tests.workflow_evaluated_totality_helpers import _public_run
 from tests.test_workflow_lisp_generic_unions_runtime import _compile
 from tests.workflow_lisp_generic_union_runtime_sources import CANDIDATE_CHECK, OUTCOME_LIB, OUTCOME_PROBE
 from tests.workflow_lisp_improve_stdlib_sources import REVIEW_PROBE, REVISE_PROBE, SUMMARIZE_PROBE, entry_source
+from tests.source_edits import replace_exact
 
 
-HEADER_235 = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.35")\n'
+HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.40")\n'
 
 SUMMARIZE = """  (defrecord Summary (outcome String) (title String) (score Int))
   (defproc summarize ((outcome String) (candidate Candidate)) -> Summary
-    :effects ((uses-command probe_summarize))
-    :lowering inline
     (command-result probe_summarize
       :argv ("python" "PROBE_SUMMARIZE" outcome candidate.title candidate.score)
       :returns Summary))
 """
+# The `improve` callers are the five-argument `std/improve` entry at 2.35 (Task 4a), where a
+# procedure declares its exact effects.
+SUMMARIZE_235 = replace_exact(
+    SUMMARIZE,
+    "-> Summary\n    (command-result",
+    "-> Summary\n    :effects ((uses-command probe_summarize))\n    :lowering inline\n    (command-result",
+)
 
 IMPROVE_CALL = (
     '(improve (record Candidate :title "SEED" :score 0) (record Brief :goal "tidy")'
@@ -51,21 +57,21 @@ CHECKED = "  (defunion Checked (OK (value Candidate)) (ERROR (error String)))\n"
 
 # Helpers that take a `check` hook and return its union. `attempt` is generic over the
 # imported `Outcome[T E]`; `judge` is generic over the plain union `Checked`; and
-# `judge-concrete` is not generic. All caller modules use the current 2.35 source floor.
+# `judge-concrete` is not generic.
 CHECK_HELPERS = {
     "attempt": ("  (import grt/lib :only (Outcome attempt))\n", "", "attempt"),
     "judge": (
         "",
         CHECKED
         + "  (defproc judge :forall (S) ((subject S) (check ProcRef[(S) -> Checked])) :where ((S is-record))\n"
-        + "    -> Checked :effects () :lowering inline (check subject))\n",
+        + "    -> Checked (check subject))\n",
         "judge",
     ),
     "judge-concrete": (
         "",
         CHECKED
         + "  (defproc judge ((subject Candidate) (check ProcRef[(Candidate) -> Checked])) -> Checked\n"
-        + "    :effects () :lowering inline (check subject))\n",
+        + "    (check subject))\n",
         "judge",
     ),
 }
@@ -80,8 +86,8 @@ def _run_body(call: str, arms: str, *, bound: bool) -> str:
 def _improve_sources(probes: dict[str, Path], *, seed: str, bound: bool) -> dict[str, str]:
     entry = entry_source(seed=seed, limit=2, probes=probes)
     prefix = entry[: entry.index("  (defworkflow run")]
-    call = IMPROVE_CALL.replace("SEED", seed)
-    summarize = SUMMARIZE.replace("PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
+    call = replace_exact(IMPROVE_CALL, "SEED", seed)
+    summarize = replace_exact(SUMMARIZE_235, "PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
     return {"grt/entry.orc": prefix + summarize + _run_body(call, IMPROVE_ARMS, bound=bound)}
 
 
@@ -89,17 +95,17 @@ def _check_sources(
     probes: dict[str, Path], *, helper: str, seed: str, bound: bool
 ) -> dict[str, str]:
     imports, declarations, callee = CHECK_HELPERS[helper]
-    check = CANDIDATE_CHECK.replace("PROBE_CHECK", probes["probe_check"].as_posix())
+    check = replace_exact(CANDIDATE_CHECK, "PROBE_CHECK", probes["probe_check"].as_posix())
     if helper != "attempt":
-        check = check.replace("Outcome[Candidate String]", "Checked")
+        check = replace_exact(check, "Outcome[Candidate String]", "Checked", count=2)
     entry = (
-        HEADER_235
+        HEADER
         + "  (defmodule grt/entry)\n"
         + imports
         + "  (export run)\n"
         + check
         + declarations
-        + SUMMARIZE.replace("PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
+        + replace_exact(SUMMARIZE, "PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
         + _run_body(f'({callee} (record Candidate :title "{seed}" :score 0) (proc-ref check-candidate))', CHECK_ARMS, bound=bound)
     )
     return {"grt/lib.orc": OUTCOME_LIB, "grt/entry.orc": entry} if helper == "attempt" else {"grt/entry.orc": entry}
@@ -192,20 +198,19 @@ def test_non_generic_helper_with_a_hook_as_match_subject_runs_like_the_let_bound
     assert (direct, direct[1].get("outcome")) == (bound, variant)
 
 
-# Generic helpers admitted at target 2.35, directly and bound with `let*`: one
+# Generic helpers, directly and bound with `let*`: one
 # without a hook, which runs a command, and one whose hook type does not use its type
 # parameter. The direct form names the authored helper; the bound form names its
 # specialization.
 COMPATIBLE_HELPERS = {
     "inspect": (
         "  (defproc inspect :forall (S) ((subject S)) :where ((S is-record)) -> Checked\n"
-        "    :effects ((uses-command probe_check)) :lowering inline\n"
         '    (command-result probe_check :argv ("python" "PROBE_CHECK" "revise-x") :returns Checked))\n',
         '(inspect (record Candidate :title "revise-x" :score 0))',
     ),
     "judge-fixed": (
         "  (defproc judge-fixed :forall (S) ((subject S) (check ProcRef[(Candidate) -> Checked]))\n"
-        "    :where ((S is-record)) -> Checked :effects () :lowering inline\n"
+        "    :where ((S is-record)) -> Checked\n"
         '    (check (record Candidate :title "revise-x" :score 0)))\n',
         '(judge-fixed (record Candidate :title "revise-x" :score 0) (proc-ref check-candidate))',
     ),
@@ -215,16 +220,18 @@ COMPATIBLE_HELPERS = {
 def _compatible_sources(probes: dict[str, Path], *, helper: str, bound: bool) -> dict[str, str]:
     declaration, call = COMPATIBLE_HELPERS[helper]
     entry = (
-        HEADER_235
+        HEADER
         + "  (defmodule grt/entry)\n  (export run)\n"
-        + CANDIDATE_CHECK.replace("Outcome[Candidate String]", "Checked")
+        + replace_exact(CANDIDATE_CHECK, "Outcome[Candidate String]", "Checked", count=2)
         + CHECKED
         + declaration
         + SUMMARIZE
         + _run_body(call, CHECK_ARMS, bound=bound)
     )
     return {
-        "grt/entry.orc": entry.replace("PROBE_CHECK", probes["probe_check"].as_posix()).replace(
+        "grt/entry.orc": replace_exact(
+            # once in `check-candidate`, and again in a helper that runs the probe itself
+            replace_exact(entry, "PROBE_CHECK", probes["probe_check"].as_posix(), count=1 + declaration.count("PROBE_CHECK")),
             "PROBE_SUMMARIZE", probes["probe_summarize"].as_posix()
         )
     }

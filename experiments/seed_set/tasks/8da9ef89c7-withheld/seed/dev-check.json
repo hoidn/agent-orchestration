@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_workflow_lisp_generic_unions.py::test_narrowed_variant_is_compatible_with_its_applied_union"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

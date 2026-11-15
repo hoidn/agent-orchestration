@@ -29,6 +29,7 @@ Design: docs/design/orc_effectiveness_comparison_harness.md. Standard library on
 
 import argparse
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -237,13 +238,17 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec
     inputs = arm_inputs(task, arm, cands, sets, spec.inputs)
     dump(records / "inputs.json", inputs)
     cwd, state = (tree, link_best_of_n_state(tree, cands)) if arm == "best_of_n" else (cands[0], spec.state_dir)
+    claude = sandbox.claude_binding((os.environ if environment is None else environment).get("COMPARE_CLAUDE_MODELS"))
     native = sandbox.prepare_unit(tree, records, homes=root / '.private-homes',
                                   providers=None if spec.command else spec.providers,
-                                  result_root=state or cwd / '.orchestrate/runs', environment=environment)
+                                  result_root=state or cwd / '.orchestrate/runs', environment=environment,
+                                  claude_model=claude)
     env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base, "TMPDIR": tree / "tmp"}
     env['COMPARE_SANDBOX'] = native['declaration']
     if inputs.get("model") in contamination.CODEX_MODELS:
         env["COMPARE_CODEX_MODELS"] = inputs["model"]
+    if claude != sandbox.SONNET:  # Haiku also needs the opt-in at launch; a Sonnet unit keeps an ambient denial
+        env["COMPARE_CLAUDE_MODELS"] = claude
     command = write_commands(records, cwd, state, runtime, env, spec)
     dump(records / "record.json", {
         "arm": arm, "arm_kind": "generic-command" if spec.command else "orc",
@@ -252,7 +257,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec
         "candidates": [str(c) for c in cands], "cwd": str(cwd),
         "sandbox": native,
         "state_root": str(state or cwd / ".orchestrate" / "runs"), "command": command, "created_at": time.time(),
-        **applied,
+        "claude_model": claude, **applied,
     })
     print(command if spec.command else f"{command}\n# resume after a stop: bash {records / 'resume.sh'} <run_id>")
     return records
@@ -415,7 +420,8 @@ def scan(records, solution, home=None, roots=(), others=()):
     model = load(records / "inputs.json").get("model") if 'arm' in record else None
     expected = model if model in contamination.CODEX_MODELS else "gpt-5.6-terra"
     hits = contamination.find_hits(records, record["tree"], record["created_at"], home, compiled,
-                                   expected_codex_model=expected)
+                                   expected_codex_model=expected,
+                                   expected_claude_model=record.get("claude_model", sandbox.SONNET))
     record["scan"] = {"solution": solution, "hits": hits, "verdict": None,
                       "calls": len(list((records / "calls").glob("*")))}
     dump(records / "record.json", record)

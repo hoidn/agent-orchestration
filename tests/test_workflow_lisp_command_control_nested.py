@@ -5,10 +5,11 @@ import pytest
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.contracts.closed_program.sites import _ast_nodes
 from tests.workflow_lisp_closed_program_helpers import build
+from tests.source_edits import replace_exact
 
 
 SOURCE = '''(workflow-lisp
-  (:language "0.1") (:target-dsl "2.35")
+  (:language "0.1") (:target-dsl "2.40")
   (defmodule nested/control)
   (import std/improve :only (Decision))
   (export run)
@@ -17,11 +18,10 @@ SOURCE = '''(workflow-lisp
   (defrecord Box (decision Decision[Notes Blocker]))
   DECLARATION
   (defworkflow run ((draft String)) -> Int
-    (loop/recur :max 1 :state (loop-state (n Int 0)) :on-exhausted 0
-      (fn (state)
-        (let* ((decision BODY)
-               (result (command-result fetch :argv ("python" "probe.py" decision) :returns Int)))
-          (done result))))))'''
+    (loop/recur ((state (loop-state (n Int 0)))) :max 1 :on-exhausted 0
+      (let* ((decision BODY)
+             (result (command-result fetch :argv ("python" "probe.py" decision) :returns Int)))
+        (done result)))))'''
 
 
 def _source(route, result_type):
@@ -30,10 +30,13 @@ def _source(route, result_type):
     declaration = ""
     body = effect
     if route != "direct":
-        declaration = f'''(defproc review ((draft String)) -> {result_type}
-          :effects ((uses-provider provider)) :lowering {route} {effect})'''
+        # The private-workflow lowering mode exists only below target 2.40 (Task 4b).
+        clauses = f'''
+          :effects ((uses-provider provider)) :lowering {route}''' if route == "private-workflow" else ""
+        declaration = f'''(defproc review ((draft String)) -> {result_type}{clauses} {effect})'''
         body = "(review draft)"
-    return SOURCE.replace("DECLARATION", declaration).replace("BODY", body)
+    source = replace_exact(replace_exact(SOURCE, "DECLARATION", declaration), "BODY", body)
+    return replace_exact(source, '(:target-dsl "2.40")', '(:target-dsl "2.35")') if route == "private-workflow" else source
 
 
 @pytest.mark.parametrize("route", ["direct", "inline", "private-workflow"])

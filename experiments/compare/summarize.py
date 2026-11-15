@@ -32,7 +32,7 @@ SCORES = {"S0": 0, "S1": 1, "S2": 2}  # score.orc's Score enumeration
 QUALITY_SCORES = {f"S{n}": n for n in range(9)}
 CRITERIA = ("root_cause", "scope", "generality", "layering")
 OPS = {">=": operator.ge, "<=": operator.le, ">": operator.gt, "<": operator.lt}
-NODE_TIMEOUT_SEC = 1800  # a hidden test that hangs counts as failed
+NODE_TIMEOUT_SEC = 1800  # the default bound on one hidden test: one that hangs past it counts as failed
 
 
 def criteria_of(mapping):
@@ -108,23 +108,23 @@ def join(run, batches, value, members, criteria=CRITERIA, references=()):
     return joined
 
 
-def passes(work, node, python):
+def passes(work, node, python, timeout=NODE_TIMEOUT_SEC):
     try:
         done = subprocess.run([python, "-m", "pytest", "-q", "-p", "no:cacheprovider", node], cwd=work,
-                              env={**os.environ, "PYTHONPATH": str(work)}, capture_output=True,
-                              timeout=NODE_TIMEOUT_SEC)
+                              env={**os.environ, "PYTHONPATH": str(work)}, capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         return False
     return done.returncode == 0
 
 
-def hidden_failures(clone, task, nodes, python):
-    """The hidden node ids that fail, run in a copy of the clone (no .git) with hidden/ copied over it."""
+def hidden_failures(clone, task, nodes, python, timeout=NODE_TIMEOUT_SEC):
+    """The hidden node ids that fail, run in a copy of the clone (no .git) with hidden/ copied over it; a node
+    still running after `timeout` seconds fails."""
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp) / clone.name
         shutil.copytree(clone, work, symlinks=True, ignore=shutil.ignore_patterns(".git"))
         shutil.copytree(task / "hidden", work, dirs_exist_ok=True)
-        return [node for node in nodes if not passes(work, node, python)]
+        return [node for node in nodes if not passes(work, node, python, timeout)]
 
 
 def run_values(arm, selected, scores, hidden):
@@ -389,13 +389,14 @@ def judged_ratings(pool, mapping, sha):
     return excluded, ratings
 
 
-def hidden_acceptance(pool, mapping, python):
+def hidden_acceptance(pool, mapping, python, timeout=NODE_TIMEOUT_SEC):
     """({clone id: passed fraction}, {clone id: failing node ids}); both empty without hidden acceptance."""
     task = Path(mapping["task"])
     if not ((task / "hidden").is_dir() and (task / "hidden_tests.txt").is_file()):
         return {}, {}
     nodes = [line.strip() for line in (task / "hidden_tests.txt").read_text().splitlines() if line.strip()]
-    failed = {cid: hidden_failures(pool / "clones" / cid, task, nodes, python) for cid, clone in mapping["clones"].items()
+    failed = {cid: hidden_failures(pool / "clones" / cid, task, nodes, python, timeout)
+              for cid, clone in mapping["clones"].items()
               if clone["arm"] != "reference"}
     return {cid: (len(nodes) - len(f)) / len(nodes) for cid, f in failed.items()}, failed
 
@@ -444,7 +445,7 @@ def validate_task_difficulty(criterion, mapping, excluded, ratings):
         raise SystemExit("task-difficulty requires valid scores for every solution from every declared judge")
 
 
-def summarize(pool, criterion, python=sys.executable):
+def summarize(pool, criterion, python=sys.executable, hidden_test_timeout=NODE_TIMEOUT_SEC):
     pool = Path(pool).resolve()
     mapping = json.loads((pool / "records" / "mapping.json").read_text())
     sha = hashlib.sha256(Path(criterion).read_bytes()).hexdigest()
@@ -461,7 +462,7 @@ def summarize(pool, criterion, python=sys.executable):
     validate_task_difficulty(frozen, mapping, excluded, ratings)
     totals, clone_scores = score_values(mapping, ratings)
     clone_hidden, hidden_failed = ({}, {}) if frozen.get("purpose") == "calibration" else hidden_acceptance(
-        pool, mapping, python)
+        pool, mapping, python, hidden_test_timeout)
     rows = run_rows(mapping, clone_scores, clone_hidden)
     m = measures(rows)
     results = {
@@ -489,11 +490,13 @@ def main(argv=None):
     mode.add_argument("--calibration-over", type=Path, nargs="+")
     parser.add_argument("--criterion", type=Path, required=True)
     parser.add_argument("--python", default=sys.executable, help="interpreter for hidden acceptance tests")
+    parser.add_argument("--hidden-test-timeout-sec", type=float, default=NODE_TIMEOUT_SEC,
+                        help="bound on one hidden test; one still running past it counts as failed")
     args = parser.parse_args(argv)
     if args.calibration_over:
         print(json.dumps(calibration_over(args.calibration_over, args.criterion), indent=2))
     else:
-        summarize(args.pool, args.criterion, args.python)
+        summarize(args.pool, args.criterion, args.python, args.hidden_test_timeout_sec)
 
 
 if __name__ == "__main__":

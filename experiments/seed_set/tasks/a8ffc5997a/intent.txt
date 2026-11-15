@@ -1,0 +1,11 @@
+fix: retain LSP provenance and repair compiler type contracts
+
+Preserve direct authored call facts through normalization, retain applied union
+discriminants on re-typecheck, canonicalize imported workflow effects, and reject
+forbidden leaves in structured workflow returns. Update growth tracing for the
+current replay handler and record the remaining repair plan.
+
+Verification on integrated main: 665 passed, 2 failed. Both failures are known
+imported generic loop-carrier metadata collisions still awaiting repair.
+Changed test modules collect 325 cases. Independent reviews and the exhaustive
+growth check passed; the full-suite repair remains incomplete.

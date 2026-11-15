@@ -1,0 +1,5 @@
+Retire completed YAML resume compatibility
+
+The change is in orchestrator/cli/commands/resume.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_yaml_frontend_retirement.py::test_completed_legacy_resume_fails_closed_when_source_is_missing` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

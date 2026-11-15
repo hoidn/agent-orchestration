@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_run_ref_quiescence.py::test_checkpoint_does_not_refreeze_and_session_cannot_succeed_after_stop_failure"
+  ],
+  "timeout_sec": 600
+}

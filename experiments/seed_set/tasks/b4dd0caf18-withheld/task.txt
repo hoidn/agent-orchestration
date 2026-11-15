@@ -1,0 +1,29 @@
+fix: keep unresolved agent turns pending on every failure path (Task 10 review round 1)
+
+- _unresolved always returns agent_turn_unresolved with keep_pending, even
+  when recording `unknown` fails; the ProviderPerformerError branch reads the
+  receipt under the same guard and closes failed only once not_dispatched is
+  durable.
+- finish_effect: after project_turn returned a prepared proof, any exception
+  before the memo commit (retained-root check, commit append) is
+  agent_turn_unresolved, never failed (design row 7).
+- Receipt owner: an explicit completion transition map replaces the rank, so
+  completed/unknown -> not_dispatched and completed -> unknown are refused.
+- resume_prefix calls reconcile_evaluated_run_ref and _resume_refusal through
+  runtime, restoring the spies and patches existing tests install there.
+- turn_policy: the allocation's model/effort win over turn policy keys.
+- Replay/reuse of a committed turn consults no current template or store
+  (validate_turn compares agent, predecessor and config digest).
+- specs/io.md: transition map, committed-turn replay, failure paths.
+
+wc -l:
+  456 orchestrator/workflow/evaluated/runtime.py
+  420 orchestrator/workflow/evaluated/agent_turns.py
+  195 orchestrator/workflow/evaluated/agent_sessions.py
+   92 orchestrator/workflow/evaluated/resume_prefix.py
+
+complexity check (Global Constraints script): agent_turns.py,
+agent_sessions.py, resume_prefix.py ok; runtime.py execute_pure_run 19,
+prepare_effect 13 (unchanged), finish_effect 10
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_strict_nested_if_condition_preserves_proof_context"
+  ],
+  "timeout_sec": 600
+}

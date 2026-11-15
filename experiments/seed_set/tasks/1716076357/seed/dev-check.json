@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_shared_pure_bindings.py::test_hundred_uses_run_through_the_public_entrypoint"
+  ],
+  "timeout_sec": 600
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, fields, is_dataclass, replace
 
 from .compiler_session import CompilerSession, TypecheckSessionState
@@ -610,20 +611,8 @@ def typecheck_procedure_call_expr(
         )
     signature = context.procedure_catalog.signatures_by_name.get(expr.callee_name)
     if signature is None:
-        _refuse_positional_workflow_reference_call(expr, context, raise_error)
-        if expr.callee_name in context.value_env:
-            raise_error(
-                f"bound name `{expr.callee_name}` is not a callable proc-ref",
-                code="procedure_call_unknown",
-                span=expr.span,
-                form_path=expr.form_path,
-            )
-        raise_error(
-            f"unknown procedure callee `{expr.callee_name}`",
-            code="procedure_call_unknown",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
+        return _typecheck_unknown_callee(expr, context=context, recurse=recurse, typed_factory=typed_factory,
+                                         raise_error=raise_error)
     if signature.type_params:
         return _typecheck_parametric_procedure_call(
             expr,
@@ -706,6 +695,71 @@ def typecheck_procedure_call_expr(
         expr=replace(expr, args=tuple(rewritten_args)),
         type_ref=signature.return_type_ref,
         effect=merge_effect_summaries(*arg_summaries, procedure_summary),
+    )
+
+
+@contextmanager
+def retyping_serial_map(session_state: TypecheckSessionState, synthetic_loop: ExprNode):
+    """While a serial map's own loop, `synthetic_loop`, is typed: the specializations the first typing of the
+    map's source, `:max` and body renamed their calls to, which `_typecheck_unknown_callee` types again (D3 of
+    the staged-authoring plan). Only there: a call of a specialization's name met anywhere else, as in a
+    `let-proc` local that captures a generic call's result, is refused as before."""
+
+    requested = session_state.parametric_specialization_requests
+    previous = session_state.retyped_specializations
+    session_state.retyped_specializations = previous | {
+        node.callee_name for node in walk_expr(synthetic_loop)
+        if isinstance(node, ProcedureCallExpr) and node.callee_name in requested}
+    try:
+        yield
+    finally:  # also after a refusal, which a typecheck trial may catch and type on from
+        session_state.retyped_specializations = previous
+
+
+def _typecheck_unknown_callee(expr: ProcedureCallExpr, *, context, recurse, typed_factory, raise_error):
+    """A call whose callee has no signature: in a serial map's own loop, the call of a specialization the map's
+    first typing requested, typed again (`_typecheck_requested_specialization_call`); any other is refused."""
+
+    state = context.session_state
+    requested = (state.parametric_specialization_requests.get(expr.callee_name)
+                 if expr.callee_name in state.retyped_specializations else None)
+    if requested is not None:
+        return _typecheck_requested_specialization_call(expr, requested, context=context, recurse=recurse,
+                                                        typed_factory=typed_factory)
+    _refuse_positional_workflow_reference_call(expr, context, raise_error)
+    if expr.callee_name in context.value_env:
+        raise_error(
+            f"bound name `{expr.callee_name}` is not a callable proc-ref",
+            code="procedure_call_unknown",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    raise_error(
+        f"unknown procedure callee `{expr.callee_name}`",
+        code="procedure_call_unknown",
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+
+def _typecheck_requested_specialization_call(expr: ProcedureCallExpr, requested, *, context, recurse, typed_factory):
+    """A call that `_typecheck_parametric_procedure_call` already rewrote to the specialization it requested in
+    this pass, typed again: a serial map's body is typed as written and again inside the map's loop (D3 of the
+    staged-authoring plan). Typed as that rewrite typed it. Before, such a call was `procedure_call_unknown`."""
+
+    typed_args = [recurse(arg) for arg in expr.args]
+    base = context.procedure_catalog.signatures_by_name[requested.base_name]
+    callee_summary = context.procedure_effects_by_name.get(
+        expr.callee_name, context.procedure_effects_by_name.get(requested.base_name, EMPTY_EFFECT_SUMMARY))
+    procedure_summary = effect_summary_from_procedure_call(
+        callee_effects=callee_summary.transitive_effects,
+        edge=ProcedureCallEdge(callee_name=expr.callee_name, span=expr.span, form_path=expr.form_path,
+                               expansion_stack=expr.expansion_stack),
+    )
+    return typed_factory(
+        expr=replace(expr, args=tuple(arg.expr for arg in typed_args)),
+        type_ref=substitute_type_params(base.return_type_ref, requested.type_bindings),
+        effect=merge_effect_summaries(*(arg.effect_summary for arg in typed_args), procedure_summary),
     )
 
 

@@ -1,0 +1,10 @@
+fix: resume runs again a command or provider whose last attempt failed
+
+A lexical checkpoint record with no completed effect refs was treated as a
+pending effect even when state records that visit as the step's last attempt,
+completed with a failure. Resume then failed closed with
+lexical_restore_pending_effect_unsafe. For a single command or provider
+boundary, such a record now restores the environment it captured and the
+effect runs again. An attempt with no recorded completion, and failed
+workflow-call, run-ref, trial and certified-adapter boundaries, still fail
+closed.

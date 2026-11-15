@@ -212,6 +212,25 @@ _EDGE_DEFINITIONS = {
       (command-result emit :argv ("python" "probe.py" "${loop.index}") :returns Int))''',
 }
 _EDGE_CALLS = {"private": "(isolated)", "native": "(call isolated)"}
+
+
+def _edge_entry(edge: str, definitions: str, call: str, inputs: str = "") -> str:
+    """The private edge at 2.35 (its lowering mode is Task 4b's); the native edge at the current target."""
+    if edge == "private":
+        return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defmodule r12/entry) (export run)
+      {definitions}
+      (defworkflow run ({inputs}) -> Int
+        (loop/recur :max 1 :state (loop-state (i Int 0)) :on-exhausted 99
+          (fn (state) (let* ((result {call})) (done result))))))
+'''
+    return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defmodule r12/entry) (export run)
+      {definitions}
+      (defworkflow run ({inputs}) -> Int
+        (loop/recur ((state (loop-state (i Int 0)))) :max 1 :on-exhausted 99
+          (let* ((result {call})) (done result)))))
+'''
 _EDGE_ARGV_DEFINITIONS = {
     "private": '''(defproc isolated ((label String)) -> Int
       :effects ((uses-command emit)) :lowering private-workflow
@@ -226,13 +245,7 @@ def test_private_and_native_helpers_receive_their_exact_input_argv(
     tmp_path: Path, edge: str
 ) -> None:
     invoke = "(isolated label)" if edge == "private" else "(call isolated :label label)"
-    source = _write_entry(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule r12/entry) (export run)
-      {_EDGE_ARGV_DEFINITIONS[edge]}
-      (defworkflow run ((label String)) -> Int
-        (loop/recur :max 1 :state (loop-state (i Int 0)) :on-exhausted 99
-          (fn (state) (let* ((result {invoke})) (done result))))))
-''')
+    source = _write_entry(tmp_path, _edge_entry(edge, _EDGE_ARGV_DEFINITIONS[edge], invoke, "(label String)"))
     _write_probe(tmp_path)
     inputs = _write_inputs(tmp_path, {"label": "payload"})
 
@@ -249,14 +262,7 @@ def test_private_and_native_helpers_receive_their_exact_input_argv(
 def test_private_and_native_edges_reset_loop_index_before_dispatch(
     tmp_path: Path, edge: str
 ) -> None:
-    source = _write_entry(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-      (defmodule r12/entry) (export run)
-      {_EDGE_DEFINITIONS[edge]}
-      (defworkflow run () -> Int
-        (loop/recur :max 1 :state (loop-state (i Int 0)) :on-exhausted 99
-          (fn (state)
-            (let* ((result {_EDGE_CALLS[edge]})) (done result))))))
-''')
+    source = _write_entry(tmp_path, _edge_entry(edge, _EDGE_DEFINITIONS[edge], _EDGE_CALLS[edge]))
     _write_probe(tmp_path)
 
     result = _run_entry(tmp_path, source, _write_boundaries(tmp_path))

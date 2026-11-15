@@ -1,0 +1,38 @@
+diff --git a/orchestrator/cli/commands/resume.py b/orchestrator/cli/commands/resume.py
+index 1da3c5d5375253f3dd543f08c2187a54f4dd3459..dcfed542ffc1d0cea799cdd2954b2d6a5c481cd4 100644
+--- a/orchestrator/cli/commands/resume.py
++++ b/orchestrator/cli/commands/resume.py
+@@ -764,4 +764,4 @@ def resume_workflow(
+     except (RunAlreadyActiveError, WorkspaceAlreadyActiveError) as exc:
+         logger.error(str(exc))
+         print(f"Error: {exc}", file=sys.stderr)
+-        return 2 if isinstance(exc, WorkspaceAlreadyActiveError) else 1
++        return 2
+diff --git a/orchestrator/cli/commands/run.py b/orchestrator/cli/commands/run.py
+index 5fee0c1acf5e2c4411035011bacb9a64b823cfdb..4c57b16427ed938ef0b60a4eb4b6c44b0ddc55a5 100644
+--- a/orchestrator/cli/commands/run.py
++++ b/orchestrator/cli/commands/run.py
+@@ -908,7 +908,7 @@ def run_workflow(
+     except RunAlreadyActiveError as e:
+         logger.error(str(e))
+         return _run_result(
+-            1, state_manager=state_manager, session_id=session_id,
++            2, state_manager=state_manager, session_id=session_id,
+             session_status="failed" if session_id is not None else None)
+     except ReservedRunRootError as e:
+         logger.error(str(e))
+diff --git a/specs/cli.md b/specs/cli.md
+index c0a94c084df3ee8b312fee998176090842eb2bac..5721033678fa44b96b08cbfbe65494d6bdc16f13 100644
+--- a/specs/cli.md
++++ b/specs/cli.md
+@@ -35,7 +35,9 @@ failure or suspension) or the process dies. Retained lock metadata is not
+ authority: a dead process's lock file does not prevent a later run. Lock files
+ are not removed on release. `--dry-run` neither acquires nor requires this
+ lock. Existing per-run writer locks still coordinate mutation of a run;
+-read-only reporting remains available. Concurrent execution requires separate
++read-only reporting remains available. When another process holds a run's
++writer lock, `run` and `resume` refuse with `run_already_active` and exit 2, as
++for `workspace_run_already_active`. Concurrent execution requires separate
+ workspaces. Result bundle paths and persisted result identities are unchanged.
+ 
+ A `run`, `resume`, or `trial` started from inside an active run (by one of its

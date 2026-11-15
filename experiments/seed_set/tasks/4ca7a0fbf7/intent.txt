@@ -1,0 +1,3 @@
+Persist evaluated run-reference root and validate resume selection
+
+The change is in orchestrator/cli/commands/evaluated.py and orchestrator/workflow/evaluated/authority.py.

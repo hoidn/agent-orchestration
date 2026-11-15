@@ -1,0 +1,6 @@
+fix: share repeated pure let bindings and report the size of a refused payload
+
+A binding used more than once is emitted once and referred to, from target
+2.30; evaluation order and laziness are kept. A payload over the size bound
+is refused with its node count, the bound and the three subexpressions that
+contribute most, each with its source location.
