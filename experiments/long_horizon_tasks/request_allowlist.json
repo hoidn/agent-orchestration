@@ -1,0 +1,126 @@
+{
+ "source": "make_allowlist.py over fixtures/requests/t2a-*.json (CLI 2.1.311, Task 2a); regenerate when they change",
+ "method": "POST",
+ "path": "/v1/messages?beta=true",
+ "headers": [
+  "accept",
+  "accept-encoding",
+  "anthropic-beta",
+  "anthropic-dangerous-direct-browser-access",
+  "anthropic-version",
+  "authorization",
+  "connection",
+  "content-length",
+  "content-type",
+  "host",
+  "user-agent",
+  "x-app",
+  "x-claude-code-session-id",
+  "x-stainless-arch",
+  "x-stainless-lang",
+  "x-stainless-os",
+  "x-stainless-package-version",
+  "x-stainless-retry-count",
+  "x-stainless-runtime",
+  "x-stainless-runtime-version",
+  "x-stainless-timeout"
+ ],
+ "header_values": {
+  "anthropic-version": [
+   "2023-06-01"
+  ],
+  "content-type": [
+   "application/json"
+  ],
+  "x-app": [
+   "cli"
+  ]
+ },
+ "anthropic_beta": [
+  "claude-code-20250219",
+  "context-management-2025-06-27",
+  "effort-2025-11-24",
+  "extended-cache-ttl-2025-04-11",
+  "interleaved-thinking-2025-05-14",
+  "mid-conversation-tool-changes-2026-07-01",
+  "oauth-2025-04-20",
+  "per-turn-control-2026-07-01",
+  "thinking-display-updates-2026-08-18",
+  "thinking-token-count-2026-05-13"
+ ],
+ "user_agent": [
+  "claude-cli/2.1.311"
+ ],
+ "top_level": [
+  "context_management",
+  "max_tokens",
+  "messages",
+  "metadata",
+  "model",
+  "output_config",
+  "stream",
+  "system",
+  "thinking",
+  "tools"
+ ],
+ "effort": [
+  "high",
+  "low",
+  "medium"
+ ],
+ "max_tokens_max": 128000,
+ "stream": [
+  false,
+  true
+ ],
+ "tool_keys": {
+  "Bash": [
+   "description",
+   "input_schema",
+   "name"
+  ],
+  "DeferredToolPlaceholder": [
+   "defer_loading",
+   "description",
+   "input_schema",
+   "name"
+  ],
+  "Edit": [
+   "description",
+   "input_schema",
+   "name"
+  ],
+  "Read": [
+   "description",
+   "input_schema",
+   "name"
+  ]
+ },
+ "input_schema_keys": {
+  "Bash": [
+   "$schema",
+   "additionalProperties",
+   "properties",
+   "required",
+   "type"
+  ],
+  "DeferredToolPlaceholder": [
+   "properties",
+   "type"
+  ],
+  "Edit": [
+   "$schema",
+   "additionalProperties",
+   "properties",
+   "required",
+   "type"
+  ],
+  "Read": [
+   "$schema",
+   "additionalProperties",
+   "properties",
+   "required",
+   "type"
+  ]
+ }
+}

@@ -15,7 +15,17 @@ names; `bearer_matches` lists the stub's check of the fake token per request, wh
 A shape keeps the method and path, every header name, the values of the headers a rule may match
 (`SHOWN_HEADERS`, and the user agent's product token), `model`, effort (`output_config.effort`),
 `max_tokens`, `stream`, declared tool names, server-tool types, each tool definition's length and
-`cache_control`, the names of the other body fields, and each system block's length and `cache_control`. It never keeps system or message text, `metadata`, or a
+`cache_control`, the names of the other body fields, and each system block's length and `cache_control`;
+`body_keys`, the body's top-level keys (`messages`, `system` and `tools` when not empty: the stub's log does not
+tell an empty list from an absent one); and, per declared tool, `tool_keys` and `input_schema_keys`, the sorted
+top-level keys of the tool's definition and of its `input_schema`, read from the CLI's own record of the request
+shape in the recording's session files (an `api-request-shape` entry) and joined to the sent tool by name and JSON
+length (the stub's `tool_chars`); a tool with no single such definition gets None. `message_block_keys` holds, per
+block type, the sorted key sets of the sent message blocks whose session transcript block (the same type and JSON
+length, the stub's `chars`, less a `cache_control` the stub saw) is the only one; `message_block_keys_unrecorded`
+counts the others by type, every text block among them (the stub's `chars` of a text block is its text's length,
+which says nothing of its keys). Only key names are read from the session files: never a description, a schema
+body, a tool input or any text. It never keeps system or message text, `metadata`, or a
 credential: `x-api-key` and `authorization` become `<dummy>` (an authorization keeps its scheme).
 
 Trace fixture (a recording's `strace.*` files, record.sh STRACE=1 or DECOY=1): every path a file call named,
@@ -54,6 +64,8 @@ TAIL = 4
 SHOWN_HEADERS = ("anthropic-beta", "anthropic-version", "content-type", "x-app")
 SECRET_HEADERS = ("x-api-key", "authorization")
 NAMED_PARAMS = ("model", "metadata", "max_tokens", "stream", "output_config")
+SESSION_FILES = "jobs/*/*/agent/sessions/projects/**/*.jsonl"
+CACHE_MARK = len(', "cache_control": ')  # what a cache mark adds to a block's JSON, besides its value
 
 
 def _cut_message(message):
@@ -120,13 +132,65 @@ def _body(params):
             "stream": params.get("stream"), "other_params": sorted(k for k in params if k not in NAMED_PARAMS)}
 
 
-def _shape(row):
+def _body_keys(row):
+    lists = {"messages": row.get("n_messages"), "system": row.get("system"), "tools": row.get("tools")}
+    return sorted({*(row.get("params") or {}), *(name for name, value in lists.items() if value)})
+
+
+def _only(found):
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def _tool_keys(row, defined):
+    tools = row.get("tools") or []
+    known = [_only(defined.get((name, chars), ())) for name, chars in zip(tools, row.get("tool_chars") or
+                                                                           [None] * len(tools))]
+    return {"tool_keys": [list(k[0]) if k else None for k in known],
+            "input_schema_keys": [list(k[1]) if k else None for k in known]}
+
+
+def _shape(row, defined):
     return {"method": row.get("method", "POST"), "path": row.get("path"), "subagent": row.get("subagent"),
             "headers": {k: _header(k, v) for k, v in sorted((row.get("headers") or {}).items())},
-            "model": row.get("model"), **_body(row.get("params") or {}),
+            "model": row.get("model"), **_body(row.get("params") or {}), "body_keys": _body_keys(row),
             "tools": row.get("tools"), "server_tools": [t.get("type") for t in row.get("server_tools") or []],
-            "tool_chars": row.get("tool_chars"), "tool_cache": row.get("tool_cache"),
+            "tool_chars": row.get("tool_chars"), "tool_cache": row.get("tool_cache"), **_tool_keys(row, defined),
             "system": [{k: b[k] for k in ("chars", "cache_control") if k in b} for b in row.get("system") or []]}
+
+
+def _session_entries(recording):
+    return [json.loads(line) for path in sorted(Path(recording).glob(SESSION_FILES))
+            for line in path.read_text().splitlines() if line.strip()]
+
+
+def _keys_by_length(entries):
+    """The CLI's own records in its session files, by (name or type, JSON length): each tool definition of an
+    `api-request-shape` entry (its keys and its schema's keys), and each transcript message block (its keys)."""
+    tools, blocks = collections.defaultdict(set), collections.defaultdict(set)
+    for entry in entries:
+        for tool in (entry.get("shape") or {}).get("tools") or [] if entry.get("type") == "api-request-shape" else []:
+            schema = tool.get("input_schema")
+            tools[(tool.get("name"), len(json.dumps(tool)))].add(
+                (tuple(sorted(tool)), tuple(sorted(schema)) if isinstance(schema, dict) else ()))
+        content = (entry.get("message") or {}).get("content") if entry.get("type") in ("user", "assistant") else None
+        for block in content if isinstance(content, list) else []:
+            if isinstance(block, dict):
+                blocks[(block.get("type"), len(json.dumps(block)))].add(tuple(sorted(block)))
+    return tools, blocks
+
+
+def _block_keys(rows, blocks):
+    keys, unrecorded = collections.defaultdict(set), collections.Counter()
+    for block in (b for row in rows for _, sent in row.get("message_blocks") or [] for b in sent):
+        mark = block.get("cache_control")
+        chars = block["chars"] - (CACHE_MARK + len(json.dumps(mark)) if mark is not None else 0)
+        found = _only(blocks.get((block["type"], chars), ())) if block["type"] != "text" else None
+        if found is None:
+            unrecorded[block["type"]] += 1
+        else:
+            keys[block["type"]].add(tuple(sorted({*found, *(["cache_control"] if mark is not None else [])})))
+    return {"message_block_keys": {kind: sorted(map(list, found)) for kind, found in sorted(keys.items())},
+            "message_block_keys_unrecorded": dict(sorted(unrecorded.items()))}
 
 
 def _cache_marks(row):
@@ -146,16 +210,18 @@ def _hide_canary(rows, log):
 
 def requests(log, source):
     rows = _hide_canary([json.loads(line) for line in Path(log).read_text().splitlines() if line.strip()], log)
+    defined, blocks = _keys_by_length(_session_entries(Path(log).parent))
     shapes, out = [], []
     start = next((r["time"] for r in rows if "time" in r), None)
     for row in rows:
-        shape = _shape(row)
+        shape = _shape(row, defined)
         if shape not in shapes:
             shapes.append(shape)
         since = round(row["time"] - start, 1) if "time" in row else None
         out.append([shapes.index(shape), row.get("status"), row.get("n_messages"), since, row.get("mode"),
                     _cache_marks(row)])
-    return {"source": source, "shapes": shapes, "requests": out, **_first_and_bearer(rows)}
+    return {"source": source, "shapes": shapes, "requests": out, **_first_and_bearer(rows),
+            **_block_keys(rows, blocks)}
 
 
 def _first_and_bearer(rows):

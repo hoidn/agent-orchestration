@@ -1,5 +1,6 @@
 """The long-horizon kit's recordings index (`recordings.json`) against the local cache and the fixtures."""
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -30,6 +31,28 @@ def test_every_task_2a_recording_s_harbor_arguments_equal_its_trial_configuratio
     wrong = [rec["name"] for rec, config in _configs()
              if rec["name"].startswith("t2a-") and rec["harbor_args"] != cut.harbor_args(config)]
     assert wrong == []
+
+
+REQUESTS_2A = sorted((KIT / "fixtures" / "requests").glob("t2a-*.json"))
+
+
+@pytest.mark.skipif(not CACHE.is_dir(), reason="the local recordings cache is not on this machine")
+def test_every_task_2a_request_fixture_is_the_cut_of_its_recording(tmp_path):
+    wrong = []
+    for path in REQUESTS_2A:
+        cut._write(cut.requests(CACHE / path.stem / "stub.jsonl", json.loads(path.read_text())["source"]),
+                   tmp_path / path.name)
+        wrong += [path.stem] if (tmp_path / path.name).read_text() != path.read_text() else []
+    assert wrong == []
+
+
+@pytest.mark.skipif(not CACHE.is_dir(), reason="the local recordings cache is not on this machine")
+def test_every_file_a_task_2a_request_cut_reads_has_its_digest_in_the_index():
+    digests = {rec["name"]: rec["files_sha256"] for rec in INDEX["recordings"]}
+    read = [(path.stem, f) for path in REQUESTS_2A for f in [CACHE / path.stem / "stub.jsonl", CACHE / path.stem /
+            "canary.txt", *sorted((CACHE / path.stem).glob(cut.SESSION_FILES))] if f.exists()]
+    assert [str(f.relative_to(CACHE)) for name, f in read if digests.get(name, {}).get(str(f.relative_to(CACHE)))
+            != hashlib.sha256(f.read_bytes()).hexdigest()] == []
 
 
 def test_the_decoy_canary_reached_no_request_and_no_file_but_the_harness_s_export():

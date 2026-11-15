@@ -79,6 +79,64 @@ def test_a_request_cut_keeps_sizes_cache_marks_mentions_and_the_bearer_check(tmp
          "mentions": {"Explore": {"system": 1, "tools": 0, "messages": 0}}}, [True])
 
 
+BASH = {"name": "Bash", "description": "a description never cut", "input_schema": {
+    "$schema": "s", "type": "object", "properties": {"command": {"description": "a schema body never cut"}}}}
+PLACEHOLDER = {"name": "P", "description": "d", "input_schema": {"type": "object"}, "defer_loading": True}
+TOOL_USE = {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "a tool input never cut"}}
+
+
+def _session(tmp_path, entries):
+    """The CLI's session file inside a recording, where the harness exports it."""
+    path = tmp_path / "jobs" / "j" / "t" / "agent" / "sessions" / "projects" / "-app" / "s.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("".join(json.dumps(e) + "\n" for e in entries))
+
+
+def _tool_row(tools):
+    return _row(tools=[t["name"] for t in tools], tool_chars=[len(json.dumps(t)) for t in tools])
+
+
+def test_a_request_cut_records_each_tool_s_keys_and_its_schema_s_keys_from_the_session_s_request_shape(tmp_path):
+    _session(tmp_path, [{"type": "api-request-shape", "shape": {"system": [], "tools": [BASH, PLACEHOLDER]}}])
+    shape = cut.requests(_log(tmp_path, [_tool_row([BASH, PLACEHOLDER])]), "src")["shapes"][0]
+    assert (shape["tool_keys"], shape["input_schema_keys"]) == (
+        [["description", "input_schema", "name"], ["defer_loading", "description", "input_schema", "name"]],
+        [["$schema", "properties", "type"], ["type"]])
+
+
+def test_a_request_cut_keeps_no_tool_description_or_schema_body(tmp_path):
+    _session(tmp_path, [{"type": "api-request-shape", "shape": {"system": [], "tools": [BASH]}}])
+    text = json.dumps(cut.requests(_log(tmp_path, [_tool_row([BASH])]), "src"))
+    assert ("never cut" in text, "command" in text) == (False, False)
+
+
+def test_a_tool_whose_sent_definition_the_session_did_not_record_has_no_keys(tmp_path):
+    _session(tmp_path, [{"type": "api-request-shape", "shape": {"system": [], "tools": [BASH]}}])
+    row = _row(tools=["Bash"], tool_chars=[len(json.dumps(BASH)) + 1])
+    shape = cut.requests(_log(tmp_path, [row]), "src")["shapes"][0]
+    assert (shape["tool_keys"], shape["input_schema_keys"]) == ([None], [None])
+
+
+def test_a_request_cut_records_the_top_level_body_keys(tmp_path):
+    shape = cut.requests(_log(tmp_path, [_row()]), "src")["shapes"][0]
+    assert shape["body_keys"] == ["max_tokens", "messages", "metadata", "model", "output_config", "stream", "system",
+                                  "thinking", "tools"]
+
+
+def test_a_request_cut_records_message_block_keys_from_the_session_s_transcript_blocks(tmp_path):
+    _session(tmp_path, [{"type": "assistant", "message": {"role": "assistant", "content": [TOOL_USE]}}])
+    mark = {"type": "ephemeral"}
+    sent = len(json.dumps({**TOOL_USE, "cache_control": mark}))
+    row = _row(message_blocks=[["user", [{"type": "text", "chars": 5}]],
+                               ["assistant", [{"type": "tool_use", "chars": len(json.dumps(TOOL_USE))}]],
+                               ["assistant", [{"type": "tool_use", "chars": sent, "cache_control": mark}]],
+                               ["assistant", [{"type": "tool_use", "chars": 7}]]])
+    got = cut.requests(_log(tmp_path, [row]), "src")
+    assert (got["message_block_keys"], got["message_block_keys_unrecorded"], "never cut" in json.dumps(got)) == (
+        {"tool_use": [["cache_control", "id", "input", "name", "type"], ["id", "input", "name", "type"]]},
+        {"text": 1, "tool_use": 1}, False)
+
+
 STRACE = """\
 700 12:00:00.100000 openat(AT_FDCWD, "/logs/agent/sessions/.credentials.json", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
 700 12:00:00.200000 openat(AT_FDCWD, "/logs/agent/sessions/.claude.json", O_RDONLY|O_CLOEXEC) = 23

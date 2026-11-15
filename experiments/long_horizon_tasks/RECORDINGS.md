@@ -723,7 +723,20 @@ They never hold system or message text, `metadata` (a container's device and ses
 credential: `x-api-key` and `authorization` become `<dummy>`, and an authorization keeps its scheme. The
 Task 1 request logs predate the system-block logging, so their shapes have an empty `system`. The
 `t2a-*` request fixtures add the tool definitions' lengths and cache marks, a sixth row element (the
-cache marks on message blocks), `first_request` and `bearer_matches` ("Task 2a").
+cache marks on message blocks), `first_request` and `bearer_matches` ("Task 2a"). They also hold key sets,
+never values (re-cut in Task 4's fix round 2 from the same files, whose digests did not change):
+- per shape, `body_keys` (the body's top-level keys; `messages`, `system` and `tools` when not empty, since the
+  stub's log does not tell an empty list from an absent one), and per declared tool `tool_keys` and
+  `input_schema_keys`, the top-level keys of its definition and of its `input_schema`. These are read from the
+  CLI's own record of the request shape in the recording's session files (`api-request-shape` entries under
+  `jobs/*/*/agent/sessions/projects/`), joined to the sent tool by name and JSON length (`tool_chars`); a tool
+  with no single match gets `null`. Every tool of every `t2a-*` shape matched;
+- per fixture, `message_block_keys`: by block type, the key sets of sent message blocks whose session
+  transcript block of the same type and JSON length (`chars`, less a cache mark the stub saw) is the only one;
+  `message_block_keys_unrecorded` counts the rest. Every `tool_use` and `tool_result` block matched; no text
+  block can (a text block's `chars` is its text's length only).
+
+`make_allowlist.py` builds the passthrough's allowlist from these key sets of the `t2a-*` token-mode shapes.
 
 **After-limit fixtures** (`fixtures/after-limit/<recording>.json`) are cut by `cut_fixture.py
 after-limit` from a timed-out trial and its recording's `stub.jsonl`: the time the agent phase ended,
