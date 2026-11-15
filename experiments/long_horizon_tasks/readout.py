@@ -1,53 +1,20 @@
 """The long-horizon readout (plan docs/plans/2026-11-13-long-horizon-task-family-and-seed-plan.md, D6 and Task 6).
 
-From the launcher's slot records to the readout of D6 and to `family.json` (the plan's step 7). Every rule and
-threshold is read from `ladder.json` (its `readout`, `classification`, `attempt` and `schedule` groups). Every figure
-is computed once, by `compute`, from the starts joined to the schedule's slots by slot id; `render` and `family` only
-format what `compute` returned. Standard library only, so it runs under `python -I` like the rest of the kit.
-
-The record read: one JSON document, the launcher's export. `load` refuses anything that does not fit it, naming the
-record; nothing is skipped.
-
-  label           the current configuration label, the SHA-256 of manifest.json (D7.6): 64 lowercase hex digits
-  earlier_labels  [{"label", "ended_by": the ledger row that ended it}], one per earlier label (D6, D7.6)
-  end             null while the tranche runs; else {"by": "schedule" | "ceiling" | "starts" | "stop", "cause"}:
-                  the schedule ran out, the ceiling or the 240 starts ended it (ladder.json ceiling.ends), or a stop
-                  of D7.7 did; "cause" names the stop and its ledger row, and is null for every other ending
-  slots           the schedule's slots (D7.3): [{"slot": id, "task": a name of ladder.json tasks.list, "effort": one
-                  of attempt.efforts, "round": 1 to schedule.rounds, "pilot": true for the pilot's three (D7.2)}];
-                  one slot per (task, effort, round)
-  starts          every start, and every pre-session failure, of every label: [{
-                    "slot"            the id of a slot above: the join; a start that joins no slot is an error
-                    "start"           the launcher's start number, unique
-                    "label"           the configuration label it ran under: the current one or an earlier one
-                    "row"             the row of D5 that classified its ending (classification.rows); row 16 awaits
-                                      a ruling and is refused until the ruling gives the start its row
-                    "reward"          the verifier's reward, 0 or 1, or null; read only for an observation, where
-                                      null is 0 (D5), except after a normal ending, which is regraded first (D5)
-                    "excluded"        null, or why an observation is excluded after all: "contaminated" (D6, the
-                                      scan), "no reward after regrades" (D5, regrade case 1, an infrastructure
-                                      failure), "indeterminate" (D5, regrade case 2)
-                    "usd"             the settled priced cost of the start (D4)
-                    "minutes"         the session's length
-                    "tokens"          {"input", "output", "cache_read", "cache_write_5m", "cache_write_1h"}: integers
-                    "graded"          null, or {"passed", "total"} sub-tests where the verifier reports them (D6)
-                    "egress_refused"  {address: count} of refused connections (D3); excludes nothing
-                  }]; a slot holds at most one start that is neither a cut nor a pre-session failure (D5: a slot is
-                  run again only after those)
-  allowance       null, or {"weekly_points": meter points of a weekly allowance the tranche used, summed from the
-                  owner's readings, "readings": the ledger rows they come from} (D6, cost; enters no rule)
-
-A start's class (observation, flagged or not; cut; infrastructure failure; stop; pre-session failure) is its row's
-in ladder.json. An observation with "excluded" set is listed and enters no k or n.
+From the launcher's export to the readout of D6 and to `family.json` (the plan's step 7). The export's layout, and
+the loader that refuses a record that does not fit it, are `slot_record.py`'s: one definition for the launcher and
+the readout. Every rule and threshold is read from `ladder.json` (its `readout`, `classification`, `attempt` and
+`schedule` groups). Every figure is computed once, by `compute`, from the starts joined to the schedule's slots by
+slot id; `render` and `family` only format what `compute` returned. Standard library only, so it runs under
+`python -I` like the rest of the kit.
 """
 
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
 import math
 import random
-import re
 import sys
 from collections import Counter, defaultdict
 from fractions import Fraction
@@ -58,20 +25,21 @@ LADDER_PATH = "experiments/long_horizon_tasks/ladder.json"
 POOLED_LABELS = ("screened in", "floor", "above the band", "no observation")
 DIGESTS = ("digest_4_1_0", "environment_image", "verifier_image", "overlay_digest")
 
-TOKEN_KINDS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
-EXCLUSIONS = ("contaminated", "no reward after regrades", "indeterminate")
-ENDS = ("schedule", "ceiling", "starts", "stop")
-NUMBER = (int, float)
-EXPORT = {"label": str, "earlier_labels": list, "end": (dict, type(None)), "slots": list, "starts": list,
-          "allowance": (dict, type(None))}
-SLOT = {"slot": str, "task": str, "effort": str, "round": int, "pilot": bool}
-START = {"slot": str, "start": int, "label": str, "row": int, "reward": (int, float, type(None)),
-         "excluded": (str, type(None)), "usd": NUMBER, "minutes": NUMBER, "tokens": dict,
-         "graded": (dict, type(None)), "egress_refused": dict}
+
+def _kit(name):
+    """A kit module by its path: under `python -I` the script's directory is not on the import path."""
+    spec = importlib.util.spec_from_file_location(f"lh_{name}", KIT / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+slot_record = _kit("slot_record")
 
 
 class ReadoutError(ValueError):
-    """A record, a rule or a request the readout refuses; the message names it."""
+    """A rule or a request the readout refuses; the message names it (a record that does not fit is a
+    slot_record.RecordError)."""
 
 
 def _binomial_cdf(k, n, p):
@@ -228,144 +196,6 @@ def effort_test(tasks, efforts, rules):
             "fall_bound": fall_bound(tasks, low, high, rules["fall_bound"])}
 
 
-# ---- The record: load and join ------------------------------------------------------------------------------------
-
-def _fields(obj, spec, where):
-    """obj is a dict with exactly spec's keys, each of its type; a bool is never an int or a number."""
-    if not isinstance(obj, dict) or set(obj) != set(spec):
-        keys = sorted(obj) if isinstance(obj, dict) else type(obj).__name__
-        raise ReadoutError(f"{where}: keys {keys} are not {sorted(spec)}")
-    for key, kind in spec.items():
-        kinds = kind if isinstance(kind, tuple) else (kind,)
-        if not isinstance(obj[key], kinds) or (isinstance(obj[key], bool) and bool not in kinds):
-            raise ReadoutError(f"{where}: {key} is {obj[key]!r}, not {' or '.join(k.__name__ for k in kinds)}")
-
-
-def _hex_label(value, where):
-    if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
-        raise ReadoutError(f"{where}: label {value!r} is not a SHA-256 (64 lowercase hex digits)")
-    return value
-
-
-def _labels(export):
-    earlier = []
-    for entry in export["earlier_labels"]:
-        _fields(entry, {"label": str, "ended_by": str}, "an earlier label")
-        earlier.append(_hex_label(entry["label"], "an earlier label"))
-    labels = [_hex_label(export["label"], "the export")] + earlier
-    if len(set(labels)) != len(labels):
-        raise ReadoutError(f"a configuration label is given twice: {labels}")
-    return set(labels)
-
-
-def _end(end):
-    if end is None:
-        return
-    _fields(end, {"by": str, "cause": (str, type(None))}, "end")
-    if end["by"] not in ENDS:
-        raise ReadoutError(f"end: by {end['by']!r} is not one of {ENDS}")
-    if (end["by"] == "stop") != bool(end["cause"]):
-        raise ReadoutError(f"end: a stop names its cause and ledger row, and no other ending has a cause: {end}")
-
-
-def _slot(slot, ladder):
-    where = f"slot {slot.get('slot')!r}" if isinstance(slot, dict) else "a slot"
-    _fields(slot, SLOT, where)
-    if slot["task"] not in {task["name"] for task in ladder["tasks"]["list"]}:
-        raise ReadoutError(f"{where}: task {slot['task']!r} is not in ladder.json tasks.list")
-    if slot["effort"] not in ladder["attempt"]["efforts"]:
-        raise ReadoutError(f"{where}: effort {slot['effort']!r} is not one of {ladder['attempt']['efforts']}")
-    if not 1 <= slot["round"] <= ladder["schedule"]["rounds"]:
-        raise ReadoutError(f"{where}: round {slot['round']} is outside 1 to {ladder['schedule']['rounds']}")
-    return slot
-
-
-def _slots(slots, ladder):
-    joined, cells = {}, set()
-    for slot in slots:
-        _slot(slot, ladder)
-        cell = (slot["task"], slot["effort"], slot["round"])
-        if slot["slot"] in joined or cell in cells:
-            raise ReadoutError(f"slot {slot['slot']!r}: a slot id or a (task, effort, round) is given twice")
-        joined[slot["slot"]] = slot
-        cells.add(cell)
-    return joined
-
-
-def _usage(start, where):
-    _fields(start["tokens"], dict.fromkeys(TOKEN_KINDS, int), f"{where}: tokens")
-    if min(start["tokens"].values()) < 0 or start["usd"] < 0 or start["minutes"] < 0:
-        raise ReadoutError(f"{where}: a negative usd, minutes or token count")
-    graded = start["graded"]
-    if graded is not None:
-        _fields(graded, {"passed": int, "total": int}, f"{where}: graded")
-        if not 0 <= graded["passed"] <= graded["total"]:
-            raise ReadoutError(f"{where}: graded {graded} does not hold 0 <= passed <= total")
-    refused = start["egress_refused"]
-    if not all(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in refused.values()):
-        raise ReadoutError(f"{where}: egress_refused {refused} is not address -> a positive count")
-
-
-def _outcome(start, row, normal, where):
-    """(counted, success): whether the start enters k and n, and whether it succeeded (None when not counted)."""
-    reward, excluded = start["reward"], start["excluded"]
-    if reward not in (0, 1, None):
-        raise ReadoutError(f"{where}: reward {reward!r} is not 0, 1 or null")
-    if excluded is not None and (row["class"] != "observation" or excluded not in EXCLUSIONS):
-        raise ReadoutError(f"{where}: excluded {excluded!r}: only an observation is excluded, as one of {EXCLUSIONS}")
-    if row["class"] != "observation" or excluded is not None:
-        return False, None
-    if reward is None and row["row"] == normal:
-        raise ReadoutError(f"{where}: a normal ending with no reward is regraded first (D5): record the reward, or "
-                           "exclude it as 'no reward after regrades'")
-    return True, reward == 1
-
-
-def _start(start, slots, labels, ladder):
-    where = f"start {start.get('start')!r}" if isinstance(start, dict) else "a start"
-    _fields(start, START, where)
-    rows = {row["row"]: row for row in ladder["classification"]["rows"]}
-    if start["slot"] not in slots:
-        raise ReadoutError(f"{where}: slot {start['slot']!r} joins no slot of the schedule")
-    if start["label"] not in labels:
-        raise ReadoutError(f"{where}: label {start['label']!r} is neither the current label nor an earlier one")
-    row = rows.get(start["row"])
-    if row is None or row["class"] == "ruling":
-        why = "awaits a recorded ruling (D5 row 16)" if row else "is no row of D5"
-        raise ReadoutError(f"{where}: row {start['row']} {why}")
-    _usage(start, where)
-    normal = next(r["row"] for r in rows.values() if r["ending"] == "Normal")
-    counted, success = _outcome(start, row, normal, where)
-    slot = slots[start["slot"]]
-    return start | {key: slot[key] for key in ("task", "effort", "round", "pilot")} | {
-        "class": row["class"], "flagged": bool(row.get("flagged")), "ending": row["ending"], "counted": counted,
-        "success": success}
-
-
-def _once(starts):
-    numbers = Counter(start["start"] for start in starts)
-    if any(count > 1 for count in numbers.values()):
-        raise ReadoutError(f"a start number is given twice: {sorted(n for n, c in numbers.items() if c > 1)}")
-    final = Counter(s["slot"] for s in starts if s["class"] not in ("cut", "pre_session_failure"))
-    twice = sorted(slot for slot, count in final.items() if count > 1)
-    if twice:
-        raise ReadoutError(f"slots {twice} hold more than one start that is not a cut or a pre-session failure: a "
-                           "slot is never run again after any other ending (D5)")
-
-
-def load(export, ladder):
-    """The export's starts, each joined to its slot by slot id and to its D5 row, or a ReadoutError naming why not."""
-    _fields(export, EXPORT, "the export")
-    labels = _labels(export)
-    _end(export["end"])
-    slots = _slots(export["slots"], ladder)
-    starts = [_start(start, slots, labels, ladder) for start in export["starts"]]
-    _once(starts)
-    if export["allowance"] is not None:
-        _fields(export["allowance"], {"weekly_points": NUMBER, "readings": str}, "allowance")
-    return starts
-
-
 # ---- The criterion: pending readout fields and a rehearsal's stand-ins --------------------------------------------
 
 def _criterion(ladder, standins):
@@ -455,7 +285,8 @@ def _listed(starts, efforts):
     attempts cut by a usage limit, counted per effort; the pilot's attempts, marked (D7.2); the refused
     connections of each attempt (D3, D6), which exclude nothing."""
     cuts = Counter(s["effort"] for s in starts if s["class"] == "cut")
-    return {"exclusions": [_entry(s) | {"reason": s["excluded"] or s["ending"]} for s in starts if not s["counted"]],
+    return {"exclusions": [_entry(s) | {"reason": s["excluded"] or s["ending"], "contamination": s["contamination"]}
+                           for s in starts if not s["counted"]],
             "flags": [_entry(s) for s in starts if s["counted"] and s["flagged"]],
             "cuts": {e: cuts[e] for e in efforts}, "pilot": [_entry(s) for s in starts if s["pilot"]],
             "egress": _egress(starts)}
@@ -472,7 +303,8 @@ def _mean(values):
 def _means(observations):
     return {"mean_usd": _mean([s["usd"] for s in observations]),
             "mean_minutes": _mean([s["minutes"] for s in observations]),
-            "mean_tokens": {kind: _mean([s["tokens"][kind] for s in observations]) for kind in TOKEN_KINDS}}
+            "mean_tokens": {kind: _mean([s["tokens"][kind] for s in observations])
+                            for kind in slot_record.TOKEN_KINDS}}
 
 
 def _level_cost(starts, effort, classes):
@@ -559,7 +391,7 @@ def compute(ladder, export, standins=None):
     pooled label, no band effort, no effort test and no dominance (D6).
     """
     criterion, rehearsal = _criterion(ladder, standins)
-    starts = load(export, criterion)
+    starts = slot_record.load(export, criterion)
     efforts, rules = criterion["attempt"]["efforts"], criterion["readout"]
     in_tranche = {slot["task"] for slot in export["slots"]}
     tasks = [task["name"] for task in criterion["tasks"]["list"] if task["name"] in in_tranche]
@@ -647,6 +479,12 @@ def _effort_section(result):
                         f"resamples, seed {rule['seed']}): {bound}. {rule['rule']}", ""]
 
 
+def _excluded(entry):
+    """Why a start enters no k or n; a contaminated one by the SHA-256 of each term found, never the term (D6)."""
+    found = entry["contamination"]
+    return entry["reason"] + (f" (terms by SHA-256: {', '.join(found)})" if found else "")
+
+
 def _refused(entry):
     return ", ".join(f"{address}: {count}" for address, count in sorted(entry["refused"].items()))
 
@@ -660,7 +498,7 @@ def _entries(title, entries, why=None):
 
 
 def _listed_section(listed):
-    return (["## Listed", ""] + _entries("Exclusions (enter no k or n)", listed["exclusions"], lambda e: e["reason"])
+    return (["## Listed", ""] + _entries("Exclusions (enter no k or n)", listed["exclusions"], _excluded)
             + _entries("Flagged observations", listed["flags"], lambda e: e["ending"])
             + ["### Cut by a usage limit, per effort", "", ", ".join(f"{e} {n}" for e, n in listed["cuts"].items()),
                ""] + _entries("The pilot's attempts (they ran first)", listed["pilot"])
@@ -675,7 +513,7 @@ def _earlier_section(result):
                   "| Task | " + " | ".join(efforts) + " |", "|" + " --- |" * (len(efforts) + 1)]
         lines += [f"| {task} | " + " | ".join(_count(cells[e]) for e in efforts) + " |"
                   for task, cells in earlier["cells"].items()]
-        lines += [""] + _entries("Exclusions under this label", earlier["listed"]["exclusions"], lambda e: e["reason"])
+        lines += [""] + _entries("Exclusions under this label", earlier["listed"]["exclusions"], _excluded)
     return lines + (["- none", ""] if not result["earlier"] else [])
 
 
@@ -806,7 +644,7 @@ def main(argv):
     args = parser.parse_args(argv)
     try:
         _run(args)
-    except ReadoutError as error:
+    except (ReadoutError, slot_record.RecordError) as error:
         print(f"readout.py: {error}", file=sys.stderr)
         return 2
     return 0

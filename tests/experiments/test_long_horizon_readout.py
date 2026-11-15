@@ -6,7 +6,6 @@ from `ladder.json`'s `readout` group; where it is pending, the tests pass stand-
 
 import getpass
 import hashlib
-import importlib.util
 import itertools
 import json
 import re
@@ -14,23 +13,16 @@ import socket
 import subprocess
 import sys
 from fractions import Fraction
-from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-KIT = ROOT / "experiments" / "long_horizon_tasks"
+from tests.experiments.long_horizon_record_support import (EFFORTS, KIT, LABEL, LADDER, OLD, ROOT, STANDINS, TASKS,
+                                                           TERM, TERM_SHA256, filled, load_kit)
+from tests.experiments.long_horizon_record_support import export as _export
+from tests.experiments.long_horizon_record_support import same as _same
+
 REPORT = ROOT / "docs" / "reports" / "2026-11-13-long-horizon-benchmark-survey-and-feasibility.md"
-
-
-def _load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-readout = _load("lh_readout", KIT / "readout.py")
+readout = load_kit("readout")
 
 
 # ---- 1. Intervals: the report's table (section 9) ---------------------------------------------------------------
@@ -67,9 +59,7 @@ def test_the_interval_is_the_whole_range_for_an_empty_cell():
 
 # ---- 2. Cell and pooled labels; the band effort ----------------------------------------------------------------
 
-LADDER = json.loads((KIT / "ladder.json").read_text())
 RULES = LADDER["readout"]
-EFFORTS = ("low", "medium", "high")
 
 
 @pytest.mark.parametrize("k, label", [(0, "floor"), (1, "screened in"), (2, "screened in"), (3, "above"),
@@ -226,50 +216,7 @@ def test_no_complete_triple_leaves_the_verdict_not_resolved_and_no_bound():
     assert (result["verdict"], result["fall_bound"], result["triples"]) == ("not resolved", None, 0)
 
 
-# ---- Constructed records: the export the readout reads (readout.py's docstring states its shape) -----------------
-
-LABEL, OLD = "a" * 64, "b" * 64
-TASKS = [task["name"] for task in LADDER["tasks"]["list"]]
-STAND_IN_VALUES = {"readout.contamination_scan.terms": ["<a frozen term>"],
-                   "readout.contamination_scan.canary_sha256": "c" * 64,
-                   "readout.graded_outcome.verifiers": {TASKS[0]: "passed and total sub-tests"},
-                   "readout.fall_bound.seed": 20261114}
-STANDINS = {p["field"]: STAND_IN_VALUES[p["field"]] for p in LADDER["pending"] if p["field"].startswith("readout.")}
-CEILING = {"by": "ceiling", "cause": None}
-
-
-def _start(slot, number, label, reward):
-    return {"slot": slot, "start": number, "label": label, "row": 5, "reward": reward, "excluded": None,
-            "usd": 1.0, "minutes": 30.0, "tokens": {kind: 10 for kind in readout.TOKEN_KINDS}, "graded": None,
-            "egress_refused": {}}
-
-
-def _outcomes(outcome):
-    if outcome == "-":
-        return []
-    return [{"reward": o} if isinstance(o, int) else o for o in (outcome if isinstance(outcome, list) else [outcome])]
-
-
-def _export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot=()):
-    """table: {task: {effort: [outcome of round 1, 2, ...]}}. An outcome is 0 or 1 (an observation ending normally),
-    "-" (a slot not started), a dict of start fields, or a list of such dicts (one slot's starts, in order)."""
-    slots, starts = [], []
-    for task, by_effort in table.items():
-        for effort, outcomes in by_effort.items():
-            for number, outcome in enumerate(outcomes, 1):
-                slot = f"r{number}-{task}-{effort}"
-                slots.append({"slot": slot, "task": task, "effort": effort, "round": number,
-                              "pilot": (task, effort, number) in pilot})
-                for fields in _outcomes(outcome):
-                    starts.append(_start(slot, len(starts) + 1, label, None) | fields)
-    return {"label": label, "earlier_labels": [{"label": old, "ended_by": f"ledger row ending {old[:8]}"}
-                                               for old in earlier],
-            "end": end, "slots": slots, "starts": starts, "allowance": allowance}
-
-
-def _same(rewards):
-    return {effort: list(rewards) for effort in EFFORTS}
-
+# ---- Constructed records: the export of slot_record.py's layout (tests/experiments/long_horizon_record_support.py)
 
 def _compute(export, ladder=LADDER, standins=STANDINS):
     return readout.compute(ladder, export, standins)
@@ -299,50 +246,6 @@ def test_the_short_cells_of_the_partial_block_are_incomplete_and_printed_with_th
                                                                    "high": (4, "incomplete")}
 
 
-# ---- The record shape: a record that does not fit is an error, never a skipped row --------------------------------
-
-def _broken(change):
-    export = _export({TASKS[0]: _same([1, 0])})
-    change(export)
-    return export
-
-
-@pytest.mark.parametrize("change, message", [
-    (lambda x: x["starts"][0].update(slot="r9-nowhere-low"), "joins no slot"),
-    (lambda x: x["starts"][0].update(label="d" * 64), "label"),
-    (lambda x: x["starts"][0].update(row=16), "ruling"),
-    (lambda x: x["starts"][0].update(row=17), "row"),
-    (lambda x: x["starts"][0].update(reward=0.5), "reward"),
-    (lambda x: x["starts"][0].update(reward=None), "regrade"),
-    (lambda x: x["starts"][0].update(excluded="cosmic rays"), "excluded"),
-    (lambda x: x["starts"][0].update(row=15, excluded="contaminated"), "excluded"),
-    (lambda x: x["starts"][0].update(extra=1), "keys"),
-    (lambda x: x["starts"][0].pop("usd"), "keys"),
-    (lambda x: x["starts"][0].update(usd=True), "usd"),
-    (lambda x: x["starts"][0]["tokens"].pop("cache_read"), "tokens"),
-    (lambda x: x["starts"][0].update(graded={"passed": 3, "total": 2}), "graded"),
-    (lambda x: x["starts"][1].update(start=1), "start"),
-    (lambda x: x["starts"].append(dict(x["starts"][0], start=99)), "more than one"),
-    (lambda x: x["slots"][0].update(task="no-such-task"), "task"),
-    (lambda x: x["slots"][0].update(effort="max"), "effort"),
-    (lambda x: x["slots"][0].update(round=6), "round"),
-    (lambda x: x["slots"].append(dict(x["slots"][0], slot="duplicate")), "twice"),
-    (lambda x: x.update(end={"by": "stop", "cause": None}), "cause"),
-    (lambda x: x.update(end={"by": "tired", "cause": None}), "end"),
-    (lambda x: x.update(label="not a label"), "label"),
-    (lambda x: x.update(extra=1), "keys"),
-])
-def test_a_record_that_does_not_fit_the_shape_is_refused(change, message):
-    with pytest.raises(readout.ReadoutError, match=message):
-        _compute(_broken(change))
-
-
-def test_a_timeout_with_no_reward_is_an_observation_scored_zero():
-    """D5: an observation enters k and n with the verifier's reward, 0 if the verifier gives none (row 3)."""
-    cell = _compute(_export({TASKS[0]: {"low": [{"row": 3, "reward": None}], "medium": [0], "high": [0]}}))
-    assert (cell["tasks"][TASKS[0]]["cells"]["low"]["k"], cell["tasks"][TASKS[0]]["cells"]["low"]["n"]) == (0, 1)
-
-
 # ---- Pending readout fields: refused, unless a rehearsal gives stand-ins and is stamped ---------------------------
 
 def test_a_final_readout_is_refused_while_a_readout_field_is_pending_and_names_each():
@@ -365,28 +268,15 @@ def test_a_stand_in_for_a_field_that_is_not_pending_is_refused():
         _compute(_export(PARTIAL), standins=STANDINS | {"readout.cell.complete_n": 3})
 
 
-def _filled(ladder=LADDER):
-    """The criterion as the freeze leaves it: every pending readout field filled with its stand-in."""
-    filled = json.loads(json.dumps(ladder))
-    for field, value in STANDINS.items():
-        *path, key = field.split(".")
-        target = filled
-        for part in path:
-            target = target[part]
-        target[key] = value
-    filled["pending"] = [p for p in filled["pending"] if p["field"] not in STANDINS]
-    return filled
-
-
 def test_a_final_readout_of_a_filled_criterion_is_not_stamped():
-    assert _compute(_export(PARTIAL), ladder=_filled(), standins=None)["rehearsal"] is False
+    assert _compute(_export(PARTIAL), ladder=filled(), standins=None)["rehearsal"] is False
 
 
 # ---- 5. Exclusions are listed and never scored zero ----------------------------------------------------------------
 
 EXCLUDING = {TASKS[0]: {
     "low": [[{"row": 10, "reward": 1}, 1], 1, {"row": 15, "reward": 1}, [{"row": 1}, 0],
-            {"reward": 1, "excluded": "contaminated"}],
+            {"reward": 1, "excluded": "contaminated", "contamination": [TERM_SHA256]}],
     "medium": [{"row": 13}, {"row": 4}, {"row": 2}, {"excluded": "no reward after regrades"},
                {"row": 9, "reward": 0}],
     "high": [0, 0, 0, 0, {"reward": 0, "excluded": "indeterminate"}]}}
@@ -641,7 +531,7 @@ def test_family_json_is_the_same_bytes_from_the_same_records_and_holds_no_time_p
 
 
 def test_a_rehearsal_stamps_family_json_and_the_readout_and_a_final_readout_stamps_neither():
-    rehearsal, final = _compute(_export(STOPPED)), _compute(_export(STOPPED), ladder=_filled(), standins=None)
+    rehearsal, final = _compute(_export(STOPPED)), _compute(_export(STOPPED), ladder=filled(), standins=None)
     stamps = [readout.family(r, CRITERION, TASKS_DOC)["rehearsal"] for r in (rehearsal, final)]
     texts = ["REHEARSAL" in readout.render(r) for r in (rehearsal, final)]
     assert (stamps, texts) == ([True, False], [True, False])
@@ -711,3 +601,10 @@ def test_no_public_figure_is_read_or_printed():
     printed = readout.render(result) + readout.family_bytes(readout.family(result, CRITERION, TASKS_DOC)).decode()
     assert ("public" in printed, sorted(p for p in public if f" {p} " in printed or f"USD {p}" in printed)) == (
         False, [])
+
+
+def test_a_contaminated_attempt_is_listed_with_the_term_s_sha256_and_never_the_term():
+    result = _compute(_export(EXCLUDING))
+    listed = [e["contamination"] for e in result["listed"]["exclusions"] if e["reason"] == "contaminated"]
+    printed = readout.render(result)
+    assert (listed, TERM_SHA256 in printed, TERM in printed) == ([[TERM_SHA256]], True, False)
