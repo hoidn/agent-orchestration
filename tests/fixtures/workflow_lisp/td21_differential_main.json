@@ -1,0 +1,5329 @@
+{
+ "b3-b3-fnstate-if-of-records": [
+  "builds",
+  "sha256:9b3ae6e66138721490c2294ce79862d59adbe4f9cddbc5bb08f246b2266173b4"
+ ],
+ "b3-b3-fnstate-list": [
+  "builds",
+  "sha256:50623e4a38f8bc082cbad52d07e67d71399956ba1d28cdcaa45904091854b485"
+ ],
+ "b3-b3-fnstate-nested-record": [
+  "builds",
+  "sha256:cb6811261419ee3f50d2db6aaaeab04cd71441cee43214a2ad2d424dc36bc9e3"
+ ],
+ "b3-b3-fnstate-record": [
+  "builds",
+  "sha256:4ea5ef220d08c7e0d0b84ed901126a39cd9517e14365d28380e36b04964b4d57"
+ ],
+ "b3-b3-fnstate-record-effect-body": [
+  "builds",
+  "sha256:dfab5b088df5363d4b6f9ab0a1fb7239c55d90f862cf58c33a7f51c3fb246435"
+ ],
+ "b3-b3-fnstate-record-two": [
+  "builds",
+  "sha256:f96ebcd515386c6cd48dab0eee5065cdfaa99e0603e5797d7cc69052aea28729"
+ ],
+ "b3-b3-fnstate-variant": [
+  "builds",
+  "sha256:29797e79ee73608d79a6a2895ca0e85bcb06f036dfd1b93d35b710b50c63527d"
+ ],
+ "b3-b3-max-record-read": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "b3-b3-state-if-of-records": [
+  "builds",
+  "sha256:9b3ae6e66138721490c2294ce79862d59adbe4f9cddbc5bb08f246b2266173b4"
+ ],
+ "b3-b3-state-list": [
+  "builds",
+  "sha256:50623e4a38f8bc082cbad52d07e67d71399956ba1d28cdcaa45904091854b485"
+ ],
+ "b3-b3-state-nested-record": [
+  "builds",
+  "sha256:cb6811261419ee3f50d2db6aaaeab04cd71441cee43214a2ad2d424dc36bc9e3"
+ ],
+ "b3-b3-state-record-effect-body": [
+  "builds",
+  "sha256:dfab5b088df5363d4b6f9ab0a1fb7239c55d90f862cf58c33a7f51c3fb246435"
+ ],
+ "b3-b3-state-record-two": [
+  "builds",
+  "sha256:f96ebcd515386c6cd48dab0eee5065cdfaa99e0603e5797d7cc69052aea28729"
+ ],
+ "b3-b3-state-variant": [
+  "builds",
+  "sha256:29797e79ee73608d79a6a2895ca0e85bcb06f036dfd1b93d35b710b50c63527d"
+ ],
+ "extra-d20-if-effect-in-condition": [
+  "builds",
+  "sha256:b7b9b6cea84b54412710a81d8b189e7c3f3247ecd50ab115f53afaf8d00bc2f5"
+ ],
+ "extra-d20-let-if-effect-in-condition": [
+  "builds",
+  "sha256:2e10857fe7fb9ea0e046d9d8d9252710d578c62efa6842d1dfcdb073b7838186"
+ ],
+ "extra-d20-let-if-effect-unused": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "extra-d20-let-match-effect-in-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "extra-d20-let-plain-effect": [
+  "builds",
+  "sha256:eea746e975225c74ef72efbf54f117136fd9fb10d4f0ebdd40417729487a4786"
+ ],
+ "extra-d20-let-pure-if": [
+  "builds",
+  "sha256:c877cc16378112607930988d16cee0e668f1a9953b6304ad661f8f626277e429"
+ ],
+ "extra-d20-match-effect-in-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "extra-d21-cond-done-continue": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+ ],
+ "extra-d21-continue-continue-x": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+ ],
+ "extra-d21-done-x": [
+  "refused",
+  "loop_recur_result_type_invalid"
+ ],
+ "extra-d21-if-both-done-x": [
+  "refused",
+  "loop_recur_result_type_invalid"
+ ],
+ "extra-d21-if-done-continue-x": [
+  "refused",
+  "loop_recur_result_type_invalid"
+ ],
+ "left-letproc-L1": [
+  "builds",
+  "sha256:c3baa034588fbbf928590c5b94eaec96d49dbfe88d0e3e180c4798b6fd99775b"
+ ],
+ "left-letproc-L2": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "left-letproc-L2-bound": [
+  "builds",
+  "sha256:aa3b5a8913ce0cc27202ad25786e773c0386dcffd24c00cce127f713ba428212"
+ ],
+ "left-letproc-L2-cond": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "left-letproc-pure-L2": [
+  "builds",
+  "sha256:dedd8bba98915b92dcc6d1b02c518f1bdff5c82deae01c2f520c8da42ca5e40f"
+ ],
+ "left-map-subject-effect-serial": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "left-map-subject-effect-serial-variant": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "left-map-subject-pure-map": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "left-map-subject-pure-serial": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-cond-pure-direct": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-cond-beside": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-cond-body-literal": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-cond-body-sum": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-effect-beside-cond": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-if-body": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-let-binding": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-serial-cond-body": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-serial-effect-cond": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b1-alias-test": [
+  "builds",
+  "sha256:9345dfd4965aa9dbecbac12bce7129b20ee5230221fb5a1af8addacd6ea4e951"
+ ],
+ "r1-b1-and-first": [
+  "builds",
+  "sha256:81a4af95fbaf8c34589c44d6fdb296ab12d60d2d07f1bd015fc155ed0f7148ef"
+ ],
+ "r1-b1-and-second": [
+  "builds",
+  "sha256:1adde11aa0596b90bc358bc00eea10b56216a506b1fcc82dde6cb47d36756b8c"
+ ],
+ "r1-b1-bound-boolean": [
+  "builds",
+  "sha256:47ce6bde559dc4e96ad98f23b79abe08fac8a55eb27f30254a0a0565cfdd7eae"
+ ],
+ "r1-b1-cond-after-other-tag": [
+  "builds",
+  "sha256:90b67439bf46be6397e8356674cd3eeeb5917554307c8f86e3c4e181aafed94b"
+ ],
+ "r1-b1-cond-second-clause": [
+  "refused",
+  "record_field_unknown"
+ ],
+ "r1-b1-let-between": [
+  "builds",
+  "sha256:4d208dc591b140b0550902ffd750613220ba1c95f12f6a01d06025045258eae0"
+ ],
+ "r1-b1-let-binding-between": [
+  "builds",
+  "sha256:a0956f14dffbbdf91550e3f76ef70d4cb546d9f6ffec23af6dc652e1ed1c12d9"
+ ],
+ "r1-b1-loop-in-arm-tag": [
+  "builds",
+  "sha256:5d0ed6a6760fe33a9d951b8b1413e6b84380debcb3d983bb2661e765d8956eda"
+ ],
+ "r1-b1-negated-else": [
+  "builds",
+  "sha256:8abf8be61095970ee0ee6b5a35aa17aefd606eb0ab13a5ca06648bffc625fe5a"
+ ],
+ "r1-b1-negated-then": [
+  "builds",
+  "sha256:0abd4498f4d19bfaed864e4e8d5d51b40c945e0ba80673c7a9e3e2c8c8cc05ce"
+ ],
+ "r1-b1-nested-match-under-tag": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b1-or": [
+  "builds",
+  "sha256:c9543ed8565af6033fa5f98a7e0249f874f73181ccd44e17f7f1b101fe1c4584"
+ ],
+ "r1-b1-outer-cond-around-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b1-outer-if-around-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b1-outer-if-around-match-binder": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b1-outer-if-else-around-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b1-read-in-and-condition": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b1-read-in-cond-test": [
+  "builds",
+  "sha256:e43c3d50805f46cdefbd8f2aace1e78c0f6c425af47bd433070e4be612f783c2"
+ ],
+ "r1-b1-tag-if-map-body": [
+  "builds",
+  "sha256:403eb6b429ab33b57cf9f445028d40a2c265b23e92dd992ada29c397051ae61b"
+ ],
+ "r1-b1-tag-if-plus-free-read": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b1-tag-under-nested-match": [
+  "builds",
+  "sha256:09cab5e028d631dd51bd3c989b49bd91abf58cb1296340026605c4a0cf26cce3"
+ ],
+ "r1-b2-and-condition-n1": [
+  "builds",
+  "sha256:02a69fb6225b14c84c6e05dac6e37a2f39460f5167ed6e1758fe061ca8c7d7a2"
+ ],
+ "r1-b2-and-condition-n1-bound": [
+  "builds",
+  "sha256:4f0e642711364d077a5206f3d2bd5fda37042b4af14dfbececeb18553e9b78ac"
+ ],
+ "r1-b2-cond-condition-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b2-cond-condition-n1-bound": [
+  "builds",
+  "sha256:e15af2002bd655afe665617053a834611dd453fa5ed72ae144d6d6eb3147107c"
+ ],
+ "r1-b2-cond3-second-condition-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b2-cond3-second-condition-n1-bound": [
+  "builds",
+  "sha256:00412f6f88859785a9dfee17ac7ac1980ec2c8a3d42d1ca95c4143bfb5a365a0"
+ ],
+ "r1-b2-effect-beside-pure-if-n1": [
+  "builds",
+  "sha256:fdcfcb3efb6b0732e7760e9146d1fd0299a85a02f20b1153b50925cddff13a74"
+ ],
+ "r1-b2-effect-beside-pure-if-n1-bound": [
+  "builds",
+  "sha256:59123293278d58c22274ecaae373f98b7ae044053fa7682450f39f8b05d61993"
+ ],
+ "r1-b2-effect-cond-in-variant": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "r1-b2-if-condition-and-branch-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-b2-if-condition-and-branch-n1-bound": [
+  "builds",
+  "sha256:da29a320634561926c4bda031779083128ce6f5291b0e14efea977f8131917f2"
+ ],
+ "r1-b2-if-subject-effect-condition": [
+  "builds",
+  "sha256:10f112479d74ad33339918e40f29ed64d1fe3488213ae85c12390b088f3caac3"
+ ],
+ "r1-b2-inner-match-subject-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-b2-inner-match-subject-n1-bound": [
+  "builds",
+  "sha256:2a9b87555fdbc425169812613df8985cc52886f4bc24210d9ea605c1fa5aff20"
+ ],
+ "r1-b2-let-subject-loop-max": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-b2-loop-max-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-b2-loop-max-n1-bound": [
+  "builds",
+  "sha256:fedee253716ed398b4f8d73fc1b873625654acae1254a72cd83f6adcb78812fb"
+ ],
+ "r1-b2-loop-state-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-b2-loop-state-n1-bound": [
+  "builds",
+  "sha256:1dc4e7d8abe1f7e56101418e510671ddc9eefa1a2083b370f43f88e3fb17dd7a"
+ ],
+ "r1-b2-map-source-effect-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b2-map-source-effect-n1-bound": [
+  "builds",
+  "sha256:529ddc478cec9a58ddb8d1fe3eb2bd81bdcd93721eb2e280e34fe262f656f33b"
+ ],
+ "r1-b2-pure-call-arg-n1": [
+  "builds",
+  "sha256:7fbf703dd81192ac7cd236e999838925ab030cda230ad7ba39f3f987fdb832c8"
+ ],
+ "r1-b2-pure-call-arg-n1-bound": [
+  "builds",
+  "sha256:016fa12f0fe0458d84472b5b65e3c34704d75099425e52f60b538c6409c18d93"
+ ],
+ "r1-b2-pure-cond-arg": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b2-pure-cond-in-variant": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "r1-b2-pure-cond-let": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-b2-pure-cond-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m1-cond-else-wf": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "r1-m1-letproc-effect-L2": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "r1-m1-proc-L1": [
+  "builds",
+  "sha256:ead526a28669e7393c01e9815df6b3d4b6efe861e64e014dd2485bfa3bf0901d"
+ ],
+ "r1-m1-proc-pure-L2": [
+  "builds",
+  "sha256:dedd8bba98915b92dcc6d1b02c518f1bdff5c82deae01c2f520c8da42ca5e40f"
+ ],
+ "r1-m1-proc-pure-wf-L2": [
+  "builds",
+  "sha256:b04bc02fb29107bab9c6a929c0aebeb2710d7622dfad82f4d86930e000c1e057"
+ ],
+ "r1-m1-proc-via-proc-L2": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "r1-m1-wf-L1": [
+  "builds",
+  "sha256:928bbee396091132dc51eca2177ac53b660207414467be422bf10e3427070f04"
+ ],
+ "r1-m1-wf-L2-bound": [
+  "builds",
+  "sha256:23a3b4ea292fa1ecac724eb562ff73aee3d29054fb05853f17ba1e37091697f9"
+ ],
+ "r1-m1-wf-L2-done": [
+  "builds",
+  "sha256:d05b87a6a07e69a0db644068648909d27796ee4a943893d630dffee8d83f0b5d"
+ ],
+ "r1-m1-wf-inner-condition": [
+  "builds",
+  "sha256:6eef9cd9b7b880cdcbe952f7cf331ed23a6276ff1390c18b640d94f9a1d044dd"
+ ],
+ "r1-m1-wf-match-top-if-inside": [
+  "builds",
+  "sha256:d0fefc76df80bbfa0937458bb5dda61a02ead7d9a9dc388f0b39fe876731224b"
+ ],
+ "r1-m1-wf-pure-L2": [
+  "builds",
+  "sha256:6c648d7e6a22f4fb825895ca8b68c4e1c1c36dde2ea3a3ed8f4d707000c417ca"
+ ],
+ "r1-m1-wf-pure-via-L2": [
+  "builds",
+  "sha256:f0af28d2fadda0caad3668c1f61ba80b78e31dde4854cb81730c469d17d8997e"
+ ],
+ "r1-m1-wf-top-prefix": [
+  "builds",
+  "sha256:3cf0209a20640ab4b66d9513087530026e95e819698b1f7e87bfcff597583747"
+ ],
+ "r1-m2-call-cond-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m2-call-cond-n1-bound": [
+  "builds",
+  "sha256:d6c8365439c607b5c2d81293f57667d511eaf73762c7af47cacfcda6e952fcba"
+ ],
+ "r1-m2-call-if-both-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-call-if-both-n1-bound": [
+  "builds",
+  "sha256:c9ebaaae556a9958c5afeb90c6a981649812167630c765193db2c774a227ddca"
+ ],
+ "r1-m2-call-if-then-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-call-if-then-n1-bound": [
+  "builds",
+  "sha256:16127e96d000d6978e8fd0a3839c6439a35a232be330ce1db5b3d76c6213dafe"
+ ],
+ "r1-m2-call-let-if-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-call-let-if-n1-bound": [
+  "builds",
+  "sha256:eb1944926551270c5311a39278243a33cd1ae1a3d4ecd28a6d24ae6943f27a04"
+ ],
+ "r1-m2-call-loop-continue-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-call-loop-continue-n1-bound": [
+  "builds",
+  "sha256:dfa53609dab1dd80da5c65708e5897e78327e4973e40187d3cd5f3026a4af79c"
+ ],
+ "r1-m2-call-match-arm-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-call-match-arm-n1-bound": [
+  "builds",
+  "sha256:c402765226f462e577c3b7d33769e772efff2e2ede2094faa5a07eb6fcf8db04"
+ ],
+ "r1-m2-call-match-subject-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-call-match-subject-n1-bound": [
+  "builds",
+  "sha256:2a9b87555fdbc425169812613df8985cc52886f4bc24210d9ea605c1fa5aff20"
+ ],
+ "r1-m2-call-plus-match-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-call-plus-match-n1-bound": [
+  "builds",
+  "sha256:ea5956027e790cc00469054a09eb80fd7bb11eda67477ee4db92d9bf434908ac"
+ ],
+ "r1-m2-cond-subject-cond-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m2-cond-subject-cond-n1-bound": [
+  "builds",
+  "sha256:daede898a16f84bdb0156ba2ed99895ef4bf3030093150fbfb3b334fcc3498c6"
+ ],
+ "r1-m2-cond-subject-if-both-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m2-cond-subject-if-both-n1-bound": [
+  "builds",
+  "sha256:6ca890029d2e5dd9fe1e105e726ba931e941fc75ffad4dabefaa98ac9c2411c1"
+ ],
+ "r1-m2-cond-subject-if-then-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m2-cond-subject-if-then-n1-bound": [
+  "builds",
+  "sha256:4ad60f5d41000eb0a10e6e326c2072f8fab107d886e536c1e306e766225f61e6"
+ ],
+ "r1-m2-cond-subject-let-if-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m2-cond-subject-let-if-n1-bound": [
+  "builds",
+  "sha256:4e35133ddf5b20fa85ccbc4b75d6f86e254999d289bfdadb62a86f2d21d0f57b"
+ ],
+ "r1-m2-cond-subject-loop-continue-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m2-cond-subject-loop-continue-n1-bound": [
+  "builds",
+  "sha256:f996f332b72a79b3fbe6bbc26e50a24f57adbf65ba089e238bab067e57bcc993"
+ ],
+ "r1-m2-cond-subject-match-arm-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m2-cond-subject-match-arm-n1-bound": [
+  "builds",
+  "sha256:5ed0327956b6230754ce39915494dc4f3185c541e2c0a07056e876f3373e76e4"
+ ],
+ "r1-m2-cond-subject-match-subject-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m2-cond-subject-match-subject-n1-bound": [
+  "builds",
+  "sha256:714712e1a041137737794b134c8f709c7a7d11f4db7c930c7ebcba03efb3a580"
+ ],
+ "r1-m2-cond-subject-plus-match-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m2-cond-subject-plus-match-n1-bound": [
+  "builds",
+  "sha256:0fb7a5e1b01e11123cba1d0e96bba89baae3d6e485f5130225d9280b1272b573"
+ ],
+ "r1-m2-let-cond-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m2-let-cond-n1-bound": [
+  "builds",
+  "sha256:b7722eb83d46292080902141a37fca1f1e5e542a3d23aed562c529365d7d01e7"
+ ],
+ "r1-m2-let-if-both-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-let-if-both-n1-bound": [
+  "builds",
+  "sha256:05c56de8677777941534290822c9bd35af555df0e4bcebccfe4a88d0337c76e4"
+ ],
+ "r1-m2-let-if-then-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-let-if-then-n1-bound": [
+  "builds",
+  "sha256:7bfcfbceecd3e652d21b96aa2ef84b507b9d4d52e8e7433b894876ed540fd7eb"
+ ],
+ "r1-m2-let-loop-continue-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-let-loop-continue-n1-bound": [
+  "builds",
+  "sha256:984a16e81af16e21b04069bc49150322c1ecb3f375490476a03b0a4c60cbfc1a"
+ ],
+ "r1-m2-let-match-arm-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-let-match-arm-n1-bound": [
+  "builds",
+  "sha256:098ebb759e75483f8fd6e876e145d543596495d17468bb48657e375ee8d44c8f"
+ ],
+ "r1-m2-let-match-subject-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-let-match-subject-n1-bound": [
+  "builds",
+  "sha256:b58be3e6329df15b2ccf5e2e60b0b3e9fdd2dca3098e969a9553e24571bcdeb1"
+ ],
+ "r1-m2-let-plus-match-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-let-plus-match-n1-bound": [
+  "builds",
+  "sha256:ebe94c684281ec8acbb2163279a4628671649e482900a655ac7a945ad0798381"
+ ],
+ "r1-m2-nested-let-cond-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "r1-m2-nested-let-cond-n1-bound": [
+  "builds",
+  "sha256:6a0f1c7f16ed430026a91aacaa35b91291855f5d5429a66f833dc0f1386f266a"
+ ],
+ "r1-m2-nested-let-if-both-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-nested-let-if-both-n1-bound": [
+  "builds",
+  "sha256:80d9b1128d6c14d144aed10a1a27d3e9aef4b5be3caee8cf0688ec2d71092638"
+ ],
+ "r1-m2-nested-let-if-then-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-nested-let-if-then-n1-bound": [
+  "builds",
+  "sha256:8b18ea8df02ee9115109e32ad64247d79f5cd9b17ee4cfe4edeeb6edfd657bad"
+ ],
+ "r1-m2-nested-let-let-if-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-nested-let-let-if-n1-bound": [
+  "builds",
+  "sha256:5a2cd65382a777fd6b20c61dddc4e3cfab19e5f8e5469c412db28b4b4717805f"
+ ],
+ "r1-m2-nested-let-loop-continue-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-nested-let-loop-continue-n1-bound": [
+  "builds",
+  "sha256:a6cc0bdca6f6f6c8c6f02dcfa4979c108532481474085881dba6df00d5348088"
+ ],
+ "r1-m2-nested-let-match-arm-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-nested-let-match-arm-n1-bound": [
+  "builds",
+  "sha256:bee58d260ae9421a4859ba7aca4fcbad60db2df63da38bb155e546d9f8255758"
+ ],
+ "r1-m2-nested-let-match-subject-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-nested-let-match-subject-n1-bound": [
+  "builds",
+  "sha256:d36b77cc47d4a06edf1b3b15ff48a003a11646e4f7e1c4b67fee08b94c242f70"
+ ],
+ "r1-m2-nested-let-plus-match-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2-nested-let-plus-match-n1-bound": [
+  "builds",
+  "sha256:91d689e067c3ff62232a70ec4d43a5571ee1592a356d8b1adc3a68e84bd7c558"
+ ],
+ "r1-m2b-mapmax-cond-match": [
+  "builds",
+  "sha256:7434923aa539c8115f368b526ecbeade4785eba095e19a2eb55bb025a00956d4"
+ ],
+ "r1-m2b-mapmax-if-else-plus-match": [
+  "builds",
+  "sha256:5d9f1f0d03a8828ff1422c7aba4ce78c1f1d05c445d61f66f886dacd53234787"
+ ],
+ "r1-m2b-mapmax-let-match": [
+  "builds",
+  "sha256:8bba4f2de6fbaab798efe23a3429b8e62dac25d8499149167e0f0a7adfa37260"
+ ],
+ "r1-m2b-mapmax-list-length-match": [
+  "builds",
+  "sha256:826e3594ae1ffdf4713df0118632a15662d9c289ab0ab158777c397f8f6a38f9"
+ ],
+ "r1-m2b-mapmax-map-body-match": [
+  "builds",
+  "sha256:a3f55d6ab0973e3ff0c28dabaea48e88c490b1e921a8d9ca9830db2dfe3c850a"
+ ],
+ "r1-m2b-mapmax-plus-match": [
+  "builds",
+  "sha256:260b582b7eb1419a1346cfb9b40cb719330ffdc286ceae2d38d196ab36971d23"
+ ],
+ "r1-m2b-mapmax-pure-call-match": [
+  "builds",
+  "sha256:9263b8532c4e07aaa74c26b3a939fc9bba6e1971486bf2bb3338699f8c2c66a4"
+ ],
+ "r1-m2b-max-cond-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "r1-m2b-max-if-else-plus-match": [
+  "builds",
+  "sha256:7f11b1a15f4ec2fb746acdc1fafd33593b295ada0d272fc6edbc8f5eab147474"
+ ],
+ "r1-m2b-max-let-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2b-max-list-length-match": [
+  "builds",
+  "sha256:d770214589fc8d8b15f6da58d43b9e577e0234f5a6843a3e2125816fbeffe204"
+ ],
+ "r1-m2b-max-map-body-match": [
+  "builds",
+  "sha256:da8961b1075503c78a6f9126c647bb4259a228aa8b31fee326845b2cf2795ea2"
+ ],
+ "r1-m2b-max-plus-match": [
+  "builds",
+  "sha256:af4bc8f222d0792164f392d91dd8cd181994603538e6f69d6b8f2b5ee27087ac"
+ ],
+ "r1-m2b-max-pure-call-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2b-state-cond-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "r1-m2b-state-if-else-plus-match": [
+  "builds",
+  "sha256:2168f64a5082340c4e0a184d81c5e0fd11b4e474401f570fcafb180e65564d7c"
+ ],
+ "r1-m2b-state-let-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2b-state-list-length-match": [
+  "builds",
+  "sha256:579069f9a6a4da927579799fa2345678ee11821744af1761d173452404690df1"
+ ],
+ "r1-m2b-state-loop-state-field": [
+  "builds",
+  "sha256:80e77a7056c19b61b34af45e793ad8db2d4a4504ac38b8fc42a179d17ece69fb"
+ ],
+ "r1-m2b-state-map-body-match": [
+  "builds",
+  "sha256:57dac487b198ffa3302523e1e2db8a031a26b11e453d51c24ee213bc135f9654"
+ ],
+ "r1-m2b-state-plus-match": [
+  "builds",
+  "sha256:e7174a4f3c8b8dcfa13eb0656c8532911cf4a322bace26aeaeab7323eda3981c"
+ ],
+ "r1-m2b-state-pure-call-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "r1-m2b-state-record-field": [
+  "builds",
+  "sha256:4ea5ef220d08c7e0d0b84ed901126a39cd9517e14365d28380e36b04964b4d57"
+ ],
+ "r1-m2b-state-variant-field": [
+  "builds",
+  "sha256:29797e79ee73608d79a6a2895ca0e85bcb06f036dfd1b93d35b710b50c63527d"
+ ],
+ "rows-k-if-subject": [
+  "builds",
+  "sha256:5bcd1c2abbfd5ecc9d6487c30f046dfa2dbe8900b6911b2c639d2d029653f081"
+ ],
+ "rows-k-letproc-subject-arg-if": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "rows-k-letproc-subject-if": [
+  "builds",
+  "sha256:f3eda7c042de390e772c59f3d6b93cbf4912edd794a82250188d24f2d6536c1a"
+ ],
+ "rows-k-letproc-value-if": [
+  "builds",
+  "sha256:0c65e8126052ade6905fdc91d89d96ccad1f0311d91f73731d457e922394b358"
+ ],
+ "rows-k-operand-match-D1": [
+  "builds",
+  "sha256:5310363804de8fbefeeb1a68d7a8d43425c9c9cd96194d4f1bde57dd2a9605f3"
+ ],
+ "rows-k-sub-arg-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "rows-k-sub-arg-match-if-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "rows-k-sub-arg-match-variant": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "rows-row-D4-subject-loop": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "rows-row-D4-subject-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "td1-d19-cmd-L1-cond": [
+  "builds",
+  "sha256:c54d9455dea56b563a9dae411dfddf2027b74939f99a1439516c302edef81146"
+ ],
+ "td1-d19-cmd-L1-if": [
+  "builds",
+  "sha256:c54d9455dea56b563a9dae411dfddf2027b74939f99a1439516c302edef81146"
+ ],
+ "td1-d19-cmd-L1-match": [
+  "builds",
+  "sha256:7e9105c33d1b43ebd4763b8bbb6a11a2f7c5911a8f653dd13e155cd4b839b0ca"
+ ],
+ "td1-d19-cmd-L2-cond": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-cmd-L2-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-cmd-L2-if-bound": [
+  "builds",
+  "sha256:945e55f17d3616044b7124a0ccb732e995b1751f89468b104b94b5bfa06d3662"
+ ],
+ "td1-d19-cmd-L2-if-done": [
+  "builds",
+  "sha256:cc86f104828f6ad1e6919b9571a95b7561a71c29748de2b7306f3c2fc7d4303c"
+ ],
+ "td1-d19-cmd-L2-if-else": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-cmd-L2-if-match": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "td1-d19-cmd-L2-match-if": [
+  "builds",
+  "sha256:7b502b57060d9fad6e01b58fb38e89c5ee5df76fe2be3cc81a9c43fd99ac5c80"
+ ],
+ "td1-d19-proc-L1-cond": [
+  "builds",
+  "sha256:ead526a28669e7393c01e9815df6b3d4b6efe861e64e014dd2485bfa3bf0901d"
+ ],
+ "td1-d19-proc-L1-if": [
+  "builds",
+  "sha256:ead526a28669e7393c01e9815df6b3d4b6efe861e64e014dd2485bfa3bf0901d"
+ ],
+ "td1-d19-proc-L1-match": [
+  "builds",
+  "sha256:97990466ded650efbf3d0abdad84c225a710d617a06cc1c96d7ab593ff50aa72"
+ ],
+ "td1-d19-proc-L2-cond": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-proc-L2-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-proc-L2-if-bound": [
+  "builds",
+  "sha256:5e88222e7063aff470e05c26618be641b3d6843940ae84bc9734b1fcc7015b70"
+ ],
+ "td1-d19-proc-L2-if-done": [
+  "builds",
+  "sha256:279f78e6a4348aa88fe85144ffca6c6b4639d86475d750265683ebee011b3988"
+ ],
+ "td1-d19-proc-L2-if-else": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-proc-L2-if-match": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "td1-d19-proc-L2-match-if": [
+  "builds",
+  "sha256:e9a5f06b30ba05b314d334e0571520420a0460dd3eb67bb7c868653928ed6e71"
+ ],
+ "td1-d19-prov-L1-cond": [
+  "builds",
+  "sha256:274cf49ea8a3411efb8e9ae421e1958581b9d4347af90ce781e729697f2f4085"
+ ],
+ "td1-d19-prov-L1-if": [
+  "builds",
+  "sha256:274cf49ea8a3411efb8e9ae421e1958581b9d4347af90ce781e729697f2f4085"
+ ],
+ "td1-d19-prov-L1-match": [
+  "builds",
+  "sha256:c5ebb2102676ca26c9987575cdecfa0850c77a70252598d8798c37d57a560e23"
+ ],
+ "td1-d19-prov-L2-cond": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-prov-L2-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-prov-L2-if-bound": [
+  "builds",
+  "sha256:6bf3a3e334b52662c696797e266862b516b46acf9210b7fb111b92cb5914878a"
+ ],
+ "td1-d19-prov-L2-if-done": [
+  "refused",
+  "loop_recur_done_type_mismatch"
+ ],
+ "td1-d19-prov-L2-if-else": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-prov-L2-if-match": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "td1-d19-prov-L2-match-if": [
+  "builds",
+  "sha256:141fc79461d0ae59ee3ba3b2f2a4336379e4e29b269d92a968fb224239bbf10e"
+ ],
+ "td1-d19-wf-L1-cond": [
+  "builds",
+  "sha256:928bbee396091132dc51eca2177ac53b660207414467be422bf10e3427070f04"
+ ],
+ "td1-d19-wf-L1-if": [
+  "builds",
+  "sha256:928bbee396091132dc51eca2177ac53b660207414467be422bf10e3427070f04"
+ ],
+ "td1-d19-wf-L1-match": [
+  "builds",
+  "sha256:736896d075aaa4d32a1067fe4b74b7c93ab07d391230a065844007870451a1db"
+ ],
+ "td1-d19-wf-L2-cond": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-wf-L2-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-wf-L2-if-bound": [
+  "builds",
+  "sha256:23a3b4ea292fa1ecac724eb562ff73aee3d29054fb05853f17ba1e37091697f9"
+ ],
+ "td1-d19-wf-L2-if-done": [
+  "builds",
+  "sha256:d05b87a6a07e69a0db644068648909d27796ee4a943893d630dffee8d83f0b5d"
+ ],
+ "td1-d19-wf-L2-if-else": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19-wf-L2-if-match": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "td1-d19-wf-L2-match-if": [
+  "builds",
+  "sha256:d0fefc76df80bbfa0937458bb5dda61a02ead7d9a9dc388f0b39fe876731224b"
+ ],
+ "td1-d19-wf-pure-L1-cond": [
+  "builds",
+  "sha256:ee1724e19a5e2ac99cfc72c599a9242c56e951f98389883aee0b41947a5e7f0a"
+ ],
+ "td1-d19-wf-pure-L1-if": [
+  "builds",
+  "sha256:ee1724e19a5e2ac99cfc72c599a9242c56e951f98389883aee0b41947a5e7f0a"
+ ],
+ "td1-d19-wf-pure-L1-match": [
+  "builds",
+  "sha256:b2317c836a493e7161c6e7f9e42f2b346d12e3ee77ffc0585d8dec1894a2d505"
+ ],
+ "td1-d19-wf-pure-L2-cond": [
+  "builds",
+  "sha256:855c0ef33c53660b6b3f02e3176dbc7f14e0327916605f8b7737857d2d1bf4fa"
+ ],
+ "td1-d19-wf-pure-L2-if": [
+  "builds",
+  "sha256:6c648d7e6a22f4fb825895ca8b68c4e1c1c36dde2ea3a3ed8f4d707000c417ca"
+ ],
+ "td1-d19-wf-pure-L2-if-bound": [
+  "builds",
+  "sha256:7767eb8648d45e2fd7b9534413a389450383dddf45afb5737400e1753f930278"
+ ],
+ "td1-d19-wf-pure-L2-if-done": [
+  "builds",
+  "sha256:62bc703d575aae55070a12706110ba3e3257f6845e45b10bd5bd4fa1bcc57785"
+ ],
+ "td1-d19-wf-pure-L2-if-else": [
+  "builds",
+  "sha256:04556ba137f02b4346ef09f24bb52c6b33e9f81bb780682f162bebc7f21e2766"
+ ],
+ "td1-d19-wf-pure-L2-if-match": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "td1-d19-wf-pure-L2-match-if": [
+  "builds",
+  "sha256:b34311b12688b00d8e241993077a637f9158305d49f2fca3cd0a1f2faa1cefb1"
+ ],
+ "td1-d19x-cmd-L3-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d19x-cmd-top-prefix": [
+  "builds",
+  "sha256:08aae6fda2ab645ca3640fc015b92859f1ac6c166c9f94e5268f3fe483aeb1dc"
+ ],
+ "td1-d19x-wf-L2-if-fn": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "td1-d20-call-cond-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td1-d20-call-cond-n1-bound": [
+  "builds",
+  "sha256:d6c8365439c607b5c2d81293f57667d511eaf73762c7af47cacfcda6e952fcba"
+ ],
+ "td1-d20-call-if-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "td1-d20-call-if-n1-bound": [
+  "builds",
+  "sha256:c9ebaaae556a9958c5afeb90c6a981649812167630c765193db2c774a227ddca"
+ ],
+ "td1-d20-call-let-if-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "td1-d20-call-let-if-n1-bound": [
+  "builds",
+  "sha256:a2054dfa431b589d92ca1c1148b6d08f1b005c4fb8e1328c51e96821003f400b"
+ ],
+ "td1-d20-call-loop-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "td1-d20-call-loop-n1-bound": [
+  "builds",
+  "sha256:58528c0b8e82fe5750873d9b763388e06b4374d13eb703171db1e5db6a2d63a7"
+ ],
+ "td1-d20-call-match-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "td1-d20-call-match-n1-bound": [
+  "builds",
+  "sha256:a03a18bf038366b62c6329e22d3301dec2b905aa9e0fccbfa47efef646416bf2"
+ ],
+ "td1-d20-call-plus-match-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "td1-d20-call-plus-match-n1-bound": [
+  "builds",
+  "sha256:ea5956027e790cc00469054a09eb80fd7bb11eda67477ee4db92d9bf434908ac"
+ ],
+ "td1-d20-call-pure-if-n1": [
+  "builds",
+  "sha256:83ef1ed47c6e0157f51e942d3be8c191235f6152a7b313c77fdac6c884cfae57"
+ ],
+ "td1-d20-call-pure-if-n1-bound": [
+  "builds",
+  "sha256:548c4a84f0aa1d9283857f17893f5a6d8abe37d39af2cb555630fcee681ad764"
+ ],
+ "td1-d20-call-wf-if-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "td1-d20-call-wf-if-n1-bound": [
+  "builds",
+  "sha256:29fe0936099d9501de215320565ceb95c28b603cdeb7e378969831973379615c"
+ ],
+ "td1-d20-call2-if-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "td1-d20-call2-if-n1-bound": [
+  "builds",
+  "sha256:5001b90f5f2d960441927e2207184b1cfb821ff4d5a5c3dd324de8a2e4c123ce"
+ ],
+ "td1-d20-if-subject-n1": [
+  "builds",
+  "sha256:88f5ebdefcca14dcd819934de4e0c5a92be5c289e403909433a6a2eb06c9fb40"
+ ],
+ "td1-d20-if-subject-n1-bound": [
+  "builds",
+  "sha256:cd4a9ce86894976ecf839c1a21585adb74931e2aa42545c5061bcb932561ef5a"
+ ],
+ "td1-d20-let-cond-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td1-d20-let-cond-n1-bound": [
+  "builds",
+  "sha256:05c56de8677777941534290822c9bd35af555df0e4bcebccfe4a88d0337c76e4"
+ ],
+ "td1-d20-let-if-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "td1-d20-let-if-n1-bound": [
+  "builds",
+  "sha256:05c56de8677777941534290822c9bd35af555df0e4bcebccfe4a88d0337c76e4"
+ ],
+ "td1-d20-let-nested-let-n1": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "td1-d20-let-nested-let-n1-bound": [
+  "builds",
+  "sha256:80d9b1128d6c14d144aed10a1a27d3e9aef4b5be3caee8cf0688ec2d71092638"
+ ],
+ "td1-d21-cond-all-exit-else": [
+  "refused",
+  "loop_recur_result_type_invalid"
+ ],
+ "td1-d21-cond-all-exit-else-fn": [
+  "refused",
+  "loop_recur_result_type_invalid"
+ ],
+ "td1-d21-continue-only": [
+  "refused",
+  "loop_recur_missing_done"
+ ],
+ "td1-d21-continue-only-fn": [
+  "refused",
+  "loop_recur_missing_done"
+ ],
+ "td1-d21-if-both-done": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+ ],
+ "td1-d21-if-both-done-fn": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+ ],
+ "td1-d21-in-defproc": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+ ],
+ "td1-d21-in-if-branch": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+ ],
+ "td1-d21-in-if-branch-fn": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+ ],
+ "td1-d21-inner-loop-cont": [
+  "builds",
+  "sha256:f8525413ea7392c2ee2d8e75674b27afc529c36efade26b703d59f0e97216ef2"
+ ],
+ "td1-d21-inner-loop-cont-fn": [
+  "builds",
+  "sha256:f8525413ea7392c2ee2d8e75674b27afc529c36efade26b703d59f0e97216ef2"
+ ],
+ "td1-d21-inner-loop-d21": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+ ],
+ "td1-d21-inner-loop-d21-fn": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+ ],
+ "td1-d21-inner-loop-done": [
+  "builds",
+  "sha256:7d6f1c19be6196345ee4c8d95db7cbdf1f8cb2dc521ce1825e300db8d2abd683"
+ ],
+ "td1-d21-inner-loop-done-fn": [
+  "builds",
+  "sha256:7d6f1c19be6196345ee4c8d95db7cbdf1f8cb2dc521ce1825e300db8d2abd683"
+ ],
+ "td1-d21-inner-loop-outer-exit": [
+  "builds",
+  "sha256:1a2daeefd182b38aa6c20dc479b5d98fae5c6573307190ddc63098498dd5c044"
+ ],
+ "td1-d21-inner-loop-outer-exit-fn": [
+  "builds",
+  "sha256:1a2daeefd182b38aa6c20dc479b5d98fae5c6573307190ddc63098498dd5c044"
+ ],
+ "td1-d21-letproc-done": [
+  "refused",
+  "let_proc_return_type_invalid"
+ ],
+ "td1-d21-letproc-done-fn": [
+  "refused",
+  "let_proc_return_type_invalid"
+ ],
+ "td1-d21-map-body-done": [
+  "crash",
+  "AttributeError",
+  "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"
+ ],
+ "td1-d21-map-body-done-fn": [
+  "crash",
+  "AttributeError",
+  "workflow_lisp/typecheck_structural_values.py:typecheck_structural_value_expr"
+ ],
+ "td1-d21-match-all-exit": [
+  "refused",
+  "loop_recur_result_type_invalid"
+ ],
+ "td1-d21-match-all-exit-fn": [
+  "refused",
+  "loop_recur_result_type_invalid"
+ ],
+ "td1-d21-one-branch": [
+  "refused",
+  "type_mismatch"
+ ],
+ "td1-d21-one-branch-fn": [
+  "refused",
+  "type_mismatch"
+ ],
+ "td1-d21-onexh": [
+  "refused",
+  "loop_recur_done_outside_loop"
+ ],
+ "td1-d21-operand-done": [
+  "refused",
+  "pure_expr_operand_type_mismatch"
+ ],
+ "td1-d21-operand-done-fn": [
+  "refused",
+  "pure_expr_operand_type_mismatch"
+ ],
+ "td1-d21-outside-loop": [
+  "refused",
+  "loop_recur_done_outside_loop"
+ ],
+ "td1-d21-tail": [
+  "builds",
+  "sha256:bcbbd6745a48a319dbb023bac3789650e3a1198b23d73cb79328f353738a1600"
+ ],
+ "td1-d21-tail-fn": [
+  "builds",
+  "sha256:bcbbd6745a48a319dbb023bac3789650e3a1198b23d73cb79328f353738a1600"
+ ],
+ "td1-d21-unused-done": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+ ],
+ "td1-d21-unused-done-fn": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_replace_halts_with_jump"
+ ],
+ "td1-d4-in-defproc": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "td1-d4-map-A": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "td1-d4-map-max-effect-match": [
+  "builds",
+  "sha256:c35dbe6fa9790cbf0bd685a3fd9223a76255be85b871ea82e9a7f6ecf8337e5f"
+ ],
+ "td1-d4-max-A": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "td1-d4-max-cond3": [
+  "builds",
+  "sha256:0223b545760da42d0eb28b977af4c75f3ff771fb87937a8f23c350fdf53df116"
+ ],
+ "td1-d4-max-effect-match": [
+  "builds",
+  "sha256:07b9997f1c56a9c62c46fd5ab885dd0fdf119647645d8bd693da8a12195db3da"
+ ],
+ "td1-d4-max-fn-A": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "td1-d4-max-if-control": [
+  "builds",
+  "sha256:eb241f5d2b271916a4f8845960017b67e43cac57357b08e8b717411449a60ae4"
+ ],
+ "td1-d4-max-if-holding-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "td1-d4-max-let-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "td1-d4-max-match-call-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "td1-d4-max-match-if-arm": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "td1-d4-max-match-let-arm": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "td1-d4-max-nested-if": [
+  "builds",
+  "sha256:7a680cd07b2adfeda34c04a0acc2d00c5059f0ecf48668d6b8966a398e04c3c8"
+ ],
+ "td1-d4-max-op-match": [
+  "builds",
+  "sha256:bec1fc17b2ebebb44ebaf71ef0e4ef93a55c7955357bc3262aeb746e4fbb51b1"
+ ],
+ "td1-d4-onexh-effect-match": [
+  "refused",
+  "loop_recur_contract_invalid"
+ ],
+ "td1-d4-onexh-match": [
+  "builds",
+  "sha256:2a11a31bae1166b178cbe3270d752d78f829c7afd840b909d5aa1399f684610f"
+ ],
+ "td1-d4-parallel-max-match": [
+  "refused",
+  "list_map_effect_max_invalid"
+ ],
+ "td1-d4-state-A": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "td1-d4-state-cond3": [
+  "builds",
+  "sha256:e342cdb28e110299723d46bcf6f56cc16dc8253d84021c806ff13463bac436ac"
+ ],
+ "td1-d4-state-effect-match": [
+  "builds",
+  "sha256:91c37db1b597ce18ae7d6e7ec1f0fe00934307a517847cf7d917c06ff0bffad1"
+ ],
+ "td1-d4-state-fn-A": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "td1-d4-state-nested-if": [
+  "builds",
+  "sha256:def09ad7f88926b321c13dbd63b13cb66337b7332de77d6331f1af378b5f85a8"
+ ],
+ "td1-d4-state-record-match": [
+  "builds",
+  "sha256:85808e455e6405f8e2b6a74011653a23da406f932e80173396367545cf7ff4ca"
+ ],
+ "td1-e1-cont-field": [
+  "builds",
+  "sha256:767bbb2897daac2b8d4ca35cb023d3c292dd77211d9cf84fa4628187673c14bd"
+ ],
+ "td1-e1-cont-field-bound": [
+  "builds",
+  "sha256:ca8da82dd740d6a7b3b2788140a735a992127b9f3e3b5cd49c2b551fa8774e7c"
+ ],
+ "td1-e1-cont-if-top": [
+  "builds",
+  "sha256:c54d9455dea56b563a9dae411dfddf2027b74939f99a1439516c302edef81146"
+ ],
+ "td1-e1-cont-if-top-bound": [
+  "builds",
+  "sha256:fc47a41b61be27736559a6c830319f039bc9ca59ec82a57c2a35f454e33708ae"
+ ],
+ "td1-e1-subject-call": [
+  "builds",
+  "sha256:1e6c736f037a3907e639c7fc1408fb823c61b23ed3aeb66a57be74e760d07a27"
+ ],
+ "td1-e1-subject-call-bound": [
+  "builds",
+  "sha256:7d735203d01111a9149a4cb8d7265403a35202de139ca94f1e335ea11b2cebc4"
+ ],
+ "td1-e1-subject-variant": [
+  "builds",
+  "sha256:dbefb362b6fd16852c8638755a36b640d316008fad3947f91298bf7300f807ed"
+ ],
+ "td1-e1-subject-variant-bound": [
+  "builds",
+  "sha256:f223ea47c43e980cea4e670c3bc7d389dd65b15873a0626f77ff2526ae52df40"
+ ],
+ "td2-binder-hidden-inner-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-binder-hidden-let": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-binder-hidden-letproc-param": [
+  "refused",
+  "variant_ref_unproved"
+ ],
+ "td2-binder-hidden-loop": [
+  "refused",
+  "variant_ref_unproved"
+ ],
+ "td2-binder-hidden-map": [
+  "refused",
+  "list_map_binder_invalid"
+ ],
+ "td2-binder-is-subject": [
+  "builds",
+  "sha256:3b790e3e7483fd18e297da793b32d57cf131c530e9a874bdd2cec0a67cf0a24d"
+ ],
+ "td2-effect-in-arm": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-field-path-subject": [
+  "refused",
+  "variant_ref_unproved"
+ ],
+ "td2-field-path-subject-binder": [
+  "builds",
+  "sha256:d8e5b6bd4663bdf57740fc9facf6aa035803654f87dd4668a48355edc1ad82a9"
+ ],
+ "td2-in-cond": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-in-defproc": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-in-if-condition": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-in-letproc-local-body": [
+  "refused",
+  "variant_ref_unproved"
+ ],
+ "td2-in-loop-body": [
+  "refused",
+  "variant_ref_unproved"
+ ],
+ "td2-in-macro": [
+  "refused",
+  "name_unknown"
+ ],
+ "td2-in-map-body": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-in-serial-map": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-latent-if-narrowed-return": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-latent-if-narrowed-whole": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-loop-state-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-loop-state-subject-fn": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-macro-binder-around-read": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-match-inside-letproc": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-nested-inner-other-arm": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-nested-inner-wrong-variant-read": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-nested-twice": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-no-binder": [
+  "refused",
+  "frontend_parse_error"
+ ],
+ "td2-other-variant-refused": [
+  "refused",
+  "variant_ref_wrong_variant"
+ ],
+ "td2-plan": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-rebound-subject-if": [
+  "builds",
+  "sha256:992e61d43f363e80079909f7b45f6feb154ca543c10e1bb02953ae1acd5fff4d"
+ ],
+ "td2-rebound-subject-plain": [
+  "refused",
+  "variant_ref_unproved"
+ ],
+ "td2-same-name-two-types-P": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-same-name-two-types-Q": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-shared-field": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-subject-passed-whole": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2-subject-returned-whole": [
+  "builds",
+  "sha256:648b6d39cea524eec38649f4d02b61778366328cb908b6880c38cdd4aa421ebf"
+ ],
+ "td2-tag-read-in-arm": [
+  "builds",
+  "sha256:6446128a395069c74c058ee3ea4b9ec891e203604e95ed596a07829bd191347a"
+ ],
+ "td2-underscore-binder": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "td2b-binder-read-only": [
+  "builds",
+  "sha256:fce0831fe212b1b78b01f84d58b200b1135a425639cc3702a0b482d0fdee88b2"
+ ],
+ "td2b-tag-cond": [
+  "builds",
+  "sha256:6446128a395069c74c058ee3ea4b9ec891e203604e95ed596a07829bd191347a"
+ ],
+ "td2b-tag-if-argv": [
+  "builds",
+  "sha256:8a80b61b913e673ee7f2be9cdbc7d4e20a0f5f01ad621f381b9e7faadc855470"
+ ],
+ "td2b-tag-if-both-reads": [
+  "builds",
+  "sha256:4ac7a00a455d31a905358b30de67356f9944273e1fac9c18c939a49612ee7684"
+ ],
+ "td2b-tag-if-effect": [
+  "builds",
+  "sha256:68110aaa99deeabed8317c8ed9da713c81e688f6d970d499a635cc9e4ebf7d20"
+ ],
+ "td2b-tag-if-in-defproc": [
+  "builds",
+  "sha256:68ac478dcc50a0983ab060a1115e03963468a78b7e4f1a6e7258ed7dbacf3ef5"
+ ],
+ "td2b-tag-if-in-loop": [
+  "builds",
+  "sha256:c37abbf5d763df2a48816a05798d519d15575ce7a8046985a82009c82c79184d"
+ ],
+ "td2b-tag-if-macro": [
+  "refused",
+  "name_unknown"
+ ],
+ "td2b-tag-if-other-arm": [
+  "builds",
+  "sha256:7b4a09b7c3b7ef0f9a1077f1b14c41eb77ccea7e536b6b5e1cd270dd4b44dcf1"
+ ],
+ "x-cond-subject-and-operand-effect": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/conditionals.py:_normalize_operand"
+ ],
+ "x-cond-subject-and-operand-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-cond-subject-call-argument-effect": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-cond-subject-call-argument-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-cond-subject-direct-effect": [
+  "builds",
+  "sha256:77e7eda387d4968fd8d819062616951ec9e573085296c92a07d36eb59a402fea"
+ ],
+ "x-cond-subject-direct-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-cond-subject-if-branch-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-cond-subject-if-branch-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-cond-subject-if-condition-effect": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/conditionals.py:_normalize_operand"
+ ],
+ "x-cond-subject-if-condition-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-cond-subject-inner-match-arm-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-cond-subject-inner-match-arm-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-cond-subject-let-binding-effect": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-cond-subject-let-binding-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-cond-subject-let-proc-body-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-cond-subject-let-proc-body-pure": [
+  "builds",
+  "sha256:1c455ebd94dbb5e0dcedeb969b87f6ae52b04c58712171a036fe350cbd25a67b"
+ ],
+ "x-cond-subject-loop-done-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-cond-subject-loop-done-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-cond-subject-loop-state-effect": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-cond-subject-loop-state-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-cond-subject-map-body-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-cond-subject-variant-field-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-cond-subject-variant-field-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d19-bound-cmd-L1-if": [
+  "builds",
+  "sha256:fc47a41b61be27736559a6c830319f039bc9ca59ec82a57c2a35f454e33708ae"
+ ],
+ "x-d19-bound-cmd-L2-cond": [
+  "builds",
+  "sha256:c69dc9f63c123956f88ae86b91869017a194eb910cfc552efeaafe4b402cc631"
+ ],
+ "x-d19-bound-cmd-L2-cond-test": [
+  "builds",
+  "sha256:2756728e5e54aae3ef1bf3dd1ac0e3ec01729aa3f2e456b66ed2f8f3f91a4d33"
+ ],
+ "x-d19-bound-cmd-L2-else": [
+  "builds",
+  "sha256:d09cd1d2af1178187baf5c45ec5c20c0e7b2639500dfa68716bc13ba410f1562"
+ ],
+ "x-d19-bound-cmd-L2-if": [
+  "builds",
+  "sha256:945e55f17d3616044b7124a0ccb732e995b1751f89468b104b94b5bfa06d3662"
+ ],
+ "x-d19-bound-cmd-L3-if": [
+  "builds",
+  "sha256:fe0476d79ebe01d71eaf9f8fa3c655d4c670ca5cd4d7b4be6c1ed8dc617d0fa0"
+ ],
+ "x-d19-bound-proc-L1-if": [
+  "builds",
+  "sha256:3275bc5c121c9032c7b7c42e0f5d571dbc83fcd487e8c28dbb32e1d419a1aee6"
+ ],
+ "x-d19-bound-proc-L2-cond": [
+  "builds",
+  "sha256:697843fb9e09575c6219a4c192c3b0342689ab130670da6bf577249af6249a20"
+ ],
+ "x-d19-bound-proc-L2-cond-test": [
+  "builds",
+  "sha256:2c987f40b19b4a134da5214433632b4e7d1781da012cc3b3fb1c91c586372696"
+ ],
+ "x-d19-bound-proc-L2-else": [
+  "builds",
+  "sha256:f265682aaeaf1c1a81d90a9aa0651f6ebe5bb787e6f4e2577e9ea3217f262d59"
+ ],
+ "x-d19-bound-proc-L2-if": [
+  "builds",
+  "sha256:5e88222e7063aff470e05c26618be641b3d6843940ae84bc9734b1fcc7015b70"
+ ],
+ "x-d19-bound-proc-L3-if": [
+  "builds",
+  "sha256:59f3b789a585106f3f729646070af25a7ee2688a29ecd081c50cfd40cf8e59a4"
+ ],
+ "x-d19-bound-proc-pure-L1-if": [
+  "builds",
+  "sha256:7a94418a3620b7288abe6569568981352fba9d3a8113101ac6293e7d972a13dd"
+ ],
+ "x-d19-bound-proc-pure-L2-cond": [
+  "builds",
+  "sha256:35b858b993a608d43c376c9fa0e1f177d4a3acd6e6a3316f14b18b3baf883636"
+ ],
+ "x-d19-bound-proc-pure-L2-cond-test": [
+  "builds",
+  "sha256:1103af703052633afa3ae9650205ef3260a1229c73b0ac942a36ee6b22cbc932"
+ ],
+ "x-d19-bound-proc-pure-L2-else": [
+  "builds",
+  "sha256:3f9049d11e2e0dbdad8bdb8a864d80dc04f0ff7dda9066cea4fdaf73486dbd2f"
+ ],
+ "x-d19-bound-proc-pure-L2-if": [
+  "builds",
+  "sha256:eac51cd94130dea7aa12dd5c0c2c3560299df1e91b6316a347c0f77244b81b4f"
+ ],
+ "x-d19-bound-proc-pure-L3-if": [
+  "builds",
+  "sha256:9c2341a9e8c208467333d6630d013c1f7d5eadc7f8869d3de9b4bb0249b959b8"
+ ],
+ "x-d19-bound-proc-wf-L1-if": [
+  "builds",
+  "sha256:6bf7a043cd756d6e223c0bd754683d62ef064cd04dcd81071dd7569cd61a644e"
+ ],
+ "x-d19-bound-proc-wf-L2-cond": [
+  "builds",
+  "sha256:79b23f37bb8ad97b882c33acffe97919a382de2f3e4af269d750cc03e5226b67"
+ ],
+ "x-d19-bound-proc-wf-L2-cond-test": [
+  "builds",
+  "sha256:11f9e6827d3b9b5321e94d245e90d4582b71679438d4a09061af4fd2613e1fa7"
+ ],
+ "x-d19-bound-proc-wf-L2-else": [
+  "builds",
+  "sha256:99b41c2772681b646a82a715b4a8344e77cce8b94d1850c9134c5bfa7dca543d"
+ ],
+ "x-d19-bound-proc-wf-L2-if": [
+  "builds",
+  "sha256:74e3e5d8696c84dcd20452654f9006a3c4881915ddcce09b6bee9ef874905026"
+ ],
+ "x-d19-bound-proc-wf-L3-if": [
+  "builds",
+  "sha256:f37685fbe4bf207708284d6000750b048f816c3ecb98dddbaf42597b4d14dd06"
+ ],
+ "x-d19-bound-wf-L1-if": [
+  "builds",
+  "sha256:aa701062c34a3379b6bb062e9097388a1d84d7dc2d031a1e0910445c0642a98f"
+ ],
+ "x-d19-bound-wf-L2-cond": [
+  "builds",
+  "sha256:eddc338c2fd23d857726e55f306d5a6a7ee813aea43a5535af7a8090c15d98df"
+ ],
+ "x-d19-bound-wf-L2-cond-test": [
+  "builds",
+  "sha256:ac5b49cd99e772dfe6646a0bd7517732f61f0a152c01a72986a8789073f652ae"
+ ],
+ "x-d19-bound-wf-L2-else": [
+  "builds",
+  "sha256:30cf99a0b5820e683cd2ff6b12f37ec8e78b6fd05a0c54da5676bc2d247bdc29"
+ ],
+ "x-d19-bound-wf-L2-if": [
+  "builds",
+  "sha256:23a3b4ea292fa1ecac724eb562ff73aee3d29054fb05853f17ba1e37091697f9"
+ ],
+ "x-d19-bound-wf-L3-if": [
+  "builds",
+  "sha256:7cc6df08721aebf84a447e978c63560fc03f9be311d82317cf758766b40465e7"
+ ],
+ "x-d19-bound-wf-pure-L1-if": [
+  "builds",
+  "sha256:3171acf46a5ef66b9c76cf7fc965c2a19adb99e9e9ad56d50e9a04c1bc65406f"
+ ],
+ "x-d19-bound-wf-pure-L2-cond": [
+  "builds",
+  "sha256:2cf023c81a54231a8e3f0bb07e753da552414c14a3b231c3ea668e37c7f6a3e7"
+ ],
+ "x-d19-bound-wf-pure-L2-cond-test": [
+  "builds",
+  "sha256:5985a7195d0ffa4fd8ab1c3e1a9096d513ed6f3fc6a44e760ee5297ebb13f400"
+ ],
+ "x-d19-bound-wf-pure-L2-else": [
+  "builds",
+  "sha256:3240cc19a8962af1f2b00c36bf8fb9fd29c9a7d407c6326db4fccd752b78dff4"
+ ],
+ "x-d19-bound-wf-pure-L2-if": [
+  "builds",
+  "sha256:7767eb8648d45e2fd7b9534413a389450383dddf45afb5737400e1753f930278"
+ ],
+ "x-d19-bound-wf-pure-L3-if": [
+  "builds",
+  "sha256:92762bc0879cf4abdf60f0d5eb8da40addd220eace5d73c26a07c08eb6a66c91"
+ ],
+ "x-d19-bound-wf-pure-via-L1-if": [
+  "builds",
+  "sha256:86a5505ac73ad3278473c04d4d839651cde381ef2fc0abfc7e3832b3ccd79300"
+ ],
+ "x-d19-bound-wf-pure-via-L2-cond": [
+  "builds",
+  "sha256:8ec8e9d00000c5761b7be4c39853997019621e6f1090c6c3effe435e25a00a7e"
+ ],
+ "x-d19-bound-wf-pure-via-L2-cond-test": [
+  "builds",
+  "sha256:57ff32b0c906212adc85bfeae61523db3cbcd3dc0ac9014cbf59c88a13c3ee48"
+ ],
+ "x-d19-bound-wf-pure-via-L2-else": [
+  "builds",
+  "sha256:3eddb2a9eb3874b73c1458a4ad457f597e8948ff8a75bb76e8a61a22b3a0d26b"
+ ],
+ "x-d19-bound-wf-pure-via-L2-if": [
+  "builds",
+  "sha256:916b3c0d2d98d3bbcc088c9a59c639e7a9928269fe4ff48f52e20dd1dbe67197"
+ ],
+ "x-d19-bound-wf-pure-via-L3-if": [
+  "builds",
+  "sha256:d5e6dd3cdeb88c18e40635228f6de420ad915752bb5d3c73b3b25ad88ddf5b48"
+ ],
+ "x-d19-bound-wf-via-L1-if": [
+  "builds",
+  "sha256:9171dc2522786ba49b6e93010c55f94383c54fdf440567b6e778f2cfefd5b67d"
+ ],
+ "x-d19-bound-wf-via-L2-cond": [
+  "builds",
+  "sha256:281cccc2bd2f79da7392783c8b90bba053a8207aaf12402b97ff3f8f1d43b7e6"
+ ],
+ "x-d19-bound-wf-via-L2-cond-test": [
+  "builds",
+  "sha256:7a3453a8253373befac5e895092e0ebd8a482898d2b561de8e1a3b55958ffc3b"
+ ],
+ "x-d19-bound-wf-via-L2-else": [
+  "builds",
+  "sha256:fec5882fd939471e5f66b5e8647c2ea73febe6129293e93030cd212b3b2e8036"
+ ],
+ "x-d19-bound-wf-via-L2-if": [
+  "builds",
+  "sha256:7e92c52d7ab943027efe03de8eca3105f42a4cd3618a6dfec2cd14e4a43c1809"
+ ],
+ "x-d19-bound-wf-via-L3-if": [
+  "builds",
+  "sha256:f09dd625cbca2fafa802212491785bd2b5aa13d37ba735742acbe46d4a5db5b9"
+ ],
+ "x-d19-continue-cmd-L1-if": [
+  "builds",
+  "sha256:c54d9455dea56b563a9dae411dfddf2027b74939f99a1439516c302edef81146"
+ ],
+ "x-d19-continue-cmd-L2-cond": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-cmd-L2-cond-test": [
+  "builds",
+  "sha256:56f0bdb4f120be1085b3a68540c0082c4cee2b7074c4af261baf2f3a2ee1bc11"
+ ],
+ "x-d19-continue-cmd-L2-else": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-cmd-L2-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-cmd-L3-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-proc-L1-if": [
+  "builds",
+  "sha256:ead526a28669e7393c01e9815df6b3d4b6efe861e64e014dd2485bfa3bf0901d"
+ ],
+ "x-d19-continue-proc-L2-cond": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-proc-L2-cond-test": [
+  "builds",
+  "sha256:70d687cbd5bc996ab4bd4b65e9aecebc5c18a5871d2f8239f21540b2dec68ad8"
+ ],
+ "x-d19-continue-proc-L2-else": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-proc-L2-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-proc-L3-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-proc-pure-L1-if": [
+  "builds",
+  "sha256:5f9a4110856326041ef1dae3cc94c349151dcc137c175ccd520e6d9bace23185"
+ ],
+ "x-d19-continue-proc-pure-L2-cond": [
+  "builds",
+  "sha256:de3ab366bec365d7055a8dbf853c91794c9227769b9572a53888391d3bf5cdf8"
+ ],
+ "x-d19-continue-proc-pure-L2-cond-test": [
+  "builds",
+  "sha256:752d12a7ead8951b1300ef19c353c6d7ca910dcd174f294dda498bfe862b0488"
+ ],
+ "x-d19-continue-proc-pure-L2-else": [
+  "builds",
+  "sha256:972d0871b18f7f971a5af25be5311cf30a28aed9cddd94eb8ea815c3dad9cd6b"
+ ],
+ "x-d19-continue-proc-pure-L2-if": [
+  "builds",
+  "sha256:dedd8bba98915b92dcc6d1b02c518f1bdff5c82deae01c2f520c8da42ca5e40f"
+ ],
+ "x-d19-continue-proc-pure-L3-if": [
+  "builds",
+  "sha256:b56160c5d84d3454ea31613b3c48deaddcd998e60ef3b9ef2dea7e5baa4c2e2c"
+ ],
+ "x-d19-continue-proc-wf-L1-if": [
+  "builds",
+  "sha256:7b4a7ac8d9fa4e786d86264caaf1b9712bc87b20f68212aaec835e720368de64"
+ ],
+ "x-d19-continue-proc-wf-L2-cond": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-proc-wf-L2-cond-test": [
+  "builds",
+  "sha256:0302be93d816cbd31472208a88991a139245656802b62d14ac381735fe5f7c8c"
+ ],
+ "x-d19-continue-proc-wf-L2-else": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-proc-wf-L2-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-proc-wf-L3-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-wf-L1-if": [
+  "builds",
+  "sha256:928bbee396091132dc51eca2177ac53b660207414467be422bf10e3427070f04"
+ ],
+ "x-d19-continue-wf-L2-cond": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-wf-L2-cond-test": [
+  "builds",
+  "sha256:6eef9cd9b7b880cdcbe952f7cf331ed23a6276ff1390c18b640d94f9a1d044dd"
+ ],
+ "x-d19-continue-wf-L2-else": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-wf-L2-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-wf-L3-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-wf-pure-L1-if": [
+  "builds",
+  "sha256:ee1724e19a5e2ac99cfc72c599a9242c56e951f98389883aee0b41947a5e7f0a"
+ ],
+ "x-d19-continue-wf-pure-L2-cond": [
+  "builds",
+  "sha256:855c0ef33c53660b6b3f02e3176dbc7f14e0327916605f8b7737857d2d1bf4fa"
+ ],
+ "x-d19-continue-wf-pure-L2-cond-test": [
+  "builds",
+  "sha256:46f75b3649688278c74450f79962e52265de1023cd0a32f0f5a33176402d431b"
+ ],
+ "x-d19-continue-wf-pure-L2-else": [
+  "builds",
+  "sha256:04556ba137f02b4346ef09f24bb52c6b33e9f81bb780682f162bebc7f21e2766"
+ ],
+ "x-d19-continue-wf-pure-L2-if": [
+  "builds",
+  "sha256:6c648d7e6a22f4fb825895ca8b68c4e1c1c36dde2ea3a3ed8f4d707000c417ca"
+ ],
+ "x-d19-continue-wf-pure-L3-if": [
+  "builds",
+  "sha256:31a2f8f0c81984e3a8adf01c7eb9356e7c71957b30c6c3be7f8b993c343e8a81"
+ ],
+ "x-d19-continue-wf-pure-via-L1-if": [
+  "builds",
+  "sha256:430f088113b5ab2bf1930a195606a78435902b4185ce5e5e2aa394d34ca3ce41"
+ ],
+ "x-d19-continue-wf-pure-via-L2-cond": [
+  "builds",
+  "sha256:d4059d54edb8629545b4c8977c3d081347f4a422ad26f800aec80e4d5816f425"
+ ],
+ "x-d19-continue-wf-pure-via-L2-cond-test": [
+  "builds",
+  "sha256:4aa84ce59fcd783ccb66cfd8bcd87c73d07ee574f14ae72923c9114e0a7647a5"
+ ],
+ "x-d19-continue-wf-pure-via-L2-else": [
+  "builds",
+  "sha256:6cc887524dff8b42754945035c6f353ea0417f9735cdfbd04b823e8a8baabac2"
+ ],
+ "x-d19-continue-wf-pure-via-L2-if": [
+  "builds",
+  "sha256:f0af28d2fadda0caad3668c1f61ba80b78e31dde4854cb81730c469d17d8997e"
+ ],
+ "x-d19-continue-wf-pure-via-L3-if": [
+  "builds",
+  "sha256:d5db90419fd7f6f024d94cf799f99ec140feb91301d5f0eac50419dcded2d3f3"
+ ],
+ "x-d19-continue-wf-via-L1-if": [
+  "builds",
+  "sha256:4625f5bab4771db16d78d3a4aa86ed719e083ab29924b015e9909e39aaa4c9b3"
+ ],
+ "x-d19-continue-wf-via-L2-cond": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-wf-via-L2-cond-test": [
+  "builds",
+  "sha256:07c602da91661187c8ae06c8438b08c9f8ac63833b480174f2164660e13653bc"
+ ],
+ "x-d19-continue-wf-via-L2-else": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-wf-via-L2-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-continue-wf-via-L3-if": [
+  "crash",
+  "SiteAssignmentError",
+  "contracts/closed_program/sites.py:_SiteWalker._value_has_effect"
+ ],
+ "x-d19-done-cmd-L1-if": [
+  "builds",
+  "sha256:6f8f6b0fd4edd66baa84e31f001330d92f50638cacbdeb60c1c04c1795b923e2"
+ ],
+ "x-d19-done-cmd-L2-cond": [
+  "builds",
+  "sha256:1bb12c72b05e228927fcd0f9b635017a6d6a997cd34b76d7bab3021ae3472782"
+ ],
+ "x-d19-done-cmd-L2-cond-test": [
+  "builds",
+  "sha256:df25ec9c6353f27627ec355865de9cd96faf0847bcf92c317b101f4b30b9f8e0"
+ ],
+ "x-d19-done-cmd-L2-else": [
+  "builds",
+  "sha256:ecc2c8746f0a9d7af4fa8f6a6a145c7a4c4f17577c6ba3d2a93bbb40810f73d5"
+ ],
+ "x-d19-done-cmd-L2-if": [
+  "builds",
+  "sha256:cc86f104828f6ad1e6919b9571a95b7561a71c29748de2b7306f3c2fc7d4303c"
+ ],
+ "x-d19-done-cmd-L3-if": [
+  "builds",
+  "sha256:9752687c4a0f3ec5f80c10611f32a38cd6939b2bd88762fd1fd081610c49a4a6"
+ ],
+ "x-d19-done-proc-L1-if": [
+  "builds",
+  "sha256:57171a1f188bf4fcb526541fb1758644620a191d3cd6d364e93e89254981e9c1"
+ ],
+ "x-d19-done-proc-L2-cond": [
+  "builds",
+  "sha256:f85f8e41faeda915b4156d80bb7ffc375618e6a4addd8bb3d3b8c2a187f28097"
+ ],
+ "x-d19-done-proc-L2-cond-test": [
+  "builds",
+  "sha256:8020587f9dda7e16ba0f8f91c605ce00e3a3d295bff799713099a5dbd8db42a9"
+ ],
+ "x-d19-done-proc-L2-else": [
+  "builds",
+  "sha256:d025d3246e1b8df21cb0ce612d181904d9e83b56621bff68e82073f90cab4c42"
+ ],
+ "x-d19-done-proc-L2-if": [
+  "builds",
+  "sha256:279f78e6a4348aa88fe85144ffca6c6b4639d86475d750265683ebee011b3988"
+ ],
+ "x-d19-done-proc-L3-if": [
+  "builds",
+  "sha256:35de7f243bb35651ddcaa15d866d3955a3c6668a3010cdce6179dcec4b022e56"
+ ],
+ "x-d19-done-proc-pure-L1-if": [
+  "builds",
+  "sha256:b770b0f481614fbdf383e054e952f0d714739f8e7e9b1cde26b50d3322fddba0"
+ ],
+ "x-d19-done-proc-pure-L2-cond": [
+  "builds",
+  "sha256:2446f5be2035c309866c4cd60e89850b0df66ee75d3e97d7c3d5c088c1bcfb24"
+ ],
+ "x-d19-done-proc-pure-L2-cond-test": [
+  "builds",
+  "sha256:bf9da2ecff851cc5b7dd45b2c7e49dda9c09f1dfb264e8bf64165f512c3e840b"
+ ],
+ "x-d19-done-proc-pure-L2-else": [
+  "builds",
+  "sha256:0a6a1b8c854d9c098dfdb0b94393f39e7b1af6fe4fad2c1731e764bef4e62887"
+ ],
+ "x-d19-done-proc-pure-L2-if": [
+  "builds",
+  "sha256:3d94cc9f49939eaeec2c11e94da7aae426057f6d9575447655ebd29ab34f4c68"
+ ],
+ "x-d19-done-proc-pure-L3-if": [
+  "builds",
+  "sha256:8c73408ea7249ba26395bed85000ed67f5449e9e6caa0003a9f24c4683a4e158"
+ ],
+ "x-d19-done-proc-wf-L1-if": [
+  "builds",
+  "sha256:fd4f7c0fa4dfae072b9f1016a5e11b5de31f6e3eba1576b7c582f20202ac1f31"
+ ],
+ "x-d19-done-proc-wf-L2-cond": [
+  "builds",
+  "sha256:c61d637f3453751dfb04125632b293b47e63a0997207e7dcb26fcdfdce9cdffa"
+ ],
+ "x-d19-done-proc-wf-L2-cond-test": [
+  "builds",
+  "sha256:24f2ae77047d90f97addcff1298da64a74f36f8621a01f20d888457eac67305e"
+ ],
+ "x-d19-done-proc-wf-L2-else": [
+  "builds",
+  "sha256:f0c0a7e2cf8cc3521c9f6d8c2c1a689baf5e8cbefd1e060e6593d924a584e03c"
+ ],
+ "x-d19-done-proc-wf-L2-if": [
+  "builds",
+  "sha256:524f11cbffe18bb0f1092dfd8ba3919c5d4a5cd1e1f14025ddddcf995aafb641"
+ ],
+ "x-d19-done-proc-wf-L3-if": [
+  "builds",
+  "sha256:84df9a806da60e01b2b212f9b1a081d95d669b063b59b8ebc40015ee19183c72"
+ ],
+ "x-d19-done-wf-L1-if": [
+  "builds",
+  "sha256:8a7f6de4465aa0aa3c7005568aabdc015e8f5bbab22e98d37b8066351d41ae89"
+ ],
+ "x-d19-done-wf-L2-cond": [
+  "builds",
+  "sha256:ebc8013e3d427498c9c010fe7b00fae4911cb525bfba5d910875a4c72dda2c17"
+ ],
+ "x-d19-done-wf-L2-cond-test": [
+  "builds",
+  "sha256:18f42db1c038e7ebfb188b63ac915de804f8aee96e9aa901bb15bb549c6c5011"
+ ],
+ "x-d19-done-wf-L2-else": [
+  "builds",
+  "sha256:82ec283e8b097428cabeac3466cdb28b553a3577fa166feedf8131361db7ffd7"
+ ],
+ "x-d19-done-wf-L2-if": [
+  "builds",
+  "sha256:d05b87a6a07e69a0db644068648909d27796ee4a943893d630dffee8d83f0b5d"
+ ],
+ "x-d19-done-wf-L3-if": [
+  "builds",
+  "sha256:c04235eed021c91e73e81fb2297afe36233e5712c04744e94c24478a14753ec3"
+ ],
+ "x-d19-done-wf-pure-L1-if": [
+  "builds",
+  "sha256:716b9e7991f0d1d8270b0f034508e3761a22b220aa7094e7d5ba9910b6c58e66"
+ ],
+ "x-d19-done-wf-pure-L2-cond": [
+  "builds",
+  "sha256:7a6c9eea3e313eb065a8060bc7924f244bd24cc6609c676ae5f4f19cff5a1d4b"
+ ],
+ "x-d19-done-wf-pure-L2-cond-test": [
+  "builds",
+  "sha256:e658905d8629f914b729ded4b0716dc3698c7c751131a22c34ef636e8f5281b1"
+ ],
+ "x-d19-done-wf-pure-L2-else": [
+  "builds",
+  "sha256:69127b2f9b86f88e32718657d3ab6631c2762af35db9c5250795875157f6246d"
+ ],
+ "x-d19-done-wf-pure-L2-if": [
+  "builds",
+  "sha256:62bc703d575aae55070a12706110ba3e3257f6845e45b10bd5bd4fa1bcc57785"
+ ],
+ "x-d19-done-wf-pure-L3-if": [
+  "builds",
+  "sha256:6b3012dba13e27128b5616a57b8a2dfe3f2ea8e9bfa13eabd93b889d90373249"
+ ],
+ "x-d19-done-wf-pure-via-L1-if": [
+  "builds",
+  "sha256:ec26ed09d9f9871f48a4b76eafd10929e6bd89efb6611963a48161ca8eb70486"
+ ],
+ "x-d19-done-wf-pure-via-L2-cond": [
+  "builds",
+  "sha256:e95e978ad5134b96d45d0345990e2bc9e6993b9c1d1a75f7efad0ff09e5f6223"
+ ],
+ "x-d19-done-wf-pure-via-L2-cond-test": [
+  "builds",
+  "sha256:caf03f31bd82f4d784e342501a5ce9a7ff6e4ab23690ac6014fde3bdf010e3c8"
+ ],
+ "x-d19-done-wf-pure-via-L2-else": [
+  "builds",
+  "sha256:b76ade0a6f2cd6c400240b1893eacb448eaf220bb512def048d77cadee30313a"
+ ],
+ "x-d19-done-wf-pure-via-L2-if": [
+  "builds",
+  "sha256:8cbc0e7961c9ebbded1c2772770eec73e89b622ea4f56b63769f22173adcf508"
+ ],
+ "x-d19-done-wf-pure-via-L3-if": [
+  "builds",
+  "sha256:2b9833db96f89b1c8ce9a934466728a48c57d28394e6ee183419f6bfb65ae499"
+ ],
+ "x-d19-done-wf-via-L1-if": [
+  "builds",
+  "sha256:9f2ba30053f8f7ce5ebc82bd768347a7ba235bec604b5ba7c6b88f572ee6a20f"
+ ],
+ "x-d19-done-wf-via-L2-cond": [
+  "builds",
+  "sha256:e6153425cc341aaff681c508ff4525ae0edf1512a7359b6fada06e939a37257b"
+ ],
+ "x-d19-done-wf-via-L2-cond-test": [
+  "builds",
+  "sha256:f6f619cead86ef8e7b136030853254d0820141bd20876415e9edc3e1c23c979e"
+ ],
+ "x-d19-done-wf-via-L2-else": [
+  "builds",
+  "sha256:9dac457dc76a4e3c00b7e2e361b1e2408bf64d7ad0998d212a4454da2ee4e2b3"
+ ],
+ "x-d19-done-wf-via-L2-if": [
+  "builds",
+  "sha256:ae274c2caa530b32799ec915b80357510104be29ea89b70eff9dc86b93e7c473"
+ ],
+ "x-d19-done-wf-via-L3-if": [
+  "builds",
+  "sha256:7585b18c62ddd7d14273c87221b144532409752442a2a128cf8b80f3b63e3a06"
+ ],
+ "x-d20-bound-cond": [
+  "builds",
+  "sha256:d6c8365439c607b5c2d81293f57667d511eaf73762c7af47cacfcda6e952fcba"
+ ],
+ "x-d20-bound-cond-pure": [
+  "builds",
+  "sha256:9592acda2d79bbb55d3ff4a342d21e90061976bb9e092bf94c54521169db658b"
+ ],
+ "x-d20-bound-cond3-pure": [
+  "builds",
+  "sha256:f11b172d9c85c1f6ebd68b90ad531eaa56dffe1360ec54c4d0e2684ec39ce40f"
+ ],
+ "x-d20-bound-if-both": [
+  "builds",
+  "sha256:c9ebaaae556a9958c5afeb90c6a981649812167630c765193db2c774a227ddca"
+ ],
+ "x-d20-bound-if-cond": [
+  "builds",
+  "sha256:e15af2002bd655afe665617053a834611dd453fa5ed72ae144d6d6eb3147107c"
+ ],
+ "x-d20-bound-if-pure": [
+  "builds",
+  "sha256:548c4a84f0aa1d9283857f17893f5a6d8abe37d39af2cb555630fcee681ad764"
+ ],
+ "x-d20-bound-if-then": [
+  "builds",
+  "sha256:16127e96d000d6978e8fd0a3839c6439a35a232be330ce1db5b3d76c6213dafe"
+ ],
+ "x-d20-bound-let-if": [
+  "builds",
+  "sha256:eb1944926551270c5311a39278243a33cd1ae1a3d4ecd28a6d24ae6943f27a04"
+ ],
+ "x-d20-bound-match-arm": [
+  "builds",
+  "sha256:c402765226f462e577c3b7d33769e772efff2e2ede2094faa5a07eb6fcf8db04"
+ ],
+ "x-d20-bound-match-subject": [
+  "builds",
+  "sha256:2a9b87555fdbc425169812613df8985cc52886f4bc24210d9ea605c1fa5aff20"
+ ],
+ "x-d20-bound-plain": [
+  "builds",
+  "sha256:7d735203d01111a9149a4cb8d7265403a35202de139ca94f1e335ea11b2cebc4"
+ ],
+ "x-d20-bound-plus-match": [
+  "builds",
+  "sha256:ea5956027e790cc00469054a09eb80fd7bb11eda67477ee4db92d9bf434908ac"
+ ],
+ "x-d20-call-cond": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-call-cond-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-call-cond3-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-call-if-both": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d20-call-if-cond": [
+  "builds",
+  "sha256:b7b9b6cea84b54412710a81d8b189e7c3f3247ecd50ab115f53afaf8d00bc2f5"
+ ],
+ "x-d20-call-if-pure": [
+  "builds",
+  "sha256:83ef1ed47c6e0157f51e942d3be8c191235f6152a7b313c77fdac6c884cfae57"
+ ],
+ "x-d20-call-if-then": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d20-call-let-if": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d20-call-match-arm": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d20-call-match-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d20-call-plain": [
+  "builds",
+  "sha256:1e6c736f037a3907e639c7fc1408fb823c61b23ed3aeb66a57be74e760d07a27"
+ ],
+ "x-d20-call-plus-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d20-direct-cond-cond": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-direct-cond-cond-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-direct-cond-cond3-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-direct-cond-if-both": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-direct-cond-if-cond": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-direct-cond-if-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-direct-cond-if-then": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-direct-cond-let-if": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-direct-cond-match-arm": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-direct-cond-match-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-direct-cond-plain": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-direct-cond-plus-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-effect-call-cond": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-effect-call-cond-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d20-effect-call-cond3-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d20-effect-call-if-both": [
+  "builds",
+  "sha256:07bb6dc45ed82c00d205847eaf98225c11972d8407c8172639b836061355b9af"
+ ],
+ "x-d20-effect-call-if-cond": [
+  "builds",
+  "sha256:be58ab4644d4011aa04e96d71725900bc1d0084f42d7814a8dd6c51609e3915b"
+ ],
+ "x-d20-effect-call-if-pure": [
+  "builds",
+  "sha256:fb6b4b123462ba4ac7e774bd9e00127688493adc6cd502d99a758bd4098ce646"
+ ],
+ "x-d20-effect-call-if-then": [
+  "builds",
+  "sha256:396a85007b4e919f4f9c6d1400f408266fe8bf91b2666e9946d7665aa9dd4561"
+ ],
+ "x-d20-effect-call-let-if": [
+  "builds",
+  "sha256:6506a8482a751b64990299e55d1faf570decfbd9277ab1c898af0fd514183833"
+ ],
+ "x-d20-effect-call-match-arm": [
+  "builds",
+  "sha256:595eaa8d3bea069588e6a452127e4d9d1fdcbf7448b65a0adb072547b22029f6"
+ ],
+ "x-d20-effect-call-match-subject": [
+  "builds",
+  "sha256:9c08c0c815121778cb92fbc6a61e2ed411661fb8304a421f9017d47836fb0b60"
+ ],
+ "x-d20-effect-call-plain": [
+  "builds",
+  "sha256:ff68824a36940931bd12d355c9a436430fde0904f05a51a3b79e24f9a16d07d5"
+ ],
+ "x-d20-effect-call-plus-match": [
+  "builds",
+  "sha256:c1840fb9d48a6cdeb9686fcf6154c2a6c97898f0e0fda5be3a0ac41039eda59e"
+ ],
+ "x-d20-let-cond": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-let-cond-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-let-cond3-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d20-let-if-both": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d20-let-if-cond": [
+  "builds",
+  "sha256:2e10857fe7fb9ea0e046d9d8d9252710d578c62efa6842d1dfcdb073b7838186"
+ ],
+ "x-d20-let-if-pure": [
+  "builds",
+  "sha256:c877cc16378112607930988d16cee0e668f1a9953b6304ad661f8f626277e429"
+ ],
+ "x-d20-let-if-then": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d20-let-let-if": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d20-let-match-arm": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d20-let-match-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d20-let-plain": [
+  "builds",
+  "sha256:eea746e975225c74ef72efbf54f117136fd9fb10d4f0ebdd40417729487a4786"
+ ],
+ "x-d20-let-plus-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d4-fn-max-cond": [
+  "builds",
+  "sha256:f6cd0cb43c0c06c777c1de33322350930d90b6c16eefb7a837c1777179ddf11f"
+ ],
+ "x-d4-fn-max-cond-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-fn-max-if": [
+  "builds",
+  "sha256:21ac870b70d8851239bab55439d3cf519667d01999b05184e8850267d374f408"
+ ],
+ "x-d4-fn-max-if-effect-branch": [
+  "builds",
+  "sha256:96d5a1ff61f0342597a7249eb0a8a7501bf4884e1198a64aac3c6999b8e58e19"
+ ],
+ "x-d4-fn-max-if-effect-cond": [
+  "builds",
+  "sha256:5c1e9e35dac92ea8a87b2719dde5ad2d28b56f5411c7d7548bf1e622212b0efb"
+ ],
+ "x-d4-fn-max-if-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-fn-max-let-if-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d4-fn-max-let-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d4-fn-max-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-fn-max-match-effect-arm": [
+  "builds",
+  "sha256:3fbdb2202e71926c68c6ec386b44c523abb906d3a8e484dc3ce3795e43725f15"
+ ],
+ "x-d4-fn-max-match-effect-subject": [
+  "builds",
+  "sha256:3e8dbbf9cf5672d2bfd16b54a79f334869737381bf1e129777392baae26d284b"
+ ],
+ "x-d4-fn-max-match-subject-read": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-fn-max-plus-match": [
+  "builds",
+  "sha256:af4bc8f222d0792164f392d91dd8cd181994603538e6f69d6b8f2b5ee27087ac"
+ ],
+ "x-d4-fn-state-cond": [
+  "builds",
+  "sha256:543e241369a33be2838345d8c23ab0806176906eedc59bb16ae1452995e159f1"
+ ],
+ "x-d4-fn-state-cond-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-fn-state-if": [
+  "builds",
+  "sha256:7eba5e62e1335d5ef38f22beb94b79321b0bf49e160f4bdf208df3f3af4a8cd6"
+ ],
+ "x-d4-fn-state-if-effect-branch": [
+  "builds",
+  "sha256:25d9b945914e428da6254676e9e01bc398958d55afb1f44e202a9e61f2b6d6b3"
+ ],
+ "x-d4-fn-state-if-effect-cond": [
+  "builds",
+  "sha256:30de73f2249e299452e02ca27914574fda451d527a64e445b58597e8ec7bb00a"
+ ],
+ "x-d4-fn-state-if-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-fn-state-let-if-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d4-fn-state-let-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d4-fn-state-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-fn-state-match-effect-arm": [
+  "builds",
+  "sha256:930571135a11609edde53ea31696ec89cc96797dc5404f384a0a957c48ebec85"
+ ],
+ "x-d4-fn-state-match-effect-subject": [
+  "builds",
+  "sha256:417cdae3ca7505e2b0489f9dacf4f267b75371d608a518519c74b4cf206d3530"
+ ],
+ "x-d4-fn-state-match-subject-read": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d4-fn-state-plus-match": [
+  "builds",
+  "sha256:e7174a4f3c8b8dcfa13eb0656c8532911cf4a322bace26aeaeab7323eda3981c"
+ ],
+ "x-d4-loop-max-cond": [
+  "builds",
+  "sha256:f6cd0cb43c0c06c777c1de33322350930d90b6c16eefb7a837c1777179ddf11f"
+ ],
+ "x-d4-loop-max-cond-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-loop-max-if": [
+  "builds",
+  "sha256:21ac870b70d8851239bab55439d3cf519667d01999b05184e8850267d374f408"
+ ],
+ "x-d4-loop-max-if-effect-branch": [
+  "builds",
+  "sha256:96d5a1ff61f0342597a7249eb0a8a7501bf4884e1198a64aac3c6999b8e58e19"
+ ],
+ "x-d4-loop-max-if-effect-cond": [
+  "builds",
+  "sha256:5c1e9e35dac92ea8a87b2719dde5ad2d28b56f5411c7d7548bf1e622212b0efb"
+ ],
+ "x-d4-loop-max-let-if-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d4-loop-max-let-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d4-loop-max-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-loop-max-match-effect-arm": [
+  "builds",
+  "sha256:3fbdb2202e71926c68c6ec386b44c523abb906d3a8e484dc3ce3795e43725f15"
+ ],
+ "x-d4-loop-max-match-effect-subject": [
+  "builds",
+  "sha256:3e8dbbf9cf5672d2bfd16b54a79f334869737381bf1e129777392baae26d284b"
+ ],
+ "x-d4-loop-max-match-subject-read": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-loop-max-plus-match": [
+  "builds",
+  "sha256:af4bc8f222d0792164f392d91dd8cd181994603538e6f69d6b8f2b5ee27087ac"
+ ],
+ "x-d4-loop-state-cond": [
+  "builds",
+  "sha256:543e241369a33be2838345d8c23ab0806176906eedc59bb16ae1452995e159f1"
+ ],
+ "x-d4-loop-state-cond-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-loop-state-if": [
+  "builds",
+  "sha256:7eba5e62e1335d5ef38f22beb94b79321b0bf49e160f4bdf208df3f3af4a8cd6"
+ ],
+ "x-d4-loop-state-if-effect-branch": [
+  "builds",
+  "sha256:25d9b945914e428da6254676e9e01bc398958d55afb1f44e202a9e61f2b6d6b3"
+ ],
+ "x-d4-loop-state-if-effect-cond": [
+  "builds",
+  "sha256:30de73f2249e299452e02ca27914574fda451d527a64e445b58597e8ec7bb00a"
+ ],
+ "x-d4-loop-state-if-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-loop-state-let-if-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d4-loop-state-let-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d4-loop-state-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-loop-state-match-effect-arm": [
+  "builds",
+  "sha256:930571135a11609edde53ea31696ec89cc96797dc5404f384a0a957c48ebec85"
+ ],
+ "x-d4-loop-state-match-effect-subject": [
+  "builds",
+  "sha256:417cdae3ca7505e2b0489f9dacf4f267b75371d608a518519c74b4cf206d3530"
+ ],
+ "x-d4-loop-state-match-subject-read": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d4-loop-state-plus-match": [
+  "builds",
+  "sha256:e7174a4f3c8b8dcfa13eb0656c8532911cf4a322bace26aeaeab7323eda3981c"
+ ],
+ "x-d4-map-max-bound-cond": [
+  "builds",
+  "sha256:a288506b9031b48a9edf8c47023ca4df05639f60c5824a38d71ddaa0e19aefcc"
+ ],
+ "x-d4-map-max-bound-cond-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-map-max-bound-if": [
+  "builds",
+  "sha256:0b79ab90a6f392cd5902214093e6ab9c6b6956c0b2af41abd54576f17749a464"
+ ],
+ "x-d4-map-max-bound-if-effect-branch": [
+  "builds",
+  "sha256:6aa31cd26097d0a4710aeabd136b6115fe2f94fe6c6759234b72ce6f429361ea"
+ ],
+ "x-d4-map-max-bound-if-effect-cond": [
+  "builds",
+  "sha256:70cea3bd5dab45535e9746085a54eb5fc67f432aa4f8285312ee5194cb922892"
+ ],
+ "x-d4-map-max-bound-if-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-map-max-bound-let-if-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d4-map-max-bound-let-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-d4-map-max-bound-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-map-max-bound-match-effect-arm": [
+  "builds",
+  "sha256:168a97e7772765d75d0529c1b2d83f17d87be6e6cfa509a2b53b8e1fd9093650"
+ ],
+ "x-d4-map-max-bound-match-effect-subject": [
+  "builds",
+  "sha256:c74de360f8508a522a8927f5de44e9502ba30cbf2fae625e1e62a66e4397d17d"
+ ],
+ "x-d4-map-max-bound-match-subject-read": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-d4-map-max-bound-plus-match": [
+  "builds",
+  "sha256:ec5d07d4fd57337015bbc61b9b9f918753c0ea8b19c61e8f5e4e9faa1b963fd0"
+ ],
+ "x-d4-map-max-cond": [
+  "builds",
+  "sha256:1259e97a523ed98031f1d3376cb094a79124585347db7745477735f1d3167b4e"
+ ],
+ "x-d4-map-max-cond-match": [
+  "builds",
+  "sha256:7434923aa539c8115f368b526ecbeade4785eba095e19a2eb55bb025a00956d4"
+ ],
+ "x-d4-map-max-if": [
+  "builds",
+  "sha256:6112caf892a6118108070fdc52a35543d64131bb579dd94f5d161c55aa4ab331"
+ ],
+ "x-d4-map-max-if-effect-branch": [
+  "builds",
+  "sha256:01c10ae8a82a9d33bd6292fa01556ec7744da1d7afeab40940415b3546ce3cd3"
+ ],
+ "x-d4-map-max-if-effect-cond": [
+  "builds",
+  "sha256:605b95dc72941f010e7e607a3d04d43e3cd0d7b9db0210efa87a626da5c519be"
+ ],
+ "x-d4-map-max-if-match": [
+  "builds",
+  "sha256:a186a9b892715df1cfe9e901b4e4e11faad0ebfa8357c9006c112142bf7ad014"
+ ],
+ "x-d4-map-max-let-if-match": [
+  "builds",
+  "sha256:21f7424fcc023672964ee23caaec8c7aba2691ba2989efe5219ef31dbd6bd1fc"
+ ],
+ "x-d4-map-max-let-match": [
+  "builds",
+  "sha256:8bba4f2de6fbaab798efe23a3429b8e62dac25d8499149167e0f0a7adfa37260"
+ ],
+ "x-d4-map-max-match": [
+  "builds",
+  "sha256:1480c559538a09e4db7093df6c5e374572af512388d652ee53f0a623a2679d13"
+ ],
+ "x-d4-map-max-match-effect-arm": [
+  "builds",
+  "sha256:8f08416e0d10c13ec2ef10f18079ef8dd1a353ec171953c7d1ea85ae8437f581"
+ ],
+ "x-d4-map-max-match-effect-subject": [
+  "builds",
+  "sha256:573524f14a15297b927f175f44b834072c6087230e20dbe580310b060cea63ce"
+ ],
+ "x-d4-map-max-match-subject-read": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-d4-map-max-plus-match": [
+  "builds",
+  "sha256:260b582b7eb1419a1346cfb9b40cb719330ffdc286ceae2d38d196ab36971d23"
+ ],
+ "x-op-continue-cond-effect": [
+  "builds",
+  "sha256:7086f2c388f79ecf62afd3f7eba4309571b1d5cab32a5d87c4d4c729a1e9bd9c"
+ ],
+ "x-op-continue-cond-pure": [
+  "builds",
+  "sha256:20558d63cc9c7ac6330878108ae70d969759a4f58396e22106898299c8e43139"
+ ],
+ "x-op-continue-field-pure": [
+  "builds",
+  "sha256:e33440e6848b56b21b772bac6cb34bd50db581534adce014bad3fe89681663a0"
+ ],
+ "x-op-continue-if-effect": [
+  "builds",
+  "sha256:2502a18485546cc12d32d3890ccd66a6d5dfe018ddd35536adc4f75467af6333"
+ ],
+ "x-op-continue-if-pure": [
+  "builds",
+  "sha256:25d5c7be8beb04b9b94f33dc5867773524110f1f6f678eba5d062590a71d50f3"
+ ],
+ "x-op-continue-if-records-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-if-records-cond-pure": [
+  "builds",
+  "sha256:878dd4c4a720d1bfbd86bd1425f05d5440d7cb381748610c85662c2ebd9cb460"
+ ],
+ "x-op-continue-if-records-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-if-records-if-pure": [
+  "builds",
+  "sha256:49256eb6e59c18dabbb2c0e8b8789fbbae21a26f3d8ac0267144a5b1b91017c9"
+ ],
+ "x-op-continue-if-records-leaf-effect": [
+  "builds",
+  "sha256:d4d8cd2ce70ae5db03d747e2219927f710b68263356154fda66d3545d5046fe5"
+ ],
+ "x-op-continue-if-records-leaf-pure": [
+  "builds",
+  "sha256:163ff7d5451475cf3eb30a7e8a1321f43935a1e028fb23c2b1698ce97dcad6a9"
+ ],
+ "x-op-continue-if-records-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-if-records-match-pure": [
+  "builds",
+  "sha256:f35f5c4fd92ec04413b46095ec6f2734cd26ab4c3a83bc85f5efc40fc5a9606f"
+ ],
+ "x-op-continue-list-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-list-cond-pure": [
+  "builds",
+  "sha256:b9094f2a865cd70bb567cb61416ed0ca4d6c725bde33902a4524a52909f200f7"
+ ],
+ "x-op-continue-list-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-list-if-pure": [
+  "builds",
+  "sha256:c7bb7980e1513a09416d3dcfd8f82e14943961b514de217035979613f97ae76c"
+ ],
+ "x-op-continue-list-leaf-effect": [
+  "builds",
+  "sha256:c2eb7e7b5331a028a3b962de23e6765ff1ed910c9458d558794a2f41aa5c63eb"
+ ],
+ "x-op-continue-list-leaf-pure": [
+  "builds",
+  "sha256:2eae5e59af8d31b0d9a70010b0a8ab213ea21b2e9bcbfa9076b168b62ebc5d6c"
+ ],
+ "x-op-continue-list-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-list-match-pure": [
+  "builds",
+  "sha256:1f245a40681320ab6f0ed3e5d995be29349927266951573b01082f364246b9ef"
+ ],
+ "x-op-continue-list2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-list2-cond-pure": [
+  "builds",
+  "sha256:7a655ed9e45ea6e319dbeee10f4ff1536b72140f071cbea3c161f1ad44476b87"
+ ],
+ "x-op-continue-list2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-list2-if-pure": [
+  "builds",
+  "sha256:e0637758dfefd79d056d569dd7ca22815d0a241ae27534c5bee5b2d857830ec1"
+ ],
+ "x-op-continue-list2-leaf-effect": [
+  "builds",
+  "sha256:8df01519041ef6f6f19c415325481a0e129715c020e761aee7b5317ae9c7e864"
+ ],
+ "x-op-continue-list2-leaf-pure": [
+  "builds",
+  "sha256:5961240ce926aa04fa319489857c290c7c7077c2ae7de9d0f665e227258ba9b0"
+ ],
+ "x-op-continue-list2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-list2-match-pure": [
+  "builds",
+  "sha256:360b12121e387fd7cae8a2e93b81be03991900b4d0797d96e68f696069d73544"
+ ],
+ "x-op-continue-literal-effect": [
+  "builds",
+  "sha256:548dbfef7de276f4156c4582ff96c1e9b9016cbd435afe59d9d2e530c33d9802"
+ ],
+ "x-op-continue-literal-pure": [
+  "builds",
+  "sha256:0b5f3352da2c6af99fb6ffb605c9cd6cdab2e45139a6ce4e5e8658ac24eaa8ba"
+ ],
+ "x-op-continue-match-effect": [
+  "builds",
+  "sha256:1204116aa616bd4ca5a60dcde8f5e10e9bcee570425024d7e10209e37737b7f5"
+ ],
+ "x-op-continue-match-pure": [
+  "builds",
+  "sha256:bfc63e0fe5ca61c812edfefa03ee9cc7ac4430e3a80aaeba6ddfc8524c7e5caa"
+ ],
+ "x-op-continue-name-pure": [
+  "builds",
+  "sha256:be968f631c7413bd4cdc224132d826f802921181ad56f0f3615a6d76f1d7a508"
+ ],
+ "x-op-continue-operator-effect": [
+  "builds",
+  "sha256:182eb726628a7a7ad481050eb6febe14dd5fa1c99318fb886d695780ff12c270"
+ ],
+ "x-op-continue-operator-pure": [
+  "builds",
+  "sha256:d6138e19455e8bec706a7cf5d78be5732349b04e4284a2ad30ccd904d3f77bf1"
+ ],
+ "x-op-continue-record-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-record-cond-pure": [
+  "builds",
+  "sha256:08bdc36c93efc96999fbe56d4e02b85b464134cf8c355b82e36630a2fae3ba18"
+ ],
+ "x-op-continue-record-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-record-if-pure": [
+  "builds",
+  "sha256:b141a53f751132a8d08fbca3699d3f9335710238c4f12edb1c589e2ad7a7ca03"
+ ],
+ "x-op-continue-record-leaf-effect": [
+  "builds",
+  "sha256:a901ea0cbf13b9785afea4aa2f5d6308ee098b8a0cf012ab45e4de2805319a12"
+ ],
+ "x-op-continue-record-leaf-pure": [
+  "builds",
+  "sha256:5496e316f0c6636f27fd8b1e17a3f22b7b36d7a5f1c2fc4dffe30a85e24c4d60"
+ ],
+ "x-op-continue-record-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-record-match-pure": [
+  "builds",
+  "sha256:30814a933ca0326e4e8b948b1afeb696f61d7980ce6def19dc2c6891cd7a33a4"
+ ],
+ "x-op-continue-record2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-record2-cond-pure": [
+  "builds",
+  "sha256:43c57d329efd486844c9615ad5f9bebbf1a601b33c4081a5467ac374442677e0"
+ ],
+ "x-op-continue-record2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-record2-if-pure": [
+  "builds",
+  "sha256:b01b5aa1ce0157e82288549cfd04ba50f6b01e4164b6dcc1e2e58364570cd1d4"
+ ],
+ "x-op-continue-record2-leaf-effect": [
+  "builds",
+  "sha256:7c58a1307b094725d1b7166229055cc453b022d286011994bd882abfd98a7a20"
+ ],
+ "x-op-continue-record2-leaf-pure": [
+  "builds",
+  "sha256:9c2463347f2708ae8d95e82e88f99707090d8152fef69aa5786683c5bb865a75"
+ ],
+ "x-op-continue-record2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-record2-match-pure": [
+  "builds",
+  "sha256:58766a767f091144bbe45c0cea6808f521514648184f8068aa4d3af5383d69ce"
+ ],
+ "x-op-continue-variant-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-variant-cond-pure": [
+  "builds",
+  "sha256:1e8938506838f5725501489f14928d32c3bb2a49f10587afbb628f7d9d68af57"
+ ],
+ "x-op-continue-variant-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-variant-if-pure": [
+  "builds",
+  "sha256:74aa6af32730b3d1643ec30126882f4b757c26ab912d29f0948f193c9390d6a4"
+ ],
+ "x-op-continue-variant-leaf-effect": [
+  "builds",
+  "sha256:51974a6892cfea7dfaa7db896bb2e762c04238b1e22359f7b86e95a6af384047"
+ ],
+ "x-op-continue-variant-leaf-pure": [
+  "builds",
+  "sha256:30ae960182d785d48f408b5cec033c3f1d0f7befff4771cbef4101ad41765a13"
+ ],
+ "x-op-continue-variant-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-variant-match-pure": [
+  "builds",
+  "sha256:3b7bebfbe081908d07ee3b470af0ffd65ef592faf7dc360150a7a22be066fe95"
+ ],
+ "x-op-continue-variant2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-variant2-cond-pure": [
+  "builds",
+  "sha256:663f218a6e302c0c25e9736e73f9454a0b9550f9cb11d447b871884bd4813611"
+ ],
+ "x-op-continue-variant2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-variant2-if-pure": [
+  "builds",
+  "sha256:ec265f6f716fc8489b07f838276ad4c6936d7b00dfeb199a1cea23f915eba654"
+ ],
+ "x-op-continue-variant2-leaf-effect": [
+  "builds",
+  "sha256:b1fdf99dc05081e3ea236a29492f0191d90f6c79e0d671867b81770cc917eddf"
+ ],
+ "x-op-continue-variant2-leaf-pure": [
+  "builds",
+  "sha256:49028ab2b279b46d6e2df18952ad9e711926c6972b9d9f213229a27ebac85f83"
+ ],
+ "x-op-continue-variant2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-continue-variant2-match-pure": [
+  "builds",
+  "sha256:9b8e43b1471dbe8ad3afe4a7eb53cd636522313cc77c5c2cf945ce2fc2d81b3a"
+ ],
+ "x-op-done-cond-effect": [
+  "builds",
+  "sha256:19da62cff96b92bc308941b4234a5a341cadf42d145f8d788cd5a78f301f0c22"
+ ],
+ "x-op-done-cond-pure": [
+  "builds",
+  "sha256:4445491348fc37cdf8e979c8284f8ee080ba51def9bfe6e078f917426bf9c97a"
+ ],
+ "x-op-done-field-pure": [
+  "builds",
+  "sha256:73a425f911e9a989775328f2e7859e90949d88e03ab2ae517f535f322453e989"
+ ],
+ "x-op-done-if-effect": [
+  "builds",
+  "sha256:2e855f013a20c69dc87aa06e3b4d78f654f10c79a94f5a1f59c21cbadb2b3df8"
+ ],
+ "x-op-done-if-pure": [
+  "builds",
+  "sha256:9b8d3826962fe3e90a81c081ceef91cd25539683c439f8e4ee6e1720359918a1"
+ ],
+ "x-op-done-if-records-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-if-records-cond-pure": [
+  "builds",
+  "sha256:0c5e19d99cc08b8693f900a68d6d4ba69ff3fbce1ecd1c20df7f1687433049d8"
+ ],
+ "x-op-done-if-records-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-if-records-if-pure": [
+  "builds",
+  "sha256:56491df2a1f70cc0799cafd5e655879bcf3fbc4dbe0b6ca3450895845a13f3cb"
+ ],
+ "x-op-done-if-records-leaf-effect": [
+  "builds",
+  "sha256:2e96768682105d930bbf885a5c69f6cfae6652cbeadc2725bd6f5d1e58f92554"
+ ],
+ "x-op-done-if-records-leaf-pure": [
+  "builds",
+  "sha256:0954d8c8360e56ca7d8a21da64333aa9255777f9905978866f9c817477a60d7b"
+ ],
+ "x-op-done-if-records-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-if-records-match-pure": [
+  "builds",
+  "sha256:d440d13763443a36a1524d35c85e3795a72b10da57730ef8b5187b45ada95b9d"
+ ],
+ "x-op-done-list-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-list-cond-pure": [
+  "builds",
+  "sha256:6abaa043374950946157be0d0dbce93df26997696e0bc850d76326eae6fa2edc"
+ ],
+ "x-op-done-list-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-list-if-pure": [
+  "builds",
+  "sha256:693b2b2980eb1ca3822965f511af8cb93eafe3314f2761a78a436bf41a504f70"
+ ],
+ "x-op-done-list-leaf-effect": [
+  "builds",
+  "sha256:48a618a87108da87e16d6e462ee3fa1936fe2d88d681315c16677767861aa0b2"
+ ],
+ "x-op-done-list-leaf-pure": [
+  "builds",
+  "sha256:1005d4b5ed5386e76c3a2aa833acdb7f4ee24f379c4250dc18c2e7489fa4d86e"
+ ],
+ "x-op-done-list-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-list-match-pure": [
+  "builds",
+  "sha256:49aea31bef2077e8fd763fd08226b2beacaf356c55546d7340914c9add04ed2e"
+ ],
+ "x-op-done-list2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-list2-cond-pure": [
+  "builds",
+  "sha256:63c040ff2068688ffba19471119a983ae8d83703888fd984de8391295057b5c5"
+ ],
+ "x-op-done-list2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-list2-if-pure": [
+  "builds",
+  "sha256:293fb4dda69e0c460e64a24da42072411345f262e7b589deefb79d110077ec50"
+ ],
+ "x-op-done-list2-leaf-effect": [
+  "builds",
+  "sha256:3bd07c9d56955d8ecc74f8ce8e837736d54372ed798f2e311a34d33d647c4560"
+ ],
+ "x-op-done-list2-leaf-pure": [
+  "builds",
+  "sha256:d2a160511fa6fe40a320014bdef05813c741fcdd15d727c549f3725702a16534"
+ ],
+ "x-op-done-list2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-list2-match-pure": [
+  "builds",
+  "sha256:6f2180d426ec2f8ccba66c6817982f89d0ac4b3f642b319852b2884a08454ace"
+ ],
+ "x-op-done-literal-effect": [
+  "builds",
+  "sha256:678db0b0bf282f7ad2caec76d280dac918ddbc381a0c97958edd0df7de44e958"
+ ],
+ "x-op-done-literal-pure": [
+  "builds",
+  "sha256:b720f437921c8a99af6eef8c0112e117303419910052ae68564c5b3f5f3ae671"
+ ],
+ "x-op-done-match-effect": [
+  "builds",
+  "sha256:2689ebe9970e3f2c04ec91648b4d6c283cfc6baad68b3ef9fe19d8bbac78c775"
+ ],
+ "x-op-done-match-pure": [
+  "builds",
+  "sha256:17523acae4316789adcd7fe7c4da319e08464e14367bb3aa51c956befe722713"
+ ],
+ "x-op-done-name-pure": [
+  "builds",
+  "sha256:024ba03574301b3a1744d5b6addaab509f3b3bbfd79e2bf900f721d25f717159"
+ ],
+ "x-op-done-operator-effect": [
+  "builds",
+  "sha256:aa9c6e5d099d85379e4136e43b2ed2da05fe08dcab2e2580d2972a3e51ff476b"
+ ],
+ "x-op-done-operator-pure": [
+  "builds",
+  "sha256:8326be6229c6ba75b899d578f47768e9176ef706a13f27a1db2c6d53a2dde9a1"
+ ],
+ "x-op-done-record-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-record-cond-pure": [
+  "builds",
+  "sha256:e3aab1e645aee16e58a12bfc3ca47272f625485ac57c39d97f9fcd45153978ce"
+ ],
+ "x-op-done-record-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-record-if-pure": [
+  "builds",
+  "sha256:568d355542013102b341d597c474740e539bf79460884f6856d172c088de2c19"
+ ],
+ "x-op-done-record-leaf-effect": [
+  "builds",
+  "sha256:ead6609ff4805394570820b2421cc538cfedef938f3dd79808876ec140244358"
+ ],
+ "x-op-done-record-leaf-pure": [
+  "builds",
+  "sha256:d0251fdb080f417b35163cdb00119d641c2bdbfce21d38bb0dde6a16eb4450c4"
+ ],
+ "x-op-done-record-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-record-match-pure": [
+  "builds",
+  "sha256:28584cdd90648daa5934ff47f049c096184497a8433bca88670e65d9feb9de9b"
+ ],
+ "x-op-done-record2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-record2-cond-pure": [
+  "builds",
+  "sha256:0bed2ca4e23889b450413d0869d5fb874c735cd2751cb8a6ce3aacaf4b0ecccf"
+ ],
+ "x-op-done-record2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-record2-if-pure": [
+  "builds",
+  "sha256:36974ba5bda1f33e50e4a6cdaf8c657a483a8039835e44238c7000848eef0242"
+ ],
+ "x-op-done-record2-leaf-effect": [
+  "builds",
+  "sha256:c7afc62ead9047bc237e9342f66a825edb7e869532a9481e1b4a9f4cd32c3462"
+ ],
+ "x-op-done-record2-leaf-pure": [
+  "builds",
+  "sha256:dce8fa242bd7e78cebb961ce57407018567795e8e1eb0add3ac7e816aa259e7b"
+ ],
+ "x-op-done-record2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-record2-match-pure": [
+  "builds",
+  "sha256:4f68048a4ffd571dc4972e786854c8e0050e22a4f0ac90e0ec45112d50004f40"
+ ],
+ "x-op-done-variant-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-variant-cond-pure": [
+  "builds",
+  "sha256:c817f5ca03a012f6163d5085bf40cfdc606c13e6a7cebeb2612158b424e34c19"
+ ],
+ "x-op-done-variant-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-variant-if-pure": [
+  "builds",
+  "sha256:ddffb10b016e933924e402c58bd58eaff01a5dce7b9e5608aaf87009db8866bd"
+ ],
+ "x-op-done-variant-leaf-effect": [
+  "builds",
+  "sha256:e2b304f1152db7460220ac0c0421c0a7eedf92d993ab28c3f4f235c97243b359"
+ ],
+ "x-op-done-variant-leaf-pure": [
+  "builds",
+  "sha256:0ae70f597dec412fc5058787e7c7cda9fe0b7cca583996f6cf3a87669189a693"
+ ],
+ "x-op-done-variant-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-variant-match-pure": [
+  "builds",
+  "sha256:4bf8563e2c2719b5a4be3a61e2515692756f08122a26d6df4164b0633d80ab74"
+ ],
+ "x-op-done-variant2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-variant2-cond-pure": [
+  "builds",
+  "sha256:58935b3e3f2c373a6eca95c785da0987c178006cf43b0201d2870e1367748f51"
+ ],
+ "x-op-done-variant2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-variant2-if-pure": [
+  "builds",
+  "sha256:2eb031ef36053e490d2df1422a277ab3b39ed416ffa1954331f6f4ae44324472"
+ ],
+ "x-op-done-variant2-leaf-effect": [
+  "builds",
+  "sha256:86b734fadd4542d22c35bcb336fb35119dfc18e25add28a6b6a52542d31f98c4"
+ ],
+ "x-op-done-variant2-leaf-pure": [
+  "builds",
+  "sha256:4e07f34bc5a465bcc7fee6bddc4093d0307ff0fffa8e38c7d2dc9a5d220405c6"
+ ],
+ "x-op-done-variant2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-done-variant2-match-pure": [
+  "builds",
+  "sha256:832a2eea91a3205ecfe0182b0425fa7d300dff2b0a28c20c082a653a6bbbc89a"
+ ],
+ "x-op-fn-continue-cond-effect": [
+  "builds",
+  "sha256:7086f2c388f79ecf62afd3f7eba4309571b1d5cab32a5d87c4d4c729a1e9bd9c"
+ ],
+ "x-op-fn-continue-cond-pure": [
+  "builds",
+  "sha256:20558d63cc9c7ac6330878108ae70d969759a4f58396e22106898299c8e43139"
+ ],
+ "x-op-fn-continue-field-pure": [
+  "builds",
+  "sha256:e33440e6848b56b21b772bac6cb34bd50db581534adce014bad3fe89681663a0"
+ ],
+ "x-op-fn-continue-if-effect": [
+  "builds",
+  "sha256:2502a18485546cc12d32d3890ccd66a6d5dfe018ddd35536adc4f75467af6333"
+ ],
+ "x-op-fn-continue-if-pure": [
+  "builds",
+  "sha256:25d5c7be8beb04b9b94f33dc5867773524110f1f6f678eba5d062590a71d50f3"
+ ],
+ "x-op-fn-continue-if-records-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-if-records-cond-pure": [
+  "builds",
+  "sha256:878dd4c4a720d1bfbd86bd1425f05d5440d7cb381748610c85662c2ebd9cb460"
+ ],
+ "x-op-fn-continue-if-records-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-if-records-if-pure": [
+  "builds",
+  "sha256:49256eb6e59c18dabbb2c0e8b8789fbbae21a26f3d8ac0267144a5b1b91017c9"
+ ],
+ "x-op-fn-continue-if-records-leaf-effect": [
+  "builds",
+  "sha256:d4d8cd2ce70ae5db03d747e2219927f710b68263356154fda66d3545d5046fe5"
+ ],
+ "x-op-fn-continue-if-records-leaf-pure": [
+  "builds",
+  "sha256:163ff7d5451475cf3eb30a7e8a1321f43935a1e028fb23c2b1698ce97dcad6a9"
+ ],
+ "x-op-fn-continue-if-records-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-if-records-match-pure": [
+  "builds",
+  "sha256:f35f5c4fd92ec04413b46095ec6f2734cd26ab4c3a83bc85f5efc40fc5a9606f"
+ ],
+ "x-op-fn-continue-list-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-list-cond-pure": [
+  "builds",
+  "sha256:b9094f2a865cd70bb567cb61416ed0ca4d6c725bde33902a4524a52909f200f7"
+ ],
+ "x-op-fn-continue-list-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-list-if-pure": [
+  "builds",
+  "sha256:c7bb7980e1513a09416d3dcfd8f82e14943961b514de217035979613f97ae76c"
+ ],
+ "x-op-fn-continue-list-leaf-effect": [
+  "builds",
+  "sha256:c2eb7e7b5331a028a3b962de23e6765ff1ed910c9458d558794a2f41aa5c63eb"
+ ],
+ "x-op-fn-continue-list-leaf-pure": [
+  "builds",
+  "sha256:2eae5e59af8d31b0d9a70010b0a8ab213ea21b2e9bcbfa9076b168b62ebc5d6c"
+ ],
+ "x-op-fn-continue-list-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-list-match-pure": [
+  "builds",
+  "sha256:1f245a40681320ab6f0ed3e5d995be29349927266951573b01082f364246b9ef"
+ ],
+ "x-op-fn-continue-list2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-list2-cond-pure": [
+  "builds",
+  "sha256:7a655ed9e45ea6e319dbeee10f4ff1536b72140f071cbea3c161f1ad44476b87"
+ ],
+ "x-op-fn-continue-list2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-list2-if-pure": [
+  "builds",
+  "sha256:e0637758dfefd79d056d569dd7ca22815d0a241ae27534c5bee5b2d857830ec1"
+ ],
+ "x-op-fn-continue-list2-leaf-effect": [
+  "builds",
+  "sha256:8df01519041ef6f6f19c415325481a0e129715c020e761aee7b5317ae9c7e864"
+ ],
+ "x-op-fn-continue-list2-leaf-pure": [
+  "builds",
+  "sha256:5961240ce926aa04fa319489857c290c7c7077c2ae7de9d0f665e227258ba9b0"
+ ],
+ "x-op-fn-continue-list2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-list2-match-pure": [
+  "builds",
+  "sha256:360b12121e387fd7cae8a2e93b81be03991900b4d0797d96e68f696069d73544"
+ ],
+ "x-op-fn-continue-literal-effect": [
+  "builds",
+  "sha256:548dbfef7de276f4156c4582ff96c1e9b9016cbd435afe59d9d2e530c33d9802"
+ ],
+ "x-op-fn-continue-literal-pure": [
+  "builds",
+  "sha256:0b5f3352da2c6af99fb6ffb605c9cd6cdab2e45139a6ce4e5e8658ac24eaa8ba"
+ ],
+ "x-op-fn-continue-match-effect": [
+  "builds",
+  "sha256:1204116aa616bd4ca5a60dcde8f5e10e9bcee570425024d7e10209e37737b7f5"
+ ],
+ "x-op-fn-continue-match-pure": [
+  "builds",
+  "sha256:bfc63e0fe5ca61c812edfefa03ee9cc7ac4430e3a80aaeba6ddfc8524c7e5caa"
+ ],
+ "x-op-fn-continue-name-pure": [
+  "builds",
+  "sha256:be968f631c7413bd4cdc224132d826f802921181ad56f0f3615a6d76f1d7a508"
+ ],
+ "x-op-fn-continue-operator-effect": [
+  "builds",
+  "sha256:182eb726628a7a7ad481050eb6febe14dd5fa1c99318fb886d695780ff12c270"
+ ],
+ "x-op-fn-continue-operator-pure": [
+  "builds",
+  "sha256:d6138e19455e8bec706a7cf5d78be5732349b04e4284a2ad30ccd904d3f77bf1"
+ ],
+ "x-op-fn-continue-record-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-record-cond-pure": [
+  "builds",
+  "sha256:08bdc36c93efc96999fbe56d4e02b85b464134cf8c355b82e36630a2fae3ba18"
+ ],
+ "x-op-fn-continue-record-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-record-if-pure": [
+  "builds",
+  "sha256:b141a53f751132a8d08fbca3699d3f9335710238c4f12edb1c589e2ad7a7ca03"
+ ],
+ "x-op-fn-continue-record-leaf-effect": [
+  "builds",
+  "sha256:a901ea0cbf13b9785afea4aa2f5d6308ee098b8a0cf012ab45e4de2805319a12"
+ ],
+ "x-op-fn-continue-record-leaf-pure": [
+  "builds",
+  "sha256:5496e316f0c6636f27fd8b1e17a3f22b7b36d7a5f1c2fc4dffe30a85e24c4d60"
+ ],
+ "x-op-fn-continue-record-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-record-match-pure": [
+  "builds",
+  "sha256:30814a933ca0326e4e8b948b1afeb696f61d7980ce6def19dc2c6891cd7a33a4"
+ ],
+ "x-op-fn-continue-record2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-record2-cond-pure": [
+  "builds",
+  "sha256:43c57d329efd486844c9615ad5f9bebbf1a601b33c4081a5467ac374442677e0"
+ ],
+ "x-op-fn-continue-record2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-record2-if-pure": [
+  "builds",
+  "sha256:b01b5aa1ce0157e82288549cfd04ba50f6b01e4164b6dcc1e2e58364570cd1d4"
+ ],
+ "x-op-fn-continue-record2-leaf-effect": [
+  "builds",
+  "sha256:7c58a1307b094725d1b7166229055cc453b022d286011994bd882abfd98a7a20"
+ ],
+ "x-op-fn-continue-record2-leaf-pure": [
+  "builds",
+  "sha256:9c2463347f2708ae8d95e82e88f99707090d8152fef69aa5786683c5bb865a75"
+ ],
+ "x-op-fn-continue-record2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-record2-match-pure": [
+  "builds",
+  "sha256:58766a767f091144bbe45c0cea6808f521514648184f8068aa4d3af5383d69ce"
+ ],
+ "x-op-fn-continue-variant-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-variant-cond-pure": [
+  "builds",
+  "sha256:1e8938506838f5725501489f14928d32c3bb2a49f10587afbb628f7d9d68af57"
+ ],
+ "x-op-fn-continue-variant-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-variant-if-pure": [
+  "builds",
+  "sha256:74aa6af32730b3d1643ec30126882f4b757c26ab912d29f0948f193c9390d6a4"
+ ],
+ "x-op-fn-continue-variant-leaf-effect": [
+  "builds",
+  "sha256:51974a6892cfea7dfaa7db896bb2e762c04238b1e22359f7b86e95a6af384047"
+ ],
+ "x-op-fn-continue-variant-leaf-pure": [
+  "builds",
+  "sha256:30ae960182d785d48f408b5cec033c3f1d0f7befff4771cbef4101ad41765a13"
+ ],
+ "x-op-fn-continue-variant-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-variant-match-pure": [
+  "builds",
+  "sha256:3b7bebfbe081908d07ee3b470af0ffd65ef592faf7dc360150a7a22be066fe95"
+ ],
+ "x-op-fn-continue-variant2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-variant2-cond-pure": [
+  "builds",
+  "sha256:663f218a6e302c0c25e9736e73f9454a0b9550f9cb11d447b871884bd4813611"
+ ],
+ "x-op-fn-continue-variant2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-variant2-if-pure": [
+  "builds",
+  "sha256:ec265f6f716fc8489b07f838276ad4c6936d7b00dfeb199a1cea23f915eba654"
+ ],
+ "x-op-fn-continue-variant2-leaf-effect": [
+  "builds",
+  "sha256:b1fdf99dc05081e3ea236a29492f0191d90f6c79e0d671867b81770cc917eddf"
+ ],
+ "x-op-fn-continue-variant2-leaf-pure": [
+  "builds",
+  "sha256:49028ab2b279b46d6e2df18952ad9e711926c6972b9d9f213229a27ebac85f83"
+ ],
+ "x-op-fn-continue-variant2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-continue-variant2-match-pure": [
+  "builds",
+  "sha256:9b8e43b1471dbe8ad3afe4a7eb53cd636522313cc77c5c2cf945ce2fc2d81b3a"
+ ],
+ "x-op-fn-max-cond-effect": [
+  "builds",
+  "sha256:72d627e86ce0506cf4b68fb9e8636972135ef8ba0295a7bedf1800c14f150a1f"
+ ],
+ "x-op-fn-max-cond-pure": [
+  "builds",
+  "sha256:6784998482994908999be7df4c65211db963508d6a5f3480e9d6742a8896c206"
+ ],
+ "x-op-fn-max-field-pure": [
+  "builds",
+  "sha256:dcf681129d1a6c8e93201bee1d43251f28a5a2e6a97df1d11362becf955fd823"
+ ],
+ "x-op-fn-max-if-effect": [
+  "builds",
+  "sha256:39cae5fac4b19003a3a3d0cc8a2d31cd88ae08372b5654a47223424e49205c2a"
+ ],
+ "x-op-fn-max-if-pure": [
+  "builds",
+  "sha256:5e6ca167e54e78b86f49812eaba2ba98f8fa7bd33a99ee85a5a7a4f114d69620"
+ ],
+ "x-op-fn-max-if-records-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-max-if-records-cond-pure": [
+  "builds",
+  "sha256:f5efa284601644a68a738f17d55285c431735f6c3e773fd84e728b57777a4fca"
+ ],
+ "x-op-fn-max-if-records-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-max-if-records-if-pure": [
+  "builds",
+  "sha256:521b53e7b109549b592d7e3f39bf599cd56cc7d695fa38c58f33a1ddcb10a410"
+ ],
+ "x-op-fn-max-if-records-leaf-effect": [
+  "builds",
+  "sha256:17643df384f2c92ef3e51b3bd38e55ae914b1248ac066518de8869bbf9f75c98"
+ ],
+ "x-op-fn-max-if-records-leaf-pure": [
+  "builds",
+  "sha256:f3bb171b8c4da93d7ea49e35d5232aa49b651e985bb0bdedefec949e9c5c7931"
+ ],
+ "x-op-fn-max-if-records-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-max-if-records-match-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-op-fn-max-list-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-max-list-cond-pure": [
+  "builds",
+  "sha256:23822405d9248354da71502d74605430cd8d1274bd5e38dba4efc8285736873b"
+ ],
+ "x-op-fn-max-list-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-max-list-if-pure": [
+  "builds",
+  "sha256:a0d16b147b662be48d48ee57f1749897fa02987ecff6385667c2229eadaf783c"
+ ],
+ "x-op-fn-max-list-leaf-effect": [
+  "builds",
+  "sha256:09602a0e0b7f23c57a112608df8d5e8949db44b8202849ac0c5abc3e5adadc11"
+ ],
+ "x-op-fn-max-list-leaf-pure": [
+  "builds",
+  "sha256:1dc97cba71d9fb60f6dcf9b29603da68acf8784806e1dd221b9e07419204a930"
+ ],
+ "x-op-fn-max-list-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-max-list-match-pure": [
+  "builds",
+  "sha256:bee41ac26b289c0b60ef924695f6e6427e1fab15ef5ce39f51b6a9956ef858df"
+ ],
+ "x-op-fn-max-literal-effect": [
+  "builds",
+  "sha256:b0b2aee28835b002085f9d41471f1db6020ddc5d0d7b829cdebbbecff17a30e4"
+ ],
+ "x-op-fn-max-literal-pure": [
+  "builds",
+  "sha256:dd5174c6dd558957a6ed19c1b6e5bf38d5b7bc0a0abfa27afb87688c045dcf6d"
+ ],
+ "x-op-fn-max-match-effect": [
+  "builds",
+  "sha256:9c573d6a9cccfddf63c756a68aa11014639539e3f4616af6322c77fa5e33bf86"
+ ],
+ "x-op-fn-max-match-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-op-fn-max-name-pure": [
+  "builds",
+  "sha256:6b114b490b1bb9cd639814b95e07a4ad6846b9c4236a5cc714189f6a773b83e6"
+ ],
+ "x-op-fn-max-operator-effect": [
+  "builds",
+  "sha256:f04725405cc84d93f3d7aa9ce7caf45f31425ae1ca93b70e9a2872229b05f49d"
+ ],
+ "x-op-fn-max-operator-pure": [
+  "builds",
+  "sha256:2e9a938a43af5bd717183deed6b53a6520ef8d24200147ae8912e32b876870dc"
+ ],
+ "x-op-fn-max-record-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-max-record-cond-pure": [
+  "builds",
+  "sha256:d582e0ece77183eaa9d77e8913d820cf2ff072a1a21e69edb4f6b5cedaefdf58"
+ ],
+ "x-op-fn-max-record-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-max-record-if-pure": [
+  "builds",
+  "sha256:f0d666d962fb49196e852c336cce3a7dac19ff3916c34fe82274c774e64305c7"
+ ],
+ "x-op-fn-max-record-leaf-effect": [
+  "builds",
+  "sha256:660f55e62dedc556cd513b1e7f50c4ab3280173fe45644e65ab7ac8b9e8619c8"
+ ],
+ "x-op-fn-max-record-leaf-pure": [
+  "builds",
+  "sha256:beeeb82e51417de8eae3a5dcee3681abbb33744aee0fcd0e30efd09c5500ce83"
+ ],
+ "x-op-fn-max-record-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-max-record-match-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-op-fn-state-cond-effect": [
+  "builds",
+  "sha256:aab120607fd0e25739e78bb39d16f3c989dfac5725b65ffab501441ae8d2de66"
+ ],
+ "x-op-fn-state-cond-pure": [
+  "builds",
+  "sha256:ac5e4b4d6d7672daa2a4736a315c432533ac5f4e825329fa84a3e45a200d36b6"
+ ],
+ "x-op-fn-state-field-pure": [
+  "builds",
+  "sha256:388c17eaf5de726b73ee4a0645aac3136bd092737ffefaefcf07509f527f98c7"
+ ],
+ "x-op-fn-state-if-effect": [
+  "builds",
+  "sha256:464c568eb71ec27e131d97d4046d8328bb719da12c9af482356d8553ec4f7810"
+ ],
+ "x-op-fn-state-if-pure": [
+  "builds",
+  "sha256:b1d9cae090178218dc7263d7d51f2be31db007181a71a164417bd7514687b709"
+ ],
+ "x-op-fn-state-if-records-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-if-records-cond-pure": [
+  "builds",
+  "sha256:5acc9bfc964115761db470e923fd870ef0310fc9c074a8f2e17a8de1120bd252"
+ ],
+ "x-op-fn-state-if-records-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-if-records-if-pure": [
+  "builds",
+  "sha256:dbc99e0f40fb662f3d76884f86bba6a4633ff19f61c0915f94fd662620db78d6"
+ ],
+ "x-op-fn-state-if-records-leaf-effect": [
+  "builds",
+  "sha256:fc35f117434ae949528d5d2163b5a94495e658262b0d9e2b55e7837d90d23d98"
+ ],
+ "x-op-fn-state-if-records-leaf-pure": [
+  "builds",
+  "sha256:a91e46868caae0d95c809e7ef77b79f71356b9d46872d10a2d52ac8e0c69bb6d"
+ ],
+ "x-op-fn-state-if-records-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-if-records-match-pure": [
+  "builds",
+  "sha256:08722e76a6f34fd971c3cf425b99c8a62b6bb40f515bb03ee6359d6b915ff63a"
+ ],
+ "x-op-fn-state-list-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-list-cond-pure": [
+  "builds",
+  "sha256:eaf51610439a5744d78ef17c31c7e5758e2ee9c3fabedb5d17c2bc9c4cbd5b43"
+ ],
+ "x-op-fn-state-list-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-list-if-pure": [
+  "builds",
+  "sha256:de236403a38e15bc94b105f8df9d3bf5a99b5d8183b5a282e39f4037ded2eec1"
+ ],
+ "x-op-fn-state-list-leaf-effect": [
+  "builds",
+  "sha256:563679c485c833a7f5931c67f6ff899161c40ab3c20c3955ea21ad135134535e"
+ ],
+ "x-op-fn-state-list-leaf-pure": [
+  "builds",
+  "sha256:e052f28cd075db72dcb5694bb4c75c4188e2ac7654207f42b4a04ff5dfd82e3d"
+ ],
+ "x-op-fn-state-list-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-list-match-pure": [
+  "builds",
+  "sha256:7cf3828cf1b47765150634374ae0dd0cb7a2bde92977c8b2dbafdded39084a26"
+ ],
+ "x-op-fn-state-list2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-list2-cond-pure": [
+  "builds",
+  "sha256:0facc4c248a8c729f3eab2f7fd0ad6c1b3a2ed543991c06e28d3bfc8b0f28060"
+ ],
+ "x-op-fn-state-list2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-list2-if-pure": [
+  "builds",
+  "sha256:cfe24f708e6a75e352fe6b2e107ac00d21554d3b7c8c32702228a221bdd92776"
+ ],
+ "x-op-fn-state-list2-leaf-effect": [
+  "builds",
+  "sha256:bda8153be48f2ed1066a520d3ea6d8bcf7d078bddb495607689947db3b2f7ee6"
+ ],
+ "x-op-fn-state-list2-leaf-pure": [
+  "builds",
+  "sha256:698ddd3556e8d32cc24fd51ca752e9816101659080a32c614881bb39f5eeb0cd"
+ ],
+ "x-op-fn-state-list2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-list2-match-pure": [
+  "builds",
+  "sha256:0412d01258cc419a17a287c83190a74b843a5d9747888b95411eeae2da2d1e17"
+ ],
+ "x-op-fn-state-literal-effect": [
+  "builds",
+  "sha256:9534599151ef6a0ad69b20b759e7641f15ba52889d8bcf53954739cd85328880"
+ ],
+ "x-op-fn-state-literal-pure": [
+  "builds",
+  "sha256:4fa1c5a1145ff2611ce3400a6ade43ce59cc5980f7d8f57429ebc39bad7047cc"
+ ],
+ "x-op-fn-state-match-effect": [
+  "builds",
+  "sha256:85cac64ca8dfae8d82ac33cfc4981aaa5e94ec87ca06c7e5f1228a5ee4749bbb"
+ ],
+ "x-op-fn-state-match-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-op-fn-state-name-pure": [
+  "builds",
+  "sha256:32f8da9ef0e57f5561754a5f7e0e4fc6d542e729c0952dabad82adf3e12459a0"
+ ],
+ "x-op-fn-state-operator-effect": [
+  "builds",
+  "sha256:1c8da672621240aa10672276ec5b9106fecde917bb87bfb823db396b1497e286"
+ ],
+ "x-op-fn-state-operator-pure": [
+  "builds",
+  "sha256:a3f92ee48f57a64ff6d8b9ac9400852ab423e9e876d41629239316408933c524"
+ ],
+ "x-op-fn-state-record-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-record-cond-pure": [
+  "builds",
+  "sha256:4c3bfb076c24770873704fed1c40ee951248655097fed276399f6662eb454844"
+ ],
+ "x-op-fn-state-record-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-record-if-pure": [
+  "builds",
+  "sha256:17c0537632b3fd19f7f8bbb745a482472a203e7bdc2182fbcb4bd46c7488079c"
+ ],
+ "x-op-fn-state-record-leaf-effect": [
+  "builds",
+  "sha256:be668059b08e6ebbf4f0739d9b3bcf204b6fd4f750ea6fd459e9d0b2af246148"
+ ],
+ "x-op-fn-state-record-leaf-pure": [
+  "builds",
+  "sha256:1d6aba1fb305feb9e745390d10c4a21d701778511586197be2b07d4e66aa86e7"
+ ],
+ "x-op-fn-state-record-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-record-match-pure": [
+  "builds",
+  "sha256:7fd2fcd01a9335ca3514d3e156e82c7a214cb11a96dc92df18c1eb4816d9ce0d"
+ ],
+ "x-op-fn-state-record2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-record2-cond-pure": [
+  "builds",
+  "sha256:a3973e4162ef2bcee3244af91ae536c5fe939713c5163bca06ef5ea2619d49c7"
+ ],
+ "x-op-fn-state-record2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-record2-if-pure": [
+  "builds",
+  "sha256:1497d4ad28b6a8a85bdc7aca8b1cbc420db03918ebafe75af6cd16f787a6d5c8"
+ ],
+ "x-op-fn-state-record2-leaf-effect": [
+  "builds",
+  "sha256:c49ca7e1edafbb4fd4406be83b4360845bd9455b4af283851ec0de901728216b"
+ ],
+ "x-op-fn-state-record2-leaf-pure": [
+  "builds",
+  "sha256:c35e96acc02901b6c5c339d858958172a928501bddcaf76e55d11e7b0ef2a143"
+ ],
+ "x-op-fn-state-record2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-record2-match-pure": [
+  "builds",
+  "sha256:a72de43a643898a05aca9e1712b689bf40915d12bf7ea59de7f4ee617dfa3540"
+ ],
+ "x-op-fn-state-variant-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-variant-cond-pure": [
+  "builds",
+  "sha256:5a072e1429620767c6ad65dc747e403ea93fb1302d15734d735cb329b9fe3c7e"
+ ],
+ "x-op-fn-state-variant-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-variant-if-pure": [
+  "builds",
+  "sha256:b2fc67e3110e76beadd7dc62d6c5057266521809f3ec2c93d69fa526fda6965f"
+ ],
+ "x-op-fn-state-variant-leaf-effect": [
+  "builds",
+  "sha256:12089879b02bf24200f618d3b7048f03c91ecffb529d8bf715104c70876b20b1"
+ ],
+ "x-op-fn-state-variant-leaf-pure": [
+  "builds",
+  "sha256:850690197a0c6735f6e4a128a278cf79741570599eec603f6a3b6f441ff1492c"
+ ],
+ "x-op-fn-state-variant-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-variant-match-pure": [
+  "builds",
+  "sha256:95e80e78063e489d8edc75e1ddedae57b866adb027968cbe64adbaf074435ebe"
+ ],
+ "x-op-fn-state-variant2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-variant2-cond-pure": [
+  "builds",
+  "sha256:1f1a7c60e5a3cf0f1b59d3623fe6c2efc817b27fca2f07b5bbbc8c67d18f1979"
+ ],
+ "x-op-fn-state-variant2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-variant2-if-pure": [
+  "builds",
+  "sha256:7b18b8e38ecd45df8b2b44c17c04ac13efccfd8b0a3ce051b9dcc315fc483e6a"
+ ],
+ "x-op-fn-state-variant2-leaf-effect": [
+  "builds",
+  "sha256:0ae1bd5266950f68c2c690a814d1990e2f95402dd9e4185dc4e32eccab9104b0"
+ ],
+ "x-op-fn-state-variant2-leaf-pure": [
+  "builds",
+  "sha256:ed38d580f7fcffe02199eaabaa36a6bc172891662b6f339e22d83df10c84ff52"
+ ],
+ "x-op-fn-state-variant2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-fn-state-variant2-match-pure": [
+  "builds",
+  "sha256:d0ad1a4a4762b6df8996657a498bd708fd63d52ac9a82cb42966ddce33afc1c3"
+ ],
+ "x-op-map-max-cond-effect": [
+  "builds",
+  "sha256:ddb45e5a680d68e5b96b72e2a19a4c60e609108bda31f1cce09e05c4b5d3ecfa"
+ ],
+ "x-op-map-max-cond-pure": [
+  "builds",
+  "sha256:ce04adc9a28ce6244d677bf6115ee1aa67159d12d7e0c7b826fc015af992d3f7"
+ ],
+ "x-op-map-max-field-pure": [
+  "builds",
+  "sha256:7c3fd3e800a6f8f098e412e512ea99e6d2f180d4226b2c564e9136012870f98b"
+ ],
+ "x-op-map-max-if-effect": [
+  "builds",
+  "sha256:07c41e626f0ffd4f45ea6df263c1657a564166f47db34617a83345041145102f"
+ ],
+ "x-op-map-max-if-pure": [
+  "builds",
+  "sha256:da3aac8be189d4dd3c9db05ef0b58190979ed775a1dbf4b09453fa948b861cc7"
+ ],
+ "x-op-map-max-if-records-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-max-if-records-cond-pure": [
+  "builds",
+  "sha256:48847fef7dd3c626a6987d060ea5194e50fe2b8add02c85e81adbc4a9c414f0c"
+ ],
+ "x-op-map-max-if-records-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-max-if-records-if-pure": [
+  "builds",
+  "sha256:1d45a57df8171e01315e09bc2c620079e96cce36e33032dd4a51bd0416e8b824"
+ ],
+ "x-op-map-max-if-records-leaf-effect": [
+  "builds",
+  "sha256:b2c2f7f418075c58234c4507602f6fc8d574563ee63c2ee36df64d312b02ea0a"
+ ],
+ "x-op-map-max-if-records-leaf-pure": [
+  "builds",
+  "sha256:be08d5204cdefd56ac23eee18756fe42e6fd9a2e986e460f487d6b177b67167d"
+ ],
+ "x-op-map-max-if-records-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-max-if-records-match-pure": [
+  "builds",
+  "sha256:a47a6c9b2960f96304f843439afb3b7fea6e31bc59fce6f6e0361e0fe4118379"
+ ],
+ "x-op-map-max-list-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-max-list-cond-pure": [
+  "builds",
+  "sha256:6b16e6a6c8a92d46d6b8aa580ccfb8bbe0a05d1b3eacd8b5727cba46a1e8d7fb"
+ ],
+ "x-op-map-max-list-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-max-list-if-pure": [
+  "builds",
+  "sha256:15aaa0b191613a55a4f03bbb8c4dfab1edad8727534c2c6ef5ca08aa74c534de"
+ ],
+ "x-op-map-max-list-leaf-effect": [
+  "builds",
+  "sha256:010debb962576bdb6d26a7b176d725b9451d73802a5ff3620cf7811b0dd3e10d"
+ ],
+ "x-op-map-max-list-leaf-pure": [
+  "builds",
+  "sha256:9f6fa0b5ad36b2f30e606f04ad084d948a04d93eba7daaea16625ac233fc87aa"
+ ],
+ "x-op-map-max-list-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-max-list-match-pure": [
+  "builds",
+  "sha256:d98294de5fc2c30f585716ebe6d7b96ec68205e3cd445196e4c8efe8450f0452"
+ ],
+ "x-op-map-max-literal-effect": [
+  "builds",
+  "sha256:38f1dc25dea313924b5c486ae63ef73d0a4a49a4b511ddf53404be7c15e2ea8e"
+ ],
+ "x-op-map-max-literal-pure": [
+  "builds",
+  "sha256:70361c7585687501fd39d464825e31ad82684d7e569f22f03bfa919d557a6dee"
+ ],
+ "x-op-map-max-match-effect": [
+  "builds",
+  "sha256:a9b031ac11abdc4936ccd2b1128cbc22a402859541b18c179697eb06c2e7b21a"
+ ],
+ "x-op-map-max-match-pure": [
+  "builds",
+  "sha256:ec1929884e3ef02a6177e3eda7d88cfcaf9aa870998be17e85a8399cff93e468"
+ ],
+ "x-op-map-max-name-pure": [
+  "builds",
+  "sha256:d8ffffbcc6608e75a7c7113155172dae05f91c5d10612b10887ccbd246c2ee05"
+ ],
+ "x-op-map-max-operator-effect": [
+  "builds",
+  "sha256:e122464303568ba9de363fcd1045800a89b799a97facd14af2e42c7c19aff9f7"
+ ],
+ "x-op-map-max-operator-pure": [
+  "builds",
+  "sha256:f38b3891c6ac092324ac664c3c5f74432c5bc3ce810600c2f0f2b6f739f75330"
+ ],
+ "x-op-map-max-record-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-max-record-cond-pure": [
+  "builds",
+  "sha256:555b5e221e38f52b54a7312b9a2d4aeb56dd3e4e6bed9a271a8c6e617a73b8a5"
+ ],
+ "x-op-map-max-record-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-max-record-if-pure": [
+  "builds",
+  "sha256:a3bd5b01cbadd285292417c3a75c481af396a812cfbc1e0b10dae17ae759ace5"
+ ],
+ "x-op-map-max-record-leaf-effect": [
+  "builds",
+  "sha256:f3dcf38e923644a064c22070c6f9df06032fb03742d48810dcaa80f80fee4773"
+ ],
+ "x-op-map-max-record-leaf-pure": [
+  "builds",
+  "sha256:4cf4478c6839e2ee3a0e29d3ddaf2619a3ea2b0335bce0775b7b415ef7b0e6e3"
+ ],
+ "x-op-map-max-record-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-max-record-match-pure": [
+  "builds",
+  "sha256:103977510185052af76a231266e44abe301ea6776f49e4521b74fa3989f166d7"
+ ],
+ "x-op-map-source-list-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-source-list-cond-pure": [
+  "builds",
+  "sha256:28eb1dada574586bbf982ddde29ad7403608f0b99d2701b924f7a14cf443ddfd"
+ ],
+ "x-op-map-source-list-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-source-list-if-pure": [
+  "builds",
+  "sha256:8729a66b17ad01900b036dafcced075d35950e5332bc9558ec66c1328530afe8"
+ ],
+ "x-op-map-source-list-leaf-effect": [
+  "builds",
+  "sha256:9b524e4fb9263ec4998fa4c54a65bed28eb6830c1fbe1819ac9bccde00d6a2fe"
+ ],
+ "x-op-map-source-list-leaf-pure": [
+  "builds",
+  "sha256:3445922a0840e89f3f730e0fcab5a0b0b2395d9c03e97ad6e7ccd0b6377bf1ca"
+ ],
+ "x-op-map-source-list-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-map-source-list-match-pure": [
+  "builds",
+  "sha256:47f051f16b267a27f9f05fa46d4f9e8f73f0ed71f2cca691699d1f8e102aabb8"
+ ],
+ "x-op-max-cond-effect": [
+  "builds",
+  "sha256:72d627e86ce0506cf4b68fb9e8636972135ef8ba0295a7bedf1800c14f150a1f"
+ ],
+ "x-op-max-cond-pure": [
+  "builds",
+  "sha256:6784998482994908999be7df4c65211db963508d6a5f3480e9d6742a8896c206"
+ ],
+ "x-op-max-field-pure": [
+  "builds",
+  "sha256:dcf681129d1a6c8e93201bee1d43251f28a5a2e6a97df1d11362becf955fd823"
+ ],
+ "x-op-max-if-effect": [
+  "builds",
+  "sha256:39cae5fac4b19003a3a3d0cc8a2d31cd88ae08372b5654a47223424e49205c2a"
+ ],
+ "x-op-max-if-pure": [
+  "builds",
+  "sha256:5e6ca167e54e78b86f49812eaba2ba98f8fa7bd33a99ee85a5a7a4f114d69620"
+ ],
+ "x-op-max-if-records-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-max-if-records-cond-pure": [
+  "builds",
+  "sha256:f5efa284601644a68a738f17d55285c431735f6c3e773fd84e728b57777a4fca"
+ ],
+ "x-op-max-if-records-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-max-if-records-if-pure": [
+  "builds",
+  "sha256:521b53e7b109549b592d7e3f39bf599cd56cc7d695fa38c58f33a1ddcb10a410"
+ ],
+ "x-op-max-if-records-leaf-effect": [
+  "builds",
+  "sha256:17643df384f2c92ef3e51b3bd38e55ae914b1248ac066518de8869bbf9f75c98"
+ ],
+ "x-op-max-if-records-leaf-pure": [
+  "builds",
+  "sha256:f3bb171b8c4da93d7ea49e35d5232aa49b651e985bb0bdedefec949e9c5c7931"
+ ],
+ "x-op-max-if-records-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-max-if-records-match-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-op-max-list-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-max-list-cond-pure": [
+  "builds",
+  "sha256:23822405d9248354da71502d74605430cd8d1274bd5e38dba4efc8285736873b"
+ ],
+ "x-op-max-list-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-max-list-if-pure": [
+  "builds",
+  "sha256:a0d16b147b662be48d48ee57f1749897fa02987ecff6385667c2229eadaf783c"
+ ],
+ "x-op-max-list-leaf-effect": [
+  "builds",
+  "sha256:09602a0e0b7f23c57a112608df8d5e8949db44b8202849ac0c5abc3e5adadc11"
+ ],
+ "x-op-max-list-leaf-pure": [
+  "builds",
+  "sha256:1dc97cba71d9fb60f6dcf9b29603da68acf8784806e1dd221b9e07419204a930"
+ ],
+ "x-op-max-list-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-max-list-match-pure": [
+  "builds",
+  "sha256:bee41ac26b289c0b60ef924695f6e6427e1fab15ef5ce39f51b6a9956ef858df"
+ ],
+ "x-op-max-literal-effect": [
+  "builds",
+  "sha256:b0b2aee28835b002085f9d41471f1db6020ddc5d0d7b829cdebbbecff17a30e4"
+ ],
+ "x-op-max-literal-pure": [
+  "builds",
+  "sha256:dd5174c6dd558957a6ed19c1b6e5bf38d5b7bc0a0abfa27afb87688c045dcf6d"
+ ],
+ "x-op-max-match-effect": [
+  "builds",
+  "sha256:9c573d6a9cccfddf63c756a68aa11014639539e3f4616af6322c77fa5e33bf86"
+ ],
+ "x-op-max-match-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-op-max-name-pure": [
+  "builds",
+  "sha256:6b114b490b1bb9cd639814b95e07a4ad6846b9c4236a5cc714189f6a773b83e6"
+ ],
+ "x-op-max-operator-effect": [
+  "builds",
+  "sha256:f04725405cc84d93f3d7aa9ce7caf45f31425ae1ca93b70e9a2872229b05f49d"
+ ],
+ "x-op-max-operator-pure": [
+  "builds",
+  "sha256:2e9a938a43af5bd717183deed6b53a6520ef8d24200147ae8912e32b876870dc"
+ ],
+ "x-op-max-record-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-max-record-cond-pure": [
+  "builds",
+  "sha256:d582e0ece77183eaa9d77e8913d820cf2ff072a1a21e69edb4f6b5cedaefdf58"
+ ],
+ "x-op-max-record-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-max-record-if-pure": [
+  "builds",
+  "sha256:f0d666d962fb49196e852c336cce3a7dac19ff3916c34fe82274c774e64305c7"
+ ],
+ "x-op-max-record-leaf-effect": [
+  "builds",
+  "sha256:660f55e62dedc556cd513b1e7f50c4ab3280173fe45644e65ab7ac8b9e8619c8"
+ ],
+ "x-op-max-record-leaf-pure": [
+  "builds",
+  "sha256:beeeb82e51417de8eae3a5dcee3681abbb33744aee0fcd0e30efd09c5500ce83"
+ ],
+ "x-op-max-record-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-max-record-match-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "x-op-on-exhausted-cond-effect": [
+  "refused",
+  "loop_recur_contract_invalid"
+ ],
+ "x-op-on-exhausted-cond-pure": [
+  "builds",
+  "sha256:c8a494a24ba881044de1793664a33dfc002ce606954ae386ee0be13a4cff9f3f"
+ ],
+ "x-op-on-exhausted-field-pure": [
+  "builds",
+  "sha256:2ee65b288486ba5e64caff8b21a08438562d35bd3d9faffa4f8c0cf737cbbf37"
+ ],
+ "x-op-on-exhausted-if-effect": [
+  "refused",
+  "loop_recur_contract_invalid"
+ ],
+ "x-op-on-exhausted-if-pure": [
+  "builds",
+  "sha256:e15cf22b990c2b886e88edef75a27705cca32efdb8623f0f1784ee2d35863bf3"
+ ],
+ "x-op-on-exhausted-if-records-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-if-records-cond-pure": [
+  "builds",
+  "sha256:8607a1a0e3d661a8a62eeeeefd5b439babe4454d1bd09575e99a9330870dce00"
+ ],
+ "x-op-on-exhausted-if-records-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-if-records-if-pure": [
+  "builds",
+  "sha256:b613a4cb8c18a4c517212e35597b1be9b097d3c2aa04cac409b52fbc1c3e6216"
+ ],
+ "x-op-on-exhausted-if-records-leaf-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-if-records-leaf-pure": [
+  "builds",
+  "sha256:3874d5db25c056e207796fd14a149638aa5b71d457992247cb63264179dff985"
+ ],
+ "x-op-on-exhausted-if-records-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-if-records-match-pure": [
+  "builds",
+  "sha256:bae6db99bc2a0fb1119ca8c579fa04706ee035241b5c171265fc1c81bd64bb1e"
+ ],
+ "x-op-on-exhausted-list-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-list-cond-pure": [
+  "builds",
+  "sha256:bb9929fe94ade12154ecde81eebe06b153c2f7a49ee1c7140af65ea5d9c02431"
+ ],
+ "x-op-on-exhausted-list-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-list-if-pure": [
+  "builds",
+  "sha256:c7c27e502449586e8e2be28e66aca8de3a500e4151319fad1501c9ad4d5bbfda"
+ ],
+ "x-op-on-exhausted-list-leaf-effect": [
+  "builds",
+  "sha256:50041c3526482210449e34b032fc347ef90740f75c1ff5cfbf39e5fef1567e93"
+ ],
+ "x-op-on-exhausted-list-leaf-pure": [
+  "builds",
+  "sha256:ea329dc96b04913983aa464668e74f82204eab1860b28ba463269d40b0242e73"
+ ],
+ "x-op-on-exhausted-list-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-list-match-pure": [
+  "builds",
+  "sha256:9c3536f0fe6d47475b538e7d059e0f41c2458ebd55e7955c1b86c430ca10600a"
+ ],
+ "x-op-on-exhausted-list2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-list2-cond-pure": [
+  "builds",
+  "sha256:a0074f5ed6e1dcd4e3bb0d2ad5887c4704314cd2b0410113b5138e08a42d4ed1"
+ ],
+ "x-op-on-exhausted-list2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-list2-if-pure": [
+  "builds",
+  "sha256:4379e194794993198613fec02a392bd16151b237627d5597db457509b19df236"
+ ],
+ "x-op-on-exhausted-list2-leaf-effect": [
+  "builds",
+  "sha256:91bc9ed3c96d8eb0ae8e9f0e4bcf7e942d380c885e212a261d89bc3ab083f974"
+ ],
+ "x-op-on-exhausted-list2-leaf-pure": [
+  "builds",
+  "sha256:4874d475937008cfe5a457258b4621282e8c8c2a8dcb2d4caf69567f6f7a8552"
+ ],
+ "x-op-on-exhausted-list2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-list2-match-pure": [
+  "builds",
+  "sha256:79acc1b8124c396d543702cd9989637b675e4cea5891662d61cca3771933fe20"
+ ],
+ "x-op-on-exhausted-literal-effect": [
+  "builds",
+  "sha256:3744cf8f1acb3b39c3bc28c844aa979862b6cfbb143f9f4fa0cf5c8093f44766"
+ ],
+ "x-op-on-exhausted-literal-pure": [
+  "builds",
+  "sha256:987c8b2b4101e6c43003d1737742598e3ce060b2ba49e52e7282391d072eaf7e"
+ ],
+ "x-op-on-exhausted-match-effect": [
+  "refused",
+  "loop_recur_contract_invalid"
+ ],
+ "x-op-on-exhausted-match-pure": [
+  "builds",
+  "sha256:a98707f3bcf52bf697e7722024927e6b65c421e1b66f1e087b3ff25cca8dd1b0"
+ ],
+ "x-op-on-exhausted-name-pure": [
+  "builds",
+  "sha256:f6bbc3d576882d59d5bce0105c2b01e0d6c705ea74943c13722b0c1a23ce64e6"
+ ],
+ "x-op-on-exhausted-operator-effect": [
+  "builds",
+  "sha256:8b49a7cfb7dda6433391c56694079f36a3ca4b0a4af38cfac653383d4ef41c17"
+ ],
+ "x-op-on-exhausted-operator-pure": [
+  "builds",
+  "sha256:b0ce1325595bae5b9c89f010b1e3732bcc09158e23443df632b49ff1dfc218d2"
+ ],
+ "x-op-on-exhausted-record-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-record-cond-pure": [
+  "builds",
+  "sha256:a7c3e4f383b9564c2791fa304e42f1045ec63092bdfbd73eb7c976d1b7c73654"
+ ],
+ "x-op-on-exhausted-record-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-record-if-pure": [
+  "builds",
+  "sha256:a448178182a67568e571a4c8b3db8db76f8cb88917441b549cfb3a2534c45059"
+ ],
+ "x-op-on-exhausted-record-leaf-effect": [
+  "builds",
+  "sha256:925bcd7e4278de9fb5a4ed29f2c89dfec6d81f974ae35afc5cc4f0e2bf5427d2"
+ ],
+ "x-op-on-exhausted-record-leaf-pure": [
+  "builds",
+  "sha256:713d5a5a02474d018e52a9d924e2735391ce83c8ec4b171518c6ae362508baaa"
+ ],
+ "x-op-on-exhausted-record-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-record-match-pure": [
+  "builds",
+  "sha256:c3a88b04d9a66c7e4c044dd401bffeab4093f89fd15d68da39160b36f8a6dd23"
+ ],
+ "x-op-on-exhausted-record2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-record2-cond-pure": [
+  "builds",
+  "sha256:9b8b7459fa3e70f1627bf4d267a448ac884d861ba7a7325d17dd86cd1c5b4e65"
+ ],
+ "x-op-on-exhausted-record2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-record2-if-pure": [
+  "builds",
+  "sha256:9bda857a280ce1067727da23fa416b7629a767697da2918dd3a23548e3b6adfa"
+ ],
+ "x-op-on-exhausted-record2-leaf-effect": [
+  "builds",
+  "sha256:db8ce55e8a93cf72825750d45879f4272f277b7b13f57efbc92a50034c13fc5b"
+ ],
+ "x-op-on-exhausted-record2-leaf-pure": [
+  "builds",
+  "sha256:b13dd26a52f5a09a84bb7de8493f7adf9582a47c60034918096ab31239755522"
+ ],
+ "x-op-on-exhausted-record2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-record2-match-pure": [
+  "builds",
+  "sha256:f67e8cd7865f76937d3659e2d84d516fe2456ff0b5e113ce2e2d6a95467be434"
+ ],
+ "x-op-on-exhausted-variant-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-variant-cond-pure": [
+  "builds",
+  "sha256:0510428c323e6fa7e7e2fc8fc29137a440c24c73ba003821ad854b2f486eb62a"
+ ],
+ "x-op-on-exhausted-variant-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-variant-if-pure": [
+  "builds",
+  "sha256:ea984f5740883c0f849181b6fd913ce44bc80dac710d64dafc1d4ed67849ea94"
+ ],
+ "x-op-on-exhausted-variant-leaf-effect": [
+  "builds",
+  "sha256:b8c7a29c6af6e10ab4c5daf4cb99be8c13442ab59379402710eeb58edb670740"
+ ],
+ "x-op-on-exhausted-variant-leaf-pure": [
+  "builds",
+  "sha256:c29502a8fb938c9583447f3fc926d7b22ca59dbbb16a9f5f20da350bc6cbbf23"
+ ],
+ "x-op-on-exhausted-variant-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-variant-match-pure": [
+  "builds",
+  "sha256:beaf96a455bd1cfa13c5bac38bfeaa5daf001d027509c70b11c1536ed94ce81d"
+ ],
+ "x-op-on-exhausted-variant2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-variant2-cond-pure": [
+  "builds",
+  "sha256:59f917310345eb3b1fe7958f17c31cb8db66665601a1aa6fa3f89eef3692a338"
+ ],
+ "x-op-on-exhausted-variant2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-variant2-if-pure": [
+  "builds",
+  "sha256:fd176110aa02774a25e3ca6c02613e8cffa3fa23460fe6c811fcd97ebc3ddbe4"
+ ],
+ "x-op-on-exhausted-variant2-leaf-effect": [
+  "builds",
+  "sha256:15a8042b9dcc1852b201839b98fd0c650d697ac47cc0940b6d5c981fd83fda81"
+ ],
+ "x-op-on-exhausted-variant2-leaf-pure": [
+  "builds",
+  "sha256:5d58e34d632816817324b02bcdfdaab4b8a47e2133963ff857b52b111fed8c07"
+ ],
+ "x-op-on-exhausted-variant2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-on-exhausted-variant2-match-pure": [
+  "builds",
+  "sha256:226c2e87f9d0ea79126d5712bdd27444ed52e74ec6c098319c4795962c93d160"
+ ],
+ "x-op-pure-map-source-list-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-pure-map-source-list-cond-pure": [
+  "builds",
+  "sha256:fefef05e4fc0ec890fc454167a4d2695aac96af474c14555bc6adaa7a027f530"
+ ],
+ "x-op-pure-map-source-list-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-pure-map-source-list-if-pure": [
+  "builds",
+  "sha256:8f9af787d0d2ea73d548db3aa001f891cc9f8a4a55f9cadb0974324b6e44b96d"
+ ],
+ "x-op-pure-map-source-list-leaf-effect": [
+  "builds",
+  "sha256:359b10f87176e9e1fcce911d4cfe1cdbb7efbf066085006b664c206060f2f9d9"
+ ],
+ "x-op-pure-map-source-list-leaf-pure": [
+  "builds",
+  "sha256:95850434e2fee4a1be7035493bffa1c77f20a60f55a64a4ffdb55c163da66c29"
+ ],
+ "x-op-pure-map-source-list-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-pure-map-source-list-match-pure": [
+  "builds",
+  "sha256:c7598e483e0f5e7d97d9e657e935d73e32a5c8f80e927ccbb5c86cdd7831d460"
+ ],
+ "x-op-state-cond-effect": [
+  "builds",
+  "sha256:aab120607fd0e25739e78bb39d16f3c989dfac5725b65ffab501441ae8d2de66"
+ ],
+ "x-op-state-cond-pure": [
+  "builds",
+  "sha256:ac5e4b4d6d7672daa2a4736a315c432533ac5f4e825329fa84a3e45a200d36b6"
+ ],
+ "x-op-state-field-pure": [
+  "builds",
+  "sha256:388c17eaf5de726b73ee4a0645aac3136bd092737ffefaefcf07509f527f98c7"
+ ],
+ "x-op-state-if-effect": [
+  "builds",
+  "sha256:464c568eb71ec27e131d97d4046d8328bb719da12c9af482356d8553ec4f7810"
+ ],
+ "x-op-state-if-pure": [
+  "builds",
+  "sha256:b1d9cae090178218dc7263d7d51f2be31db007181a71a164417bd7514687b709"
+ ],
+ "x-op-state-if-records-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-if-records-cond-pure": [
+  "builds",
+  "sha256:5acc9bfc964115761db470e923fd870ef0310fc9c074a8f2e17a8de1120bd252"
+ ],
+ "x-op-state-if-records-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-if-records-if-pure": [
+  "builds",
+  "sha256:dbc99e0f40fb662f3d76884f86bba6a4633ff19f61c0915f94fd662620db78d6"
+ ],
+ "x-op-state-if-records-leaf-effect": [
+  "builds",
+  "sha256:fc35f117434ae949528d5d2163b5a94495e658262b0d9e2b55e7837d90d23d98"
+ ],
+ "x-op-state-if-records-leaf-pure": [
+  "builds",
+  "sha256:a91e46868caae0d95c809e7ef77b79f71356b9d46872d10a2d52ac8e0c69bb6d"
+ ],
+ "x-op-state-if-records-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-if-records-match-pure": [
+  "builds",
+  "sha256:08722e76a6f34fd971c3cf425b99c8a62b6bb40f515bb03ee6359d6b915ff63a"
+ ],
+ "x-op-state-list-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-list-cond-pure": [
+  "builds",
+  "sha256:eaf51610439a5744d78ef17c31c7e5758e2ee9c3fabedb5d17c2bc9c4cbd5b43"
+ ],
+ "x-op-state-list-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-list-if-pure": [
+  "builds",
+  "sha256:de236403a38e15bc94b105f8df9d3bf5a99b5d8183b5a282e39f4037ded2eec1"
+ ],
+ "x-op-state-list-leaf-effect": [
+  "builds",
+  "sha256:563679c485c833a7f5931c67f6ff899161c40ab3c20c3955ea21ad135134535e"
+ ],
+ "x-op-state-list-leaf-pure": [
+  "builds",
+  "sha256:e052f28cd075db72dcb5694bb4c75c4188e2ac7654207f42b4a04ff5dfd82e3d"
+ ],
+ "x-op-state-list-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-list-match-pure": [
+  "builds",
+  "sha256:7cf3828cf1b47765150634374ae0dd0cb7a2bde92977c8b2dbafdded39084a26"
+ ],
+ "x-op-state-list2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-list2-cond-pure": [
+  "builds",
+  "sha256:0facc4c248a8c729f3eab2f7fd0ad6c1b3a2ed543991c06e28d3bfc8b0f28060"
+ ],
+ "x-op-state-list2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-list2-if-pure": [
+  "builds",
+  "sha256:cfe24f708e6a75e352fe6b2e107ac00d21554d3b7c8c32702228a221bdd92776"
+ ],
+ "x-op-state-list2-leaf-effect": [
+  "builds",
+  "sha256:bda8153be48f2ed1066a520d3ea6d8bcf7d078bddb495607689947db3b2f7ee6"
+ ],
+ "x-op-state-list2-leaf-pure": [
+  "builds",
+  "sha256:698ddd3556e8d32cc24fd51ca752e9816101659080a32c614881bb39f5eeb0cd"
+ ],
+ "x-op-state-list2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-list2-match-pure": [
+  "builds",
+  "sha256:0412d01258cc419a17a287c83190a74b843a5d9747888b95411eeae2da2d1e17"
+ ],
+ "x-op-state-literal-effect": [
+  "builds",
+  "sha256:9534599151ef6a0ad69b20b759e7641f15ba52889d8bcf53954739cd85328880"
+ ],
+ "x-op-state-literal-pure": [
+  "builds",
+  "sha256:4fa1c5a1145ff2611ce3400a6ade43ce59cc5980f7d8f57429ebc39bad7047cc"
+ ],
+ "x-op-state-match-effect": [
+  "builds",
+  "sha256:85cac64ca8dfae8d82ac33cfc4981aaa5e94ec87ca06c7e5f1228a5ee4749bbb"
+ ],
+ "x-op-state-match-pure": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "x-op-state-name-pure": [
+  "builds",
+  "sha256:32f8da9ef0e57f5561754a5f7e0e4fc6d542e729c0952dabad82adf3e12459a0"
+ ],
+ "x-op-state-operator-effect": [
+  "builds",
+  "sha256:1c8da672621240aa10672276ec5b9106fecde917bb87bfb823db396b1497e286"
+ ],
+ "x-op-state-operator-pure": [
+  "builds",
+  "sha256:a3f92ee48f57a64ff6d8b9ac9400852ab423e9e876d41629239316408933c524"
+ ],
+ "x-op-state-record-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-record-cond-pure": [
+  "builds",
+  "sha256:4c3bfb076c24770873704fed1c40ee951248655097fed276399f6662eb454844"
+ ],
+ "x-op-state-record-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-record-if-pure": [
+  "builds",
+  "sha256:17c0537632b3fd19f7f8bbb745a482472a203e7bdc2182fbcb4bd46c7488079c"
+ ],
+ "x-op-state-record-leaf-effect": [
+  "builds",
+  "sha256:be668059b08e6ebbf4f0739d9b3bcf204b6fd4f750ea6fd459e9d0b2af246148"
+ ],
+ "x-op-state-record-leaf-pure": [
+  "builds",
+  "sha256:1d6aba1fb305feb9e745390d10c4a21d701778511586197be2b07d4e66aa86e7"
+ ],
+ "x-op-state-record-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-record-match-pure": [
+  "builds",
+  "sha256:7fd2fcd01a9335ca3514d3e156e82c7a214cb11a96dc92df18c1eb4816d9ce0d"
+ ],
+ "x-op-state-record2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-record2-cond-pure": [
+  "builds",
+  "sha256:a3973e4162ef2bcee3244af91ae536c5fe939713c5163bca06ef5ea2619d49c7"
+ ],
+ "x-op-state-record2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-record2-if-pure": [
+  "builds",
+  "sha256:1497d4ad28b6a8a85bdc7aca8b1cbc420db03918ebafe75af6cd16f787a6d5c8"
+ ],
+ "x-op-state-record2-leaf-effect": [
+  "builds",
+  "sha256:c49ca7e1edafbb4fd4406be83b4360845bd9455b4af283851ec0de901728216b"
+ ],
+ "x-op-state-record2-leaf-pure": [
+  "builds",
+  "sha256:c35e96acc02901b6c5c339d858958172a928501bddcaf76e55d11e7b0ef2a143"
+ ],
+ "x-op-state-record2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-record2-match-pure": [
+  "builds",
+  "sha256:a72de43a643898a05aca9e1712b689bf40915d12bf7ea59de7f4ee617dfa3540"
+ ],
+ "x-op-state-variant-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-variant-cond-pure": [
+  "builds",
+  "sha256:5a072e1429620767c6ad65dc747e403ea93fb1302d15734d735cb329b9fe3c7e"
+ ],
+ "x-op-state-variant-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-variant-if-pure": [
+  "builds",
+  "sha256:b2fc67e3110e76beadd7dc62d6c5057266521809f3ec2c93d69fa526fda6965f"
+ ],
+ "x-op-state-variant-leaf-effect": [
+  "builds",
+  "sha256:12089879b02bf24200f618d3b7048f03c91ecffb529d8bf715104c70876b20b1"
+ ],
+ "x-op-state-variant-leaf-pure": [
+  "builds",
+  "sha256:850690197a0c6735f6e4a128a278cf79741570599eec603f6a3b6f441ff1492c"
+ ],
+ "x-op-state-variant-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-variant-match-pure": [
+  "builds",
+  "sha256:95e80e78063e489d8edc75e1ddedae57b866adb027968cbe64adbaf074435ebe"
+ ],
+ "x-op-state-variant2-cond-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-variant2-cond-pure": [
+  "builds",
+  "sha256:1f1a7c60e5a3cf0f1b59d3623fe6c2efc817b27fca2f07b5bbbc8c67d18f1979"
+ ],
+ "x-op-state-variant2-if-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-variant2-if-pure": [
+  "builds",
+  "sha256:7b18b8e38ecd45df8b2b44c17c04ac13efccfd8b0a3ce051b9dcc315fc483e6a"
+ ],
+ "x-op-state-variant2-leaf-effect": [
+  "builds",
+  "sha256:0ae1bd5266950f68c2c690a814d1990e2f95402dd9e4185dc4e32eccab9104b0"
+ ],
+ "x-op-state-variant2-leaf-pure": [
+  "builds",
+  "sha256:ed38d580f7fcffe02199eaabaa36a6bc172891662b6f339e22d83df10c84ff52"
+ ],
+ "x-op-state-variant2-match-effect": [
+  "refused",
+  "effect_not_permitted"
+ ],
+ "x-op-state-variant2-match-pure": [
+  "builds",
+  "sha256:d0ad1a4a4762b6df8996657a498bd708fd63d52ac9a82cb42966ddce33afc1c3"
+ ],
+ "x-td2-argv-binder": [
+  "builds",
+  "sha256:d91337e9031af4c6aa082f32c71dd2f5845af5341222341120742f0d0593a54c"
+ ],
+ "x-td2-argv-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-td2-binder-hidden-binder": [
+  "refused",
+  "type_unknown"
+ ],
+ "x-td2-binder-hidden-subject": [
+  "refused",
+  "type_unknown"
+ ],
+ "x-td2-effect-before-binder": [
+  "builds",
+  "sha256:9547e67e53e1936c8a63feb6d5a9e49626613d89442f8258b2847e9fd65d6c24"
+ ],
+ "x-td2-effect-before-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-td2-effect-beside-binder": [
+  "builds",
+  "sha256:830fc3d8459c2f16837d728205ed03f4ffcdb60c0151b551c87ce0d4ae5ad0a7"
+ ],
+ "x-td2-effect-beside-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-td2-let-binding-binder": [
+  "builds",
+  "sha256:f23b521e2dbb9e84d873bf27f6940fb2b395625d9a4dff1aeebb664ff0e264b5"
+ ],
+ "x-td2-let-binding-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-td2-let-body-binder": [
+  "builds",
+  "sha256:930b617c9f08e3d77a098d491f6e90cf31e201e0bb5eb99fe700f67198d5e315"
+ ],
+ "x-td2-let-body-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-td2-loop-done-binder": [
+  "builds",
+  "sha256:1471fd0c06a7318724c1b31904006f3e2862294c34cddb7b24011f6f3f3f4b79"
+ ],
+ "x-td2-loop-done-subject": [
+  "refused",
+  "variant_ref_unproved"
+ ],
+ "x-td2-nested-match-binder": [
+  "builds",
+  "sha256:2e098e8b9bcd01537988a594c283b1b435627330b2760caedb6f3bbb98c2ebab"
+ ],
+ "x-td2-nested-match-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-td2-nested-other-binder": [
+  "builds",
+  "sha256:0ce1e1c1d532fe78eaeed9124f870543786c0472389167eb4d9af1fc9f31d468"
+ ],
+ "x-td2-nested-other-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-td2-nontag-if-binder": [
+  "builds",
+  "sha256:f51ebe788605771943ea38d4ba925bcdc661e5429efc6456897f90a033382e42"
+ ],
+ "x-td2-nontag-if-subject": [
+  "builds",
+  "sha256:2de81ce213085216086a4096bdb3b5d417cf0a2d258ad12eb137f6a8c7def30f"
+ ],
+ "x-td2-operand-binder": [
+  "builds",
+  "sha256:9c604df9df51695113c14c4f2035289d3ff9e225bdb64e066dbdf87c559285c2"
+ ],
+ "x-td2-operand-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-td2-plain-binder": [
+  "builds",
+  "sha256:1be24bfbe08ea6f6deb16d12d1457e65629daf0d2a154b372ead37482e822b2e"
+ ],
+ "x-td2-plain-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "x-td2-tag-cond-binder": [
+  "refused",
+  "record_field_unknown"
+ ],
+ "x-td2-tag-cond-subject": [
+  "refused",
+  "record_field_unknown"
+ ],
+ "x-td2-tag-if-binder": [
+  "builds",
+  "sha256:fce0831fe212b1b78b01f84d58b200b1135a425639cc3702a0b482d0fdee88b2"
+ ],
+ "x-td2-tag-if-effect-binder": [
+  "builds",
+  "sha256:bee20d334be487abf250bd2c58650b80224171577a83dcded923e12cabe18765"
+ ],
+ "x-td2-tag-if-effect-subject": [
+  "builds",
+  "sha256:68110aaa99deeabed8317c8ed9da713c81e688f6d970d499a635cc9e4ebf7d20"
+ ],
+ "x-td2-tag-if-else-binder": [
+  "builds",
+  "sha256:b2c5fc8d37f115f56e274954f8310ba13b2aa6bdf2bfca32843d4a53f4d55b94"
+ ],
+ "x-td2-tag-if-else-subject": [
+  "builds",
+  "sha256:04ef5d04980540d091e98259e732c2ea821cede319ca7018cf5b5433c8f227aa"
+ ],
+ "x-td2-tag-if-nested-binder": [
+  "refused",
+  "record_field_unknown"
+ ],
+ "x-td2-tag-if-nested-subject": [
+  "refused",
+  "record_field_unknown"
+ ],
+ "x-td2-tag-if-subject": [
+  "builds",
+  "sha256:6446128a395069c74c058ee3ea4b9ec891e203604e95ed596a07829bd191347a"
+ ]
+}

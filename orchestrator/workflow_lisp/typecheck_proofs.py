@@ -12,6 +12,7 @@ from .expressions import (
     CondExpr,
     FieldAccessExpr,
     IfExpr,
+    LetProcExpr,
     LetStarExpr,
     LiteralExpr,
     MatchExpr,
@@ -370,6 +371,17 @@ def _typed_subject_records_more(typed_subject_expr) -> bool:
     )
 
 
+def _reached_cond(expr) -> bool:
+    """Whether `expr` holds a `cond` outside the bodies of its `let-proc` locals, which lower from their lifted
+    procedures, not from the subject: a subject whose `cond` is only there built before, as written."""
+    from .expression_traversal import iter_child_exprs
+
+    if isinstance(expr, CondExpr):
+        return True
+    children = (expr.body,) if isinstance(expr, LetProcExpr) else iter_child_exprs(expr)
+    return any(_reached_cond(child) for child in children)
+
+
 def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     """Return the subject the typed `match` node carries.
 
@@ -385,7 +397,10 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     - an external command with omitted argv: typecheck resolves its static
       command, and the authored empty argv cannot cross into the closed program;
     - a subject whose constructor, list, `list/map` source or path child holds an
-      effect: only the typechecked form records it, and no earlier program has one.
+      effect: only the typechecked form records it, and no earlier program has one;
+    - a subject with a `cond` in it that elaboration reaches (`_reached_cond`):
+      typecheck erases it into `if`, and the authored `cond`, which elaboration
+      does not take, ended in `compiler_defect`.
     """
     from .expression_traversal import walk_expr
     from .expressions import CommandResultExpr, ProviderResultExpr
@@ -399,7 +414,7 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
         (isinstance(node, ProviderResultExpr) and isinstance(node.prompt, PromptApplicationExpr))
         or (isinstance(node, CommandResultExpr) and node.adapter_name is None and not node.argv)
         for node in walk_expr(expr.subject)
-    ) or (
+    ) or _reached_cond(expr.subject) or (
         context.procedure_catalog is not None
         and calls_generic_procedure_through_type_dependent_hook(
             expr.subject, procedure_catalog=context.procedure_catalog
