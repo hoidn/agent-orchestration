@@ -1,8 +1,9 @@
 # Seed-Set Calibration Plan
 
 **Status: Plan; zero-spend preparation on `feat/seed-set-prep`, no spend yet.** Built: the kit, the usage-limit
-pause, the priced ceiling and the CLI pin (2026-11-14), fix round 1 after review 3 and fix round 2 after its
-re-review (2026-11-14). Owed before the first call: a scoped check of fix round 2, the freeze with `criterion.json`
+pause, the priced ceiling and the CLI pin (2026-11-14), fix round 1 after review 3, fix round 2 after its
+re-review and fix round 3 on the coordinator's rulings (2026-11-14). Owed before the first call: a scoped check of
+fix rounds 2 and 3, the freeze with `criterion.json`
 (its priced ceilings, per-call worst cases, largest ordinary-rate call per model and CLI pin), the 20-task
 rehearsal, the owner's credential decision and meter reading. This page plans the scaled-down research step
 the owner set on 2026-11-11: calibrate a small task set and a judge, then find
@@ -61,7 +62,11 @@ ruling).** Where the text below differs, these hold:
   the raw result shows no limit, `study.py not-a-limit UNIT --reason R` records
   that decision while the pause is open: the unit becomes what the rules make
   it (an incident or its outcome), the pause stops closing starts, and nothing
-  runs again. A cut unit is not
+  runs again. A unit its killed runner left unsettled refuses, and the pause
+  and the refusal say the way out (fix round 3): `settle` the run first; a
+  probe run, which only `probe` settles and `probe` refuses while starts are
+  closed, reopens by `resume-after-limit` after the reset, and the next
+  `probe` settles it as a cut run. A cut unit is not
   an incident and not an observation: it is recorded `cut`, never pooled or
   scored, and not counted by the 10% incident stop. The cut writes a `pause`
   event as soon as the unit's process ends, which closes every start; calls in
@@ -76,18 +81,28 @@ ruling).** Where the text below differs, these hold:
   again by both judges. The smoke never runs a cut slot again: a smoke with a
   unit cut, a planned program without its run or a reserved unit not settled
   fails its check, and the cut run never sets the flat-or-bisect choice.
-- *The launch guard and the host checks (fix round 2).* A unit's command runs
-  as its guard's child from its first instant; the guard is a child subreaper,
-  so what a root shell that died leaves behind is killed too, and a kill
-  reaches a pid only while its start time matches, so a reused pid is never
-  signalled. The host-side checks of candidate code (`settle`'s visible check,
-  the probe's hidden check, `summarize`'s hidden tests) run under the same
-  guard with a bound: 600 s for a patch's hidden set (five times the 120 s of
-  Step 1's hidden run), 1,200 s for the visible check, 600 s per clone for a
-  pool's summary. A check past its bound is recorded as timed out, never as a
-  pass or a failure: a probe run with one is an incident, a summary that times
-  out makes its pool an incident, and the readout counts timed-out visible
-  checks apart.
+- *The launch guard and the host checks (fix rounds 2 and 3).* A unit's
+  command runs as its guard's child from its first instant; the guard is a
+  child subreaper, so what a root shell that died leaves behind is killed too,
+  and a kill reaches a pid only while its start time matches, so a reused pid
+  is never signalled. The host-side checks of candidate code (`settle`'s
+  visible check, the probe's hidden check, `summarize`'s hidden tests) run
+  under the same guard with two bounds. Each hidden test has 240 s, twice the
+  120 s of Step 1's whole hidden run (the kit passes it to `summarize.py`,
+  whose own default of 1,800 s stays): a hidden test that hangs past it counts
+  as that test failing, and the pool is summarised (fix round 3). Each check
+  has a backstop for a harness that itself hangs: 600 s for a patch's hidden
+  set (five times the 120 s), 1,200 s for the visible check, 600 s per clone
+  for a pool's summary. A check past its backstop is recorded as timed out,
+  never as a pass or a failure: a probe run with one is an incident, a summary
+  that times out makes its pool an incident, and the readout counts timed-out
+  visible checks apart. A patch's hidden set holds two hanging tests within its
+  backstop, a summary about two and a half per clone on average. The checks'
+  temporary directories are recorded beside the ledger with the process that
+  made them, the checks' own temporary directories go inside them, and the
+  sweep at the start of every study command that takes the lock removes the
+  recorded ones whose maker and check no longer run (a launcher killed with
+  SIGKILL runs no cleanup) and prints their paths (fix round 3).
 - *Concurrency (R3):* two runs at a time, and one study command that starts,
   prepares or settles units at a time (a lock beside the ledger), so two
   commands cannot put four units in flight.

@@ -86,13 +86,21 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   place, and what the guard had adopted is lost. Only one study command that starts, prepares or settles units runs
   at a time on a study (`study.lock` beside the ledger).
 - The host-side checks of candidate code (`settle`'s visible check, the probe's hidden check, `summarize`'s hidden
-  tests) run under the same guard, with a bound: 600 s for a patch's hidden set (five times the plan's 120 s for a
-  hidden run on the oracle), 1,200 s for the visible check (dev-check.json's 600 s plus 600 s), 600 s per clone for a
-  pool's summary. A check past its bound is recorded as timed out, never as a pass or a failure: the visible
-  figure counts it apart (the readout's "visible check past its bound"), a probe run whose hidden check timed out is
-  an incident (relaunched once), and a summary that times out makes its pool an incident. `summarize.py` gives
-  each hidden test 1,800 s and counts a hanging one as failing, so a candidate whose code makes a hidden test hang
-  now costs its pool once the per-clone bound passes.
+  tests) run under the same guard, with two bounds. Each hidden test has 240 s, twice the plan's 120 s for a whole
+  hidden run on the oracle (the kit passes it to `summarize.py`, whose own default stays 1,800 s): a hidden test
+  that hangs past it counts as that test failing, and the pool is summarised. Each check has a backstop for a
+  harness that itself hangs: 600 s for a patch's hidden set (five times the 120 s), 1,200 s for the visible check
+  (dev-check.json's 600 s plus 600 s), 600 s per clone for a pool's summary. A check past its backstop is recorded
+  as timed out, never as a pass or a failure: the visible figure counts it apart (the readout's "visible check past
+  its bound"), a probe run whose hidden check timed out is an incident (relaunched once), and a summary that times
+  out makes its pool an incident. A patch's hidden set holds two hanging tests within its backstop and a summary
+  about two and a half per clone on average; more hanging tests than that fall to the backstop.
+- Each host-side check works in temporary directories the kit names (`seed-set-host-*`, and `seed-set-view-*` for
+  the visible check) and records, with the process that made them, in `host-temp.jsonl` beside the ledger; the
+  check's own commands make their temporary directories inside them (`TMPDIR`). A launcher killed with SIGKILL
+  during a check runs no cleanup: the sweep at the start of the next study command that takes the lock removes
+  each recorded directory whose maker and check no longer run and prints its path. It never removes a directory the
+  record does not name, and refuses a record naming one the kit does not make.
 - A runner that dies between launch and settle leaves the agents' tree on disk until `settle` (a calibration
   run) or the next `probe` (a probe run) settles it (review2 minor 9); `settle` refuses while the unit's session
   still runs.
@@ -115,9 +123,11 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
 - When the raw result shows no usage limit, `study.py not-a-limit UNIT --reason R` records the operator's decision
   and reason in the ledger while the pause is open: the settled unit is no longer `cut` but what the rules make it
   (the incident its cut set aside, an incident when it failed with a provider error, else its outcome), its pause
-  stops closing starts, and nothing runs again. A unit not yet settled refuses; a probe run is settled only by
-  `probe`, which refuses while starts are closed, so for it the way is `resume-after-limit` (where no pause named a
-  reset, a typed reset after the hit is accepted).
+  stops closing starts, and nothing runs again. A unit not yet settled (its runner was killed before it settled
+  the unit) refuses, and the pause and the refusal say the way out: `settle` the run first, then `not-a-limit`. A
+  probe run is settled only by `probe`, which refuses while starts are closed, so for it the way is
+  `resume-after-limit` after the reset (where no pause named a reset, a typed reset after the hit is accepted); the
+  next `probe` then settles it as a cut run and runs its slot again.
 
 **Check-withheld runs.** For a package with `withheld/`, the runner copies those test files into the run's records
 directory (outside the agents' tree and the sandbox) and names the copy in `SEED_SET_WITHHELD` for the launch;
