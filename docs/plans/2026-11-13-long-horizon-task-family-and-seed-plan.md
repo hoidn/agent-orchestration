@@ -16,8 +16,8 @@ and its limits. The [structural search driver](../design/orc_structural_search_d
 owns the dominance and cost rules. The
 [survey and feasibility report](../reports/2026-11-13-long-horizon-benchmark-survey-and-feasibility.md)
 holds the evidence cited here as "report §n"; recordings are cited by name, as listed in
-`experiments/long_horizon_tasks/recordings.json` and explained in `RECORDINGS.md` beside it
-(branch `feat/long-horizon-recordings`). This plan owns its task list, limits, thresholds and
+`experiments/long_horizon_tasks/recordings.json` and explained in `RECORDINGS.md` beside it.
+This plan owns its task list, limits, thresholds and
 readout. Its commands are for this machine and are not copyable examples. Spend is
 authorized only as the [ledger](#ledger) records.
 
