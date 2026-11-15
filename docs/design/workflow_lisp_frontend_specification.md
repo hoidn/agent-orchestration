@@ -2145,7 +2145,7 @@ source's order. An empty source gives the empty list and evaluates no body.
   (absent, or not pure); `pure_expr_operand_type_mismatch` (a workspace of another type);
   `list_map_effect_body_unsupported` (an unknown or repeated clause). A `:parallel` that is
   absent or not a positive integer literal is refused with the code of `:max` spelled with
-  `parallel` in place of `max`.
+  `parallel` in place of `max`, a name not yet catalogued.
 - *Parallel, at run time.* A list longer than `:max` fails with `list_map_effect_cap_exceeded`
   before any element. When an element fails, its own later effects do not run, and the other
   elements still run to completion and their results are committed; then the map fails the run
