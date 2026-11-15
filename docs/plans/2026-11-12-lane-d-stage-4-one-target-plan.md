@@ -1,7 +1,8 @@
 # Lane D Stage 4: One Target
 
-**Status: Plan, revised 2026-11-12 after an independent review (accept with changes: 1 blocker, 6
-major, 12 minor) and the coordinator's rulings on it; not yet accepted.** This page plans stage 4 of
+**Status: Plan, accepted 2026-11-12; done. The stage is closed: Tasks 0 to 5 are on `main`
+(2026-11-15), and `v0.2.1` is the local tag of the last commit that executes older targets.** This
+page plans stage 4 of
 [Lane D](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#lane-d-delete-and-unify-background-time-boxed):
 one admitted `:target-dsl`, one procedure regime, and the removal of the source forms that are
 registered but refuse at build. It is a plan, not a contract, and not copy-safe guidance. Behavior

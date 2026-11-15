@@ -1,11 +1,9 @@
 # Seed-Set Calibration Plan
 
-**Status: Plan; zero-spend preparation on `feat/seed-set-prep`, no spend yet.** Built: the kit, the usage-limit
-pause, the priced ceiling and the CLI pin (2026-11-14), fix round 1 after review 3, fix round 2 after its
-re-review and fix round 3 on the coordinator's rulings (2026-11-14). Owed before the first call: a scoped check of
-fix rounds 2 and 3, the freeze with `criterion.json`
-(its priced ceilings, per-call worst cases, largest ordinary-rate call per model and CLI pin), the 20-task
-rehearsal, the owner's credential decision and meter reading. This page plans the scaled-down research step
+**Status: Plan; the kit is on `main` (`09068ec8`, 2026-11-15) after five review rounds; nothing spent.** Owed
+before the first paid call, in the [ledger](#ledger)'s order: the owner's decisions, the freeze with
+`criterion.json`, the 20-task rehearsal, the tranche's spend row, then the smoke. The freeze waits for the owner's
+credential-route decision. This page plans the scaled-down research step
 the owner set on 2026-11-11: calibrate a small task set and a judge, then find
 two to four simple workflow programs that run reliably and do at least as well
 as one direct call at acceptable cost, and package them as seeds for a later
