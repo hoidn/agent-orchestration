@@ -132,7 +132,8 @@ def band_effort(cells, rules):
     """
     total = [sum(column) for column in zip(*cells.values())]
     if pooled_label(total[0], total[1], rules["pooled"]) != "screened in":
-        raise ReadoutError(f"a band effort is defined only for a screened-in task; this one is not screened in: {cells}")
+        raise ReadoutError(f"a band effort is defined for a screened-in task only; this one is not screened in: "
+                           f"{cells}")
     rule = rules["band_effort"]
     target = Fraction(str(rule["closest_to"]))
     order = list(cells)
@@ -444,12 +445,17 @@ def _entry(start):
 
 def _listed(starts, efforts):
     """D6's lists: every start that enters no k or n, with its class and why; every flagged observation; the
-    attempts cut by a usage limit, counted per effort; the pilot's attempts, marked (D7.2)."""
-    exclusions = [_entry(s) | {"reason": s["excluded"] or s["ending"]} for s in starts if not s["counted"]]
-    flags = [_entry(s) for s in starts if s["counted"] and s["flagged"]]
+    attempts cut by a usage limit, counted per effort; the pilot's attempts, marked (D7.2); the refused
+    connections of each attempt (D3, D6), which exclude nothing."""
     cuts = Counter(s["effort"] for s in starts if s["class"] == "cut")
-    return {"exclusions": exclusions, "flags": flags, "cuts": {e: cuts[e] for e in efforts},
-            "pilot": [_entry(s) for s in starts if s["pilot"]]}
+    return {"exclusions": [_entry(s) | {"reason": s["excluded"] or s["ending"]} for s in starts if not s["counted"]],
+            "flags": [_entry(s) for s in starts if s["counted"] and s["flagged"]],
+            "cuts": {e: cuts[e] for e in efforts}, "pilot": [_entry(s) for s in starts if s["pilot"]],
+            "egress": _egress(starts)}
+
+
+def _egress(starts):
+    return [_entry(s) | {"refused": s["egress_refused"]} for s in starts if s["egress_refused"]]
 
 
 def _mean(values):
@@ -599,8 +605,8 @@ def _header(result):
 
 def _tasks_table(result):
     efforts = result["configuration"]["efforts"]
-    shown = "no placement after a stop" if result["stop"] else "label"
-    lines = [f"## Tasks (current label; k of n, exact {result['rules']['interval']['level']:.0%} interval, {shown})", "",
+    shown, level = "no placement after a stop" if result["stop"] else "label", result["rules"]["interval"]["level"]
+    lines = [f"## Tasks (current label; k of n, exact {level:.0%} interval, {shown})", "",
              "| Task | " + " | ".join(efforts) + " | Pooled | Band effort |", "|" + " --- |" * (len(efforts) + 3)]
     for task, placed in result["tasks"].items():
         pooled, band = placed["pooled"], placed["band_effort"]
@@ -634,20 +640,24 @@ def _effort_section(result):
                         f"resamples, seed {rule['seed']}): {bound}. {rule['rule']}", ""]
 
 
-def _entries(title, entries, reason=None):
+def _refused(entry):
+    return ", ".join(f"{address}: {count}" for address, count in sorted(entry["refused"].items()))
+
+
+def _entries(title, entries, why=None):
     lines = [f"### {title}", ""]
     for e in entries:
-        why = f": {e[reason]}" if reason else ""
         lines.append(f"- start {e['start']}, {e['task']} {e['effort']} round {e['round']}, row {e['row']} "
-                     f"({e['class']}){why}")
+                     f"({e['class']})" + (f": {why(e)}" if why else ""))
     return lines + (["- none"] if not entries else []) + [""]
 
 
 def _listed_section(listed):
-    return (["## Listed", ""] + _entries("Exclusions (enter no k or n)", listed["exclusions"], "reason")
-            + _entries("Flagged observations", listed["flags"], "ending")
+    return (["## Listed", ""] + _entries("Exclusions (enter no k or n)", listed["exclusions"], lambda e: e["reason"])
+            + _entries("Flagged observations", listed["flags"], lambda e: e["ending"])
             + ["### Cut by a usage limit, per effort", "", ", ".join(f"{e} {n}" for e, n in listed["cuts"].items()),
-               ""] + _entries("The pilot's attempts (they ran first)", listed["pilot"]))
+               ""] + _entries("The pilot's attempts (they ran first)", listed["pilot"])
+            + _entries("Refused connections (they exclude nothing)", listed["egress"], _refused))
 
 
 def _earlier_section(result):
@@ -658,7 +668,7 @@ def _earlier_section(result):
                   "| Task | " + " | ".join(efforts) + " |", "|" + " --- |" * (len(efforts) + 1)]
         lines += [f"| {task} | " + " | ".join(_count(cells[e]) for e in efforts) + " |"
                   for task, cells in earlier["cells"].items()]
-        lines += [""] + _entries("Exclusions under this label", earlier["listed"]["exclusions"], "reason")
+        lines += [""] + _entries("Exclusions under this label", earlier["listed"]["exclusions"], lambda e: e["reason"])
     return lines + (["- none", ""] if not result["earlier"] else [])
 
 

@@ -693,3 +693,21 @@ def test_a_final_readout_reads_the_criterion_of_its_label_only():
         refusals.append(str(caught.value).split(":")[0])
     assert (readout.bound(ladder, manifest, label), refusals) == (
         None, ["the label is not this manifest's SHA-256", "ladder.json is not the manifest's"])
+
+
+# ---- D6's remaining lists: refused connections per attempt; no public figure -------------------------------------
+
+def test_refused_connections_are_listed_per_attempt_and_exclude_nothing():
+    table = {TASKS[0]: {"low": [{"reward": 1, "egress_refused": {"<address>:443": 3}}], "medium": [0], "high": [0]}}
+    result = _compute(_export(table))
+    assert ([(e["effort"], e["refused"]) for e in result["listed"]["egress"]],
+            result["tasks"][TASKS[0]]["cells"]["low"]["k"], "<address>:443: 3" in readout.render(result)) == (
+        [("low", {"<address>:443": 3})], 1, True)
+
+
+def test_no_public_figure_is_read_or_printed():
+    result = _compute(_export(STOPPED))
+    public = {str(task["public_mean_usd_at_max"]) for task in LADDER["tasks"]["list"]}
+    printed = readout.render(result) + readout.family_bytes(readout.family(result, CRITERION, TASKS_DOC)).decode()
+    assert ("public" in printed, sorted(p for p in public if f" {p} " in printed or f"USD {p}" in printed)) == (
+        False, [])
