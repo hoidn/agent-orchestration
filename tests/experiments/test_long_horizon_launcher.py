@@ -2957,8 +2957,9 @@ def test_the_canary_identifier_is_read_from_the_package_by_its_sha256(short):
 
 
 def test_a_contaminated_observation_is_recorded_unscored_and_three_tasks_with_one_of_any_class_stop_the_tranche(rig):
-    r = rig(stand_ins={"readout.contamination_scan.terms": ["stand-in-term"]},
-            plan=[{"write": {"agent/note.txt": "found stand-in-term here"}}])
+    term = (CRITERION["readout"]["contamination_scan"]["terms"] or ["stand-in-term"])[0]  # stand-ins fill pending only
+    r = rig(stand_ins={"readout.contamination_scan.terms": [term]},
+            plan=[{"write": {"agent/note.txt": f"found {term} here"}}])
     r.launch()
     (attempt,) = r.attempts()
     start = _export(r)["starts"][0]
@@ -2968,7 +2969,7 @@ def test_a_contaminated_observation_is_recorded_unscored_and_three_tasks_with_on
     assert (attempt["settled"]["class"], start["excluded"], start["contamination"], loaded[0]["counted"],
             [e for e in r.events() if e["event"] == "stop"], ladder.contamination_stop(three[:2], CRITERION),
             ladder.contamination_stop(three, CRITERION)) == (
-        "observation", None, [hashlib.sha256(b"stand-in-term").hexdigest()], False, [], None,
+        "observation", None, [hashlib.sha256(term.encode()).hexdigest()], False, [], None,
         "contaminated attempts on three tasks")
 
 
