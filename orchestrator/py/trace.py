@@ -437,7 +437,16 @@ def ask(question, *, returns, timeout_sec=None, show=(), name=None):
                       callee="ask", name=name)
 
 
+def _list_operand(value):
+    """A list literal, or a symbolic value typed as a list or not typed here: the compiler checks it."""
+    if isinstance(value, list): return True
+    return isinstance(value, Expr) and (value._annotation is None or get_origin(value._annotation) is list)
+
+
 def _boolean_thunks(kind, thunks, options):
+    if len(thunks) == 1 and not options and _list_operand(thunks[0]):
+        # One list of booleans, not thunks: the pure reduction `list/all` or `list/any`.
+        return declaration_expression("op", ("list/all" if kind == "all_of" else "list/any", thunks[0]), bool)
     trace = active_trace()
     if options:
         raise PythonFrontendError("python_binder_name_unsupported",
@@ -452,6 +461,7 @@ def any_of(*thunks, **options): return _boolean_thunks("any_of", thunks, options
 
 
 def length(value): return declaration_expression("op", ("list/length", value), int)
+def take(value, count): return declaration_expression("op", ("list/take", value, count), getattr(value, "_annotation", None))
 def concat(*values): return declaration_expression("op", ("string/concat", *values), str)
 def not_(value): return declaration_expression("op", ("not", value), bool)
 

@@ -240,7 +240,8 @@ class ListExpr:
     """One target-2.18 ordered list constructor."""
 
     items: tuple["ExprNode", ...]
-    element_type_ref: "TypeRef | None"
+    # The name written after `:of` until typecheck, then the item type.
+    element_type_ref: "TypeRef | str | None"
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
@@ -2647,7 +2648,25 @@ def _elaborate_list_constructor(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> ListExpr:
+    """`(list item…)`, or `(list :of T item…)` with its item type written.
 
+    The written type is kept as its name, which the typechecker resolves.
+    """
+
+    items = datum.items[1:]
+    declared_item_type = None
+    if items and isinstance(items[0], SyntaxKeyword) and items[0].value == ":of":
+        type_node = syntax_identifier(items[1]) if len(items) > 1 else None
+        if type_node is None:
+            _raise_error(
+                "`(list :of T item…)` takes a type name after `:of`",
+                code="list_item_type_invalid",
+                span=items[1].span if len(items) > 1 else datum.span,
+                form_path=form_path,
+                expansion_stack=datum.expansion_stack,
+            )
+        declared_item_type = type_node.resolved_name
+        items = items[2:]
     return ListExpr(
         items=tuple(
             _elaborate(
@@ -2657,9 +2676,9 @@ def _elaborate_list_constructor(
                 procedure_names=procedure_names,
                 session_state=session_state,
             )
-            for item in datum.items[1:]
+            for item in items
         ),
-        element_type_ref=None,
+        element_type_ref=declared_item_type,
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

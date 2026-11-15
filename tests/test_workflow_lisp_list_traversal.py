@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import importlib
+import json
+import os
 import re
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
+from orchestrator.contracts.closed_program.program import ClosedProgram
+from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+from orchestrator.workflow.evaluated.values import coerce_evaluated_value
+from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.expressions import FunctionCallExpr, ProcedureCallExpr, ListMapExpr, NameExpr, PureOpExpr, elaborate_expression
@@ -19,6 +27,8 @@ from orchestrator.workflow_lisp.type_env import (
     PrimitiveTypeRef,
     TypeParamRef,
 )
+from tests.agent_session_shims import closed_path
+from tests.workflow_lisp_closed_program_helpers import build, build_outcome
 
 
 _LIST_TRAVERSAL_AUTHORED_HEADS = (
@@ -31,6 +41,9 @@ _LIST_TRAVERSAL_AUTHORED_HEADS = (
     "list/rest",
     "list/append",
     "list/length",
+    "list/take",
+    "list/all",
+    "list/any",
 )
 
 
@@ -1281,6 +1294,69 @@ def test_list_traversal_authored_head_inventory_is_exact() -> None:
     )
 
 
+_REDUCTIONS_PROGRAM = """(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule reductions) (export run)
+  (defun first-of ((xs List[Int]) (n Int)) -> List[Int] (list/take xs n))
+  (defun all-positive ((xs List[Int])) -> Bool (list/all (list/map ((x xs)) (> x 0))))
+  (defun any-large ((xs List[Int])) -> Bool (list/any (list/map ((x xs)) (> x 5))))
+  (defworkflow run ((xs List[Int])) -> RESULT
+    BODY))"""
+
+
+@pytest.mark.parametrize(
+    ("result", "body", "expected"),
+    (
+        ("List[Int]", "(first-of xs 2)", [1, 2]),
+        ("Bool", "(all-positive xs)", True),
+        ("Bool", "(any-large (first-of xs 2))", False),
+        ("List[Int]", "(list/map ((x xs)) (list/length (list/take xs x)))", [1, 2, 3]),
+        ("List[Bool]", "(list/map ((x xs)) (list/any (list (> x 5) (= x 1))))", [True, False, True]),
+        ("Int", "(if (list/all (list/map ((x xs)) (> x 0))) (list/length (list/take xs 2)) 0)", 2),
+        ("Int", "(if (list/any (list/map ((x xs)) (> x 9))) 1 0)", 0),
+    ),
+    ids=("defun-take", "defun-all", "defun-any", "map-body-take", "map-body-any", "condition-all",
+         "condition-any"),
+)
+def test_reduction_operators_are_pure_everywhere(tmp_path: Path, result: str, body: str, expected) -> None:
+    from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+    from orchestrator.workflow.evaluated.values import EvaluatedValue
+    from tests.test_workflow_evaluated_control import INT, _build_read_back
+
+    source = _REDUCTIONS_PROGRAM.replace("RESULT", result).replace("BODY", body)
+    program = _build_read_back(tmp_path, {"reductions.orc": source}, "reductions::run")
+    xs = EvaluatedValue([1, 2, 9], {"kind": "list", "item": INT}, {"input:xs"})
+
+    def no_effect(*_args):
+        raise AssertionError("a pure operator performed an effect")
+
+    assert evaluate_closed_program(program, {"xs": xs}, effect_handler=no_effect).json_value() == expected
+
+
+@pytest.mark.parametrize(
+    ("result", "body"),
+    (
+        ("List[Int]", "(list/take xs 1.5)"),
+        ("List[Int]", "(list/take xs flag)"),
+        ("Bool", "(list/all xs)"),
+        ("Bool", "(list/any xs)"),
+        ("Bool", "(list/all flag)"),
+    ),
+    ids=("take-float-count", "take-bool-count", "all-of-ints", "any-of-ints", "all-of-a-bool"),
+)
+def test_take_and_reductions_refuse_operands_of_the_wrong_type(tmp_path: Path, result: str, body: str) -> None:
+    from tests.test_workflow_evaluated_control import _build_read_back
+
+    source = (
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n'
+        "  (defmodule refusal) (export run)\n"
+        f"  (defworkflow run ((xs List[Int]) (flag Bool)) -> {result}\n    {body}))"
+    )
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _build_read_back(tmp_path, {"refusal.orc": source}, "refusal::run")
+
+    assert excinfo.value.diagnostics[0].code == "pure_expr_operand_type_mismatch"
+
+
 
 
 def _compile_hygiene_source(tmp_path: Path, source: str):
@@ -1372,3 +1448,290 @@ def test_current_target_imported_macro_hygienically_introduces_list_map_binder(
     assert expression.body_expr.operator == "+"
     assert isinstance(expression.body_expr.args[0], NameExpr)
     assert expression.body_expr.args[0].name == expression.binder_name
+
+
+# The typed list literal `(list :of T item…)` (staged-workflow authoring, Task L).
+
+_COMMAND_BOUNDARIES = {
+    name: ExternalToolBinding(name=name, stable_command=("python", "probe.py"), closure=())
+    for name in ("fetch",)
+}
+_FETCH_WORKFLOW = (
+    "(defworkflow fetch-one ((n Int)) -> Int "
+    '(command-result fetch :argv ("python" "probe.py" n) :returns Int))'
+)
+
+
+def _typed_list_module(body: str, *, returns: str, extra: str = "", params: str = "") -> str:
+    return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule typed_list) (export run)
+  {extra}
+  (defworkflow run ({params}) -> {returns} {body}))'''
+
+
+def _typed_list_program(root: Path, source: str) -> ClosedProgram:
+    return ClosedProgram.from_artifact(build(root, source, boundaries=_COMMAND_BOUNDARIES).artifact())
+
+
+def _typed_list_outcome(root: Path, source: str) -> tuple:
+    return build_outcome(lambda: build(root, source, boundaries=_COMMAND_BOUNDARIES))
+
+
+# Each case: (result type, workflow body, its value).
+_TYPED_EMPTY_POSITIONS = {
+    "let_binding": ("List[String]", '(let* ((xs (list :of String))) (list/append xs "a"))', ["a"]),
+    "loop_state_fn_form": (
+        "List[String]",
+        '(loop/recur :max 3 :state (list :of String) '
+        '(fn (s) (if (= (list/length s) 2) (done s) (continue (list/append s "x")))))',
+        ["x", "x"],
+    ),
+    "loop_state_binder_form": (
+        "List[String]",
+        '(loop/recur ((s (list :of String))) :max 3 '
+        '(if (= (list/length s) 2) (done s) (continue (list/append s "x"))))',
+        ["x", "x"],
+    ),
+    "continue_value": (
+        "Int",
+        '(loop/recur ((s (list "a"))) :max 3 (if (list/empty? s) (done 7) (continue (list :of String))))',
+        7,
+    ),
+    "done_value": ("Int", "(list/length (loop/recur ((s 0)) :max 2 (done (list :of String))))", 0),
+    "on_exhausted_value": (
+        "Int",
+        '(list/length (loop/recur ((s 0)) :max 2 :on-exhausted (list :of String) '
+        '(if (= s 9) (done (list "z")) (continue (+ s 1)))))',
+        0,
+    ),
+    "list_append_operand": ("List[String]", '(list/append (list :of String) "a")', ["a"]),
+    "map_source": ("List[Int]", "(list/map ((x (list :of String))) 1)", []),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_TYPED_EMPTY_POSITIONS))
+def test_typed_empty_list_in_every_position(tmp_path: Path, case: str) -> None:
+    returns, body, value = _TYPED_EMPTY_POSITIONS[case]
+    program = _typed_list_program(tmp_path, _typed_list_module(body, returns=returns))
+
+    assert evaluate_closed_program(program, {}).json_value() == value
+
+
+def test_typed_empty_list_as_an_equal_operand_meets_the_list_equality_refusal(tmp_path: Path) -> None:
+    """`=` compares no lists; a typed list reaches that refusal, as two named lists do."""
+    typed = _typed_list_outcome(tmp_path / "typed", _typed_list_module(
+        "(= (list :of String) (list :of String))", returns="Bool"))
+    named = _typed_list_outcome(tmp_path / "named", _typed_list_module(
+        "(= xs ys)", returns="Bool", params="(xs List[String]) (ys List[String])"))
+
+    assert typed == named == ("refused", "pure_expr_operand_type_mismatch")
+
+
+# Each case: (result type, extra definitions, parameters, body with `{list}` where the list stands).
+_CONTEXT_STATED_POSITIONS = {
+    "record_field": ("R", "(defrecord R (xs List[String]))", "", "(record R :xs {list})"),
+    "workflow_argument": (
+        "Int", "(defworkflow count-of ((xs List[String])) -> Int (list/length xs))", "",
+        "(call count-of :xs {list})",
+    ),
+    "if_arm": ("List[String]", "", "(c Bool) (ys List[String])", "(if c ys {list})"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_CONTEXT_STATED_POSITIONS))
+def test_typed_list_has_the_digest_of_the_contextual_list(tmp_path: Path, case: str) -> None:
+    returns, extra, params, body = _CONTEXT_STATED_POSITIONS[case]
+    programs = [
+        _typed_list_program(tmp_path / name, _typed_list_module(
+            body.format(list=written), returns=returns, extra=extra, params=params))
+        for name, written in (("untyped", "(list)"), ("typed", "(list :of String)"))
+    ]
+
+    assert (programs[1].digest, programs[1].sites) == (programs[0].digest, programs[0].sites)
+
+
+def test_typed_list_with_items_has_the_digest_of_the_untyped_list(tmp_path: Path) -> None:
+    programs = [
+        _typed_list_program(tmp_path / name, _typed_list_module(
+            f'(let* ((xs {written})) (list/append xs "c"))', returns="List[String]"))
+        for name, written in (("untyped", '(list "a" "b")'), ("typed", '(list :of String "a" "b")'))
+    ]
+
+    assert programs[1].digest == programs[0].digest
+
+
+_TYPED_LIST_REFUSALS = {
+    "item_of_another_type": ("List[Int]", "", '(list :of Int "a")', "pure_expr_operand_type_mismatch"),
+    "context_of_another_type": (
+        "R", "(defrecord R (xs List[String]))", "(record R :xs (list :of Int))", "pure_expr_operand_type_mismatch",
+    ),
+    "unknown_type": ("Int", "", "(list/length (list :of Nope))", "type_unknown"),
+    "no_type": ("Int", "", "(list/length (list :of))", "list_item_type_invalid"),
+    "type_not_a_name": ("Int", "", "(list/length (list :of 3))", "list_item_type_invalid"),
+    "value_name": ("Int", "", "(let* ((n 3)) (list/length (list :of n 4)))", "type_unknown"),
+    "value_named_like_a_primitive_type": (
+        "List[String]", "", '(let* ((Int "s")) (list :of Int "a"))', "pure_expr_operand_type_mismatch",
+    ),
+    "value_named_like_a_record_type": (
+        "Int", "(defrecord R (v String))", "(let* ((R 1)) (list/length (list :of R 1)))",
+        "pure_expr_operand_type_mismatch",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_TYPED_LIST_REFUSALS))
+def test_typed_list_checks_its_items_and_its_context(tmp_path: Path, case: str) -> None:
+    returns, extra, body, code = _TYPED_LIST_REFUSALS[case]
+
+    assert _typed_list_outcome(tmp_path, _typed_list_module(body, returns=returns, extra=extra)) == (
+        "refused", code)
+
+
+@pytest.mark.parametrize(
+    "value", ("(list 1)", "(list :of Int)", "(list/map ((x s)) 1)"),
+    ids=("untyped_items", "typed_empty", "map"),
+)
+def test_wrongly_typed_continue_list_keeps_the_continue_refusal(tmp_path: Path, value: str) -> None:
+    body = f'(loop/recur ((s (list "a"))) :max 2 (if (list/empty? s) (done 1) (continue {value})))'
+
+    assert _typed_list_outcome(tmp_path, _typed_list_module(body, returns="Int")) == (
+        "refused", "loop_recur_continue_type_mismatch")
+
+
+@pytest.mark.parametrize(
+    ("returns", "extra", "body", "value"),
+    (
+        ("Int", "", '(loop/recur ((s (list "a"))) :max 3 (if (list/empty? s) (done 7) (continue (list))))', 7),
+        ("Int", "(defun count ((xs List[String])) -> Int (list/length xs))", "(count (list))", 0),
+    ),
+    ids=("continue_value", "defun_argument"),
+)
+def test_empty_list_takes_its_type_from_continue_and_a_defun_argument(
+    tmp_path: Path, returns: str, extra: str, body: str, value: object,
+) -> None:
+    program = _typed_list_program(tmp_path, _typed_list_module(body, returns=returns, extra=extra))
+
+    assert evaluate_closed_program(program, {}).json_value() == value
+
+
+def test_typed_list_names_a_type_parameter_of_a_generic_procedure(tmp_path: Path) -> None:
+    """`T` resolves to the procedure's parameter; a `List[T]` in a generic body is then refused as
+    `(list x)` with `x` of type `T` is."""
+    outcomes = [
+        _typed_list_outcome(tmp_path / name, _typed_list_module(
+            '(list/length (wrap "a"))', returns="Int",
+            extra=f"(defproc wrap :forall (T) ((x T)) -> List[T] {body})"))
+        for name, body in (("typed", "(list/append (list :of T) x)"), ("untyped", "(list x)"))
+    ]
+
+    assert outcomes[0] == outcomes[1] == ("refused", "list_collection_contract_unsupported")
+
+
+# Surface coherence E1: a list element takes an effect only when every part of the list is simple.
+# Each case: (typed list, untyped list) in one `let*` binding.
+_TYPED_LIST_EFFECT_ELEMENTS = {
+    "direct_effect": ("(list :of Int (call fetch-one :n 1) 2)", "(list (call fetch-one :n 1) 2)"),
+    "effect_beside_a_conditional": (
+        "(list :of Int (call fetch-one :n 1) (if c 2 3))", "(list (call fetch-one :n 1) (if c 2 3))",
+    ),
+    "effect_in_a_conditional": (
+        "(list :of Int (if c (call fetch-one :n 1) 0) 2)", "(list (if c (call fetch-one :n 1) 0) 2)",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_TYPED_LIST_EFFECT_ELEMENTS))
+def test_typed_list_admits_effect_elements_as_the_untyped_list_does(tmp_path: Path, case: str) -> None:
+    outcomes = []
+    for name, written in zip(("typed", "untyped"), _TYPED_LIST_EFFECT_ELEMENTS[case], strict=True):
+        source = _typed_list_module(f"(let* ((xs {written})) (list/length xs))", returns="Int",
+                                    extra=_FETCH_WORKFLOW, params="(c Bool)")
+        outcome = _typed_list_outcome(tmp_path / name, source)
+        if outcome == ("builds",):
+            program = _typed_list_program(tmp_path / f"{name}-program", source)
+            outcome = ("builds", program.digest, program.sites)
+        outcomes.append(outcome)
+
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][0] == ("builds" if case == "direct_effect" else "refused")
+
+
+def test_typed_list_in_a_macro_template_used_twice_gives_two_values(tmp_path: Path) -> None:
+    extra = (_FETCH_WORKFLOW + " (defrecord Pair (a List[Int]) (b List[Int]))"
+             " (defmacro fetched (n) (list :of Int (call fetch-one :n n)))")
+    program = _typed_list_program(tmp_path, _typed_list_module(
+        "(let* ((a (fetched 1)) (b (fetched 1))) (record Pair :a a :b b))", returns="Pair", extra=extra))
+    identities: list[str] = []
+
+    def perform(node, _operands, identity, _owner, _reader):
+        identities.append(identity)
+        return coerce_evaluated_value(len(identities), node["result"], dependencies={identity},
+                                      committed_result_path=f"artifacts/{len(identities)}.json")
+
+    result = evaluate_closed_program(program, {}, effect_handler=perform)
+
+    assert (result.json_value(), len(set(identities))) == ({"a": [1], "b": [2]}, 2)
+
+
+_GROWING_LOOP = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule grow) (export run)
+  (defworkflow run () -> List[String]
+    (loop/recur ((notes (list :of String))) :max 4
+      (if (= (list/length notes) 3) (done notes)
+        (continue (list/append notes
+          (command-result step :argv ("python" "step.py" (list/length notes)) :returns String)))))))
+'''
+_NOTE_STEP = '''import json, os, sys
+from pathlib import Path
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps("note-" + sys.argv[1]))
+'''
+# `:steps` takes a name: a fill operand is a literal, a name or a field path, and a list is none of these.
+_EMPTY_FILL = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule fill) (export run)
+  (defrecord Feedback (findings List[String]))
+  (defprompt review (:fills (steps :value List[String])) -> Feedback "Review the plan: {steps}")
+  (defworkflow run () -> Int
+    (let* ((none (list :of String))
+           (feedback (provider-result providers.review :model "m" :effort "low" :prompt (review :steps none))))
+      (list/length feedback.findings))))
+'''
+_REVIEW_STAND_IN = '''import os, sys
+from pathlib import Path
+sys.stdin.buffer.read()
+with Path("calls.log").open("a") as stream:
+    stream.write("launched\\n")
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text('{"findings": ["a", "b"]}')
+'''
+
+
+def _orchestrator_run(root: Path, *argv: str) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "PATH": closed_path(root / "bin"), "PYTHONPATH": str(Path(__file__).parents[1]),
+           "PYTHONDONTWRITEBYTECODE": "1"}
+    return subprocess.run([sys.executable, "-B", "-m", "orchestrator", "run", *argv], cwd=root, env=env,
+                          capture_output=True, text=True, check=False, timeout=120)
+
+
+def test_loop_state_started_as_a_typed_empty_list_grows_through_the_command_line(tmp_path: Path) -> None:
+    (tmp_path / "grow.orc").write_text(_GROWING_LOOP, encoding="utf-8")
+    (tmp_path / "step.py").write_text(_NOTE_STEP, encoding="utf-8")
+    (tmp_path / "commands.json").write_text(
+        json.dumps({"step": {"stable_command": ["python", "step.py"], "closure": ["step.py"]}}), encoding="utf-8")
+
+    ran = _orchestrator_run(tmp_path, "grow.orc")
+
+    assert (ran.returncode, json.loads(ran.stdout.splitlines()[-1])) == (
+        0, ["note-0", "note-1", "note-2"]), ran.stderr
+
+
+def test_typed_empty_list_bound_by_let_fills_a_prompt_through_the_command_line(tmp_path: Path) -> None:
+    (tmp_path / "fill.orc").write_text(_EMPTY_FILL, encoding="utf-8")
+    (tmp_path / "providers.json").write_text(json.dumps({"providers.review": "codex"}), encoding="utf-8")
+    stand_in = tmp_path / "bin" / "codex"
+    stand_in.parent.mkdir()
+    stand_in.write_text(f"#!{sys.executable}\n" + _REVIEW_STAND_IN, encoding="utf-8")
+    stand_in.chmod(0o700)
+
+    ran = _orchestrator_run(tmp_path, "fill.orc", "--provider-externs-file", "providers.json")
+
+    launches = (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
+    assert (ran.returncode, ran.stdout.splitlines()[-1], len(launches)) == (0, "2", 1), ran.stderr

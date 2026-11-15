@@ -1,5 +1,9 @@
 # Workflow Lisp ProcRef And Partial Application Delta
 
+Status: **Historical — archived in place.** Superseded: its rules for `ProcRef` types, `(proc-ref name)` and `bind-proc` are now stated, with their diagnostic codes, by the language reference. Current authority: [frontend specification §7.8](workflow_lisp_frontend_specification.md#78-procedure-references) (the type, the literal, what is done with a reference, `bind-proc`, the open defects) and [§14](workflow_lisp_frontend_specification.md#14-workflow-calls) (how a reference is called, and what a call site is); [§8.8](workflow_lisp_frontend_specification.md#88-defproc) for the lowering policy of a procedure. Its Core AST, Semantic IR and Executable IR lowering and its source-map artifacts describe removed code, and its `(call implementation/run :ctx ctx …)` on a procedure is refused today. Where each of its rules went: [rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#t9-callables).
+
+The historical body begins below; original results and qualifications are unchanged.
+
 Status: implemented design delta
 Extends: [Workflow Lisp Frontend Specification](workflow_lisp_frontend_specification.md)
 

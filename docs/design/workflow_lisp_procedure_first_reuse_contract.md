@@ -15,7 +15,7 @@ old-run recovery and explicit retirement are governed by
 - **Related docs:**
   - `docs/design/workflow_lisp_frontend_specification.md`
   - `docs/design/workflow_lisp_parametric_type_system.md`
-  - `docs/design/workflow_lisp_proc_refs_partial_application.md`
+  - [Frontend specification §7.8](workflow_lisp_frontend_specification.md#78-procedure-references) (procedure references; `docs/design/workflow_lisp_proc_refs_partial_application.md` is the historical record)
   - [Frontend specification §8.10](workflow_lisp_frontend_specification.md#810-return-types-and-result-guidance) (`docs/design/workflow_lisp_native_transportable_returns.md` is the historical record)
   - `docs/design/workflow_lisp_effect_graph.md`
   - `docs/design/workflow_lisp_state_layout.md` (historical record)

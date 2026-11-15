@@ -276,8 +276,8 @@ Against the copies the feasibility check used (`harbor-framework/terminal-bench`
   - Instructions and reference solutions did not change.
   - For those 7, the public per-task counts were measured on a different environment.
 - `tasks.json` now also holds each task's pinned images and withholding result (Task 2b, below), and the
-  first oracle pass filled `overlay_digest` and `oracle_evidence` ("First oracle pass"). `cap` and
-  `extra_hosts` stay `null` until Task 3.
+  first oracle pass filled `overlay_digest` and `oracle_evidence` ("First oracle pass"). `extra_hosts`
+  stays `null` until Task 3 freezes it; the per-attempt cap lives only in `ladder.json`.
 
 ### Token mode (owner ruling: subscription only)
 

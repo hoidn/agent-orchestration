@@ -18,9 +18,8 @@ retired under the [source-floor contract](workflow_lisp_executor_retirement.md#s
 not selected by an old imported header.
 
 Lifecycle note: this document is the parent language contract for Workflow
-Lisp. Focused companion contracts refine current ProcRef, compiler
+Lisp. Focused companion contracts refine current compiler
 middle-end, runtime migration, and composition/stdlib behavior:
-[Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md),
 [Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md),
 [Workflow Lisp Runtime Migration Foundation](workflow_lisp_runtime_migration_foundation.md),
 [Workflow Lisp Post-Foundation Composition And Stdlib Migration](workflow_lisp_post_foundation_composition_stdlib_migration.md),
@@ -28,7 +27,7 @@ middle-end, runtime migration, and composition/stdlib behavior:
 and
 [Workflow Lisp Native Transportable Returns And Typed Result Guidance](workflow_lisp_native_transportable_returns.md),
 and
-[Workflow Lisp Pure List Traversal](workflow_lisp_pure_list_traversal.md),
+[Workflow Lisp Pure List Traversal](workflow_lisp_pure_list_traversal.md) (historical record),
 and
 [Workflow Lisp Provider Live Binding](workflow_lisp_provider_live_binding.md),
 and
@@ -772,16 +771,19 @@ entry here or in a heading.
 | `some?` | Whether an `Optional` holds a value | [§10.2](#102-closed-pure-expression-surface) |
 | `or-else` | An `Optional`'s value, or a typed fallback | [§10.2](#102-closed-pure-expression-surface) |
 | `record-update` | A copy of a record with some fields replaced | [§10.2](#102-closed-pure-expression-surface) |
-| `list/empty?` | Whether a list is empty | [§10.2](#102-closed-pure-expression-surface) |
-| `list/head` | A list's first element as an `Optional` | [§10.2](#102-closed-pure-expression-surface) |
-| `list/rest` | A list without its first element | [§10.2](#102-closed-pure-expression-surface) |
-| `list/append` | A list with one element added at the end | [§10.2](#102-closed-pure-expression-surface) |
-| `list/length` | A list's length | [§10.2](#102-closed-pure-expression-surface) |
+| `list/empty?` | Whether a list is empty | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/head` | A list's first element as an `Optional`; the absent value for the empty list | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/rest` | A list without its first element | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/append` | A list with one element added at the end | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/length` | A list's length | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/take` | A list's first `n` elements | [§10.2](#102-closed-pure-expression-surface) |
+| `list/all` | Whether every element of a `List[Bool]` is true | [§10.2](#102-closed-pure-expression-surface) |
+| `list/any` | Whether some element of a `List[Bool]` is true | [§10.2](#102-closed-pure-expression-surface) |
 | `print` | Writes a value to stdout and returns it | [§10.2](#102-closed-pure-expression-surface) |
-| `list` | Constructs a `List[T]` | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list` | Constructs a `List[T]` from elements of one type | [§10.3](#103-target-218-bounded-list-traversal) |
 | `list/map` | Maps a pure body over a list | [§10.3](#103-target-218-bounded-list-traversal) |
-| `list/map-effect` | Maps one effectful call over a list, at most `:max` elements | [§10.3](#103-target-218-bounded-list-traversal) |
-| `path/join-under` | A path of a named rooted path type | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/map-effect` | Evaluates a body that may hold effects once per element of a list of at most `:max` elements | [§10.3](#103-target-218-bounded-list-traversal) |
+| `path/join-under` | A path below the root of a named path type | [§10.3](#103-target-218-bounded-list-traversal) |
 | `provider-result` | A provider step with a typed result | [§22](#22-provider-result) |
 | `provider-bundle-path` | The path of a provider result's committed bundle | [§22](#22-provider-result) |
 | `command-result` | A command step with a typed result | [§23](#23-command-result) |
@@ -1267,66 +1269,286 @@ when it is the entry or is called, so a workflow reference is passed only to a
 ```text
 ProcRef[PhaseInput -> PhaseResult]
 ProcRef[(SelectedItem Design Plan) -> ImplementationResult]
+ProcRef[() -> Status]
 ```
 
-Procedure references are compile-time references to named `defproc`
-definitions. They provide higher-order procedural composition without adding
-runtime procedure values, closures, provider-selected procedures, or dynamic
-dispatch in executable IR.
+A procedure reference is a compile-time name for a `defproc` or for a
+`let-proc` local. It lets a procedure take part of its behaviour as a
+parameter. References are resolved while the program is compiled: the checked
+program holds procedure bodies and no reference type, reference form or
+procedure value.
 
-The accepted model is:
+**The type.** `ProcRef[A -> R]` has one parameter, `ProcRef[(A B) -> R]`
+several and `ProcRef[() -> R]` none. It gives the parameter types and the
+return type; parameter names are not part of it. Diagnostics:
+`type_expression_invalid`, `type_unknown`.
 
-- `ProcRef[...]` types reference named `defproc` signatures;
-- `(proc-ref name)` creates an explicit compile-time procedure reference;
-- `bind-proc` partially binds named arguments and produces a specialized
-  compile-time `ProcRef`;
-- specialization happens before WCC elaboration, Core Workflow AST projection,
-  and Semantic IR projection;
-- executable IR and runtime state contain no unresolved procedure values.
+**Where the type is written.**
 
-Detailed contract:
-[Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md).
+- As the type of a `defproc` parameter.
+- Not in a record field, a union field, a collection element (`List`,
+  `Optional`, `Map`), a workflow parameter or a loop state:
+  `proc_ref_runtime_transport_forbidden`, and in a `loop-state` field
+  `loop_state_runtime_transport_forbidden`.
+- Not as a workflow's return type (`workflow_return_type_invalid`) or a
+  command's result type (`command_result_return_type_invalid`).
+- A `defproc` return type of this type compiles where it is declared. The
+  returned reference is refused where it is bound or passed
+  (`proc_ref_literal_required`).
+- A `defun` parameter of this type compiles where it is declared. A `defun`
+  that calls the parameter is refused where the `defun` is called
+  (`procedure_call_unknown`).
 
-A `let-proc` local is a compile-time procedure specialized as a private
-generated procedure through ordinary `defproc` lowering. A local that declares
-its signature (typed parameters and `-> Type`) is called by name with
-positional arguments, `(f a …)`, and builds the same program as the alias call
-`(let* ((g (proc-ref f))) (g a …))`; it can also be passed with `(proc-ref f)`.
-A local without a signature can only be passed, once, to a consumer whose
-parameter type supplies it; calling it by name is refused
-(`let_proc_signature_required`). Locals do not see each other: a local is
-called from the `let-proc` body, not from another local
-(`let_proc_sibling_call_unsupported`; a sibling's `proc-ref` is
-`proc_ref_unknown`) or itself (`let_proc_recursive_unsupported`), and
-`let-proc` does not nest. A procedure reference, a local's included, is passed
-and bound but not stored, chosen at run time or returned: a `let*` binding of a
-reference chosen by `if`, `cond` or `match`, or returned by a procedure, is
-refused (`proc_ref_literal_required`), and a local's reference leaving its
-`let-proc` is `let_proc_scope_escape`.
+**`(proc-ref name)`** takes one symbol. It names a `defproc` of the module, an
+exported `defproc` of an imported module (by its `:only` name, as `alias.name`
+or as `module/name`), or a `let-proc` local in scope. The name of a procedure
+written without `proc-ref` is not a reference. Diagnostics: `proc_ref_unknown`
+(no such procedure; a function and a workflow are not procedures),
+`proc_ref_private_import_invalid` (a qualified name the other module does not
+export; an `:only` import of it is `module_export_missing`),
+`frontend_parse_error` (not one symbol), `proc_ref_literal_required` (a bare
+procedure name where a reference is expected).
 
-**A `let-proc` local does not shadow a function or a form:** `(f …)` calls the
-`defun` or the built-in form named `f`, not the local; give locals distinct
-names. A local named like a `defun` compiles and its by-name call is not its
-alias call; only the breaking release that removes the older targets may refuse
-such a local at its definition. What `(f …)` reaches in the `let-proc` body:
+A module does not define two procedures of one name
+(`procedure_definition_duplicate`) or a procedure and a function of one name
+(`callable_name_collision`). A workflow or a type (a record, a union, an enum)
+may have a procedure's name: a workflow is named by `call`, a type in a type
+position. A procedure and a macro of one name are an open defect (`T9.13`
+below).
+
+**What is done with a reference.** A reference is
+
+- passed as the argument of a `ProcRef` parameter, whose type it matches in
+  arity, in each parameter type and in the return type
+  (`proc_ref_signature_invalid`);
+- bound to a name with `let*`, where the bound expression is `(proc-ref …)`,
+  `(bind-proc …)` or a name so bound; the name is then called or passed;
+- specialized with `bind-proc`;
+- called with positional arguments, `(g a …)` (§14).
+
+In the body of a `defproc`, a `ProcRef` parameter is called and is passed on as
+an argument. A reference has no run-time value:
+
+- one chosen by `if`, `cond` or `match`, or returned by a procedure, is
+  refused where it is bound or passed (`proc_ref_literal_required`);
+- a reference is refused as an operand of `=`
+  (`pure_expr_operand_type_mismatch`), as a list element
+  (`list_collection_contract_unsupported`) and as a field value
+  (`type_mismatch`).
+
+`proc-ref` and `bind-proc` run none of the procedure's effects: a reference
+that is bound and not called does not run the procedure.
+
+**`(bind-proc base :param value …)`** fixes some parameters of a procedure and
+gives a reference to the rest.
+
+- `base` is a reference: `(proc-ref …)`, another `bind-proc`, or a name of
+  `ProcRef` type. One or more keyword and value pairs follow. Diagnostics:
+  `frontend_parse_error` (no pair, or a value without a keyword),
+  `proc_ref_literal_required` (`base` is not a reference).
+- Each keyword names a parameter of the procedure that is not bound yet, in
+  this form or in `base` (`proc_ref_binding_unknown`,
+  `proc_ref_binding_duplicate`).
+- Each value has the type of its parameter (`proc_ref_binding_type_invalid`).
+  A `ProcRef` parameter takes a reference of that type
+  (`proc_ref_signature_invalid`), and a `WorkflowRef` parameter takes
+  `(workflow-ref w)`. An `Agent` value is not bound
+  (`let_proc_capture_agent_forbidden`).
+- The result takes the parameters left unbound, in the order the procedure
+  declares them, whatever the order of the keywords. When none is left it is
+  a `ProcRef[() -> R]`. Passed to a parameter of another type it is refused
+  (`proc_ref_signature_invalid`).
+- A bound value is evaluated once, where the `bind-proc` is evaluated: before
+  a call of the result, and also when the result is not called. An effect
+  written as a bound value (a command, a call of a procedure that has
+  effects, a workflow call) runs there, and not again at a call of the
+  result. It is an effect of the procedure or workflow that holds the
+  `bind-proc`. A later binding of a name that a bound value reads does not
+  change the value.
+
+Whether two `bind-proc` forms over one procedure are two specializations
+depends on how their bound values are identified:
+
+- A bound value that is a literal is identified by its value, a name by the
+  name, and a field read by its name and fields. Two forms that bind
+  different literals, names or field reads are two specializations, also in
+  two expansions of one macro.
+- Another bound value is identified by its source position. Two forms
+  written at two places are two specializations.
+- A bound value made only of literals, operator applications other than
+  `and`, `or` and `not`, `(workflow-ref w)`, enum members, records, variants
+  and lists is identified by its position and by its content. Two expansions
+  of one macro template have one position, and they are two specializations
+  when such values differ: `(+ k 0)` expanded with 1 and with 7,
+  `(record Box :n k)`, `(workflow-ref w)`.
+- A bound value that holds anything else (a name or a field read inside a
+  larger value, an `if`, a `let*`, a `match`, a loop, a call, or `and`, `or`,
+  `not`) is identified by its position alone.
+
+Open defect (rows of the defect record,
+`tests/test_workflow_lisp_defect_backlog.py`): two expansions of one macro
+template whose bound values are of this last kind and differ share one
+specialization. The program then uses the value of the first expansion (rows
+`B7-macro-if-pure`, `B7-macro-not-pure`, `B7-macro-and-pure`,
+`B7-macro-record-call-pure`, `B7-macro-record-map-pure`; finding `T9.19`) or
+stops with `compiler_defect` (rows `B7-macro-if`, `B7-macro-let`,
+`B7-macro-match`, `B7-macro-loop`, `B7-macro-or`, `B7-macro-defun`,
+`B7-free-eff`, `B7-free-pure`, `B7-free-arg`). The
+[versioning](../../specs/versioning.md) entry on bound values (exceptions to
+target stability) says what a run recorded before the content was part of the
+identity meets at `resume`.
+
+**`let-proc`** defines procedures that are local to one expression.
+
+```lisp
+(let-proc
+  ((bump ((x Int)) -> Int (+ x step))   ; signature declared: called by name
+   (twice (x) (* x 2)))                 ; signature taken from the parameter of apply1
+  (let* ((b (bump n)))
+    (apply1 (proc-ref twice) b)))
+```
+
+- *Form.* `(let-proc bindings body)`: `bindings` is one binding or a list of
+  one or more bindings, and `body` is one expression. A binding is
+  `(name (parameter …) [-> Type] [:captures (name …)] local-body)`, with the
+  clauses in this order and one `local-body`. A parameter is `x` or
+  `(x Type)`. A type is one type name here, such as `Int` or `List[Int]`,
+  without result guidance. The locals of one `let-proc` have different names,
+  and so have the parameters of one local. Diagnostics:
+  `let_proc_syntax_invalid`.
+- *Names.* A local's name differs from the names bound where the `let-proc`
+  stands (a `let*` binding, a procedure parameter, a workflow input), from
+  the name of a `defproc` of the module or imported with `:only`, and from
+  the declared externs (`let_proc_syntax_invalid`). The name is used in
+  `body`: called, or passed as `(proc-ref name)`. The bare name is not a
+  reference (`proc_ref_literal_required`). The name is unknown after the
+  `let-proc` (`procedure_call_unknown`, `proc_ref_unknown`), in its own
+  `local-body` (`let_proc_recursive_unsupported`) and in a sibling's
+  (`let_proc_sibling_call_unsupported`; a sibling's `proc-ref` is
+  `proc_ref_unknown`). The procedure generated for a local has no name that
+  source can write (`module_reference_invalid`, `proc_ref_unknown`).
+- *Placement.* A `let-proc` is refused inside a `local-body` and inside the
+  `body` of another `let-proc` (`let_proc_nested_unsupported`), and in a
+  `defun` (`pure_function_has_effect`). Two `let-proc` forms side by side, and
+  one in a procedure that `body` calls, are not nested.
+- *A declared signature.* A local whose parameters all have types and which
+  has `-> Type` is called by name with positional arguments, `(f a …)`, and
+  builds the same program as its alias call
+  `(let* ((g (proc-ref f))) (g a …))`. It is also passed with `(proc-ref f)`,
+  at more than one place, bound with `let*`, and specialized with
+  `bind-proc`. Its `local-body` has the declared type
+  (`let_proc_return_type_invalid`).
+- *A signature taken from the consumer.* A local that leaves out a parameter
+  type or `-> Type` takes the missing types from the `ProcRef` parameter it
+  is passed to.
+  - `(proc-ref f)` is written as an argument of one call in `body`: a call
+    of a `defproc`, of a local with a declared signature, or of a name bound
+    to a reference. Several arguments of that call may pass it, and a call
+    inside a loop is one call. No such call, or two (also one in each branch
+    of an `if`): `let_proc_consumer_site_invalid`.
+  - `(proc-ref f)` anywhere else (a `let*` binding, the base of `bind-proc`):
+    `let_proc_indirect_reference_unsupported`. A call by name:
+    `let_proc_signature_required`.
+  - The parameter is a `ProcRef` (`let_proc_expected_signature_missing`) of
+    the local's arity (`proc_ref_signature_invalid`).
+  - When the called procedure is generic, its type parameters are bound from
+    its other arguments and from the types of the locals' bodies, in whatever
+    order the locals and the arguments are written. A type that neither an
+    annotation nor the call fixes: `let_proc_expected_signature_missing`.
+  - A `local-body` that does not fit: `type_mismatch`, or
+    `let_proc_return_type_invalid` when it contradicts a written `-> Type`.
+- *Captures.* A `local-body` reads the names in scope where the `let-proc`
+  stands; those it reads are its captures. A parameter, and a binding inside
+  `local-body`, hide an outer name.
+  - `:captures (a b)` is optional and is checked: its entries are plain names
+    (`let_proc_capture_not_identifier`), in scope
+    (`let_proc_capture_unknown`), without a repeat
+    (`let_proc_capture_duplicate`), and they include each outer name that
+    `local-body` reads (`let_proc_capture_missing`). An entry that is not
+    read is dropped, and the program is the one built without the clause.
+  - A capture keeps the value it has where the `let-proc` stands. A later
+    binding of the same name, in `body` or in the procedure that calls the
+    local, does not change it. A captured name that holds an effect's result
+    is read, not run again, by each call.
+  - A declared provider extern is used in a `local-body` without being a
+    capture and is not listed in `:captures`. An `Agent` value is not
+    captured (`let_proc_capture_agent_forbidden`).
+- *Body and effects.* A `local-body` may run effects, and it may be a
+  `loop/recur` with a `loop-state`, in either loop form. A local that is not
+  called runs nothing. The effects of a local, and of a procedure passed by
+  reference, count for the procedure that calls them: under `:effects ()`
+  they are refused (`procedure_effect_ceiling_exceeded`, §8.8). A place in a
+  `local-body` that holds an effect follows §16.3 (`effect_not_permitted`). A
+  local is called in the body of a `list/map-effect`. In the body of a pure
+  `list/map` a call of a local is refused (`list_map_body_effect_forbidden`);
+  that a local whose body is pure is refused too is open defect `T9.15`.
+- *Scope and cycles.* A local's reference does not leave its `let-proc`:
+  bound outside or returned by the enclosing procedure it is
+  `let_proc_scope_escape`, and passed as the value of the whole `let-proc` it
+  is `proc_ref_literal_required`. A procedure that reaches itself through a
+  reference is refused where it is defined, called or not
+  (`proc_ref_specialization_cycle`); one that reaches itself through a local
+  is `proc_lowering_cycle`.
+- *Target 2.35.* A module at target 2.35 writes the older form: one binding,
+  not in a list, with typed parameters, `-> Type` and `:captures (…)` all
+  present, `(let-proc (f ((x Int)) -> Int :captures (k) (+ x k)) body)`.
+  Diagnostics: `let_proc_multiple_bindings_unsupported`,
+  `let_proc_name_collision`, `let_proc_syntax_invalid`.
+
+**Open defect (rows `B3`, `B3-print`): a local named like a function or a
+form.** A local named like a `defun` or a built-in form compiles, and `(f …)`
+calls the function or the form, not the local; the one-target cut decides
+whether such a local is refused. Give locals distinct names. What `(f …)`
+reaches in `body`:
 
 | The local's name is also | `(f …)` |
 | --- | --- |
-| a `defproc` (same module or imported), a declared extern, a workflow parameter or an outer `let*` binding | refused at the local's definition (`let_proc_syntax_invalid`, colliding name) |
+| a `defproc` (same module or imported), a declared extern, a workflow parameter or an outer `let*` binding | refused at the local's definition (`let_proc_syntax_invalid`) |
 | an import alias (`(import lib/hl :as f)`) | the local; `(f.helper …)` still names the import |
 | a macro | the local's definition is expanded as a use of the macro, and refused |
-| a `defun`, same module or imported | the function |
-| a built-in form or operator (`print`, `list`, `+`, `not`, `if`, `record`, `call`, `done`, …) | the form, which gives its own value or refusal |
+| a `defun`, same module or imported | the function (open defect `B3`) |
+| a built-in form or operator (`print`, `list`, `+`, `not`, `if`, `record`, `call`, `done`, …) | the form, which gives its own value or refusal (open defect `B3-print`) |
 | a workflow | the local |
-| an inner binding: a `let*` binding, a `match` arm, the loop state, a `list/map-effect` item, or a parameter of a local | the inner binding: called when it is a procedure reference, otherwise refused as any bound name that is not callable |
+| an inner binding: a `let*` binding, a `match` arm, the loop state, a `list/map-effect` item, or a parameter of a local | the inner binding: called when it is a procedure reference, otherwise refused (`procedure_call_unknown`) |
 | a `list/map` item | refused: the pure-body check speaks first (`list_map_body_effect_forbidden`) |
 
-The single-binding form with explicit
-`:captures` is the [V1 contract](workflow_lisp_let_proc_local_proc_refs.md);
-several bindings, inferred lexical captures and an expected signature from
-exactly one direct consumer call site are the
-[W3 contract](workflow_lisp_write_once.md#63-language-changes-to-let-proc)
-(target 2.36). Declared externs stay available without becoming captures.
+**Open defects of callables.** Each row is source that the rules of this
+section and of §14 admit, and that the compiler refuses, stops on with
+`compiler_defect`, or builds wrongly. An id is a row of the defect record
+(`tests/test_workflow_lisp_defect_backlog.py`), or `T9.n`, a finding of the
+[rule ledger](../reports/2026-11-13-design-corpus-rule-ledger.md#t9-callables)
+that has no row yet; the ledger gives the smallest program of each finding.
+
+| Id | Shape | Outcome | What builds |
+| --- | --- | --- | --- |
+| `B2-let`, `B2-arm` | Under a `let*` name bound to a reference, an inner `let*` or `match` arm binds the same name to a value that is not a reference, and the name is called | the outer reference is called. The wanted outcome is the one-target cut's to decide; with no outer reference the call is `procedure_call_unknown` | - |
+| `B4`, `B5` | A macro template calls a `let*`-bound reference by name, or defines a local (§34) | the caller's binding of that name is called; code passed to the macro sees the template's local | - |
+| `T9.13` | A module defines a procedure and a macro of one name | builds; `(f …)` expands the macro | - |
+| `E6` | A `ProcRef` parameter bound to another name with `let*` | `name_unknown` where the procedure is called | call or pass the parameter itself |
+| `T9.7` | A `ProcRef` parameter as the `base` of `bind-proc` | `proc_ref_literal_required` at the definition | - |
+| `T9.8` | A `ProcRef` parameter read in a `local-body` of its procedure | `procedure_call_unknown` at the definition | - |
+| `D10`, `D10-R1`, `D11`, `D11-R1`, `D11-R2`, `D11-R5` | A `local-body` calls or passes an outer `let*` name bound to a reference or to a `bind-proc` | `compiler_defect` | write `(proc-ref …)` in the `local-body`; call the bound name in `body` |
+| `E8`, `D25`, `D25-plain`, `T9.5` | In a `defproc`, a `bind-proc` or a local whose bound or captured value is not a literal or a name bound to a literal: a parameter of the procedure, a computed value, a field of a record | called by name: `compiler_defect`; passed to a procedure that has no effect: `procedure_lowering_unresolved`; with an effect in the procedure or in the local: `compiler_defect` when the procedure is called with a literal argument, a build when it is called with a workflow input | the same form in a workflow body; a literal, or a name bound to a literal; a local passed to a procedure that has an effect |
+| `D24` | In a workflow, a local whose body is a loop that reads a field of a captured `let*` record | `compiler_defect` | - |
+| `E23-local`, `E23-input` | `bind-proc` written as an argument binds a value that reads a name: a name, a field read, a computed value | `name_unknown` | bind the `bind-proc` with `let*`, then pass the name |
+| `E26`, `T9.17` | A `bind-proc` whose bound value holds an effect, passed to a procedure that has no effect: written as the argument (`E26`) or through a `let*` name (`T9.17`) | `procedure_call_unknown` | bind the effect's result with `let*` first; call the result by name |
+| `T9.10` | In a `defproc` with an `:effects` restriction, a `bind-proc` whose bound value is a command or a call of a procedure that has effects | builds and runs the effect: it is not counted against the restriction | with the effect's result bound by `let*` first, the effect is counted (`procedure_effect_ceiling_exceeded`) |
+| `T9.2` | `bind-proc` written as an argument binds a value of the wrong type | `pure_expr_operand_type_mismatch` or `compiler_defect`, not `proc_ref_binding_type_invalid` | bound with `let*`, the form gives `proc_ref_binding_type_invalid` |
+| `T9.14` | `bind-proc` binds a `let*` name that holds a reference to a `ProcRef` parameter, and the result is passed | `procedure_call_unknown` | write `(proc-ref …)` as the value; call the result by name |
+| `B7-same-written`, `B7-same-ref` | Two equal `bind-proc` forms over one `(workflow-ref w)`, written at two places and passed to one procedure | `procedure_lowering_unresolved` | the two forms made by two expansions of one macro |
+| `B7-macro-if-pure`, `B7-macro-not-pure`, `B7-macro-and-pure`, `B7-macro-record-call-pure`, `B7-macro-record-map-pure`, `T9.19` | Two expansions of one macro template whose bound values differ and hold an `if`, `not`, `and`, a function call, a `list/map` or a name inside a larger value; the procedure has no effect | builds; both expansions use the value of the first | a bound value made only of literals, other operators, `(workflow-ref w)`, enum members, records, variants and lists |
+| `B7-macro-if`, `B7-macro-let`, `B7-macro-match`, `B7-macro-loop`, `B7-macro-or`, `B7-macro-defun`, `B7-free-eff`, `B7-free-pure`, `B7-free-arg` | Two such expansions where the procedure calls a workflow (an `if`, a `let*`, a `match`, a loop, `or`, a function call in the bound value); two expansions whose bound value reads a `let*` name of the template, or of the caller when the procedure calls a workflow | `compiler_defect` | - |
+| `D26`, `D28`, `D29` | A `bind-proc` that binds a record to a procedure that reads it and calls a workflow; one name bound in two `let*` scopes, each bound by a `bind-proc` over a procedure that calls a workflow; a `bind-proc` in the body of a pure `list/map` whose bound value reads the item | `compiler_defect` | - |
+| `E9`, `E9-local` | A pure procedure or local whose body is a loop, passed to a pure procedure that calls it | `procedure_call_unknown` | call it by name |
+| `T9.1` | A local that captures an effect's result, called by name inside an operand of an operator, in an `if` condition or in the body of a `list/map-effect`; a `let*` that binds a `bind-proc` whose bound value holds an effect, written inside an operand of an operator or as the body of a `list/map-effect` | `compiler_defect`; for the local in the condition `proc_ref_literal_required` | the local: bind the call with `let*` first, and in a map body pass the local with `proc-ref`. The `bind-proc`: bind the effect's result with `let*` first, or write its `let*` around the operator |
+| `T9.18` | In a loop body, a `let*`-bound `bind-proc` whose bound value holds an effect, called in the `done` value or nested in an operand of the `continue` value | `procedure_lowering_unresolved` | bind the effect's result with `let*` first |
+| `T9.6` | A local that reads a captured effect's result and binds an effect in its own body (§16.3) | `compiler_defect` | - |
+| `T9.4` | In one `let-proc`, a local with a declared signature and a capture, used in the arguments of the call that gives a sibling its signature | `proc_ref_binding_duplicate` | declare both signatures, or bind the first local's result with `let*` |
+| `T9.3` | A `let-proc` written in the body of a `list/map-effect` without `:parallel` | `proc_ref_unknown` | write the `let-proc` around the map |
+| `T9.15` | A local whose body is pure, called in the body of a pure `list/map` | `list_map_body_effect_forbidden` | a `defproc` with the same body |
+| `T9.11` | A `defun` called from a workflow, a procedure or a local with the wrong number of arguments (§14) | `compiler_defect` | - |
+| `T9.12` | A `defun` called from a workflow, a procedure or a local with an argument that has not its parameter's type (§14) | not checked: the program builds and the value passes through | - |
+| `T9.16` | A call through a `WorkflowRef` parameter whose keywords are not the input names of the workflow passed (§14) | `compiler_defect`; the keywords are not checked where the procedure is defined | use the input names of the workflow passed |
 
 ### 7.9 Type Parameters And Structural Constraints
 
@@ -1964,7 +2186,9 @@ compile-time folding and run-time evaluation. The evaluator of
 into its payload rather than maintaining a separate evaluator. The closed
 program carries checked pure value nodes, which the evaluated runtime evaluates
 in lexical scope; a pure region writes no generated step or result bundle.
-Literal-only trees fold away at compile time through the same evaluator.
+An operator application over literals folds away at compile time through the same
+evaluator; a `list/map` and a `path/join-under` over literals do not, and are evaluated when
+the program runs (§10.3).
 
 A decimal literal (`1.5`, `-0.25`, `.5`, `2e-3`, `1.0E6`) is an expression
 wherever an expression is admitted. There is no literal for infinity or for a
@@ -1993,6 +2217,7 @@ Supported operators are exact and closed:
 | Option | `some?`, `or-else` | `Optional[T]` with typed fallback | Optional access still requires proof or an explicit option operator. |
 | Record | `record-update` | base record plus typed field overrides | Unknown fields remain `record_field_unknown`. |
 | List (target 2.18) | `list/empty?`, `list/head`, `list/rest`, `list/append`, `list/length` | eligible `List[T]`; `list/head` returns `Optional[T]` | All five operators are total; eligibility uses the shared whole-list transportability predicate. |
+| List, cut and reduce | `list/take`, `list/all`, `list/any` | `list/take`: eligible `List[T]` and `Int` -> `List[T]`; `list/all`, `list/any`: `List[Bool]` -> `Bool` | All three are total. `list/take` gives the whole list when the count exceeds its length and the empty list when the count is below 1; `list/all` is `true` and `list/any` is `false` on the empty list. A count that is not an `Int`, or a reduced list that is not a `List[Bool]`, is refused (`pure_expr_operand_type_mismatch`). They need no new target ([versioning](../../specs/versioning.md)); a build that predates them refuses a source that uses one, also on `resume` (`pure_expr_operator_unsupported`), and a closed program that holds one (`closed_program_invalid`, naming the operator). |
 | Observation (target 2.35) | `print` | one operand of any type `T` -> the same `T` | Writes the operand's canonical compact JSON and a newline to the process's stdout, then returns the operand unchanged. Never folded at compile time. Not an effect: it has no identity and no memo record. Only the run's own evaluation writes, so `resume` prints again what it re-evaluates; readers that replay the program (views, `report`, the REPL) evaluate `print` as the identity. |
 
 Deliberate exclusions stay enforced by typed diagnostics:
@@ -2000,53 +2225,225 @@ Deliberate exclusions stay enforced by typed diagnostics:
 - no division or modulo before target 2.34; decimal literals in expressions from
   target 2.34 only (numeric surface rule N1);
 - no path string concatenation;
-- no collection operators beyond the exact target-2.18 list surface;
+- no collection operators beyond the list rows of this table (no fold, `list/filter`,
+  `list/contains?` or `list/concat`);
 - no regex, time, randomness, workflow calls, provider calls, or command execution, and no IO beyond the stdout line `print` writes;
 - no proof creation from computed equality/comparison alone.
 
 ### 10.3 Target-2.18 Bounded List Traversal
 
-Target 2.18 implements one deliberately bounded, constraint-first collection
-surface:
+A `List[T]` is built with `(list ...)`, read with the list operators, mapped with `list/map`
+(a pure body) or `list/map-effect` (a body that may hold effects, over at most `:max` elements),
+and carried as loop state. `path/join-under` builds a path below the root of a named path type.
+Both maps bind one name over a body written in place; a procedure reference written in place of
+the binder is refused (`list_map_binder_invalid`).
 
-- `(list ...)` constructs an ordered eligible `List[T]`;
-- `list/map` binds one element at a time in a pure body;
-- `path/join-under` constructs a value of an explicitly selected rooted path
-  family after pure lexical containment validation;
-- eligible whole-list values may cross pure projections, callable contracts,
-  and `loop/recur` state; and
-- `list/map-effect` erases to the existing bounded loop and ordinary
-  effect-call/checkpoint machinery. In a program that contains a run
-  reference anywhere, every `list/map-effect` iteration is exactly one call
-  with pure arguments, after specialization (`list_map_effect_body_unsupported`);
-  the program is the final closed program, every definition it holds included.
-  In a program that contains no run reference the body is any expression,
-  evaluated once per element with its effects in written order. A later change
-  may admit more bodies beside a run reference by analysing each iteration.
-  A serial map's `:max` is
-  a positive integer literal or any `Int` expression, evaluated once after the
-  source and before the first element (a non-`Int` one refuses with
-  `list_map_effect_max_invalid`); a parallel map's `:max` and `:parallel` are
-  positive integer literals. A list longer than `:max`: a serial map runs its
-  first `:max` elements and then fails with `list_map_effect_cap_exceeded`, as
-  does a computed `:max` below 1 over a non-empty list; a parallel map fails
-  with that code before any element. An empty list gives the empty list
-  whatever its computed `:max`. A parallel map may be written directly in a serial map
-  or loop body.
+**Which lists.** These forms admit a list type that §8.10 admits as a return: its elements
+are `String`, `Int`, `Float`, `Bool`, `Value`, an enum, a path type, a record, a union, or an
+`Optional`, `List` or `Map[String, T]` of these. A list of `Json` values, of procedure
+references or of workflow references is refused where it is constructed, and a list of
+procedure references also where a map would produce it. Diagnostics:
+`list_collection_contract_unsupported` (the message names the whole list type);
+`proc_ref_runtime_transport_forbidden` for a `List[ProcRef[...]]` written as a parameter type.
 
-The type boundary is structural and opt-in. The shared whole-list
-transportability predicate decides list eligibility; target 2.18 does not add
-a nominal list taxonomy. A named path family is required only because its
-rooted containment and deferred existence policy are load-bearing. Record and
-union list elements, higher-order or `ProcRef` mapping, indexing, and
-unbounded traversal remain outside this tranche.
+**Effects in an element, a path child and a map source.** A list element, a `path/join-under`
+child and the source of a `list/map` or `list/map-effect` may hold an effect, a command or a
+workflow call for example, under the two conditions of §16.3:
 
-Pure payload schema 2 carries the new list/map/path expression kinds while
-pre-2.18 payloads remain schema 1. The effectful binder introduces no new Core,
-Semantic IR, Executable IR, runtime-plan, scheduling, or checkpoint node kind.
-The exact typing, erasure, diagnostic, resume, and compatibility contracts live
-in
-[Workflow Lisp Pure List Traversal](workflow_lisp_pure_list_traversal.md).
+- every part of the value is simple, as §16.3 defines it: the part with the effect and the
+  parts beside it. An `if`, a `match` and a call of a procedure are not simple, whatever they
+  hold;
+- the value is not written inside an argument of a call of a procedure, of a `let-proc` local
+  or of a function, nor in the body of a `let-proc` local. The body of a `defproc` and an
+  argument of a workflow `call` take it.
+
+Otherwise the program is refused: bind the part that is not simple with `let*` first and use
+its name.
+Diagnostics, by the place that holds the effect: `effect_not_permitted` (an element, a path
+child), `list_map_body_effect_forbidden` (a `list/map` source),
+`list_map_effect_body_unsupported` (a `list/map-effect` source, serial or parallel). A source
+that is a list with a part that is not simple beside its effect gives the element's code. A
+value that holds no effect is not concerned.
+
+**Constructor.** `(list e1 e2 ...)` evaluates its elements in the order written and gives a
+`List[T]` where `T` is the type of the first element. Each later element has that type; nothing
+is converted, so an `Int` beside a `Float`, an `Int` beside an `Optional[Int]` and two path
+types with one root are each refused. Where the form around the list states its type, the two
+must agree. `(list :of T e1 ...)` writes the element type: `T` is a type name or the name of a
+type parameter in scope, each element has type `T`, and the list is a `List[T]` also when it
+has none. `:of T` comes first: `:of` written again or after an element, and any other keyword,
+are refused; so are `(list :of)` and an operand after `:of` that is not a name. A value's name
+after `:of` is not a type. Where the form around the list states `List[T]`, `(list :of T ...)`
+builds the program the list without `:of` builds. Diagnostics: `pure_expr_operand_type_mismatch`;
+`loop_recur_continue_type_mismatch` for a `continue` value of another type than the loop state
+(§13.1); `keyword_argument_invalid`; `list_item_type_invalid`; `type_unknown`. An element may
+hold an effect under the rule above. Open defect: a `variant` with a list in a field, written
+directly as a `match` subject, ends in `compiler_defect`; bound with `let*` first, it builds.
+Open defect: an argument of a `defun` function called in a workflow or procedure body is not
+checked against its parameter, so `(list :of Int)` passed to a `List[String]` parameter builds.
+Open defect: inside a macro template that binds a value named like a type, `:of` that type is
+refused with `type_unknown`.
+
+**Empty list.** `(list)` has no element to take a type from; `(list :of T)` states it and is
+accepted wherever a `List[T]` is. `(list)` is accepted where the form around it states the
+list's type: the result of a workflow, a procedure or a function; an argument of a procedure, a
+`let-proc` local, a workflow `call` or a `defun` function; a record or variant field; a typed
+`loop-state` field (§13.2), also in `:like`; an element of a list whose type is stated; a loop's
+`continue` value; and a branch of an `if`, `cond` or `match` that stands in one of these places
+other than a `defun` argument or a `continue` value, where only a bare `(list)` takes the type.
+It is refused in these places, which state no type: a `let*` binding and the body of a `let*`;
+an operand of a list operator; a `list/map` source or body; a `record-update` field; an
+`or-else` fallback; a command `:argv` item; an element of a list whose type is not stated; and
+a loop's binder-form or `:state` initial value, its `done` value and its `:on-exhausted` value.
+It is refused as the result of a `let-proc` local as well. Diagnostics:
+`list_empty_type_context_required`.
+
+**Operators.** The list operators are the rows of this table. Each takes a list as its first
+operand:
+
+| Operator | Type | Value |
+| --- | --- | --- |
+| `list/empty?` | `List[T] -> Bool` | whether the list has no element |
+| `list/head` | `List[T] -> Optional[T]` | the first element; the absent value (JSON `null`, §8.10) for the empty list |
+| `list/rest` | `List[T] -> List[T]` | the list without its first element; the empty list stays empty |
+| `list/append` | `(List[T], T) -> List[T]` | a new list with the element added at the end |
+| `list/length` | `List[T] -> Int` | the number of elements |
+| `list/take` | `(List[T], Int) -> List[T]` | the first `n` elements; the whole list when `n` exceeds its length, the empty list when `n` is below 1 |
+| `list/all` | `List[Bool] -> Bool` | whether every element is true; `true` for the empty list |
+| `list/any` | `List[Bool] -> Bool` | whether some element is true; `false` for the empty list |
+
+Each gives a value for the empty list as for any other. `list/rest` and `list/append` give a
+new list and leave their operand as it was. The value of `list/head` is read with `some?` or
+`or-else`. A first operand that is not a list, a `list/append` element of another type, a
+`list/take` count that is not an `Int`, a `list/all` or `list/any` list that is not a
+`List[Bool]` and a wrong number of operands are refused. Diagnostics: `pure_expr_operand_type_mismatch`.
+`(list/nth xs 0)` is refused with `pure_expr_operator_unsupported`: the catalog has no indexing
+operator.
+
+**`list/map`.** `(list/map ((name source)) body)` gives the list of the body's values, one per
+element of `source`, in the source's order; an empty source gives the empty list.
+
+- The form has exactly these three parts and exactly one binder; it takes no `:max`.
+  Diagnostics: `list_map_binder_invalid`.
+- `name` is a new name. A name already bound where the map is written (a parameter, a `let*`
+  name, the binder of an enclosing map), the name of a provider or prompt extern and a name
+  that starts with `__` are refused; two maps side by side may use one name. Diagnostics:
+  `list_map_binder_invalid`.
+- `source` is a list and is evaluated once. It may hold an effect under the rule above.
+  Diagnostics: `pure_expr_operand_type_mismatch` (not a list), `list_map_body_effect_forbidden`.
+- `body` reads `name` at the element type and the names in scope around the map. It is pure:
+  operators, `if`, `let*`, `match`, calls of functions and of procedures without effects, another
+  `list/map`. A command, a workflow call and a procedure that holds an effect are refused.
+  Diagnostics: `list_map_body_effect_forbidden`; `pure_expr_operand_type_mismatch` when
+  the form around the map expects another list type.
+- A body that fails for one element, by a division by zero or a refused `path/join-under` child
+  for example, fails the run with that failure's own code. A map over literals that fails for
+  an element builds, and fails when the program runs.
+- Open defect (defect backlog row D8): a `list/map` whose body is a `match` on its binder,
+  written in the condition of an `if` inside a loop body, ends in `compiler_defect`; bound with
+  `let*` before the `if`, it builds.
+
+**`list/map-effect`.** `(list/map-effect ((name source)) :max n body)` evaluates `body` once
+per element of `source`, one element after the other, and gives the list of its values in the
+source's order. An empty source gives the empty list and evaluates no body.
+
+- A serial map is written with exactly these parts in this order. Binder and source follow the
+  rules of `list/map`, with `list_map_effect_body_unsupported` as the code of a refused effect
+  in the source. A run reference written as the source, of a serial or a parallel map, is
+  refused (`run_ref_placement_invalid`, §16.3). The form is an effect form whatever its body:
+  a `defun` body refuses it (`pure_function_has_effect`). Diagnostics:
+  `list_map_binder_invalid`, `list_map_effect_max_invalid` (a part missing, added or out of
+  order).
+- *Body.* In a program that contains no run reference the body is any expression: a pure one,
+  several effects, an `if`, a loop, another map. Its effects run in the order written, for one
+  element before the next. In a program that contains a run reference anywhere, the body of
+  every `list/map-effect`, serial or parallel, is exactly one call with pure arguments: a
+  provider, a command, a workflow call, a procedure call whose body holds exactly one such
+  effect after specialization, or the run reference itself. A pure body, a procedure without an
+  effect and a procedure with two are refused there. The program is the final closed program:
+  the entry and every definition it reaches. A workflow the entry does not reach does not count.
+  `list/map` is not concerned. Diagnostics: `list_map_effect_body_unsupported`.
+- *`:max`* of a serial map is a positive integer literal or any `Int` expression: an `if`, a
+  `match`, a loop or an expression over another map's result among them, with or without an
+  effect. It is evaluated once,
+  after the source and before the first element, and does not see the binder. Diagnostics:
+  `list_map_effect_max_invalid` (absent, a literal below 1, or not an `Int`).
+- *More elements than `:max`.* A serial map evaluates the body for the first `:max` elements and
+  then fails the run with `list_map_effect_cap_exceeded`; a list of exactly `:max` elements
+  succeeds. A computed `:max` below 1 fails with the same code before the first element of a
+  non-empty list, and gives the empty list for an empty one.
+- *Failure and resume.* A body of a serial map that fails for one element fails the run with
+  the failing effect's own code; the elements after it are not evaluated and no partial list is
+  returned. On `resume`, the elements that completed are not evaluated again: the map continues
+  at the failed element and returns every value in order
+  ([evaluated execution](workflow_lisp_evaluated_execution.md) owns resume). A parallel map
+  differs: see *Parallel, at run time*.
+- A discriminant proof does not reach a serial map's body (§12.2).
+- Open defect (defect backlog row E7): a serial map's body that calls a generic procedure
+  (§7.9) is refused with `procedure_call_unknown`, whether or not the procedure holds an
+  effect; a parallel map's body and a `list/map` body take the call.
+- A serial map takes each element with a compiler-owned head read. That read fails with
+  `list_nonempty_invariant_broken` on an empty list; the map evaluates it after testing that
+  elements remain, and no source form names it.
+- *Parallel, the clauses.* With `:parallel k` and `:workspace w` the map is a parallel map:
+  each element is evaluated in its workspace
+  ([evaluated execution §11](workflow_lisp_evaluated_execution.md#11-parallel-effects)). `:max`
+  and `:parallel` are positive integer literals and `:workspace` is required; the clauses come in
+  any order before the body, each once. `:workspace` is a pure `String` or path expression that
+  may read the binder; it names an existing directory, one per element. An `Agent` does not
+  enter or leave the body, and the body allocates none, directly or through a call
+  (`parallel_agent_boundary`; [agent sessions](workflow_lisp_agent_sessions.md)). A parallel
+  map may be written directly in the body of a serial map or of a loop. Diagnostics:
+  `list_map_effect_max_invalid`; `list_map_effect_workspace_invalid` (absent, or not pure);
+  `pure_expr_operand_type_mismatch` (a workspace of another type);
+  `list_map_effect_body_unsupported` (an unknown or repeated clause). A `:parallel` that is
+  absent or not a positive integer literal is refused with the code of `:max` spelled with
+  `parallel` in place of `max`; the diagnostic catalogue does not list that name (an open
+  defect: the name is built when the refusal is raised).
+- *Parallel, at run time.* The run fails before any element is evaluated when the list is
+  longer than `:max` (`list_map_effect_cap_exceeded`), when a workspace directory does not
+  exist, and when two elements name one directory (`parallel_workspace_shared`). When an
+  element fails, its own later effects do not run, and the other elements still run to
+  completion and their results are committed; then the map fails the run with a failing
+  effect's own code and returns no list. On `resume` no committed effect runs again: the
+  failed element continues at the effect that failed, and the map returns every value in the
+  source's order.
+
+**`path/join-under`.** `(path/join-under PathType child)` gives a value of `PathType`: the
+type's `:under` root joined with `child`.
+
+- `PathType` is the name of a path type in scope where the form is written: a prelude type
+  (`Path.state-root`, `Path.artifact-root`, §7.1), a `defpath` of the module or an imported one.
+  It is a name, not an expression. Diagnostics: `path_join_under_type_invalid` (a name that is
+  no path type, a first operand that is not a name, a number of operands other than two). Open
+  defect (defect backlog row E24): a procedure whose body names a path type is refused with
+  this code when it is called from a module that does not import that type.
+- `child` is one `String` expression, evaluated once. It may hold an effect under the rule
+  above. Diagnostics: `pure_expr_operand_type_mismatch` (not a `String`; a path value is not
+  one), `effect_not_permitted`.
+- The child is checked when the join is evaluated. An empty child, `.`, and a child with an
+  empty or `.` segment (`a//b`, `a/./b`, `a/`) fail with `path_join_under_child_invalid`. An
+  absolute child and a child with a `..` segment (`../x`, `a/../b`) fail with
+  `path_join_under_escape`. A literal child is checked at the same moment: a program with a
+  refused literal child builds, and fails when the join is reached.
+- The result has the named path type and no other (§7.3), and is not a `String`
+  (`pure_expr_path_string_concat_forbidden`, §10.2).
+- The join is lexical: it reads no file, and nothing needs to exist, also for a type declared
+  `:must-exist true`. The existence check of a path type applies where a value enters the
+  program: an input of the entry workflow, and the path result of a command or a provider
+  (§8.10). A workflow's result, an argument of a workflow `call` or of a procedure call and a
+  command's `:argv` item do not check it.
+- The root of the type must be a non-empty relative path with no empty, `.` or `..` segment.
+  `defpath` does not check this; a join on such a type does not build. Open defect: the build
+  stops with `compiler_defect`, not with `path_join_under_root_invalid`.
+- A join may stand in an argument of the call in a `list/map-effect` body and in a `list/map`
+  body. In a `list/map-effect` a refused child fails the run at its element, after the elements
+  before it have been evaluated.
+
+**Loop state.** A list is a loop's state, its `continue` and `done` values and its
+`:on-exhausted` value (§13.1); the whole list is carried from one round to the next. A loop
+state whose own type is an `Optional` or a `Map` is refused, while a list of either is carried.
+Diagnostics: `loop_recur_state_type_invalid`.
 
 ## 11. Pattern Matching
 
@@ -2363,17 +2760,17 @@ runtime boundary, such as `WorkflowRef`. Diagnostics: `loop_state_requires_typed
 ## 14. Workflow Calls
 
 ```lisp
-(call implementation/run
-  :ctx implementation-ctx
-  :inputs implementation-inputs
-  :providers providers.implementation)
+(call review :draft draft :limit 3)
 ```
 
 A workflow, which can also be run from the command line, is called as the
 command line calls it, with named inputs: `(call w :x value)`. A workflow
-reference parameter is called the same way. A function, a procedure, a local
-procedure and a procedure parameter are called by name with positional
-arguments, `(p a …)`. The misuses are refused:
+reference parameter is called the same way. Open defect (`T9.16`, §7.8): the
+type of such a parameter carries no input names, the keywords are not checked
+where the procedure is defined, and a call whose keywords are not the input
+names of the workflow passed stops the build with `compiler_defect`. A
+function, a procedure, a local procedure and a procedure parameter are called
+by name with positional arguments, `(p a …)`. The misuses are refused:
 
 - a keyword in a positional call: `keyword_argument_invalid`, naming `(p …)`;
 - `(w n)` on a same-module or `:only`-imported workflow:
@@ -2386,27 +2783,40 @@ arguments, `(p a …)`. The misuses are refused:
 - `(call p …)` on a procedure or function (same module or imported), a local
   procedure or a procedure reference: `workflow_call_unknown`, naming `(p …)`.
 
-Checks:
+Checks on `(call w :x value …)`:
 
-- callee exists
-- callee exported or local
-- target DSL version compatible
-- argument types match
-- effects permitted
-- return type matches binding
+- `w` names a workflow of the module, or an exported workflow of an imported
+  module by its `:only` name, as `alias.w` or as `module/w`
+  (`workflow_call_unknown`);
+- the inputs are keyword and value pairs (`frontend_parse_error`). Each input
+  that has no default is bound, each keyword names an input of the workflow,
+  and no keyword is written twice (`workflow_signature_mismatch`);
+- each value has the type of its input (`type_mismatch`), and the call has the
+  workflow's return type;
+- the call, and what the called workflow does, count as effects of a
+  procedure that makes the call: under an `:effects` restriction that does not
+  cover them the procedure is refused (`procedure_effect_ceiling_exceeded`,
+  §8.8). Open defect (row `C1` of the defect record,
+  `tests/test_workflow_lisp_defect_backlog.py`): what an imported workflow
+  does is not counted;
 - no workflow reached from the entry reaches itself through other workflows
   (`workflow_call_cycle`, which names the cycle). A cycle that passes through
   a procedure or a workflow reference parameter is reported as that
   procedure's cycle (`proc_lowering_cycle`, `proc_ref_specialization_cycle`).
   A cycle among workflows the entry never calls compiles, while procedure and
-  function cycles are refused wherever they are
+  function cycles are refused wherever they are.
 
-Lowering:
+A positional call `(p a …)` takes as many arguments as the callee has
+parameters, each of the type of its parameter. Diagnostics:
+`procedure_arity_mismatch` and `type_mismatch` for a procedure, a local and
+a procedure reference; `function_arity_mismatch` and `type_mismatch` for a
+function called in a function. A function called from a workflow, a procedure
+or a local is an open defect on both counts (`T9.11`, `T9.12`, §7.8). A head
+that names nothing callable is `procedure_call_unknown`.
 
-- `CoreCallStep`
-- workflow reference
-- typed input bindings
-- expected typed outputs
+**Call sites.** Each expansion of a macro calls the target resolved for that
+expansion: a call is identified by its source position, its form path and its
+macro expansion stack (§33).
 
 ## 15. Higher-Order Workflow Parameters
 
@@ -3566,11 +3976,15 @@ and error list are [preserved in the history file](../reports/documentation-hist
   together, so each expansion of a template calls the target resolved for that
   expansion; a call cloned into its caller when a pure procedure is inlined
   keeps its own span. A call site that records two targets stops the build
-  with `compiler_defect` naming the site. Known exception: a value bound by
-  `bind-proc` in a template that is not a literal, a name or a field access
-  (a `(workflow-ref w)`, or a computed value such as `(+ k 0)`) is identified
-  by its position alone, so two expansions that bind different values share
-  one specialization and the first expansion's value is used
+  with `compiler_defect` naming the site. A value bound by `bind-proc` is
+  identified by its position and, when it is made only of literals, operator
+  applications other than `and`, `or` and `not`, workflow references, enum
+  members, records, union variants and lists, also by its content, so two
+  expansions of one template that bind different such values get their own
+  specializations. Known exception: a bound value of any other kind (a
+  conditional, a `let*`, a `match`, a loop, a call) or one that reads a local
+  is identified by its position alone, so two expansions that bind different
+  such values share one specialization
   ([versioning](../../specs/versioning.md), exceptions to target stability).
 
 ## 34. Hygiene

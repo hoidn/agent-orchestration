@@ -13,7 +13,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -142,7 +141,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -216,7 +214,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -290,7 +287,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -364,7 +360,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -438,7 +433,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -512,7 +506,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -586,7 +579,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -668,7 +660,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -753,7 +744,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -827,7 +817,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -902,7 +891,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -977,7 +965,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -1059,7 +1046,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -1134,7 +1120,6 @@
     "only in the checked copy: THIRD_PARTY_NOTICES"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -1209,7 +1194,6 @@
     "task.toml differs"
    ],
    "overlay_digest": "3f99fe3c28be76482605c74dc56da44d776cff88c0e942f62f5f13851013c4f6",
-   "cap": null,
    "extra_hosts": null,
    "oracle_evidence": {
     "oracle_first_pass": [
@@ -1274,5 +1258,5 @@
   }
  ],
  "recompute": "digests: $LH/hvenv/bin/python -I -c 'import sys; from pathlib import Path; from harbor.publisher.packager import Packager; [print(p, \"sha256:\" + Packager.compute_content_hash(Path(p))[0]) for p in sys.argv[1:]]' <task dir>... (each a 4.1.0 or 4.0.0 package unpacked, or a checked copy under harbor-framework/terminal-bench/tasks); packages: the hub's public storage, path packages/terminal-bench/<task>/<hex digest>/dist.tar.gz, read with the publishable key that ships in the harbor package (not copied here)",
- "pending": "images and withholding come from image_measure.json (`image_check.py tasks`), with the coordinator's rulings beside any item that needs a look. overlay_digest is the SHA-256 of the two agent-phase keys as written by oracle_check.sh with D3's list as drafted for the oracle passes (Task 3 freezes the ladder's list; a different list gives a different digest). oracle_evidence holds the first pass (2026-11-14, one reference and one untouched run per label, load not controlled; per-trial records in oracle_first_pass.json); the second pass (five and five in a quiet window under the final policy) adds its own key and is the only one that qualifies a task. cap and extra_hosts stay null until Task 3; null means not yet set"
+ "pending": "images and withholding come from image_measure.json (`image_check.py tasks`), with the coordinator's rulings beside any item that needs a look. overlay_digest is the SHA-256 of the two agent-phase keys as written by oracle_check.sh with D3's list as drafted for the oracle passes (Task 3 freezes the ladder's list; a different list gives a different digest). oracle_evidence holds the first pass (2026-11-14, one reference and one untouched run per label, load not controlled; per-trial records in oracle_first_pass.json); the second pass (five and five in a quiet window under the final policy) adds its own key and is the only one that qualifies a task. oracle_uidfix_recorded is the labelled variant's rerun on its recorded image (`variant`, built once by uidfix_variant.py). extra_hosts stays null until Task 3 freezes it; null means not yet set. The per-attempt cap's home is ladder.json (tasks.list[].cap_usd)"
 }
