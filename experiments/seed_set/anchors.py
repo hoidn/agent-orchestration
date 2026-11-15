@@ -14,6 +14,10 @@ is called.
 writes `anchor_stability.json` beside `tasks.jsonl`: per package its sha256, `stable`, the failing test ids per
 repetition, the repetition counts and the load average seen; `tiers.verify` and the freeze require a stable entry,
 at the current package hash, for every package the study can draw, probe or smoke on.
+
+Limit of the record: it is keyed by the package hash alone, and an outcome also depends on the scoring path above. An
+entry written before that code changed does not show stability under the current code, and neither the resumable
+default nor `unstable` notices. The freeze therefore reruns every package on the frozen code, by naming the ids.
 """
 
 import argparse

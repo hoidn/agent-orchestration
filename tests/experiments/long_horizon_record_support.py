@@ -23,14 +23,20 @@ EFFORTS = tuple(LADDER["attempt"]["efforts"])
 TASKS = [task["name"] for task in LADDER["tasks"]["list"]]
 TOKEN_KINDS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
 LABEL, OLD = "a" * 64, "b" * 64
-TERM = "<a frozen term>"
+SCAN = LADDER["readout"]["contamination_scan"]
+TERM = (SCAN["terms"] or ["<a frozen term>"])[0]  # a frozen term: the criterion's first once filled, else a stand-in
 TERM_SHA256 = hashlib.sha256(TERM.encode()).hexdigest()
+CANARY_SHA256 = SCAN["canary_sha256"] or "c" * 64
 STAND_IN_VALUES = {"readout.contamination_scan.terms": [TERM],
-                   "readout.contamination_scan.canary_sha256": "c" * 64,
+                   "readout.contamination_scan.canary_sha256": CANARY_SHA256,
                    "readout.contamination_scan.canary_exempt_tasks": [],
-                   "readout.graded_outcome.verifiers": {TASKS[0]: "passed and total sub-tests"},
+                   "readout.graded_outcome.verifiers": {TASKS[0]: "ctrf"},
                    "readout.fall_bound.seed": 20261114}
 STANDINS = {p["field"]: STAND_IN_VALUES[p["field"]] for p in LADDER["pending"] if p["field"].startswith("readout.")}
+# a task whose verifier reports sub-tests and one whose does not: the criterion's once filled, else the stand-in's
+VERIFIERS = LADDER["readout"]["graded_outcome"]["verifiers"] or STAND_IN_VALUES["readout.graded_outcome.verifiers"]
+GRADED_TASK = next(task for task in TASKS if task in VERIFIERS)
+UNGRADED_TASK = next(task for task in TASKS if task not in VERIFIERS)
 CEILING = {"by": "ceiling", "cause": None}
 ROW_CLASS = {row["row"]: row["class"] for row in LADDER["classification"]["rows"]}
 

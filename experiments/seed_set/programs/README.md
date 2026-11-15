@@ -76,8 +76,8 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   `<pool>/.private-homes` copies when pooling ends. A launcher killed with SIGKILL, or a host reboot, runs no
   clean-up: its copies stay on disk until the next study command, which starts by removing every copy no live unit
   holds and prints each path (review 3 X5). The agent under test can read its unit's copy during its call; a copy it
-  makes under another name, or text it writes into its output or patch, is not removed. The route is the owner's
-  decision (coordinator ruling R7).
+  makes under another name, or text it writes into its output or patch, is not removed. The route is an open owner
+  decision (coordinator ruling R7), and the freeze waits for it: see the kit's [README](../README.md).
 - A unit's whole process tree, its provider calls' own sessions and sandboxes included, dies with its launcher
   however the launcher ends (`../reaper.py`). The unit's command runs as the guard's child from its first instant;
   the guard is a child subreaper, so what a root shell that died leaves behind is killed when the command ends; a

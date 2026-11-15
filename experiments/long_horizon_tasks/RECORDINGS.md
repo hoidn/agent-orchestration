@@ -876,6 +876,118 @@ trial:
 - **Not captured:** the script's exit code. The driver printed `$?` after a command substitution; the unit
   test covers exit 5.
 
+### Second oracle pass (2026-11-15, no spend): the one that qualifies
+
+Plan D1's second pass, by the Task 2b checklist. No agent, model, provider call or credential: the `oracle` and
+`nop` agents and the tasks' verifiers only.
+
+**Settings** (checklist items 2 and 3, coordinator rulings): owner question 4 is not decided, so
+vba-userform-port runs only as the labelled variant `vba-userform-port-uidfix` and the unchanged task does not
+run. The allowlist is the one on `main` (`oracle_check.sh`, D3's 13 names; overlay digest `3f99fe3c…c4f6` for
+all 16, no extra hosts). The CPU set is `8-31`: `host.cpu_set` is still pending, so it is chosen by D2's rule
+(24 CPUs, the ladder off the other eight), the first pass's set and the script's default.
+
+**One round at four at once** (item 4; the variant, `CONCURRENCY=4 REPEATS=2`, 07:04 to 07:06 PST): the four
+trials overlapped for 36 s; reference 2 of 2, untouched 0 of 2.
+- `podman images` before and after: identical. `podman events` (type image) shows no removal but the script's
+  own release, without `-f`, of the one image it pulled. The harness logs hold no `rmi`.
+- Each trial's `samples` holds all four trials' containers (the follower samples by the label's prefix); each
+  record keeps its own three and its own egress log.
+- Largest cgroup peak 0.91 GB; free space at its lowest 55.5 GB on `/`, 67.0 GB on `/home`.
+
+**One real SIGTERM stop at four at once** (item 5, 07:10 to 07:11 PST): SIGTERM to the script while all four
+trials had running containers, then `wait "$pid"; rc=$?`.
+- **Exit 5** 23 s after the signal; each trial `stop=signal`, harness exit 130.
+- One trial's verifier container and network outlived its harness; the script removed both.
+- Nothing named after the four trials was left.
+- The stop untagged `lh-oracle/vba-userform-port-uidfix:verifier`. `lh-keep/…` kept the image (same id), so
+  the two-name guard held, and the name was given back from the keeper. The normal teardown of item 4 lost no
+  name. Which teardown command untagged it is not in the harness logs.
+
+**The pass** (item 6): `REPEATS=5 CONCURRENCY=4 GATE=24 CPUS=8-31`, a new `JOBS`, 07:12:12 to 08:59:01 PST
+(1 h 47 min), one task at a time in `tasks.json` order. Records in `oracle_second_pass.json` (160 trials);
+counts under `oracle_evidence.oracle_second_pass` and the summary under `second_pass` in `tasks.json`.
+
+| Label | Reference | Untouched | Qualifies | Wall s, reference | Wall s, untouched | Sub-tests (ref / untouched) | Largest peak, GB | Agent sidecar seen on the allowlist |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| vba-userform-port-uidfix | 5 of 5 | 0 of 5 | yes | 99-101 | 51-54 | traces 29 of 29 / 0 of 29 | 0.47 | 3 of 10 |
+| vf2-speedup-networkx | 5 of 5 | 0 of 5 | yes | 225-236 | 56-63 | 60 of 60 / 0 of 60 | 0.54 | 6 of 10 |
+| wal-recovery-ordering | 5 of 5 | 0 of 5 | yes | 483-486 | 56-63 | 97 of 97 / gates 1 of 2 | 0.41 | 5 of 10 |
+| session-window-debug | 5 of 5 | 0 of 5 | yes | 56-58 | 51-58 | 9 of 9 / 4 of 9 | 0.25 | 6 of 10 |
+| production-planning | 5 of 5 | 0 of 5 | yes | 71-76 | 52-54 | 20 of 20 / 1 of 20 | 0.23 | 5 of 10 |
+| vpp-loss-divergence | 5 of 5 | 0 of 5 | yes | 166-180 | 135-149 | 5 of 5 / 4 of 5 | 1.03 | 6 of 10 |
+| batched-eval-parity | 5 of 5 | 0 of 5 | yes | 218-226 | 98-101 | 5 of 5 / 0 of 5 | 0.49 | 5 of 10 |
+| pretrain-shard-corruption | 5 of 5 | 0 of 5 | yes | 330-470 | 132-158 | 12 of 12 / 4 of 12 | 1.59 | 5 of 10 |
+| gsea-proteomics | 5 of 5 | 0 of 5 | yes | 105-117 | 53-59 | 16 of 16 / 0 of 16 | 0.94 | 6 of 10 |
+| lake-temp-glm | 5 of 5 | 0 of 5 | yes | 236-266 | 62-67 | 1 of 1 / 0 of 1 | 0.83 | 6 of 10 |
+| sound-change-cascade | 5 of 5 | 0 of 5 | yes | 56-60 | 51-53 | 7 of 7 / 0 of 7 | 0.23 | 5 of 10 |
+| hof-topology-interpenetration | 5 of 5 | 0 of 5 | yes | 78-84 | 52-55 | 38 of 38 / 0 of 38 | 0.44 | 5 of 10 |
+| shadow-relay | 5 of 5 | 0 of 5 | yes | 51-58 | 52-53 | 9 of 9 / 2 of 9 | 0.22 | 5 of 10 |
+| rs-archive-clone | 5 of 5 | 0 of 5 | yes | 120-123 | 57-60 | 57 of 57 / 0 of 57 | 0.23 | 8 of 10 |
+| retro-console-soc | 5 of 5 | 0 of 5 | yes | 255-289 | 51-53 | 8 of 8 / 0 of 8 | 3.74 | 6 of 10 |
+| roy-polymorph-cn | 5 of 5 | 0 of 5 | yes | 56-63 | 51-55 | 3 of 3 / 0 of 3 | 0.27 | 5 of 10 |
+
+**What the pass shows.**
+- **All 16 labels qualify** (summarize.py `qualifies`: every run evidence, reference reward 1 five times,
+  untouched reward 0 five times). **The ladder runs 15** (coordinator ruling): vba-userform-port does not
+  qualify unchanged, and the launcher has no support for the labelled variant, whose result stays recorded
+  evidence, never pooled (`tasks.json` `second_pass`; plan D1).
+- **Load:** 1-minute load at trial starts 8.4 to 22.1, 5-minute 9.6 to 21.1; the highest 1-minute sample
+  31.6. No gate wait was reported (the script reports only a two-hour close). Every sampled container ran on
+  `8-31`.
+- **Memory and disk at four:** the largest cgroup peak 3.74 GB (retro-console-soc's verifier); host memory used
+  at most 81.1 GB of 125, most of it other sessions'. Free space at its lowest: 54.8 GB on `/`, 62.5 GB on
+  `/home`. The job tree is 175 MB.
+- **Images:** `podman images` before and after the pass are identical. The only removals are the script's
+  releases, two per task, without `-f`; the variant's names were never lost.
+- **Egress:** only gsea-proteomics refused connections (40 over 10 runs, the same two addresses as in the first
+  pass: the GSEA tool calling home); its reference passed every time.
+- **The allowlist, sampled:** a trial's own agent sidecar was seen in `controlled egress` with 13 hosts in 3 to
+  8 of each label's 10 trials, 87 of 160 in all. The other samples fell before or after a short agent phase.
+  The verifier sidecars of batched-eval-parity and lake-temp-glm (verifiers with no network) show `controlled
+  egress` with no host.
+- **Sub-tests** (D6's graded outcome): every verifier writes `verifier/ctrf.json`. It is a sub-test count for 13
+  tasks. lake-temp-glm's holds one test (pass or fail only). vba-userform-port's holds one wrapper that only
+  computes the score; its graded checks are the hidden traces (`verifier/trace_summary.json`). For
+  wal-recovery-ordering the total is the suite's (97) on a pass and the gates' (2) on a gate failure.
+
+### The contamination terms' dry run (2026-11-15, no spend)
+
+**Proposed terms** (D6): the benchmark repository's path, `harbor-framework/terminal-bench` (the checked copy in
+`tasks.json`); each task's reference solution path in it, `tasks/<task>/solution` (16 terms, each directory
+present at `adf10d2b`); and the canary's identifier, the same one in all 16 4.1.0 packages, read from each
+`task.toml` by `ladder.canary_term` and kept in the criterion only as its SHA-256 (`2c7c9d04…6452`).
+
+**Method:** the launcher's own scan (`ladder.contamination`, a trial's `agent/` and `artifacts/`) with all 18
+terms, over every trial directory of the oracle jobs and the recordings: 106 reference, 106 untouched and 16
+install trials (the first pass, its set-aside run, the variant's recorded rerun, the stop checks, and the second
+pass with its items 4 and 5); the 90 recordings of Tasks 1, 2 and 2a; and the three public archives. Then each
+package's `instruction.md`, `environment/`, `solution/` and `tests/`. Then each pinned agent image's whole file
+system, pulled by digest one at a time and mounted read-only, for the 17 terms other than the canary
+(`grep -F`, text files). The canary over those file systems is `tasks.json`'s withholding result.
+
+**What fired.**
+- **The 17 terms other than the canary fired nowhere:** no trial, no recording, no archive, no package file, no
+  agent image's file system.
+- **The canary in the starting files.** Seven pinned agent images hold it, in byte-identical copies of their
+  own `environment/` files: vba-userform-port, wal-recovery-ordering, session-window-debug,
+  vpp-loss-divergence, batched-eval-parity, pretrain-shard-corruption and sound-change-cascade (`withholding`,
+  `canary` not `not found`). These are `canary_exempt_tasks`. The untouched runs show it in the declared
+  artifacts of four of them (24 trials). It is absent from every untouched run of the other nine. A public
+  archive of sound-change-cascade shows how it reaches a transcript: a tool result printing
+  `/app/engine/apply.py`, a starting file outside the declared artifacts. So the list is taken from the whole
+  image, not from the artifacts.
+- **Every `instruction.md` holds the canary** on its first line. Harbor strips canary lines from the start of the
+  instruction before the agent sees it (`strip_canary`, `harbor/models/task/task.py`). No recording, made from
+  sound-change-cascade's package with a stand-in instruction, holds any term.
+- **The canary in reference outputs.** The reference solution's own files carry it, so it fires on the
+  reference runs of four tasks off the list (vf2-speedup-networkx, rs-archive-clone, retro-console-soc,
+  shadow-relay: 24 trials, in files the solution wrote), and on those of the exempt tasks. That is the term
+  finding reference material, which is what it is for (coordinator ruling: correct, no change). An attempt that
+  writes such a file is excluded.
+- **Applied as the launcher applies it** (no canary for the seven): no term fires on any untouched run, install
+  run or recording.
+
 ## Fixtures
 
 **Stream fixtures** (`fixtures/*.json`) are cut by `cut_fixture.py` from one trial. They keep:

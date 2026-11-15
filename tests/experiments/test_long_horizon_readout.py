@@ -17,8 +17,9 @@ from fractions import Fraction
 
 import pytest
 
-from tests.experiments.long_horizon_record_support import (EFFORTS, KIT, LABEL, LADDER, OLD, ROOT, STANDINS, TASKS,
-                                                           TERM, TERM_SHA256, filled, load_kit, with_values)
+from tests.experiments.long_horizon_record_support import (EFFORTS, GRADED_TASK, KIT, LABEL, LADDER, OLD, ROOT,
+                                                           STANDINS, TASKS, TERM, TERM_SHA256, UNGRADED_TASK, filled,
+                                                           load_kit, with_values)
 from tests.experiments.long_horizon_record_support import export as _export
 from tests.experiments.long_horizon_record_support import same as _same
 
@@ -418,15 +419,15 @@ def _graded(reward, passed, total=10):
     return {"reward": reward, "graded": {"passed": passed, "total": total}}
 
 
-GRADED = {TASKS[0]: {"low": [_graded(1, 10), _graded(0, 4)], "medium": [_graded(0, 7), _graded(0, 2)],
-                     "high": [_graded(0, 0), 1]},
-          TASKS[1]: _same([0, 1])}
+GRADED = {GRADED_TASK: {"low": [_graded(1, 10), _graded(0, 4)], "medium": [_graded(0, 7), _graded(0, 2)],
+                        "high": [_graded(0, 0), 1]},
+          UNGRADED_TASK: _same([0, 1])}
 ALLOWANCE = {"weekly_points": 12.5, "readings": "ledger rows of 2026-11-20 and 2026-11-27"}
 
 
 def test_the_graded_outcome_is_summed_per_task_and_effort_where_the_verifier_reports_it():
     graded = _compute(_export(GRADED))["graded"]
-    assert (graded[TASKS[0]]["low"], graded[TASKS[0]]["high"], graded[TASKS[1]]) == (
+    assert (graded[GRADED_TASK]["low"], graded[GRADED_TASK]["high"], graded[UNGRADED_TASK]) == (
         {"passed": 14, "total": 20, "observations": 2}, {"passed": 0, "total": 10, "observations": 1},
         "pass or fail only")
 
