@@ -659,7 +659,9 @@ are not in this table: they move nothing that compiles and can merge at any time
 
 ### Task 5: Final verification (0.5 day)
 
-- [ ] Exit test: the guard test's list holds only the wire values and the checker's label gates; a
+- [ ] Exit test: the guard test's list holds only the wire values and the checker's label gates,
+      plus the stored-data checks Task 4b's ledger row keeps by ruling (`run_ref/confined_config.py`'s
+      target check and row 15's `workflow/prompting.py`; the exit test accepts them); a
       new program at each of 2.35–2.39 refuses on `compile` and `run` with the migration message;
       the label table in `specs/versioning.md` matches `targets.py`.
 - [ ] End to end: `resume` completes Task 0's killed 2.40 run; `report` on the two 2.35 run roots
