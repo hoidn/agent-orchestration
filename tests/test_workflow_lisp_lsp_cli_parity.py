@@ -805,42 +805,26 @@ def test_lsp_translation_retains_exact_cli_diagnostic_identity(
 def _write_std_improve_parity_workspace(
     root: Path,
     *,
-    target: str = "2.36",
     explicit_source_roots: bool = False,
 ) -> tuple[Path, Path, tuple[Path, ...]]:
     workspace = root.resolve()
     source_root = workspace / "src" if explicit_source_roots else workspace
     entry_path = source_root / "lsp_parity" / "entry.orc"
     entry_path.parent.mkdir(parents=True)
-    if target == "2.35":
-        review = '''(defproc review
-  ((candidate Candidate) (context String)) -> Decision[Feedback Blocker]
-  :effects () :lowering inline
-  (variant Decision[Feedback Blocker] REVISE
-    :feedback (record Feedback :text context)))'''
-        revise = '''(defproc revise
-  ((candidate Candidate) (context String) (feedback Feedback)) -> Candidate
-  :effects () :lowering inline candidate)'''
-        improve_call = (
-            '(improve (record Candidate :value 1) "context" '
-            '(proc-ref review) (proc-ref revise) 1)'
-        )
-    else:
-        review = '''(defproc review
+    review = '''(defproc review
   ((candidate Candidate)) -> Decision[Feedback Blocker]
-  :effects () :lowering inline
   (variant Decision[Feedback Blocker] REVISE
     :feedback (record Feedback :text "revise")))'''
-        revise = '''(defproc revise
+    revise = '''(defproc revise
   ((candidate Candidate) (feedback Feedback)) -> Candidate
-  :effects () :lowering inline candidate)'''
-        improve_call = (
-            '(improve (record Candidate :value 1) '
-            '(proc-ref review) (proc-ref revise) 1)'
-        )
+  candidate)'''
+    improve_call = (
+        '(improve (record Candidate :value 1) '
+        '(proc-ref review) (proc-ref revise) 1)'
+    )
     source = f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{target}")
+  (:target-dsl "2.40")
   (defmodule lsp_parity/entry)
   (import std/improve :only (Decision improve))
   (export run)
@@ -903,17 +887,14 @@ def _observe_std_improve_graphs(monkeypatch: pytest.MonkeyPatch):
     return observations
 
 
-@pytest.mark.parametrize("target", ("2.35", "2.36"))
 @pytest.mark.parametrize("explicit_source_roots", (False, True))
 def test_real_cli_and_lsp_select_same_std_improve_graph_source_and_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    target: str,
     explicit_source_roots: bool,
 ) -> None:
     workspace, entry_path, caller_roots = _write_std_improve_parity_workspace(
         tmp_path / "workspace",
-        target=target,
         explicit_source_roots=explicit_source_roots,
     )
     observations = _observe_std_improve_graphs(monkeypatch)
@@ -960,13 +941,8 @@ def test_real_cli_and_lsp_select_same_std_improve_graph_source_and_root(
     assert len(observations) == 2
 
     builtin_root = compile_driver.compiler._builtin_stdlib_source_root().resolve()
-    expected_path = (
-        builtin_root / "std" / "improve.orc"
-        if target == "2.35"
-        else builtin_root / "w3" / "std" / "improve.orc"
-    )
-    expected_root = builtin_root if target == "2.35" else builtin_root / "w3"
-    expected_path = expected_path.resolve()
+    expected_path = (builtin_root / "std" / "improve.orc").resolve()
+    expected_root = builtin_root
     assert observations[0][:2] == observations[1][:2] == (
         expected_path,
         expected_root.resolve(),
