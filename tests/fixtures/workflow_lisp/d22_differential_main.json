@@ -1185,115 +1185,115 @@
  ],
  "pos-binder-loop-on-exhausted-bare-cond-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bare-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bare-done": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bare-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bare-if-one": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bare-let-tail": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bare-match-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bound-cond-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bound-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bound-done": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bound-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bound-if-one": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bound-let-tail": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-bound-match-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-continue-cond-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-continue-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-continue-done": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-continue-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-continue-if-one": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-continue-let-tail": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-continue-match-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-done-cond-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-done-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-done-done": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-done-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-done-if-one": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-done-let-tail": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-on-exhausted-done-match-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-binder-loop-seed-bare-cond-all": [
   "refused",
@@ -4363,115 +4363,115 @@
  ],
  "pos-fn-loop-on-exhausted-bare-cond-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bare-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bare-done": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bare-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bare-if-one": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bare-let-tail": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bare-match-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bound-cond-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bound-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bound-done": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bound-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bound-if-one": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bound-let-tail": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-bound-match-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-continue-cond-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-continue-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-continue-done": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-continue-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-continue-if-one": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-continue-let-tail": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-continue-match-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-done-cond-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-done-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-done-done": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-done-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-done-if-one": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-done-let-tail": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-on-exhausted-done-match-all": [
   "refused",
-  "loop_recur_missing_done"
+  "loop_recur_done_type_mismatch"
  ],
  "pos-fn-loop-seed-bare-cond-all": [
   "refused",
@@ -6798,15 +6798,15 @@
  ],
  "two-binder-op-left-in-loop-on-exhausted-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "pure_expr_operand_type_mismatch"
  ],
  "two-binder-op-left-in-loop-on-exhausted-done": [
   "refused",
-  "loop_recur_missing_done"
+  "pure_expr_operand_type_mismatch"
  ],
  "two-binder-op-left-in-loop-on-exhausted-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "pure_expr_operand_type_mismatch"
  ],
  "two-binder-op-left-in-loop-seed-continue": [
   "refused",
@@ -7050,15 +7050,15 @@
  ],
  "two-binder-proc-arg-in-loop-on-exhausted-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "two-binder-proc-arg-in-loop-on-exhausted-done": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "two-binder-proc-arg-in-loop-on-exhausted-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "two-binder-proc-arg-in-loop-seed-continue": [
   "refused",
@@ -7527,15 +7527,15 @@
  ],
  "two-fn-op-left-in-loop-on-exhausted-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "pure_expr_operand_type_mismatch"
  ],
  "two-fn-op-left-in-loop-on-exhausted-done": [
   "refused",
-  "loop_recur_missing_done"
+  "pure_expr_operand_type_mismatch"
  ],
  "two-fn-op-left-in-loop-on-exhausted-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "pure_expr_operand_type_mismatch"
  ],
  "two-fn-op-left-in-loop-seed-continue": [
   "refused",
@@ -7779,15 +7779,15 @@
  ],
  "two-fn-proc-arg-in-loop-on-exhausted-continue": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "two-fn-proc-arg-in-loop-on-exhausted-done": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "two-fn-proc-arg-in-loop-on-exhausted-if-all": [
   "refused",
-  "loop_recur_missing_done"
+  "type_mismatch"
  ],
  "two-fn-proc-arg-in-loop-seed-continue": [
   "refused",
