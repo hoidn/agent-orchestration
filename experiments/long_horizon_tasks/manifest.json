@@ -169,7 +169,7 @@
   "experiments/long_horizon_tasks/harbor_patient.py": "c451648e6dc0fbca93b33cd93b09f64ba6ef0797bbd97d44f03a63684a268458",
   "experiments/long_horizon_tasks/image_check.py": "491def2691d7f110f3ad2a327f8e9ff98557bc9db7aae44a609015c6fcff9806",
   "experiments/long_horizon_tasks/image_measure.json": "2f48231beebe570b88efea4644a9d85d5bca5e007915990a396e8f5d9576ec9d",
-  "experiments/long_horizon_tasks/ladder.json": "a0451bd414b432becdbada7b2d844d743c8a27de1f6e1f1898686d2f2d8bc160",
+  "experiments/long_horizon_tasks/ladder.json": "b33e1ac54455ffa45a5bb871a178d8e6012793718ee7b960a86769cf8f502791",
   "experiments/long_horizon_tasks/manifest.py": "3eef027e02743c28658912b8437377f93c0c7b03b3d8be7333daddbc5b74c86f",
   "experiments/long_horizon_tasks/oracle_check.sh": "d65f9fdb46240a28863d8bb7ad0b8b640e28ed4a63f9ba7b558b2280ce810965",
   "experiments/long_horizon_tasks/price_check.py": "6b02486b711cf7398a572b1e725f55ac0c03bc0213734fe4b27613e297f93cb1",

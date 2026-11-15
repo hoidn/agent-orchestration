@@ -90,7 +90,7 @@
   "formula": "max(floor_usd, multiple x public_mean_usd_at_max), rounded to the cent",
   "floor_usd": 3.00,
   "multiple": 3,
-  "rule": "Per-attempt cap: max(3.00, 3 x the task's public mean cost per trial at effort max) (the table in D1), the same at every effort, enforced by the passthrough and by the CLI's own budget limit (D4).",
+  "rule": "Per-attempt cap: `max(3.00, 3 × the task's public mean cost per trial at effort max)` (the table in D1), the same at every effort, enforced by the passthrough and by the CLI's own budget limit (D4).",
   "enforced_by": ["the passthrough: the slot's cap", "the CLI: agent kwarg max_budget_usd"],
   "overshoot": "one response: each guard acts one response late (D4)"
  },
@@ -245,7 +245,7 @@
    ],
    "rule": "Verifier-only regrade (no model call, the saved artifacts unchanged), in two cases. Only a reward of 0 is regraded, because the known defect of such a verifier under load is a false failure. If the harness cannot regrade on Podman, case 1 becomes an infrastructure failure and case 2 is excluded as \"indeterminate\" (D5)."
   },
-  "never_rerun": "Model-side endings are never excluded. A slot whose session ended in any other way than a cut is never run again, so a retry cannot turn a model failure into a pass (D5)."
+  "never_rerun": "Model-side endings are never excluded: they are the longest and dearest sessions and come mostly from the higher efforts. A slot whose session ended in any other way is never run again, so a retry cannot turn a model failure into a pass (D5; any other way than a cut by a usage limit)."
  },
  "credential": {
   "source": "plan D4 (the credential route, token mode, the token's path, the passthrough, a slot's lifetime); relay-compose.yaml; record.sh (the fake token's form); fixtures/requests/t2a-*.json (the messages path)",
@@ -342,7 +342,7 @@
   "no_reading": "the launcher starts nothing in a window without a reading, the smoke's and the pilot's included",
   "budget": "(100 - F - the reading) x the pilot's figure for that meter, floored at zero; a start only if the ladder's priced usage since the reading plus the guard's reservation for every open slot and this one fits",
   "skip_margin_points": 5,
-  "skip_rule": "A window is skipped, and reported, when its weekly reading is at or above 100 - F-week - 5. When the five-hour reading is at or above 100 - F-five - 5, starts wait for that meter's reset (D4).",
+  "skip_rule": "A window is skipped, and reported, when its weekly reading is at or above 100 − F-week − 5: fewer than five points would be left for the ladder (five is a judgment). When the five-hour reading is at or above 100 − F-five − 5, starts wait for that meter's reset (D4).",
   "reservation": "one third of the slot's cap; raised by the pilot's largest ratio of cost to that third, for every task, if any ratio is above one",
   "figure": "the pilot's priced usage over the points the meter moved plus one (its cautious end)",
   "no_five_hour_figure": "two attempts at a time until the owner has read that meter around a stretch in which only the ladder used the account",
