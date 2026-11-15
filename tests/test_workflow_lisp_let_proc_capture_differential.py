@@ -10,7 +10,7 @@ the local (typed, in a group, with an inferred signature). A last family binds t
 role and the local (each binder kind), with the binder spelled `k` and renamed `q`.
 
 `fixtures/let_proc_capture_differential_main.json` holds every spelling's outcome, digest and, when it builds,
-the value and command log of the public `run`, on `main` at `718617bb`. It is written by this module's own
+the value and command log of the public `run`, on `main` at `4d74364c`. It is written by this module's own
 entry, run from the root of an export of that commit (`git archive`), never by hand:
 
     python -m tests.test_workflow_lisp_let_proc_capture_differential --record OUT.json SCRATCH_DIR
