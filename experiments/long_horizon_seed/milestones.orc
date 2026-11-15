@@ -1,9 +1,8 @@
 (workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule milestones)
-  (import common :only (Change CheckReport Built Cut Ending DocPath GuidePath Setup Spec Milestone Plan Verdict))
-  (export run)
+  (import common :only (Change CheckReport Outcome DocPath GuidePath Setup Spec Milestone Plan Verdict)) (export run)
   ;; Candidate B. Setup, spec; then rounds of: plan, build each milestone (work, check, review), check, acceptance.
-  ;; Inputs: the task text and the intent only. At most eight milestones of a plan are built, and the outcome names a
-  ;; plan that was cut: 6 + 8 * 8 calls at worst. One refused twice ends the run BLOCKED once the rest are built.
+  ;; Inputs: the task text and the intent only. At most eight milestones of a plan are built: 6 + 8 * 8 provider calls
+  ;; at worst. A milestone refused twice ends the run BLOCKED once the rest are built and the round's check has run.
   (defprompt guides (:fills (task :text)) -> Setup
     "Work in the current working directory and nowhere else. Prepare the project there for the task below; do not start the task. If there is no AGENTS.md, write it: how to build and test, the layout, the conventions, that the check this workflow runs after each piece of work is `python dev_check.py`, and the documentation rules below, so that every later step follows them. If there is code already, AGENTS.md describes its layout and conventions as they are, and you move or rewrite none of it; if there is none, create the directories the task needs (source, tests, docs; no task code yet). If AGENTS.md exists, keep what it says and add only what it lacks of the above. Then add what is missing of: docs/index.md (the catalogue: every document, one line each with a link and what it is for, grouped by kind); docs/log.md (append-only; each entry starts `## [date] step | title` and says what was done and decided); docs/notes/ (one page per lasting topic: a decision, a component, a pitfall; for existing code, what a newcomer needs). Documentation rules: read docs/index.md first; put lasting knowledge in a page under docs/notes/ and revise that page rather than adding a second; list every new document in docs/index.md; each step that changes a file appends one entry to docs/log.md (a review changes nothing and logs nothing). Never change dev_check.py or dev-check.json.\n\nTask: {task}\n\nReport `guide`: the path of that guide; every later step is given it and reads it first. `index`: the path of the catalogue. `log`: the path of the log.")
   (defprompt specify (:fills (guide :path GuidePath) (task :text)) -> Spec
@@ -17,38 +16,34 @@
   (defprompt review (:fills (guide :path GuidePath) (task :text) (scope :value Milestone) (spec :path DocPath)
                             (report :value CheckReport)) -> Verdict
     "Review the project in the current working directory. Read {guide} and the code; change nothing. The task:\n{task}\nUnder review (the scope `all` is the whole task):\n{scope}\nThe check this workflow runs, `python dev_check.py`, just reported:\n{report}\nMET if all of this holds: the goal of the scope is reached; each of its targets holds as {spec} states it; no target that held before is broken; for the scope `all`, nothing the task asks for is left out, even where the spec is silent; the code is readable, tested and consistent with {guide}. Give the evidence per target. NOT_MET otherwise; each reason names the target or the gap, the input or scenario that goes wrong, and the check output that shows it.")
-  (defworkflow milestone ((m Milestone) (guide GuidePath) (task String) (spec DocPath)) -> Built
-    (loop/recur :max 2 :state (loop-state (notes List[String] (list)))
-      :on-exhausted (record Built :met false :notes state.notes) (fn (state)
+  (defworkflow milestone ((m Milestone) (guide GuidePath) (task String) (spec DocPath)) -> Bool
+    (loop/recur :max 2 :state (loop-state (notes List[String] (list))) :on-exhausted false (fn (state)
         (let* ((change (provider-result providers.coder :model "claude-haiku-5-5" :effort "medium" :timeout-sec 3600
                          :prompt (work :guide guide :milestone m :spec spec :notes state.notes)))
-               (report (command-result dev-check :returns CheckReport))
+               (check (command-result dev-check :returns CheckReport))
                (verdict (provider-result providers.reviewer :model "claude-haiku-5-5" :effort "medium" :timeout-sec 1200
-                          :prompt (review :guide guide :task task :scope m :spec spec :report report))))
-          (match verdict ((MET met) (done (record Built :met true :notes (list))))
+                          :prompt (review :guide guide :task task :scope m :spec spec :report check))))
+          (match verdict ((MET met) (done true))
             ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons))))))))
-  (defworkflow run ((task String) (intent String)) -> Ending
+  (defworkflow run ((task String) (intent String)) -> Outcome
     (let* ((ready (provider-result providers.planner :model "claude-haiku-5-5" :effort "medium" :timeout-sec 1200
                     :prompt (guides :task task)))
            (spec (provider-result providers.planner :model "claude-haiku-5-5" :effort "medium" :timeout-sec 1200
                    :prompt (specify :guide ready.guide :task task)))
            (whole (record Milestone :id "all" :goal intent :targets spec.targets)))
-      (loop/recur :max 2 :state (loop-state (notes List[String] (list)) (cut List[Cut] (list)))
-        :on-exhausted (variant Ending BLOCKED :reason "acceptance round limit reached" :notes state.notes
-                               :built (list) :cut state.cut) (fn (state)
+      (loop/recur :max 2 :state (loop-state (notes List[String] (list)))
+        :on-exhausted (variant Outcome BLOCKED :reason "acceptance round limit reached" :notes state.notes) (fn (state)
           (let* ((plan (provider-result providers.planner :model "claude-haiku-5-5" :effort "medium" :timeout-sec 1200
                          :prompt (plan :guide ready.guide :log ready.log :spec spec.doc :notes state.notes)))
-                 (cut (if (> (list/length plan.milestones) 8)
-                        (list/append state.cut (record Cut :planned (list/length plan.milestones) :built 8)) state.cut))
                  (built (list/map-effect ((m (list/take plan.milestones 8))) :max 8
-                          (let* ((each (call milestone :m m :guide ready.guide :task task :spec spec.doc))) each))))
-            (if (not (list/all (list/map ((b built)) b.met)))
-              (done (variant Ending BLOCKED :reason "milestone refused twice" :notes state.notes :built built :cut cut))
-              (let* ((report (command-result dev-check :returns CheckReport)))
-                (if (not report.passed)
-                  (continue (loop-state :like state :notes (list/append state.notes report.excerpt) :cut cut))
-                  (let* ((acceptance (provider-result providers.reviewer :model "claude-haiku-5-5" :effort "medium"
-                           :timeout-sec 1200
-                           :prompt (review :guide ready.guide :task task :scope whole :spec spec.doc :report report))))
-                    (match acceptance ((MET met) (done (variant Ending DONE :summary "accepted" :cut cut)))
-                      ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons :cut cut))))))))))))))
+                          (let* ((each (call milestone :m m :guide ready.guide :task task :spec spec.doc))) each)))
+                 (report (command-result dev-check :returns CheckReport)))
+            (if (not (list/all built))
+              (done (variant Outcome BLOCKED :reason "milestone refused twice" :notes state.notes))
+              (if (not report.passed)
+                (continue (loop-state :like state :notes (list/append state.notes report.excerpt)))
+                (let* ((acceptance (provider-result providers.reviewer :model "claude-haiku-5-5" :effort "medium"
+                         :timeout-sec 1200
+                         :prompt (review :guide ready.guide :task task :scope whole :spec spec.doc :report report))))
+                  (match acceptance ((MET met) (done (variant Outcome DONE :summary "accepted")))
+                    ((NOT_MET gap) (continue (loop-state :like state :notes gap.reasons)))))))))))))

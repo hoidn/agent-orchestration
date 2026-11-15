@@ -148,39 +148,28 @@ MILESTONES["guide-under-another-name"] = elsewhere(MILESTONES["clean"])
 
 
 def planned(count):
-    """A clean run of a plan of `count` milestones: at most eight of them are built, each accepted at once; the
-    result names a plan that was cut."""
+    """A clean run of a plan of `count` milestones: at most eight of them are built, each accepted at once."""
     built = min(count, 8)
     answers = [GUIDES, SPEC, plan(*(f"M{i}" for i in range(1, count + 1))), work(m1="ok", m2="ok"), MET]
-    cut = [{"planned": count, "built": 8}] if count > 8 else []
-    return {**DONE, "cut": cut}, 5 + 3 * built, answers + (built - 1) * [work(), MET] + [MET]
+    return DONE, 5 + 3 * built, answers + (built - 1) * [work(), MET] + [MET]
 
 
 def refused(*verdicts):
     """A plan of three milestones, each answered `MET` at once or `NOT_MET` in both attempts. Every milestone is
-    still built; then the run ends, before the round's check, with how each milestone ended."""
+    still built and the round's check runs; then the run ends, without an acceptance."""
     answers = [GUIDES, SPEC, plan("M1", "M2", "M3")] + [a for v in verdicts for a in ([work(), v] if v is MET else 2 * [work(), v])]
-    result = {**blocked("milestone refused twice"), "built": [{"met": v is MET, "notes": [] if v is MET else REASONS} for v in verdicts]}
-    return result, 3 + 3 * (len(answers) - 3) // 2, answers
-
-
-def ending(scenario):
-    """The scenario with the result of a milestone seed: the plans that were cut and, on `BLOCKED`, the milestones."""
-    result, steps, answers = scenario
-    more = {"cut": []} if "variant" in result else {}
-    return {**more, **({"built": []} if result.get("variant") == "BLOCKED" else {}), **result}, steps, answers
+    return blocked("milestone refused twice"), 4 + 3 * (len(answers) - 3) // 2, answers
 
 
 MILESTONES["second-of-three-refused"] = refused(MET, NOT_MET, MET)
-MILESTONES = {name: ending(scenario) for name, scenario in MILESTONES.items()}
 # `roles` takes these answers; opening a conversation is a step too: two for the run, two per milestone built
 OPENED = {"check-fails-once": 8, "setup-incomplete": 2, "second-of-three-refused": 8}
 ROLES = {name: (result, steps + OPENED.get(name, 6), answers) for name, (result, steps, answers) in MILESTONES.items()}
-ROLES["plan-of-9"] = (planned(9)[0], planned(9)[1] + 18, planned(9)[2])  # the cut once with conversations
+ROLES["plan-of-9"] = (DONE, planned(9)[1] + 18, planned(9)[2])  # the cut once with conversations
 MILESTONES |= {f"plan-of-{count}": planned(count) for count in (3, 8, 9, 20, 50)}  # 9 and more: the calls of 8
-MILESTONES |= {"last-of-three-refused": ending(refused(MET, MET, NOT_MET)), "no-milestone-met": ending(refused(*3 * [NOT_MET])),
-               "refused-then-check-fails": ending((blocked("acceptance round limit reached", *REASONS, FAILING), 13, [
-                   GUIDES, SPEC, plan("M1"), *OPEN[:1], MET, NOT_MET, plan("M1"), OPEN[2], MET]))}
+MILESTONES |= {"last-of-three-refused": refused(MET, MET, NOT_MET), "no-milestone-met": refused(*3 * [NOT_MET]),
+               "refused-then-check-fails": (blocked("acceptance round limit reached", *REASONS, FAILING), 13, [
+                   GUIDES, SPEC, plan("M1"), *OPEN[:1], MET, NOT_MET, plan("M1"), OPEN[2], MET])}
 PROGRAMS = {"staged": FLAT, "designed": DESIGNED, "milestones": MILESTONES, "roles": ROLES}
 FLAGS = ("--provider-externs-file", str(HERE / "providers.json"), "--command-boundaries-file", str(HERE / "commands.json"))
 
