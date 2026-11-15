@@ -15,8 +15,7 @@ from tests.experiments.orc_structural_search_support import I3_CONFIG, python_pa
 
 REPO = Path(__file__).resolve().parents[2]
 FILE = "plan_review_execute.orc"
-SOURCE = (REPO / "workflows/examples/plan_review_execute.orc").read_text().replace(
-    '(:target-dsl "2.35")', '(:target-dsl "2.39")')
+SOURCE = (REPO / "workflows/examples/plan_review_execute.orc").read_text()
 PROVIDERS = (REPO / "workflows/examples/inputs/plan_review_execute/providers.json").read_text()
 REVIEW_SITE = "(provider-result providers.codex\n                       :prompt (review-plan"
 REVIEW_CALL = REVIEW_SITE + " :task task :steps draft.steps))"

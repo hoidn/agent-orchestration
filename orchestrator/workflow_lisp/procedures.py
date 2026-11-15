@@ -600,7 +600,7 @@ def resolve_procedure_effect_restrictions(
     procedure_defs, *, procedure_catalog, workflow_catalog, workflow_effects_by_name,
     extern_environment, workflow_name_resolver,
 ):
-    """Canonicalize concrete workflow effects and validate target-2.39 restrictions."""
+    """Canonicalize concrete workflow effects and validate the procedure restrictions."""
     from .effects import CallsWorkflowEffect, UsesProviderEffect
     from .type_env import WorkflowRefTypeRef
     from .workflows import ProviderExtern
@@ -797,8 +797,8 @@ def _elaborate_procedure_definition(
                     LispFrontendDiagnostic(
                         code="proc_lowering_annotation_invalid",
                         message=(
-                            "target-2.39 `defproc` definitions do not accept an authored "
-                            "`:lowering` clause"
+                            "`defproc` definitions do not accept an authored `:lowering` clause; "
+                            "every procedure is inlined"
                         ),
                         span=current.span,
                         form_path=form.form_path,

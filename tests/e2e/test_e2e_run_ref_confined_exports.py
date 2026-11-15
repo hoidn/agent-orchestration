@@ -35,7 +35,7 @@ from orchestrator.cli.main import main
 sys.exit(main(sys.argv[1:]))
 '''
 
-SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule controller) (export run)
   (defpath Artifact :kind relpath :under "out" :must-exist true)
   (defrecord Paths (tree Artifact) (aliases List[Artifact]))

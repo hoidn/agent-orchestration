@@ -1341,19 +1341,15 @@ def test_reference_and_command_captures_keep_their_distinct_binding_owners(tmp_p
     assert ClosedProgram.from_artifact(closed.artifact()).tree == closed.tree
 
 
-def _opaque_command_program(tmp_path, argument='"${inputs.root}:${loop.index}"', *, local_command=False,
-                            target="TARGET"):
+def _opaque_command_program(tmp_path, argument='"${inputs.root}:${loop.index}"', *, local_command=False):
     from tests.test_workflow_lisp_closed_command_transport import _compile, _command
 
     declarations = '(defun make-block ((value Int)) -> Int (let* ((inside (+ value 1))) inside))'
-    declarations += '(defproc child ((n Int)) -> Int '
-    if target != "TARGET":
-        declarations += ':effects ((uses-command echo)) :lowering inline '
-    declarations += _command(argument) + ')'
+    declarations += '(defproc child ((n Int)) -> Int ' + _command(argument) + ')'
     body = '(loop/recur :max 1 :state 0 :on-exhausted 0 (fn (state) '
     local = _command('"${inputs.root}:${loop.index}"') if local_command else '1'
     body += '(let* ((held (make-block (+ (child state) ' + local + ')))) (done held))))'
-    return _compile(tmp_path, body, declarations=declarations, params='(root Int)', target=target)
+    return _compile(tmp_path, body, declarations=declarations, params='(root Int)')
 
 
 def test_opaque_child_decisions_and_body_integrity_are_prepared_before_parent_key(tmp_path, monkeypatch):

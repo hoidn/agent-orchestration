@@ -60,14 +60,6 @@ ENTRY = """(workflow-lisp
 BODY)
 """
 
-# The exact `:effects` rule of targets below 2.39 (Task 4b): both modules at 2.35, the wrapper declaring none.
-LIB_235 = replace_exact(
-    replace_exact(LIB, '"2.40"', '"2.35"'),
-    "-> Verdict\n    (command-result", "-> Verdict\n    :effects ((uses-command probe_check))\n    :lowering inline\n    (command-result")
-UNDECLARED_ENTRY_235 = replace_exact(
-    replace_exact(ENTRY, '"2.40"', '"2.35"'),
-    "-> Verdict\n    (check title)", "-> Verdict\n    :effects ()\n    :lowering inline\n    (check title)")
-
 BODIES = {
     "match-subject": """  (defworkflow run () -> Text
     (match (check-wrap "alpha")

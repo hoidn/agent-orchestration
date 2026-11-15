@@ -623,10 +623,11 @@ own delivery status and captured evidence.
     type.
   - The inferred effects of a procedure include the effects of the imported
     procedures it calls, and of hooks declared in another module and passed
-    with `proc-ref`. A declared `:effects` clause must match that inference:
+    with `proc-ref`. A declared `:effects` clause had to match that inference:
     a local wrapper that calls an imported command-backed procedure and
-    declares `:effects ()` is rejected with `procedure_effect_mismatch`, which
-    names the missing effect. Older targets keep their earlier inference, which
+    declares `:effects ()` was rejected with `procedure_effect_mismatch`, which
+    named the missing effect (since the one-target cut the clause is an upper
+    bound and such a wrapper refuses `procedure_effect_ceiling_exceeded`). Older targets keep their earlier inference, which
     omits imported effects, so such a wrapper compiles there and the same
     module retargeted to 2.33 is rejected.
   - A procedure with no effects may construct an applied generic union over
@@ -1007,8 +1008,8 @@ own delivery status and captured evidence.
     2.40 (lane D stage 4, Task 4a, which removed the five-argument module and the
     entry-target selection of a second root), with
     `improve(initial, review, revise, limit)`, `review(S) -> Decision[F B]` and
-    `revise(S F) -> S`. An importer below 2.39 refuses with
-    `evaluated_execution_target_direction_invalid`; a five-argument call refuses
+    `revise(S F) -> S`. An importer at an older target refuses at its own
+    header (`target_dsl_unsupported`); a five-argument call refuses
     with `procedure_arity_mismatch`. Defining-module syntax admission,
     other roots and ambiguity checks remain unchanged.
   - Complete imported snapshots retain producer authority without reopening

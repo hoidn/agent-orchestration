@@ -112,7 +112,7 @@ EXPECTED = {
 EXPECTED_PARTITION = {'Refused': 46, 'Built': 9}
 
 
-_CONTROL_ROUTES = ("direct", "same_module")
+_CONTROL_ROUTES = ("direct", "same_module", "imported_source")
 _CONTROL_CASES = {
     "effectful_if_branches": (
         "Int",
@@ -246,6 +246,14 @@ def _control_sources(case: str, route: str) -> tuple[dict[str, str], str]:
 (defworkflow helper () -> {result_type} {body})
 (defworkflow run () -> {result_type} (call helper)))'''
         return {"cp/probe.orc": text}, "cp/probe::run"
+    if route == "imported_source":  # the helper's source owner is a second module
+        entry = f'''{entry_header} (import cp/other :as other) (export run)
+(defworkflow run () -> {result_type} (call other.helper)))'''
+        helper = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}") (defmodule cp/other) (export helper)
+{_control_procedures()}
+{extra}
+(defworkflow helper () -> {result_type} {body}))'''
+        return {"cp/probe.orc": entry, "cp/other.orc": helper}, "cp/probe::run"
     raise AssertionError(f"unknown control route {route}")
 
 
@@ -833,7 +841,7 @@ def test_admitted_control_edges_build_and_read_back_across_source_owners(
     )
 
     definitions = program.tree["definitions"]
-    helper_module = "cp/probe"
+    helper_module = "cp/other" if route == "imported_source" else "cp/probe"
     if route == "direct":
         body = program.tree["body"]
     else:
