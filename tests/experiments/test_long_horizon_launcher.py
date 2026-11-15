@@ -1228,6 +1228,48 @@ def test_a_ruling_to_an_observation_s_row_for_a_start_with_no_reward_is_refused(
         3, True, "ruling")
 
 
+def test_a_regrade_s_trial_carries_its_attempt_s_name_and_its_removal_never_reaches_another_attempt_s(short):
+    """Re-review R-M2: Harbor names a regrade's compose project after its trial (`<trial>__verifier__...`) and takes
+    that project down before `up`, so each regrade's trial is `<attempt id>-regrade-<n>`; the attempt's removal by
+    prefix leaves another attempt's regrade alone; the regrade's pid is recorded for reconcile."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    (lh / "standin" / "regrade.json").write_text(json.dumps({"wal-recovery-ordering__abcdefg": [{"reward": 1.0}]}))
+    root, attempt, record = _closed(short, "token-three-tools-normal-end", [])
+    other = ladder.reserve(root, _entry(effort="high"), CRITERION, 0.0)
+    _container(lh, f"{other['id']}-regrade-1__verifier__trial_main_1")  # the other attempt's regrade, running
+    ctx = _ctx(short, lh)
+    after = ladder.regraded(ctx, CRITERION, attempt, record, gate=lambda: True)
+    names = [c["argv"][c["argv"].index("--trial-name") + 1] for c in _calls(lh) if "--trial-name" in c["argv"]]
+    _container(lh, f"{attempt['id']}-regrade-1__verifier__trial_main_1")  # this attempt's, left behind
+    removed = ladder.remove_containers(ctx, root / "slots" / attempt["id"])
+    slot = json.loads((root / "slots" / attempt["id"] / "slot.json").read_text())
+    assert (after["reward"], names, removed, _containers(lh), sorted(slot.get("regrade", {}))) == (
+        1.0, [f"{attempt['id']}-regrade-1"], True, [f"{other['id']}-regrade-1__verifier__trial_main_1"],
+        ["pid", "start"])
+
+
+def test_reconcile_stops_a_dead_launcher_s_regrade_process_before_it_regrades_again(short):
+    """Re-review R-M2: the orphaned regrade (its own session) is stopped by its recorded pid and start time."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    (lh / "standin" / "regrade.json").write_text(json.dumps({"wal-recovery-ordering__abcdefg": [{"reward": 1.0}]}))
+    root, attempt, _ = _closed(short, "token-three-tools-normal-end", [])
+    orphan = subprocess.Popen(["sleep", "600"], start_new_session=True)
+    try:
+        path = root / "slots" / attempt["id"] / "slot.json"
+        ladder._write_json(path, {**json.loads(path.read_text()), "launcher": {"pid": 2 ** 22 + 7, "start": 1},
+                                  "regrade": {"pid": orphan.pid, "start": ladder.process_start(orphan.pid)}})
+        ladder.reconcile(_ctx(short, lh), CRITERION, 0.0, gate=lambda: True)
+        try:
+            stopped = orphan.wait(timeout=20) is not None
+        except subprocess.TimeoutExpired:
+            stopped = False
+    finally:
+        orphan.kill()
+        orphan.wait()
+    settled = ladder.attempts(root)[0]["settled"]
+    assert (stopped, settled["reward"], settled["regrade_case"]) == (True, 1.0, 1)
+
+
 def test_a_load_sensitive_task_s_zero_under_load_is_regraded_once_below_the_gate(short):
     lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
     (lh / "standin" / "regrade.json").write_text(json.dumps({"wal-recovery-ordering__abcdefg": [{"reward": 1.0}]}))
@@ -1409,8 +1451,9 @@ def test_reconcile_finishes_a_regrade_a_launcher_death_interrupted_and_removes_i
     lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
     root, attempt, record = _closed(short, "token-three-tools-normal-end", [])
     ladder._write_json(root / "slots" / attempt["id"] / "slot.json", {**attempt, "launcher": {"pid": 2 ** 22 + 7, "start": 1}})
-    (root / "slots" / attempt["id"] / "regrade" / "regrade-1").mkdir(parents=True)  # the interrupted regrade's trial
-    _container(lh, "regrade-1__env_main_1")
+    name = ladder.regrade_name(attempt["id"], 1)  # the interrupted regrade's trial, and its verifier container
+    (root / "slots" / attempt["id"] / "regrade" / name).mkdir(parents=True)
+    _container(lh, f"{name}__verifier__trial_main_1")
     ctx = _ctx(short, lh)
     (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
     ladder.reconcile(ctx, STANDING, 0.0, gate=lambda: True)

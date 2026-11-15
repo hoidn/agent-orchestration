@@ -955,16 +955,29 @@ def harness_command(ctx, *args):
     return [str(ctx.lh / "hvenv" / "bin" / "python"), "-I", str(KIT / "harbor_patient.py"), *args]
 
 
+def regrade_name(attempt_id, n):
+    """The trial name of an attempt's n-th regrade. Harbor names the verifier's compose project after it
+    (`<name>__verifier__<key>`) and takes that project down before `up`, so it is the attempt's own: two attempts
+    regrading at once never share a project (re-review R-M2)."""
+    return f"{attempt_id}-regrade-{n}"
+
+
 def _regrade_once(ctx, ladder, attempt, n):
-    """One verifier-only run of the attempt's trial; (reward or None, exception type or None)."""
-    attempt_dir = ctx.root / "slots" / attempt["id"]
+    """One verifier-only run of the attempt's trial; (reward or None, exception type or None). Like the harness, it
+    runs in its own session, held until its pid is in slot.json (`regrade`), so reconcile can stop it."""
+    attempt_dir, name = ctx.root / "slots" / attempt["id"], regrade_name(attempt["id"], n)
     trial, out = trial_dir(attempt_dir), attempt_dir / "regrade"
     command = harness_command(ctx, "trial", "regrade", str(trial), "-p", str(attempt_dir / "package" / attempt["task"]), "--env",
-                              "podman", "--trial-name", f"regrade-{n}", "-o", str(out))
+                              "podman", "--trial-name", name, "-o", str(out))
     env = {**base_env(ctx), "CONTAINERS_CONF_OVERRIDE": str(ctx.lh / "logs" / "containers-override.conf")}
-    subprocess.run(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
-                   start_new_session=True)
-    regraded = out / f"regrade-{n}"
+    proc = subprocess.Popen([*HOLD, *command], env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, start_new_session=True)
+    slot = attempt_dir / "slot.json"
+    _write_json(slot, {**_read_json(slot), "regrade": {"pid": proc.pid, "start": process_start(proc.pid)}})
+    proc.stdin.write(b"go\n")
+    proc.stdin.close()
+    proc.wait()
+    regraded = out / name
     return _reward(regraded), ((_result_json(regraded) or {}).get("exception_info") or {}).get("exception_type")
 
 
@@ -1023,9 +1036,10 @@ def podman(ctx, *args, timeout=300):
 
 def prefixes(attempt_dir):
     """The name prefixes of every container and network the harness made for the attempt: its trial's compose
-    projects (`<trial>__env`, `<trial>__verifier__…`) and its regrades', from the trial names (Harbor lower-cases)."""
-    trials = [trial_dir(attempt_dir)] + sorted(p for p in (attempt_dir / "regrade").glob("*") if p.is_dir())
-    return [t.name.lower() + "__" for t in trials if t]
+    projects (`<trial>__env`, `<trial>__verifier__…`) and its regrades' (`<attempt id>-regrade-<n>__verifier__…`,
+    whether or not a regrade wrote its directory: re-review R-M2). Harbor lower-cases them."""
+    trial = trial_dir(attempt_dir)
+    return ([trial.name.lower() + "__"] if trial else []) + [regrade_name(attempt_dir.name, "").lower()]
 
 
 def container_names(ctx, prefix_list):
@@ -1108,6 +1122,9 @@ def reconcile(ctx, ladder, prior, gate):
         if alive(owner["pid"], owner["start"]):
             continue
         if attempt["settled"] is not None:
+            regrade = attempt.get("regrade")  # re-review R-M2: the dead launcher's regrade, if it still runs
+            if regrade:
+                stop_group(regrade["pid"], regrade["start"])
             done += [r for r in [_finish_regrade(ctx, ladder, attempt, gate)] if r]
             continue
         harness = attempt.get("harness")
