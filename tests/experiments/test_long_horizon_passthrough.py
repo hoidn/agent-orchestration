@@ -1735,7 +1735,8 @@ def test_one_slot_s_connections_never_count_against_another_slot_s_socket(short,
     served = _post(own.path("b"), "lh-fake-b", _request())[0]
     for client in idle:
         client.close()
-    assert (over, served) == ("too many connections", 200)
+    logged = [r["slot"] for r in _rows(short / "own0-state") if r.get("refused") == "too many connections"]
+    assert (over, served, logged) == ("too many connections", 200, ["a"])  # Task 8 part A m6: its own slot
 
 
 def test_a_retired_slot_s_socket_and_its_directory_are_removed(short, stub, sockets):

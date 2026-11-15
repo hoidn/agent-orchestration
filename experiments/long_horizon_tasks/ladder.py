@@ -837,19 +837,19 @@ def judge(root, attempt, ladder, ended_at=None, closed=None):
     row = 16 if session is None else classify(session, ladder)
     spec = ladder["classification"]["rows"][row - 1]
     stop = _launcher_stop(trial, ladder)
-    cls = "stop" if stop else spec["class"]
+    cls, own = "stop" if stop else spec["class"], [r for r in window if r.get("slot") == attempt["id"]]
     return {"row": row, "class": cls, "flagged": spec.get("flagged", False), "reward": _observed(cls, row, trial),
             "stop": stop or (f"D5 row {row}" if cls == "stop" or spec.get("stop") else None),
             "api_retry": None if session is None else session["n_api_retry"], "minutes": session_minutes(trial),
-            "graded": graded(trial, ladder, attempt["task"]), "load_refused": _load_refused(window, ladder),
-            "slot_rows": [r for r in window if r.get("slot") == attempt["id"]]}
+            "graded": graded(trial, ladder, attempt["task"]), "load_refused": _load_refused(own, ladder),
+            "slot_rows": own}
 
 
-def _load_refused(window, ladder):
-    """Whether the attempt's window holds a refusal under load or timing (refusal.load_reasons), read as D5 row 15
-    reads it: from the tranche's rows, since a connection refused at the cap is logged before any slot is known."""
+def _load_refused(own, ladder):
+    """Whether the attempt's own rows hold a refusal under load or timing (refusal.load_reasons): each attempt has
+    its own socket, whose cap refusals the passthrough logs with its slot (Task 8 part A m6)."""
     reasons = set(ladder["refusal"]["load_reasons"].values())
-    return any(r.get("refused") in reasons for r in window)
+    return any(r.get("refused") in reasons for r in own)
 
 
 def session_minutes(trial):

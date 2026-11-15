@@ -2570,10 +2570,18 @@ def test_clearing_the_share_at_one_level_leaves_the_tranche_wide_share_counting_
         {"infrastructure-failures-at-level"}, 0, {"infrastructure-failures"})
 
 
-def test_an_attempt_ended_by_a_load_refusal_is_marked_from_the_tranche_s_rows_as_row_15_reads_them():
-    rows = [{"slot": None, "status": 403, "refused": "too many connections"}]  # at the cap: no slot known yet
-    assert (ladder._load_refused(rows, STANDING), ladder._load_refused([{"slot": "a", "refused": "slot cap reached"}],
-                                                                       STANDING)) == (True, False)
+def test_an_attempt_ended_by_a_load_refusal_is_marked_only_from_its_own_slot_s_rows(short):
+    """Task 8 part A m6: a connection refused at the cap of another slot's socket (or the main one) is not this
+    attempt's load refusal; the passthrough logs a slot socket's cap refusal with that slot."""
+    own = [{"status": 403, "refused": "too many connections"}]
+    other = [{"slot": "x", "status": 403, "refused": "too many connections"},
+             {"slot": None, "status": 403, "refused": "too many connections"}]
+    marked = []
+    for rows in (own, other):
+        (short / str(len(marked))).mkdir(mode=0o700)
+        root, attempt, record = _closed(short / str(len(marked)), "token-three-tools-normal-end", rows, reward=1.0)
+        marked.append(record["load_refused"])
+    assert marked == [True, False]
 
 
 def test_the_launch_loop_stops_on_a_threshold_over_its_bound_before_any_start(rig):

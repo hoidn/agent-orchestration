@@ -853,7 +853,8 @@ class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
     def process_request(self, request, client_address):
         if not self.connections.acquire(blocking=False):  # over the cap: refused without a thread
-            self.pt.log({"time": time.time(), "slot": None, "status": 403, "refused": "too many connections"})
+            slot = getattr(self, "slot", None)  # a slot's own socket names its slot (Task 8 part A m6); the main none
+            self.pt.log({"time": time.time(), "slot": slot, "status": 403, "refused": "too many connections"})
             with contextlib.suppress(OSError):
                 request.settimeout(1)
                 request.sendall(_refusal("too many connections"))
