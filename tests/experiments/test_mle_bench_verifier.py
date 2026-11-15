@@ -309,10 +309,18 @@ def test_the_percentile_of_an_empty_leaderboard_is_refused(grading):
 # --- the agent-side format check ----------------------------------------------------------------------------------
 
 AUDIT = """
-import json, runpy, sys
-opened = []
-sys.addaudithook(lambda event, args: event == "open" and isinstance(args[0], str) and opened.append(args[0]))
+import json, os, runpy, sys
 script, log = sys.argv[1], sys.argv[2]
+interpreter = tuple(os.path.realpath(p) + os.sep for p in {sys.prefix, sys.base_prefix, sys.exec_prefix})
+opened = []
+
+def hook(event, args):
+    if event == "open" and isinstance(args[0], (str, bytes, os.PathLike)):
+        path = os.path.realpath(os.fsdecode(args[0]))
+        if not path.startswith(interpreter) and path not in (os.path.realpath(log), os.path.realpath(script)):
+            opened.append(path)
+
+sys.addaudithook(hook)
 sys.argv = sys.argv[2:]
 sys.argv[0] = script
 try:
@@ -325,7 +333,8 @@ finally:
 
 def _validate(tmp_path, submission):
     """Run the format check in a tree holding only the agent's public files (no private directory anywhere), as
-    the instruction tells the agent to; return (process, every path under the tree it opened)."""
+    the instruction tells the agent to; return (process, every file it opened outside the interpreter's own, by its
+    path in the tree, or absolute when outside it)."""
     tree = tmp_path / "agent"
     (tree / "home" / "data").mkdir(parents=True)
     (tree / "home" / "submission").mkdir()
@@ -338,8 +347,9 @@ def _validate(tmp_path, submission):
         [sys.executable, "-I", "-c", AUDIT, str(VALIDATOR), str(log), str(target),
          str(tree / "home" / "data" / "sample_submission.csv")],
         capture_output=True, text=True, timeout=60)
-    opened = {Path(p).resolve() for p in json.loads(log.read_text())} if log.is_file() else set()
-    return done, {p.relative_to(tree.resolve()).as_posix() for p in opened if p.is_relative_to(tree.resolve())}
+    opened = {Path(p) for p in json.loads(log.read_text())}
+    root = tree.resolve()
+    return done, {p.relative_to(root).as_posix() if p.is_relative_to(root) else str(p) for p in opened}
 
 
 def _codes(done):
