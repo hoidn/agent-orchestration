@@ -1496,6 +1496,17 @@ def test_a_start_index_is_never_reused_after_a_launch_refused_at_launch(short):
     assert [a["index"] for a in ladder.attempts(root)] == [1, 3, 4, 5] and len({a["id"] for a in later}) == 2
 
 
+def test_a_start_index_is_never_reused_when_the_newest_claim_was_refused(short):
+    """Re-review R-m6 (M4): a refusal comes soon after its claim and stops the tranche, so the refused claim is
+    usually the newest one; the next claim still takes a new index."""
+    root = _state(short)
+    claimed = [ladder.reserve(root, _entry(effort=e), CRITERION, 0.0) for e in ("low", "medium")]
+    (root / "refused").mkdir(mode=0o700)
+    (root / "slots" / claimed[1]["id"]).rename(root / "refused" / f"{claimed[1]['id']}-1")
+    later = ladder.reserve(root, _entry(effort="medium"), CRITERION, 0.0)
+    assert ([a["index"] for a in ladder.attempts(root)], later["index"]) == ([1, 3], 3)
+
+
 def test_reconcile_finishes_a_regrade_a_launcher_death_interrupted_and_removes_its_containers(short):
     """Task 8 part A M3: close() settled a normal ending with no reward, and the launcher died before or during its
     regrade (a regrade's verifier container is left). Reconcile regrades it, so the record is exportable."""
