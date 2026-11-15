@@ -1,6 +1,7 @@
 {
  "source": "local recording install-only-banner-fail (before the compose_warning_logs override)",
  "harness_exception": "RuntimeError",
+ "exception_message": "Agent install failed: '\\x1b[4m>>>> Executing external compose provider \"<home>/lh-cache/hvenv/bin/podman-compose\". Please refer to the documentation for details. <<<<\\n\\n\\x1b[0mapt-get'",
  "cli_exit_code": null,
  "agent_result": null,
  "verifier_result": null,

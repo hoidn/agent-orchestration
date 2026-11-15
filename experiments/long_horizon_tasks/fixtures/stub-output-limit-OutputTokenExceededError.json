@@ -1,5 +1,5 @@
 {
- "source": "local recording s3-max-tokens-low (stub_api.py scenario max_tokens, CLI 2.1.311, three tools, via the relay)",
+ "source": "local recording t2a-max-tokens-low (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "OutputTokenExceededError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -29,7 +29,7 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "b16a9cc0-36be-40d5-b6be-c37926675cc0",
+  "session_id": "3ed6bbec-9c02-4dc5-aa9a-bc81029b3c52",
   "tools": [
    "Bash",
    "Edit",
@@ -50,6 +50,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -90,7 +91,7 @@
    "focus",
    "reload-plugins"
   ],
-  "apiKeySource": "ANTHROPIC_API_KEY",
+  "apiKeySource": "none",
   "claude_code_version": "2.1.311",
   "output_style": "default",
   "agents": [
@@ -112,6 +113,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -147,9 +149,13 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "1ed0460a-204a-4812-92d0-58242c3d0ec3",
+  "uuid": "962cb8e5-e030-408e-99ae-dccc6dd227ce",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
   "original_cwd": "/app",
   "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
@@ -168,7 +174,7 @@
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T01:37:30.156Z",
+   "timestamp": "2026-11-14T21:36:51.581Z",
    "message": {
     "model": "claude-haiku-5-5",
     "stop_reason": null,
@@ -188,7 +194,7 @@
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T01:37:30.159Z",
+   "timestamp": "2026-11-14T21:36:51.583Z",
    "error": "max_output_tokens",
    "is_api_error_message": true,
    "api_error": "max_output_tokens",
@@ -225,9 +231,9 @@
    }
   },
   {
-   "duration_api_ms": 275,
+   "duration_api_ms": 127,
    "stop_reason": "stop_sequence",
-   "session_id": "b16a9cc0-36be-40d5-b6be-c37926675cc0",
+   "session_id": "3ed6bbec-9c02-4dc5-aa9a-bc81029b3c52",
    "total_cost_usd": 0.0006000000000000001,
    "usage": {
     "input_tokens": 4000,
@@ -305,8 +311,8 @@
    "api_error": "max_output_tokens",
    "result": "API Error: Claude's response exceeded the 128000 output token maximum. To configure this behavior, set the CLAUDE_CODE_MAX_OUTPUT_TOKENS environment variable.",
    "type": "result",
-   "duration_ms": 366,
-   "uuid": "3ba9d37f-33b7-480e-bce6-5d963eb4a19e",
+   "duration_ms": 345,
+   "uuid": "17b33852-756f-4f1c-ad3f-847e6e0c2edf",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {

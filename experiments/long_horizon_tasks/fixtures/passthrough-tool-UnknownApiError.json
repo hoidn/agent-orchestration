@@ -1,5 +1,5 @@
 {
- "source": "local recording pt-tool (stub_api.py scenario pt_tool, CLI 2.1.311, three tools, via the relay)",
+ "source": "local recording t2a-pt-tool403 (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "UnknownApiError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -29,7 +29,7 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "c3405b37-2c6a-45eb-9d95-3ed53c50b713",
+  "session_id": "59c95bee-8715-4d17-bb88-d23bd1b2bd79",
   "tools": [
    "Bash",
    "Edit",
@@ -50,6 +50,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -90,7 +91,7 @@
    "focus",
    "reload-plugins"
   ],
-  "apiKeySource": "ANTHROPIC_API_KEY",
+  "apiKeySource": "none",
   "claude_code_version": "2.1.311",
   "output_style": "default",
   "agents": [
@@ -112,6 +113,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -147,37 +149,29 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "991e1336-5a90-44c8-9cf9-5c6ebc84dd3d",
+  "uuid": "f5771e86-7c84-47fb-8aec-b980da0c020e",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
   "original_cwd": "/app",
   "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
   "view_mode": "default"
  },
- "n_events": 5,
+ "n_events": 6,
  "n_api_retry": 0,
  "stream_tail": [
   {
-   "type": "assistant",
-   "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T03:04:08.583Z",
-   "message": {
-    "model": "claude-haiku-5-5",
-    "stop_reason": null,
-    "usage": {
-     "input_tokens": 1000,
-     "output_tokens": 1,
-     "cache_creation_input_tokens": 0,
-     "cache_read_input_tokens": 0
-    },
-    "content": [
-     {
-      "type": "tool_use",
-      "name": "Bash"
-     }
-    ]
-   }
+   "type": "rate_limit_event",
+   "rate_limit_info": {
+    "status": "allowed",
+    "isUsingOverage": false
+   },
+   "uuid": "44a86ecf-770d-440f-b621-2c7234b8838a",
+   "session_id": "59c95bee-8715-4d17-bb88-d23bd1b2bd79"
   },
   {
    "type": "user",
@@ -189,10 +183,10 @@
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T03:04:08.843Z",
-   "error": "unknown",
+   "timestamp": "2026-11-14T22:27:21.115Z",
+   "error": "authentication_failed",
    "is_api_error_message": true,
-   "api_error_status": 400,
+   "api_error_status": 403,
    "message": {
     "model": "<synthetic>",
     "stop_reason": "stop_sequence",
@@ -220,15 +214,15 @@
     "content": [
      {
       "type": "text",
-      "text": "API Error: 400 lh-passthrough: provider-side tool refused"
+      "text": "Failed to authenticate. API Error: 403 lh-passthrough: provider-side tool refused"
      }
     ]
    }
   },
   {
-   "duration_api_ms": 88,
+   "duration_api_ms": 76,
    "stop_reason": "stop_sequence",
-   "session_id": "c3405b37-2c6a-45eb-9d95-3ed53c50b713",
+   "session_id": "59c95bee-8715-4d17-bb88-d23bd1b2bd79",
    "total_cost_usd": 0.00015000000000000001,
    "usage": {
     "input_tokens": 1000,
@@ -302,11 +296,11 @@
    "is_error": true,
    "num_turns": 2,
    "subtype": "success",
-   "api_error_status": 400,
-   "result": "API Error: 400 lh-passthrough: provider-side tool refused",
+   "api_error_status": 403,
+   "result": "Failed to authenticate. API Error: 403 lh-passthrough: provider-side tool refused",
    "type": "result",
-   "duration_ms": 394,
-   "uuid": "959db7f8-25b5-4f97-8773-9aa2ad41f20b",
+   "duration_ms": 301,
+   "uuid": "c88f51a5-704a-46ee-a647-1c131019ffc4",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {
