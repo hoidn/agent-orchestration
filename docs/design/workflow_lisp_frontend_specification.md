@@ -1416,11 +1416,11 @@ value of the first expansion.
 - *A signature taken from the consumer.* A local that leaves out a parameter
   type or `-> Type` takes the missing types from the `ProcRef` parameter it
   is passed to.
-  - `(proc-ref f)` is written as an argument of one call in `body`, of a
-    `defproc` or of a name bound to a reference. Several arguments of that
-    call may pass it, and a call inside a loop is one call. No such call, or
-    two (also one in each branch of an `if`):
-    `let_proc_consumer_site_invalid`.
+  - `(proc-ref f)` is written as an argument of one call in `body`: a call
+    of a `defproc`, of a local with a declared signature, or of a name bound
+    to a reference. Several arguments of that call may pass it, and a call
+    inside a loop is one call. No such call, or two (also one in each branch
+    of an `if`): `let_proc_consumer_site_invalid`.
   - `(proc-ref f)` anywhere else (a `let*` binding, the base of `bind-proc`):
     `let_proc_indirect_reference_unsupported`. A call by name:
     `let_proc_signature_required`.
@@ -1503,7 +1503,7 @@ that has no row yet; the ledger gives the smallest program of each finding.
 | `T9.7` | A `ProcRef` parameter as the `base` of `bind-proc` | `proc_ref_literal_required` at the definition | - |
 | `T9.8` | A `ProcRef` parameter read in a `local-body` of its procedure | `procedure_call_unknown` at the definition | - |
 | `D10`, `D10-R1`, `D11`, `D11-R1`, `D11-R2`, `D11-R5` | A `local-body` calls or passes an outer `let*` name bound to a reference or to a `bind-proc` | `compiler_defect` | write `(proc-ref …)` in the `local-body`; call the bound name in `body` |
-| `E8`, `D25`, `T9.5` | In a `defproc`, a `bind-proc` or a local whose bound or captured value is not a literal or a name bound to a literal: a parameter of the procedure, a computed value, a field of a record | called by name: `compiler_defect`; passed: `procedure_lowering_unresolved`; with an effect in the procedure or in the local: `compiler_defect` | the same form in a workflow body; a literal, or a name bound to a literal |
+| `E8`, `D25`, `T9.5` | In a `defproc`, a `bind-proc` or a local whose bound or captured value is not a literal or a name bound to a literal: a parameter of the procedure, a computed value, a field of a record | called by name: `compiler_defect`; passed to a procedure that has no effect: `procedure_lowering_unresolved`; with an effect in the procedure or in the local: `compiler_defect` when the procedure is called with a literal argument, a build when it is called with a workflow input | the same form in a workflow body; a literal, or a name bound to a literal; a local passed to a procedure that has an effect |
 | `D24` | In a workflow, a local whose body is a loop that reads a field of a captured `let*` record | `compiler_defect` | - |
 | `E23-local`, `E23-input` | `bind-proc` written as an argument binds a value that reads a name: a name, a field read, a computed value | `name_unknown` | bind the `bind-proc` with `let*`, then pass the name |
 | `E26`, `T9.17` | A `bind-proc` whose bound value holds an effect, passed to a procedure that has no effect: written as the argument (`E26`) or through a `let*` name (`T9.17`) | `procedure_call_unknown` | bind the effect's result with `let*` first; call the result by name |
@@ -1512,7 +1512,8 @@ that has no row yet; the ledger gives the smallest program of each finding.
 | `T9.14` | `bind-proc` binds a `let*` name that holds a reference to a `ProcRef` parameter, and the result is passed | `procedure_call_unknown` | write `(proc-ref …)` as the value; call the result by name |
 | `B7-same-written` | Two equal `bind-proc` forms over a `(workflow-ref w)`, written at two places and passed to one procedure | `procedure_lowering_unresolved` | - |
 | `E9`, `E9-local` | A pure procedure or local whose body is a loop, passed to a pure procedure that calls it | `procedure_call_unknown` | call it by name |
-| `T9.1` | A local that captures an effect's result, or a `let*`-bound `bind-proc` whose bound value holds an effect, used inside an operand of an operator; such a local called in an `if` condition | `compiler_defect` in the operand; `proc_ref_literal_required` in the condition | bind the call with `let*` first |
+| `T9.1` | A local that captures an effect's result, called by name inside an operand of an operator, in an `if` condition or in the body of a `list/map-effect`; a `let*` that binds a `bind-proc` whose bound value holds an effect, written inside an operand of an operator or as the body of a `list/map-effect` | `compiler_defect`; for the local in the condition `proc_ref_literal_required` | the local: bind the call with `let*` first, and in a map body pass the local with `proc-ref`. The `bind-proc`: bind the effect's result with `let*` first, or write its `let*` around the operator |
+| `T9.18` | In a loop body, a `let*`-bound `bind-proc` whose bound value holds an effect, called in the `done` value or nested in an operand of the `continue` value | `procedure_lowering_unresolved` | bind the effect's result with `let*` first |
 | `T9.6` | A local that reads a captured effect's result and binds an effect in its own body (§16.3) | `compiler_defect` | - |
 | `T9.4` | In one `let-proc`, a local with a declared signature and a capture, used in the arguments of the call that gives a sibling its signature | `proc_ref_binding_duplicate` | declare both signatures, or bind the first local's result with `let*` |
 | `T9.3` | A `let-proc` written in the body of a `list/map-effect` without `:parallel` | `proc_ref_unknown` | write the `let-proc` around the map |
