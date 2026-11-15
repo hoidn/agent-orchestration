@@ -12,6 +12,7 @@ attempt on.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -491,3 +492,19 @@ def test_offline_a_cut_units_pause_is_written_before_its_settlement_begins(world
         study.candidates(s, "calibration", "direct", [task])
     pauses = [r["unit"] for r in spend.rows(s.ledger) if r.get("event") == "pause"]
     assert (bool(seen) and all(seen), len(pauses) == len(set(pauses)) == len(seen)) == (True, True)
+
+
+def test_offline_the_runtime_cap_lets_every_planned_call_of_a_multi_call_unit_run(world, monkeypatch):
+    """Review 3 X3: the stand-in's Haiku call costs USD 0.0036 at the ordinary rate and 0.018 at the highest tier,
+    which the runtime counts. A per-call worst case of 0.005 that the freeze accepts (it covers 5 x the 0.001 named
+    as the largest ordinary-rate call) still lets the second of retry-until-check's calls run."""
+    s = world.study
+    write_frozen_criterion(s, frozen="toy", spend=stand_in_terms(world.fakebin, per_call_usd={H: 0.005, S: 1.0},
+                                                                 largest_call_usd={H: 0.001, S: 0.067}))
+    rules.record_freeze(s)
+    monkeypatch.setenv(spend.AUTHORIZATION, "smoke")
+    study.candidates(s, "smoke", "retry_until_check", [SMOKE])
+    (facts,) = facts_of(s)
+    command = next(s.work.glob("records/*/run-*/command.sh")).read_text().split()
+    assert ({k: facts.get(k) for k in ("outcome", "incident", "calls")}, command[-2:]) == (
+        {"outcome": "completed", "incident": None, "calls": 2}, ["--max-cost-usd", "0.075"])

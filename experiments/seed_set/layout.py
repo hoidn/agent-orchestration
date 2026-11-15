@@ -29,6 +29,7 @@ PLANNED = {"smoke": dict.fromkeys(("direct", "direct_sonnet", "retry_until_check
 RETESTS = {"smoke": 0, "calibration": 10, "redraw": 0}  # the first tasks of the tranche, in its order
 CHOSEN = "calibration-tasks.json"  # under the results directory
 MIN_FREE = 20 * 10**9
+WIDTH = 2  # units in flight at a time (coordinator ruling R3): a usage limit cuts at most two
 RUBRIC = {"workflow": "score_functional.orc", "entry": "score_functional::score", "criteria": ["quality"],
           "reference": None}
 
@@ -121,14 +122,14 @@ def spend_terms(study, tranche, model):
     terms = load(study.frozen).get("spend") or {}
     ceiling, per_call = (terms.get("ceiling_usd") or {}).get(tranche), (terms.get("per_call_usd") or {}).get(model)
     cli = terms.get("cli")
-    if not (_positive(ceiling) and _positive(per_call) and isinstance(cli, dict) and sorted(cli) == ["path", "version"]
+    if not (positive(ceiling) and positive(per_call) and isinstance(cli, dict) and sorted(cli) == ["path", "version"]
             and all(isinstance(value, str) and value for value in cli.values())):
         raise SystemExit(f"{study.frozen} names no priced ceiling for {tranche}, per-call worst case for {model} or "
                          "CLI pin (path and version) under \"spend\": the coordinator sets them at the freeze")
     return ceiling, per_call, cli
 
 
-def _positive(value):
+def positive(value):
     return type(value) in (int, float) and math.isfinite(value) and value > 0
 
 

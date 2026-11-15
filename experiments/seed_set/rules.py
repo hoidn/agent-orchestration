@@ -33,7 +33,8 @@ from pathlib import Path
 
 from experiments.compare.repos import git, load, runtime_commit, sha256_file
 from experiments.seed_set import anchors, gates, layout, ladder, spend, units
-from experiments.seed_set.layout import CHOSEN, PLANNED, study_runs, tranche_tasks
+from experiments.seed_set.layout import CHOSEN, PLANNED, WIDTH, study_runs, tranche_tasks
+from orchestrator.providers.pricing import FIELDS, load_price_table
 
 JUDGE_EFFORT = "high"  # score_functional.orc's fixed judge effort
 
@@ -114,13 +115,48 @@ def check_cli(declaration, pin):
     return {"path": path, "version": pin["version"]}
 
 
+def tier_ratio(study, model):
+    """The frozen table's highest tier over its ordinary rates for `model`, 1 without a tier: the runtime's
+    `--max-cost-usd` counts every call at the highest tier (`pricing.cap_cost`), the ledger at the ordinary rates."""
+    rates = load_price_table(study.runtime / PRICE_TABLE)["models"][model]
+    tier = rates.get("long_context")
+    if tier and any(tier[key] and not rates[key] for key in FIELDS):
+        raise SystemExit(f"{model}: a long-context rate over an ordinary rate of 0 has no bounded ratio")
+    return max(tier[key] / rates[key] for key in FIELDS if rates[key]) if tier else 1
+
+
+def require_spend_bounds(study):
+    """Refuse spend terms the runtime or two units in flight would breach (review3 X3): a model's per-call worst case
+    below its tier ratio times the largest ordinary-rate call `criterion.json` names for it (`largest_call_usd`; a
+    call billed at the highest tier stays inside it), or a tranche's ceiling below WIDTH times the worst case of its
+    largest unit (a program at its maximum calls, a judge at one batch: the study's pools are one batch)."""
+    largest, arms = (load(study.frozen).get("spend") or {}).get("largest_call_usd") or {}, layout.load_arms(study)
+    for model in spend.MODELS:
+        per_call = layout.spend_terms(study, "smoke", model)[1]
+        if not layout.positive(largest.get(model)):
+            raise SystemExit(f"{study.frozen} names no largest ordinary-rate call for {model} under spend")
+        if per_call < round(tier_ratio(study, model) * largest[model], 6):
+            raise SystemExit(f"{model}: the per-call worst case USD {per_call:g} is below {tier_ratio(study, model):g} "
+                             f"x the largest ordinary-rate call USD {largest[model]:g}")
+    for tranche, kinds in spend.CAPS.items():
+        units_ = [(arms[arm]["max_calls"], arms[arm]["model"]) for arm in PLANNED[tranche]]
+        units_ += [(1, judge) for judge, cap in kinds["judge"].items() if cap]
+        worst = max(calls * layout.spend_terms(study, tranche, model)[1] for calls, model in units_)
+        if (ceiling := layout.spend_terms(study, tranche, spend.HAIKU)[0]) < round(WIDTH * worst, 6):
+            raise SystemExit(f"{tranche}: the ceiling USD {ceiling:g} is below {WIDTH} units in flight at the largest "
+                             f"unit's worst case USD {worst:g}")
+
+
 def record_freeze(study, reason=None):
-    """Record the freeze's identity in the ledger: the first spend needs it. Once a start exists, a new freeze
-    needs a reason (an apparatus fix the plan's ledger records), which the event keeps."""
+    """Record the freeze's identity in the ledger: the first spend needs it, and spend terms the runtime or two
+    units in flight would breach refuse it (`require_spend_bounds`). Once a start exists, a new freeze needs a reason
+    (an apparatus fix the plan's ledger records), which the event keeps."""
     layout.load_criterion(study)
     if spend.starts(spend.rows(study.ledger)) and not reason:
         raise SystemExit("starts exist: a new freeze needs --reason (the apparatus fix it records)")
-    return spend.record(study.ledger, "freeze", **frozen_identity(study), **({"reason": reason} if reason else {}))
+    identity = frozen_identity(study)
+    require_spend_bounds(study)
+    return spend.record(study.ledger, "freeze", **identity, **({"reason": reason} if reason else {}))
 
 
 def require_order(study, tranche):

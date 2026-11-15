@@ -961,3 +961,25 @@ def smoke_runs(runner, settled=True):
 def test_the_smoke_fails_while_a_reserved_unit_is_unsettled(runner, settled):  # review3 X1: unobserved
     smoke_runs(runner, settled)
     assert rules.smoke_check(runner)["checks"]["every_reserved_unit_settled"] is settled
+
+
+def test_the_runtime_counts_haiku_calls_at_five_times_and_sonnet_calls_at_once_the_ordinary_rate(runner):
+    assert (rules.tier_ratio(runner, H), rules.tier_ratio(runner, S)) == (5, 1)  # review3 X3
+
+
+@pytest.mark.parametrize("change, match", [
+    ({"largest_call_usd": {H: 0.06, S: 0.1}}, "per-call worst case"),  # 0.25 < 5 x 0.06
+    ({"largest_call_usd": {H: 0.01, S: 1.5}}, "per-call worst case"),  # 1.0 < 1 x 1.5
+    ({"largest_call_usd": {H: 0.01}}, "largest ordinary-rate call"),
+    ({"ceiling_usd": {"smoke": 1.4, "redraw": 40.0, "calibration": 100.0}}, "ceiling"),  # 2 x 3 x 0.25 = 1.5
+    ({"ceiling_usd": {"smoke": 20.0, "redraw": 0.4, "calibration": 100.0}}, "ceiling"),  # 2 x 1 x 0.25 = 0.5
+])
+def test_the_freeze_refuses_worst_cases_the_runtime_or_two_units_in_flight_would_breach(runner, change, match):
+    spend_terms(runner, **change)
+    with pytest.raises(SystemExit, match=match):
+        rules.record_freeze(runner)
+    assert not runner.ledger.exists()
+
+
+def test_the_freeze_accepts_the_test_spend_terms(runner):
+    assert rules.record_freeze(runner)["event"] == "freeze"

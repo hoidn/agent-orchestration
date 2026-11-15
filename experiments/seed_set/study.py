@@ -42,8 +42,9 @@ run records (`<kind>.2`) and judged again by both judges.
 Spend in priced tokens (rulings R4 and R5): candidates and judges run the metered template (`programs/providers.json`
 and the study's own `programs/judge.providers.json`). Before a start the unit's Claude CLI must be the criterion's
 pinned path and version, and `spend.reserve` refuses a start whose worst case would pass the tranche's priced
-ceiling; the unit's worst case also goes to the runtime as `--max-cost-usd`. When it ends, its metered usage priced
-by the frozen table settles it (a `settle` event).
+ceiling; the unit's worst case, times the table's highest tier over its ordinary rate for the model (the runtime
+counts every call at the highest tier; review3 X3), goes to the runtime as `--max-cost-usd`. When it ends, its
+metered usage priced by the frozen table settles it (a `settle` event).
 """
 
 import argparse
@@ -63,14 +64,14 @@ from experiments.orc_structural_search import metering
 from orchestrator.providers.pricing import load_price_table
 from experiments.seed_set import blinding, gates, host, ladder, layout, readout, rules, selection, spend, units
 from experiments.seed_set.layout import (
-    PLANNED, RETESTS, Study, chosen, load_arms, load_criterion, require_tasks, study_runs,
+    PLANNED, RETESTS, WIDTH, Study, chosen, load_arms, load_criterion, require_tasks, study_runs,
     task_dir, task_rows, tranche_tasks,
 )
 
 BOUNDARIES = ("dev_check.py", "reset_clone.py")  # copied into the clone and excluded from its patch
 JUDGE_PROVIDERS = "judge.providers.json"  # the judges' metered template (ruling R4), beside the programs
 INPUTS = ("task", "intent", "repo", "model", "effort")
-WIDTH, MAX_POOLS = 2, 2  # two runs at a time (coordinator ruling R3): a usage limit cuts at most two in flight
+MAX_POOLS = 2
 CALL_SEC, JUDGE_SEC, SLACK_SEC = 1200, 3600, 600  # the programs' and score_functional.orc's :timeout-sec
 
 
@@ -198,7 +199,7 @@ def start_run(study, tranche, arm, spec, task, fix, limit, records, record, extr
     try:
         ceiling, per_call, pin = layout.spend_terms(study, tranche, spec["model"])
         cli = rules.check_cli(record["sandbox"]["declaration"], pin)
-        units.cap_command(records / "command.sh", spec["max_calls"] * per_call)
+        units.cap_command(records / "command.sh", spec["max_calls"] * per_call * rules.tier_ratio(study, spec["model"]))
         spend.reserve(study.ledger, tranche, "candidate", spec["model"], spec["max_calls"], records,
                       limit=limit, price=(ceiling, per_call), task=task, arm=arm, cli=cli, **extra)
     except SystemExit:
@@ -397,7 +398,7 @@ def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     judged = blinding.judged_patches(out, mapping)  # what this judge reads, bound to its ratings in the readout
     ceiling, per_call, pin = layout.spend_terms(study, tranche, model)
     cli = rules.check_cli(mapping["judges"][model]["sandbox"]["declaration"], pin)
-    units.cap_command(records / f"score-{model}.sh", batches * per_call)
+    units.cap_command(records / f"score-{model}.sh", batches * per_call * rules.tier_ratio(study, model))
     spend.reserve(study.ledger, tranche, "judge", model, batches, f"{out}#{model}", price=(ceiling, per_call),
                   task=task, pool=kind, cli=cli)
     start, home = time.time(), mapping["judges"][model]["sandbox"]["home"]

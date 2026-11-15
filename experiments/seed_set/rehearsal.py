@@ -47,7 +47,8 @@ GUARD = CHECKOUT / "experiments" / "thread_m" / "no_provider"
 H, S = spend.HAIKU, spend.SONNET
 WITHHELD_TASK = "12ea8483f0-withheld"  # a real T3w package for the withheld launch
 # the rehearsal's priced ceilings and worst cases (the stand-in prices Haiku at USD 0.0036 and Sonnet at 0.067 a call)
-TERMS = {"ceiling_usd": {"smoke": 10.0, "redraw": 3.0, "calibration": 40.0}, "per_call_usd": {H: 0.25, S: 1.0}}
+TERMS = {"ceiling_usd": {"smoke": 10.0, "redraw": 3.0, "calibration": 40.0}, "per_call_usd": {H: 0.25, S: 1.0},
+         "largest_call_usd": {H: 0.0036, S: 0.067}}
 
 
 def git(*args):

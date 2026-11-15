@@ -19,7 +19,8 @@ With `"usage_limit": {"task": id, "model": m, "reset": epoch}` (an implementer c
 `{"judge": m, "reset": epoch}` (a judge call by that model), the call answers as the vendor does at a usage limit
 (the shape of experiments/long_horizon_tasks/fixtures/token-usage-limit-NonZeroAgentExitCodeError.json: a rejected
 `rate_limit_event`, a `<synthetic>` session row, a result event with `api_error: usage_limit_reached`) and exits 1.
-A test lifts the limit by rewriting the plan in place (the sandbox binds the same file).
+A test lifts the limit by rewriting the plan in place (the sandbox binds the same file). With `"sleep": seconds`
+every call waits that long before it answers.
 """
 
 import sys
@@ -29,9 +30,11 @@ VERSION = "2.1.311-stand-in (Claude Code)"
 # so the guard's figure is the table's (Haiku USD 0.0036 a call, Sonnet USD 0.067).
 USAGE = {"inputTokens": 1000, "outputTokens": 2000, "cacheReadInputTokens": 50000, "cacheCreationInputTokens": 10000}
 REPORTED_USD = 0.001
-# criterion.json's spend terms for tests (rulings R4, R5); a test that launches the stand-in names its own CLI pin
+# criterion.json's spend terms for tests (rulings R4, R5; review3 X3: the largest ordinary-rate call each per-call
+# worst case must cover at the table's highest tier); a test that launches the stand-in names its own CLI pin
 SPEND_TERMS = {"ceiling_usd": {"smoke": 20.0, "redraw": 40.0, "calibration": 100.0},
                "per_call_usd": {"claude-haiku-5-5": 0.25, "claude-sonnet-5-5": 1.0},
+               "largest_call_usd": {"claude-haiku-5-5": 0.01, "claude-sonnet-5-5": 0.1},
                "cli": {"path": "/stand-in/bin/claude", "version": VERSION}}
 
 
@@ -41,7 +44,7 @@ def stand_in_terms(fakebin, **change):
     return {**SPEND_TERMS, "cli": {"path": str(Path(fakebin, "claude").resolve()), "version": VERSION}, **change}
 
 STUB = f"""#!{sys.executable} -I
-import json, os, re, subprocess, sys
+import json, os, re, subprocess, sys, time
 from pathlib import Path
 if sys.argv[1:] == ["--version"]:
     print({VERSION!r})
@@ -85,6 +88,7 @@ limit = plan.get("usage_limit") or {{}}
 if (clones and limit.get("judge") == model) or (key is not None and (limit.get("task"), limit.get("model")) == (
         key, model)):
     usage_limited(limit)
+time.sleep(plan.get("sleep", 0))  # a call that is still running when a test kills its launcher
 if clones:
     result = [{{"clone": c, "quality": "S8" if changed(c) else "S0", "reason": "scripted"}} for c in clones]
 elif entry is None:
