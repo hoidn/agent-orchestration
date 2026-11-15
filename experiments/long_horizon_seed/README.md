@@ -8,10 +8,10 @@ uses a scripted `claude`.
 
 | Program | What it stages | Lines |
 | --- | --- | ---: |
-| `milestones.orc` (lead) | Setup, spec; rounds of plan, a work-check-review loop per milestone, check, acceptance | 47 |
+| `milestones.orc` (lead) | Setup, spec; rounds of plan, a work-check-review loop per milestone, check, acceptance | 54 |
 | `staged.orc` | Setup, spec, plan; rounds of work, check, acceptance | 34 |
 | `designed.orc` | `staged` with a design between spec and plan, reviewed at most twice | 62 |
-| `roles.orc` | `milestones` with Agent Sessions | 49 |
+| `roles.orc` | `milestones` with Agent Sessions | 56 |
 
 `common.orc` holds their result types. Each takes two inputs, the task text and the intent; models, efforts and loop
 bounds are literals in the program. `providers.json` and `commands.json` bind the three roles and the `dev-check`
@@ -28,6 +28,20 @@ Every loop and map has a literal bound, so each program has a worst case in prov
 A plan of more than eight milestones is cut to its first eight (`(list/take plan.milestones 8)` with `:max 8`) and
 the run goes on; the planner is still told "at most eight". The milestones after the eighth are not built in that
 round; the next round's plan is written after the round's check and acceptance and can take them up.
+
+## How a run ends
+
+`staged` and `designed` end with `Outcome`: `DONE`, or `BLOCKED` with a reason and the notes the exhausted loop ended
+on. `milestones` and `roles` end with `Ending`, which is `Outcome` with two more fields:
+
+- `cut`, in both variants: one row `{planned, built}` for each plan that had more milestones than were built; empty
+  when no plan was cut.
+- `built`, in `BLOCKED`: how each milestone built in the round ended, `{met, notes}`, when the run ended because a
+  milestone was refused in both attempts (reason "milestone refused twice"); empty otherwise.
+
+A refused milestone ends the run after the map: the plan's other milestones, up to eight in all, are still built,
+because a serial map runs every item; then the run ends without the round's check and acceptance. `built` holds every
+milestone's result, since the language has no operator that selects one element of a list.
 
 ## Run
 
@@ -55,8 +69,9 @@ name. The one generated ordinal is `loop:#1[*]`, the loop a `list/map-effect` lo
 `ACCEPTED / built=workflow:designed::build` and do not share `staged`'s key prefix; the labels and the role of each
 step are the same in all four seeds. In `milestones` and `roles` the plan is inside the round
 (`run / loop:state[*] / plan`), and a milestone's `change`, `report` and `verdict` are under
-`… / built / body / loop:#1[*] / else / each=workflow:<program>::milestone / loop:state[*]`. Two keys there end in
-`report`: the round's check and each milestone's check. In `roles` opening a conversation is a step of its own
+`… / built / body / loop:#1[*] / else / each=workflow:<program>::milestone / loop:state[*]`. The round's check and
+acceptance come after the test of the milestones' results and are `run / loop:state[*] / else / report` and
+`… / else / else / acceptance`. Two keys there end in `report`: the round's check and each milestone's check. In `roles` opening a conversation is a step of its own
 (`planning` and `accepting` in `run`, `coding` and `reviewing` in each milestone).
 
 ## The check
@@ -68,8 +83,9 @@ its timeout, or the missing `dev-check.json`). The seeds pass that output to the
 
 ## Known gaps
 
-- Nothing reads a milestone's verdict (`milestones`, `roles`): one refused twice is built upon and its reasons do
-  not reach the planner. `list/any`, which the fix needs, is on `main`; the seeds do not use it yet.
+- After a milestone is refused twice, the plan's later milestones are still built before the run ends (`milestones`,
+  `roles`): a map cannot stop early. A loop over the plan would stop at once, at an estimated seven more lines a seed
+  (not built).
 - The check is protected by prompt wording only, its command inherits the orchestrator's environment, and its output
   goes into the next prompt unfiltered: for step 9's design.
 - The guide path the setup step reports may be any existing path under the workspace, a directory included: the
