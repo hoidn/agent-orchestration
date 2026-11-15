@@ -20,14 +20,13 @@ from orchestrator.workflow_lisp.reader import SourceReadTrace
 CONFIG = {"provider_externs": {"provider": "provider-id"},
           "prompt_externs": {"prompt": {"asset_file": "prompt.md"}},
           "command_boundaries": {}}
-PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule cp/producer) (export run Box) (defrecord Box (n Int))
   (defworkflow run ((input Box)) -> Box
     (provider-result provider :prompt prompt :inputs (input.n) :returns Box)))'''
-WREF = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+WREF = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run) (defrecord Box (n Int))
   (defproc foo ((runner WorkflowRef[Box -> Box]) (input Box)) -> Box
-    :effects ((uses-provider provider) (calls-workflow runner)) :lowering inline
     (let* ((own (provider-result provider :prompt prompt :inputs (input.n) :returns Box)))
       (call runner :input own)))
   (defworkflow run ((input Box)) -> Box
@@ -159,13 +158,12 @@ def test_reference_forwarding_preserves_creation_selection(tmp_path, wrapper):
         if wrapper == "alias":
             body = f"(let* ((alias runner)) {body})"
         declaration = f'''(defproc outer ((runner WorkflowRef[Box -> Box]) (input Box)) -> Box
-          :effects ((uses-provider provider) (calls-workflow runner)) :lowering inline {body})'''
+          {body})'''
         source = source.replace("(defworkflow run", declaration + "\n  (defworkflow run")
         source = source.replace("(foo (workflow-ref", "(outer (workflow-ref")
     else:
         declaration = '''(defproc invoke ((hook ProcRef[Box -> Box]) (input Box)) -> Box
-          :effects ()
-          :lowering inline (hook input))'''
+          (hook input))'''
         source = source.replace("(defworkflow run", declaration + "\n  (defworkflow run")
         for side in ("left", "right"):
             bound = f"(bind-proc (proc-ref foo) :runner (workflow-ref {side}))"
@@ -363,7 +361,7 @@ def test_iteration_override_uses_actual_private_reader(tmp_path):
 def _bound_typed(tmp_path):
     _, imports = _stages(tmp_path)
     declaration = '''(defproc invoke ((hook ProcRef[Box -> Box]) (input Box)) -> Box
-        :effects () :lowering inline (hook input))'''
+        (hook input))'''
     source = WREF.replace("(defworkflow run", declaration + "\n(defworkflow run")
     for side in ("left", "right"):
         source = source.replace(f"(foo (workflow-ref {side})",

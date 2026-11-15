@@ -288,7 +288,7 @@ def test_public_run_reports_prompt_instruction_utf8_byte_overflow(
     instruction = "a" * 261629 + "é"
     source = f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
   (export run)
   (defpath RequiredPath :kind relpath :under "artifacts/work" :must-exist true)

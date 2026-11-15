@@ -17,9 +17,9 @@ from orchestrator.workflow_lisp.wcc.model import WCC_M4_ROUTE_SCHEMA_VERSION, Wc
 from tests.workflow_lisp_closed_program_helpers import install
 
 
-def _compile(tmp_path, body, *, params="", declarations="", returns="Int"):
+def _compile(tmp_path, body, *, params="", declarations="", returns="Int", target="TARGET"):
     source = (
-        '(workflow-lisp (:language "0.1") (:target-dsl "TARGET") '
+        f'(workflow-lisp (:language "0.1") (:target-dsl "{target}") '
         '(defmodule cp/transport) (export run) '
         + declarations + f' (defworkflow run ({params}) -> {returns} {body}))'
     )
@@ -375,8 +375,8 @@ def _observe_call_selectors(program):
 
 
 def _integer_helper(name="helper"):
-    return ('(defproc ' + name + ' ((n Int)) -> Int :effects ((uses-command echo)) '
-        ':lowering inline ' + _command('n') + ')')
+    return ('(defproc ' + name + ' ((n Int)) -> Int '
+        + _command('n') + ')')
 
 
 def test_identical_calls_and_other_declarations_keep_original_occurrences(tmp_path):

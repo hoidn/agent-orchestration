@@ -803,7 +803,7 @@ def test_neutral_primitive_transportability_matches_compiler_decision() -> None:
         "Prompt",
     )
     type_refs = {name: PrimitiveTypeRef(name) for name in names}
-    type_env = FrontendTypeEnvironment(type_refs, target_dsl_version="2.35")
+    type_env = FrontendTypeEnvironment(type_refs, target_dsl_version="2.40")
 
     for name, type_ref in type_refs.items():
         descriptor = compiler_normalized_type_descriptor(
@@ -995,7 +995,7 @@ from orchestrator.workflow_lisp.typecheck_run_ref import compiler_run_ref_fixed_
 
 primitive_names = ("String", "Int", "Bool", "Value", "RunId")
 primitives = {name: PrimitiveTypeRef(name) for name in primitive_names}
-type_env = FrontendTypeEnvironment(primitives, target_dsl_version="2.35")
+type_env = FrontendTypeEnvironment(primitives, target_dsl_version="2.40")
 fixed = dict(compiler_run_ref_fixed_types(type_env))
 position = SourcePosition(
     path="<prelude:dependency-probe>", line=1, column=1, offset=0

@@ -66,7 +66,7 @@ def test_loop_with_on_exhausted_has_no_warning(tmp_path: Path) -> None:
 
 MAP_EFFECT = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.39")
+  (:target-dsl "2.40")
   (defmodule counter)
   (export run)
   (defworkflow bump ((n Int)) -> Int (+ n 1))
@@ -81,12 +81,12 @@ def test_an_effectful_list_map_has_no_warning(tmp_path: Path) -> None:
 
 GENERIC = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.39")
+  (:target-dsl "2.40")
   (defmodule lib/keep)
   (export keep)
   (defproc keep :forall (S) ((initial S)) -> S
     :effects ()
-    (loop/recur :max 2 :state initial (fn (s) (done s)))))
+    (loop/recur ((s initial)) :max 2 (done s))))
 """
 
 

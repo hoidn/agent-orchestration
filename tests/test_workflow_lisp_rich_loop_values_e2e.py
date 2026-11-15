@@ -21,15 +21,13 @@ from orchestrator.workflow_lisp.loops import _placeholder_literals
 _HELPER_SOURCE = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule rich_loop_values/helper)
   (export Task Progress Report advance)
   (defrecord Task (id String))
   (defrecord Progress (remaining List[Task]) (round Int))
   (defrecord Report (remaining List[Task]) (round Int) (status String))
   (defproc advance ((state Progress)) -> Progress
-    :effects ()
-    :lowering inline
     (record-update state
       :remaining (list/rest state.remaining)
       :round (+ state.round 1))))
@@ -39,7 +37,7 @@ _HELPER_SOURCE = """\
 _ENTRY_SOURCE = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule rich_loop_values/entry)
   (import rich_loop_values/helper :only (Task Progress Report advance))
   (export run)
@@ -100,7 +98,7 @@ _MULTI_ITERATION_ENTRY_SOURCE = _ENTRY_SOURCE.replace(
 _ROOT_LIST_ENTRY_SOURCE = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule rich_loop_values/entry)
   (import rich_loop_values/helper :only (Task Report))
   (export run)
@@ -110,24 +108,22 @@ _ROOT_LIST_ENTRY_SOURCE = """\
                :prompt prompts.seed
                :inputs ()
                :returns List[Task])))
-      (loop/recur :max 3
-        :state items
+      (loop/recur ((state items)) :max 3
         :on-exhausted
           (record Report :remaining state :round 3 :status "exhausted")
-        (fn (state)
-          (if (= (list/length state) 1)
-            (if finish
-              (done (record Report
-                      :remaining state :round 2 :status "done"))
-              (continue (list/rest state)))
-            (continue (list/rest state))))))))
+        (if (= (list/length state) 1)
+          (if finish
+            (done (record Report
+                    :remaining state :round 2 :status "done"))
+            (continue (list/rest state)))
+          (continue (list/rest state)))))))
 """
 
 
 _ROOT_LIST_UNION_ENTRY_SOURCE = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule rich_loop_values/entry)
   (import rich_loop_values/helper :only (Task))
   (export run)
@@ -140,9 +136,8 @@ _ROOT_LIST_UNION_ENTRY_SOURCE = """\
                :prompt prompts.seed
                :inputs ()
                :returns List[TaskOutcome])))
-      (loop/recur :max 1 :state items :on-exhausted state
-        (fn (state)
-          (if (list/empty? state) (done state) (continue state)))))))
+      (loop/recur ((state items)) :max 1 :on-exhausted state
+        (if (list/empty? state) (done state) (continue state))))))
 """
 
 

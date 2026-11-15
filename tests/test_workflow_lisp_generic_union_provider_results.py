@@ -28,7 +28,7 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.test_workflow_evaluated_cli import _run_args
 
 
-HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.35")\n'
+HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.40")\n'
 
 PRELUDE = HEADER + """  (defmodule gpr_entry)
   (import std/improve :only (Decision))
@@ -39,15 +39,11 @@ PRELUDE = HEADER + """  (defmodule gpr_entry)
 """
 
 SOURCE = PRELUDE + """  (defproc review ((draft String)) -> Decision[Notes Blocker]
-    :effects ((uses-provider providers.review))
-    :lowering inline
     (provider-result providers.review
       :prompt prompts.review
       :inputs (draft)
       :returns Decision[Notes Blocker]))
   (defproc record-outcome ((variant String) (detail String) (severity Int)) -> Outcome
-    :effects ((uses-command record_outcome))
-    :lowering inline
     (command-result record_outcome
       :argv ("python" "record_outcome.py" variant detail severity)
       :returns Outcome))

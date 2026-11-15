@@ -33,13 +33,12 @@ def test_provider_reads_follow_alias_and_bound_reference_routes(tmp_path, wrappe
         if wrapper == "alias":
             body = f"(let* ((alias runner)) {body})"
         declaration = f'''(defproc outer ((runner WorkflowRef[Box -> Box]) (input Box)) -> Box
-          :effects ((uses-provider provider) (calls-workflow runner))
-          :lowering inline {body})'''
+          {body})'''
         source = WREF.replace("(defworkflow run", declaration + "\n(defworkflow run")
         source = source.replace("(foo (workflow-ref", "(outer (workflow-ref")
     else:
         declaration = '''(defproc invoke ((hook ProcRef[Box -> Box]) (input Box)) -> Box
-          :effects () :lowering inline (hook input))'''
+          (hook input))'''
         source = WREF.replace("(defworkflow run", declaration + "\n(defworkflow run")
         for side in ("left", "right"):
             bound = f"(bind-proc (proc-ref foo) :runner (workflow-ref {side}))"

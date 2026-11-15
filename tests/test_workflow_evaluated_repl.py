@@ -18,14 +18,13 @@ from tests.test_workflow_evaluated_resume import _snapshot
 from tests.workflow_inprocess_cli_helpers import cli_inprocess
 
 
-SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
+SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Plan (steps List[String]))
   (defrecord Feedback (findings List[String]))
-  (defproc plan-size ((plan Plan)) -> Int :effects () :lowering inline
+  (defproc plan-size ((plan Plan)) -> Int
     (list/length plan.steps))
   (defproc request-feedback ((task String)) -> Feedback
-    :effects ((uses-provider providers.review)) :lowering inline
     (provider-result providers.review :prompt prompts.base :inputs (task)
       :model "chosen-model" :effort "low" :returns Feedback))
   (defun count-steps ((plan Plan)) -> Int (list/length plan.steps))
@@ -44,7 +43,7 @@ FEEDBACK = {"findings": []}
 
 
 def _fixture(root: Path, source: str | None = None):
-    fixture = _provider_fixture(root, source or SOURCE.format(target="2.35", body=BODY))
+    fixture = _provider_fixture(root, source or SOURCE.format(body=BODY))
     fixture[1].write_text(
         json.dumps({"providers.plan": "codex", "providers.review": "codex"}),
         encoding="utf-8",
@@ -130,9 +129,8 @@ def _binding_names(stdout: str) -> list[str]:
     return [line.split(" : ", 1)[0] for line in stdout.splitlines() if " : " in line]
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36"])
-def test_public_repl_attaches_to_completed_run_and_evaluates_typed_values(tmp_path, target):
-    fixture = _fixture(tmp_path, SOURCE.format(target=target, body=BODY))
+def test_public_repl_attaches_to_completed_run_and_evaluates_typed_values(tmp_path):
+    fixture = _fixture(tmp_path, SOURCE.format(body=BODY))
     run = _run(tmp_path, fixture, "task=typed task", "scale=2.0")
     assert run.returncode == 0, run.stderr
     run_root = _run_root(tmp_path)
@@ -156,9 +154,8 @@ def test_public_repl_attaches_to_completed_run_and_evaluates_typed_values(tmp_pa
     assert _snapshot(tmp_path / ".orchestrate") == before
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36"])
-def test_public_completed_repl_reads_lists_without_mutating_run(tmp_path, target):
-    fixture = _fixture(tmp_path, SOURCE.format(target=target, body=BODY))
+def test_public_completed_repl_reads_lists_without_mutating_run(tmp_path):
+    fixture = _fixture(tmp_path, SOURCE.format(body=BODY))
     run = _run(tmp_path, fixture, "task=typed task", "scale=2.0")
     assert run.returncode == 0, run.stderr
     run_root = _run_root(tmp_path)
@@ -187,7 +184,7 @@ def test_interrupted_provider_captures_outer_scope_and_effect_identity(tmp_path)
                     :inputs ((if true (let* ((scratch (+ 1 2))) task) task))
                     :model "chosen-model" :effort "low" :returns Feedback)))
       feedback)'''
-    fixture = _fixture(tmp_path, SOURCE.format(target="2.35", body=body))
+    fixture = _fixture(tmp_path, SOURCE.format(body=body))
     run = _run(tmp_path, fixture, "task=typed task", "scale=2.0",
                results=(PLAN, "not json"))
     assert run.returncode == 1, run.stderr
@@ -213,7 +210,7 @@ def test_interrupted_callee_keeps_inner_shadowed_binding(tmp_path):
                     :inputs (task) :model "chosen-model" :effort "low" :returns Plan)))
       (let* ((task "workflow shadow") (feedback (request-feedback "callee shadow")))
         feedback))'''
-    fixture = _fixture(tmp_path, SOURCE.format(target="2.35", body=body))
+    fixture = _fixture(tmp_path, SOURCE.format(body=body))
     run = _run(tmp_path, fixture, "task=typed task", "scale=2.0",
                results=(PLAN, "not json"))
     assert run.returncode == 1, run.stderr
@@ -258,7 +255,7 @@ def test_changed_loaded_source_refuses_attachment(tmp_path):
     assert run.returncode == 0, run.stderr
     run_root = _run_root(tmp_path)
     source = fixture[0]
-    changed = SOURCE.format(target="2.35", body=BODY.replace(
+    changed = SOURCE.format(body=BODY.replace(
         '"chosen-model"', '"changed-model"', 1))
     source.write_text(changed, encoding="utf-8")
 
@@ -312,7 +309,7 @@ def test_failed_pure_expression_capture_has_only_in_scope_bindings(tmp_path, aft
            (feedback (provider-result providers.review :prompt prompts.base
                     :inputs (task) :model "chosen-model" :effort "low" :returns Feedback)))
       feedback)'''
-    fixture = _fixture(tmp_path, SOURCE.format(target="2.35", body=body))
+    fixture = _fixture(tmp_path, SOURCE.format(body=body))
     run = _run(tmp_path, fixture, "task=typed task", "scale=0.0")
     assert run.returncode == 1, run.stderr
     run_root = _run_root(tmp_path)

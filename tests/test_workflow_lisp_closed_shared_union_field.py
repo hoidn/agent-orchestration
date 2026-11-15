@@ -23,7 +23,7 @@ INT_SOURCE = '''(workflow-lisp
     (extract (variant Choice YES :n 7))))'''
 
 PATH_SOURCE = '''(workflow-lisp
-  (:language "0.1") (:target-dsl "2.35")
+  (:language "0.1") (:target-dsl "2.40")
   (defmodule probe/shared_path) (export run)
   (defpath ReportPath :kind relpath :under "state" :must-exist true)
   (defpath ArtifactPath :kind relpath :under "state" :must-exist true)
@@ -31,13 +31,12 @@ PATH_SOURCE = '''(workflow-lisp
   (defunion Choice (REPORT (artifact ReportPath)) (ARTIFACT (artifact ArtifactPath)))
   (defproc project :forall (T) ((choice T))
     :where ((T has-shared-union-field artifact Path.state-root)) -> Output
-    :effects ((uses-command probe)) :lowering inline
     (command-result probe :argv ("python" "probe.py" choice.artifact) :returns Output))
   (defworkflow run ((path ReportPath)) -> Output
     (project (variant Choice REPORT :artifact path))))'''
 
 NESTED_SOURCE = '''(workflow-lisp
-  (:language "0.1") (:target-dsl "2.35")
+  (:language "0.1") (:target-dsl "2.40")
   (defmodule probe/shared_nested) (export run)
   (defrecord Payload (item-id String))
   (defrecord Output (status String))
@@ -45,7 +44,6 @@ NESTED_SOURCE = '''(workflow-lisp
   (defproc choose :forall (SelectionT) ((choice SelectionT))
     :where ((SelectionT is-union)
             (SelectionT has-shared-union-field selection Payload)) -> Output
-    :effects ((uses-command probe)) :lowering inline
     (command-result probe
       :argv ("python" "probe.py" choice.selection.item-id) :returns Output))
   (defworkflow run () -> Output
@@ -180,7 +178,7 @@ def test_shared_full_union_followed_by_real_match_keeps_variant_proof(tmp_path):
     assert evaluate_closed_program(restored, {"flag": False}, effect_handler=command).value == {"status": "right"}
 
 
-PREFIX_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+PREFIX_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule probe/shared_prefix) (export run)
   (defrecord Payload (item-id String))
   (defrecord Output (status String))
@@ -188,7 +186,6 @@ PREFIX_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
   (defrecord Envelope (choice Choice))
   (defproc project :forall (T) ((choice T))
     :where ((T has-shared-union-field selection Payload)) -> Output
-    :effects ((uses-command probe)) :lowering inline
     (command-result probe
       :argv ("python" "probe.py" choice.selection.item-id) :returns Output))
   (defworkflow run ((choice Choice)) -> Output
