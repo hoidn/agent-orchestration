@@ -14,6 +14,8 @@ from .expressions import (
     IfExpr,
     LetProcExpr,
     LetStarExpr,
+    ListExpr,
+    ListMapExpr,
     LiteralExpr,
     MatchExpr,
     NameExpr,
@@ -371,15 +373,26 @@ def _typed_subject_records_more(typed_subject_expr) -> bool:
     )
 
 
-def _reached_cond(expr) -> bool:
-    """Whether `expr` holds a `cond` outside the bodies of its `let-proc` locals, which lower from their lifted
-    procedures, not from the subject: a subject whose `cond` is only there built before, as written."""
+def _lowers_only_typed(expr) -> bool:
+    """A `cond`, or a list or a `list/map` whose item types only typecheck records: elaboration lowers none of
+    them as written."""
+    if isinstance(expr, ListExpr):
+        return not isinstance(expr.element_type_ref, TypeRef) or len(expr.items) != len(expr.item_type_refs)
+    if isinstance(expr, ListMapExpr):
+        return expr.source_item_type_ref is None or expr.result_item_type_ref is None
+    return isinstance(expr, CondExpr)
+
+
+def _reached_unlowerable(expr) -> bool:
+    """Whether `expr` holds a form `_lowers_only_typed` outside the bodies of its `let-proc` locals, which lower
+    from their lifted procedures, not from the subject: a subject that holds one only there built before, as
+    written."""
     from .expression_traversal import iter_child_exprs
 
-    if isinstance(expr, CondExpr):
+    if _lowers_only_typed(expr):
         return True
     children = (expr.body,) if isinstance(expr, LetProcExpr) else iter_child_exprs(expr)
-    return any(_reached_cond(child) for child in children)
+    return any(_reached_unlowerable(child) for child in children)
 
 
 def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
@@ -398,9 +411,12 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
       command, and the authored empty argv cannot cross into the closed program;
     - a subject whose constructor, list, `list/map` source or path child holds an
       effect: only the typechecked form records it, and no earlier program has one;
-    - a subject with a `cond` in it that elaboration reaches (`_reached_cond`):
+    - a subject with a `cond` in it that elaboration reaches (`_reached_unlowerable`):
       typecheck erases it into `if`, and the authored `cond`, which elaboration
-      does not take, ended in `compiler_defect`.
+      does not take, ended in `compiler_defect`;
+    - a subject with a list or a `list/map` in it that elaboration reaches:
+      typecheck records their item types, and the authored forms, which have
+      none, ended in `compiler_defect` (D2 of the staged-authoring plan).
     """
     from .expression_traversal import walk_expr
     from .expressions import CommandResultExpr, ProviderResultExpr
@@ -414,7 +430,7 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
         (isinstance(node, ProviderResultExpr) and isinstance(node.prompt, PromptApplicationExpr))
         or (isinstance(node, CommandResultExpr) and node.adapter_name is None and not node.argv)
         for node in walk_expr(expr.subject)
-    ) or _reached_cond(expr.subject) or (
+    ) or _reached_unlowerable(expr.subject) or (
         context.procedure_catalog is not None
         and calls_generic_procedure_through_type_dependent_hook(
             expr.subject, procedure_catalog=context.procedure_catalog
