@@ -28,6 +28,7 @@ from .expressions import (
     IfExpr,
     LetProcExpr,
     LetStarExpr,
+    ListExpr,
     LiteralExpr,
     LoopRecurExpr,
     LoopStateField,
@@ -126,6 +127,16 @@ from .workflow_refs import resolve_workflow_ref_name, workflow_ref_type_from_sig
 
 def _kept_continue_state(expr: ContinueExpr, typed_state: TypedExpr):
     return replace(expr, state_expr=typed_state.expr)
+
+
+def _continue_expected_type(expr: ContinueExpr, loop_context) -> TypeRef | None:
+    """An empty `(list)` written as the `continue` value takes the loop state's type; every other
+    value is typed alone and, when it is not the state's type, is `loop_recur_continue_type_mismatch`."""
+
+    state = expr.state_expr
+    if isinstance(state, ListExpr) and not state.items and state.element_type_ref is None:
+        return loop_context.state_type_ref
+    return None
 
 
 if TYPE_CHECKING:
@@ -840,7 +851,7 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         loop_context = session_state.loop_context[-1]
-        typed_state = recurse(expr.state_expr)
+        typed_state = recurse(expr.state_expr, expected_type=_continue_expected_type(expr, loop_context))
         if typed_state.type_ref != loop_context.state_type_ref:
             _raise_error(
                 f"`continue` expected `{_type_label(loop_context.state_type_ref)}` but got `{_type_label(typed_state.type_ref)}`",

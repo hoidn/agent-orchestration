@@ -41,6 +41,50 @@ The price test reproduces the three public archive totals when the archives are 
 `~/lh-cache`). When they are absent, it is skipped with a reason. So is the index test that reads each Task 2a
 recording's harness arguments back from its trial's `config.json`; its decoy tests read committed fixtures only.
 
+## The criterion and the manifest (plan Task 3)
+
+| File | Role |
+| --- | --- |
+| `ladder.json` | The ladder's frozen configuration: every value and rule of the plan's D1 to D7 as data, each group with a `source` naming the section or kit file it comes from. The D5 table is in `classification.rows`: per row its field patterns, the fixtures it cites, and its class (`classification.classes` says how each class is counted) |
+| `manifest.py`, `manifest.json` | The SHA-256 of every file the manifest covers. The SHA-256 of `manifest.json` is the configuration label of D7 |
+
+**Covered:** every file of this directory, `ladder.json`, `tasks.json`, the scripts, `recordings.json` and the
+fixtures among them; `orchestrator/providers/price_table.json`, which D4 names by hash; and
+`tests/experiments/test_long_horizon_ladder.py`, the reference reader of the pattern language until the launcher
+reads it. **Not covered** (the
+list is in `manifest.py` and in `manifest.json`): `manifest.json` itself; `README.md` and `RECORDINGS.md`, prose that
+no code reads, so a wording fix makes no new label; `results/`, the readout's output; `__pycache__/`. The allowance
+inputs, the meter readings, the raw recordings, the task packages and images, and the token are outside the
+repository and in neither file (the last three by their hashes and digests only). The package code the launcher
+reuses is bound by the runtime commit (`LH_RUNTIME_COMMIT`), not by the label.
+
+```
+python -I experiments/long_horizon_tasks/manifest.py check            # exit 1 names each changed, new or gone file,
+                                                                        # or a frozen manifest whose ladder.json is not ready
+python -I experiments/long_horizon_tasks/manifest.py write            # rewrite after a kit change; prints the label
+python -I experiments/long_horizon_tasks/manifest.py write --freeze   # the freeze (Task 9); refused while anything is pending
+                                                                        # (a plain write over a frozen manifest is refused)
+pytest -q -n 4 tests/experiments/test_long_horizon_ladder.py
+```
+
+**`pending`** lists each value that `ladder.json` cannot take from `main` yet. Each such field is `null`, and its
+entry says what fills it: the branch in flight (`feat/long-horizon-oracle-2b`: the qualified tasks, the
+load-sensitive list, overlay digests, extra hosts, withholding, the host list, the CPU set), Task 2b (the disk plan,
+the contamination terms and the canary's SHA-256, which verifiers report sub-tests), the live probe (the vendor's
+header names, the utilisation header), or the freeze (the schedule's seed and hash, the bootstrap seed). The
+passthrough's form refusals and its log (keys, and how a row with no slot is joined to an attempt) are filled from
+`passthrough.py`; tests read its refusal reasons, its log keys, its paid-usage check and its worst-case bound from the
+code and hold `ladder.json` to them. A filled field moves from `pending` to `filled` with
+its `type` and a `source` (the commit or ledger row it came from). `--freeze` refuses while `pending` is non-empty, any
+`null` is left, or a filled field fails its type or names no source; a test holds every `null` to a `pending` entry.
+
+**`manifest.py write` is rerun at the freeze.** Until then the committed `manifest.json` is unfrozen: it only shows
+that the command works, labels nothing, and may be stale after a kit merge without failing a test (a rerun of `write`
+in the merge keeps it current, but no step needs it). A test checks that `write` reproduces itself on a copy of the
+kit; once the manifest is frozen, a test checks that the committed one is current. A conflict in `manifest.json` is
+resolved by running `write` on the merged tree, never by hand. A commit of `ladder.json` or `manifest.json` is a
+commit of this directory and so moves the kit's commit that the live probe's approval row must name (`live_probe.sh`).
+
 ## The passthrough, the token scanner and the live probe (plan Task 4)
 
 `live_probe.sh` is the one file of this kit that can use the owner's subscription: it refuses to start

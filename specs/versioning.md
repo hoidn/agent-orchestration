@@ -1405,6 +1405,15 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   name or field of a type other than `Int` was `provider_result_timeout_literal_required` and is
   `provider_result_timeout_type_invalid`. Every program that compiled
   before keeps its closed program, digest and identities, and its recorded runs resume.
+- **O, three list operators.** `(list/take xs n)` gives the first `n` items of a list (all of
+  them when `n` exceeds its length, none when `n` is below 1); `(list/all bools)` and `(list/any bools)` reduce a `List[Bool]`, `true`
+  and `false` on the empty list. They are pure operators of the list group of the frontend
+  specification's section 10.2, usable in a `defun` and a `list/map` body, under every target the
+  other list operators are. Each was refused before (`pure_expr_operator_unsupported`); a build that
+  predates them still refuses such a source with that code, also on `resume`, and a closed program
+  that holds one with `closed_program_invalid`, naming the operator. A serial map's cap is
+  unchanged. Every program that compiled before keeps its closed program, digest and identities,
+  and its recorded runs resume.
 
 - **E1, an effect inside a value.** A record or variant field, a list element, a
   `path/join-under` child, a `list/map` or `list/map-effect` source and an `:on-exhausted` value
@@ -1449,6 +1458,16 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   loop and map operand position holds the digests and refusal codes read on `main` before them,
   pins the digest of each program the fixes newly build, and runs a fixed sample of those against
   the value of its `let*`-bound spelling on `main` (`tests/test_workflow_lisp_td21_differential.py`).
+
+- **L, the typed list literal.** `(list :of T item…)` writes a list's item type, at every target,
+  in every position; it was refused (`keyword_argument_invalid`). An empty `(list)` passed to a
+  `defun` or written as a `continue` value takes its type from the parameter or the loop state; it
+  was refused (`list_empty_type_context_required`); a `continue` value of another type keeps
+  `loop_recur_continue_type_mismatch`. A value's name after `:of` is not a type (`type_unknown`).
+  Where the position states `List[T]`,
+  `(list :of T …)` builds the closed program, digest and effect identities of the list without
+  `:of`. A list element that holds an effect is admitted and refused as in a list without `:of`.
+  Every program that compiled before keeps its closed program, digest and identities.
 
 ### Run-time corrections without a new target
 
