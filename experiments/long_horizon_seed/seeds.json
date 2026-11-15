@@ -1,0 +1,30 @@
+{
+  "files": {
+    "commands.json": "bbc3457a29733867d2e36f139677a2d002b8028728f933ddab0394d380f4e475",
+    "common.orc": "99fdb6ad7e3b2e3f39cce70fb5a1296dbf3700202592f36a7829831221929442",
+    "dev_check.py": "938555b847c8c5c422245e9271b71c897ec83843705e54cb67eebb5a166a4281",
+    "providers.json": "56ce07670e3387017d60b3c23bcbbb619ef46d3b0707545d0236c6458aa57746"
+  },
+  "seeds": {
+    "designed": {
+      "program_digest": "sha256:4298f71042b79ba54fb81374994de952eecf225bc43a35da192493fffe7c017e",
+      "source_sha256": "6d0ac2ebcc64450d803fcf89fc50cf011ea879434ff261ddcb24bfdc88227999",
+      "target": "2.40"
+    },
+    "milestones": {
+      "program_digest": "sha256:fa41381174ee3051cb2ccc8226f76e919ce84b00199ab60e06163d3164763c9c",
+      "source_sha256": "10353b4a70532ed3f6e63386dfee2d57c47de6b2c7f7989272f782a0bf9ff834",
+      "target": "2.40"
+    },
+    "roles": {
+      "program_digest": "sha256:7d312c9dc73ccaec00581d85a49418afa0c5fdbfe1627d473a73dd1222817322",
+      "source_sha256": "0c48776d80a4856de6fa90e71532762bc07469a7e61a86ce829e4471ba2cc128",
+      "target": "2.40"
+    },
+    "staged": {
+      "program_digest": "sha256:289903d6d3e9107a073eab6f33fd3c3a031bc521d1830c02582111545283e8ca",
+      "source_sha256": "eeccfa8c4acb9609f5c3a2b820d6b44f414df6fd12045188220ffefa8f7fa7bb",
+      "target": "2.40"
+    }
+  }
+}
