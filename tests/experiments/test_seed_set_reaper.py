@@ -167,14 +167,41 @@ def test_the_sweep_removes_a_recorded_directory_whose_maker_is_gone_and_keeps_a_
         shutil.rmtree(live)
 
 
-def test_the_sweep_refuses_a_record_naming_a_directory_the_kit_does_not_make(tmp_path):  # fix round 3
-    other = tmp_path / "not-the-kits"
-    other.mkdir()
+FOREIGN_RECORDS = {  # what a record line names, as (the kit's temp directory, a tree that is not the kit's)
+    "a name without the kit's prefix": lambda base, other: base / "not-the-kits",
+    "a symlink with the prefix": lambda base, other: base / "seed-set-host-link",
+    "a path through ..": lambda base, other: base / "seed-set-view-x" / ".." / ".." / "other" / "seed-set-view-mine",
+    "a symlinked parent": lambda base, other: base / "linkparent" / "seed-set-host-mine",
+    "a directory outside the temp directory": lambda base, other: other / "seed-set-host-mine",
+    "a directory below a child of the temp directory": lambda base, other: base / "sub" / "seed-set-host-deep",
+}
+
+
+@pytest.mark.parametrize("case", FOREIGN_RECORDS)
+def test_the_sweep_skips_and_names_a_record_line_that_is_not_a_direct_child_of_the_temp_directory(
+        tmp_path, monkeypatch, capsys, case):  # final scoped check B1
+    """Only a direct child of the kit's temp directory whose real path is the recorded one is touched; any other
+    line is named and skipped (no chmod, no removal, no crash), and the sweep goes on with the other lines."""
+    base, other = tmp_path / "tmp", tmp_path / "other"
+    for directory in (base / "not-the-kits", base / "sub" / "seed-set-host-deep", other / "seed-set-view-mine",
+                      other / "seed-set-host-mine", base / "seed-set-view-x"):
+        directory.mkdir(parents=True)
+        (directory / "MARKER").write_text("not the kit's")
+    (base / "seed-set-host-link").symlink_to(other / "seed-set-host-mine", target_is_directory=True)
+    (base / "linkparent").symlink_to(other, target_is_directory=True)
+    (other / "seed-set-host-mine").chmod(0o500)  # a chmod that followed the link would show as 0o700
+    monkeypatch.setattr(tempfile, "tempdir", str(base))
+    dead = Path(tempfile.mkdtemp(prefix="seed-set-host-"))
+    named = FOREIGN_RECORDS[case](base, other)
     record = tmp_path / "host-temp.jsonl"
-    record.write_text(made_by(other, 1, 1))
-    with pytest.raises(SystemExit, match="not a directory the kit makes"):
-        host.sweep(record)
-    assert other.exists()
+    record.write_text(made_by(named, 1, 1) + made_by(dead, os.getpid(), reaper.stat(os.getpid())[1] + 1))
+    removed = host.sweep(record)
+    markers = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.glob("*/**/MARKER"))
+    assert (removed, markers, oct((other / "seed-set-host-mine").stat().st_mode & 0o777),
+            str(named) in capsys.readouterr().err) == (
+        [str(dead)], ["other/seed-set-host-mine/MARKER", "other/seed-set-view-mine/MARKER",
+                      "tmp/not-the-kits/MARKER", "tmp/seed-set-view-x/MARKER", "tmp/sub/seed-set-host-deep/MARKER"],
+        "0o500", True)
 
 
 def test_a_host_check_records_its_temporary_directories_and_its_child_makes_its_own_inside(tmp_path):  # round 3

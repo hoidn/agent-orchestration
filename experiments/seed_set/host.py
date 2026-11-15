@@ -57,16 +57,19 @@ def temporary(prefix, record=None):
 
 def sweep(record):
     """Remove each directory `record` names whose maker (pid and start time) and whose check's session no longer
-    run, and return their paths; the record keeps the others. Only named directories are touched: a record naming
-    one the kit does not make refuses."""
+    run, and return their paths; the record keeps the others. Only a directory the kit makes is touched (`kits`); a
+    line naming any other path is named on stderr, skipped and kept (final scoped check B1)."""
     if not Path(record).is_file():
         return []
     kept, removed = [], []
     for line in Path(record).read_text().splitlines():
         entry = json.loads(line)
         path = Path(entry["path"])
-        if not path.name.startswith(PREFIXES):
-            raise SystemExit(f"{record} names {path}, not a directory the kit makes")
+        if not kits(path):
+            print(f"{record} names {path}, not a directory the kit makes (a direct child of "
+                  f"{tempfile.gettempdir()} named {' or '.join(PREFIXES)}, no symlink): skipped", file=sys.stderr)
+            kept.append(line + "\n")
+            continue
         if not path.exists():
             continue
         if maker_runs(entry) or units.session_alive(path / "check.pgid"):
@@ -77,6 +80,13 @@ def sweep(record):
         removed.append(str(path))
     Path(record).write_text("".join(kept))
     return removed
+
+
+def kits(path):
+    """Whether `path` can be a directory `temporary` made: a direct child of the temp directory, named with a kit
+    prefix, whose real path is `path` itself (no `..`, no symlinked parent, not a symlink)."""
+    return (path.name.startswith(PREFIXES) and path.parent == Path(tempfile.gettempdir())
+            and os.path.realpath(path) == str(path))
 
 
 def maker_runs(entry):
