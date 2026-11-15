@@ -11,7 +11,7 @@ import pytest
 
 from experiments.compare import repos
 from experiments.seed_set import build_tasks as b, forms, tiers
-from tests.experiments.seed_set_offline_support import manifest_rows
+from tests.experiments.seed_set_offline_support import manifest_rows, stable_anchors
 from experiments.seed_set.programs import dev_check
 
 REAL = b.HERE / "tasks" / "1f424cc9ae"  # a T3 package whose visible check runs in about a second
@@ -202,13 +202,87 @@ def test_the_anchor_check_resumes_past_packages_recorded_at_their_current_hash(t
     from experiments.seed_set import anchors
     rows = manifest_rows({"T3": 2}, smoke=False)
     (tmp_path / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    done = {"T3-00": {"sha256": b.package_hash(tmp_path / "tasks" / "T3-00"), "stable": True}}
+    done = {"T3-00": {"sha256": b.package_hash(tmp_path / "tasks" / "T3-00"), "stable": True,
+                      "scoring_path": anchors.scoring_path_hash()},
+            "T3-01": {"sha256": b.package_hash(tmp_path / "tasks" / "T3-01"), "stable": True,
+                      "scoring_path": "0" * 64}}  # measured under another scoring path: checked again
     (tmp_path / anchors.FILE).write_text(json.dumps(done))
     checked = []
     monkeypatch.setattr(anchors, "check", lambda package, work: checked.append(package.name) or {"stable": True,
                         "sha256": "x", "reference_failing": [], "runs": []})
     anchors.run(tmp_path / "work", out=tmp_path)
     assert sorted(checked) == ["T3-01", "T3w-00", "T3w-01"]
+
+
+def test_the_anchor_check_records_the_scoring_path_on_every_entry_it_writes(tmp_path, monkeypatch):
+    from experiments.seed_set import anchors
+    (tmp_path / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in manifest_rows({"T3": 1}, smoke=False)))
+    monkeypatch.setattr(anchors, "check", lambda package, work: {"stable": True, "sha256": "x",
+                                                                 "reference_failing": [], "runs": []})
+    anchors.run(tmp_path / "work", out=tmp_path)
+    written = json.loads((tmp_path / anchors.FILE).read_text())
+    assert {pid: e.get("scoring_path") for pid, e in written.items()} == dict.fromkeys(
+        ["T3-00", "T3w-00"], anchors.scoring_path_hash())
+
+
+def kit_tree(root):
+    """A copy of the scoring path's shape: kit modules, a task package's module and a data file."""
+    for relative in ("experiments/seed_set/anchors.py", "experiments/seed_set/tasks/p/fix.py",
+                     "experiments/seed_set/tasks.jsonl", "experiments/compare/pool.py"):
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(f"# {relative}\n")
+    return root
+
+
+@pytest.mark.parametrize("edited, changes", [("experiments/seed_set/anchors.py", True),
+                                             ("experiments/compare/pool.py", True),
+                                             ("experiments/seed_set/tasks/p/fix.py", False),
+                                             ("experiments/seed_set/tasks.jsonl", False)])
+def test_the_scoring_path_hash_follows_the_kit_modules_only(tmp_path, edited, changes):
+    from experiments.seed_set import anchors
+    root = kit_tree(tmp_path)
+    before = anchors.scoring_path_hash(root)
+    (root / edited).write_text((root / edited).read_text() + " ")
+    assert (anchors.scoring_path_hash(root) != before) is changes
+
+
+def verified_kit(out, scoring_path):
+    """A kit directory of one T3 task (both forms) whose packages hash as listed, with stable anchors measured under
+    `scoring_path` (see `stable_anchors`)."""
+    rows = manifest_rows({"T3": 1}, smoke=False)
+    for row in rows:
+        for pid, key in ((row["id"], "package_sha256"), (row["withheld_id"], "withheld_sha256")):
+            (out / "tasks" / pid).mkdir(parents=True)
+            (out / "tasks" / pid / "f").write_text(pid)
+            row[key] = b.package_hash(out / "tasks" / pid)
+    (out / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    stable_anchors(out / "tasks.jsonl", scoring_path=scoring_path)
+    return out
+
+
+def test_verify_accepts_anchors_measured_under_the_current_scoring_path(tmp_path):
+    assert tiers.verify(verified_kit(tmp_path, "current")) is None
+
+
+@pytest.mark.parametrize("scoring_path", ["0" * 64, None])
+def test_verify_refuses_anchors_measured_under_another_or_no_scoring_path(tmp_path, scoring_path):
+    with pytest.raises(SystemExit, match=r"T3-00 \(other scoring path\)"):
+        tiers.verify(verified_kit(tmp_path, scoring_path))
+
+
+@pytest.mark.parametrize("entry, reason", [  # "now": the current package hash or scoring path
+    ({"sha256": "now", "stable": True, "scoring_path": "0" * 64}, "other scoring path"),
+    ({"sha256": "now", "stable": True}, "other scoring path"),
+    ({"sha256": "now", "stable": False, "scoring_path": "now"}, "unstable"),
+    ({"sha256": "0" * 64, "stable": True, "scoring_path": "now"}, "not measured"),
+    (None, "not measured")])
+def test_unstable_names_each_package_without_a_stable_anchor_and_why(tmp_path, entry, reason):
+    from experiments.seed_set import anchors
+    now = {"sha256": b.package_hash(tmp_path / "T3-00"), "scoring_path": anchors.scoring_path_hash()}
+    stability = {"T3w-00": now | {"stable": True}}
+    if entry:
+        stability["T3-00"] = {k: now[k] if v == "now" else v for k, v in entry.items()}
+    assert anchors.unstable(manifest_rows({"T3": 1}, smoke=False), stability, tmp_path) == [f"T3-00 ({reason})"]
 
 
 def build_world(tmp_path, monkeypatch):
