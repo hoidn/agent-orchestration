@@ -1,8 +1,14 @@
 """Turn one prepared MLE-bench competition into Harbor task packages and image build contexts (family plan, Task 1).
 
-Usage: python wrap.py <competition dir> <data dir> <out dir> --class cpu|gpu --agent-base <image>
-                      --verifier-base <image> [--public-sample <file in public/>]
-prints the record wrap() returns, as JSON.
+Two steps, because a package names its images by digest and an image exists only once its context is built:
+
+  python wrap.py contexts <competition dir> <data dir> <out dir> --agent-base <image> --verifier-base <image>
+                          [--public-sample <file in public/>]
+  (a later task builds the two images and reads their digest references)
+  python wrap.py packages <competition dir> <data dir> <out dir> --name <task name> --class cpu|gpu
+                          --agent-image <ref@sha256:...> --verifier-image <ref@sha256:...> [--public-sample ...]
+
+Each prints the record contexts() or packages() returns, as JSON; a refusal prints one line and exits 2.
 
 Inputs (read only):
   <competition dir>  the benchmark's directory of the competition (mlebench/competitions/<id>/): config.yaml,
@@ -16,25 +22,28 @@ Inputs (read only):
                      follows it in the instruction.
   agent_files, verifier_files   the kit's agent/ and verifier/ directories (plan Task 2 writes their files).
 
-Output, written under <out dir>, which must not exist (LAYOUT holds the names):
+Output, written under <out dir>; each directory below must not exist yet (LAYOUT holds the names):
   agent-context/     Dockerfile, data/ (every file of public/), tools/ (agent_files). Built from public/ alone:
                      nothing of private/, of the competition directory or of the leaderboard (plan M3).
   verifier-context/  Dockerfile, tests/ (verifier_files), data/<id>/prepared/private/ (every file of private/),
                      competition/ (every file of the competition directory).
-  attempt/           task.toml and instruction.md: the package an attempt runs.
+  attempt/           task.toml and instruction.md: the package an attempt runs, named mle-bench/<task name>. The
+                     task name is short (NAME): the launcher derives socket paths from it. The competition's id
+                     (its Kaggle slug) stays where the benchmark's code needs it, in the verifier context.
   answers/, sample/  the attempt package plus solution/ (solve.sh and the submission it copies): the answers (or
                      the gold submission) and the public sample submission, for the qualification legs (plan M2).
 
 It builds no image, runs no container and downloads nothing. Every digest is Harbor's package content hash over
 the bytes of the files (digest()); bytecode caches are never copied, and no path outside an output directory and
-no time enters a digest, so the same input gives the same digests anywhere. The images are named by local names
-that carry the first 16 hex digits of their build context's digest, so the attempt package's digest binds both
-contexts.
+no time enters a digest, so the same input gives the same digests anywhere. The image references are written into
+task.toml as given and must be pinned by digest (PINNED): the launcher compares them as strings, so a tag alone
+would let a rebuilt image pass.
 """
 
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import string
 import sys
@@ -50,6 +59,8 @@ SUBMISSION_DIR = "/home/submission"  # the one artifact that crosses to the veri
 VALIDATOR = "/home/validate_submission.py"  # the agent-side format check (plan M3; the file is Task 2's)
 VERIFIER_DATA = "/private/data"  # in the verifier image: the grader's data directory, <id>/prepared/private/
 GRADER_WORK = "/grader-work"  # the grader's working directory: it writes a cache where it runs (scout report B)
+NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,11}")  # a task name: the launcher's socket paths are at most 107 bytes
+PINNED = re.compile(r"[^@\s]+@sha256:[0-9a-f]{64}")  # an image reference pinned by digest
 
 
 class Refused(Exception):
@@ -131,11 +142,11 @@ def verifier_context(out, cid, private, competition, verifier_files, base):
         f"WORKDIR {GRADER_WORK}\n")
 
 
-def task_toml(family, cid, cls, images):
+def task_toml(family, name, cls, images):
     limits, verifier = family["classes"][cls], family["verifier"]
     return (f"# {family['canary']}\n"
             f'schema_version = "1.4"\nartifacts = ["{SUBMISSION_DIR}/"]\n\n'
-            f'[task]\nname = "mle-bench/{cid}"\nversion = "{family["benchmark"]["commit"][:7]}"\n\n'
+            f'[task]\nname = "mle-bench/{name}"\nversion = "{family["benchmark"]["commit"][:7]}"\n\n'
             f'[verifier]\ntimeout_sec = {verifier["timeout_sec"]}\nenvironment_mode = "separate"\n\n'
             f'[verifier.environment]\ncpus = {verifier["cpus"]}\nmemory_mb = {verifier["memory_mb"]}\n'
             f'docker_image = "{images["verifier"]}"\n\n'
@@ -163,39 +174,69 @@ def package(out, toml, text, submission=None):
         solve.chmod(0o755)
 
 
-def wrap(competition, data_dir, out, *, cls, agent_base, verifier_base, public_sample=None,
-         agent_files=KIT / "agent", verifier_files=KIT / "verifier", family=None):
-    """Write the two build contexts and the three packages under out; returns {"competition", "class",
-    "images": {"agent", "verifier"}, "digests": {LAYOUT key: "sha256:<hex>"}}."""
-    family = family or json.loads((KIT / "family.json").read_text())
-    out = Path(out)
-    if out.exists():
-        raise Refused(f"{out}: the output directory exists")
-    if cls not in family["classes"]:
-        raise Refused(f"{cls}: not a class of family.json")
-    cid, public, private, gold, sample = competition_files(competition, data_dir, public_sample)
-    paths = {k: out / v for k, v in LAYOUT.items()}
+def _fresh(out, keys):
+    paths = {k: Path(out) / LAYOUT[k] for k in keys}
+    for path in paths.values():
+        if path.exists():
+            raise Refused(f"{path}: the output directory exists")
+    return paths
+
+
+def contexts(competition, data_dir, out, *, agent_base, verifier_base, public_sample=None,
+             agent_files=KIT / "agent", verifier_files=KIT / "verifier"):
+    """Write the two build contexts under out; returns {"competition", "digests": {"agent_context",
+    "verifier_context"}}."""
+    cid, public, private, _, _ = competition_files(competition, data_dir, public_sample)
+    for files in (agent_files, verifier_files):
+        if not Path(files).is_dir():
+            raise Refused(f"{files}: not a directory")
+    paths = _fresh(out, ("agent_context", "verifier_context"))
     agent_context(paths["agent_context"], public, agent_files, agent_base)
     verifier_context(paths["verifier_context"], cid, private, competition, verifier_files, verifier_base)
-    images = {k: f"localhost/mle-bench/{cid}-{k}:{digest(paths[k + '_context'])[7:23]}" for k in ("agent", "verifier")}
-    toml, text = task_toml(family, cid, cls, images), instruction(family, cls, competition)
+    return {"competition": cid, "digests": {k: digest(p) for k, p in paths.items()}}
+
+
+def packages(competition, data_dir, out, *, name, cls, agent_image, verifier_image, public_sample=None,
+             family=None):
+    """Write the attempt, answers and sample packages under out; returns {"name", "competition", "class",
+    "images": {"agent", "verifier"}, "digests": {"attempt", "answers", "sample"}}."""
+    family = family or json.loads((KIT / "family.json").read_text())
+    if not NAME.fullmatch(name):
+        raise Refused(f"{name!r}: a task name is 1 to 12 lower-case letters, digits and hyphens, not first a hyphen")
+    if cls not in family["classes"]:
+        raise Refused(f"{cls}: not a class of family.json")
+    images = {"agent": agent_image, "verifier": verifier_image}
+    for which, ref in images.items():
+        if not PINNED.fullmatch(ref):
+            raise Refused(f"{ref!r}: the {which} image reference is not pinned by digest (<name>@sha256:<64 hex>)")
+    cid, _, _, gold, sample = competition_files(competition, data_dir, public_sample)
+    paths = _fresh(out, ("attempt", "answers", "sample"))
+    toml, text = task_toml(family, name, cls, images), instruction(family, cls, competition)
     for key, submission in (("attempt", None), ("answers", gold), ("sample", sample)):
         package(paths[key], toml, text, submission)
-    return {"competition": cid, "class": cls, "images": images, "digests": {k: digest(p) for k, p in paths.items()}}
+    return {"name": name, "competition": cid, "class": cls, "images": images,
+            "digests": {k: digest(p) for k, p in paths.items()}}
+
+
+def _parser():
+    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    sub = p.add_subparsers(dest="step", required=True)
+    for step, options in (("contexts", ("--agent-base", "--verifier-base")),
+                          ("packages", ("--name", "--class", "--agent-image", "--verifier-image"))):
+        q = sub.add_parser(step)
+        for name in ("competition", "data_dir", "out"):
+            q.add_argument(name, type=Path)
+        for option in options:
+            q.add_argument(option, required=True, dest=option[2:].replace("-", "_").replace("class", "cls"))
+        q.add_argument("--public-sample")
+    return p
 
 
 def main(argv):
-    p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    for name in ("competition", "data_dir", "out"):
-        p.add_argument(name, type=Path)
-    p.add_argument("--class", dest="cls", required=True)
-    p.add_argument("--agent-base", required=True)
-    p.add_argument("--verifier-base", required=True)
-    p.add_argument("--public-sample")
-    a = p.parse_args(argv)
+    a = vars(_parser().parse_args(argv))
+    step = {"contexts": contexts, "packages": packages}[a.pop("step")]
     try:
-        record = wrap(a.competition, a.data_dir, a.out, cls=a.cls, agent_base=a.agent_base,
-                      verifier_base=a.verifier_base, public_sample=a.public_sample)
+        record = step(a.pop("competition"), a.pop("data_dir"), a.pop("out"), **a)
     except Refused as e:
         print(f"refused: {e}", file=sys.stderr)
         return 2

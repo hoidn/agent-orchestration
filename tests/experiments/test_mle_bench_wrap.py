@@ -73,10 +73,19 @@ def tools(tmp_path):
     return tmp_path / "tools"
 
 
-def _run(wrap, tools, out, cls="cpu", competition=TINY / "competition", data=FIXTURES, **kw):
-    return wrap.wrap(competition, data, out, cls=cls, agent_base="localhost/stand-in/agent-base:1",
-                     verifier_base="localhost/stand-in/verifier-base:1", agent_files=tools / "agent",
-                     verifier_files=tools / "verifier", **kw)
+IMAGES = {"agent": "localhost/mle-bench/tiny-agent@sha256:" + "a" * 64,
+          "verifier": "localhost/mle-bench/tiny-verifier@sha256:" + "b" * 64}  # fixed fake digest references
+
+
+def _run(wrap, tools, out, cls="cpu", competition=TINY / "competition", data=FIXTURES, name="tiny", images=IMAGES,
+         **kw):
+    """Both steps, as a caller runs them: the two contexts, then (once their images exist) the three packages."""
+    built = wrap.contexts(competition, data, out, agent_base="localhost/stand-in/agent-base:1",
+                          verifier_base="localhost/stand-in/verifier-base:1", agent_files=tools / "agent",
+                          verifier_files=tools / "verifier", **kw)
+    packed = wrap.packages(competition, data, out, name=name, cls=cls, agent_image=images["agent"],
+                           verifier_image=images["verifier"], **kw)
+    return {**packed, "digests": {**built["digests"], **packed["digests"]}}
 
 
 def _sha_names(*roots):
@@ -124,7 +133,7 @@ def test_the_attempt_package_holds_task_toml_and_the_instruction_only(wrap, tool
 @pytest.mark.parametrize("cls", ["cpu", "gpu"])
 def test_task_toml_carries_the_limits_the_artifact_both_images_and_the_canary_and_no_network_key(
         wrap, tools, tmp_path, cls):
-    record = _run(wrap, tools, tmp_path / "out", cls=cls)
+    _run(wrap, tools, tmp_path / "out", cls=cls)
     text = (tmp_path / "out" / "attempt" / "task.toml").read_text()
     toml = tomllib.loads(text)
     limits, verifier = FAMILY["classes"][cls], FAMILY["verifier"]
@@ -135,11 +144,33 @@ def test_task_toml_carries_the_limits_the_artifact_both_images_and_the_canary_an
     assert seen == {
         "agent": {"timeout_sec": FAMILY["agent_timeout_sec"]},
         "environment": {"cpus": limits["cpus"], "memory_mb": limits["memory_mb"],
-                        "docker_image": record["images"]["agent"]},
+                        "docker_image": IMAGES["agent"]},
         "verifier": {"timeout_sec": verifier["timeout_sec"], "environment_mode": "separate",
                      "environment": {"cpus": verifier["cpus"], "memory_mb": verifier["memory_mb"],
-                                     "docker_image": record["images"]["verifier"]}},
+                                     "docker_image": IMAGES["verifier"]}},
         "artifacts": [wrap.SUBMISSION_DIR + "/"], "canary": ["# " + FAMILY["canary"]], "agent_lines": 1}
+
+
+def test_the_package_is_named_by_the_short_name_and_never_by_the_slug(wrap, tools, tmp_path):
+    record = _run(wrap, tools, tmp_path / "out")
+    text = (tmp_path / "out" / "attempt" / "task.toml").read_text()
+    assert (tomllib.loads(text)["task"]["name"], record["name"], record["competition"], "tiny-tabular" in text) == (
+        "mle-bench/tiny", "tiny", "tiny-tabular", False)
+
+
+@pytest.mark.parametrize("name", ["tiny-tabular-x", "Tiny", "tiny_tab", "-tiny", ""])
+def test_a_task_name_outside_the_rule_is_refused(wrap, tools, tmp_path, name):
+    with pytest.raises(wrap.Refused, match="name"):
+        _run(wrap, tools, tmp_path / "out", name=name)
+
+
+@pytest.mark.parametrize("which, ref", [("agent", "localhost/mle-bench/tiny-agent:1"),
+                                        ("verifier", "localhost/mle-bench/tiny-verifier@sha256:" + "b" * 63),
+                                        ("agent", "localhost/mle-bench/tiny-agent:1@sha256:" + "A" * 64)])
+def test_an_image_reference_not_pinned_by_digest_is_refused(wrap, tools, tmp_path, which, ref):
+    with pytest.raises(wrap.Refused, match="digest"):
+        _run(wrap, tools, tmp_path / "out", images={**IMAGES, which: ref})
+    assert not (tmp_path / "out" / "attempt").exists()
 
 
 def test_no_table_of_task_toml_sets_a_network_or_gpu_key(wrap, tools, tmp_path):
@@ -191,12 +222,6 @@ def test_bytecode_caches_in_the_inputs_change_nothing(wrap, tools, tmp_path):
     assert cached["digests"] == plain["digests"]
 
 
-def test_the_images_are_named_by_their_context_digests(wrap, tools, tmp_path):
-    record = _run(wrap, tools, tmp_path / "out")
-    tags = {k: record["images"][k].rsplit(":", 1)[1] for k in ("agent", "verifier")}
-    assert tags == {k: record["digests"][f"{k}_context"].removeprefix("sha256:")[:16] for k in tags}
-
-
 def test_the_instruction_is_the_kit_header_then_the_competition_description(wrap, tools, tmp_path):
     _run(wrap, tools, tmp_path / "out")
     instruction = (tmp_path / "out" / "attempt" / "instruction.md").read_text()
@@ -228,8 +253,9 @@ def test_a_symbolic_link_in_the_public_directory_is_refused(wrap, tools, tmp_pat
         _run(wrap, tools, tmp_path / "out", competition=copy / "competition", data=tmp_path / "data")
 
 
-def test_an_existing_output_directory_is_refused(wrap, tools, tmp_path):
-    (tmp_path / "out").mkdir()
+@pytest.mark.parametrize("existing", ["agent-context", "attempt"])
+def test_an_existing_output_directory_is_refused(wrap, tools, tmp_path, existing):
+    (tmp_path / "out" / existing).mkdir(parents=True)
     with pytest.raises(wrap.Refused, match="exists"):
         _run(wrap, tools, tmp_path / "out")
 
@@ -239,6 +265,12 @@ def test_family_json_lists_the_thirteen_candidates_in_the_plans_order_three_on_t
     assert ([r[0] for r in rows], [r[1] for r in rows if r[2] == "cpu"], len(rows)) == (
         list(range(1, 14)), ["leaf-classification", "text-normalization-challenge-russian-language",
                              "mlsp-2013-birds"], 13)
+
+
+def test_every_task_name_is_unique_short_and_of_lower_case_letters_digits_and_hyphens(wrap):
+    names = [c["name"] for c in FAMILY["candidates"]]
+    assert ([n for n in names if not wrap.NAME.fullmatch(n)], len(set(names)), wrap.NAME.pattern) == (
+        [], 13, "[a-z0-9][a-z0-9-]{0,11}")
 
 
 def test_every_size_figure_is_a_number_from_a_named_source_or_unknown_with_a_reason():
