@@ -7,7 +7,7 @@ closed navigation for saved `.orc` files. It is a read-only stdio server: it
 does not execute workflows, create run state, or write build artifacts into the
 workspace.
 
-Every source dependency must target 2.35 or newer; old headers are refused
+Every source dependency must target 2.40; older headers are refused
 and cannot retain callable snapshots. Evaluated semantic/navigation parity
 remains **OPEN_NOT_WAIVED** under the [tooling contract](design/workflow_lisp_language_server.md).
 Source selection and header validation do not establish successful navigation.
@@ -133,7 +133,7 @@ The implemented v1 surface is:
   local/imported procedure and workflow names plus registered form heads.
   Procedure/workflow rows remain distinct even at the same label and show
   compiler-rendered parameter/return details; procedure details also show
-  declared effects at definition origins 2.35–2.38. At 2.39 they distinguish
+  declared effects: they distinguish
   optional authored restrictions from inferred effects and mark unresolved
   generic hooks incomplete. Form completion omits private/compatibility heads
   under the versioned source-admission rules.
