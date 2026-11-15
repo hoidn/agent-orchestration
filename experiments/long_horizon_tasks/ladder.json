@@ -591,6 +591,8 @@
   "cost": {"per_effort": ["mean priced cost per observation", "minutes per observation", "tokens by kind",
                           "cost per success: the cost of every start at that level over its successes, cut starts included"],
            "dominated": "only when another level beats it on the same sign-flip test at p <= 0.05 and has a lower mean cost; otherwise not resolved",
+           "dominated_p_at_most": 0.05,
+           "dominated_p_source": "encodes D6's \"An effort level is named dominated only when another level beats it on the same sign-flip test at p <= 0.05 and has a lower mean cost\"; coordinator ruling 2026-11-14: the same level as the effort test",
            "allowance": "the share of a weekly allowance the tranche used, in all and per priced dollar, from the owner's readings; a report that enters no rule"},
   "labels": "every rule reads the observations of the current configuration label alone; an earlier label's are printed in a table of their own and enter no rule",
   "listed": ["flags and exclusions, per task and effort", "attempts cut by a usage limit, counted per effort", "the three pilot attempts, marked"],
@@ -641,7 +643,9 @@
   {"field": "refusal.form_reasons", "type": "object", "filled_by": "feat/lh-passthrough: the reasons of the request-form refusals it adds to row 13",
    "source": "passthrough.py on main at 718617bb (every reason it refuses with; the test reads them from the code)"},
   {"field": "classification.passthrough_log", "type": "object", "filled_by": "feat/lh-passthrough, once on main: its request log's keys and how a row with no slot is joined to an attempt",
-   "source": "passthrough.py on main at 718617bb (its State section and the rows it writes); the join as coordinator ruling M2 encoded it"}
+   "source": "passthrough.py on main at 718617bb (its State section and the rows it writes); the join as coordinator ruling M2 encoded it"},
+  {"field": "readout.cost.dominated_p_at_most", "type": "number", "filled_by": "feat/lh-readout: the dominance threshold D6 states in prose, as a number the readout reads",
+   "source": "coordinator ruling 2026-11-14 (R3), plan ledger row of Task 6's revision: the same level as the effort test"}
  ],
- "filled_rule": "A pending field, once filled, moves from `pending` to `filled` with the same `field` and `type` and a `source` (the commit or ledger row it came from). `manifest.py write --freeze` refuses while `pending` is non-empty, any null is left, or a filled field fails its type (array; object; string, non-empty; sha256, 64 lowercase hexadecimal digits; scalar, a non-empty string or an integer) or names no source."
+ "filled_rule": "A pending field, once filled, moves from `pending` to `filled` with the same `field` and `type` and a `source` (the commit or ledger row it came from). `manifest.py write --freeze` refuses while `pending` is non-empty, any null is left, or a filled field fails its type (array; object; string, non-empty; sha256, 64 lowercase hexadecimal digits; scalar, a non-empty string or an integer; number, an integer or a decimal) or names no source."
 }

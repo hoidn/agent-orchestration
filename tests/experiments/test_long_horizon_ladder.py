@@ -682,8 +682,8 @@ PENDING_OR_FILLED = {
     "network.agent_phase.allowed_hosts", "host.cpu_set", "host.disk_plan", "refusal.form_reasons",
     "classification.passthrough_log", "usage_limits.vendor_headers_confirmed", "allowance_guard.utilisation_header",
     "readout.contamination_scan.terms", "readout.contamination_scan.canary_sha256", "readout.graded_outcome.verifiers",
-    "schedule.order.seed", "schedule.order.hash", "readout.fall_bound.seed"}
-TYPE_NAMES = {"array", "object", "string", "sha256", "scalar"}
+    "schedule.order.seed", "schedule.order.hash", "readout.fall_bound.seed", "readout.cost.dominated_p_at_most"}
+TYPE_NAMES = {"array", "object", "string", "sha256", "scalar", "number"}
 
 
 def test_every_null_is_a_pending_field_and_no_field_leaves_the_list_without_a_record():

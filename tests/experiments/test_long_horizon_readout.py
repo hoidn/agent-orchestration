@@ -17,7 +17,7 @@ from fractions import Fraction
 import pytest
 
 from tests.experiments.long_horizon_record_support import (EFFORTS, KIT, LABEL, LADDER, OLD, ROOT, STANDINS, TASKS,
-                                                           TERM, TERM_SHA256, filled, load_kit)
+                                                           TERM, TERM_SHA256, filled, load_kit, with_values)
 from tests.experiments.long_horizon_record_support import export as _export
 from tests.experiments.long_horizon_record_support import same as _same
 
@@ -623,3 +623,14 @@ def test_a_contaminated_attempt_is_listed_with_the_term_s_sha256_and_never_the_t
     listed = [e["contamination"] for e in result["listed"]["exclusions"] if e["reason"] == "contaminated"]
     printed = readout.render(result)
     assert (listed, TERM_SHA256 in printed, TERM in printed) == ([[TERM_SHA256]], True, False)
+
+
+def test_the_dominance_threshold_is_read_from_its_own_field_of_the_readout_group():
+    """Coordinator ruling R3: readout.cost.dominated_p_at_most, and no other field, sets the level (p = 1/32 here)."""
+    beaten = _same([0, 0]) | {"high": [{"reward": 1, "usd": 0.5}, {"reward": 1, "usd": 0.5}]}
+    table = {task: beaten for task in TASKS[:5]}
+    strict = readout.compute(with_values(LADDER, {"readout.cost.dominated_p_at_most": 0.03}), _export(table), STANDINS)
+    loose_test = with_values(LADDER, {"readout.effort_test.rises.p_at_most": 0.01})
+    assert (LADDER["readout"]["cost"]["dominated_p_at_most"], strict["cost"]["dominated"]["low"]["verdict"],
+            readout.compute(loose_test, _export(table), STANDINS)["cost"]["dominated"]["low"]["verdict"]) == (
+        0.05, "not resolved", "dominated")

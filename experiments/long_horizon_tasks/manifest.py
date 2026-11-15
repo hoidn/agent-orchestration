@@ -36,7 +36,7 @@ NOT_COVERED = {
     "results/": "the readout's output, written after the freeze",
     "__pycache__/": "the interpreter's caches",
 }
-TYPES = {"array": list, "object": dict, "string": str, "scalar": (str, int)}
+TYPES = {"array": list, "object": dict, "string": str, "scalar": (str, int), "number": (int, float)}
 
 
 def _sha(path):

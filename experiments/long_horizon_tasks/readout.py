@@ -318,12 +318,12 @@ def _level_cost(starts, effort, classes):
 
 
 def _beats(other, effort, per_effort, triples, rule):
-    """Whether other beats effort on the sign-flip test at p <= 0.05 and has a lower mean cost (D6)."""
-    # Open ruling R3: ladder.json states this threshold in prose only; effort_test.rises.p_at_most is the same 0.05.
+    """Whether other beats effort on the sign-flip test at readout.cost.dominated_p_at_most and has a lower mean
+    cost (D6; coordinator ruling R3)."""
     difference = _difference(triples, other, effort)
     mine, theirs = per_effort[effort]["mean_usd"], per_effort[other]["mean_usd"]
     cheaper = None not in (mine, theirs) and theirs < mine
-    return difference["sum"] > 0 and difference["p_above"] <= _p(rule["rises"]) and cheaper
+    return difference["sum"] > 0 and difference["p_above"] <= Fraction(str(rule["dominated_p_at_most"])) and cheaper
 
 
 def _dominated(effort, per_effort, triples, rule):
@@ -338,7 +338,7 @@ def _cost(starts, efforts, triples, ladder, place):
     """D6's cost per effort; the dominance verdicts only when the readout places (not after a stop)."""
     classes = ladder["classification"]["classes"]
     per_effort = {e: _level_cost(starts, e, classes) for e in efforts}
-    rule = ladder["readout"]["effort_test"]
+    rule = ladder["readout"]["cost"]
     return {"per_effort": per_effort,
             "dominated": {e: _dominated(e, per_effort, triples, rule) for e in efforts} if place else None}
 
