@@ -2166,10 +2166,12 @@ def tear_down(ctx, ladder, attempt, prior, terms, gate):
     """An ended attempt's teardown, by its own thread or by reconcile: the runtime check and token_scan.py (a
     finding is a stop, written at once), the contamination scan, then the containers removed by name; only then is
     the slot closed (as its first launcher stop, if any), its token retired, and the record regraded below the load
-    `gate`. The record, or None when the containers stay (the tranche pauses)."""
+    `gate`. The record, or None when the containers stay (the tranche pauses). Once the containers are removed,
+    slot.json says so, and a reconcile after a death inside close skips the runtime check, whose findings were
+    written as stops before the removal (re-review R-m1)."""
     root, attempt_dir = ctx.root, ctx.root / "slots" / attempt["id"]
-    trial = trial_dir(attempt_dir)
-    found = runtime_check(ctx, attempt_dir, attempt["kind"] in ("smoke", "pilot") or not ctx.live)
+    trial, removed = trial_dir(attempt_dir), _read_json(attempt_dir / "slot.json").get("containers_removed")
+    found = None if removed else runtime_check(ctx, attempt_dir, attempt["kind"] in ("smoke", "pilot") or not ctx.live)
     found = found or _scan_verdict(token_scan(ctx, attempt_dir), TOKEN_MATCH, TOKEN_INCOMPLETE)
     if found and found not in slot_stops(root, attempt["id"]):
         tranche_event(root, "stop", slot=attempt["id"], reason=found)
@@ -2177,6 +2179,8 @@ def tear_down(ctx, ladder, attempt, prior, terms, gate):
     if not remove_containers(ctx, attempt_dir):
         tranche_event(root, "pause", slot=attempt["id"], reason="the attempt's containers were not removed")
         return None
+    slot = attempt_dir / "slot.json"
+    _write_json(slot, {**_read_json(slot), "containers_removed": time.time()})
     stops = slot_stops(root, attempt["id"])
     extra = {"contamination": scanned, "verifier_load_above_gate": verifier_loaded(attempt_dir, trial, ladder)}
     extra.update({"stop": stops[0], "class": "stop"} if stops else {})

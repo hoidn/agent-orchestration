@@ -1402,6 +1402,26 @@ def _orphan(short, lh):
     return ctx, attempt, trial
 
 
+def test_a_launcher_death_after_the_containers_were_removed_is_no_runtime_stop_at_reconcile(short, monkeypatch):
+    """Re-review R-m1: the teardown removed the containers and the launcher died inside close (before settled.json).
+    The runtime check ran before the removal and wrote any finding as a stop then; reconcile closes the attempt as
+    the observation it is, never as an incomplete scan of containers that are gone."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    ctx, attempt, trial = _orphan(short, lh)
+    _fingerprint(ctx.root, "lh-test-" + os.urandom(16).hex())
+
+    def death(*args, **kwargs):
+        raise SystemExit("the launcher died inside close")
+    monkeypatch.setattr(ladder, "close", death)
+    with pytest.raises(SystemExit):
+        ladder.tear_down(ctx, STANDING, attempt, 0.0, [], lambda: True)
+    monkeypatch.undo()
+    ladder.reconcile(ctx, STANDING, 0.0, gate=lambda: True)
+    settled = ladder.attempts(ctx.root)[0]["settled"]
+    assert ((settled["class"], settled["reward"]), _containers(lh),
+            [e["reason"] for e in _jsonl_events(ctx) if e["event"] == "stop"]) == (("observation", 1.0), [], [])
+
+
 @pytest.mark.parametrize("written, leaked, cause", [
     ("a subagent file", False, "a subagent file"), (None, True, "a match of token_scan.py")])
 def test_reconcile_closes_a_dead_launcher_s_attempt_as_its_stop_never_as_a_scored_observation(
