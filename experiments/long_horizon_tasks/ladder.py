@@ -1026,6 +1026,8 @@ def reconcile(ctx, ladder, prior, gate):
             stop_group(harness["pid"], harness["start"])
         record = tear_down(ctx, ladder, attempt, prior, scan_terms(ctx, ladder, attempt["task"]), gate)
         done += [record] if record else []
+    with _Lock(ctx.root):  # Task 8 m4: a launcher killed inside settle left a settled attempt's token in the file
+        _slots_file(ctx.root, ladder, prior)
     return done
 
 

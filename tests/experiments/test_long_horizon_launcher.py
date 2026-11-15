@@ -1187,6 +1187,19 @@ def test_reconcile_closes_a_dead_launcher_s_attempt_as_its_stop_never_as_a_score
         (5, "stop", cause, None), [cause])
 
 
+def test_reconcile_retires_the_token_of_an_attempt_settled_by_a_launcher_killed_inside_settle(short):
+    """Task 8 m4: settled.json was written and the slots file not rewritten before the kill."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    ctx = _ctx(short, lh)
+    ladder.ensure_state(ctx.root)
+    attempt = ladder.reserve(ctx.root, _entry(), CRITERION, 0.0)
+    ladder._write_json(ctx.root / "slots" / attempt["id"] / "settled.json", {"class": "observation", "usd": 0.1})
+    before = json.loads((ctx.root / "passthrough" / "slots.json").read_text())["slots"]
+    ladder.reconcile(ctx, STANDING, 0.0, gate=lambda: True)
+    after = json.loads((ctx.root / "passthrough" / "slots.json").read_text())["slots"]
+    assert (list(before), after) == ([attempt["id"]], {})
+
+
 # The passthrough's mode (Task 8 M3): a rehearsal never runs against a live passthrough, nor the other way.
 
 @pytest.mark.parametrize("live, mode, refused", [(False, "live", True), (True, "rehearsal", True),
