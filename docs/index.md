@@ -53,12 +53,12 @@ use the capability matrix to determine what is implemented and qualified.
 
 - [CLI admission](../specs/cli.md#executable-support-boundary) and
   [executor retirement](design/workflow_lisp_executor_retirement.md) govern
-  execution and the selected 2.35 source/import/tooling floor. Historical
+  execution and source/import/tooling admission: one target, 2.40. Historical
   YAML/flat contracts and frozen source do not supply current analysis,
   execution or recovery permission.
-- Targets 2.35–2.40 share the evaluated runtime. Target 2.39 adds [procedure authoring](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239), finite source admission and [bounded phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239); imported 2.35–2.38 definitions retain their original contracts.
-- Target 2.40 adds [durable host input](design/workflow_lisp_durable_host_input.md); native Python `ask` selects that target explicitly and uses the same settlement/resume lifecycle. Python's default target remains 2.39.
-- The 2.35 source floor covers transitive source and typed-program imports,
+- Workflow Lisp has one source target, 2.40, on the evaluated runtime. It includes [procedure authoring](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239), finite source admission, [bounded phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239) and [durable host input](design/workflow_lisp_durable_host_input.md); native Python `ask` uses the same settlement/resume lifecycle, and Python's `TARGET` defaults to 2.40.
+- Source at 2.35–2.39 refuses and its message names the guide's [migration section](lisp_workflow_drafting_guide.md#migrating-from-an-older-target). A run recorded at one of those targets is read-only (`report`, the dashboard and the monitor read it; `resume`, `invalidate`, `input` and REPL attach refuse with `run_target_retired`) and is finished with the release tagged `v0.2.1`.
+- Source admission covers transitive source and typed-program imports,
   REPL loading and LSP analysis. `report` and the dashboard read evaluated
   runs only and refuse historical ones; evaluated LSP F2 remains OPEN_NOT_WAIVED.
 - Validated typed values, closed artifacts and memo records own current runtime
