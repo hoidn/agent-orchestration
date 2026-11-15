@@ -1563,13 +1563,12 @@ def test_compile_stage3_preserves_effect_visibility_for_constrained_generic_proc
     )
 
 
-def _selected_hook_lowering_module_lines(*, wrapper_lowering: str | None) -> list[str]:
-    """The selected-hook module at 2.35 with `wrapper_lowering`; with None, at the current target
-    (no `:effects` or `:lowering` clause, so the wrapper is inline)."""
+def _selected_hook_lowering_module_lines() -> list[str]:
+    """The selected-hook module: an inline wrapper that calls a selected effectful hook."""
     lines = [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defpath WorkReport",
         "    :kind relpath",
         '    :under "artifacts/work"',
@@ -1581,16 +1580,12 @@ def _selected_hook_lowering_module_lines(*, wrapper_lowering: str | None) -> lis
         "  (defproc run-command",
         "    ((input WorkflowInput))",
         "    -> WorkflowOutput",
-        "    :effects ((uses-command run_checks))",
-        "    :lowering inline",
         "    (command-result run_checks",
         '      :argv ("python" "scripts/run_checks.py" input.report)',
         "      :returns WorkflowOutput))",
         "  (defproc run-provider",
         "    ((input WorkflowInput))",
         "    -> WorkflowOutput",
-        "    :effects ((uses-provider providers.execute))",
-        "    :lowering inline",
         "    (provider-result providers.execute",
         "      :prompt prompts.implementation.execute",
         "      :inputs (input.report)",
@@ -1599,24 +1594,19 @@ def _selected_hook_lowering_module_lines(*, wrapper_lowering: str | None) -> lis
         "    ((hook ProcRef[WorkflowInput -> WorkflowOutput])",
         "     (input WorkflowInput))",
         "    -> WorkflowOutput",
-        "    :effects ()",
-        f"    :lowering {wrapper_lowering}",
         "    (hook input))",
         "  (defworkflow entry",
         "    ((input WorkflowInput))",
         "    -> WorkflowOutput",
         "    (invoke-selected (proc-ref run-command) input)))",
     ]
-    if wrapper_lowering is not None:
-        return lines
-    return [line.replace('(:target-dsl "2.35")', '(:target-dsl "2.40")') for line in lines
-            if not line.lstrip().startswith((":effects", ":lowering"))]
+    return lines
 
 
 def test_inline_lowering_carries_resolved_transitive_effects(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "inline_resolved_transitive_effects.orc",
-        _selected_hook_lowering_module_lines(wrapper_lowering=None),
+        _selected_hook_lowering_module_lines(),
     )
     result = _compile_validated(path, tmp_path=tmp_path)
     specialized = next(
