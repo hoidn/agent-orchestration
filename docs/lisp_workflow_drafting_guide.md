@@ -370,10 +370,15 @@ route.
 
 A run started before the migration is finished with the release tagged
 `v0.2.1`; this release reads it and does not continue it, and migrating the
-source does not change that. `report`, the dashboard and the monitor read a run
+source does not change that. Finish such a run on `v0.2.1` before you migrate
+its source, or keep the unmigrated files: `resume` rebuilds the program from
+the workspace source, and a migrated source is a changed program for that run.
+`report`, the dashboard and the monitor read a run
 recorded at 2.35–2.39. `resume` (with or without `--accept-changes`),
-`invalidate`, `input answer`, `input cancel` and REPL `:attach` refuse it with
-`run_target_retired` before any lock, compile or write; the commands exit 2.
+`invalidate`, `input answer` and `input cancel` refuse it with
+`run_target_retired`, exit 2, before any lock, compile or write. `repl --run-id`
+refuses the same way at startup, exit 2; `:attach` inside a session prints the
+refusal and the session continues.
 Check out `v0.2.1` to finish such a run, or start a new run from the migrated
 source.
 
@@ -393,43 +398,47 @@ python scripts/migrate_orc_sources.py --check PATH   # reports what would change
 python scripts/migrate_orc_sources.py PATH           # rewrites the files in place
 ```
 
-It does steps 1 to 3 below and leaves the rest to you. It also rewrites a
+It does steps 1, 3 and 7 below and leaves the rest to you. Given a directory,
+it also rewrites sources held in string literals of `.py` files under a
+directory named `tests` or `experiments`. `--check` exits 1 when something
+would change. It also rewrites a
 `loop/recur` written with `(fn (state) ...)` to the binder form where that
 keeps the program; both loop forms compile at 2.40, so that rewrite is not
-required. Read the diff, then compile. The steps, in the order the compiler
-reports them:
+required. Read the diff, then compile. The compiler reports one refusal at a
+time; the steps are in the order it reports them:
 
 1. **Header.** Write `(:target-dsl "2.40")` in every module.
-2. **`:lowering`.** Delete every `:lowering` clause; one that remains refuses
+2. **Reserved names.** `agent` is a form and `Agent` a type; rename a
+   definition that uses either name (`prelude_type_name_reserved` for a type).
+3. **`:lowering`.** Delete every `:lowering` clause; one that remains refuses
    with `proc_lowering_annotation_invalid`. Every procedure now composes
    inline in its caller. A procedure that an older target lowered as a private
    workflow (by `:lowering private-workflow`, by the default `auto`, or when
    called in a loop) computes the same result inline, under different step
    identities. For a deliberate call boundary, write a `defworkflow` and
    `call` it ([procedure contract](#procedure-contracts-at-target-239)).
-3. **`:effects`.** The clause is now optional and a checked upper bound on the
+4. **`with-phase` and private heads.** Import `with-phase` from `std/phase`; a
+   bare `with-phase` refuses with `procedure_call_unknown`. A hand-written
+   `__with-phase__` or `__generated-relpath-seed__` refuses with
+   `private_form_not_admitted`; for the second write
+   `(path/join-under PathType "name")`.
+5. **`request-input`.** Give it `:returns T`, or a prompt that declares a
+   return contract; the one-question `(request-input question)` refuses with
+   `request_input_keyword_invalid`. Its result is a `HostReply`, imported
+   from `std/host` ([Durable Host Input](#durable-host-input)). Steps 4 and 5
+   are reported by position in the source.
+6. **`std/improve`.** The call is `(improve initial review revise limit)`. A
+   five-argument call refuses with `procedure_arity_mismatch`, and the message
+   names the edit: remove the `inputs` argument and capture it in the local
+   `review` and `revise` hooks
+   ([example](lisp_library_reference.md#target-239-local-hooks)).
+7. **`:effects`.** The clause is now optional and a checked upper bound on the
    procedure's transitive effects, a hook's effects included. A clause written
    for the older exact rule on a procedure that takes a hook lists only the
    body's own effects and refuses with `procedure_effect_ceiling_exceeded`.
    Delete the clause to infer the effects (the script deletes every `:effects`
    clause of a module below 2.39), or keep one where you want the bound:
    `:effects ()` means "stays effect-free".
-4. **`std/improve`.** The call is `(improve initial review revise limit)`. A
-   five-argument call refuses with `procedure_arity_mismatch`, and the message
-   names the edit: remove the `inputs` argument and capture it in the local
-   `review` and `revise` hooks
-   ([example](lisp_library_reference.md#target-239-local-hooks)).
-5. **`with-phase` and private heads.** Import `with-phase` from `std/phase`; a
-   bare `with-phase` refuses with `procedure_call_unknown`. A hand-written
-   `__with-phase__` or `__generated-relpath-seed__` refuses with
-   `private_form_not_admitted`; for the second write
-   `(path/join-under PathType "name")`.
-6. **`request-input`.** Give it `:returns T`, or a prompt that declares a
-   return contract; the one-question `(request-input question)` refuses with
-   `request_input_keyword_invalid`
-   ([Durable Host Input](#durable-host-input)).
-7. **Reserved names.** `agent` is a form and `Agent` a type; rename a
-   definition that uses either name (`prelude_type_name_reserved` for a type).
 8. **Python sources.** `TARGET` defaults to `"2.40"`, the only accepted value;
    remove an older `TARGET` or set it to `"2.40"`.
 
@@ -485,6 +494,11 @@ edits by hand, it compiles:
   (defworkflow run ((value Int)) -> Int
     (apply-step (proc-ref measure) value)))
 ```
+
+Before and after, the module needs a `commands.json` beside it that binds
+`measure`, for example
+`{"measure": {"stable_command": ["python", "measure.py"], "closure": ["measure.py"]}}`;
+without it the compile refuses with `command_adapter_missing_contract`.
 
 ## 2A. Program Shapes: What Runs Today
 
@@ -732,7 +746,7 @@ unchanged.
 python -B -m orchestrator resume <run_id>
 ```
 
-What the recipe does not show: context capture, trials, phased providers
+What the recipe does not show: context capture
 and the other classes of
 [§1.1](design/workflow_lisp_evaluated_execution.md#11-the-first-release)
 refuse at build with `closed_program_gap`; external kills at every window of
@@ -1694,8 +1708,8 @@ replay needs no native session. See the normative
 [resume contract](../specs/cli.md#evaluated-execution-target-235) and
 [Agent persistence/recovery limits](design/workflow_lisp_agent_sessions.md#persistence-recovery-and-invalidation)
 for refusal/invalidation rules. This example remains opt-in with bounded evidence;
-the recipe earns no further qualification, and the PQ-1c comparison made no quality claim for it. REPL remains
-2.35/2.36; use `report` here.
+the recipe earns no further qualification, and the PQ-1c comparison made no quality claim for it.
+Use `report` here.
 
 Refused at compile time:
 
@@ -2089,11 +2103,15 @@ tracks deterministic evidence separately from live-provider qualification.
    timeout is required; booleans, expressions and inherited defaults do not
    supply it. Task, correction, shutdown and first commit share that one deadline.
 3. Run this complete command sequence from the repository root. Compilation
-   needs no external provider. The second command is the deterministic public
+   needs no external provider. The fixture is recorded at 2.39 and kept so;
+   this release refuses that header, so compile a copy with the 2.40 header, as
+   the tests do. The last command is the deterministic public
    smoke and should run in a tmux session, as required for multi-module suites:
 
    ```bash
-   python -m orchestrator compile tests/fixtures/phased_239/main.orc --entry-workflow main::run --source-root tests/fixtures/phased_239 --provider-externs-file tests/fixtures/phased_239/providers.json --command-boundaries-file tests/fixtures/phased_239/commands.json
+   COPY="$(mktemp -d)" && cp tests/fixtures/phased_239/* "$COPY"/
+   sed -i 's/(:target-dsl "2.39")/(:target-dsl "2.40")/' "$COPY/main.orc"
+   python -m orchestrator compile "$COPY/main.orc" --entry-workflow main::run --source-root "$COPY" --provider-externs-file "$COPY/providers.json" --command-boundaries-file "$COPY/commands.json"
    pytest -q -n 16 --dist=worksteal tests/test_workflow_evaluated_phased.py tests/test_workflow_evaluated_phased_recovery.py -k public_phased
    ```
 
