@@ -1302,6 +1302,79 @@ def test_a_failed_podman_read_is_an_incomplete_scan_never_an_empty_file_scanned_
     assert _runtime(short, lambda t: fields) == INCOMPLETE
 
 
+# The starts gate under a usage limit (Task 8 part A, B1, M1, m1, m2): a resume lifts a hold, never a limit.
+
+def _gate_root(short, *events):
+    root = short / "state"
+    ladder.ensure_state(root)
+    _events_file(root, *events)
+    return root
+
+
+def _sequence(now, order, reset):
+    """The events named in `order`, one second apart and ending a second before `now`."""
+    made = {"limit": {"event": "close_starts", "slot": "x", "status": 429, "reason": "usage limit", "reset": reset},
+            "pause": {"event": "pause", "reason": "D5 row 16"}, "stop": {"event": "stop", "reason": "a subagent file"},
+            "resume": {"event": "resume", "by": "a person"}}
+    return [{"time": now - len(order) + i, **made[name]} for i, name in enumerate(order)]
+
+
+@pytest.mark.parametrize("order", [("limit", "pause", "resume"), ("pause", "limit", "resume"),
+                                   ("limit", "stop", "resume"), ("stop", "limit", "resume"),
+                                   ("limit", "pause", "resume", "stop", "resume"),
+                                   ("pause", "limit", "stop", "resume"), ("limit", "resume")])
+def test_no_order_of_limit_pause_stop_and_resume_opens_a_start_before_the_limit_s_reset(short, order):
+    now = time.time()
+    gate = ladder.starts_gate(_gate_root(short, *_sequence(now, order, now + 3600)), now)
+    assert (gate["open"], gate["kind"]) == (False, "limit")
+
+
+def test_a_stop_holds_over_a_later_usage_limit_whose_reset_has_passed(short):
+    """A request in flight answered 429 after a stop never turns the stop into a limit that reopens by itself."""
+    now = time.time()
+    gate = ladder.starts_gate(_gate_root(short, *_sequence(now, ("stop", "limit"), now - 3600)), now)
+    assert (gate["open"], gate["kind"]) == (False, "stop")
+
+
+def test_after_the_reset_a_resume_reopens_with_one_start(short):
+    now = time.time()
+    gate = ladder.starts_gate(_gate_root(short, *_sequence(now, ("limit", "pause", "resume"), now - 3600)), now)
+    assert (gate["open"], gate["most"]) == (True, 1)
+
+
+def test_a_single_start_after_a_reset_that_ends_with_no_answer_pauses_the_tranche_and_a_resume_allows_one_more(short):
+    """M1: it never waits silently."""
+    now = time.time()
+    ctx = ladder.Ctx({"HOME": str(short / "home"), "LH_REHEARSAL": str(short / "reh")})
+    ladder.ensure_state(ctx.root)
+    _events_file(ctx.root, *_sequence(now, ("limit",), now - 3600))
+    attempt = ladder.reserve(ctx.root, _entry(), STANDING, 0.0)
+    ladder.settle(ctx.root, attempt, {"class": "pre_session_failure", "usd": 0.0, "row": 1}, STANDING)
+    why = ladder.Tranche(ctx, STANDING).step(time.time())
+    paused = [e["reason"] for e in _jsonl_events(ctx) if e["event"] == "pause"]
+    _events_file(ctx.root, {"time": time.time(), "event": "resume", "by": "a person"})
+    gate = ladder.starts_gate(ctx.root, time.time())
+    assert (bool(why), len(paused), (gate["open"], gate["most"])) == (True, 1, (True, 1))
+
+
+def test_a_limit_that_named_no_reset_does_not_swallow_the_next_limit_episode():
+    """m1: four answers, the first naming no reset and lifted by a resume, are four episodes."""
+    now = time.time()
+    events = [{"time": now - 100000, "event": "close_starts", "reason": "usage limit", "reset": None},
+              {"time": now - 90000, "event": "resume", "by": "a person"}] + [
+        {"time": t, "event": "close_starts", "reason": "usage limit", "reset": t + 3600}
+        for t in (now - 80000, now - 60000, now - 40000)]
+    assert len(ladder.limit_episodes(events)) == 4
+
+
+def test_a_reset_that_is_not_a_number_is_read_as_no_reset_named(short):
+    """m2: the vendor header's form is unconfirmed; the gate pauses for a person, never raises."""
+    now = time.time()
+    root = _gate_root(short, {"time": now - 1, "event": "close_starts", "reason": "usage limit", "reset": "soon"})
+    events = ladder._jsonl(root / "passthrough" / "tranche.jsonl")
+    assert (ladder.starts_gate(root, now)["kind"], len(ladder.limit_episodes(events))) == ("pause", 1)
+
+
 # ---- Allowance (Task 5, fourth checkbox) -----------------------------------------------------------------------
 
 def _events_file(root, *events):

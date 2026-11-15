@@ -1043,46 +1043,71 @@ def reconcile(ctx, ladder, prior, gate):
 REOPEN_S = 300  # usage_limits.reopen.after_reset_s
 
 
-def _closed_by(event, state):
-    """The gate after a close_starts: a usage limit with a reset closes until five minutes after it; any other
-    (a limit naming no reset, any other vendor 429, usage the meter could not read, the passthrough down) pauses
-    for a person. A later limit inside an open episode keeps the later reopening."""
-    if event.get("reason") == "usage limit" and event.get("reset"):
-        until = float(event["reset"]) + REOPEN_S
-        return {"kind": "limit", "until": max(until, state.get("until", 0)) if state["kind"] == "limit" else until}
+def _reset(event):
+    """The reset a usage-limit answer named, as a number, or None: a value that is not one names no reset, and the
+    gate then pauses for a person instead of failing (Task 8 m2)."""
+    try:
+        return float(event.get("reset"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _held(hold, event):
+    """The hold after a stop, a pause, or a close_starts that is not a usage limit with a reset: a stop is never
+    turned into anything else, and a pause only into a stop; a person's resume lifts either."""
+    kind = event.get("event")
+    if kind == "stop":
+        return {"kind": "stop", "why": event.get("reason"), "threshold": event.get("threshold")}
+    if hold is not None:
+        return hold
+    if kind == "pause":
+        return {"kind": "pause", "why": event.get("reason")}
     return {"kind": "pause", "why": f"closed starts: {event.get('reason')} (no reset named)"}
 
 
 def gate_state(events):
-    """What the tranche's events leave: a stop or a pause (until a person's `resume`), a usage limit, or nothing."""
-    state = {"kind": None}
+    """What the tranche's events leave: a stop or a pause (until a person's `resume`), a usage limit, or nothing.
+    A limit with a reset is kept through every hold and every resume (Task 8 B1): a resume lifts a stop or a pause,
+    never a limit, which closes starts until five minutes after its reset and then reopens by its own rule from
+    `since` (the reopening, or a later resume)."""
+    hold, until, resumed = None, None, None
     for event in events:
         kind = event.get("event")
+        limit = kind == "close_starts" and event.get("reason") == "usage limit" and _reset(event) is not None
         if kind == "resume":
-            state = {"kind": None}
-        elif kind == "stop":
-            state = {"kind": "stop", "why": event.get("reason")}
-        elif state["kind"] in ("stop", "pause"):
-            continue
-        elif kind == "pause":
-            state = {"kind": "pause", "why": event.get("reason")}
-        elif kind == "close_starts":
-            state = _closed_by(event, state)
-    return state
+            hold, resumed = None, event.get("time")
+        elif limit:
+            until = max(until or 0.0, _reset(event) + REOPEN_S)
+        elif kind in ("stop", "pause", "close_starts"):
+            hold = _held(hold, event)
+    if hold is not None:
+        return hold
+    if until is not None:
+        return {"kind": "limit", "until": until, "since": max(until, resumed or 0.0)}
+    return {"kind": None}
 
 
 def _gate(open_, most, kind=None, why=None):
     return {"open": open_, "most": most, "kind": kind, "why": why}
 
 
-def _reopened(root, until):
-    """After a limit's reopening: one start; the others once that session's first request is answered (D4)."""
-    started = {a["id"] for a in attempts(root) if a["opened"] >= until}
-    if not started:
-        return _gate(True, 1, None, "reopened after a usage limit: one start")
+UNANSWERED = "unanswered"  # the single start after a limit's reopening ended with no answer: a pause (Task 8 M1)
+
+
+def _reopened(root, until, since):
+    """After a limit's reopening: one start; the others once a session started since the reopening has a request
+    answered (D4). A single start that ended with no answer is UNANSWERED: the loop pauses the tranche for a person,
+    whose plain resume allows one more (Task 8 M1)."""
+    every = attempts(root)
+    after = {a["id"] for a in every if a["opened"] >= until}
     rows = _jsonl(root / "passthrough" / "requests.jsonl")
-    if any(r.get("slot") in started and r.get("status") == 200 and r["time"] >= until for r in rows):
+    if any(r.get("slot") in after and r.get("status") == 200 and r["time"] >= until for r in rows):
         return _gate(True, None)
+    single = [a for a in every if a["opened"] >= since]
+    if not single:
+        return _gate(True, 1, None, "reopened after a usage limit: one start")
+    if all(a["settled"] for a in single):
+        return _gate(False, 0, UNANSWERED, "the single start after a usage limit's reset ended with no answer")
     return _gate(False, 0, "limit", "waiting for the first answer after a usage limit's reset")
 
 
@@ -1093,17 +1118,21 @@ def starts_gate(root, now):
         return _gate(False, 0, state["kind"], state["why"])
     if state["kind"] == "limit" and now < state["until"]:
         return _gate(False, 0, "limit", f"a usage limit: starts reopen at {state['until']:.0f}")
-    return _reopened(root, state["until"]) if state["kind"] == "limit" else _gate(True, None)
+    return _reopened(root, state["until"], state["since"]) if state["kind"] == "limit" else _gate(True, None)
 
 
 def limit_episodes(events):
-    """The times of the usage-limit answers that each began a closing of starts (answers inside one count once)."""
+    """The times of the usage-limit answers that each began a closing of starts (answers inside one count once). An
+    answer that named no reset ends its episode at the resume that lifted its pause (Task 8 m1)."""
     episodes, until = [], None
     for event in events:
+        if event.get("event") == "resume" and until == float("inf"):
+            until = None
         if event.get("event") == "close_starts" and event.get("reason") == "usage limit":
             if until is None or event["time"] >= until:
                 episodes.append(event["time"])
-            until = float(event["reset"]) + REOPEN_S if event.get("reset") else float("inf")
+            reset = _reset(event)
+            until = reset + REOPEN_S if reset is not None else float("inf")
     return episodes
 
 
@@ -2047,6 +2076,8 @@ class Tranche:
         self.host_stops()
         gate = starts_gate(self.root, now)
         if not gate["open"]:
+            if gate["kind"] == UNANSWERED and not self.workers:  # Task 8 M1: a pause, never a silent wait
+                tranche_event(self.root, "pause", reason=gate["why"])
             return None if self.workers or gate["kind"] in SELF_ENDING else f"{gate['kind']}: {gate['why']}"
         head, why = self.head()
         if head is None:
