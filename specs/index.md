@@ -58,7 +58,7 @@ dashboard read evaluated runs only and refuse historical ones. See
   - DSL v2.36 extends the evaluated route with W3 local hooks and one
     four-argument `std/improve` API per source graph. The
     [version contract](versioning.md#versioning-and-migration-normative) and
-    [W3 contract](../docs/design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
+    [frontend specification §7.8](../docs/design/workflow_lisp_frontend_specification.md#78-procedure-references)
     own the rules.
   - Target 2.37 parallel map is qualified through the public command line
     with stand-in providers and commands, and has run once with a real provider
