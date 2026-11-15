@@ -1635,6 +1635,27 @@ def test_a_stop_is_lifted_only_after_a_ruling_row_naming_its_cause(short, cause)
     assert (plain, wrong_date, ruled, ladder.starts_gate(ctx.root, time.time())["kind"]) == (3, 3, 0, None)
 
 
+def test_a_ruling_for_the_latest_stop_never_lifts_an_earlier_one(short, capsys):
+    """Re-review R-M1 (D5): every distinct stop since the last resume needs its own Ruling row; resume names each
+    one it still lacks, and status lists them all."""
+    ctx = _ctx(short)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    ladder.ensure_state(ctx.root)
+    ladder.tranche_event(ctx.root, "stop", slot="x", reason="paid extra usage")
+    ladder.tranche_event(ctx.root, "stop", slot="x", reason="D5 row 13")
+    ladder.main(["status"], env=ctx.env)
+    listed = capsys.readouterr().out
+    (ctx.rehearsal / "ledger.md").write_text("| 2026-11-21 | Ruling | resume: D5 row 13: the decision |\n")
+    latest_only = ladder.main(["resume", "--date", "2026-11-21"], env=ctx.env)
+    lacking = capsys.readouterr().err
+    with open(ctx.rehearsal / "ledger.md", "a") as fh:
+        fh.write("| 2026-11-21 | Ruling | resume: paid extra usage: the owner said it is off |\n")
+    both = ladder.main(["resume", "--date", "2026-11-21"], env=ctx.env)
+    assert (("paid extra usage" in listed, "D5 row 13" in listed), latest_only,
+            ("paid extra usage" in lacking, "D5 row 13" in lacking), both,
+            ladder.starts_gate(ctx.root, time.time())["kind"]) == ((True, True), 3, (True, False), 0, None)
+
+
 # ---- Allowance (Task 5, fourth checkbox) -----------------------------------------------------------------------
 
 def _events_file(root, *events):

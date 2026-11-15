@@ -1136,10 +1136,13 @@ def _reset(event):
 
 def _held(hold, event):
     """The hold after a stop, a pause, or a close_starts that is not a usage limit with a reset: a stop is never
-    turned into anything else, and a pause only into a stop; a person's resume lifts either."""
+    turned into anything else, and a pause only into a stop; a person's resume lifts either. A stop keeps every
+    distinct stop since the last resume in `stops`, each of which needs its own ruling (re-review R-M1)."""
     kind = event.get("event")
     if kind == "stop":
-        return {"kind": "stop", "why": event.get("reason"), "threshold": event.get("threshold")}
+        stop = {"why": event.get("reason"), "threshold": event.get("threshold")}
+        earlier = (hold or {}).get("stops", [])
+        return {"kind": "stop", **stop, "stops": earlier + ([stop] if stop not in earlier else [])}
     if hold is not None:
         return hold
     if kind == "pause":
@@ -2456,14 +2459,18 @@ def record_ruling(ctx, args):
 def _stop_ruled(ctx, args):
     """A stop is lifted only after a coordinator's ledger row names its cause and the decision (D5; Task 8 part A
     M2): `| D | Ruling | resume: <cause>: <decision> |` and `resume --date D`, or, for a D7.7 threshold's stop, the
-    `--clears` ruling of that threshold."""
+    `--clears` ruling of that threshold; every distinct stop since the last resume needs its own (re-review R-M1)."""
     state = gate_state(_jsonl(ctx.root / "passthrough" / "tranche.jsonl"))
-    if state["kind"] != "stop" or (args.clears and state.get("threshold") == args.clears):
+    if state["kind"] != "stop":
         return
-    form = re.compile(rf"resume:\s*{re.escape(state['why'] or '')}")
-    if not (args.date and ruling_rows(ledger_text(ctx), args.date, form)):
+    text = ledger_text(ctx) if args.date else ""
+    ruled = [args.date and ruling_rows(text, args.date, re.compile(rf"resume:\s*{re.escape(s['why'] or '')}"))
+             or (args.clears and s["threshold"] == args.clears) for s in state["stops"]]
+    lacking = [s["why"] for s, done in zip(state["stops"], ruled) if not done]
+    if lacking:
         raise Refused(f"a stop is lifted only after the ledger row `| {args.date or '<date>'} | Ruling | resume: "
-                      f"{state['why']}: <the decision> |`, then `resume --date <date>`")
+                      f"<cause>: <the decision> |` for each stop since the last resume, then `resume --date <date>`; "
+                      f"no row yet for: " + "; ".join(str(why) for why in lacking))
 
 
 def record_resume(ctx, args):
@@ -2510,6 +2517,9 @@ def status(ctx, path=None):
     gate = starts_gate(ctx.root, time.time())
     print(f"state {ctx.root}\nstarts {starts}, committed USD {committed:.2f}, in flight {len(open_)}")
     print(f"starts: {'open' if gate['open'] else 'closed'} {gate['kind'] or ''} {gate['why'] or ''}".rstrip())
+    stops = gate_state(_jsonl(ctx.root / "passthrough" / "tranche.jsonl")).get("stops", [])
+    if stops:  # re-review R-M1: each needs its own Ruling row
+        print("stops since the last resume: " + "; ".join(str(s["why"]) for s in stops))
     how = "in rehearsal mode" if ctx.rehearsal else "with the token file"
     print(f"passthrough: {'up' if passthrough_up(ctx) else 'down'}; a person starts it, {how}:")
     print(f"  {passthrough_command(ctx)}")
