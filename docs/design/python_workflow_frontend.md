@@ -305,11 +305,15 @@ procedures retain their own lowering declaration.
 Supported operator overloads map only to existing operators: numeric arithmetic
 and ordering, supported equality, and field projections admitted by the
 compiler. Generic list indexing is refused because it has no existing source
-operator. Explicit helpers cover boolean combination, list length and string
-construction: `all_of`, `any_of`, `not_`, `length`, and `concat`.
-`all_of(*thunks)` and `any_of(*thunks)` always take zero-argument callbacks,
-including for pure operands, to preserve short-circuiting. `not_(value)` takes
-a symbolic Boolean value directly:
+operator. Explicit helpers cover boolean combination, list length, a list's
+first elements and string construction: `all_of`, `any_of`, `not_`, `length`,
+`take(xs, n)` (`list/take`), and `concat`. `all_of(*thunks)` and
+`any_of(*thunks)` over zero-argument callbacks, including for pure operands,
+are the short-circuiting forms; given one list argument instead (a Python list,
+or a value typed as a list, which the compiler requires to be `List[Bool]`),
+they emit the pure reductions `list/all` and `list/any`, and one argument that
+is neither a callback nor a list is refused with `python_when_thunk_required`. `not_(value)` takes a symbolic Boolean value
+directly:
 
 ```python
 from orchestrator.py import all_of, any_of, not_

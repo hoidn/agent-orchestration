@@ -60,6 +60,7 @@ from .spans import SourceSpan
 from .syntax import ExpansionStack, HelperExpansionFrame, ProcedureExpansionFrame, SyntaxList, SyntaxNode, WorkflowLispSyntaxModule, syntax_head, syntax_identifier, syntax_node_datum, syntax_resolved_name, target_dsl_supports_effect_ceilings
 from .type_env import (
     FrontendTypeEnvironment,
+    ListTypeRef,
     PrimitiveTypeRef,
     ProcRefTypeRef,
     TypeRef,
@@ -437,6 +438,18 @@ def normalize_function_calls(
     return _rewrite(node)
 
 
+def _with_empty_list_type(arg: ExprNode, param_type: TypeRef | None) -> ExprNode:
+    """An empty `(list)` passed to a `defun` takes its item type from the parameter.
+
+    The call becomes `let*` bindings before the arguments are typed, and a binding states no type.
+    """
+
+    if (isinstance(arg, ListExpr) and not arg.items and arg.element_type_ref is None
+            and isinstance(param_type, ListTypeRef)):
+        return replace(arg, element_type_ref=param_type.item_type_ref)
+    return arg
+
+
 def _normalize_expr(
     expr: ExprNode,
     *,
@@ -457,9 +470,13 @@ def _normalize_expr(
             form_path=expr.form_path,
             expansion_stack=helper_stack,
         )
+        param_types = tuple(param_type for _, param_type in function_def.signature.params)
         normalized_args = tuple(
-            _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
-            for arg in expr.args
+            _with_empty_list_type(
+                _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
+                param_types[index] if index < len(param_types) else None,
+            )
+            for index, arg in enumerate(expr.args)
         )
         call_bindings = (
             _ordered_call_bindings(

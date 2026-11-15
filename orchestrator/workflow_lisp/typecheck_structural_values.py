@@ -36,7 +36,7 @@ from .expressions import (
     ProviderResultExpr,
     PureOpExpr,
 )
-from .type_env import ListTypeRef, PathTypeRef, PrimitiveTypeRef, TypeRef
+from .type_env import ListTypeRef, PathTypeRef, PrimitiveTypeRef, TypeParamRef, TypeRef
 
 from .typecheck_context import (
     TypecheckContext,
@@ -167,6 +167,29 @@ def _register_map_run_ref_types(type_env, *, context):
     register_all_known_run_ref_types(type_env, session_state=context.session_state)
 
 
+def _written_list_type(expr: ListExpr, expected_list: ListTypeRef | None, *, context: TypecheckContext) -> ListTypeRef:
+    """The type `(list :of T …)` states, which must be the type its position expects, if any.
+
+    `T` is a type name, or the name of a type parameter in scope; a value's name is not a type.
+    """
+
+    name = expr.element_type_ref
+    in_scope = context.value_env.get(name)
+    item_type = (in_scope if isinstance(in_scope, TypeParamRef) and in_scope.name == name
+                 else context.type_env.resolve_type(name, span=expr.span, form_path=expr.form_path,
+                                                    expansion_stack=expr.expansion_stack))
+    written = ListTypeRef(name=f"List[{item_type.name}]", item_type_ref=item_type)
+    if expected_list is not None and not _type_refs_compatible(expected_list, written):
+        raise_error(
+            f"`(list :of {_type_label(item_type)})` is not the `{_type_label(expected_list)}` its position expects",
+            code="pure_expr_operand_type_mismatch",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    return written
+
+
 def typecheck_structural_value_expr(
     expr: ExprNode,
     *,
@@ -207,6 +230,9 @@ def typecheck_structural_value_expr(
         return typed_factory(expr=expr, type_ref=seed_type, effect=EMPTY_EFFECT_SUMMARY)
     if isinstance(expr, ListExpr):
         expected_list = expected_type if isinstance(expected_type, ListTypeRef) else None
+        if isinstance(expr.element_type_ref, str):
+            expected_list = _written_list_type(expr, expected_list, context=context)
+            expr = replace(expr, element_type_ref=expected_list.item_type_ref)
         if not expr.items:
             if expected_list is None and expr.element_type_ref is not None:
                 expected_list = ListTypeRef(
