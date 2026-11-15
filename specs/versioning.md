@@ -1424,6 +1424,14 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
     `effect_not_permitted` (TD1, D19; §16.3);
   - a `done` or `continue` as the value of a `let*` binding is refused by the build with
     `loop_recur_contract_invalid` (D21; §13.1).
+  - a `let-proc` local that captures a `proc-ref`, or a role bound with `bind-proc` over one whose
+    bound values are literals or names, builds from target 2.39 when it is called by name, is a
+    map body or is passed by `proc-ref`, and runs to the value of the same uses written with the
+    reference (TD6, D10, D11; frontend specification §7.8). Where a name the role reads is bound
+    again between the role and the local, the program is refused with `let_proc_capture_rebound`;
+    that refusal also reaches a local referenced only where it is never lowered (a `let*` nothing
+    reads, the argument of a procedure that ignores it), which built before: the one exception to
+    the sentence below, recorded as the known row `E28-unlowered`.
 
   Every program that compiled before keeps its closed program, digest and identities, and its
   recorded runs resume; a differential corpus test over the shapes around these fixes and every

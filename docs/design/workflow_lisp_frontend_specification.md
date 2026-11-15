@@ -1329,19 +1329,23 @@ exactly one direct consumer call site are the
 (target 2.36). Declared externs stay available without becoming captures.
 
 **A captured procedure reference is a compile-time binding of the local** (from
-target 2.39, where locals lower inline): a captured name that holds a
-`proc-ref` literal, or a `bind-proc` over one whose bound values are literals
-or value names, is bound in the local's own body, and the value names it reads
-are captured instead. The local then builds the program of the same uses
-written with the reference, without the local. The copied reference reads the
-bindings the original read: when a name it reads is bound again between the
-reference and the local (a loop or `fn` state binder, a `let*`, a `match` arm,
-a binder a macro takes from its caller) or by a parameter of the local, the
-program is refused (`let_proc_capture_rebound`, naming the reference, the
-name and the inner binder); rename one of them. That refusal is a limit, not a
-second meaning: each such program has one meaning, the one its renamed
-spelling builds. A bound value that is neither a literal nor a name (a field
-read) keeps the capture parameter.
+target 2.39, where locals lower inline): when the `let-proc` body references the
+local, a captured name that holds a `proc-ref` literal, or a `bind-proc` over one
+whose bound values are literals or value names, is bound in the local's own
+body, and the value names it reads are captured instead. The local then builds
+the program of the same uses written with the reference, without the local; a
+local the body never references keeps the capture parameter. The copied
+reference reads the bindings the original read, by binding identity: when a name
+it reads is bound again between the reference and the local (a loop or `fn`
+state binder, a `let*`, a `match` arm, a binder a macro takes from its caller)
+or by a parameter of the local, the program is refused
+(`let_proc_capture_rebound`, naming the reference, the name and the kind of the
+inner binder); rename one of them. That refusal is a limit, not a second
+meaning: each such program has one meaning, the one its renamed spelling builds.
+It also refuses a local referenced only where it is never lowered (a `let*` that
+nothing reads, the argument of a procedure that ignores it), which built before.
+A bound value that is neither a literal nor a name (a field read) keeps the
+capture parameter.
 
 ### 7.9 Type Parameters And Structural Constraints
 
