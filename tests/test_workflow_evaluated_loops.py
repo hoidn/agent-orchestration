@@ -222,14 +222,14 @@ PRE_TAKE_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow run () -> List[Int]
     (list/map-effect ((x (list 1 2 3 4 5 6 7 8 9))) :max 8
-      (command-result step :argv ("python" "step.py" x) :returns Int))))
+      (command-result step :argv ("./step.py" x) :returns Int))))
 '''
 PRE_TAKE_FIXTURE = Path(__file__).parent / "fixtures" / "map_effect_cap_before_take"
 TAKE_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defworkflow run ((xs List[Int])) -> List[Int]
     (list/map-effect ((x (list/take xs 8))) :max 8
-      (command-result step :argv ("python" "step.py" x) :returns Int))))
+      (command-result step :argv ("./step.py" x) :returns Int))))
 '''
 
 

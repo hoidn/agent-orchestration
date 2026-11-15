@@ -437,8 +437,14 @@ def ask(question, *, returns, timeout_sec=None, show=(), name=None):
                       callee="ask", name=name)
 
 
+def _list_operand(value):
+    """A list literal, or a symbolic value typed as a list or not typed here: the compiler checks it."""
+    if isinstance(value, list): return True
+    return isinstance(value, Expr) and (value._annotation is None or get_origin(value._annotation) is list)
+
+
 def _boolean_thunks(kind, thunks, options):
-    if len(thunks) == 1 and not options and not callable(thunks[0]):
+    if len(thunks) == 1 and not options and _list_operand(thunks[0]):
         # One list of booleans, not thunks: the pure reduction `list/all` or `list/any`.
         return declaration_expression("op", ("list/all" if kind == "all_of" else "list/any", thunks[0]), bool)
     trace = active_trace()

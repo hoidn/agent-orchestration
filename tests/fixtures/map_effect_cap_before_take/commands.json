@@ -1,1 +1,1 @@
-{"step": {"stable_command": ["python", "step.py"], "closure": []}}
+{"step": {"stable_command": ["./step.py"], "closure": []}}

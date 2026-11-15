@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os, sys
 from pathlib import Path
 with open("dispatches.log", "a", encoding="utf-8") as log:

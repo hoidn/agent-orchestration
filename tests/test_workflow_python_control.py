@@ -290,6 +290,16 @@ def test_take_and_list_reductions_emit_the_list_operators(tmp_path):
     assert evaluate_closed_program(built.program, inputs).json_value() == {"first": [4, 5], "every": False, "some": True}
 
 
+@pytest.mark.parametrize("call", ["any_of(flag)", "all_of(count)", "all_of(True)"])
+def test_one_argument_that_is_not_a_list_keeps_the_thunk_hint(tmp_path, call):
+    with pytest.raises(PythonFrontendError, match="python_when_thunk_required"):
+        compile_source(tmp_path, f'''
+    @workflow
+    def run(flag: bool, count: int) -> bool:
+        return {call}
+    ''')
+
+
 def test_module_level_pure_helper_refuses_scoped_operands():
     escaped = Expr("ref", ("_case0",), str, _scope=TraceScope())
     with pytest.raises(PythonFrontendError, match="python_scope_escape"):
