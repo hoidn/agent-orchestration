@@ -363,8 +363,9 @@ every removed test is listed with the code it covered".
      fragment-identity projection have no caller in the package.
    - added 2026-11-13 (second batch): an empty `(list)` in a `match` arm,
      and a `list/map` with a `match` body used directly as an `if` condition
-     inside a loop body, each fail with `compiler_defect` (the staged-authoring
-     plan fixes both as its first task); a nested loop used directly as an
+     inside a loop body, each fail with `compiler_defect` (closed 2026-11-14 by
+     staged-authoring Task 0b; the first was a list in the `match` subject, not
+     the arm); a nested loop used directly as an
      operand fails with an internal `KeyError`, with or without a macro; an
      `Int` literal beyond 64 bits fails with `compiler_defect`; the `and`/`or`
      item above has its cause (the proof facts are lost when the condition is
@@ -476,6 +477,16 @@ every removed test is listed with the code it covered".
      workflow reference gives every expansion the first expansion's value,
      because a bound value is identified by its source position (known rows
      `B7-*` of the defect record; next in line, on its own branch).
+   - added 2026-11-14 (twelfth batch, from staged-authoring Task 0b; rows of
+     the defect record): in a procedure without effects, a `bind-proc` over one
+     of its parameters passed to a `ProcRef` parameter is refused by name
+     (`proc_ref_binding_parameter_unsupported`, row E8, the plan's D5): the
+     procedure is expanded where it is called and its parameters renamed, and
+     its specializations were made from the definition's names, so the fix is
+     in the bound-reference path beside rows `E23-*`, not local; a `let-proc`
+     written in a serial `list/map-effect` body is `proc_ref_unknown` (row
+     E7-local); a `match` arm whose value is its own binder, used as a value of
+     the union, fails the closed check with `compiler_defect` (row D26).
    The [defect backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md)
    (accepted 2026-11-13 after an independent review and one revision) orders
    this list by harm. By the owner's direction of 2026-11-13 it is cut to

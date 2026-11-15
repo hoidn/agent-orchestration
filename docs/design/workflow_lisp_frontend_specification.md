@@ -1302,7 +1302,12 @@ called from the `let-proc` body, not from another local
 and bound but not stored, chosen at run time or returned: a `let*` binding of a
 reference chosen by `if`, `cond` or `match`, or returned by a procedure, is
 refused (`proc_ref_literal_required`), and a local's reference leaving its
-`let-proc` is `let_proc_scope_escape`.
+`let-proc` is `let_proc_scope_escape`. In a procedure without effects, a
+`bind-proc` whose bound value reads one of the procedure's parameters, passed
+to a `ProcRef` parameter directly or through a `let*` name, is refused
+(`proc_ref_binding_parameter_unsupported`; defect backlog row E8): bind the
+reference where the procedure is called and pass it in as a `ProcRef`
+parameter.
 
 **A `let-proc` local does not shadow a function or a form:** `(f …)` calls the
 `defun` or the built-in form named `f`, not the local; give locals distinct
@@ -2010,7 +2015,10 @@ Target 2.18 implements one deliberately bounded, constraint-first collection
 surface:
 
 - `(list ...)` constructs an ordered eligible `List[T]`;
-- `list/map` binds one element at a time in a pure body;
+- `list/map` binds one element at a time in a pure body; the body may
+  bind names with `let*` that read the element, and a `match` on it may
+  stand in an `if`, `cond`, `and`, `or` or `not` condition, also when the map
+  is in a loop body, a parallel map body or a `match` arm there;
 - `path/join-under` constructs a value of an explicitly selected rooted path
   family after pure lexical containment validation;
 - eligible whole-list values may cross pure projections, callable contracts,
@@ -2021,7 +2029,11 @@ surface:
   with pure arguments, after specialization (`list_map_effect_body_unsupported`);
   the program is the final closed program, every definition it holds included.
   In a program that contains no run reference the body is any expression,
-  evaluated once per element with its effects in written order. A later change
+  evaluated once per element with its effects in written order. A body may
+  call a generic procedure (§7.9), directly or in an argument, a `let*` or an
+  `if`, and it is specialized as a call outside the map is. A `let-proc`
+  written in a serial map body is refused with `proc_ref_unknown` (open
+  defect, defect backlog row E7-local); write it outside the map. A later change
   may admit more bodies beside a run reference by analysing each iteration.
   A serial map's `:max` is
   a positive integer literal or any `Int` expression, evaluated once after the
@@ -2082,6 +2094,10 @@ the compiler knows that:
 Rules:
 
 - The subject of `match` is a union value, and the arms name each of its variants once.
+  It may be written with a list or a `list/map` in it, as in
+  `(match (variant V HAS :xs (list 1)) …)` or `(match (mk (list/length (list/map ((x xs)) x))) …)`,
+  and runs as the same subject bound with `let*` first; §16.3 lists the subject shapes that
+  stay open defects.
   Diagnostics: `match_subject_not_union`, `union_variant_unknown`,
   `union_match_non_exhaustive` (a missing or a repeated arm).
 - An arm's binder is in scope only in that arm, and on it only the fields of that arm's
@@ -2608,15 +2624,13 @@ exceptions below.
   `let*` whose argument or binding holds an effect under a conditional, a loop
   or beside a pure `match` (`(match (mk (+ E M)) …)`), or a `cond` choosing
   such a value, runs as its `let*`-bound spelling does: the same value, and
-  its effects run once. A subject that holds a `cond` the compiler reaches
-  (anywhere but in the body of a `let-proc` local) lowers in its typechecked
-  form, so it builds, pure or not: directly, in a call argument, a variant
-  field, a `let*` binding or body, an `if` branch or condition, an `and`
-  operand or a macro expansion. In such a subject a `list/map` or
+  its effects run once. A subject that holds a `cond`, a list or a `list/map`
+  the compiler reaches (anywhere but in the body of a `let-proc` local) lowers
+  in its typechecked form, so it builds, pure or not: directly, in a call
+  argument, a variant field, a `let*` binding or body, an `if` branch or
+  condition, an `and` operand or a macro expansion. In such a subject a
   `list/map-effect` in the argument builds too. Open defects, each ending in
-  `compiler_defect`; bind the subject first: a subject that holds no `cond`
-  and has a map in its argument or in a `let*` binding (defect backlog row
-  D20-map-argument); a pure `match` or a loop as the whole subject (rows
+  `compiler_defect`; bind the subject first: a pure `match` or a loop as the whole subject (rows
   D4-subject-match, D4-subject-loop) or as a call argument in it
   (D4-subject-argument), also when a `cond` sits inside it; a `let-proc`
   subject whose body passes the local's call in an `if` argument

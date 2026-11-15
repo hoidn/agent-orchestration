@@ -1417,8 +1417,9 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   - a `match` subject holding a `cond` outside a `let-proc` local's body, pure or not, builds:
     directly, in a call argument, a variant field, a `let*` binding or body, an `if` branch or
     condition, an `and` operand or a macro expansion, and with it a `list/map` or
-    `list/map-effect` in the subject's argument (TD1; §16.3). A subject with a map and no `cond`
-    still ends in `compiler_defect`, and so do the other open subject shapes §16.3 lists;
+    `list/map-effect` in the subject's argument (TD1; §16.3). The open subject shapes §16.3
+    lists still end in `compiler_defect` (a subject with a map and no `cond` builds since the entry
+    below);
   - a `continue` value that is an `if` whose branch is an `if` or `cond` holding a command or an
     effectful call of a workflow, a `defproc` or a `let-proc` local is refused with
     `effect_not_permitted` (TD1, D19; §16.3);
@@ -1430,6 +1431,27 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
   loop and map operand position holds the digests and refusal codes read on `main` before them,
   pins the digest of each program the fixes newly build, and runs a fixed sample of those against
   the value of its `let*`-bound spelling on `main` (`tests/test_workflow_lisp_td21_differential.py`).
+
+- **Staged-workflow authoring Task 0b, the defects the seeds meet.** Source that stopped with
+  `compiler_defect` or was refused by a compiler-owned code now builds, or is refused by name
+  ([staged-workflow authoring plan](../docs/plans/2026-11-13-staged-workflow-authoring-revisions-plan.md)):
+  - a `let*` in a pure `list/map` body whose value reads the map's binder, written there or put
+    there by a `match` in an `if`, `cond`, `and`, `or` or `not` condition, builds and runs in a loop
+    body, a parallel map body and a `match` arm there (D1; frontend specification §10.3);
+  - a `match` subject holding a list or a `list/map` outside a `let-proc` local's body builds and
+    runs as its `let*`-bound spelling, also with an empty `(list)` in an arm that the result types,
+    except in the open subject shapes §16.3 lists (D2; §11, §16.3);
+  - a generic procedure called in a serial `list/map-effect` body, before `procedure_call_unknown`
+    naming the compiler's specialization, builds and runs once per item (D3; §10.3);
+  - a `bind-proc` whose value reads a parameter of the procedure without effects it is written in,
+    passed to a `ProcRef` parameter, was `procedure_lowering_unresolved` and is
+    `proc_ref_binding_parameter_unsupported` (D5, not fixed; §7.8).
+
+  Every program that compiled before keeps its closed program, digest and identities, and its
+  recorded runs resume; a differential corpus test over these shapes and their neighbours holds
+  the digests and refusal codes read on `main` before the change, pins the outcome of each program
+  that moved, and runs every newly built program against the value of its bound spelling on `main`
+  (`tests/test_workflow_lisp_staged_authoring_differential.py`).
 
 ### Run-time corrections without a new target
 
