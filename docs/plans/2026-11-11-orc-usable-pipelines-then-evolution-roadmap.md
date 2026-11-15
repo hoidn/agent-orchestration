@@ -997,7 +997,7 @@ judgment where it has none (marked).
 | Lane D | 17 | 0.92 | 15.7 | As first scoped, 9 of 9 (stages 1 to 4, the dashboard, the test removal). Stage 5, 2.7 of 3 (all but I2b; judgment). Stage 6, 0.8 of 2 (31 of 79 hours). Documentation consolidation, 2.0 of 3 (75 of 112.5 hours). Defect backlog and the cut's changes, 1.2 of 2 (46 of the backlog's 48 hours; the nine cut changes not taken and unsized; judgment) |
 | Consumer thread | 3 | 0 | 0 | Not started; decision 3 is open |
 | Phase 5, seed set | 4 | 0.45 | 1.8 | The kit (tasks, programs, runner, guards) is built and reviewed; the freeze, the rehearsal, the calibration and the seed evaluation are not done (judgment) |
-| Phase 5b, long-horizon | 6 | 0.50 | 3.0 | The ladder and the freeze, 2.5 of 3.5 (about 95 of 133 hours: Tasks 1 to 8 less the live probe and the second oracle pass). The staged comparison, 0.45 of 1.5 (the seeds are frozen; step 9 is not requested; judgment). MLE-bench steps 10 to 12, 0 of 1 |
+| Phase 5b, long-horizon | 6 | 0.50 | 3.0 | The ladder and the freeze, 2.5 of 3.5 (about 95 of 133 hours: Tasks 1 to 8 less the live probe and the second oracle pass; the pass ran on 2026-11-15 and its hours are not yet added to this figure). The staged comparison, 0.45 of 1.5 (the seeds are frozen; step 9 is not requested; judgment). MLE-bench steps 10 to 12, 0 of 1 |
 | Phase 6, program evolution | 8 | 0.10 | 0.8 | The mutant generator's 18 of 23 hours and the checkpoint controller's accepted design; no digest work, no search harness, no run (judgment) |
 | **Total** | **55.25** | **0.61** | **33.75** | **About 34 of about 55 engineer-weeks: about 61 percent** |
 
