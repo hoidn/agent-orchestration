@@ -6,8 +6,9 @@ A label passes when every reference run earns reward 1 and no untouched run does
 
 Usage: python -I summarize.py <jobs> [--write <records.json>]
   prints one line per label: reference k of n, untouched k of n, install, wall time, load at start and end;
-  --write also writes one JSON line per trial (outcomes, timings, load, images and digests; no log text) and puts
-  each task's counts, under the records file's stem, and its overlay digest into tasks.json.
+  --write also writes one JSON line per trial (outcomes, timings, load, images, digests, connections the egress
+  sidecar refused, by address; no log text) and puts each task's counts, under the records file's stem, and its
+  overlay digest into tasks.json.
 """
 
 import hashlib
@@ -67,6 +68,18 @@ def parse_samples(text, trial=None):
                            for _, b in sorted(boxes.items(), key=lambda kv: (kv[1]["role"], kv[0]))]}
 
 
+def parse_egress(texts):
+    """Connections the egress sidecar refused ("bypass"), and their addresses: the log names no host."""
+    dst, refused = {}, []
+    for line in (x for text in texts for x in text.splitlines() if x.startswith("{")):
+        event = json.loads(line)
+        if event.get("dst"):
+            dst[event.get("sid")] = event["dst"]
+        elif event.get("msg") == "bypass":
+            refused.append(event.get("sid"))
+    return {"refused": len(refused), "addresses": sorted({dst.get(sid, "unknown") for sid in refused})}
+
+
 def _verifier_files(trial):
     out = trial / "verifier" / "test-stdout.txt"
     ctrf = trial / "verifier" / "ctrf.json"
@@ -107,6 +120,8 @@ def trial_record(round_dir):
               "images": dict(x.split(":", 1) for x in meta.get("images", "").split()),
               "disk_stop": meta.get("disk_stop")}
     record |= {"env_s": None, "agent_setup_s": None, "agent_s": None, "verify_s": None} | _outcome(round_dir)
+    own = f"egress-{(record['trial'] or '').lower()}__*"
+    record["egress"] = parse_egress(p.read_text() for p in sorted(round_dir.glob(own)))
     return record | parse_samples(samples.read_text() if samples.exists() else "", record["trial"])
 
 

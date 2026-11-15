@@ -129,3 +129,22 @@ def test_two_overlay_digests_for_one_task_are_an_error(tmp_path):
     recs.append(recs[0] | {"overlay_sha256": "other"})
     with pytest.raises(ValueError):
         summarize.fill_tasks({"tasks": [{"name": "terminal-bench/t1"}]}, recs, "oracle_first_pass")
+
+
+EGRESS = (
+    "ok: allow all egress\n"
+    '{"client":"10.89.0.2:1","dst":"1.2.3.4:443","msg":"10.89.0.2:1 >< 127.0.0.1:12345","sid":"a","outputBytes":0}\n'
+    '{"level":"error","msg":"bypass","sid":"a"}\n'
+    '{"client":"10.89.0.2:2","dst":"5.6.7.8:443","msg":"10.89.0.2:2 >< 127.0.0.1:12345","sid":"b","outputBytes":9}\n'
+    '{"level":"error","msg":"bypass","sid":"c"}\n')
+
+
+def test_the_egress_log_gives_the_refused_connections_and_their_addresses():
+    assert summarize.parse_egress([EGRESS]) == {"refused": 2, "addresses": ["1.2.3.4:443", "unknown"]}
+
+
+def test_a_trial_record_counts_refused_connections_of_its_own_sidecars(tmp_path):
+    out = _trial(tmp_path, "t1", "oracle", 1)
+    (out / "egress-t1__abc1234__env_harbor-docker-egress-control-sidecar_1.log").write_text(EGRESS)
+    (out / "egress-t1__zzz__env_harbor-docker-egress-control-sidecar_1.log").write_text(EGRESS)
+    assert summarize.trial_record(out)["egress"]["refused"] == 2
