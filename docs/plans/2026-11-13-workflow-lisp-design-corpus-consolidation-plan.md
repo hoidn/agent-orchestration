@@ -1,8 +1,9 @@
 # Workflow Lisp Design Corpus Consolidation Plan
 
 **Status: Plan, revised 2026-11-13 after an independent review (accept with changes: 0 blockers,
-6 major, 9 minor) and the coordinator's rulings on it.** T0, T1 and the first pass of T2 are done
-on branch `docs/corpus-wave1-notices`, not yet merged. This page plans the documentation half of
+6 major, 9 minor) and the coordinator's rulings on it.** Wave 1, T8 and T9 are merged to `main`;
+T10 to T15 are [parked](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#parked-work).
+This page plans the documentation half of
 stage 5 ("Surface coherence") of
 [Lane D](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#lane-d-delete-and-unify-background-time-boxed):
 the stage ends with one current language reference and the superseded designs marked historical.
