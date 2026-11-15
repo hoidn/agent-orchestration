@@ -1353,7 +1353,8 @@ contracts or authorize provider spend.
 
 Under versioning rule 2 as ruled on 2026-11-12, a change that admits source refused before and moves
 no closed program, digest or effect identity of source that compiles adds no target. One entry per
-change of the [surface-coherence design](../docs/design/workflow_lisp_surface_coherence.md):
+change of the [surface-coherence design](../docs/design/workflow_lisp_surface_coherence.md) and of
+the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workflow_authoring.md):
 
 - **C1, a local called by name.** A `let-proc` local that declares its signature is called by
   name with positional arguments and builds the program of its alias call
@@ -1392,6 +1393,18 @@ change of the [surface-coherence design](../docs/design/workflow_lisp_surface_co
   below 1 fails the same way over a non-empty list, and an empty list gives the empty list. A
   parallel map may be written directly in a serial map or loop body. Every program that compiled
   before keeps its closed program, digest and identities, and its recorded runs resume.
+- **T, a provider timeout from a name.** The `:timeout-sec` of a composed `provider-result` or
+  of an agent turn is an `Int` literal of at least 1, or a name or a field with no effect (a
+  workflow input, a `let*` name, a record field, a procedure or `bind-proc` parameter); its value
+  enters the step's `policy` part, so a value that changes between a run and its resume diverges
+  the step. A value below 1 from a name or a field refuses the step when it resolves its input,
+  with `provider_timeout_nonpositive`: exit 1 during a run, nothing launched and no `started`
+  record, as for the other refusals before `started` in the [CLI diagnostics](cli.md). A computed
+  expression stays `provider_result_timeout_literal_required`, and so does any operand but a
+  literal on a phased call, whose deadline is read before its inputs. One refusal changes code: a
+  name or field of a type other than `Int` was `provider_result_timeout_literal_required` and is
+  `provider_result_timeout_type_invalid`. Every program that compiled
+  before keeps its closed program, digest and identities, and its recorded runs resume.
 
 - **E1, an effect inside a value.** A record or variant field, a list element, a
   `path/join-under` child, a `list/map` or `list/map-effect` source and an `:on-exhausted` value
@@ -1404,6 +1417,38 @@ change of the [surface-coherence design](../docs/design/workflow_lisp_surface_co
   The effect names of an admitted program are the same whether the value is bound with `let*`
   first or written in place. Every program that compiled before keeps its closed program, digest
   and identities, and its recorded runs resume.
+
+- **Defect backlog, crashes made to build or refused by name.** Source that passed typecheck and
+  then stopped with `compiler_defect` now builds, or is refused with a named code
+  ([defect backlog plan](../docs/plans/2026-11-13-compiler-and-runtime-defect-backlog-plan.md)):
+  - a `let-proc` local whose body is a loop with state, or a serial map, in the binding-list
+    spelling, builds and runs (Task TD5);
+  - a variant field read of a name subject inside its arm, `(match u ((A a) u.n) …)`, builds
+    and reads the arm's variant (TD2; frontend specification §11);
+  - a pure `match` as a loop's `:max` or `:state` or a serial map's `:max`, and a pure value with
+    a `match` in it there that did not build (`(if c (match …) 4)`, `(let* ((k 1)) (match …))`,
+    a `cond` or a pure procedure call holding a `match`, a loop as `:state`, a nested `:max`),
+    build and run; a value with a `match` in it that built before, such as a record, keeps its
+    program (TD1, D4);
+  - a `match` subject whose effect lowers to a join (a procedure call or a `let*` whose argument
+    or binding holds an effect under a conditional, a loop or beside a pure `match`, or a `cond`
+    choosing one) builds and runs as its `let*`-bound spelling (TD1, D20; §16.3);
+  - a `match` subject holding a `cond` outside a `let-proc` local's body, pure or not, builds:
+    directly, in a call argument, a variant field, a `let*` binding or body, an `if` branch or
+    condition, an `and` operand or a macro expansion, and with it a `list/map` or
+    `list/map-effect` in the subject's argument (TD1; §16.3). A subject with a map and no `cond`
+    still ends in `compiler_defect`, and so do the other open subject shapes §16.3 lists;
+  - a `continue` value that is an `if` whose branch is an `if` or `cond` holding a command or an
+    effectful call of a workflow, a `defproc` or a `let-proc` local is refused with
+    `effect_not_permitted` (TD1, D19; §16.3);
+  - a `done` or `continue` as the value of a `let*` binding is refused by the build with
+    `loop_recur_contract_invalid` (D21; §13.1).
+
+  Every program that compiled before keeps its closed program, digest and identities, and its
+  recorded runs resume; a differential corpus test over the shapes around these fixes and every
+  loop and map operand position holds the digests and refusal codes read on `main` before them,
+  pins the digest of each program the fixes newly build, and runs a fixed sample of those against
+  the value of its `let*`-bound spelling on `main` (`tests/test_workflow_lisp_td21_differential.py`).
 
 ### Run-time corrections without a new target
 

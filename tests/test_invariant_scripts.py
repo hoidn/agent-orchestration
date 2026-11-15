@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -21,6 +22,17 @@ BUILDS = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defworkflow run ((n Int)) -> Int (+ n 1)))
 '''
 REFUSED = BUILDS.replace("(defmodule tiny)", "(defmodule refused)").replace("(+ n 1)", "(+ missing 1)")
+NAMES_A_PROVIDER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule asks) (export run)
+  (defprompt ask (:fills (q :text)) -> String "Answer {q}.")
+  (defworkflow run ((q String)) -> String
+    (provider-result providers.coder :model "m" :prompt (ask :q q))))
+'''
+NAMES_A_PROMPT_EXTERN = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule extern) (export run)
+  (defworkflow run ((q String)) -> String
+    (provider-result providers.worker.codex :prompt prompts.review :inputs (q) :returns String)))
+'''
 
 
 @pytest.fixture
@@ -58,6 +70,25 @@ def test_compile_all_records_each_source_without_machine_paths(tree, tmp_path):
     assert not (tree / ".orchestrate").exists()
 
 
+def test_compile_all_gives_a_source_that_names_a_provider_its_externs(tree, tmp_path):
+    (tree / "workflows" / "examples" / "asks.orc").write_text(NAMES_A_PROVIDER, encoding="utf-8")
+    out = tmp_path / "compile.json"
+
+    printed = _run([sys.executable, str(KIT / "compile_all.py"), str(tree), str(out), "2"], tmp_path, tmp_path)
+
+    assert json.loads(out.read_text())["workflows/examples/asks.orc"]["exit"] == 0
+    assert printed.split() == "3 files; 2 built, 1 of them name a provider".split()
+
+
+def test_compile_all_binds_dotted_provider_names_and_prompt_externs(tree, tmp_path):
+    (tree / "workflows" / "examples" / "extern.orc").write_text(NAMES_A_PROMPT_EXTERN, encoding="utf-8")
+    out = tmp_path / "compile.json"
+
+    _run([sys.executable, str(KIT / "compile_all.py"), str(tree), str(out), "2"], tmp_path, tmp_path)
+
+    assert json.loads(out.read_text())["workflows/examples/extern.orc"]["exit"] == 0
+
+
 def test_digests_snapshots_the_corpus_of_the_tree_on_the_path(tree, tmp_path):
     out = tmp_path / "digests.json"
 
@@ -67,6 +98,25 @@ def test_digests_snapshots_the_corpus_of_the_tree_on_the_path(tree, tmp_path):
     assert sorted(rows) == ["workflows/examples/refused.orc::run", "workflows/examples/tiny.orc::run"]
     assert rows["workflows/examples/tiny.orc::run"].startswith("sha256:")
     assert rows["workflows/examples/refused.orc::run"] == "Refused:name_unknown"
+
+
+def test_program_digests_keeps_run_reference_programs_without_the_package_identity(tmp_path):
+    def program(folder: str, identity: str, body: str) -> None:
+        path = tmp_path / "basetemp" / folder / "run" / "closed_program.json"
+        path.parent.mkdir(parents=True)
+        config = base64.b64encode(json.dumps({"compiler_runtime_identity_digest": identity}).encode()).decode()
+        path.write_text(json.dumps({"body": body, "compiler_runtime_identity_digest": identity, "config": config}))
+    program("test_a0", "sha256:old", "x")
+    program("test_b0", "sha256:new", "x")
+    plain = tmp_path / "basetemp" / "test_c0" / "closed_program.json"
+    plain.parent.mkdir(parents=True)
+    plain.write_text(json.dumps({"body": "no run reference"}))
+    out = tmp_path / "runref.json"
+
+    _run([sys.executable, str(KIT / "program_digests.py"), str(tmp_path / "basetemp"), str(out)], tmp_path, tmp_path)
+
+    rows = json.loads(out.read_text())
+    assert sorted(rows) == ["test_a0", "test_b0"] and rows["test_a0"] == rows["test_b0"]
 
 
 def test_wrapper_exports_a_revision_and_prints_the_hash_of_both_files(tree, tmp_path):

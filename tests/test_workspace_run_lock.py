@@ -138,7 +138,7 @@ def test_stale_metadata_and_different_workspaces_do_not_block(tmp_path):
 def test_run_refuses_before_run_publication_or_effect_and_preserves_requested_identity(
     tmp_path, monkeypatch, caplog, separate_state_dir,
 ):
-    files = _install(tmp_path, SEQUENCE, target="2.35")
+    files = _install(tmp_path, SEQUENCE)
     monkeypatch.chdir(tmp_path)
     args = _run_args(files)
     args.command_boundaries_file = str(files["commands"])
@@ -157,7 +157,7 @@ def test_run_refuses_before_run_publication_or_effect_and_preserves_requested_id
 
 @pytest.mark.parametrize("force_restart", [False, True])
 def test_resume_refuses_before_mutating_other_run(tmp_path, monkeypatch, capsys, force_restart):
-    files = _install(tmp_path, SEQUENCE, target="2.35", broken=("check",))
+    files = _install(tmp_path, SEQUENCE, broken=("check",))
     monkeypatch.chdir(tmp_path)
     assert _public_run(files).exit_code == 1
     state_file = next((tmp_path / ".orchestrate" / "runs").glob("*/state.json"))
@@ -171,7 +171,7 @@ def test_resume_refuses_before_mutating_other_run(tmp_path, monkeypatch, capsys,
 
 
 def test_dry_run_succeeds_while_another_run_is_active(tmp_path, monkeypatch):
-    files = _install(tmp_path, SEQUENCE, target="2.35")
+    files = _install(tmp_path, SEQUENCE)
     monkeypatch.chdir(tmp_path)
     args = _run_args(files)
     args.command_boundaries_file = str(files["commands"])
@@ -184,7 +184,7 @@ def test_dry_run_succeeds_while_another_run_is_active(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("broken", [(), ("check",)])
 def test_public_run_releases_workspace_after_success_or_failure(tmp_path, monkeypatch, broken):
-    files = _install(tmp_path, SEQUENCE, target="2.35", broken=broken)
+    files = _install(tmp_path, SEQUENCE, broken=broken)
     monkeypatch.chdir(tmp_path)
     assert _public_run(files).exit_code == bool(broken)
     with workspace_run_lock(tmp_path, "next-run"):

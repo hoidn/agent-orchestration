@@ -31,7 +31,7 @@ def _type_env(tmp_path: Path) -> FrontendTypeEnvironment:
     path.write_text(
         """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defunion Plain
     (ONLY (value Int)))
   (defunion Outcome :forall (T E)

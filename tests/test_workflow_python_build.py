@@ -85,7 +85,7 @@ def test_snapshot_rebuilds_project_imports_and_assets(tmp_path):
     ''')
     library = project / "libs/library/review.orc"
     library.parent.mkdir(parents=True)
-    library.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    library.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule library/review) (export review)
       (defworkflow review ((text String)) -> String
         (provider-result providers.review :prompt prompts.library
@@ -129,7 +129,7 @@ def test_frozen_captures_all_authoring_inputs(tmp_path, changed):
     prompt.write_text("Read {text}")
     orc = tmp_path / "libs/library/count.orc"
     orc.parent.mkdir(parents=True)
-    orc.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    orc.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule library/count) (export count)
       (defproc count ((value Int)) -> Int value))''')
     manifest = tmp_path / "providers.json"
@@ -201,7 +201,7 @@ def test_diagnostics_preserve_python_and_orc_locations(tmp_path):
     ''')
     library = tmp_path / "libs/library/broken.orc"
     library.parent.mkdir(parents=True)
-    library.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    library.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule library/broken) (export broken)
       (defproc broken () -> Int "wrong"))''')
     with pytest.raises(LispFrontendCompileError) as error:
@@ -221,11 +221,11 @@ def test_retained_bundle_locators_keep_ordinary_identity(tmp_path, absolute):
     ''')
     producer = project / "producers/producer.orc"
     producer.parent.mkdir()
-    producer.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    producer.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule producer) (export produce) (defworkflow produce () -> Int 9))''')
     consumer = project / "libs/library/consumer.orc"
     consumer.parent.mkdir(parents=True)
-    consumer.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    consumer.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule library/consumer) (export consume)
       (defworkflow consume () -> Int (call dep)))''')
     manifest = project / "imports.json"
@@ -354,19 +354,19 @@ def test_final_build_identity_is_checked_before_pin(tmp_path, monkeypatch):
 def test_python_facade_entry_selection_preserves_defining_owner(tmp_path):
     from orchestrator.py.build import build
     owner = authored(tmp_path, '''
-    TARGET = "2.38"
+    TARGET = "2.40"
     @workflow
     def original() -> int:
         return 3
     ''', name="owner")
     source = authored(tmp_path, '''
-    TARGET = "2.39"
+    TARGET = "2.40"
     from owner import original as selected
     __all__ = ["selected"]
     ''', name="facade")
     built = build(source, workspace_root=tmp_path)
     assert built.entry_workflow == "py/owner::original" and value(built) == 3
-    assert ClosedProgram.from_artifact(built.artifact_path.read_text()).tree["target"] == "2.38"
+    assert ClosedProgram.from_artifact(built.artifact_path.read_text()).tree["target"] == "2.40"
     for selected in ("selected", "py/facade::selected", "py/owner::original"):
         explicit = build(source, entry_workflow=selected, frozen=True, workspace_root=tmp_path)
         assert explicit.snapshot_path == built.snapshot_path
@@ -449,7 +449,7 @@ def test_worker_diagnostics_retain_native_macro_expansion_context(tmp_path):
     ''')
     library = tmp_path / "libs/library/broken.orc"
     library.parent.mkdir(parents=True)
-    library.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+    library.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule library/broken) (export broken)
       (defmacro emit-bad (name) (defproc name () -> Int "wrong"))
       (emit-bad broken))''')

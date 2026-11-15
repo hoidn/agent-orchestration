@@ -48,7 +48,7 @@ def test_provider_result_elaborates_portable_context_operand_and_capture() -> No
             ":context seed :capture-context :portable :returns Int)"
         ),
         bound_names=frozenset({"providers.execute", "prompts.execute", "seed"}),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     assert isinstance(expr, ProviderResultExpr)
@@ -69,12 +69,12 @@ def test_capture_context_wraps_the_expression_result_but_not_the_model_return() 
             ":context seed :capture-context :portable :returns Int)"
         ),
         bound_names=frozenset({"providers.execute", "prompts.execute", "seed"}),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
     type_env = FrontendTypeEnvironment.from_module(
         WorkflowLispModule(
             language_version="0.1",
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
             module_name=None,
             imports=(),
             exports=(),
@@ -108,12 +108,12 @@ def test_context_input_without_capture_keeps_the_model_result_type() -> None:
             ":context seed :returns Int)"
         ),
         bound_names=frozenset({"providers.execute", "prompts.execute", "seed"}),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
     type_env = FrontendTypeEnvironment.from_module(
         WorkflowLispModule(
             language_version="0.1",
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
             module_name=None,
             imports=(),
             exports=(),
@@ -149,7 +149,7 @@ def test_capture_context_rejects_session_artifact_publication() -> None:
                 ":capture-context :portable :session-artifact session :returns Int)"
             ),
             bound_names=frozenset({"providers.execute", "prompts.execute", "session"}),
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
 
     assert excinfo.value.diagnostics[0].code == "provider_context_session_artifact_invalid"
@@ -162,12 +162,12 @@ def test_wcc_prebinds_a_computed_provider_context_operand() -> None:
             ":context (let* ((chosen seed)) chosen) :returns Int)"
         ),
         bound_names=frozenset({"providers.execute", "prompts.execute", "seed"}),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
     type_env = FrontendTypeEnvironment.from_module(
         WorkflowLispModule(
             language_version="0.1",
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
             module_name=None,
             imports=(),
             exports=(),
@@ -204,7 +204,7 @@ def test_capture_contract_keeps_a_structured_model_value_at_the_root() -> None:
     type_env = FrontendTypeEnvironment.from_module(
         WorkflowLispModule(
             language_version="0.1",
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
             module_name=None,
             imports=(),
             exports=(),
@@ -258,7 +258,7 @@ def test_capture_root_schema_keeps_nested_record_and_variant_field_guidance() ->
     type_env = FrontendTypeEnvironment.from_module(
         WorkflowLispModule(
             language_version="0.1",
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
             module_name=None,
             imports=(),
             exports=(),
@@ -358,12 +358,12 @@ def test_wcc_payload_keeps_a_prebound_computed_context_and_capture_selection() -
             ":context (let* ((chosen seed)) chosen) :capture-context :portable :returns Int)"
         ),
         bound_names=frozenset({"providers.execute", "prompts.execute", "seed"}),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
     type_env = FrontendTypeEnvironment.from_module(
         WorkflowLispModule(
             language_version="0.1",
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
             module_name=None,
             imports=(),
             exports=(),
@@ -412,7 +412,7 @@ def test_current_target_accepts_nested_transportable_workflow_inputs(
     source.write_text(
         """(workflow-lisp
   (:language \"0.1\")
-  (:target-dsl \"2.35\")
+  (:target-dsl \"2.40\")
   (defmodule current_nested_input)
   (defunion Choice
     (ONE (value Int))

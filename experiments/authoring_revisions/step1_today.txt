@@ -1,0 +1,45 @@
+f1_inline | accepted |  | 
+f1_alias | REFUSED | provider_result_provider_invalid | `provider-result` provider `p` is not a declared provider extern
+f1_agent_timeout | REFUSED | agent_keyword_invalid | `agent` does not accept keyword `:timeout-sec`
+f1_agent_ok | accepted |  | 
+f1_agent_override | REFUSED | agent_turn_policy_override_forbidden | an agent turn cannot override `:effort`; change the `agent` constructor
+f1_role_record | accepted |  | 
+f1_model_expr | REFUSED | provider_result_policy_operand_not_inline_lowerable | `provider-result :model` must use an inline-lowerable String operand
+f1_provider_param | REFUSED | provider_result_provider_invalid | `provider-result` provider `p` is not a declared provider extern
+f1_default_literal | accepted |  | 
+f1_default_name | REFUSED | workflow_param_default_type_invalid | default for workflow param `coder` must match boundary type `String`
+f2_timeout_input | REFUSED | provider_result_timeout_literal_required | `provider-result :timeout-sec` requires an integer literal
+f2_timeout_let | REFUSED | provider_result_timeout_literal_required | `provider-result :timeout-sec` requires an integer literal
+f2_agent_turn_timeout_input | REFUSED | provider_result_timeout_literal_required | `provider-result :timeout-sec` requires an integer literal
+f2_request_input_timeout_input | REFUSED | type_unknown | unknown type `std/host::HostReply`
+f3_loop_state_bare | REFUSED | list_empty_type_context_required | empty `(list)` requires one exact expected `List[T]` context
+f3_loop_state_carrier | accepted |  | 
+f3_record_field | accepted |  | 
+f3_variant_field | accepted |  | 
+f3_proc_arg | accepted |  | 
+f3_defun_arg | REFUSED | list_empty_type_context_required | empty `(list)` requires one exact expected `List[T]` context
+f3_call_arg | accepted |  | 
+f3_let | REFUSED | list_empty_type_context_required | empty `(list)` requires one exact expected `List[T]` context
+f3_body_result | accepted |  | 
+f3_if_arm | accepted |  | 
+f3_if_arm_first | accepted |  | 
+f3_match_arm | REFUSED | compiler_defect | the program passed typecheck, and elaboration failed on this form: this is a defect of the compiler, not of the program (TypeError: typed list is missing its resolved child types) in workflow_lisp/wcc
+f3_append_both | REFUSED | list_empty_type_context_required | empty `(list)` requires one exact expected `List[T]` context
+f3_continue | REFUSED | list_empty_type_context_required | empty `(list)` requires one exact expected `List[T]` context
+f3_done | REFUSED | list_empty_type_context_required | empty `(list)` requires one exact expected `List[T]` context
+f3_on_exhausted | REFUSED | list_empty_type_context_required | empty `(list)` requires one exact expected `List[T]` context
+f3_loop_state_update | accepted |  | 
+f3_map_source | REFUSED | list_empty_type_context_required | empty `(list)` requires one exact expected `List[T]` context
+f3_eq | REFUSED | list_empty_type_context_required | empty `(list)` requires one exact expected `List[T]` context
+f5_nine_under_eight | accepted |  |  | exit=1 out= calls=9:['1', '1', '1'] err=[list_map_effect_cap_exceeded] `list/map-effect` list has 9 items, more than its `:max` of 8; the first 8 ran / about [list_map_effect_cap_exceeded]: see "Diagnostics" in the CLI contract (specs/cli.md)
+f5_guard_length | accepted |  |  | exit=0 out=[0] calls=1:['[1, 2, 3]']
+f5_take | REFUSED | pure_expr_operator_unsupported | unsupported pure operator `list/take`
+f6_fold | REFUSED | pure_expr_operator_unsupported | unsupported pure operator `list/fold`
+f6_all | REFUSED | pure_expr_operator_unsupported | unsupported pure operator `list/all`
+f6_any | REFUSED | pure_expr_operator_unsupported | unsupported pure operator `list/any`
+f6_contains | REFUSED | pure_expr_operator_unsupported | unsupported pure operator `list/contains?`
+f6_map_bool | accepted |  |  | exit=0 out=[true,true,true] calls=0:[]
+f6_cursor_loop | REFUSED | name_unknown | unknown name `xs`
+f6_cursor_loop_run | accepted |  |  | exit=0 out=true calls=0:[]
+f6_cursor_in_defun | REFUSED | pure_function_has_effect | function `f6_cursor_in_defun::allpos` may not use effectful form `loop/recur` inside a pure helper body
+f6_match_verdicts | accepted |  |  | exit=0 out=false calls=0:[]

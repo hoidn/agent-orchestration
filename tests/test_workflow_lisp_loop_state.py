@@ -50,15 +50,13 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
 def _build_type_env(
     tmp_path: Path,
     extra_lines: list[str] | None = None,
-    *,
-    target_dsl_version: str = "2.35",
 ) -> FrontendTypeEnvironment:
     path = _write_module(
         tmp_path / "loop_state_types.orc",
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            f'  (:target-dsl "{target_dsl_version}")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -426,7 +424,6 @@ def test_typecheck_loop_state_rich_list_preserves_record_and_union_descriptors(
             "    (PENDING (task Task))",
             "    (BLOCKED (reason String)))",
         ],
-        target_dsl_version="2.35",
     )
     expr, session = _owned_expression(
         _expression_syntax(

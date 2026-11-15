@@ -17,10 +17,10 @@ def test_completed_capture_requests_emit_without_frontend_reentry(tmp_path, monk
     from orchestrator.workflow_lisp.wcc import elaborate, anf
     from orchestrator.contracts.closed_program.program import ClosedProgram
 
-    declarations = '(defproc helper ((fixed Int) (y Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declarations = '(defproc helper ((fixed Int) (y Int)) -> Int '
     declarations += _command('"${inputs.fixed}-${inputs.y}"') + ')'
-    declarations += '(defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int :effects () :lowering inline (runner y))'
-    declarations += '(defproc forward ((callback ProcRef[Int -> Int]) (y Int)) -> Int :effects () :lowering inline (callback y))'
+    declarations += '(defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int (runner y))'
+    declarations += '(defproc forward ((callback ProcRef[Int -> Int]) (y Int)) -> Int (callback y))'
     program = _compile(tmp_path, body, params='(n Int)', declarations=declarations)
     expected = build.build_closed_program(program)
     owner = Builder(program)
@@ -62,9 +62,9 @@ def test_incomplete_capture_preparation_refuses_without_source_fallback(tmp_path
     from dataclasses import replace
     from orchestrator.workflow_lisp.closed import build, command_templates
 
-    declarations = '(defproc helper ((fixed Int) (y Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declarations = '(defproc helper ((fixed Int) (y Int)) -> Int '
     declarations += _command('"${inputs.fixed}-${inputs.y}"') + ')'
-    declarations += '(defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int :effects () :lowering inline (runner y))'
+    declarations += '(defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int (runner y))'
     program = _compile(tmp_path, '(invoke (bind-proc (proc-ref helper) :fixed (+ n 1)) 2)',
         params='(n Int)', declarations=declarations)
     owner = Builder(program)
@@ -101,7 +101,7 @@ def test_incomplete_capture_preparation_refuses_without_source_fallback(tmp_path
 def test_emission_requires_completed_callable_request(tmp_path, monkeypatch, kind, missing):
     from orchestrator.workflow_lisp.closed import build
 
-    declarations = ('(defproc helper ((n Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declarations = ('(defproc helper ((n Int)) -> Int '
         + _command('"${inputs.n}"') + ')') if kind == 'procedure' else '(defworkflow helper ((n Int)) -> Int (+ n 1))'
     body = '(helper n)' if kind == 'procedure' else '(call helper :n n)'
     program = _compile(tmp_path, body, params='(n Int)', declarations=declarations)
@@ -130,8 +130,8 @@ def test_emission_requires_completed_callable_request(tmp_path, monkeypatch, kin
 
 
 def _program(tmp_path, prefix="prefix-"):
-    declaration = '(defproc helper ((n Int)) -> Int :effects ((uses-command echo)) '
-    declaration += ':lowering inline ' + _command('"' + prefix + '${inputs.n}"') + ')'
+    declaration = '(defproc helper ((n Int)) -> Int '
+    declaration += _command('"' + prefix + '${inputs.n}"') + ')'
     return _compile(tmp_path, '(helper n)', params='(n Int)', declarations=declaration)
 
 
@@ -262,7 +262,7 @@ def test_prepared_map_body_binders_preserve_scope_and_consumed_labels(tmp_path, 
     stable = '(command-result echo :argv ("python" "probe.py") :returns Int)'
     inner = '(match item ((A a) a.n) ((B b) b.n))' if mode == 'match-alpha' else '(let* ((n 1)) (+ n 1))'
     declarations = '(defunion Choice (A (n Int)) (B (n Int)))'
-    declarations += '(defproc helper ((values List[Choice])) -> List[Int] :effects ((uses-command echo)) :lowering inline '
+    declarations += '(defproc helper ((values List[Choice])) -> List[Int] '
     declarations += '(let* ((out ' + stable + ')) (list/map ((item values)) ' + inner + ')))'
     first = _compile(tmp_path / 'first', '(helper values)', params='(values List[Choice])', declarations=declarations, returns='List[Int]')
     _, _, builder = _prepared_entry(first)
@@ -331,7 +331,7 @@ def test_identical_completed_input_memo_hit_does_not_elaborate_or_compare_again(
 
 def _shadow_program(tmp_path):
     body = '(let* ((n (+ n 1)) (out ' + _command('"stable"') + ')) n)'
-    declaration = '(defproc helper ((n Int)) -> Int :effects ((uses-command echo)) :lowering inline ' + body + ')'
+    declaration = '(defproc helper ((n Int)) -> Int ' + body + ')'
     return _compile(tmp_path, '(helper n)', params='(n Int)', declarations=declaration)
 
 
@@ -368,7 +368,7 @@ def test_nested_closed_bool_key_is_not_an_int_key(tmp_path):
     from copy import deepcopy
     from orchestrator.workflow_lisp.closed.preparation_check import _same
 
-    declaration = '(defproc helper ((flag Bool)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declaration = '(defproc helper ((flag Bool)) -> Int '
     declaration += _command('"${inputs.flag}"') + ')'
     _, children, _ = _prepared_entry(_compile(tmp_path, '(helper true)', declarations=declaration))
     (request,) = children.values()
@@ -380,10 +380,10 @@ def test_nested_closed_bool_key_is_not_an_int_key(tmp_path):
 
 
 def _recipe_program(tmp_path, increment):
-    declarations = '(defproc leaf ((fixed Int) (n Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declarations = '(defproc leaf ((fixed Int) (n Int)) -> Int '
     declarations += _command('fixed n') + ')'
-    declarations += '(defproc invoke ((runner ProcRef[Int -> Int]) (n Int)) -> Int :effects () :lowering inline (runner n))'
-    declarations += '(defproc helper ((n Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declarations += '(defproc invoke ((runner ProcRef[Int -> Int]) (n Int)) -> Int (runner n))'
+    declarations += '(defproc helper ((n Int)) -> Int '
     declarations += f'(invoke (bind-proc (proc-ref leaf) :fixed (+ n {increment})) n))'
     return _compile(tmp_path, '(helper n)', params='(n Int)', declarations=declarations)
 
@@ -406,10 +406,10 @@ def test_diamond_preparation_and_emission_share_each_completed_input_once(tmp_pa
     from orchestrator.workflow_lisp.closed.build import _build_with_builder
     from orchestrator.contracts.closed_program.program import ClosedProgram
 
-    declarations = '(defproc level0 ((n Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declarations = '(defproc level0 ((n Int)) -> Int '
     declarations += _command('"${inputs.n}"') + ')'
     for level in range(1, depth + 1):
-        declarations += f'(defproc level{level} ((n Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+        declarations += f'(defproc level{level} ((n Int)) -> Int '
         declarations += f'(let* ((a (level{level - 1} n)) (b (level{level - 1} n))) (+ a b)))'
     program = _compile(tmp_path, f'(level{depth} n)', params='(n Int)', declarations=declarations)
     builder, prepared, emitted = Builder(program), Counter(), Counter()
@@ -463,7 +463,7 @@ def test_irrelevant_inline_actuals_reuse_shape_and_keep_their_final_operands(tmp
     from orchestrator.workflow_lisp.closed.build import _build_with_builder
     from tests.test_workflow_lisp_closed_command_transport import _ast_nodes
 
-    declaration = '(defproc helper ((flag Bool)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declaration = '(defproc helper ((flag Bool)) -> Int '
     declaration += '(command-result echo :argv ("python" "probe.py") :returns Int))'
     program = _compile(tmp_path, '(let* ((first (helper true))) (helper false))', declarations=declaration)
     builder = Builder(program)
@@ -497,7 +497,7 @@ def test_relocated_control_parameter_identity_keeps_its_binding_owner(tmp_path, 
         body = f'(let* ((state (if flag {stable} n))) {tail})'
     else:
         body = f'(loop/recur ((state n)) :max 1 :on-exhausted 0 (let* ((out {tail})) (done out)))'
-    declaration = '(defproc helper ((n Int) (flag Bool)) -> Int :effects ((uses-command echo)) :lowering inline ' + body + ')'
+    declaration = '(defproc helper ((n Int) (flag Bool)) -> Int ' + body + ')'
     first = _compile(tmp_path / 'first', '(helper n flag)', params='(n Int) (flag Bool)', declarations=declaration)
     _, children, builder = _prepared_entry(first)
     (original,) = children.values()
@@ -517,10 +517,10 @@ def test_reelaborated_literal_roots_keep_their_current_capture_partition(tmp_pat
     from orchestrator.workflow_lisp.wcc.model import WccNameAtom, WccLiteralAtom
     from tests.test_workflow_lisp_command_scopes import _compile as compile_scoped
 
-    declarations = '(defproc child ((a Int) (b Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declarations = '(defproc child ((a Int) (b Int)) -> Int '
     declarations += '(command-result echo :argv ("python" "probe.py" "${inputs.a}" "${inputs.b}") :returns Int))'
     declarations += '(defproc parent ((a Int) (b Int) (choice Choice) (gate Bool)) -> Int '
-    declarations += ':effects ((uses-command echo)) :lowering inline '
+    declarations += ' '
     declarations += '(let* ((result (match choice ((A av) (if gate (child a b) 0)) ((B bv) 0)))) result))'
     program, _, _ = compile_scoped(tmp_path, '(let* ((alias 7)) (parent alias alias choice gate))',
         params='(choice Choice) (gate Bool)', returns='Int', declarations=declarations)
@@ -587,7 +587,7 @@ def test_compiled_control_parameter_metadata_identity_uses_its_own_namespace(tmp
     else:
         body = f'(loop/recur ((state n)) :max 1 :on-exhausted 0 (let* ((out {tail})) (done out)))'
         node_type, scope_field = WccRecJoin, 'body'
-    declaration = '(defproc helper ((n Int) (flag Bool)) -> Int :effects ((uses-command echo)) :lowering inline ' + body + ')'
+    declaration = '(defproc helper ((n Int) (flag Bool)) -> Int ' + body + ')'
 
     def annotate(body, callable_def, source, *, outer=False):
         if not callable_def.definition.name.endswith('helper'):

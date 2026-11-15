@@ -121,10 +121,10 @@ DECLARATIONS = '''
 def source_types(tmp_path, request):
     from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
     from tests.workflow_lisp_closed_program_helpers import install
-    helper = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    helper = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule helper) (export Status ReportPath Payload Box PathBox Choice Pair)
       DECLARATIONS)'''.replace("DECLARATIONS", DECLARATIONS.replace("FIELD_TYPE", "String"))
-    entry = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    entry = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule entry) (import helper :as h) (export run)
       DECLARATIONS (defworkflow run () -> Int 0))'''.replace("DECLARATIONS", DECLARATIONS.replace("FIELD_TYPE", request.param))
     source = install(tmp_path, {"helper.orc": helper, "entry.orc": entry}, entry_path="entry.orc")

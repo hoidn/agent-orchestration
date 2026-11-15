@@ -100,7 +100,7 @@ def pause_context(files, monkeypatch, input_file=None):
 def prepare_public_producers(root):
     from tests.test_workflow_evaluated_public_context import _provider_files
 
-    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule main) (export run) (defrecord Result (left Int) (right Int))
       (defworkflow run () -> Result
         (let* ((a (call left :n 5)) (b (call right :n 7)))
@@ -109,7 +109,7 @@ def prepare_public_producers(root):
     inputs.write_text("{}")
     imports = {}
     for side, increment, effort in (("left", 1, "low"), ("right", 2, "high")):
-        producer = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        producer = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule {side}/entry) (export get)
           (defworkflow get ((n Int)) -> Int
             (let* ((command-value (command-result shared

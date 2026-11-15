@@ -238,7 +238,7 @@ def _write_input(root: Path, value: int) -> Path:
 def test_fallible_binding_inside_unselected_arm_is_not_evaluated(tmp_path, monkeypatch):
     source = tmp_path / "grt" / "entry.orc"
     source.parent.mkdir(parents=True)
-    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule grt/entry) (export run)
       (defworkflow run ((n Int)) -> Int
         (if false (let* ((overflow (+ n 1))) (+ overflow overflow)) 0)))''')

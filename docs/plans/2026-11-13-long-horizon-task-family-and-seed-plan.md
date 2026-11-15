@@ -61,8 +61,9 @@ counts by effort and the effort verdict, or the stop that prevented it.
   tools.** The session authenticates with a subscription token, keeps the CLI's default system
   prompt, and has the tools Bash, Edit and Read because the other eighteen are disallowed (D2).
   It does not measure the default agent with its twenty-one tools. The tools that start
-  subagents and skills are on the deny list; the init event still lists skills and agents, and
-  Task 2a records whether any listing of them reaches what the model reads.
+  subagents and skills are on the deny list; the init event still lists skills and agents.
+  Task 2a found none of their distinctive names in the request text (`t2a-normal-low`): a
+  judgement, since `verify` and `run` are both ordinary words and skill names.
 - **It is not the public leaderboard row's configuration.** All 330 public trials ran in the
   CLI's simple mode with an API key: a system prompt of 26 characters where the ladder's has
   8,830, three declared tools where the ladder's requests declare a fourth (a placeholder), and
@@ -143,6 +144,11 @@ recorded per task and per attempt. All 16 packages were fetched and match their 
   benchmark's canary string. The canary is searched for by its published identifier, read at
   run time from the task package; it is never copied into this repository, and the kit holds
   only its SHA-256. A hit drops the task; the result is recorded in `tasks.json`.
+  The search also covers near copies: lines of 25 or more characters that the task's `solution/` or
+  `tests/` holds and its `environment/` does not, found in any file outside system paths, plus
+  archives, `.git` objects and every layer of the image, deleted files included. A canary found in a
+  byte-identical copy of a file of the task's own `environment/` is not a hit (coordinator ruling,
+  2026-11-14).
 - **Host-side steps change no task file and are part of the method:** an image pulled by full
   name or a registry alias; a wider sub-id range; the harness wrapper, which lengthens the
   harness's probes and passes `-T` where the harness passes a flag podman-compose rejects
@@ -210,10 +216,18 @@ recorded per task and per attempt. All 16 packages were fetched and match their 
   The init event then lists the tools `Bash, Edit, Read` and `apiKeySource: none` (fixture
   `token-three-tools-normal-end`). An init event with any other tool list is a stop: a deny
   list lets through whatever it does not name.
-- **What this configuration carries that the public row's did not** (recorded): the CLI's
-  default system prompt (8,830 characters against 26); a fourth declared tool, a placeholder
-  for deferred tools; two more beta headers; one-hour caching of the system blocks;
-  `rate_limit_event` events in the stream. The model sees the first two.
+- **What this configuration carries that the public row's did not** (recorded, Task 2a): the
+  CLI's default system prompt (8,830 characters against 26); a fourth declared tool, a
+  placeholder for deferred tools; three more beta flags (ten against seven); one-hour caching
+  of system blocks 2 and 3 and the last message block, dropped for five minutes after a
+  response that reports paid extra usage or a very large prompt; `rate_limit_event` events in
+  the stream. **The model sees** the system prompt, the placeholder tool, longer tool
+  definitions (6,983 characters against 3,482), a system-role message of 887 characters and a
+  second user block of 581 in the first request, a 49-character system-role message after
+  every tool result, and a Bash tool that refuses a standalone `sleep` and tells the model to
+  wait with Monitor, a tool the deny list removes (`t2a-timeout-low`; in simple mode the same
+  call ran). Agents on long tasks wait on builds, so this is a difference in behaviour, and
+  the readout's naming of the configuration (D6) lists it.
 - **Effort stays equal within an attempt.** The deny list names the agent tool, which let a
   session at `low` run a subagent at `max` (recording `subagent-override-low`). A subagent file
   is a stop (D4).
@@ -321,16 +335,28 @@ listed address is reachable on every port (recorded). The proxy dials a listed n
 - **What the agent can still reach:** the relay's port; the package indexes and mirrors; name
   lookups and ping; the sidecar's own namespace. Not the host, and not the vendor's API.
 
-**Token mode, and the one header the passthrough changes.**
+**Token mode, and the three headers the passthrough sets.**
 
 - **In the agent's container:** the base URL and a per-slot fake token, both visible in process
   lists and exception text. The fake token is the CLI's subscription token variable: a fixed
   prefix that says it is fake, then a random part; it is valid for one open slot and worth at
   most that slot's cap on the bound model.
-- **The CLI sends `authorization: Bearer` with the fake token. The passthrough replaces that
-  one header's value with the real token and changes nothing else** in the request: not the
-  other headers, not the two beta flags token mode adds, not the body. This is the route the
-  CLI supports: a subscription token and a base URL.
+- **The CLI sends `authorization: Bearer` with the fake token. The passthrough builds the
+  upstream request from the client's and sets exactly three header values:** `authorization`
+  (the real token), `host` (the vendor's host) and `accept-encoding` (`identity`, so that
+  every byte of the answer can be checked for the token). `content-length` is the length of
+  the body it read. Nothing else changes: not the other headers, not the ten beta flags of
+  token mode (three more than simple mode's seven: `oauth-2025-04-20`,
+  `mid-conversation-tool-changes-2026-07-01` and `extended-cache-ttl-2025-04-11`; a request
+  after a paid-usage response or a very large prompt drops the last, and the compaction
+  request also `claude-code-20250219`), not the body. A request outside the recorded shape is
+  refused, not forwarded: the request line, the header names and the values of the recorded
+  ones, the body's top-level keys, and each tool's name, its definition's keys and its
+  `input_schema`'s top-level keys are held to an allowlist that `make_allowlist.py` builds from
+  Task 2a's request fixtures (`fixtures/requests/t2a-*.json`, token mode). The key sets are the
+  CLI's own, cut from its record of each request in the recording's session files; none is
+  assumed. The placeholder tool's definition carries `defer_loading`.
+  This is the route the CLI supports: a subscription token and a base URL.
 - **Recorded for token mode against the stand-in** (`tok20-*`, `tok3-*`): the CLI honours the
   base URL and calls no other host or path; with the harness's setting that turns off
   nonessential traffic it makes no profile, usage, refresh or telemetry call; the result event
@@ -366,14 +392,22 @@ listed address is reachable on every port (recorded). The proxy dials a listed n
    exception's class and the passthrough's own message, never a header or a request object.
    Not in recordings or fixtures. Core dumps are disabled for the passthrough at its start.
    Its output goes to a file in a directory of mode 700 in the launcher's state, never to a
-   pane an agent reads. Its upstream client ignores proxy variables, verifies TLS, and
-   connects to the vendor's host only; with the rehearsal switch, which points it at the
-   stand-in, it refuses to open any token file.
+   pane an agent reads. Its upstream client ignores proxy variables, verifies TLS against the
+   trust store compiled into Python (not one an environment variable names), and connects to
+   the vendor's host only; the live probe starts it with an empty environment but `PATH`.
+   With the rehearsal switch, which points it at the stand-in, it refuses to open any token
+   file. Not in what goes back to the container, nor in a log row: every byte of the answer
+   and every row is checked for the token in each form the scanner knows, across writes, and a
+   match sends nothing more, drops the client and stops the tranche (with the place, never the
+   bytes); an answer it cannot check (any `content-encoding` but identity) is handled the same
+   way.
 4. **The check: `token_scan.py`, by fingerprint.** At its start the passthrough writes a
-   fingerprint beside its log: a random salt, the token's length, and the salted hash of the
-   token. The scanner reads files and the fingerprint, never the token: it hashes every
-   candidate string of that length and prints the path and offset of a match, never the bytes
-   around it. So no agent, and not the launcher, handles the token's value to check for it.
+   fingerprint beside its log: a random salt and, for each form of the token (plain; hex in
+   both cases; base64, standard and URL-safe, at the three alignments a copy inside a longer
+   encoded stream can have; UTF-16LE), its length and its salted hash. The scanner reads files
+   and the fingerprint, never the token: it hashes every candidate string of each form's
+   length and prints the path, offset and form of a match, never the bytes around it. So no
+   agent, and not the launcher, handles the token's value to check for it.
    - *The file set:* the whole kept output of the run (harness job directories, the
      launcher's state with the passthrough's log and output file, the egress logs); the
      recordings directory; the worktree and the detached checkout; the agents' transcript
@@ -390,26 +424,66 @@ listed address is reachable on every port (recorded). The proxy dials a listed n
      in a file of the set, it must be found. After a full session it must be found nowhere in
      the file set, and the runtime check must find it in no container's environment or file
      system.
-   - *Its limit:* it finds the whole token in plain form, not a part of it and not an encoded
-     copy. A match anywhere is a stop; the owner revokes the token and replaces it.
+   - *Its limit:* it finds a whole copy in one of those forms, not a part of the token and not
+     another encoding (compressed, encrypted, or escaped, such as JSON's `\/` or a URL's
+     `%XX`). A named path it cannot read whole (missing, unreadable, a symlink, or no file at
+     all) fails the scan. A match anywhere is a stop; the owner revokes the token and replaces
+     it.
 
 **The passthrough** is a small host-side process, part of the kit and of the pre-spend review.
 For every request it maps the fake token to a slot and refuses an unknown one; refuses any
 model other than `claude-haiku-5-5`, any request that declares a provider-side tool, and any
-path but the messages path (the only one recorded); refuses when the slot's metered usage has
+path but the messages path (the only one recorded), and any request line, header, body field
+or tool outside the allowlist of the recorded shape; refuses when the slot's metered usage has
 reached its cap, when all slots together have reached USD 200, or when the tranche is stopped.
-It passes every vendor response through unchanged. It prices the response's usage by the price
+It holds one request in flight per slot: a second waits until the first is metered and is then
+checked against the caps. It passes every vendor response through unchanged once it is checked
+for the token, reading it to its end even when the client has gone; a response whose usage
+cannot be read whole, or a request that got no status back, is priced at a bound on what it
+could cost and closes starts. The bound takes as prompt the request body's size in bytes, or
+the prompt the stream's first event reported when that is larger, all at the one-hour
+cache-write rate (the price rule's dearest prompt rate), and the request's `max_tokens` as
+output, with the long-prompt multiplier when that prompt is above the threshold. It is an
+upper bound as long as the vendor counts no more prompt tokens than that: a text token covers
+at least one byte, and the CLI's first request alone carries about 16,000 characters of
+system blocks and tool definitions (`t2a-normal-low`); the live probe's first-request prompt
+figure (item 2) checks it. It prices the response's usage by the price
 rule and appends one row per request to the slot's log: model, effort, declared tool names,
-usage by kind, the vendor's status and its rate-limit headers. It never logs the
-`authorization` header. The meter is part of its first slice (Task 4): the live probe's priced
-limits and its cost test rest on it.
+the beta flags as sent, the cache marks (which blocks carry a cache control, with which
+lifetime), usage by kind, the vendor's status, every response header's name and the values of
+its vendor-prefixed headers. A refused request's row holds fixed-size fields only. It never
+logs the `authorization` header. The meter is part of its first slice (Task 4): the live probe's priced
+limits and its cost test rest on it. It prices plain responses as well as streams: after a cut
+stream the CLI repeats the request with `stream: false` and `max_tokens: 64000`
+(`t2a-f-drop`).
+
+- **A slot's lifetime.** A slot opens when the launcher starts its attempt and stays open, and
+  metered, until every container of the attempt is gone; only then does the launcher close it
+  and retire its fake token. The CLI outlives the harness's time limit: the harness ends its
+  `exec`, not the CLI, which goes on sending requests until its container stops (72 more in
+  18.3 s in `t2a-timeout-low`, one 7.5 s later in `s3-timeout-low`; `fixtures/after-limit/`).
+  Those requests are the attempt's and are metered into it. **An attempt settles when its slot
+  closes.** A request on a retired token is an unknown token, a stop (D5 row 13).
+- **An optional request count per slot.** Besides the priced cap, a slot may carry a limit on
+  its number of requests. It is refused in the same form with the same reason as the priced
+  cap, `lh-passthrough: slot cap reached`, so an ending by either is D5 row 11. Only the live
+  probe sets one: 6 requests per slot (one slot per session); its total of 18 is the probe's
+  own limit across its three sessions, not a slot's (Task 4). The ladder sets none, and its
+  bound per slot is the priced cap.
 
 - **One refusal form, for every reason:** HTTP 403, error type `permission_error`, the header
   `x-should-retry: false`, and the message `lh-passthrough: <reason>`. Recorded for the cap,
   the total and the stop (`pt-cap`, `pt-total`, `pt-stopped`): the CLI did not retry, ended in
   under a second, and the message reached the result text. The 404 and 400 forms tried for the
-  model and tool refusals were retried, and the 404's message was lost; that the 403 form ends
-  those two the same way is inferred and is recorded in Task 2a.
+  model and tool refusals were retried, and the 404's message was lost. Recorded in Task 2a:
+  the 403 form ends the model, tool, path and unknown-token refusals the same way
+  (`passthrough-model-…`, `-tool-…`, `-path-…`, `-unknown-token-…`): no retry,
+  `api_error_status 403`, the message in the result text; each was served on the session's
+  second request, and the unknown-token refusal also on its first
+  (`passthrough-unknown-token-first-request-UnknownApiError`). A refusal is decided before
+  any byte of the body is read; the passthrough then reads and drops, for at most 2 s, what
+  the client is still sending before it closes, so that a client still sending its body reads
+  the refusal.
 - **A vendor 401** means the token expired or was revoked. The passthrough passes it on and
   sets the tranche stopped. Recorded form: two retries, no refresh request, then
   `api_error_status: 401` (fixture `token-unauthorized-UnknownApiError`).
@@ -421,15 +495,16 @@ coordinating session and the ladder draw on the same allowance.
 - **How a limit is recognised: two signals, and the class needs both.** (1) The passthrough
   saw, for that slot, a vendor 429 whose `anthropic-ratelimit-unified-status` header is
   `rejected`. (2) The session's result event has `api_error: usage_limit_reached` and
-  `api_error_status: 429`, after a `rate_limit_event` with `status: rejected` (fixture
-  `token-usage-limit-NonZeroAgentExitCodeError`). Requiring both keeps a model-side ending
+  `api_error_status: 429`, after a `rate_limit_event` with `status: rejected` and a
+  `rateLimitType` (fixture `token-usage-limit-NonZeroAgentExitCodeError`; a plain 429 also
+  brings a `rejected` event, without a `rateLimitType`: `stub-rate-limit-ApiRateLimitError`). Requiring both keeps a model-side ending
   from being taken for a limit.
 - **Signal 1 is the stand-in's form,** written from the header names the CLI's bundle reads.
   The vendor's real answer is recorded the first time one occurs: a probe of a few requests
   cannot produce one, and the allowance is not spent to provoke one. Until it is recorded,
   **any 429 from the vendor closes all starts,** whatever its headers.
 - **Attempts in flight** each meet the vendor's answer on their next request and end at once
-  (recorded with twenty-one tools; re-recorded with three in Task 2a). Each is an
+  (recorded with twenty-one tools and with three, `t2a-usage-limit-low`). Each is an
   infrastructure failure of the kind "cut by a usage limit": never an observation, its
   verifier reward not read, its slot run again (D5).
 - **Pause and resume.** At signal 1 the launcher closes all starts. It reopens by itself five
@@ -494,14 +569,30 @@ coordinating session and the ladder draw on the same allowance.
     with its date each time.
   - *The stop.* The `rate_limit_event` carries `isUsingOverage` (recorded: `false`). The
     launcher follows each session's stream, and an event whose `isUsingOverage` is not `false`
-    stops the tranche: the passthrough then refuses every further request. Task 2a records,
-    against the stand-in, which response header the CLI's bundle reads for it, and the live
-    probe records which such headers the vendor sends. From then on the passthrough itself
-    stops the tranche at the first response that carries one, before passing it on. Until a
-    header has been recorded, the stop is the CLI's event plus the owner's confirmation.
-  - *What the stop cannot do:* precede the first paid request. The response that carries the
-    signal has already been served, and so has any response in flight in the other open
-    slots, at most four in all.
+    stops the tranche: the passthrough then refuses every further request. Task 2a recorded,
+    against the stand-in, that a 200 carrying `anthropic-ratelimit-unified-status: rejected`,
+    `…-overage-status: allowed` and `…-overage-in-use: true` gives `isUsingOverage: true`, and
+    the session goes on to `completed` (`token-paid-extra-usage-normal-end`); which header is
+    necessary is not isolated. **The paid-usage signal is not only on 429s.** The passthrough
+    therefore stops the tranche at any response, a 429 included, that carries
+    `anthropic-ratelimit-unified-overage-in-use: true` or an
+    `anthropic-ratelimit-unified-overage-status` of `allowed` or `allowed_warning`; and at any
+    response other than a 429 that carries an `anthropic-ratelimit-unified-status` other than
+    `allowed` or `allowed_warning` (a response without that header is not stopped by it; a
+    429's status is the limit's own answer, D5). The stopping response is not passed on: the
+    client gets the 403 form with `lh-passthrough: tranche stopped`, and the passthrough still
+    reads that response to its end and meters it. A sign the live probe finds under another
+    header can be added at the passthrough's start (`--paid-usage HEADER=VALUE`). The
+    header names are as recorded against the stand-in and were read from the CLI's bundle
+    2.1.311, not from a vendor document; the live probe confirms them (Task 4, item 2). The
+    five-minute cache fallback seen after a response reporting a 990,000-token prompt
+    (`t2a-context-late-low`) is not a paid-usage sign: no such header was sent.
+  - *What the stop cannot do,* unless the live probe finds `overage-status` on ordinary
+    responses: precede the first paid request. Without that header the response that carries
+    the signal has already been served, and so has any response in flight in the other open
+    slots, at most four in all. If ordinary responses do carry `overage-status: allowed` or
+    `allowed_warning`, the stop's `overage-status` clause acts on the first response of the tranche, before
+    any paid usage, and is revised under a new coordinator row (Task 4, item 2).
 
 **Price, caps and the ceiling.**
 
@@ -513,7 +604,8 @@ coordinating session and the ladder draw on the same allowance.
   price for one-hour writes on a stand-in recording. The threshold is known to lie between
   98,828 and 101,144 tokens. `orchestrator/providers/price_table.json` at the frozen commit, by
   SHA-256, gives every rate but the five-minute write, which the criterion adds.
-- **Token mode writes one-hour entries** (recorded for the system blocks). The same session
+- **Token mode writes one-hour entries** (recorded for system blocks 2 and 3 and the last
+  message block; five-minute after a paid-usage response or a very large prompt). The same session
   therefore costs more in priced tokens than the public row's: the three archives repriced
   with one-hour writes give 1.05, 1.07 and 1.11 times their totals. The meter prices each
   write by the split the usage reports, so a five-minute write in a token session is priced
@@ -522,9 +614,11 @@ coordinating session and the ladder draw on the same allowance.
   (the table in D1), the same at every effort, enforced by the passthrough and by the CLI's own
   budget limit. In the ladder's prices that is about 2.7 to 2.9 times the public mean. **Each
   guard acts one response late:** the CLI stops after the response that crosses the cap,
-  without running the tool call in it (recording `s3-budget-medium`; to be re-recorded in token
-  mode), and the passthrough refuses the next request. With three tools there is one request
-  in flight at a time, so the overshoot is one response.
+  without running the tool call in it (recordings `s3-budget-medium` and, in this
+  configuration, `t2a-budget-medium`), and the passthrough refuses the next request. The
+  passthrough holds one request in flight per slot and checks the next against the caps with
+  the first metered, so a slot's cap is overshot by at most one response, and the total,
+  checked under one lock, by at most one response per open slot.
 - **Reservation before every attempt:** the cap plus USD 1.00, which covers one response of the
   largest output (128,000 tokens, USD 0.32 at the long-prompt rate) and a freshly cached prompt
   of about 680,000 tokens at the one-hour long-prompt rate. Under one lock the launcher
@@ -540,7 +634,9 @@ coordinating session and the ladder draw on the same allowance.
      long-prompt rate, which is per request).
   The result's `usage` is never read (all zeros at a budget stop, while figures 3 and 4 are
   right), nor are stream events (they carry only the count at the start of a message). A
-  timeout kill leaves no result event, so figures 1 and 2 settle it. Subagent rows would sit in
+  timeout kill leaves no result event, and the CLI goes on sending requests until its
+  container stops (72 in 18 s recorded); figure 1 settles it, figure 2 lags (1,212 requests at
+  the stand-in against 1,149 responses in the harness's count, `t2a-timeout-low`). Subagent rows would sit in
   a separate file; none exists in this configuration, and one is a stop. Unreadable usage
   settles at the full reservation. An attempt cut by a usage limit settles like any other: its
   tokens were used.
@@ -550,8 +646,10 @@ coordinating session and the ladder draw on the same allowance.
 - **Expected priced usage (planner's estimate):** about USD 182 to 192 for all 240: the earlier
   USD 173 (low 33, medium 53, high 87, from two public cost points; report §9) times the 1.05
   to 1.11 of one-hour writes. Plausible range about 150 to 285. Not in the estimate, because
-  nothing recorded gives them: the larger system prompt (about 2,200 tokens more per request
-  by its character count, under one percent of an archive's cost when read from cache); fewer
+  nothing recorded gives them: the larger request (about 13,800 characters more: 8,804 in the
+  system blocks, 3,501 in the tool definitions, about 1,470 in the first request's messages;
+  about 3,500 tokens at four characters per token, under one percent of an archive's cost when
+  read from cache; the live probe's first request gives the count); fewer
   rewrites under a one-hour cache; and how the default system prompt changes what the model
   does. The pilot gives the first measured figure.
 
@@ -589,32 +687,41 @@ credential and every passthrough refusal end as `UnknownApiError`; a context lim
 budget stop and a usage limit end as `NonZeroAgentExitCodeError` (recorded). The class is
 read only in the three rows that name it as deciding.
 
-The rows are tried in order and the first match decides.
+The rows are tried in order and the first match decides, except that row 14 is tried before
+rows 11 and 12: behind the passthrough, a vendor 401 sets the tranche stopped, so the CLI's
+retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's form.
 
 | # | Ending | Decided by | Harness class | Fixture | Class of outcome |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Before a session | No stream at all; the class decides | `RuntimeError` | `pre-session-agent-install-…`, `pre-session-network-switch-…` | Pre-session failure |
-| 2 | The CLI read no credential | A result with `api_error_status: null`, no request for the slot in the passthrough's log; the class decides | `AgentAuthenticationError` | `token-simple-mode-AgentAuthenticationError` | A stop: the configuration is wrong |
-| 3 | Time limit | No result event; the class decides | `AgentTimeoutError` | `stub-timeout-AgentTimeoutError` | Observation, flagged |
+| 1 | Before a session | No stream at all, and the harness's message does not name `CLAUDE_FORCE_OAUTH`; the class decides | `RuntimeError` | `pre-session-agent-install-…`, `pre-session-network-switch-…` | Pre-session failure |
+| 2 | The CLI read no credential, or the harness found none | A result with `api_error_status: null` and no request for the slot in the passthrough's log, the class deciding (`AgentAuthenticationError`); or no stream and a `RuntimeError` whose message names `CLAUDE_FORCE_OAUTH` | `AgentAuthenticationError`, `RuntimeError` | `token-no-credential-AgentAuthenticationError`, `token-forced-empty-RuntimeError` | A stop: the configuration is wrong |
+| 3 | Time limit | No result event; the class decides. The CLI's requests after the limit, until its container stops, are metered into the attempt (D4, a slot's lifetime) | `AgentTimeoutError` | `stub-timeout-AgentTimeoutError` (a loop of tool calls the CLI refused locally, not a hung command; below) | Observation, flagged |
 | 4 | The host, Podman, the passthrough or the launcher died | No result event and no harness result | none | none (launcher's own record) | Infrastructure failure |
-| 5 | Normal | `terminal_reason: completed` | none | `token-three-tools-normal-end` | Observation |
-| 6 | Dollar cap, by the CLI | `terminal_reason: budget_exhausted` | `NonZeroAgentExitCodeError` | `stub-budget-stop-…` | Observation, flagged |
+| 5 | Normal | `terminal_reason: completed` | none | `token-three-tools-normal-end`, `-medium`, `-high` | Observation |
+| 6 | Dollar cap, by the CLI | `terminal_reason: budget_exhausted`; the result has no `api_error_status` key (absent, which no rule reads as null) | `NonZeroAgentExitCodeError` | `stub-budget-stop-…` | Observation, flagged |
 | 7 | Context limit | `terminal_reason: prompt_too_long` (with `api_error_status: 400`) or `blocking_limit` | `NonZeroAgentExitCodeError` | `stub-context-limit-…`, `stub-context-limit-after-compaction-…` | Observation, flagged |
 | 8 | Refusal | `stop_reason: refusal`, after a `model_refusal_no_fallback` event | `AgentSafetyRefusalError` | `public-refusal-…`, `stub-refusal-…` | Observation, flagged |
 | 9 | Output limit | `api_error: max_output_tokens` | `OutputTokenExceededError` | `stub-output-limit-…` | Observation, flagged |
-| 10 | Usage limit | `api_error: usage_limit_reached` with `api_error_status: 429`, and signal 1 of D4 in the passthrough's log | `NonZeroAgentExitCodeError` | `token-usage-limit-…` | Cut by a usage limit: excluded, and the slot is run again |
-| 11 | The passthrough refused: the slot's cap | `api_error_status: 403`, the result text holds `lh-passthrough: slot cap reached`, and the passthrough's log agrees | `UnknownApiError` | `passthrough-cap-…` | Observation, flagged |
+| 10 | Usage limit | `api_error: usage_limit_reached` with `api_error_status: 429`, after a `rate_limit_event` with `status: rejected` and a `rateLimitType`, and signal 1 of D4 in the passthrough's log | `NonZeroAgentExitCodeError` | `token-usage-limit-…` | Cut by a usage limit: excluded, and the slot is run again |
+| 11 | The passthrough refused: the slot's cap | `api_error_status: 403`, the result text holds `lh-passthrough: slot cap reached`, and the passthrough's log agrees; the priced cap and the optional request count (D4) end alike | `UnknownApiError` | `passthrough-cap-…` | Observation, flagged |
 | 12 | The passthrough refused: total or stop | The same, with `tranche total reached` or `tranche stopped` | `UnknownApiError` | `passthrough-total-…`, `passthrough-stopped-…` | Infrastructure failure |
-| 13 | The passthrough refused: model, tool, path or unknown token | `api_error_status: 403`, the prefix, and that reason in the passthrough's log | to be recorded | none in this form yet | A stop |
-| 14 | The vendor refused the credential | `api_error_status: 401` | `UnknownApiError` | `token-unauthorized-…` | Infrastructure failure, and a stop |
+| 13 | The passthrough refused: model, tool, path or unknown token; and the refusals of a request's form (field, header, a malformed request, non-JSON among them, an oversized or timed-out one, too many connections, a busy slot) | `api_error_status: 403`, the prefix, and that reason in the passthrough's log | `UnknownApiError` | `passthrough-model-…`, `passthrough-tool-…`, `passthrough-path-…`, `passthrough-unknown-token-…` (and `passthrough-unknown-token-first-request-…`) | A stop |
+| 14 | The vendor refused the credential | A vendor 401 for the slot in the passthrough's log (the CLI's own form: `api_error_status: 401`) | `UnknownApiError` | `token-unauthorized-…` | Infrastructure failure, and a stop |
 | 15 | Provider fault, after the CLI's ten retries | `terminal_reason: api_error` with `api_error_status` 429 (and no `usage_limit_reached`), 500 or 529; or `null` after ten `api_retry` events | `ApiRateLimitError`, `ApiInternalServerError`, `UnknownApiError` | `stub-rate-limit-…`, `stub-server-error-…`, `stub-overloaded-…`, `stub-slow-first-byte-…` | Infrastructure failure |
 | 16 | Anything else | No row above matches | any | none | The launcher pauses for a recorded ruling |
 
-- **What the fixtures were recorded in.** Only row 5's is the ladder's configuration. Rows 10
-  and 14 were recorded in token mode with twenty-one tools, row 2 in simple mode with a fake
-  token, and every other row in simple mode with a dummy key. All are recorded again in the ladder's configuration (Task 2a). A row whose new
-  recording differs is rewritten from it before the criterion is frozen, and row 13 gets its
-  fixtures then.
+- **What the fixtures were recorded in.** Rows 2, 3 and 5 to 15 cite recordings in the
+  ladder's configuration (Task 2a); row 1's are harness-level failures from Task 1; row 8 also
+  cites the public archive. The simple-mode recordings stay under `simple-mode-` names, as
+  evidence for D2 only.
+- **Row 3's fixture is a loop, not a hung command.** The stand-in answered every turn with a
+  standalone `sleep 30`, which the CLI's Bash tool refuses locally, so the session made 1,212
+  requests in 187 s (6.5 per second) until the limit. Cheap at the stand-in's fixed usage
+  (USD 0.18); at real prices, with the prompt growing by three messages a turn and read from
+  the one-hour cache, the reviewer's estimate is USD 4.0 to 6.2 for the session, passing
+  USD 3.00 around request 900 to 1,100. A real attempt looping like this meets the CLI's
+  budget (row 6) or the slot's cap (row 11) long before the time limit; both are flagged
+  observations, and the overshoot stays one response (D4).
 - **A normal ending can hold faults the CLI recovered from:** each retry leaves an `api_retry`
   event (fixtures `stub-transient-faults-recovered-normal-end`,
   `stub-dropped-stream-recovered-normal-end`). They change no class; their count is recorded
@@ -713,7 +820,7 @@ The rows are tried in order and the first match decides.
    index). Then stop and read, each check against a recorded form: the init event reports CLI
    2.1.311, exactly the tools `Bash, Edit, Read` and `apiKeySource: none`; the passthrough saw
    only the bound model, only the messages path, no provider-side tool, and the same declared
-   tools on every request; each request carries the bound effort; the cap is on the session;
+   tools on every request (`Bash, Edit, DeferredToolPlaceholder, Read`); each request carries the bound effort; the cap is on the session;
    the egress log shows no connection outside the list except refused ones; settlement figures
    1, 2 and 3 agree within 1%; the verifier returned a reward; `token_scan.py` finds nothing
    in its file set, and the runtime check nothing in the attempt's containers (D4); no
@@ -818,12 +925,14 @@ carries the counts per task. The staged comparison of step 9 is read per label, 
 structure can repair a process failure and not a capability gap. Tasks with a sub-test count
 are marked, for a later graded fitness.
 
-**Step 8: merge and freeze the seed.** `milestones.orc` (49 lines on `spike/long-horizon-seed`)
+**Step 8: merge and freeze the seed.** `milestones.orc` (`experiments/long_horizon_seed/`, 47 lines of at
+most 120 columns; beside it the comparison seeds `staged`, 34, `roles`, 49, and `designed`, 62)
 is written once, after the surface-coherence changes of Lane D stage 5 merge (46 lines
 expected). Required: it compiles at the current target under 50 lines; each role's effort is a
 string literal at that role's call sites and is no entry input (owner, 2026-11-13, effort per
 role; a point of the search is a program, see the
-[mutant generator plan](2026-11-13-phase-6-mutant-generator-plan.md#the-first-space-is-programs-not-bindings)); its five stand-in scenarios become a test; a registry row; a hash in the
+[mutant generator plan](2026-11-13-phase-6-mutant-generator-plan.md#the-first-space-is-programs-not-bindings)); its stand-in scenarios are a test
+(`tests/experiments/test_long_horizon_seed.py`); registry rows (`workflows/README.md`); a hash in the
 family record. **The deterministic check on the setup step earns its place, in its cheapest
 form:** the setup step returns the paths of the files later steps read, typed so that a missing
 file fails that step, as the spec and plan paths already are. Prompt wording of the setup step
@@ -926,7 +1035,7 @@ wherever a new recording differs, before Task 3 freezes them.
 
 **Files:** modify `tasks.json` (image digests and sizes, the withholding result, overlay
 digest, cap, extra hosts, oracle evidence), `oracle_check.sh` (repeats, the two-key overlay,
-the CPU set, the load gate) and `summarize.py` (counts); create `image_check.sh` (pull, size,
+the CPU set, the load gate) and `summarize.py` (counts); create `image_check.py` (pull, size,
 export, listing and search; D1).
 
 - [ ] The sub-id range is widened first, with no container running (owner question 4).
@@ -967,11 +1076,13 @@ frozen rule matches occurs in a fixture; the price rule reproduces the three arc
 `stub_api.py` as the upstream:
 
 - [ ] **First slice: the request path.** It listens on a unix socket only. It maps a fake
-      token to a slot and replaces that one header with the real token; no other header or
-      body byte changes. It refuses, in the 403 form, an unknown token; a model other than the
+      token to a slot and sets three header values (the real token, the vendor's host,
+      `accept-encoding: identity`); no other header or body byte changes. It refuses, in the 403 form, an unknown token; a model other than the
       exact id (Sonnet, Fable, an alias); a request that declares a provider-side tool; a path
-      other than the messages path; a request beyond a slot's request count or priced cap, or
-      beyond the total.
+      other than the messages path; a request beyond a slot's priced cap, or beyond the total;
+      and, for the live probe only, a request beyond a slot's request count (item 1; D4). A
+      slot's token stays valid, and metered, until the launcher closes the slot; a token of a
+      closed slot is an unknown token.
 - [ ] **First slice: the meter.** It prices streamed and plain responses by the price rule,
       each cache write by its own lifetime; a response in flight at the cap is metered to its
       end. The priced caps above are enforced on this meter.
@@ -987,16 +1098,24 @@ frozen rule matches occurs in a fixture; the price rule reproduces the three arc
 - [ ] **The live probe** (below) runs on the first slice, through `live_probe.sh`.
 - [ ] A vendor usage-limit answer is passed on unchanged, recorded with its reset, and closes
       starts; any other vendor 429 closes starts too; a vendor 401 is passed on and stops the
-      tranche; a response with a recorded paid-usage header stops the tranche before it is
-      passed on.
+      tranche; a response that carries a paid-usage sign (D4: `overage-in-use: true` or an
+      `overage-status` of `allowed` or `allowed_warning`, on any response; on a response other
+      than a 429, a unified status present and other than `allowed` or `allowed_warning`)
+      stops the tranche and is not passed on.
 - [ ] The passthrough going down pauses the tranche.
 
 **The live probe: a few requests of subscription usage, no dollars.**
 
 *Authority.* It is not an attempt of the ladder and not under the ladder's approval. It runs
 under the budget delegation of `AGENTS.md` and roadmap owner decision 18, by a coordinator
-approval row in this plan's ledger written before the first request. The row names the
-passthrough's commit and the limits of item 1.
+approval row in this plan's ledger written before the first request, in a fixed form:
+`| <date> | Live probe approved | <the kit's commit> <the limits of item 1> |`. Its second
+cell is exactly that phrase; its third cell starts with the kit's commit in full (40 hex
+characters, then a space or a period: the last commit that changed
+`experiments/long_horizon_tasks/`, which `live_probe.sh` takes as `LH_PROBE_COMMIT`).
+`live_probe.sh` refuses to start unless exactly one table row of the plan has that form, and
+its refusal prints the form; a sentence elsewhere that names the hash and the phrase does not
+count.
 
 *Who runs it.* A subagent, under that approval; its brief names the ledger row. The owner
 starts nothing by hand except placing the token.
@@ -1027,7 +1146,15 @@ plan does not apply it; the coordinator does, with the approval row:
    the cache split and service tier. Per session: the init event, every `rate_limit_event`,
    the result's `total_cost_usd`, `usage` and `modelUsage`, the egress log, and the first
    request's prompt tokens (what the default system prompt and tools cost per request). From
-   the owner: when the token was created and the lifetime `setup-token` stated. Kept with the
+   the owner: when the token was created and the lifetime `setup-token` stated. For the
+   paid-usage stop (D4): whether `anthropic-ratelimit-unified-overage-status` appears on
+   ordinary responses, and with which value; the name of every response header, and the value
+   of every `anthropic-*` header; and per session the key
+   `cachedExtraUsageDisabledReason` in the exported configuration file
+   (`agent/sessions/.claude.json`). If ordinary responses carry `overage-status`, the stop's
+   `overage-status` clause is revised under a new coordinator row before any ladder attempt. The
+   passthrough's request log keeps each request's beta flags, cache marks and declared tools,
+   so a fall back to five-minute caching can be seen. Kept with the
    recordings, by SHA-256, with fixtures cut as for the others. The token is never kept.
 3. **Stop rule.** The probe ends after the third session, or at once at the first of: a vendor
    status other than 200 (no second try under this approval); a response that names another
@@ -1074,7 +1201,8 @@ Tests, against a stand-in harness that replays the recorded fixtures on a closed
       overlay keys, or whose image digest differs; another harness environment or a missing
       host-side override; an allowlist that names an address of the host; a rehearsal with a
       spend variable; no allowance inputs; a manifest hash that is not the ledger's current
-      label.
+      label; a slot without a fake token in the launcher's form (an empty token ends before the
+      session as a `RuntimeError` naming `CLAUDE_FORCE_OAUTH`, `token-forced-empty-RuntimeError`).
 - [ ] Money: sixty concurrent launches never commit more than the ceiling; a slot that does not
       fit waits and is never skipped; start 241 is refused, a rerun after a cut included;
       settlement takes the largest of four figures, never reads the result's `usage`, and
@@ -1096,7 +1224,10 @@ Tests, against a stand-in harness that replays the recorded fixtures on a closed
       a session's stream stops the tranche; a reading or a change of the allowance inputs is
       recorded and leaves the manifest hash alone.
 - [ ] Host: the load gate waits, and pauses after two hours with nothing in flight; low disk
-      stops the tranche; the egress log is followed out before teardown; the harness command
+      stops the tranche; the egress log is followed out before teardown; a slot is closed, and
+      its fake token retired, only after the launcher has seen every container of the attempt
+      removed, and the CLI's requests after a time limit are metered into the attempt (D4, a
+      slot's lifetime); the harness command
       carries model, effort, version, cap, the token-mode switch, the deny list, the
       output-token variable, the relay's base URL and zero retries; no credential is in any
       file, environment or command line; the token scanner and the runtime check run at every
@@ -1104,6 +1235,10 @@ Tests, against a stand-in harness that replays the recorded fixtures on a closed
       begins with the smoke slot and then the pilot's block, and waits for the smoke read, the
       pilot's ledger row and the round-one read; cut at any start, it leaves at most one block
       partial and no task more than one block behind another.
+- [ ] Connections: the passthrough's cap of 16 connections is shared by every slot (a
+      connection counts before its token is read); before four sessions run at once, the
+      launcher decides whether each attempt gets its own passthrough socket (and relay) or the
+      cap is raised per slot.
 
 **Verify:** `pytest -q tests/experiments/test_long_horizon_ladder.py`, `--collect-only` on it,
 then the sampled broad check.
@@ -1371,4 +1506,17 @@ without it.
 | 2026-11-13 | Third revision revised after its independent review (accept after fixes: 1 blocker, 7 majors, 14 minors); no spend; awaits the coordinator's acceptance | Every finding applied, with the coordinator's rulings. (B1) The allowance guard reads the owner's meter: a reading at each weekly reset and before each window; the window's budget is (100 − F − the reading) times the pilot's figure, floored at zero; a window is skipped at a reading within five points of the owner's share; the five-hour meter likewise with its own F; with no reading nothing starts. (M1) The live probe is not under the ladder's approval: its authority is the budget delegation and decision 18, by a coordinator approval row written before the first request; a subagent runs it through `live_probe.sh`; the rule line proposed for `AGENTS.md` is in Task 4 and is not applied by this revision. **This row does not approve the probe.** (M2) The meter is in the passthrough's first slice, before the probe. (M3) The token's path is closed by construction: the owner's creation procedure away from every agent; one read at the passthrough's start; never in arguments, child environments, logs, exception text, recordings or core dumps; a scanner that works from a salted fingerprint over a named file set and the attempt's containers; a canary test. (M4) The owner's dated confirmation that paid extra usage is off is a precondition of the probe, the pilot and the freeze; the stop for it is stated as acting after the first paid request. (M5) The manifest hash is frozen before the smoke and is the configuration label; a change after the pilot's first attempt is allowed only for a safety or correctness fault, by a ledger row before the next start; labels are never pooled in a cell; the 240 and the USD 200 do not restart; short cells are reported with their count. The schedule runs in blocks (a task's three efforts together) and the drop order at the ceiling is its hashed tail, at most one block partial; about 220 to 235 starts are expected. (M6) The 32 pinned images are measured one at a time before any plan for the disk; the fallback of a local build is a different configuration label. (M7) Each pinned agent image is checked for `solution/`, `tests/` and the canary before any use; the canary is never copied into this repository. Minors m1 to m14 applied; the owner's confirmation that the subscription's terms allow unattended runs of this size is a precondition before the probe and in the freeze's list. Hours: about 133 in all, about 119 still to do. Spend to date: 0; subscription usage to date: none. |
 | 2026-11-13 | Third revision accepted by the coordinator (`16ff49e4`, merged as `96adb33d`) | The independent review's blocker, seven majors and fourteen minors are applied. Acceptance covers the plan, not any use of the subscription: the live probe needs the owner's preconditions 1 to 3 dated in this ledger, a non-author read of the passthrough's first slice, a coordinator approval row and its line in `AGENTS.md`, all before the first request; the pilot and the tranche need the further conditions the plan lists. The coordinator's rulings kept where they differ from the reviewer's: a kit change after the pilot's first attempt starts a new configuration label and is allowed only for a safety or correctness fault (M5); image sizes are measured by pull and delete (M6). No-spend work may start: Task 2a's re-recordings in token mode and the image measurement. Spend to date: 0. |
 | 2026-11-13 | The recording kit of Tasks 1 and 2 merged to `main` (`experiments/long_horizon_tasks/`) after an independent review (accept after fixes: one major, eleven minors; all applied), the coordinator's scan for credentials, long vendor text and machine paths, and the full suite (8 failed: the four nanoBragg baseline tests and four load-sensitive tests that passed alone) | Committed: cut fixtures of the CLI's endings and of its requests (field names, counts and lengths; no prompt text, no credential), the stub, the scripts, the price rule and its check. Not committed: the raw recordings, which stay in the local cache with their hashes in `recordings.json`; the cache is not backed up. No benchmark content is in the repository. The recordings are of key mode in the three-tool configuration and of token mode with the default tools; Task 2a re-records in the configuration the third revision fixes. Spend to date: 0. |
-
+| 2026-11-14 | Task 2b, image measurement and withholding check (no spend; `experiments/long_horizon_tasks/image_check.py`, `image_measure.json`, RECORDINGS.md "Task 2b") | All 32 pinned images pulled by digest on the first attempt; the only host-side step was the `docker.io/` full name. Each was measured and then deleted, one at a time. Store sizes, each distinct layer counted once: all 32 kept, 23.86 GB (253 layers); agent images only, 11.46 GB; block by block, at most 4.64 GB (vpp-loss-divergence); block in flight plus the next, at most 5.45 GB. Free on `/home` (the image store) 78.45 GB before and 77.55 GB after (2026-11-14, about 13:00), so keeping all 32 left about 53.7 GB, about 33.7 GB above the 20 GB stop before the attempts' output. The margin drifts with other sessions' writes: at 71 GB later the same day it was about 47 GB, 27 GB above the stop. Withholding: no solution or test file by path or SHA-256 in any of the 16 agent images. The canary was absent from 9 images. In the other 7, every file holding it is a byte-identical (SHA-256) copy of a file in the task's own `environment/`: vba-userform-port 1, wal-recovery-ordering 15, session-window-debug 8, vpp-loss-divergence 2, batched-eval-parity 17, pretrain-shard-corruption 4, sound-change-cascade 1. That was shown by a second pull and check of all 16 agent images. There were no name-only matches (none "needs a look") and no other file held it. Under the coordinator's ruling of 2026-11-14 (a canary in a byte-identical environment copy is not a hit), no task is dropped. `tasks.json` is not yet updated with sizes or results. Spend to date: 0. |
+| 2026-11-14 | Task 2b fix round 1, after the independent review (approve after fixes: one major, ten minors; no spend) | **Near-copy check (M1)** on all 16 agent images, pulled again one at a time under the 25 GB stop. **Method:** a line counts as distinctive when it has at least 25 characters and occurs in the task's `solution/` or `tests/` but in no `environment/` file. Text files are matched against those lines; archives, wheels, tars, single-file gzip and loose `.git` objects outside system paths are opened when 64 MiB or smaller; every layer is walked, deleted files included; every member of the merged file system is path-tested, whatever its type. **Rule:** a match outside system paths needs a look, and so does a system-path file with 10 or more matched lines (the 16 images show at most 6). **Result:** no solution or test material by path or SHA-256, in any image or layer. Three things need a look, each listed in RECORDINGS.md "Task 2b": the `app/.git` of pretrain-shard-corruption and of shadow-relay, both built by the environment's Dockerfile, all objects loose and opened, no hit; and in roy-polymorph-cn, two pip console-script wrappers in `opt/venv/bin` that each share one generic main-guard line with the solution. **Disk, corrected (m6):** the worst case over any choice of blocks, because D7's seed is not frozen: 4.64 GB for one block, 7.76 GB for two, 10.84 GB for three, 13.30 GB for four; all 32 kept stays at 23.86 GB, agent images only at 11.46 GB. **Other fixes:** never `rmi -f`, and no image deleted that was in the store before (m4); the package digest checked, and a missing package is an error (m5); Podman's error text kept and a failed clean-up reported (m7); the pull guarded by the disk stop (m9); a private scratch directory and a test that reads a tar (m10); RECORDINGS.md corrected (m1 to m3). The Task 2b "Files" line now names `image_check.py`, and D1 states the near-copy check and the canary ruling. No task is dropped by this row; the three items above await the coordinator. Spend to date: 0. |
+| 2026-11-14 | Coordinator ruling on Task 2b fix round 1, and the records regenerated (no spend) | **Ruling:** none of the three items that needed a look is a withholding hit, and no task is dropped. They are the two pip launcher scripts in roy-polymorph-cn, each sharing one generic main-guard line with the solution, and `app/.git` in pretrain-shard-corruption and in shadow-relay. Each `.git` is built by the environment's own Dockerfile; every object was loose and opened, with no solution or test content (evidence in RECORDINGS.md "Task 2b"). **Rule:** a virtual environment, meaning any directory holding a `pyvenv.cfg` and everything below it, is a language directory; the near-copy threshold for system and language paths stays 10. **Regeneration:** all 16 agent records were regenerated by the committed code, one image at a time under the 25 GB stop. Every verdict equals the one predicted from the earlier records under the final rule; roy-polymorph-cn's launcher scripts are now noise. The result: no file needs a look; no solution or test material by path or SHA-256 in any image or layer; canary only in byte-identical environment copies. Free space at the end: `/home` 70 GB, `/` 50 GB; the lowest checkpoint in the file is 68.25 GB and 51.43 GB. Spend to date: 0. |
+| 2026-11-14 | Image measurement and withholding check accepted (independent review and scoped re-review: approve; branch `feat/long-horizon-image-measure`) | All 32 pinned images pull by digest; keeping all needs 23.86 GB. No solution or test material in any of the 16 agent images by path, SHA-256 (every layer, deleted files included) or distinctive line; every canary file is a byte-identical copy of an environment file. **Known limits, accepted:** (N1) a solved file written by a script and stored somewhere other than its place in the environment is not seen by line matching when the fix sits in string literals or in lines under 25 characters (the reviewer applied two solutions in scratch containers: one patched file matched 0 lines); the oracle's untouched run covers a solved file left in place, and 80 of the 85 solution text files that are not environment copies carry the canary, which is checked on every path. **For Task 2b, when it fills `tasks.json`:** (N2) carry the ruling that `app/.git` in pretrain-shard-corruption and shadow-relay is not a hit into the result, which still says "needs a look"; (N3) list any text file over 64 MiB that the line check skips; (N4) D1's sentence must state the 10-line rule for system and language paths, that the layer walk is by path and SHA-256 only, and that archives inside system and language paths are neither opened nor listed (confirmed as the intended scope). Spend: 0. |
+| 2026-11-14 | Seeds of step 8 revised after their independent review (`experiments/long_horizon_seed/`; no spend) | The four seeds take two inputs, the task text and the intent; models (`claude-haiku-5-5` for every role), efforts and loop bounds are literals at the call sites; the setup step returns typed paths, so a missing guide fails it; the stand-in scenarios are `tests/experiments/test_long_horizon_seed.py`; registry rows are in `workflows/README.md`. Known gap, stated in the header comments of `milestones.orc` and `roles.orc`: nothing reads a milestone's verdict, so a milestone refused twice is built upon and its reasons do not reach the planner. The fix needs the list operator `list/any`, which is being added on another branch: when it merges, both seeds change (a round stops at a refused milestone and passes its reasons to the planner) and their digests with them, so the freeze of step 8 and the hash in the family record wait for that change. Measured at 120 columns, three of the four seeds exceed the 50-line figure of step 8; the budget question is with the owner. |
+| 2026-11-14 | Seeds of step 8, second fix round after the scoped re-review (no spend) | Later steps are given the guide path the setup step reported (and the round plan the log path) as typed fills, so the setup's check is of the file the later steps read. An exhausted design loop in `designed.orc` ends the run `BLOCKED` with the reviewer's reasons; nothing is built on a design refused twice. A round that fails the check keeps the notes of the rounds before it. `experiments/mutants/check.py` binds `repo` only for an entry that declares it, so the reuse readout runs on these seeds. Sizes at no more than 120 columns: `staged` 34 lines, `milestones` 47, `roles` 50, `designed` 65 (over the figure of step 8, left over as ruled). Still open before the freeze: `list/any` (the unread milestone verdicts) and `list/take` (the number of milestones, and so of provider calls, is bounded only by the plan: `(list/take plan.milestones 8)` with `:max 8` when the operator is on `main`). The visible check is protected by prompt wording only (a coder that rewrites `dev-check.json` or `dev_check.py` passes it); no seed-level fix exists, and this is left to step 9's design of the visible check. |
+| 2026-11-14 | Seeds of step 8, third fix round after the second re-review (no spend) | A failed check's output now begins with why it failed (the command and its exit status, its timeout, or the missing `dev-check.json`), so the notes a failed round passes on say it; the kit has its own `dev_check.py` for this, because the seed catalog's script is pinned by another kit's candidate ids and recorded runs. `roles` is 49 lines; `designed` is 62 in its layout-only form and stays over the figure of step 8: the owner decides whether it stays in the set. The kit's README states that the seeds compare by a step's last label, not by its key. Recorded, not fixed: the guide path the setup step reports is checked for existence only and may be a directory or a file under `.git`, because the language has no path kind that requires a regular file. For step 9: the check's command inherits the orchestrator's environment and its output goes into the next prompt unfiltered, capped at 4,000 characters a round, so step 9's container design must give the check a clean environment. Still open before the freeze: `list/any` and `list/take`, as in the row above. |
+| 2026-11-14 | Task 2a fix round 1, after the independent review (approve after fixes: no blocker, seven majors, twelve minors; no spend; branch `feat/long-horizon-recordings-2a`) | **Recorded, one at a time, the vendor's API shown refused first** (`t2a-fix1-probe-relay-oracle`): `t2a-strace-decoy-low` (a decoy `.credentials.json` with a generated canary in the CLI's config directory, the harness's `exec` of the CLI run under `strace -f` from its start: the CLI opens the decoy but both requests carried the slot's fake token, and the canary reached no request and no file but the harness's export of the config directory; four more credential lookups, all absent) and `t2a-pt-token-first` (the unknown-token refusal on a session's first request: same form as on the second). **Kit:** `recordings.json`'s `harbor_args` of the 30 `t2a-*` recordings read back from each trial's `config.json` (`cut_fixture.py harbor-args`; a hand-written index had substituted `$D` inside `$DENY`), with a test against the cache; `record.sh DECOY=1`; the trace cut keeps only the CLI's process tree and pairs interrupted calls with their results; a no-stream `RuntimeError` keeps the harness's message; written fixtures replace LAN addresses. **Plan, with the coordinator's rulings:** M1 (a slot stays open and metered until the attempt's containers are gone; D4, row 3, Task 5), M4 (the passthrough's paid-usage stop on a non-429 with a non-`allowed` unified status or either overage header; the live probe records `cachedExtraUsageDisabledReason` and whether `overage-status` comes on ordinary responses), M6 (a request count only for the live probe, refused as `slot cap reached`, row 11); M3, M5, M7 and the implementer's eight items; minors m1 to m12. Not applied here: D4's "not the two beta flags token mode adds" (ten flags, three more than simple mode), which sits in the sentence about which request bytes change, left to `feat/lh-passthrough`. Spend: 0. |
+| 2026-11-14 | Task 2a, last items after the re-review (approve; no new recording, no spend) | A literal LAN address in a cutter test replaced by a documentation address; written fixtures now map every IPv4 address to `<address>` and a fake slot token to `<fake slot token>`. A test over committed files only checks each `t2a-*` index entry against its fixtures (effort, CLI version, the eighteen-name deny list, every fixture's recording indexed). The after-limit evidence is a fixture (`fixtures/after-limit/t2a-timeout-low.json`: 72 requests in the 18.3 s after the agent phase ended; the CLI's refusal of a standalone `sleep`, which points at Monitor). D4: an attempt settles when its slot closes; the live probe's 6 is per slot and its 18 the probe's total; the stop precedes paid usage only if ordinary responses carry `overage-status`. Live probe item 2 records every response header's name and every `anthropic-*` value, and its request log keeps beta flags, cache marks and declared tools. |
+| 2026-11-14 | Task 4, first slice, built on `feat/lh-passthrough` (impl_code; no spend, and no request left the machine) | `passthrough.py`: the request path (one unix socket; the bearer token and the `host` header replaced, no other byte changed; the one 403 form for an unknown token, another model, a provider-side tool, another path, a slot's or the tranche's request count or priced cap, a stopped tranche, and a body above 64 MiB), the meter (streamed and plain responses by `price_rule.json`, each cache write at its lifetime's rate, a response in flight at a cap metered to its end, the meter restored from the request log at a restart), the token's path of D4 (file mode 600 in a directory of mode 700, read once at the start; the fingerprint; no core dumps and not dumpable; the rehearsal switch opens no token file and makes its own canary), the vendor's answers (a 429 closes starts, a usage limit with its reset; a 401 stops the tranche; a configured paid-usage header stops it before the response is passed on; a response naming another model stops it; unreadable usage closes starts) and its shutdown (closed starts, the socket removed). `token_scan.py`: the fingerprint scan (path and offset only) and the canary check. `live_probe.sh`: the probe's items 1 to 4; it refuses to start without `LH_PROBE_SPEND_AUTHORIZED=yes`. Tests in `tests/experiments/test_long_horizon_passthrough.py` against `stub_api.py`, with a stand-in harness and podman for the probe script. Not run: the live probe (its preconditions, a non-author read and the approval row are open) and the container half of the canary check (a stand-in run of `live_probe.sh` with the real harness and CLI against the stub, zero spend). Readings and what is left for Task 5 are in the implementer's report. Spend to date: 0; subscription usage: none. |
+| 2026-11-14 | Task 4 fix round 1 on `feat/lh-passthrough`, after the independent security review of the first slice (approve after fixes, re-review before any live use: 3 blockers, 5 majors, 11 minors), the coordinator's rulings (R-host kept; R-encoding: `accept-encoding: identity` upstream) and three additions from the Task 2a review (its M1, M4, M6) (impl_code; no spend, and no request left the machine) | **The token never goes back:** every byte to the client and every log row is checked for the token in plain, hex, base64 (three alignments, both alphabets) and UTF-16LE form, across writes; a match sends nothing more, drops the client and stops the tranche with the place only; an answer that is not identity-encoded is not passed on. **Allowlist, not deny-list:** the request line, header names and values, and the body (strict JSON, recorded fields, model, efforts, tools, no vendor fetch) are held to `request_allowlist.json`, built by `make_allowlist.py` from `fixtures/requests` (rerun it when the fixtures change). **One request in flight per slot;** the total under one lock: a cap is overshot by less than one response per open slot (measured). The upstream request is built with three header values set (`authorization`, `host`, `accept-encoding`); answers are metered to their end, an incomplete one at the request's worst case (closes starts); the request's headers, body, times and connections are bounded; the scanner finds the encoded forms and fails a scan it cannot make whole. **Paid extra usage on a non-429** (unified status not allowed, overage in use, overage allowed; header names from Task 2a's bundle reading) stops the tranche and the answer is not passed on (403 "tranche stopped"). A slot is retired by the launcher only; a slot at a cap answers "slot cap reached" with the limit named (`cap_requests` is the live probe's only). The request log keeps each request's beta flags, cache marks and tools and each answer's header names and vendor-prefixed values (re-review G.1, G.4). A refusal closes with a bounded lingering read, so a client still sending its body reads it. `live_probe.sh` claims its run only after the passthrough listens, starts it with an empty environment, passes `--stop-on-non-200`, and needs a ledger line naming the kit's commit with "live probe" and "approv". D4 and D5 row 13 corrected. Open: tool keys are not in today's fixtures (the allowlist uses the API's client-tool fields), so the zero-spend rehearsal with the real CLI must show its requests admitted before the probe; the re-review. Spend to date: 0; subscription usage: none. |
+| 2026-11-14 | Task 4 fix round 2 on `feat/lh-passthrough`, after the coordinator's rulings on fix round 1 (revise_code; no spend, no new recording, and no request left the machine) | **Merged `integ/batch5`** (the Task 2a recordings): both sides' ledger rows kept; for paid usage, slot lifetime, the request count and row 13 the recordings branch's text. **Tool keys closed from the recordings:** the request cut now records, per declared tool, the top-level keys of its definition and of its `input_schema`, the body's top-level keys, and the message blocks' key sets, key names only, read from the CLI's own record of each request in the recording's session files and joined to the stub's log by name and JSON length; every tool of every `t2a-*` shape matched. The 32 `t2a-*` request fixtures were re-cut (a second cut is byte-identical; the files they are cut from already had their digests in `recordings.json`, unchanged). `make_allowlist.py` builds the allowlist from these key sets over the token-mode `t2a-*` shapes, per tool name, and assumes nothing. **The assumed tool keys would have refused every recorded ladder request:** the placeholder tool's definition carries `defer_loading`. The rebuilt allowlist is also narrower: the four tools of the ladder's configuration, efforts low to high, no subagent header and no `advanced-tool-use` flag. **`live_probe.sh`** needs exactly one ledger line holding the kit's last commit in full and the exact approval phrase, and prints that requirement when it refuses. D4: the ten beta flags of token mode (three more than simple mode); the bounded read after a refusal; the paid-usage clauses as built (the overage clauses on any response, a 429 included; the unified-status clause only on a response that carries the header and is not a 429). Not recorded: the keys of text blocks (the stub logged a text block's length only). Spend to date: 0; subscription usage: none. |
+| 2026-11-14 | Task 4, the re-review's three minors on `feat/lh-passthrough` (re-review: approve; revise_code; no spend, and no request left the machine) | `main` merged (no conflict). **n1:** `live_probe.sh` counts only table rows whose second cell is exactly the approval phrase and whose third cell starts with the kit's full commit and a space or a period; exactly one such row, else it refuses and prints the row form (Task 4, "Authority"). Tested: a negated sentence naming the hash, the phrase in the wrong cell, two rows, eight characters, backticks, a hash running on, lowercase, a line that is not a row (all refused); the row with a space or a period after the hash, and beside a negated sentence (admitted). **n3:** the price of a response whose usage cannot be read whole is a bound: the body's bytes, or a larger prompt from the stream's first event, at the one-hour write rate, and `max_tokens` as output (D4, with the assumption it rests on); a test checks it against every corner of the price rule for two constructed requests. **n2:** Task 5 decides per-attempt sockets or a per-slot connection cap before four sessions run at once. Spend to date: 0; subscription usage: none. |
+| 2026-11-14 | Task 4, negative cases for the passthrough on `feat/lh-passthrough` (tests only; no spend, and no request left the machine) | Table-driven tests of malformed input: 40 rows of request line and framing (methods, paths, versions, lengths, `transfer-encoding`, short, long and trailing bodies), 22 of headers (authorization forms, forbidden headers, beta flags, values, sizes), 50 of JSON bodies (trailing data, duplicates, unrecorded keys and values, models, effort, nesting past the parser's limit, very long integers); the connection cap with an admitted request completing; descriptors back to their start after 200 connections; and one process taking every row, then admitting and metering a normal request, with nothing unhandled in its output. No row found a defect; the kit's code is unchanged. Bytes after an admitted body are read as the next request and pass every check on their own. Spend to date: 0; subscription usage: none. |

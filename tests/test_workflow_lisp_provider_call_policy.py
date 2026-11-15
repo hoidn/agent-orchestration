@@ -519,7 +519,6 @@ def test_timeout_provider_call_policy_accepts_positive_int_literals(value: int) 
 @pytest.mark.parametrize(
     ("operand", "value_env", "expected_code"),
     [
-        ("timeout_value", {"timeout_value": PrimitiveTypeRef(name="Int")}, "provider_result_timeout_literal_required"),
         ("(+ 1 2)", {}, "provider_result_timeout_literal_required"),
         ("true", {}, "provider_result_timeout_type_invalid"),
         ("1.5", {}, "provider_result_timeout_type_invalid"),
@@ -559,7 +558,7 @@ def test_public_run_displays_provider_timeout_value_and_minimum(
     entry = tmp_path / "grt" / "entry.orc"
     entry.parent.mkdir(parents=True, exist_ok=True)
     entry.write_text(
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.40\") "
         "(defmodule grt/entry) (export run) "
         "(defworkflow run () -> Bool "
         "(provider-result providers.execute :prompt prompts.execute :inputs () "
@@ -743,3 +742,71 @@ def test_wcc_provider_call_policy_payload_preserves_absence() -> None:
 
     assert isinstance(perform.operation_payload, dict)
     assert not {"model", "effort", "timeout_sec"} & perform.operation_payload.keys()
+
+
+TIMEOUT_PROGRAM = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule timeouts) (export run)
+  (defrecord Answer (ok Bool))
+  (defrecord Limits (sec Int))
+  (defprompt ask (:fills (q :text)) -> Answer "Answer {q}.")
+DEFS
+  (defworkflow run ((t Int) (label String)) -> Answer
+    BODY))'''
+CALL = '(provider-result providers.coder :model "m" :timeout-sec OPERAND :prompt (ask :q "x"))'
+ASK_WITHIN = '''  (defproc ask-within ((limit Int) (q String)) -> Answer
+    (provider-result providers.coder :model "m" :timeout-sec limit :prompt (ask :q q)))'''
+TIMEOUT_NAMES = {
+    "workflow-input": CALL.replace("OPERAND", "t"),
+    "let-name": f'(let* ((limit t)) {CALL.replace("OPERAND", "limit")})',
+    "record-field": f'(let* ((limits (record Limits :sec t))) {CALL.replace("OPERAND", "limits.sec")})',
+    "procedure-parameter": (ASK_WITHIN, '(ask-within t "x")'),
+    "bind-proc-argument": (ASK_WITHIN, '(let* ((bound (bind-proc (proc-ref ask-within) :limit t))) (bound "x"))'),
+    "agent-turn": '(let* ((coder (agent providers.coder :model "m"))) '
+                  '(provider-result coder :timeout-sec t :prompt (ask :q "x")))',
+}
+
+
+def _compile_timeout_program(tmp_path: Path, body, defs: str = ""):
+    from orchestrator.workflow_lisp.closed.build import build_closed_program
+    from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+
+    path = tmp_path / "timeouts.orc"
+    if isinstance(body, tuple):
+        defs, body = body
+    path.write_text(TIMEOUT_PROGRAM.replace("DEFS", defs).replace("BODY", body), encoding="utf-8")
+    typed = compile_typed_program(
+        path, entry_workflow="timeouts::run", source_roots=(tmp_path,), command_boundaries={},
+        provider_externs={"providers.coder": "claude_unrestricted_workspace"}, prompt_externs={},
+        workspace_root=tmp_path,
+    )
+    return build_closed_program(typed)
+
+
+def _timeout_operand_kinds(program) -> list[str]:
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
+
+    bodies = (program.tree["body"], *(row["body"] for row in program.tree["definitions"].values()))
+    return [node["policy"]["timeout_sec"]["k"] for body in bodies for node in _ast_nodes(body)
+            if node.get("k") == "perform" and "timeout_sec" in (node.get("policy") or {})]
+
+
+@pytest.mark.parametrize("shape", sorted(TIMEOUT_NAMES))
+def test_timeout_accepts_a_name_or_a_field(tmp_path: Path, shape: str) -> None:
+    program = _compile_timeout_program(tmp_path, TIMEOUT_NAMES[shape])
+
+    assert _timeout_operand_kinds(program) in (["name"], ["field"])
+
+
+@pytest.mark.parametrize(
+    ("operand", "code"),
+    [
+        ("(+ t 1)", "provider_result_timeout_literal_required"),
+        ("label", "provider_result_timeout_type_invalid"),
+        ("0", "provider_result_timeout_nonpositive"),
+    ],
+)
+def test_timeout_refuses_a_computed_expression(tmp_path: Path, operand: str, code: str) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_timeout_program(tmp_path, CALL.replace("OPERAND", operand))
+
+    assert excinfo.value.diagnostics[0].code == code

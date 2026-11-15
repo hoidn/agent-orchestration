@@ -865,6 +865,547 @@
     "probe-relay-nop/egress-recording-task__cngbksb__env_harbor-docker-egress-control-sidecar_1.log": "02fa36ad7370f7ffe70897423cae3a662ef6cdd3049de79a83757501adb72501",
     "probe-relay-nop/jobs/2026-11-13__17-16-55/recording-task__cNGbKSb/result.json": "94bd2f1fd3ca6979284c37018f1d67ebd012bb24f9c0836289d41d23ce5c706b"
    }
+  },
+  {
+   "name": "t2a-normal-low",
+   "source": "local: stub_api.py scenario normal via record.sh (relay route, Task 2a), AUTH=token STRACE=1 STUB_ARGS=\"--watch deep-research,dataviz,update-config,verify,debug,code-review,simplify,batch,fewer-permission-prompts,doctor,loop,schedule,claude-api,workflow-authoring,run,run-skill-generator,plugin-authoring,claude,Explore,general-purpose,Plan,statusline-setup\"",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-normal-low/jobs/2026-11-14__12-56-57/recording-task__baeCvsv/agent/claude-code.txt": "9fabc733262ac02f3b571f119e793326498e932302e2e96c9c84c76f0e8566bf",
+    "t2a-normal-low/jobs/2026-11-14__12-56-57/recording-task__baeCvsv/agent/sessions/projects/-app/f2bb527c-2ec1-49cb-a8d6-16ec76cccd66.jsonl": "c0a3538d4664b86453a2344eddc7e6585543ec80b3ddaf0c05d33f240ab2db95",
+    "t2a-normal-low/jobs/2026-11-14__12-56-57/recording-task__baeCvsv/result.json": "79ccbedcea5a32b99554cec69d9d103449479672b6a9027b1b9298fdf334e153",
+    "t2a-normal-low/strace-target.txt": "f674fc3a2e01245d433a84eae7190a9417098ffb8b212f47a8afe3a1b1c883f9",
+    "t2a-normal-low/stub.jsonl": "7068214c7d9058846c35353cee41642d38b8254ebc91413d125ab65ac0b10217"
+   }
+  },
+  {
+   "name": "t2a-normal-medium",
+   "source": "local: stub_api.py scenario normal via record.sh (relay route, Task 2a), AUTH=token STUB_ARGS=\"--watch deep-research,dataviz,update-config,verify,debug,code-review,simplify,batch,fewer-permission-prompts,doctor,loop,schedule,claude-api,workflow-authoring,run,run-skill-generator,plugin-authoring,claude,Explore,general-purpose,Plan,statusline-setup\"",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort medium",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-normal-medium/jobs/2026-11-14__13-05-41/recording-task__TvZ8XVz/agent/claude-code.txt": "213a803a35d16532de61a669de203e1ec2ae8559706e9e4311e086a0423ae43e",
+    "t2a-normal-medium/jobs/2026-11-14__13-05-41/recording-task__TvZ8XVz/agent/sessions/projects/-app/0e7e9e77-f789-4715-91e8-d240d960f4ad.jsonl": "9357be069dc3a583a4e4040d53ec1153b4c2f56021a77cafbaf3e46656df0db1",
+    "t2a-normal-medium/jobs/2026-11-14__13-05-41/recording-task__TvZ8XVz/result.json": "12e1eaad65796dad9be2528bf3a95aa52e12068fa6ebd37300ef91b83ec56836",
+    "t2a-normal-medium/stub.jsonl": "05b5b939eca44d614e88717f4c8f7b9f39799eb5b338a7dace976ca6205072eb"
+   }
+  },
+  {
+   "name": "t2a-normal-high",
+   "source": "local: stub_api.py scenario normal via record.sh (relay route, Task 2a), AUTH=token STUB_ARGS=\"--watch deep-research,dataviz,update-config,verify,debug,code-review,simplify,batch,fewer-permission-prompts,doctor,loop,schedule,claude-api,workflow-authoring,run,run-skill-generator,plugin-authoring,claude,Explore,general-purpose,Plan,statusline-setup\"",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort high",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-normal-high/containers.txt": "ee34e92d594430b47e24971514c63b482f1ff6fb95148a7c4b9cf754ec74b745",
+    "t2a-normal-high/egress-recording-task__ghy3afz__env_harbor-docker-egress-control-sidecar_1.log": "46e910e1c678c72a78bfc915414cea6f8662ae344e23347eaf39c1f137042ebc",
+    "t2a-normal-high/jobs/2026-11-14__13-14-28/recording-task__gHy3AFz/agent/claude-code.txt": "bd81f18b1f71e9de1c9d63f4469a9fbcb1bd77d7f3dc69a17ee1804131ed11b9",
+    "t2a-normal-high/jobs/2026-11-14__13-14-28/recording-task__gHy3AFz/agent/sessions/projects/-app/b6b65835-5313-4b09-9114-390b51afac5b.jsonl": "07d3f81d8718997be301e02d1ae986a0be94180ec42d99c63c153d4765a8329c",
+    "t2a-normal-high/jobs/2026-11-14__13-14-28/recording-task__gHy3AFz/result.json": "4c34188ecb0125f8d4c1d4a2ace1739c19590c6221701806341bfebecc77c29d",
+    "t2a-normal-high/stub.jsonl": "2228da20ce38ce694282dba34a7a3a8d08abd18b3e41ed53d20e0cf6326b6cd4"
+   }
+  },
+  {
+   "name": "t2a-budget-medium",
+   "source": "local: stub_api.py scenario budget via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ak max_budget_usd=0.05 --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort medium",
+   "cli_version": "2.1.311",
+   "harness_exception": "NonZeroAgentExitCodeError",
+   "files_sha256": {
+    "t2a-budget-medium/containers.txt": "f4f0bb7b41bffe8852f2c7b920c8ecf22cf9a627ecf3e4a94981c1eca62cc12b",
+    "t2a-budget-medium/egress-recording-task__vajkakx__env_harbor-docker-egress-control-sidecar_1.log": "e4eda0f3589ed1831c581d10f7cd0cd8a6ba9bb8b59d2a633da979a58f23a274",
+    "t2a-budget-medium/jobs/2026-11-14__13-24-08/recording-task__VAJKAkx/agent/claude-code.txt": "da715a4bd4447cd6c1e25da7e26f5a02c1aa2c34d7ea30416a55c3556b603d41",
+    "t2a-budget-medium/jobs/2026-11-14__13-24-08/recording-task__VAJKAkx/agent/sessions/projects/-app/bd2e0360-100a-4562-9077-7bb397bc4d71.jsonl": "65d2615baa773f32dcfdf14e364db4d87723b3c9230cf273f4a042f0e34a2700",
+    "t2a-budget-medium/jobs/2026-11-14__13-24-08/recording-task__VAJKAkx/exception.txt": "8402a44a8caec0385ec36f98c959a070544169780bbb0e9b25681b15e72053e5",
+    "t2a-budget-medium/jobs/2026-11-14__13-24-08/recording-task__VAJKAkx/result.json": "292daaa9fa2c09a2138708d3c59aa70df080e3d23f8e95df1ae48dde15b7d53e",
+    "t2a-budget-medium/stub.jsonl": "344ef9409e7ab7615788561de70ceb3963db23a2e93c2169bf92c52ca8db2e4d"
+   }
+  },
+  {
+   "name": "t2a-refusal-high",
+   "source": "local: stub_api.py scenario refusal via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort high",
+   "cli_version": "2.1.311",
+   "harness_exception": "AgentSafetyRefusalError",
+   "files_sha256": {
+    "t2a-refusal-high/containers.txt": "13b038699755431342f2a7dab979545d9c0c07d8e951dbc8cf8136e74f452ee3",
+    "t2a-refusal-high/egress-recording-task__qhtocqy__env_harbor-docker-egress-control-sidecar_1.log": "700df79f38f870ac21c3249489acb8dbe9aa026852f0658b0af9df0e47c32fac",
+    "t2a-refusal-high/jobs/2026-11-14__13-28-27/recording-task__qhToCqy/agent/claude-code.txt": "2fa60ca91f157d1b4899d796ca50153e962a20e380999db3681d695a6c9d9211",
+    "t2a-refusal-high/jobs/2026-11-14__13-28-27/recording-task__qhToCqy/agent/sessions/projects/-app/0be2cc5a-868e-44da-a994-45f11028cc54.jsonl": "9a3037ef8dd7b764a41d9e42f4c954bf57ce4c713a45ca3507643b91ab311635",
+    "t2a-refusal-high/jobs/2026-11-14__13-28-27/recording-task__qhToCqy/exception.txt": "3d9bc346de22fb10bde23e8f66b6cadb42999ba72331370d81d70920f498a9a9",
+    "t2a-refusal-high/jobs/2026-11-14__13-28-27/recording-task__qhToCqy/result.json": "6312e6b0d8142b09dbc11daef6c29540ed12a0db1a042b513d69ae1fab9953f2",
+    "t2a-refusal-high/stub.jsonl": "89186e5fca752cdc157ee63de10719f18347b21306e7566e8a3bb1685ec6c970"
+   }
+  },
+  {
+   "name": "t2a-max-tokens-low",
+   "source": "local: stub_api.py scenario max_tokens via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "OutputTokenExceededError",
+   "files_sha256": {
+    "t2a-max-tokens-low/containers.txt": "12d7c0b5f8fb61ebb9d1c8c3f912c301d8d532b38fb665cec4a738c19d178ba4",
+    "t2a-max-tokens-low/egress-recording-task__2hzyt3w__env_harbor-docker-egress-control-sidecar_1.log": "ea8031aa6e1e6f3d41a8311d1c421b2313b5d49372a05021a5e5bccec3523024",
+    "t2a-max-tokens-low/jobs/2026-11-14__13-33-03/recording-task__2hZYT3W/agent/claude-code.txt": "02e4c189157b4c414b96b86ee8d552edd4b28bc124a7fc958c7aad08320cbfbd",
+    "t2a-max-tokens-low/jobs/2026-11-14__13-33-03/recording-task__2hZYT3W/agent/sessions/projects/-app/3ed6bbec-9c02-4dc5-aa9a-bc81029b3c52.jsonl": "fc7d0a1edb7d1aa2565b3f6e4f321315f03e8b7ce466adc3acfe940ddfb82097",
+    "t2a-max-tokens-low/jobs/2026-11-14__13-33-03/recording-task__2hZYT3W/exception.txt": "b42227205bd0a5a54abd7edfee72565c6fb9a3900ae51c0e88a3bb4b66ed6bfd",
+    "t2a-max-tokens-low/jobs/2026-11-14__13-33-03/recording-task__2hZYT3W/result.json": "5d48bae03980515adfef72b1d26951d55e83f33fddd77e8316cbf917b4e1bc86",
+    "t2a-max-tokens-low/stub.jsonl": "641933a44f79a68daa1c83e58e027ab50be5ba8e82be20466f37ba7e12bd24e3"
+   }
+  },
+  {
+   "name": "t2a-context-low",
+   "source": "local: stub_api.py scenario context via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "NonZeroAgentExitCodeError",
+   "files_sha256": {
+    "t2a-context-low/containers.txt": "3d8f0af7999730d76569c82a103b111854e247a7f1d8ade661d057101c41af43",
+    "t2a-context-low/egress-recording-task__saaekmw__env_harbor-docker-egress-control-sidecar_1.log": "f32a9db2265724bcb58c8ce04702b3c89cdbe491394a8cc0894492bb8a1138fb",
+    "t2a-context-low/jobs/2026-11-14__13-37-33/recording-task__sAAEKMw/agent/claude-code.txt": "f1aadccec45886de5a61e26b7eb15262388446308337b0d78e749a9bfbd21df3",
+    "t2a-context-low/jobs/2026-11-14__13-37-33/recording-task__sAAEKMw/agent/sessions/projects/-app/94884589-2f4c-4175-a283-1adcc030f4d3.jsonl": "1225e7fa914e9c4b2e64f37e579bb1815a941ded726b58e822fb6aaaa0670013",
+    "t2a-context-low/jobs/2026-11-14__13-37-33/recording-task__sAAEKMw/exception.txt": "929311e013056982c1716a943fd6f38a52d6b1012b0d6f1b2fde5851c685acc0",
+    "t2a-context-low/jobs/2026-11-14__13-37-33/recording-task__sAAEKMw/result.json": "5b9fa2fa8a867427a49361a20bcce1b3fd27894b9cfb25aff77cd177768fd94f",
+    "t2a-context-low/stub.jsonl": "5a845432cf5a064efbc1757cfe04d5282b6b69ae336d4607dc2fe7e3665d32eb"
+   }
+  },
+  {
+   "name": "t2a-context-late-low",
+   "source": "local: stub_api.py scenario context_late via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "NonZeroAgentExitCodeError",
+   "files_sha256": {
+    "t2a-context-late-low/containers.txt": "78a333b0c0c40011711dec5eb59e02ddf26173798454ce5f072208ba926e3726",
+    "t2a-context-late-low/egress-recording-task__4mdszcz__env_harbor-docker-egress-control-sidecar_1.log": "fb657ce8358df4d663192eee9c6360e66c7b6b1225a5e27f492bafdeec4519f8",
+    "t2a-context-late-low/jobs/2026-11-14__13-42-52/recording-task__4MdSzCZ/agent/claude-code.txt": "3f040392d68de09fc08d64338a9dbddd664248fef4351f29d5c959b51b54654c",
+    "t2a-context-late-low/jobs/2026-11-14__13-42-52/recording-task__4MdSzCZ/agent/sessions/projects/-app/b18fdb74-c818-4449-98da-fdf1c7766df3.jsonl": "93c6667fbd79fec4671a5664fcb29de23e83d819ad33f143f06e42a55b2d7c6a",
+    "t2a-context-late-low/jobs/2026-11-14__13-42-52/recording-task__4MdSzCZ/exception.txt": "d49ae07b8b2449bff5f582968e5add010c4e7ac0706e26ad3adbd01c34af7f87",
+    "t2a-context-late-low/jobs/2026-11-14__13-42-52/recording-task__4MdSzCZ/result.json": "c724cf92e56c86e8e5ddfc6d41d6f6ce7a46aedafe57f67712358d5d0dd2f4e4",
+    "t2a-context-late-low/stub.jsonl": "8cf63553f8d03b98a9dd88a7f3cb534659f682100fa1567f53cecb21d2256079"
+   }
+  },
+  {
+   "name": "t2a-timeout-low",
+   "source": "local: stub_api.py scenario timeout via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --agent-timeout-multiplier 0.005 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "AgentTimeoutError",
+   "files_sha256": {
+    "t2a-timeout-low/containers.txt": "58f060cfdb8eda1fa46251870621ac1fdacc2352d9ae4c87c6b4d1c6fe22dc6d",
+    "t2a-timeout-low/egress-recording-task__qhpp8pd__env_harbor-docker-egress-control-sidecar_1.log": "b3467fb198f0993353532c73b4c8f691ddf58d0431f36d58e7c9340c5d83ad30",
+    "t2a-timeout-low/jobs/2026-11-14__13-49-25/recording-task__qhPp8Pd/agent/claude-code.txt": "013ce6dc6efb5ea12390e4e80f811d1e4d4ae741f117fa1d6d7ef2350b68a454",
+    "t2a-timeout-low/jobs/2026-11-14__13-49-25/recording-task__qhPp8Pd/agent/sessions/projects/-app/ec1989b5-d365-4e56-ab99-64182dce7b6f.jsonl": "c31ad8b9b34b6ce674fb48dbe393bb250258f62a75d371bc9f625ced360eba6c",
+    "t2a-timeout-low/jobs/2026-11-14__13-49-25/recording-task__qhPp8Pd/exception.txt": "cac66db0dd4ad54c8bc029a1d57a8197b2e388f84a337026f60b37fe661b95aa",
+    "t2a-timeout-low/jobs/2026-11-14__13-49-25/recording-task__qhPp8Pd/result.json": "0f8f97526e38303f8e127cb1f44fc77a64b66778cacad1e5c7dad80ebd9dbccc",
+    "t2a-timeout-low/stub.jsonl": "305210d2c922f7168d5f4eb1e7d6df20bd5e81fd4e3ebabfc81197737c2d7c55"
+   }
+  },
+  {
+   "name": "t2a-placeholder-low",
+   "source": "local: stub_api.py scenario placeholder via record.sh (relay route, Task 2a), AUTH=token STUB_ARGS=\"--watch deep-research,dataviz,update-config,verify,debug,code-review,simplify,batch,fewer-permission-prompts,doctor,loop,schedule,claude-api,workflow-authoring,run,run-skill-generator,plugin-authoring,claude,Explore,general-purpose,Plan,statusline-setup\"",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-placeholder-low/containers.txt": "82ac635e9f46065a3b4989689c2efd4ebdc09933c273e27f316853de5d7ccef5",
+    "t2a-placeholder-low/egress-recording-task__hqzwxzj__env_harbor-docker-egress-control-sidecar_1.log": "0437e4f136ade84d1c6ecff38ee714ac5a2958c9242aecb157c8204111a8e3d0",
+    "t2a-placeholder-low/jobs/2026-11-14__14-00-13/recording-task__HqzWXZJ/agent/claude-code.txt": "e9cd8381364641bd13cae2b61848c4fe5696df97bd58ab02657c8eef4fa3ac65",
+    "t2a-placeholder-low/jobs/2026-11-14__14-00-13/recording-task__HqzWXZJ/agent/sessions/projects/-app/853112fe-e8d5-42ff-9863-a6fbca5d9441.jsonl": "b54fea8f7439e42ac41ac4416147c0438fdd83a308b4375624d69b7dea84f88a",
+    "t2a-placeholder-low/jobs/2026-11-14__14-00-13/recording-task__HqzWXZJ/result.json": "2c45b1adad27ee05a8a666726adb6556fb21f7072dbb7e996a95f6d7b4bec222",
+    "t2a-placeholder-low/stub.jsonl": "904e885e3af694be4daf96eb553eabcd3d0952709c9cb0335972cb7cf2084182"
+   }
+  },
+  {
+   "name": "t2a-overage-low",
+   "source": "local: stub_api.py scenario overage via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-overage-low/containers.txt": "743e59d3bd625dc7c6772b7ebfce203258b753dba9399e74cde47b212ca534c8",
+    "t2a-overage-low/egress-recording-task__kdxvdum__env_harbor-docker-egress-control-sidecar_1.log": "75dfc67c017f6cd7cf7086c5fed058c78904283453d50a8ea9a1d87efb990b88",
+    "t2a-overage-low/jobs/2026-11-14__14-06-33/recording-task__kDXVdum/agent/claude-code.txt": "1f8092dcce87c80b583d2d2744fd44bed62202e1acd02ca146e8bd2fe8f09581",
+    "t2a-overage-low/jobs/2026-11-14__14-06-33/recording-task__kDXVdum/agent/sessions/projects/-app/b0719a67-2d57-4a12-a7fc-427aaa464b60.jsonl": "43ab5c37b79970055b95715e0d04838af385cd0bf12057749d0bf6e4d760f0b6",
+    "t2a-overage-low/jobs/2026-11-14__14-06-33/recording-task__kDXVdum/result.json": "ffe74e5c37d30f1da37e25660a31caa720e6d80532d07f69ccba9e7d3882b1f6",
+    "t2a-overage-low/stub.jsonl": "3a35bd217d20f7dc6ef8a473c115d090a71b892d1261ddd869b15e55798e90ba"
+   }
+  },
+  {
+   "name": "t2a-no-credential-low",
+   "source": "local: stub_api.py scenario normal via record.sh (relay route, Task 2a), AUTH=none",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "AgentAuthenticationError",
+   "files_sha256": {
+    "t2a-no-credential-low/containers.txt": "011b62289956ec29c7dd8a0389a9d0fb3530090fe0523b28e3f9c29658a343f9",
+    "t2a-no-credential-low/egress-recording-task__b3etbvp__env_harbor-docker-egress-control-sidecar_1.log": "9aeff7b1cbb34ad9849ff84736420563792e3fb37b365a58c8d501eaf55ba45f",
+    "t2a-no-credential-low/jobs/2026-11-14__14-10-56/recording-task__B3etbVp/agent/claude-code.txt": "99f747bbdcd2e59d9a73dfa5b4bd00b5f4464bcbebf51b0895d7e610e5453d38",
+    "t2a-no-credential-low/jobs/2026-11-14__14-10-56/recording-task__B3etbVp/agent/sessions/projects/-app/28ec34a2-c431-406d-938b-90feec726a77.jsonl": "2e6cc07f80afc23038f005bb0a1ea64789a044d85a5cb925f4a4a5e5f5216292",
+    "t2a-no-credential-low/jobs/2026-11-14__14-10-56/recording-task__B3etbVp/exception.txt": "570b62c1e04eb1c192879e386cfd3a3da807b60b0423083826380a02474063ee",
+    "t2a-no-credential-low/jobs/2026-11-14__14-10-56/recording-task__B3etbVp/result.json": "92af5224c85140c8d233943f1f6c20ef3ae44e99c44c18e1cd7862d474bc502d"
+   }
+  },
+  {
+   "name": "t2a-forced-empty-low",
+   "source": "local: stub_api.py scenario normal via record.sh (relay route, Task 2a), AUTH=forced-empty",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": null,
+   "harness_exception": "RuntimeError",
+   "files_sha256": {
+    "t2a-forced-empty-low/containers.txt": "2ee8cd2638733eb34366b8107353830c6e67b44a624c9a98857e8c975920e19f",
+    "t2a-forced-empty-low/egress-recording-task__nbt6y4m__env_harbor-docker-egress-control-sidecar_1.log": "76fe8e4a60292c59685ad1cc984c260b1d5469defefe0624a28b4af91ce62333",
+    "t2a-forced-empty-low/jobs/2026-11-14__14-15-32/recording-task__nBt6y4m/exception.txt": "46ac7e7f8a4f1fddb45f20d2d9b49786503c73b7b7a892c2352dfe5c4c22df9b",
+    "t2a-forced-empty-low/jobs/2026-11-14__14-15-32/recording-task__nBt6y4m/result.json": "ba3dec5d16ac0de77afd20c9a31a22ef55575fe39cb0c3576e6aa08dcf552633"
+   }
+  },
+  {
+   "name": "t2a-pt-model403",
+   "source": "local: stub_api.py scenario pt_model403 via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "UnknownApiError",
+   "files_sha256": {
+    "t2a-pt-model403/containers.txt": "8204a8b0118d40ae9fdc9c2590cda7d689dbca707b4ec2da1dfaea3911127eb4",
+    "t2a-pt-model403/egress-recording-task__vyvzhp3__env_harbor-docker-egress-control-sidecar_1.log": "ea19dfe42d1e7fb823041cc832d5834ff5e1e306ab888be142389295eefa6685",
+    "t2a-pt-model403/jobs/2026-11-14__14-19-55/recording-task__VYVZhP3/agent/claude-code.txt": "9da1bbe52a6296731dd36eaa764caa3a5aa86fbca5e930930234502e8e08edf9",
+    "t2a-pt-model403/jobs/2026-11-14__14-19-55/recording-task__VYVZhP3/agent/sessions/projects/-app/25f9359f-891f-404a-be8a-e1faddd04635.jsonl": "8c44281950b32424bceeec71882772493d2ec9fb1a5abb6a1510fb0f3eb9e701",
+    "t2a-pt-model403/jobs/2026-11-14__14-19-55/recording-task__VYVZhP3/exception.txt": "645ee2d3e0870d29417ea4d3acf372c5e7a5544c9686509bfc7060139d57d1b6",
+    "t2a-pt-model403/jobs/2026-11-14__14-19-55/recording-task__VYVZhP3/result.json": "c90a45839716dc912276681e5e291fa3c6812fd5a368967b67d07cbbc66e4dfc",
+    "t2a-pt-model403/stub.jsonl": "4c03c8c36d9f97075465aa43aab4ea4413c51be0e2f727fe35b2a6258ad42367"
+   }
+  },
+  {
+   "name": "t2a-pt-tool403",
+   "source": "local: stub_api.py scenario pt_tool403 via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "UnknownApiError",
+   "files_sha256": {
+    "t2a-pt-tool403/containers.txt": "30a1680a6376d79deabf09549259b1dc6342ea8164f1fb0187fcf3a7b75c0ce2",
+    "t2a-pt-tool403/egress-recording-task__eskxgy8__env_harbor-docker-egress-control-sidecar_1.log": "018fcca57ad21fae03c5cccf94b9d2b5b6125924e7237891850f2f943f6e4990",
+    "t2a-pt-tool403/jobs/2026-11-14__14-24-02/recording-task__esKxGY8/agent/claude-code.txt": "efe47450c2a0d6780af5dcc39557833bc651aba68fb7520dbe1b4fb28ea816a1",
+    "t2a-pt-tool403/jobs/2026-11-14__14-24-02/recording-task__esKxGY8/agent/sessions/projects/-app/59c95bee-8715-4d17-bb88-d23bd1b2bd79.jsonl": "bff985b569cd8fa1bb0527595efb725e11bca90a0a7932cba377d55fd10997e8",
+    "t2a-pt-tool403/jobs/2026-11-14__14-24-02/recording-task__esKxGY8/exception.txt": "7bd9cc55a5f68054d4d6a470530917b4ce7db5c9f10b1bf640187ab212264461",
+    "t2a-pt-tool403/jobs/2026-11-14__14-24-02/recording-task__esKxGY8/result.json": "f6814c192b2ec75dd98bd6234d030486dd1b118a3b81bab365abac318c971585",
+    "t2a-pt-tool403/stub.jsonl": "addb5fabd5a02a63f3768c5dfaea9815d226e54cc15e443b8a97320ae42997e5"
+   }
+  },
+  {
+   "name": "t2a-pt-path",
+   "source": "local: stub_api.py scenario pt_path via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "UnknownApiError",
+   "files_sha256": {
+    "t2a-pt-path/containers.txt": "45b831c6ad8d5495726b6cd67aab81b4b4994f8916b210dd038068377d320426",
+    "t2a-pt-path/egress-recording-task__j6utjy6__env_harbor-docker-egress-control-sidecar_1.log": "3a16caf772cc19df2ab7b0c9feb0bc6758b6b001346c0b3f863c80e9f98c2fc3",
+    "t2a-pt-path/jobs/2026-11-14__14-27-50/recording-task__J6uTjy6/agent/claude-code.txt": "e6033bacff53df428b209557965398872fd392f306fe3d6714f82f5d6aa9c850",
+    "t2a-pt-path/jobs/2026-11-14__14-27-50/recording-task__J6uTjy6/agent/sessions/projects/-app/6a615902-a2a1-4144-8980-5a2f9ada962b.jsonl": "f0a9569ed2f49d821b03a0ca2dd4dd5c44806e9d489f99caa8862983b58af502",
+    "t2a-pt-path/jobs/2026-11-14__14-27-50/recording-task__J6uTjy6/exception.txt": "afcae32444f141a67f81aa8a52368111c23c79842a3c184e8d88ce2573924715",
+    "t2a-pt-path/jobs/2026-11-14__14-27-50/recording-task__J6uTjy6/result.json": "27ff7aed9fa1f23e07c1adaf1a34c7bf2f3cf289e5c056fc350863b1d1a6fe1e",
+    "t2a-pt-path/stub.jsonl": "ecb37f25cbb36f09923a72b7f2fffef0bfcfffced6a3e7964e9b96ba9507bd69"
+   }
+  },
+  {
+   "name": "t2a-pt-token",
+   "source": "local: stub_api.py scenario pt_token via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "UnknownApiError",
+   "files_sha256": {
+    "t2a-pt-token/containers.txt": "d9eee5712ab84133f59d7e9399ccee10e2de9f866f3b7912c6c3b8991ce70a50",
+    "t2a-pt-token/egress-recording-task__8whcrdr__env_harbor-docker-egress-control-sidecar_1.log": "73d8551c58384d58c0e784ca388c2fdf2f5c25eea9e8d45735741d768cd9e5c3",
+    "t2a-pt-token/jobs/2026-11-14__14-32-13/recording-task__8wHCRdr/agent/claude-code.txt": "9d208830450595ec54196727f8554a4a0de13f36c96169f6fd5ef08a7406a881",
+    "t2a-pt-token/jobs/2026-11-14__14-32-13/recording-task__8wHCRdr/agent/sessions/projects/-app/f5ae1702-6695-4a7b-b73b-0b8236ea4676.jsonl": "4a22febe83c66c1e900eb300a6171fdace699a0447cdac62221c99aa2f790126",
+    "t2a-pt-token/jobs/2026-11-14__14-32-13/recording-task__8wHCRdr/exception.txt": "35f032b8415a397dd8c6a24859d5799db5bea7ba17d7d690072730cb336ae880",
+    "t2a-pt-token/jobs/2026-11-14__14-32-13/recording-task__8wHCRdr/result.json": "06e42fde20155c9f88739b5cd5e46a8f78e8a7174cd7b9e824e4ce275840b707",
+    "t2a-pt-token/stub.jsonl": "74737e882630f4036a78f2e96cdde56102938361ab2914912e86d6b40348b743"
+   }
+  },
+  {
+   "name": "t2a-usage-limit-low",
+   "source": "local: stub_api.py scenario usage_limit via record.sh (relay route, Task 2a), AUTH=token STUB_ARGS=\"--delay 60\"",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "NonZeroAgentExitCodeError",
+   "files_sha256": {
+    "t2a-usage-limit-low/jobs/2026-11-14__12-57-27/recording-task__cz5ViQx/agent/claude-code.txt": "2c8e9113f987578a7f77b6558cc1e6c23f4030167526e5fc0ae3fed84456892d",
+    "t2a-usage-limit-low/jobs/2026-11-14__12-57-27/recording-task__cz5ViQx/agent/sessions/projects/-app/f794f35f-f267-4a37-a52c-ab7890b36c9b.jsonl": "d9789e32c39e81a3312adfe1e57b9a3b01e72f55c788b4f01df202e947ce0084",
+    "t2a-usage-limit-low/jobs/2026-11-14__12-57-27/recording-task__cz5ViQx/exception.txt": "28fb95cbfb50350db4cdd9ba78ccb25087631d358de02439d68525f7df603b56",
+    "t2a-usage-limit-low/jobs/2026-11-14__12-57-27/recording-task__cz5ViQx/result.json": "9f85698906daea6c96e5cedadca9026bf14f6519941b260fe193b44eeb1b33ab",
+    "t2a-usage-limit-low/stub.jsonl": "7a7d94f3363cdf3e19b335c4dcd3a917a5457d083bf6c5fd0e22d022dc1aad63"
+   }
+  },
+  {
+   "name": "t2a-unauthorized-low",
+   "source": "local: stub_api.py scenario unauthorized via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "UnknownApiError",
+   "files_sha256": {
+    "t2a-unauthorized-low/jobs/2026-11-14__13-06-01/recording-task__rWcRQJm/agent/claude-code.txt": "4af4d2264e2a2f4c45aedee59ef8145e57227525315560ffa7a3ab499e0293c1",
+    "t2a-unauthorized-low/jobs/2026-11-14__13-06-01/recording-task__rWcRQJm/agent/sessions/projects/-app/9008d8b4-6a06-4f76-8650-d43922d36c21.jsonl": "a7f665ef6bc8a9d7218714724ca6b6a5a35fc7c7316c17efb0097bfabd1a17c6",
+    "t2a-unauthorized-low/jobs/2026-11-14__13-06-01/recording-task__rWcRQJm/exception.txt": "dff58474d910008786198f0daf838131c6f27a5f465cd8458ce01ccc3ffbe966",
+    "t2a-unauthorized-low/jobs/2026-11-14__13-06-01/recording-task__rWcRQJm/result.json": "9c40997e060b2aa443e7143f4df5d145b12f2949ebd9acf81e8164a9c64e0b0a",
+    "t2a-unauthorized-low/stub.jsonl": "bee3db8c9ff63e2cfe306165a9b3e3f97dc65f57e3859191b2d7b0e94b9b3e72"
+   }
+  },
+  {
+   "name": "t2a-f-rate-limit-retry-after",
+   "source": "local: stub_api.py scenario rate_limit_retry_after via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "ApiRateLimitError",
+   "files_sha256": {
+    "t2a-f-rate-limit-retry-after/containers.txt": "d62b5786da4218c89ff0686014bd18d690e1a905797a3ddefa66e1ad08f42e6a",
+    "t2a-f-rate-limit-retry-after/egress-recording-task__d2u5niw__env_harbor-docker-egress-control-sidecar_1.log": "1740bed0c97c426897c14dec4b5c0857fb1203f7ecaf9f25d588fdb6650e7d05",
+    "t2a-f-rate-limit-retry-after/jobs/2026-11-14__13-14-39/recording-task__d2U5NiW/agent/claude-code.txt": "c3ad7f8e81b9b390b28dfd405aea0a6fdfa2d6a970c8064ceb37cdbcb8a19630",
+    "t2a-f-rate-limit-retry-after/jobs/2026-11-14__13-14-39/recording-task__d2U5NiW/agent/sessions/projects/-app/4b0e687b-a223-482c-aa11-794de0169eee.jsonl": "560240db2bde05d80f0536deb4bbac047209b68442d84c049542d89fb81d9e19",
+    "t2a-f-rate-limit-retry-after/jobs/2026-11-14__13-14-39/recording-task__d2U5NiW/exception.txt": "95dd12d5ce4fcaeaf99945e536118191127bff627d31dc8ec5316a5a58ecb3e0",
+    "t2a-f-rate-limit-retry-after/jobs/2026-11-14__13-14-39/recording-task__d2U5NiW/result.json": "304f77cb83346181b407d819125124a86125b1b38f9c6227a2351997e8547a4f",
+    "t2a-f-rate-limit-retry-after/stub.jsonl": "4129078ba3dbaa7bfc152bd2511974d2e0f988677888c13c511e4439b0aba082"
+   }
+  },
+  {
+   "name": "t2a-f-rate-limit",
+   "source": "local: stub_api.py scenario rate_limit via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "ApiRateLimitError",
+   "files_sha256": {
+    "t2a-f-rate-limit/containers.txt": "c23ee78aedb1aab6b65dba36f364833e0fb11634029f7630a842dc0a55f7329e",
+    "t2a-f-rate-limit/egress-recording-task__vecnmfy__env_harbor-docker-egress-control-sidecar_1.log": "8d2be1c55ba9dfe502a10f76fcde8e027f05ac59f042bb68cc0b0d83f67f6ab5",
+    "t2a-f-rate-limit/jobs/2026-11-14__13-27-03/recording-task__VECNmfy/agent/claude-code.txt": "0e129d176571b38d6e58050736764906abc175c9be70470437134ac65a6c4338",
+    "t2a-f-rate-limit/jobs/2026-11-14__13-27-03/recording-task__VECNmfy/agent/sessions/projects/-app/e2ac1ddc-04e1-4731-96f0-13feb7fae3fd.jsonl": "6a347a501c4eba19258845ae4386761fa2c1c60a74e5a076b5739c77f8dd19d4",
+    "t2a-f-rate-limit/jobs/2026-11-14__13-27-03/recording-task__VECNmfy/exception.txt": "ac3fcdfb3c294f3561388d6537489fe5b52ddfda8cc67a534a0958dcecf493cb",
+    "t2a-f-rate-limit/jobs/2026-11-14__13-27-03/recording-task__VECNmfy/result.json": "1a757ddee8b1e919a18a15480d03be4f67f1302b0d6264f58daa8bd9d575574b",
+    "t2a-f-rate-limit/stub.jsonl": "034d86ee79ae3d216c2b7ac704bbea70c92c20ea1f47893e267b89f1e78b30b2"
+   }
+  },
+  {
+   "name": "t2a-f-overloaded",
+   "source": "local: stub_api.py scenario overloaded via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "UnknownApiError",
+   "files_sha256": {
+    "t2a-f-overloaded/containers.txt": "23515fb8773c3cf6478ec2fcaffff170fdd1ef9dc89c11ff3af2e07b5a74905c",
+    "t2a-f-overloaded/egress-recording-task__tiamz3o__env_harbor-docker-egress-control-sidecar_1.log": "fa040b861f184b8179ab31c90125ddc022ada33cb0d4728d6c6ad8d4b6651705",
+    "t2a-f-overloaded/jobs/2026-11-14__13-34-37/recording-task__tiaMZ3o/agent/claude-code.txt": "f97d322cf0bfe3c13f9c4acda24e1d22a396247f0e05e07d936fe0a0ca10da7f",
+    "t2a-f-overloaded/jobs/2026-11-14__13-34-37/recording-task__tiaMZ3o/agent/sessions/projects/-app/c0d64ba7-b624-4d47-bdba-db7755602a4d.jsonl": "5689ebc7629ab422ce25f269d34d49359af53ec833510194d03e288237a2807f",
+    "t2a-f-overloaded/jobs/2026-11-14__13-34-37/recording-task__tiaMZ3o/exception.txt": "2bd5b17ea0a25998362208b960b245f71bd432dde9419dc0324b352cb564e380",
+    "t2a-f-overloaded/jobs/2026-11-14__13-34-37/recording-task__tiaMZ3o/result.json": "a494cd83ae6c3470d498ffdd8a39274dde8c63348a56a7b797e0fc46b97bface",
+    "t2a-f-overloaded/stub.jsonl": "e22176da83644a6204244e13f35e1ec64c1116e9a6f9ad640f63450d5effc4b6"
+   }
+  },
+  {
+   "name": "t2a-f-server-error",
+   "source": "local: stub_api.py scenario server_error via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "ApiInternalServerError",
+   "files_sha256": {
+    "t2a-f-server-error/containers.txt": "1d243a319d52c70f231d2c391cdf172c024fa9286d92cee63bed36a45ec0ab3f",
+    "t2a-f-server-error/egress-recording-task__ujgm7pn__env_harbor-docker-egress-control-sidecar_1.log": "6799e599836902ddc23d0a5d8d39aa0034e3622b106d825f32f45d9aacc968ae",
+    "t2a-f-server-error/jobs/2026-11-14__13-42-17/recording-task__UjGm7pN/agent/claude-code.txt": "1297a003e3c949015c69944ed2064470e789323741ce2a004cc7d5e0864706d8",
+    "t2a-f-server-error/jobs/2026-11-14__13-42-17/recording-task__UjGm7pN/agent/sessions/projects/-app/a43cc7e2-8b5a-471f-849a-d47525ece763.jsonl": "f0e04d88bd561243b9e6666617ab599238df52f205b7fe6752ed2db968f6715f",
+    "t2a-f-server-error/jobs/2026-11-14__13-42-17/recording-task__UjGm7pN/exception.txt": "e5f5a50ebf5ee2a4cf5870d9fabe9d13d62a2b76961d1002a5d5680a86755fde",
+    "t2a-f-server-error/jobs/2026-11-14__13-42-17/recording-task__UjGm7pN/result.json": "903da94bdaff1a2203a01a553deadbeafc9b7cf715e6fc0282f54b916a3efecd",
+    "t2a-f-server-error/stub.jsonl": "f58661428c58071b73365c24e748400efe2bda743beb8ad58ec590f96ea90381"
+   }
+  },
+  {
+   "name": "t2a-f-drop",
+   "source": "local: stub_api.py scenario drop via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-f-drop/containers.txt": "5075866387028693a1943b2b87461ef39b55809f44d9ae6cc0cc12173f502dad",
+    "t2a-f-drop/egress-recording-task__qoukjhx__env_harbor-docker-egress-control-sidecar_1.log": "01e31094691aee1ae3fb5795b70a08d511b0b582b32fbd55be86a9018dc9b8da",
+    "t2a-f-drop/jobs/2026-11-14__13-54-12/recording-task__QoUKjhx/agent/claude-code.txt": "627cfcc8dedfe09660f54b9aa94e5211908c092ee943c2babdfb2d9f4eb7b0f4",
+    "t2a-f-drop/jobs/2026-11-14__13-54-12/recording-task__QoUKjhx/agent/sessions/projects/-app/65764d25-9c0b-406f-84ed-328493374dca.jsonl": "a424e0b29dead0c1450c27a3a620cfb24bf8df9a8f64cb1398c3d4e8810c04cf",
+    "t2a-f-drop/jobs/2026-11-14__13-54-12/recording-task__QoUKjhx/result.json": "8fd62d98e01574e3e23f7073c1b3f0e774ba7a8bfa81098576f769dea125ca58",
+    "t2a-f-drop/stub.jsonl": "c8eaa68f682b5477ce728510753e4b5662e3a2cb58da47f16bec624b6ac278b4"
+   }
+  },
+  {
+   "name": "t2a-f-slow",
+   "source": "local: stub_api.py scenario slow via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "UnknownApiError",
+   "files_sha256": {
+    "t2a-f-slow/containers.txt": "424020c2c4e1c875140ac18e1599cb00b34a0c65222cddae64970cd32ddd4706",
+    "t2a-f-slow/egress-recording-task__tqy7hov__env_harbor-docker-egress-control-sidecar_1.log": "8c552599f0cbdeb0d09e71e20e2f11a00825f606897d3e90cb63e1e2be5cbdb6",
+    "t2a-f-slow/jobs/2026-11-14__14-00-18/recording-task__tQy7hoV/agent/claude-code.txt": "a7278c27ad7e5019541d79fc518c892263ca671ef2f866326b4172c5a7550edb",
+    "t2a-f-slow/jobs/2026-11-14__14-00-18/recording-task__tQy7hoV/agent/sessions/projects/-app/9093054b-bb74-44eb-afc0-8a4c47a69352.jsonl": "37c13e90020f0f3d4695e135bc8a3d28bacfd8e6d40a51eb623252bd9b7a3ed0",
+    "t2a-f-slow/jobs/2026-11-14__14-00-18/recording-task__tQy7hoV/exception.txt": "f960c3526475be0a91175c3fcbda6596992cb6bb8ab2476b985ee4594253db62",
+    "t2a-f-slow/jobs/2026-11-14__14-00-18/recording-task__tQy7hoV/result.json": "093d8171f8189f47b204c2b4ed500e81bcbd973006e9e7cfd4f6834182c9a982",
+    "t2a-f-slow/stub.jsonl": "5df938e97631b926078ba65674ea4cc28c6477172faf499e90c61287dc2e5bf7"
+   }
+  },
+  {
+   "name": "t2a-f-transient",
+   "source": "local: stub_api.py scenario transient via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-f-transient/containers.txt": "2bc5b11ffd2193096fc8d8c4d83a80b3400c114211e4d5133cb5911b28d17839",
+    "t2a-f-transient/egress-recording-task__ldbuh2e__env_harbor-docker-egress-control-sidecar_1.log": "9878fb68fb2033d03277796f099fd6bf2f710195d8bee96f98565432186bdfab",
+    "t2a-f-transient/jobs/2026-11-14__14-12-33/recording-task__LDbuH2E/agent/claude-code.txt": "3f8004b12348f6f08f3740b1f5b90240ce7c8438d4601ef9bed1c876fb5c4fac",
+    "t2a-f-transient/jobs/2026-11-14__14-12-33/recording-task__LDbuH2E/agent/sessions/projects/-app/d0953a15-d5a8-4cd1-9561-bd62ee8027c3.jsonl": "3ffb95ce334e839fb7f782c5a9947768067ca757d7c7451994554af07bb8c1e1",
+    "t2a-f-transient/jobs/2026-11-14__14-12-33/recording-task__LDbuH2E/result.json": "d900146c6b0451cb34e7ab6caafaae52de14dc57dd499681b016144e14535e3d",
+    "t2a-f-transient/stub.jsonl": "c39f91eed7266daa645783a6469a956a0de0ab63b665e1fdf9361ee56178c9c5"
+   }
+  },
+  {
+   "name": "t2a-pt-cap",
+   "source": "local: stub_api.py scenario pt_cap via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "UnknownApiError",
+   "files_sha256": {
+    "t2a-pt-cap/containers.txt": "68f4d6089c3fada47e77f8455d6026a9706718d7844415054eb9d7c43f644162",
+    "t2a-pt-cap/egress-recording-task__yjtcnq8__env_harbor-docker-egress-control-sidecar_1.log": "b35c38955b01cf5ed94eae272c26aefd31da75db349202e888085664c01331e6",
+    "t2a-pt-cap/jobs/2026-11-14__14-17-36/recording-task__yJTcNq8/agent/claude-code.txt": "fd9027e646cdf97385968ac33f4c948e770988b01f0d0c1c32d6338e2f8fc3db",
+    "t2a-pt-cap/jobs/2026-11-14__14-17-36/recording-task__yJTcNq8/agent/sessions/projects/-app/12c91515-e14c-4bba-a803-acfbf089ff7e.jsonl": "44c62756c0071895d2d8a0aff25df28805ad864b681e8287329906359083219b",
+    "t2a-pt-cap/jobs/2026-11-14__14-17-36/recording-task__yJTcNq8/exception.txt": "da2d7a33d101ce7472f235c9c1c847a93f00a4fe347b15bbef5cee0fe0923cb9",
+    "t2a-pt-cap/jobs/2026-11-14__14-17-36/recording-task__yJTcNq8/result.json": "0278419b57fff689fcc590a55149792ce5213ad92e00821e35aec293a6b4402d",
+    "t2a-pt-cap/stub.jsonl": "0ece480f326d911d6d2288dc4252e4d078aefb6891bb01d10e0f575f60a69b8b"
+   }
+  },
+  {
+   "name": "t2a-pt-total",
+   "source": "local: stub_api.py scenario pt_total via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "UnknownApiError",
+   "files_sha256": {
+    "t2a-pt-total/containers.txt": "b9db93bde78361e52cb5ae361e206e364b89b58de58be573f99fc9b063035aec",
+    "t2a-pt-total/egress-recording-task__nf38hab__env_harbor-docker-egress-control-sidecar_1.log": "ef700fff8239fc7caced898a04326ed50a2260a218490a8ddd7f67ca807cc328",
+    "t2a-pt-total/jobs/2026-11-14__14-22-50/recording-task__NF38HaB/agent/claude-code.txt": "c543a0e06c7b0a56fd4e85faca253c071dfe0b61be5cf5ece3423a9bfa1df13d",
+    "t2a-pt-total/jobs/2026-11-14__14-22-50/recording-task__NF38HaB/agent/sessions/projects/-app/fc0927f8-d9c7-4290-973a-96d175526a06.jsonl": "32825630324aa5436d22dc8af0bfcfc4a6a14c2ea33a60010968c13a9466cdcf",
+    "t2a-pt-total/jobs/2026-11-14__14-22-50/recording-task__NF38HaB/exception.txt": "2bed9fdfdec20867e5fd0b45c9bf9ebee4711a09cd7e9189588743792e3e97b9",
+    "t2a-pt-total/jobs/2026-11-14__14-22-50/recording-task__NF38HaB/result.json": "fe1c6198f38c73b72cad44520af1d5c790775848f2c19ca5a6f5ef8e4437a8e7",
+    "t2a-pt-total/stub.jsonl": "76dd14bf139aa9ce2322b912cb53da94cfd95bdd5a53a75f9728c7310bf7913e"
+   }
+  },
+  {
+   "name": "t2a-pt-stopped",
+   "source": "local: stub_api.py scenario pt_stopped via record.sh (relay route, Task 2a), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "UnknownApiError",
+   "files_sha256": {
+    "t2a-pt-stopped/containers.txt": "ce79af576eda927de58f2e34c0adc0079ee741a84915a06f786557cab474648d",
+    "t2a-pt-stopped/egress-recording-task__a2csext__env_harbor-docker-egress-control-sidecar_1.log": "416051ae76e8eb079aa987c76e815188c51d88312b6bd5da96bb5c3135eb1dea",
+    "t2a-pt-stopped/jobs/2026-11-14__14-26-47/recording-task__a2cSEXT/agent/claude-code.txt": "2938caa51108bf12b0c4508f9ce8dd1054289db589dc3c3e002530deaa4ddd76",
+    "t2a-pt-stopped/jobs/2026-11-14__14-26-47/recording-task__a2cSEXT/agent/sessions/projects/-app/aa46d3d3-46a6-41b5-aa72-ee1dc6736c9d.jsonl": "4b049c556d87d599a89a2b6cc7fb14f5208cefd66318668b25212eaf0ee324f6",
+    "t2a-pt-stopped/jobs/2026-11-14__14-26-47/recording-task__a2cSEXT/exception.txt": "8627dea2b379e9d1e069ef461f57a472593b3ad081cac2f79247d655fc5eda8b",
+    "t2a-pt-stopped/jobs/2026-11-14__14-26-47/recording-task__a2cSEXT/result.json": "dbd916a7835b397cf2bbf6500b704eee67e0cd5debc99bbbbf3e6a4a472fa913",
+    "t2a-pt-stopped/stub.jsonl": "0ab93b25ee08d48bd77b1b93c8e037433ee6a4ae42fa6ac154193a562da77a9e"
+   }
+  },
+  {
+   "name": "t2a-strace-low",
+   "source": "local: stub_api.py scenario normal via record.sh (relay route, Task 2a), AUTH=token STRACE=1 STUB_ARGS=\"--watch deep-research,dataviz,update-config,verify,debug,code-review,simplify,batch,fewer-permission-prompts,doctor,loop,schedule,claude-api,workflow-authoring,run,run-skill-generator,plugin-authoring,claude,Explore,general-purpose,Plan,statusline-setup\"",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-strace-low/containers.txt": "b62ae1b14cb54fe65c9f751d30c95860f58c125d04d2938f2a4d5968681650c1",
+    "t2a-strace-low/egress-recording-task__dnmkfb9__env_harbor-docker-egress-control-sidecar_1.log": "88712d05858215dd7963d8104eb118e270182b6be9e5d06b52d25bdbd2aac8d5",
+    "t2a-strace-low/jobs/2026-11-14__14-47-24/recording-task__dNmkFB9/agent/claude-code.txt": "2aa78ba366515e52096c6792d38de0acca4e18829b354a8120aac445d2cbad1d",
+    "t2a-strace-low/jobs/2026-11-14__14-47-24/recording-task__dNmkFB9/agent/sessions/projects/-app/95c09107-3772-40a8-b8d9-0cca9c6d3a54.jsonl": "d8177f388bb8b79a267e8fec20010c39e8d508a426536ce143cafa2c79f53136",
+    "t2a-strace-low/jobs/2026-11-14__14-47-24/recording-task__dNmkFB9/result.json": "e01b9dabc7a5df56a30638db7e166af54eaacd364945bf404cda61ddff24c536",
+    "t2a-strace-low/strace-target.txt": "1ce3c1dda2b7cd133a3cf3129ebfc3baf1233ea52e01c4d6e7ad49b43a0ecba9",
+    "t2a-strace-low/strace.2834574": "6cd1b91229338dffd236c2eccb7f597e1884ae9dbfca55dc46895dc286fceeeb",
+    "t2a-strace-low/strace.err": "c0f356ca0bf5940d360ae73b1b760b6f0c87d3af47a4247a9818556c90713284",
+    "t2a-strace-low/stub.jsonl": "fdb2f908102d3fe6598a8b8ea6c205272e97c689ef6f06e1ce11b24428a43613"
+   }
+  },
+  {
+   "name": "t2a-simple-key-sizes",
+   "source": "local: stub_api.py scenario normal via record.sh (relay route, Task 2a), AUTH=key STUB_ARGS=\"--watch deep-research,dataviz,update-config,verify,debug,code-review,simplify,batch,fewer-permission-prompts,doctor,loop,schedule,claude-api,workflow-authoring,run,run-skill-generator,plugin-authoring,claude,Explore,general-purpose,Plan,statusline-setup\"",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ae CLAUDE_CODE_SIMPLE=1 --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-simple-key-sizes/containers.txt": "3178a931df0ceed7035153f300312dec1c50bab6742317f519f1f22a699f16f7",
+    "t2a-simple-key-sizes/egress-recording-task__cg96jtb__env_harbor-docker-egress-control-sidecar_1.log": "513a6e7724fb821e3b574cdb1736b702a66e82da9adfb11ef2a07da451bad42a",
+    "t2a-simple-key-sizes/jobs/2026-11-14__14-42-29/recording-task__CG96JtB/agent/claude-code.txt": "0ec1bdb14703776e3cd251eab31f37e02305c2441c7c6eb0f5b40924fcf1edf1",
+    "t2a-simple-key-sizes/jobs/2026-11-14__14-42-29/recording-task__CG96JtB/agent/sessions/projects/-app/09d95791-8546-44b7-8f88-1c1f63c8f735.jsonl": "bb7ef6550468505f7af3dbc3610cf10ec15eada6ada0aea9e232658c8b5643a1",
+    "t2a-simple-key-sizes/jobs/2026-11-14__14-42-29/recording-task__CG96JtB/result.json": "1bf78ea8ea94b00836ade390d91e8ecbbed3ad2b443ab873adb41d873368aaba",
+    "t2a-simple-key-sizes/stub.jsonl": "46082d2374f3974c6302da45de370f795d1a010b1f13f2800c990eaa3c8ff231"
+   }
+  },
+  {
+   "name": "t2a-probe-relay-oracle",
+   "source": "local: stub_api.py scenario normal via record.sh (relay route, Task 2a)",
+   "harbor_args": "--agent oracle --disable-verification",
+   "cli_version": null,
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-probe-relay-oracle/containers.txt": "212f73d66adf6f23d258082c51d1e3c2c832699f09f29b08ba75e7274c4353d0",
+    "t2a-probe-relay-oracle/egress-recording-task__lcptkge__env_harbor-docker-egress-control-sidecar_1.log": "25dbf9f1d840efa9601f380394efcb8b2e7c7797e9cbc964ca1a29acc0ec7e6c",
+    "t2a-probe-relay-oracle/jobs/2026-11-14__12-45-34/recording-task__LcPTkge/agent/oracle.txt": "5e2ef1cac7ec7f26b9361b65517fa6bffac64c6adc6a22a44f527777a8ec4b5f",
+    "t2a-probe-relay-oracle/jobs/2026-11-14__12-45-34/recording-task__LcPTkge/result.json": "8f19bd64ad96bc29b220fa6e3cb6d86896ded90354cdabf9ca79ca9c825bfd08",
+    "t2a-probe-relay-oracle/stub.jsonl": "c7ab745f01145d2ed0dd2a2dd9158c4c86aa5bd318f14e764ef989641e5f8899"
+   }
+  },
+  {
+   "name": "t2a-fix1-probe-relay-oracle",
+   "source": "local: stub_api.py scenario normal (oracle agent runs allowlist_probe.py) via record.sh (relay route, Task 2a fix round 1, before its recordings)",
+   "harbor_args": "--agent oracle --disable-verification",
+   "cli_version": null,
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-fix1-probe-relay-oracle/containers.txt": "7e38d91e998583523eed27ca4a9287ed1ae0713ee3880ae1fa05a4b62d3fb611",
+    "t2a-fix1-probe-relay-oracle/egress-recording-task__mkmr2v2__env_harbor-docker-egress-control-sidecar_1.log": "5e52e58caaeb15a8fa1dc1b6cc7eb423818c27acb5da703c3e0e645acf07544d",
+    "t2a-fix1-probe-relay-oracle/jobs/2026-11-14__15-47-28/recording-task__mkmr2v2/agent/oracle.txt": "c4ca3be83a52dc5bd60558257c916b217fd4cb9d419a5b5670af86c8862804a1",
+    "t2a-fix1-probe-relay-oracle/jobs/2026-11-14__15-47-28/recording-task__mkmr2v2/result.json": "3ff320f797138e3c54a6568f09df09f156dcd80ec706fb4f4a219b43d1ffceb5",
+    "t2a-fix1-probe-relay-oracle/stub.jsonl": "c7ab745f01145d2ed0dd2a2dd9158c4c86aa5bd318f14e764ef989641e5f8899"
+   }
+  },
+  {
+   "name": "t2a-strace-decoy-low",
+   "source": "local: stub_api.py scenario normal via record.sh (relay route, Task 2a fix round 1), AUTH=token DECOY=1",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": null,
+   "files_sha256": {
+    "t2a-strace-decoy-low/canary.txt": "8881ec40e8c6f2d2cb2422b549e3ea0b4bc6590adfa0c8d6fa62933fa8cae017",
+    "t2a-strace-decoy-low/containers.txt": "5ae0cf1d04bd9e031517f99f1b07f279c793960be8f1596e828b1dc10541459c",
+    "t2a-strace-decoy-low/egress-recording-task__67uxcpe__env_harbor-docker-egress-control-sidecar_1.log": "444330857b2c9aba3800aca07d23c56dd807ca4d726127164b823d639a3c904a",
+    "t2a-strace-decoy-low/jobs/2026-11-14__15-55-05/recording-task__67UxCPE/agent/claude-code.txt": "4be79adf123e67fba32a3b90d9286bb71999fd00ae23836b0bf9caf32f8c4cc0",
+    "t2a-strace-decoy-low/jobs/2026-11-14__15-55-05/recording-task__67UxCPE/agent/sessions/.credentials.json": "8c9fde4d0d009ef28bf98a214cb4b77786371968be3ee43d6e70416570855efc",
+    "t2a-strace-decoy-low/jobs/2026-11-14__15-55-05/recording-task__67UxCPE/agent/sessions/projects/-app/94e947dd-29ff-4497-98a7-88a60dddf0c1.jsonl": "aa0be671b51baccf1c63f98ff42978052deb8fc2ba07f5e37c644b16292e5fcf",
+    "t2a-strace-decoy-low/jobs/2026-11-14__15-55-05/recording-task__67UxCPE/result.json": "8dfdea4ba237af0b1f4e68ffd68f6a6795510d3022ef65e7d9b44be44d616ca7",
+    "t2a-strace-decoy-low/strace.cli": "488fc881e23a9513f180b78e3973df6f4d942d8c49de22598b43bf1fb94debcb",
+    "t2a-strace-decoy-low/stub.jsonl": "634aa8c3d7d6efe8ab4adf4922469d9d9b6c93488273964012085850193e11c9"
+   }
+  },
+  {
+   "name": "t2a-pt-token-first",
+   "source": "local: stub_api.py scenario pt_token_first via record.sh (relay route, Task 2a fix round 1), AUTH=token",
+   "harbor_args": "--agent claude-code --agent-setup-timeout-multiplier 3 --ak version=2.1.311 --ak disallowed_tools=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write --ae CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000 --disable-verification --agent-timeout-multiplier 0.05 --effort low",
+   "cli_version": "2.1.311",
+   "harness_exception": "UnknownApiError",
+   "files_sha256": {
+    "t2a-pt-token-first/containers.txt": "f5c2aa3bc29ef72ac742ab44b02613c5d8d3e6d371b09091a9d0d5b5e23dad1a",
+    "t2a-pt-token-first/egress-recording-task__8kpzq3w__env_harbor-docker-egress-control-sidecar_1.log": "3814bb00f655e4481f5e6c21e73ac4df6f434b9329bd4c318fb311ab486b530b",
+    "t2a-pt-token-first/jobs/2026-11-14__16-01-17/recording-task__8KpzQ3W/agent/claude-code.txt": "35ce9d541ea036ae34736ec9abf9ad8e709ca00f63ad546b762ac546afeff335",
+    "t2a-pt-token-first/jobs/2026-11-14__16-01-17/recording-task__8KpzQ3W/agent/sessions/projects/-app/4ec91784-2cb2-4991-a4b0-880d1ac1cb19.jsonl": "a783b4cc11489636014621be30c9a6ce2b4b99769235cf1d88d93ecfb9f1e0ca",
+    "t2a-pt-token-first/jobs/2026-11-14__16-01-17/recording-task__8KpzQ3W/exception.txt": "081bdfcc030221a8212bf0f63fd75949c24ac0d2d126f3c392b475c31ffccf08",
+    "t2a-pt-token-first/jobs/2026-11-14__16-01-17/recording-task__8KpzQ3W/result.json": "e67fc1f6cd4911fa9d7301456a6804295d320fd8c7434491f7379619ede03d86",
+    "t2a-pt-token-first/stub.jsonl": "55a89dbf6a06bb19222fd6fffae30c248e69e7378020a26fbe066bfc44491294"
+   }
   }
  ]
 }
