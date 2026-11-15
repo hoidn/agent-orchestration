@@ -70,8 +70,6 @@ def test_reusable_result_bundle_delegates_exact_unframed_json(
     ]
     assert json.loads(capsys.readouterr().out) == payload
 VALID_REVIEW_LOOP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_review_loop.orc"
-# The review-loop fixture at 2.35 with its exact effect clauses, for the one test whose refusal code
-# depends on the target (Task 4b).
 VALID_PHASE_SCOPE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_scope_stdlib_targets.orc"
 VALID_NESTED_IMPLEMENTATION_PHASE_FIXTURE = FIXTURES / "valid" / "design_delta_nested_implementation_phase.orc"
 VALID_NESTED_SAME_FILE_CALL_FIXTURE = (
