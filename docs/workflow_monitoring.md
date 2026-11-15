@@ -175,6 +175,12 @@ reports `FAILED`, `CRASHED`, or `STALLED`. For a historical flat-route run,
 read its `state.json` directly, or run the old readers from a worktree of the
 git tag `archive/retired-run-readers-2026-11-11`.
 
+For a run recorded at target 2.35–2.39 the message and the dashboard's run page
+still offer `report`, and in place of the `resume` command they show the
+`run_target_retired` refusal that `resume` would print: this release reads such
+a run and does not continue it. Finish it with the release tagged `v0.2.1`
+([migration](lisp_workflow_drafting_guide.md#migrating-from-an-older-target)).
+
 ## Tokens And Cost Of A Run
 
 To record what a run costs, bind its provider steps to metered templates in

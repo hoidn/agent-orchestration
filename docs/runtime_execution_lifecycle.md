@@ -141,7 +141,8 @@ ordinal, never by rewriting the old one.
 A run recorded at target 2.35–2.39 is not continued. `resume`, with or without
 `--accept-changes`, reads the stored program's `target` first and refuses with
 `run_target_retired`, exit 2, before any lock or write; `invalidate`,
-`input answer`, `input cancel` and REPL attach refuse the same way. Finish such
+`input answer` and `input cancel` refuse the same way, and REPL attach refuses
+with the same code (inside a session it prints the refusal and continues). Finish such
 a run with the release tagged `v0.2.1`, or start a new run from
 [migrated source](lisp_workflow_drafting_guide.md#migrating-from-an-older-target).
 `report`, the dashboard and the monitor still read it.
