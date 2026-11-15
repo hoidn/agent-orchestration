@@ -198,17 +198,22 @@ def candidates(study, tranche, arm, tasks):
         raise SystemExit(f"{tranche} runs {sorted(PLANNED[tranche])}, not {arm}")
     rules.enforce(study, tranche)
     spec, entries = load_arms(study)[arm], spend.starts(spend.rows(study.ledger))
+    planned, limits = slot_limits(study, entries, tranche, arm, tasks)
+    jobs = due_jobs(entries, tranche, arm, spec, planned, limits)
+    return run_jobs(jobs, lambda task: one_run(study, tranche, arm, spec, task, fixes[task], limit=limits[task]))
+
+
+def slot_limits(study, entries, tranche, arm, tasks):
+    """({task: planned starts of `arm`}, {task: the starts it may have}). A probe run of a chosen package (the same
+    id is the same form) that is not an incident is the first of its Haiku direct runs; a planned slot cut by a
+    usage limit runs once more, except in the smoke (a cut fails the smoke)."""
     facts = {str(path.parent): load(path) for path in study_runs(study)}
     probed = [f for f in facts.values() if f["tranche"] == "redraw" and "incident" not in f and "cut" not in f]
-
-    # a probe run of a chosen package (the same id is the same form) that is not an incident is the first of its
-    # Haiku direct runs; a planned slot cut by a usage limit runs once more
     planned = {task: PLANNED[tranche][arm] - (sum(f["task"] == task and f["arm"] == arm for f in probed)
                                               if tranche == "calibration" else 0) for task in tasks}
     limits = {task: n + (cut_reruns(entries, facts, tranche, task, arm, n) if tranche != "smoke" else 0)
-              for task, n in planned.items()}  # the smoke never runs a cut slot again: a cut fails the smoke
-    jobs = due_jobs(entries, tranche, arm, spec, planned, limits)
-    return run_jobs(jobs, lambda task: one_run(study, tranche, arm, spec, task, fixes[task], limit=limits[task]))
+              for task, n in planned.items()}
+    return planned, limits
 
 
 def due_jobs(entries, tranche, arm, spec, planned, limits):
@@ -466,28 +471,36 @@ def judge(study, tranche, kind, tasks):
     rules.enforce(study, tranche)
     rules.require_early_look(study, tranche, kind, tasks)
     pools = [out for task in dict.fromkeys(tasks) if (out := layout.current_pool(study, task, kind)).exists()]
+    require_clean_scans(pools)
+    skipped = [why for task in dict.fromkeys(tasks) if (why := judge_pool(study, tranche, kind, task, pools, fixes))]
+    if skipped:  # the other named pools were judged (review3 minor 7)
+        raise SystemExit("no judge started on " + "; ".join(skipped))
+
+
+def require_clean_scans(pools):
+    """Every named pool holds an identity scan with no hit before the first judge launches (review2 M5)."""
     for out in pools:
         scan = out / "records" / "identity-scan.json"
         if not scan.exists() or load(scan).get("hits") != []:
             raise SystemExit(f"{out}: no clean identity scan ({scan}); no judge is launched")
-    skipped = []
-    for task in dict.fromkeys(tasks):
-        out = layout.current_pool(study, task, kind)
-        if out not in pools or layout.cut_judges(out):
-            print(f"{out}: no pool (see its incident), or a judge cut by a usage limit (`pool` rebuilds it once); "
-                  "no judge")
+
+
+def judge_pool(study, tranche, kind, task, pools, fixes):
+    """Launch the task's pool's judges not yet started, one after another; the reason none may start, or None."""
+    out = layout.current_pool(study, task, kind)
+    if out not in pools or layout.cut_judges(out):
+        print(f"{out}: no pool (see its incident), or a judge cut by a usage limit (`pool` rebuilds it once); "
+              "no judge")
+        return None
+    mapping = load(out / "records" / "mapping.json")
+    if why := judge_blocked(study, tranche, out, len(mapping["batches"])):
+        return f"{out}: {why}"
+    for model in gates.JUDGES:
+        if any(row.get("unit") == f"{out}#{model}" for row in spend.rows(study.ledger)):
+            print(f"{out}#{model}: already started, not relaunched")
             continue
-        mapping = load(out / "records" / "mapping.json")
-        if why := judge_blocked(study, tranche, out, len(mapping["batches"])):
-            skipped.append(f"{out}: {why}")
-            continue
-        for model in gates.JUDGES:
-            if any(row.get("unit") == f"{out}#{model}" for row in spend.rows(study.ledger)):
-                print(f"{out}#{model}: already started, not relaunched")
-                continue
-            one_judge(study, tranche, kind, task, out, mapping, model, fixes[task])
-    if skipped:  # the other named pools were judged (review3 minor 7)
-        raise SystemExit("no judge started on " + "; ".join(skipped))
+        one_judge(study, tranche, kind, task, out, mapping, model, fixes[task])
+    return None
 
 
 def judge_blocked(study, tranche, out, batches):
@@ -606,27 +619,39 @@ def judged_of(directory):
 def load_records(study, models, tasks):
     """Records of every summarized pool (results.json and its pooled patches) with each pool incident, plus every
     run that no first pool holds: a natural failure (a failed outcome or a timeout) or an incident."""
-    records, pools, facts = [], [], {str(path.parent): load(path) for path in study_runs(study)}
+    records, pools = [], []
     for directory in sorted((study.results / "pools").glob("*-*")):
-        task, kind = directory.name.rsplit("-", 1)
-        if (directory / "incident.json").is_file():
-            incident = load(directory / "incident.json")
-            pools.append({"task": task, "pool": kind, "incident": incident["reason"],
-                          "excluded_judges": dict.fromkeys(incident["failed_judges"], "judge_failed")})
-            continue
-        results = load(directory / "results.json")
-        hashes = {cid: sha256_file(directory / "patches" / f"{cid}.diff") for cid in results["clones"]}
-        found, info = gates.pool_records(task, kind, results, hashes, models, judged_of(directory))
+        found, info = summarized_pool(directory, models)
         records += found
         pools.append(info)
     pooled = {r["run"] for r in records if r["pool"] == "first"}
-    for run, row in facts.items():  # a run cut by a usage limit is no observation (R1)
+    facts = {str(path.parent): load(path) for path in study_runs(study)}
+    return records + unpooled_runs(facts, pooled, tasks), pools
+
+
+def summarized_pool(directory, models):
+    """(records, pool info) of one summarized pool directory; an incident pool has no records."""
+    task, kind = directory.name.rsplit("-", 1)
+    if (directory / "incident.json").is_file():
+        incident = load(directory / "incident.json")
+        return [], {"task": task, "pool": kind, "incident": incident["reason"],
+                    "excluded_judges": dict.fromkeys(incident["failed_judges"], "judge_failed")}
+    results = load(directory / "results.json")
+    hashes = {cid: sha256_file(directory / "patches" / f"{cid}.diff") for cid in results["clones"]}
+    return gates.pool_records(task, kind, results, hashes, models, judged_of(directory))
+
+
+def unpooled_runs(facts, pooled, tasks):
+    """A record for every calibration run of `tasks` that no first pool holds: a natural failure (a failed outcome
+    or a timeout) or an incident. A run cut by a usage limit is no observation (R1)."""
+    records = []
+    for run, row in facts.items():
         if run not in pooled and row["tranche"] != "smoke" and row["task"] in tasks and "cut" not in row:
             failed = "incident" not in row and (row.get("outcome") == "failed" or row.get("exit") == "timeout")
             records.append({"task": row["task"], "pool": "first", "role": "candidate", "arm": row["arm"],
                             "model": row["model"], "run": run, "patch": None, "hidden": None, "scores": {},
                             "status": "failed" if failed else "incident", "reason": row.get("incident")})
-    return records, pools
+    return records
 
 
 def write_readout(study):
