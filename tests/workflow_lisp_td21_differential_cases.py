@@ -3,14 +3,24 @@
 beside the stand-in command `c`, the provider extern `providers.review` and the prompt `prompts.base`.
 
 `CASES` maps an id to `(run, definitions)`. The families of the reviews of the branch (`td2-`, `td2b-`, `td1-`,
-`extra-`, `r1-`, `b3-`, `left-`) are kept as written there; the `x-` families cross each fixed shape, every loop
-and map operand position and the contexts of a `cond` in a `match` subject with pure and effectful parts.
+`extra-`, `r1-`, `b3-`, `left-`, `rows-`, `m5-`) are kept as written there; the `x-` families cross each fixed
+shape, every loop and map operand position and the contexts of a `cond` in a `match` subject with pure and
+effectful parts.
 
-The expectations file is written from an export of `main` at `e2cbc14c` (the compiler before the fixes):
+The three expectation files under `tests/fixtures/workflow_lisp/` are written by this module's `__main__`, never by
+hand. `td21_differential_main.json` (every case's build) and `td21_differential_bound_values.json` (the bound
+spelling's value of the value-checked cases) come from an export of `main` at `e60b027f`, the compiler before the
+fixes (its `orchestrator/` lowers these programs as that of `e2cbc14c`, where the corpus was first read);
+`td21_differential_pins.json` (the program digest of each case the fixes newly build) comes from the tip of
+`fix/defect-td2-td1` that its ledger row of fix round 3 names. With `F=TREE/tests/fixtures/workflow_lisp`:
 
-    git archive e2cbc14c | tar -x -C EXPORT
-    cd EXPORT && PYTHONPATH=EXPORT python -B TREE/tests/workflow_lisp_td21_differential_cases.py \
-        TREE/tests/fixtures/workflow_lisp/td21_differential_main.json
+    git archive e60b027f | tar -x -C EXPORT
+    cd EXPORT && PYTHONPATH=EXPORT python -B TREE/tests/workflow_lisp_td21_differential_cases.py outcomes \\
+        $F/td21_differential_main.json
+    cd TREE && PYTHONPATH=TREE python -B tests/workflow_lisp_td21_differential_cases.py pins \\
+        $F/td21_differential_main.json $F/td21_differential_pins.json
+    cd EXPORT && PYTHONPATH=EXPORT python -B TREE/tests/workflow_lisp_td21_differential_cases.py bound-values \\
+        $F/td21_differential_pins.json $F/td21_differential_bound_values.json
 """
 
 from __future__ import annotations
@@ -305,6 +315,55 @@ def E(label, result=1, type_="Int"):
 
 PE = f"(defproc pe ((r Int)) -> Shape (variant Shape CIRCLE :r (+ r {E('pe')})))"
 EU = E("u", '{\\"variant\\":\\"A\\",\\"n\\":4}', "U")
+
+
+def _rows():
+    """The four new rows as written in the tip's record, and the still-crashing shapes of the round-2 probes reduced
+    (no `cond`), to place each under a row."""
+    U = "(defunion U (A (n Int)) (B (why String)))"
+    SHAPE = "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))"
+    MK = "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))"
+    ARMS = "((CIRCLE c) c.r) ((SQUARE s) 0)"
+    A3 = 'u={"variant":"A","n":3}'
+    CASES = [
+        ("row-D5-if-match", "((u U)) -> Int (if (= u.variant A) (match u ((A a) a.n) ((B b) 0)) 0)", (U,), (A3,)),
+        ("row-D20-map-argument", f"((n Int)) -> Int (match (mkshape (list/length (list/map ((x (list 1 2))) x))) {ARMS})", (SHAPE, MK), ("n=1",)),
+        ("row-D4-subject-match", f"((u U)) -> Int (match (match u ((A a) (variant Shape CIRCLE :r a.n)) ((B b) (variant Shape SQUARE :side 1))) {ARMS})", (U, SHAPE), (A3,)),
+        ("row-D4-subject-loop", f"() -> Int (match (loop/recur ((s 0)) :max 2 :on-exhausted (variant Shape SQUARE :side 1) (done (variant Shape CIRCLE :r s))) {ARMS})", (SHAPE,), ()),
+        ("k-sub-arg-match", f"((u U)) -> Int (match (mkshape (match u ((A a) a.n) ((B b) 3))) {ARMS})", (U, SHAPE, MK), (A3,)),
+        ("k-sub-arg-match-if-subject", f"((n Int)) -> Int (match (mkshape (match (if (> n 0) (variant U A :n 1) (variant U B :why \"x\")) ((A a) a.n) ((B b) 3))) {ARMS})", (U, SHAPE, MK), ("n=1",)),
+        ("k-sub-arg-match-variant", f"((n Int)) -> Int (match (mkshape (match (variant U A :n n) ((A a) a.n) ((B b) 0))) {ARMS})", (U, SHAPE, MK), ("n=1",)),
+        ("k-operand-match-D1", "((u U)) -> Int (+ 1 (match u ((A a) a.n) ((B b) 3)))", (U,), (A3,)),
+        ("k-letproc-subject-if", f"((n Int)) -> Int (match (let-proc ((f ((k Int)) -> Shape (mkshape k))) (if (> n 1) (f n) (f 0))) {ARMS})", (SHAPE, MK), ("n=1",)),
+        ("k-letproc-subject-arg-if", f"((n Int)) -> Int (match (let-proc ((f ((k Int)) -> Int (+ k 1))) (mkshape (if (> n 0) (f n) 2))) {ARMS})", (SHAPE, MK), ("n=1",)),
+        ("k-letproc-value-if", "((n Int)) -> Int (let-proc ((f ((k Int)) -> Int (+ k 1))) (+ 1 (if (> n 0) (f n) 2)))", (), ("n=1",)),
+        ("k-if-subject", f"((n Int)) -> Int (match (if (> n 1) (mkshape n) (mkshape 0)) {ARMS})", (SHAPE, MK), ("n=1",)),
+    ]
+    return CASES
+
+
+def _m5():
+    """M5: the claims of §16.3's D20-map-argument sentence and of the versioning entry, at their edges."""
+    U = "(defunion U (A (n Int)) (B (why String)))"
+    SHAPE = "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))"
+    MK = "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))"
+    ARMS = "((CIRCLE c) c.r) ((SQUARE s) 0)"
+    D = (U, SHAPE, MK)
+    def E(label, result=1):
+        return f'(command-result c :argv ("python" "c.py" "{label}" "{result}") :returns Int)'
+    MAPC = "(list/map ((x (list 1 2))) (cond ((> x 0) 1) (else 2)))"
+    CASES = [
+        ("map-cond-body-literal", f"((n Int)) -> Int (match (mkshape (list/length {MAPC})) {ARMS})", D, ("n=1",)),
+        ("map-cond-body-sum", f"((n Int)) -> Int (match (mkshape (list/length (list/map ((x (list 1 2 3))) (cond ((> x 1) x) (else 0))))) {ARMS})", D, ("n=1",)),
+        ("map-cond-beside", f"((n Int)) -> Int (match (mkshape (+ (cond ((> n 0) 0) (else 1)) (list/length (list/map ((x (list 1 2))) x)))) {ARMS})", D, ("n=1",)),
+        ("map-if-body", f"((n Int)) -> Int (match (mkshape (list/length (list/map ((x (list 1 2))) (if (> x 0) 1 2)))) {ARMS})", D, ("n=1",)),
+        ("map-serial-cond-body", f"((n Int)) -> Int (match (mkshape (list/length (list/map-effect ((x (list 1 2))) :max 2 (cond ((> x 0) 1) (else 2))))) {ARMS})", D, ("n=1",)),
+        ("map-serial-effect-cond", f"((n Int)) -> Int (match (mkshape (list/length (list/map-effect ((x (list 1 2))) :max 2 (+ {E('m')} (cond ((> x 0) 1) (else 2)))))) {ARMS})", D, ("n=1",)),
+        ("map-effect-beside-cond", f"((n Int)) -> Int (match (mkshape (+ {E('e')} (cond ((> n 0) (list/length (list/map ((x (list 1 2))) x))) (else 0)))) {ARMS})", D, ("n=1",)),
+        ("map-let-binding", f"((n Int)) -> Int (match (let* ((k (list/length (list/map ((x (list 1 2))) x)))) (mkshape k)) {ARMS})", D, ("n=1",)),
+        ("cond-pure-direct", f"((n Int)) -> Int (match (cond ((> n 0) (mkshape 4)) (else (variant Shape SQUARE :side 1))) {ARMS})", D, ("n=1",)),
+    ]
+    return CASES
 
 
 def _x_td2():
@@ -708,7 +767,7 @@ def _x_cond_subject():
 
 def _cases():
     cases, seen = {}, set()
-    for family in (_td2, _td2b, _td1, _extra, _r1, _b3, _left):
+    for family in (_td2, _td2b, _td1, _extra, _r1, _b3, _left, _rows, _m5):
         for case_id, run, definitions, *_inputs in family():
             key = (run, tuple(definitions))
             if key not in seen:
@@ -732,26 +791,30 @@ open(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"], "w").write(sys.argv[2])
 '''
 
 
-def source(case_id: str) -> str:
-    run, definitions = CASES[case_id]
+def source(run: str, definitions: tuple[str, ...]) -> str:
     forms = "\n  ".join((*definitions, f"(defworkflow run {run})"))
     return f'(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n  (defmodule m) (export run)\n  {forms})\n'
 
 
-def observe(case_id: str, root: Path) -> list:
-    """The public build of the case in `root`, which it creates: `["builds", digest]`, `["refused", codes...]`,
-    `["crash", class, place]` or `["traceback", class, place]`."""
-    from orchestrator.workflow_lisp.build import FrontendBuildRequest
-    from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
-    from tests.workflow_lisp_closed_program_helpers import build_outcome
-
+def _install(root: Path, run: str, definitions: tuple[str, ...]) -> None:
     root.mkdir(parents=True)
-    files = {"m.orc": source(case_id), "c.py": COMMAND, "prompt.md": "ASK\n",
+    files = {"m.orc": source(run, definitions), "c.py": COMMAND, "prompt.md": "ASK\n",
              "commands.json": json.dumps({"c": {"stable_command": ["python", "c.py"], "closure": ["c.py"]}}),
              "providers.json": json.dumps({"providers.review": "codex"}),
              "prompts.json": json.dumps({"prompts.base": {"asset_file": "prompt.md"}})}
     for name, text in files.items():
         (root / name).write_text(text, encoding="utf-8")
+
+
+def observe(case_id: str, root: Path, run: str | None = None) -> list:
+    """The public build of the case (or of `run` beside its definitions) in `root`, which it creates:
+    `["builds", digest]`, `["refused", codes...]`, `["crash", class, place]` or `["traceback", class, place]`."""
+    from orchestrator.workflow_lisp.build import FrontendBuildRequest
+    from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
+    from tests.workflow_lisp_closed_program_helpers import build_outcome
+
+    case_run, definitions = CASES[case_id]
+    _install(root, run or case_run, definitions)
     built = []
     outcome = build_outcome(lambda: built.append(build_closed_program_bundle(FrontendBuildRequest(
         source_path=root / "m.orc", source_roots=(root,), entry_workflow="m::run",
@@ -760,12 +823,160 @@ def observe(case_id: str, root: Path) -> list:
     return ["builds", built[0].program.digest] if built else list(outcome)
 
 
+# ---------------------------------------------------------------------------------------------
+# The `let*`-bound spelling of a program, for the value check of what the fixes newly build. Per family:
+# - a `match` subject (D20, `cond` subjects: `td1-d20`, `x-d20`, `x-cond-subject`, `extra-d20`, `r1-b2`, `r1-m2`):
+#   `(let* ((bound_subject S)) (match bound_subject ...))`;
+# - a loop's state seed, `:max` or `:state`, or a serial map's `:max` (D4: `td1-d4`, `x-d4`, `x-op`, `r1-m2b`,
+#   `b3`): each of those operands that is not an atom, bound at the top of the body;
+# - a field read of the subject inside its arm (TD2: `td2`, `x-td2`, `r1-b1`): no `let*`-bound spelling (the
+#   arm's binder is the other spelling, and the fix rewrites to it), so no value check; nor where a D4 operand
+#   holds such a read (`x-d4-*-match-subject-read`): its bound spelling still holds it and does not run on `main`.
+
+def _parse(text: str):
+    """A tiny reader: lists, strings and atoms, enough for these programs."""
+    tokens, i = [], 0
+    while i < len(text):
+        ch = text[i]
+        if ch.isspace():
+            i += 1
+        elif ch in "()":
+            tokens.append(ch)
+            i += 1
+        elif ch == '"':
+            j = i + 1
+            while text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            tokens.append(text[i:j + 1])
+            i = j + 1
+        else:
+            j = i
+            while j < len(text) and not text[j].isspace() and text[j] not in '()"':
+                j += 1
+            tokens.append(text[i:j])
+            i = j
+    stack = [[]]
+    for token in tokens:
+        if token == "(":
+            stack.append([])
+        elif token == ")":
+            done = stack.pop()
+            stack[-1].append(done)
+        else:
+            stack[-1].append(token)
+    return stack[0]
+
+
+def _show(node) -> str:
+    return node if isinstance(node, str) else "(" + " ".join(_show(item) for item in node) + ")"
+
+
+def _first(node, heads):
+    if isinstance(node, list) and node:
+        if node[0] in heads:
+            return node
+        for item in node:
+            found = _first(item, heads)
+            if found is not None:
+                return found
+    return None
+
+
+def _operand_slots(form) -> list[tuple[list, int]]:
+    """The non-atomic seed, `:max` and `:state` operands of a loop or serial map form, as (list, index)."""
+    slots = [(form, index + 1) for index, item in enumerate(form[:-1]) if item in (":max", ":state")]
+    if form[0] == "loop/recur" and isinstance(form[1], list):
+        slots += [(binding, 1) for binding in form[1]]
+    return [(owner, index) for owner, index in slots if isinstance(owner[index], list)]
+
+
+def bound_spelling(run: str) -> str | None:
+    """The `let*`-bound spelling of `run` (`PARAMS -> TYPE BODY`), or None where the family has none."""
+    params, arrow, type_, body = _parse(run)
+    if isinstance(body, list) and body[0] == "match":
+        if isinstance(body[1], str):
+            return None
+        bound = ["let*", [["bound_subject", body[1]]], ["match", "bound_subject", *body[2:]]]
+        return f"{_show(params)} {arrow} {type_} {_show(bound)}"
+    form = _first(body, ("loop/recur", "list/map-effect"))
+    slots = _operand_slots(form) if form is not None else []
+    if not slots:
+        return None
+    bindings = []
+    for index, (owner, slot) in enumerate(slots):
+        bindings.append([f"bound_operand_{index}", owner[slot]])
+        owner[slot] = f"bound_operand_{index}"
+    return f"{_show(params)} {arrow} {type_} {_show(['let*', bindings, body])}"
+
+
+INPUTS = {"Int": "1", "U": '{"variant":"A","n":3}', "Rk": '{"n":2}', "List[Int]": "[1,2]"}
+
+
+def run_value(run: str, definitions: tuple[str, ...], root: Path):
+    """`[value, command labels...]` of a public `run` of the tree `orchestrator` is imported from, with an input
+    of each parameter by its type (`INPUTS`); None when a parameter has another type or the run fails."""
+    import os
+    import subprocess
+    import sys
+
+    import orchestrator
+    from tests.agent_session_shims import closed_path
+
+    params = _parse(run)[0]
+    if any(param[1] not in INPUTS for param in params):
+        return None
+    tree = Path(orchestrator.__file__).resolve().parents[1]
+    _install(root, run, definitions)
+    env = {**os.environ, "PATH": closed_path(tree / "experiments" / "thread_m" / "no_provider"), "PYTHONPATH": str(tree)}
+    done = subprocess.run([sys.executable, "-B", "-m", "orchestrator", "run", "m.orc", "--entry-workflow", "m::run",
+                           "--source-root", ".", "--command-boundaries-file", "commands.json",
+                           *(flag for name, type_ in params for flag in ("--input", f"{name}={INPUTS[type_]}"))],
+                          cwd=root, env=env, capture_output=True, text=True, timeout=300)
+    if done.returncode != 0:
+        return None
+    log = (root / "log.txt").read_text(encoding="utf-8").split() if (root / "log.txt").exists() else []
+    return [json.loads(done.stdout.splitlines()[-1]), *log]
+
+
+def value_checked(case_ids) -> list[str]:
+    """The fixed sample of the value check: of each family's cases that have a bound spelling, the shortest and
+    then every second one by source length (ties by id)."""
+    families: dict[str, list[str]] = {}
+    for case_id in case_ids:
+        if bound_spelling(CASES[case_id][0]) is not None:
+            families.setdefault(family(case_id), []).append(case_id)
+    return sorted(case_id for members in families.values()
+                  for case_id in sorted(members, key=lambda c: (len(CASES[c][0]), c))[::2])
+
+
+def family(case_id: str) -> str:
+    parts = case_id.split("-")
+    if parts[0] == "x":
+        return "-".join(parts[:3]) if parts[1] in ("op", "cond") else "-".join(parts[:2])
+    return "-".join(parts[:2])
+
+
 if __name__ == "__main__":
-    # python tests/workflow_lisp_td21_differential_cases.py OUT.json, with PYTHONPATH the tree to observe
-    # (an export of `main` for the recorded expectations).
+    # With PYTHONPATH the tree to observe (the commands are in the module docstring):
+    #   outcomes OUT.json               on an export of `main`: every case's build;
+    #   pins MAIN.json OUT.json         on the tip: the build of each case that builds there and not on `main`
+    #                                   (MAIN.json, the outcomes);
+    #   bound-values PINS.json OUT.json on an export of `main`: for the sample `value_checked` of the pinned
+    #                                   cases, the value and command log of the bound spelling, or None where
+    #                                   it does not run.
     import sys
     import tempfile
 
+    mode, *paths = sys.argv[1:]
+    given = json.loads(Path(paths[0]).read_text(encoding="utf-8")) if mode != "outcomes" else {}
     with tempfile.TemporaryDirectory() as scratch:
-        observed = {case_id: observe(case_id, Path(scratch) / str(index)) for index, case_id in enumerate(CASES)}
-    Path(sys.argv[1]).write_text(json.dumps(observed, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+        if mode == "outcomes":
+            result = {case_id: observe(case_id, Path(scratch) / str(index)) for index, case_id in enumerate(CASES)}
+        elif mode == "pins":
+            newly = [case_id for case_id in CASES if given[case_id][0] != "builds"]
+            result = {case_id: observe(case_id, Path(scratch) / str(index)) for index, case_id in enumerate(newly)}
+            result = {case_id: outcome for case_id, outcome in result.items() if outcome[0] == "builds"}
+        else:
+            result = {case_id: run_value(bound_spelling(CASES[case_id][0]), CASES[case_id][1], Path(scratch) / str(index))
+                      for index, case_id in enumerate(value_checked(sorted(given)))}
+    Path(paths[-1]).write_text(json.dumps(result, indent=1, sort_keys=True) + "\n", encoding="utf-8")

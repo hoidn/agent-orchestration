@@ -150,6 +150,51 @@
   "TypeError",
   "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
  ],
+ "m5-cond-pure-direct": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-cond-beside": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-cond-body-literal": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-cond-body-sum": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-effect-beside-cond": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-if-body": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-let-binding": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-serial-cond-body": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
+ "m5-map-serial-effect-cond": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_infer_expr_type"
+ ],
  "r1-b1-alias-test": [
   "builds",
   "sha256:9345dfd4965aa9dbecbac12bce7129b20ee5230221fb5a1af8addacd6ea4e951"
@@ -804,6 +849,52 @@
  "r1-m2b-state-variant-field": [
   "builds",
   "sha256:29797e79ee73608d79a6a2895ca0e85bcb06f036dfd1b93d35b710b50c63527d"
+ ],
+ "rows-k-if-subject": [
+  "builds",
+  "sha256:5bcd1c2abbfd5ecc9d6487c30f046dfa2dbe8900b6911b2c639d2d029653f081"
+ ],
+ "rows-k-letproc-subject-arg-if": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "rows-k-letproc-subject-if": [
+  "builds",
+  "sha256:f3eda7c042de390e772c59f3d6b93cbf4912edd794a82250188d24f2d6536c1a"
+ ],
+ "rows-k-letproc-value-if": [
+  "builds",
+  "sha256:0c65e8126052ade6905fdc91d89d96ccad1f0311d91f73731d457e922394b358"
+ ],
+ "rows-k-operand-match-D1": [
+  "builds",
+  "sha256:5310363804de8fbefeeb1a68d7a8d43425c9c9cd96194d4f1bde57dd2a9605f3"
+ ],
+ "rows-k-sub-arg-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "rows-k-sub-arg-match-if-subject": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "rows-k-sub-arg-match-variant": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"
+ ],
+ "rows-row-D4-subject-loop": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
+ ],
+ "rows-row-D4-subject-match": [
+  "crash",
+  "TypeError",
+  "workflow_lisp/wcc/elaborate.py:_elaborate_expr_to_value"
  ],
  "td1-d19-cmd-L1-cond": [
   "builds",

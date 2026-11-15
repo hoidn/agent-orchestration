@@ -2608,9 +2608,19 @@ exceptions below.
   `let*` whose argument or binding holds an effect under a conditional, a loop
   or beside a pure `match` (`(match (mk (+ E M)) …)`), or a `cond` choosing
   such a value, runs as its `let*`-bound spelling does: the same value, and
-  its effects run once. Open defect (defect backlog row D20-map-argument): a
-  subject whose argument holds a `list/map` or `list/map-effect`, pure or not,
-  ends in `compiler_defect`; bind the subject first.
+  its effects run once. A subject that holds a `cond` the compiler reaches
+  (anywhere but in the body of a `let-proc` local) lowers in its typechecked
+  form, so it builds, pure or not: directly, in a call argument, a variant
+  field, a `let*` binding or body, an `if` branch or condition, an `and`
+  operand or a macro expansion. In such a subject a `list/map` or
+  `list/map-effect` in the argument builds too. Open defects, each ending in
+  `compiler_defect`; bind the subject first: a subject that holds no `cond`
+  and has a map in its argument or in a `let*` binding (defect backlog row
+  D20-map-argument); a pure `match` or a loop as the whole subject (rows
+  D4-subject-match, D4-subject-loop) or as a call argument in it
+  (D4-subject-argument), also when a `cond` sits inside it; a `let-proc`
+  subject whose body passes the local's call in an `if` argument
+  (D20-let-proc-subject).
 - *A parallel map whose binder a macro template introduces takes a pure
   source.* With an effect in its source it is refused as before
   (`effect_not_permitted`, or `list_map_effect_body_unsupported` when the
