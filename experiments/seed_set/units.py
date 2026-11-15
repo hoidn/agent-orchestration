@@ -73,9 +73,9 @@ def session_alive(pgid_file):
     """Whether the process group a launch's guard wrote to `pgid_file` (`reaper.guard`: the session's id, then its
     start time) still runs; False without the file, or when a live process has that pid but another start time (a
     stale file, n9: Linux reuses no pid while its process group lives, so that group is gone)."""
-    if not Path(pgid_file).is_file():
-        return False
-    sid, *started = map(int, Path(pgid_file).read_text().split())
+    if not Path(pgid_file).is_file() or not (recorded := Path(pgid_file).read_text().split()):
+        return False  # no file, or an empty one: the guard died before it recorded a session
+    sid, *started = map(int, recorded)
     if (leader := reaper.stat(sid)) is not None and started and leader[1] != started[0]:
         return False
     try:

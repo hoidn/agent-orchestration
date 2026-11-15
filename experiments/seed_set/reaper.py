@@ -101,8 +101,9 @@ def run(argv, pgid_file, timeout, **popen):
     """Run `argv` under a guard (this module as a script, in a session of its own) and wait at most `timeout`
     seconds; `popen` gives the guard's env, cwd, stdout and stderr, which the command inherits. Return the command's
     exit status, "timeout" (the guard killed the tree), or, when the guard itself was killed, "guard killed by
-    signal N" once this process killed the command's session tree in its place. However this process ends, the end
-    of the guard's stdin kills the tree."""
+    signal N" once this process killed the command's session tree in its place ("... before it recorded the
+    command's session" when the guard died before writing PGID_FILE: nothing is known to kill). However this process
+    ends, the end of the guard's stdin kills the tree."""
     guard = subprocess.Popen([sys.executable, "-I", __file__, str(pgid_file), "--", *argv], stdin=subprocess.PIPE,
                              start_new_session=True, **popen)
     try:
@@ -114,8 +115,10 @@ def run(argv, pgid_file, timeout, **popen):
         guard.wait()
     if status == "timeout" or status >= 0:
         return status
-    if os.path.isfile(pgid_file):
-        kill_tree(*map(int, open(pgid_file).read().split()))
+    recorded = open(pgid_file).read().split() if os.path.isfile(pgid_file) else []
+    if not recorded:  # killed between opening the file and writing it: the command, if it started, is not known
+        return f"guard killed by signal {-status} before it recorded the command's session"
+    kill_tree(*map(int, recorded))
     return f"guard killed by signal {-status}"
 
 

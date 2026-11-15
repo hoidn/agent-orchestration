@@ -112,6 +112,19 @@ def test_a_killed_guard_leaves_the_launcher_to_kill_the_unit(tmp_path):
     assert (status, gone(wait_for(tmp_path / "child.pid"), root)) == ("guard killed by signal 9", True)
 
 
+def test_a_guard_killed_before_it_recorded_the_session_gives_a_status_saying_so(tmp_path):  # final scoped check
+    """The guard dies between opening the session file and writing it: an empty file, no TypeError."""
+    pgid = tmp_path / "run.pgid"
+    pgid.write_text("")
+    status = reaper.run(["true"], pgid, 30, preexec_fn=lambda: os.kill(os.getpid(), signal.SIGKILL))
+    assert status == "guard killed by signal 9 before it recorded the command's session"
+
+
+def test_an_empty_session_file_reads_as_no_session(tmp_path):  # a guard killed before it wrote the file
+    (tmp_path / "run.pgid").write_text("")
+    assert units.session_alive(tmp_path / "run.pgid") is False
+
+
 @pytest.mark.parametrize("offset, alive", [(0, True), (1, False)])
 def test_a_session_reads_alive_only_while_its_leader_is_the_recorded_process(tmp_path, offset, alive):  # n9
     """A stale session file (a reboot, a reused pid) names a live group leader that started at another time."""
