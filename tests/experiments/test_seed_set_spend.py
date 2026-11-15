@@ -1117,3 +1117,22 @@ def test_a_cut_run_counts_as_cut_in_the_measure_free_table_never_as_failed():  #
             "/w/2": {"tranche": "calibration", "arm": "direct", "outcome": "failed", "calls": 1}}
     row = readout.measure_free(runs)["calibration/direct"]
     assert (row["runs"], row["failed"], row["cut"], row["calls"]) == (2, 1, 1, 2)
+
+
+def test_a_reader_never_sees_a_row_half_written(ledger):  # the runner reads the ledger while another unit appends
+    big, stop, errors = "x" * 200_000, threading.Event(), []
+
+    def read():
+        while not stop.is_set():
+            try:
+                spend.rows(ledger)
+            except ValueError as error:
+                errors.append(error)
+                return
+    reader = threading.Thread(target=read)
+    reader.start()
+    for k in range(60):
+        spend.record(ledger, "settle", unit=f"/w/{k}", note=big)
+    stop.set()
+    reader.join()
+    assert errors == []
