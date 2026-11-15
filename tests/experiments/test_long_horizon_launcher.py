@@ -1963,6 +1963,41 @@ def test_a_failure_while_an_attempt_runs_stops_its_harness_and_tears_it_down_bef
         [], True, {}, 1, [])
 
 
+HOLDER = """import fcntl, os, sys, time
+fh = open(sys.argv[1], "a+")
+fcntl.flock(fh, fcntl.LOCK_EX)
+fh.seek(0)
+fh.truncate()
+fh.write(f"{os.getpid()}\\n")
+fh.flush()
+print("held", flush=True)
+time.sleep(60)
+"""
+
+
+def _holder(root):
+    """Another process holding the state root's launcher lock (as a second `ladder.py launch` would)."""
+    proc = subprocess.Popen([sys.executable, "-c", HOLDER, str(root / "launcher.lock")], stdout=subprocess.PIPE,
+                            text=True)
+    assert proc.stdout.readline().strip() == "held"
+    return proc
+
+
+def test_a_second_launcher_on_the_same_state_is_refused_naming_the_holder(rig):
+    """Task 8 part A M5: one launcher per state root; launch and resume are refused while another holds it."""
+    r = rig()
+    holder = _holder(r.root)
+    try:
+        code, out, err = r.launch()
+        resume = subprocess.run([sys.executable, "-I", str(r.kit.kit / "ladder.py"), "resume"], cwd=r.kit.repo,
+                                env=r.kit.env(), capture_output=True, text=True, timeout=WAIT)
+    finally:
+        holder.kill()
+        holder.wait()
+    assert (code, f"pid {holder.pid}" in err, resume.returncode, f"pid {holder.pid}" in resume.stderr, r.calls()) == (
+        3, True, 3, True, [])
+
+
 def test_a_passthrough_that_died_without_closing_starts_pauses_the_tranche(rig):
     r = rig()
     r.passthrough.kill()  # SIGKILL: it writes no close_starts, and its socket stays behind

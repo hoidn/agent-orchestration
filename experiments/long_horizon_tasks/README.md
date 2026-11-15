@@ -166,6 +166,9 @@ round-one read, a pause or a stop. It reads these ledger rows:
 - `| <date> | Ruling | <attempt> row <N> ... |`, which `ruling` needs before it gives a start paused under D5 row
   16 its row.
 
+One launcher runs per state root: `launch` (with its reconcile) and `resume` hold `<state>/launcher.lock`, and a
+second process is refused, naming the holder's pid.
+
 A launch refused before its harness runs (the task's package, the overlay's digest, its socket) stops the tranche
 but is no start: it is not exported, its token is retired, and the attempt is kept under `<state>/refused/`.
 

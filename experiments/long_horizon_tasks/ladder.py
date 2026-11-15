@@ -495,6 +495,33 @@ def _write_json(path, doc):
     os.replace(tmp, path)
 
 
+class OneLauncher:
+    """One launcher per state root (Task 8 part A M5): `launch` and `resume` hold <state>/launcher.lock for their
+    life; a second process is refused, naming the holder's pid."""
+
+    def __init__(self, root):
+        self.path = root / "launcher.lock"
+
+    def __enter__(self):
+        import fcntl
+        self.fh = open(self.path, "a+")
+        try:
+            fcntl.flock(self.fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            self.fh.seek(0)
+            holder = self.fh.read().strip() or "unknown"
+            self.fh.close()
+            raise Refused(f"another launcher holds {self.path.parent} (pid {holder})") from None
+        self.fh.seek(0)
+        self.fh.truncate()
+        self.fh.write(f"{os.getpid()}\n")
+        self.fh.flush()
+        return self
+
+    def __exit__(self, *exc):
+        self.fh.close()
+
+
 class _Lock:
     """The one lock under which starts are counted, reserved and settled, shared by every launcher process."""
 
@@ -2195,10 +2222,12 @@ def launch(ctx, dry_run):
     ladder = preflight(ctx)
     if dry_run:
         return 0
-    tranche = Tranche(ctx, ladder)
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, tranche.on_signal)
-    print(tranche.run(), flush=True)
+    ensure_state(ctx.root)
+    with OneLauncher(ctx.root):
+        tranche = Tranche(ctx, ladder)
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            signal.signal(sig, tranche.on_signal)
+        print(tranche.run(), flush=True)
     return 0
 
 
@@ -2427,7 +2456,9 @@ def _run(ctx, args):
     if args.command == "resume":
         if args.clears and not args.date:
             raise Refused("--clears needs the --date of its ledger row")
-        return record_resume(ctx, args)
+        ensure_state(ctx.root)
+        with OneLauncher(ctx.root):
+            return record_resume(ctx, args)
     return status(ctx, args.export) if args.command == "status" else plan(ctx)
 
 
