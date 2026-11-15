@@ -296,7 +296,7 @@ def test_a_final_readout_of_a_filled_criterion_is_not_stamped():
 EXCLUDING = {TASKS[0]: {
     "low": [[{"row": 10, "reward": 1}, 1], 1, {"row": 15, "reward": 1}, [{"row": 1}, 0],
             {"reward": 1, "contamination": [TERM_SHA256]}],
-    "medium": [{"row": 13}, {"row": 4}, {"row": 2}, {"excluded": "no reward after regrades"},
+    "medium": [{"row": 13}, {"row": 4}, {"row": 2}, {"class": "infrastructure_failure", "excluded": "no reward after regrades"},
                {"row": 9, "reward": 0}],
     "high": [0, 0, 0, 0, {"reward": 0, "excluded": "indeterminate"}]}}
 
@@ -464,6 +464,34 @@ def test_cost_per_success_takes_every_start_at_its_level_cut_starts_included():
     assert ((cost["low"]["usd_all_starts"], cost["low"]["successes"], cost["low"]["usd_per_success"]),
             (cost["medium"]["usd_per_success"]), (cost["high"]["starts"], cost["high"]["mean_usd"])) == (
         (4.0, 1, 4.0), None, (2, 1.0))
+
+
+def _tokens(**counts):
+    return {kind: counts.get(kind, 10) for kind in ("input", "output", "cache_read", "cache_write_5m",
+                                                    "cache_write_1h")}
+
+
+NOT_RECORDED = {TASKS[0]: {"low": [{"reward": 1, "minutes": 30.0}, {"reward": 1, "minutes": None,
+                                                                    "tokens": _tokens(input=None)},
+                                   {"reward": 0, "minutes": 60.0, "tokens": _tokens(input=40)}],
+                           "medium": [{"reward": 1, "minutes": None, "tokens": _tokens(output=None)}], "high": [0]}}
+
+
+def test_a_figure_not_recorded_is_left_out_of_its_mean_and_counted_never_taken_as_zero():
+    """Coordinator ruling (Task 5): a null minutes or token count is not recorded; the mean is over the recorded
+    figures, and how many were left out is given beside it."""
+    low = _compute(_export(NOT_RECORDED))["cost"]["per_effort"]["low"]
+    assert (low["mean_minutes"], low["mean_tokens"]["input"], low["mean_tokens"]["output"], low["not_recorded"]) == (
+        45.0, 25.0, 10.0, {"minutes": 1, "tokens": {"input": 1, "output": 0, "cache_read": 0, "cache_write_5m": 0,
+                                                    "cache_write_1h": 0}})
+
+
+def test_the_cost_table_prints_not_recorded_and_how_many_were_left_out():
+    rows = {line.split(" | ")[0]: line for line in readout.render(_compute(_export(NOT_RECORDED))).splitlines()
+            if line.startswith(("| low ", "| medium "))}
+    assert ("45.00 (1 not recorded)" in rows["| low"], "input 25 (1 not recorded)" in rows["| low"],
+            "| not recorded |" in rows["| medium"], "output not recorded" in rows["| medium"]) == (
+        True, True, True, True)
 
 
 def test_a_level_is_dominated_only_by_one_that_beats_it_on_the_test_and_costs_less():
@@ -700,6 +728,32 @@ def test_refused_connections_are_listed_per_attempt_and_exclude_nothing():
         [("low", {"<address>:443": 3})], 1, True)
 
 
+def test_relay_lookup_timeouts_are_listed_apart_from_the_refused_connections():
+    """Coordinator ruling on the rehearsal's second run: a `bypass` toward the relay itself (its lookup timed out) is
+    no refused egress connection; it is listed on its own, and the refused list holds only addresses outside the
+    kit."""
+    table = {TASKS[0]: {"low": [{"reward": 1, "relay_lookup_timeouts": {"<relay>:8080": 2}}], "medium": [0],
+                        "high": [{"reward": 0, "egress_refused": {"<address>:443": 1}}]}}
+    result = _compute(_export(table))
+    text = readout.render(result)
+    timeouts = text[text.index("### Relay lookup timeouts"):]
+    assert ([(e["effort"], e["timeouts"]) for e in result["listed"]["relay_timeouts"]],
+            [e["effort"] for e in result["listed"]["egress"]], "<relay>:8080: 2" in timeouts.split("###")[1]) == (
+        [("low", {"<relay>:8080": 2})], ["high"], True)
+
+
+def test_the_regrades_refused_for_a_declared_artifact_never_collected_are_counted_per_task_and_effort():
+    """Coordinator ruling on the rehearsal's second run: a start whose case-2 regrade Harbor refused for an absent
+    declared artifact is an observation with its verifier's 0, counted; the readout counts the flag per task and
+    effort."""
+    absent = {"reward": 0, "artifact_absent": True}
+    table = {TASKS[0]: {"low": [absent, absent], "medium": [0, 1], "high": [absent, 1]}, TASKS[1]: _same([1, 0])}
+    result = _compute(_export(table))
+    assert (result["listed"]["artifact_absent"], result["tasks"][TASKS[0]]["cells"]["low"]["n"],
+            f"- {TASKS[0]}: low 2, medium 0, high 1" in readout.render(result)) == (
+        {TASKS[0]: {"low": 2, "medium": 0, "high": 1}}, 2, True)
+
+
 def test_no_public_figure_is_read_or_printed():
     result = _compute(_export(FAMILY))
     public = {str(task["public_mean_usd_at_max"]) for task in LADDER["tasks"]["list"]}
@@ -852,10 +906,16 @@ def test_a_dominance_level_that_is_not_a_probability_is_refused(level):
 
 
 def test_the_allowance_and_the_cost_table_total_the_same_starts():
-    """A pre-session failure counts against neither the starts nor the USD (m7)."""
-    table = {TASKS[0]: {"low": [[{"row": 1, "usd": 5.0}, 1]], "medium": [0], "high": [0]}}
+    """A pre-session failure counts against neither the starts nor the USD (m7); it has no cost (re-review R-B1)."""
+    table = {TASKS[0]: {"low": [[{"row": 1}, 1]], "medium": [0], "high": [0]}}
     result = _compute(_export(table, allowance=ALLOWANCE))
     assert result["allowance"]["usd"] == sum(c["usd_all_starts"] for c in result["cost"]["per_effort"].values()) == 3.0
+
+
+def test_an_interim_readout_names_the_attempts_still_open():
+    """Task 8 part A m11: they enter no count, and the readout says how many there are."""
+    record = _export(EXCLUDING, end=None) | {"open": [{"slot": f"r1-{TASKS[0]}-low", "start": 40}]}
+    assert "1 attempt(s) still open" in readout.render(_compute(record))
 
 
 def test_the_readout_names_its_classes_and_its_ending_in_words():

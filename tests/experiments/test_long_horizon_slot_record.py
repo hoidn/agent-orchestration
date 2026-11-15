@@ -50,8 +50,17 @@ SESSION_STOPS = [cause for cause, seen in slot_record.LAUNCHER_STOPS.items() if 
     (lambda x: x["starts"][0].update(usd=True), "usd"),
     (lambda x: x["starts"][0]["tokens"].pop("cache_read"), "tokens"),
     (lambda x: x["starts"][0].update(api_retry=-1), "api_retry"),
+    (lambda x: x["starts"][0].update(tokens=None), "tokens"),
+    (lambda x: x["starts"][0]["tokens"].update(output=-1), "negative"),
+    (lambda x: x["starts"][0].update(minutes="30"), "minutes"),
     (lambda x: x["starts"][0].update(graded={"passed": 3, "total": 2}), "graded"),
     (lambda x: x["starts"][0].update(egress_refused={"<address>:443": 0}), "egress_refused"),
+    (lambda x: x["starts"][0].update(relay_lookup_timeouts={"<relay>:8080": 0}), "relay_lookup_timeouts"),
+    (lambda x: x["starts"][0].update(relay_lookup_timeouts=[]), "relay_lookup_timeouts"),
+    (lambda x: x["starts"][0].update(artifact_absent="yes"), "artifact_absent"),
+    (lambda x: x["starts"][0].update(artifact_absent=True, reward=1), "artifact_absent"),
+    (lambda x: x["starts"][0].update({"artifact_absent": True, "reward": 0, "excluded": "indeterminate"}),
+     "artifact_absent"),
     (lambda x: x["starts"][1].update(start=1), "start"),
     (lambda x: x["starts"].append(dict(x["starts"][0], start=99)), "run again only after"),
     (lambda x: x["slots"][0].update(task="no-such-task"), "task"),
@@ -71,6 +80,17 @@ def test_a_record_that_does_not_fit_the_layout_is_refused(change, message):
         _load(_broken(change))
 
 
+def test_an_attempt_still_open_is_listed_apart_and_one_that_names_no_slot_is_refused():
+    """Task 8 part A m11: an open attempt is in no count, and the record says it is there."""
+    record = export({TASKS[0]: {"low": [1, "-"], "medium": [0], "high": [0]}},
+                    open_=[{"slot": f"r2-{TASKS[0]}-low", "start": 9}])
+    loaded = len(_load(record))
+    record["open"].append({"slot": "r9-nowhere-low", "start": 10})
+    with pytest.raises(slot_record.RecordError, match="open"):
+        _load(record)
+    assert loaded == 3
+
+
 def test_a_record_that_fits_loads_joined_to_its_slot_and_its_row():
     first = _load(export({TASKS[0]: {"low": [{"row": 8, "reward": 1}], "medium": [0], "high": [0]}}))[0]
     assert {key: first[key] for key in ("task", "effort", "round", "class", "flagged", "counted", "success")} == {
@@ -78,10 +98,18 @@ def test_a_record_that_fits_loads_joined_to_its_slot_and_its_row():
         "success": True}
 
 
-def test_a_timeout_with_no_reward_is_an_observation_scored_zero():
-    """D5: an observation enters k and n with the verifier's reward, 0 if the verifier gives none (row 3)."""
-    first = _load(export({TASKS[0]: {"low": [{"row": 3, "reward": None}], "medium": [0], "high": [0]}}))[0]
-    assert (first["counted"], first["success"]) == (True, False)
+def test_an_observation_with_no_reward_is_refused_until_it_is_regraded():
+    """Task 7 ruling 3: a reward is only what a verifier gave; a time-limit ending with none (row 3) is regraded
+    first, never scored 0."""
+    with pytest.raises(slot_record.RecordError, match="regraded first"):
+        _load(export({TASKS[0]: {"low": [{"row": 3, "reward": None}], "medium": [0], "high": [0]}}))
+
+
+def test_no_reward_after_the_regrades_of_any_observation_s_ending_is_an_infrastructure_failure_never_scored():
+    """Task 7 ruling 3: regrade case 1 holds after any ending whose row is an observation's (row 3 here)."""
+    first = _load(_one(CASE_1 | {"row": 3}))[0]
+    assert (first["row"], first["class"], first["counted"], first["success"]) == (
+        3, "infrastructure_failure", False, None)
 
 
 def test_a_cut_s_reward_is_never_read():
@@ -105,9 +133,28 @@ def test_a_cause_that_needs_a_session_is_refused_on_a_pre_session_failure(cause)
         _load(_one({"row": 1, "class": "stop", "stop_cause": cause}))
 
 
-def test_a_token_scan_match_may_stop_on_a_pre_session_failure():
-    first = _load(_one({"row": 1, "class": "stop", "stop_cause": "a match of token_scan.py"}))[0]
+ANY_START = [cause for cause, seen in slot_record.LAUNCHER_STOPS.items() if seen == "any start"]
+
+
+def test_a_match_or_an_incomplete_scan_of_either_teardown_scan_may_stop_any_start():
+    """Coordinator ruling (Task 5): token_scan.py reads every teardown's files, and the runtime check reads the
+    containers of any start that had a session or containers, which a pre-session failure can have."""
+    assert set(ANY_START) == {"a match of token_scan.py", "an incomplete scan of token_scan.py",
+                              "a match of the runtime check in the attempt's containers",
+                              "an incomplete scan of the runtime check in the attempt's containers"}
+
+
+@pytest.mark.parametrize("cause", ANY_START)
+def test_a_teardown_scan_may_stop_a_pre_session_failure(cause):
+    first = _load(_one({"row": 1, "class": "stop", "stop_cause": cause}))[0]
     assert (first["class"], first["counted"]) == ("stop", False)
+
+
+def test_a_launch_refused_before_the_harness_ran_has_no_cause_since_it_is_no_start():
+    """Coordinator ruling (Task 5): a refused launch creates no start and is not exported; it stays in the
+    launcher's own log."""
+    with pytest.raises(slot_record.RecordError, match="does not fit row 1"):
+        _load(_one({"row": 1, "class": "stop", "stop_cause": "refused at launch"}))
 
 
 @pytest.mark.parametrize("task, effort, rnd", [(TASKS[0], "low", 1), (SMOKE_TASK, "high", 1), (SMOKE_TASK, "low", 2)])
@@ -184,6 +231,14 @@ def test_a_figure_that_is_not_finite_or_is_negative_is_refused(change):
         _load(_broken(change))
 
 
+def test_a_figure_not_recorded_is_null_and_loads_as_null_never_as_zero():
+    """Coordinator ruling (Task 5): minutes, each token count and api_retry may be null, meaning not recorded."""
+    missing = {"minutes": None, "tokens": {"input": None, "output": 7, "cache_read": None, "cache_write_5m": 0,
+                                           "cache_write_1h": None}, "api_retry": None}
+    first = _load(_one(missing | {"reward": 1}))[0]
+    assert {key: first[key] for key in missing} == missing
+
+
 @pytest.mark.parametrize("text, message", [('{"a": 1, "a": 2}', "repeats the keys"), ('{"usd": NaN}', "NaN"),
                                            ('{"usd": Infinity}', "Infinity"), ('[{"x": 1, "x": 1}]', "repeats")])
 def test_reading_refuses_a_repeated_key_and_nan_or_infinity(tmp_path, text, message):
@@ -209,13 +264,54 @@ def test_two_pre_session_failures_and_cuts_may_precede_the_slot_s_observation():
         "pre_session_failure", "cut", "pre_session_failure", "cut", "observation"]
 
 
-@pytest.mark.parametrize("fields", [{"excluded": "no reward after regrades", "reward": 1},
-                                    {"excluded": "no reward after regrades", "row": 3, "reward": None},
+CASE_1 = {"class": "infrastructure_failure", "excluded": "no reward after regrades", "reward": None}
+
+
+def test_no_reward_after_the_regrades_of_a_normal_ending_is_an_infrastructure_failure_never_scored():
+    """D5 and ladder.json: regrade case 1 that still gives no reward is an infrastructure failure (coordinator
+    ruling, Task 5): row 5, the class the launcher decided, enters no k or n."""
+    first = _load(_one(CASE_1))[0]
+    assert (first["row"], first["class"], first["counted"], first["success"]) == (
+        5, "infrastructure_failure", False, None)
+
+
+@pytest.mark.parametrize("fields", [{"excluded": "no reward after regrades", "reward": None},
+                                    CASE_1 | {"reward": 1},
                                     {"excluded": "indeterminate", "reward": 1},
                                     {"excluded": "indeterminate", "reward": None}])
 def test_an_exclusion_that_contradicts_its_d5_case_is_refused(fields):
     with pytest.raises(slot_record.RecordError, match="does not fit its D5 case"):
         _load(_one(fields))
+
+
+@pytest.mark.parametrize("fields", [CASE_1 | {"row": 10}, {"class": "infrastructure_failure", "reward": None}])
+def test_an_infrastructure_failure_on_an_observation_s_row_is_only_regrade_case_1(fields):
+    with pytest.raises(slot_record.RecordError, match="does not fit row"):
+        _load(_one(fields))
+
+
+@pytest.mark.parametrize("usd,loads", [(0.02, True), (0.0, False)])
+def test_an_infrastructure_failure_on_the_pre_session_row_is_one_the_passthrough_metered_usage_for(usd, loads):
+    """Coordinator ruling on part A m12 (D5): row 1's form with metered usage is an infrastructure failure on its own
+    row; with nothing metered it is a pre-session failure."""
+    start = {"row": 1, "class": "infrastructure_failure", "reward": None, "usd": usd}
+    try:
+        loaded = _load(_one(start))[0]
+    except slot_record.RecordError:
+        loaded = None
+    assert (loaded is not None, loaded and (loaded["class"], loaded["counted"])) == (
+        loads, ("infrastructure_failure", False) if loads else None)
+
+
+@pytest.mark.parametrize("usd,loads", [(0.0, True), (0.05, False)])
+def test_a_pre_session_failure_has_no_cost(usd, loads):
+    """Re-review R-B1 (D5, ruling on m12): a start with a cost counts against both caps, so it is never a
+    pre-session failure, which counts against neither."""
+    try:
+        loaded = _load(_one({"row": 1, "reward": None, "usd": usd}, 0))[0]["class"]
+    except slot_record.RecordError:
+        loaded = None
+    assert loaded == ("pre_session_failure" if loads else None)
 
 
 def _with_pilot(cells):

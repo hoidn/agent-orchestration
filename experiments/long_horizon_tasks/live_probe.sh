@@ -50,7 +50,6 @@ CAP_REQUESTS=6 CAP_USD=0.15 TOTAL_REQUESTS=18 TOTAL_USD=0.45 CLI_BUDGET=0.10
 CLI_VERSION=2.1.311
 RELAY=relay:8080
 DENY=Task,CronCreate,CronDelete,CronList,EnterWorktree,ExitWorktree,ListAgents,Monitor,NotebookEdit,RemoteTrigger,ReportFindings,ScheduleWakeup,SendMessage,Skill,TaskStop,ToolSearch,Workflow,Write  # recording tok3-normal
-CANARY_LENGTH=108  # a stand-in run's canary; the length of a setup-token token is not recorded
 
 refuse() { echo "live_probe.sh: refused: $*" >&2; exit 3; }
 [ "${LH_PROBE_SPEND_AUTHORIZED:-}" = yes ] ||
@@ -387,7 +386,7 @@ if [ -n "${LH_PROBE_STAND_IN:-}" ]; then
     --log "$STATE/stub.jsonl" > "$STATE/stub.out" 2>&1 &
   STUB=$!
   wait_for "$STATE/stub.out" listening "$STUB"
-  credential=(--rehearsal "$STATE/stub.sock" --canary-out "$STATE.canary" --canary-length "$CANARY_LENGTH")
+  credential=(--rehearsal "$STATE/stub.sock" --canary-out "$STATE.canary")
 else
   credential=(--token-file "$LH_TOKEN_FILE")
 fi

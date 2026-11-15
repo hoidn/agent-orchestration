@@ -71,8 +71,8 @@ recording's harness arguments back from its trial's `config.json`; its decoy tes
 
 **Covered:** every file of this directory, `ladder.json`, `tasks.json`, the scripts, `recordings.json` and the
 fixtures among them; `orchestrator/providers/price_table.json`, which D4 names by hash; and
-`tests/experiments/test_long_horizon_ladder.py`, the reference reader of the pattern language until the launcher
-reads it. **Not covered** (the
+`tests/experiments/test_long_horizon_ladder.py`, the criterion's tests, which hold the shared reader of the pattern
+language (in `ladder.py`) to the fixtures. **Not covered** (the
 list is in `manifest.py` and in `manifest.json`): `manifest.json` itself; `README.md` and `RECORDINGS.md`, prose that
 no code reads, so a wording fix makes no new label; `results/`, the readout's output; `__pycache__/`. The allowance
 inputs, the meter readings, the raw recordings, the task packages and images, and the token are outside the
@@ -91,7 +91,8 @@ pytest -q -n 4 tests/experiments/test_long_horizon_ladder.py
 **`pending`** lists each value that `ladder.json` cannot take from `main` yet. Each such field is `null`, and its
 entry says what fills it: the branch in flight (`feat/long-horizon-oracle-2b`: the qualified tasks, the
 load-sensitive list, overlay digests, extra hosts, withholding, the host list, the CPU set), Task 2b (the disk plan,
-the contamination terms and the canary's SHA-256, which verifiers report sub-tests), the live probe (the vendor's
+the contamination terms, the canary's SHA-256 and the tasks whose starting files hold the canary, which the scan
+then leaves out for them; which verifiers report sub-tests), the live probe (the vendor's
 header names, the utilisation header), or the freeze (the schedule's seed and hash, the bootstrap seed). The
 passthrough's form refusals and its log (keys, and how a row with no slot is joined to an attempt) are filled from
 `passthrough.py`; tests read its refusal reasons, its log keys, its paid-usage check and its worst-case bound from the
@@ -117,7 +118,7 @@ behind the passthrough's rehearsal switch and spends nothing.
 | --- | --- |
 | `passthrough.py` | The one host process that holds the subscription token (D4, route B): listens on the relay's unix socket; refuses in the one 403 form anything outside the recorded request shape; one request in flight per slot; rebuilds the request with three header values set (`authorization`, `host`, `accept-encoding: identity`); checks every byte back to the client and every log row for the token's forms; meters by the price rule; records closed starts and stops in its state directory |
 | `make_allowlist.py` | Builds `request_allowlist.json` (the passthrough's allowlist) from the token-mode shapes of `fixtures/requests/t2a-*.json` and their recorded key sets; `--check` fails when the committed file differs, so rerun it when the fixtures change |
-| `token_scan.py` | Finds the token by the passthrough's fingerprint, in plain, hex, base64 and UTF-16LE forms (path, offset and form only); `canary` plants every form and checks the file set |
+| `token_scan.py` | Finds the token by the passthrough's fingerprint, in plain, hex, base64 and UTF-16LE forms (path, offset and form only); `canary` plants every form and checks the file set. It finds whole copies only: not a part of the token, not compressed, encrypted or escaped, and not base64 wrapped at 76 columns |
 | `live_probe.sh` | The live probe of Task 4, items 1 to 4: three sessions through the relay and the passthrough, the stop rule, the runtime check, the file-set scan and `probe.json` |
 
 Tests (no container, no network, no CLI; the upstream is `stub_api.py`):
@@ -126,6 +127,111 @@ Tests (no container, no network, no CLI; the upstream is `stub_api.py`):
 pytest -q -n 4 tests/experiments/test_long_horizon_passthrough.py
 ```
 
+## The launcher (plan Task 5)
+
+`ladder.py` runs the tranche. It reserves money under one lock and starts each attempt through the harness. At
+teardown it scans the attempt and removes its containers by name; only then does it settle the attempt and classify
+it by D5. An attempt left open by a launcher that died gets the same teardown at the next launch: the same scans, and
+any stop already written for it. **A live launch spends**, so it refuses unless every condition holds. It needs `LH_SPEND_AUTHORIZED=yes`,
+plus `LH_MANIFEST_SHA256` and `LH_RUNTIME_COMMIT` that match the ledger's current `Configuration label` row. It
+also needs a frozen manifest with nothing pending in `ladder.json`, a detached checkout of that commit and a clean
+kit. Its preflight checks the harness environment, the host-side overrides, the 4.1.0 package digests and the
+owner's allowance inputs. A rehearsal (`LH_REHEARSAL=<dir>`) spends nothing. It refuses any spend variable, takes a
+stand-in for every pending field from `<dir>/stand_ins.json`, and reads its ledger from `<dir>/ledger.md`.
+
+```
+python -I experiments/long_horizon_tasks/ladder.py plan                   # the schedule, in the order it runs
+python -I experiments/long_horizon_tasks/ladder.py launch [--dry-run]     # run until it ends, waits or stops
+python -I experiments/long_horizon_tasks/ladder.py status [--export F]    # the state; F: the readout's record
+python -I experiments/long_horizon_tasks/ladder.py ruling ATTEMPT --row N --date YYYY-MM-DD
+python -I experiments/long_horizon_tasks/ladder.py resume [--clears THRESHOLD ... --date YYYY-MM-DD]
+python -I experiments/long_horizon_tasks/ladder.py allowance inputs|reading|figures ...
+```
+
+The launcher never holds the token. A person starts the passthrough with the token file, and `status` prints its
+command line; in a rehearsal it prints the rehearsal start (`--rehearsal`, a canary, no token file). The passthrough
+records its mode in `fingerprint.json`, and the launcher starts no attempt against a passthrough in the other mode
+(it stops the tranche). The launcher refuses to run while `LH_TOKEN_FILE`, `CLAUDE_CODE_OAUTH_TOKEN`,
+`ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is in its environment, naming the variable, never its value. Each harness starts from an
+empty environment that holds `HOME`, `PATH`, telemetry off, the runtime directory, the containers override, its
+slot's relay socket directory and the slot's fake token. It runs under the CPU set in its own session. Each attempt
+has its own passthrough socket (`<state>/relay/<slot>/passthrough.sock`) with a cap of 16 connections of its own,
+so one attempt's connections never refuse another's requests.
+
+`launch` returns when the tranche waits for a person, and prints why: the smoke read, the pilot's ledger row, the
+round-one read, a pause or a stop. It reads these ledger rows:
+
+- `| <date> | Smoke read | <label> pass |` (or `fail`, a stop);
+- `| <date> | Pilot read | <label> ... |`;
+- `| <date> | Round 1 read | <label> ... |`;
+- `| <date> | Ruling | <attempt> row <N> ... |`, which `ruling` needs before it gives a start paused under D5 row
+  16 its row.
+
+Before every start the launcher repeats the launch's checks: the manifest hash it checked (the label every start
+records), the kit against the manifest and, when live, the ledger's current label, the runtime commit, the detached
+checkout and a clean kit; then the harness venv's versions and the two host-side overrides, which the manifest does
+not cover. A change stops the tranche, naming it.
+
+One launcher runs per state root: `launch` (with its reconcile) and `resume` hold `<state>/launcher.lock`, and a
+second process is refused, naming the holder's pid. The lock is never let go while an attempt of the process runs:
+an exception out of the launcher's loop interrupts the attempts in flight, stops the tranche naming the exception,
+and the launcher exits only after they have been torn down. A check before a start that cannot read what it checks
+(the ledger on `main`, the harness venv) stops the tranche with that reason instead of raising.
+
+A launch refused before its harness runs (the task's package, the overlay's digest, its socket, or any other failure
+before the harness started, named by its exception) stops the tranche but is no start: it is not exported, its
+token is retired, and the attempt is kept under `<state>/refused/`. Its index is never reused.
+
+A resume lifts a pause or a stop, never a usage limit. Starts stay closed until five minutes after the limit's reset
+and then reopen with one start, and with the rest once that session has an answer. If the single start ends with no
+answer, the tranche pauses, and a resume allows one more. The one start is enforced as at most one attempt in flight,
+so an attempt started before the limit and still running delays it past the reset's five minutes.
+
+The launcher's stream checks (the init event, the paid-usage sign in a `rate_limit_event`, a subagent file) read
+files that Harbor copies to the host only when the agent phase ends: they are post-session checks and never stop a
+running session. The paid-usage stop during a session is the passthrough's header rule (D4).
+
+At teardown the runtime check reads every container of the attempt: each container's inspected configuration
+(its configured environment), the egress sidecar's log, and, for the smoke, the pilot and a rehearsal, every agent
+container's (`*_main_1`) exported file system. A failed `podman inspect`, `logs` or `export` is an incomplete scan,
+a stop; each read's exit code is kept in the slot's `podman.jsonl`. The process environments are sampled every 2 s
+while the harness runs, from running containers only: at teardown every container has exited. A failed `podman exec`
+on a running container is logged there and does not by itself make the scan incomplete. A limit of the check: a
+container that ran too briefly for any 2 s sample is scanned only through its inspected configuration, so what its
+processes held at run time is not read. A failed `podman ps -a` is an incomplete scan too, and never confirms a
+removal. Once the containers are removed, `slot.json` says so, and a reconcile after the launcher died before the
+close skips the runtime check (its findings were stops already). The pids limit
+(`limits-compose.yaml`) reaches the agent's environment only: Harbor does not apply runtime overrides to the
+separate verifier containers.
+
+To end a pause or a stop, a person writes the ledger row that D5 asks for and then runs `ladder.py resume`. A stop
+needs `| <D> | Ruling | resume: <its cause>: <the decision> |` and `resume --date <D>`, one row for each distinct stop
+since the last resume, the whole cause followed by its `:` (a row for a longer cause is not a row for a shorter one) (a resume is refused naming each stop that has none; `status` lists them all); a D7.7
+threshold's stop is lifted by its `--clears` ruling. While one
+of D7.7's count thresholds is over its bound, a plain resume is refused, naming it. The thresholds are the
+infrastructure-failure share of the tranche (`infrastructure-failures`) and at one level, judged from 20 starts at
+that level (`infrastructure-failures-at-level`, cleared on its own), five or 24 pre-session failures, the 5% of cuts,
+and three load-refusal endings.
+`resume --clears <threshold> --date <D>` lifts one after a `| <D> | Ruling | <threshold>: <decision> |` row; when
+several are over at once, one resume names each (`--clears cuts --clears infrastructure-failures ...`), each with its
+own row, and it is refused naming any threshold over its bound left out or without its row. A cleared threshold then
+counts only later endings, and every other threshold keeps counting. The export (`status --export`) follows `slot_record.py`, the layout the
+readout reads. The launcher checks the export against that layout before it writes it. It refuses to write the
+export while any start still waits for a ruling. State lives in `$HOME/.local/state/lh-ladder`, or `<dir>/state`
+for a rehearsal.
+
+Tests run against stand-ins only. Scripts stand in for the harness's Python and for Podman, replaying the recorded
+fixtures on a closed `PATH`. The upstream is `stub_api.py`, and the passthrough runs in rehearsal mode. No
+container, network or CLI is used:
+
+```
+pytest -q -n 4 tests/experiments/test_long_horizon_launcher.py tests/experiments/test_long_horizon_ladder.py \
+  tests/experiments/test_long_horizon_passthrough.py tests/experiments/test_long_horizon_slot_record.py \
+  tests/experiments/test_long_horizon_readout.py
+```
+
+Task 7's rehearsal is where the real harness, Podman, relay and CLI are exercised.
+
 ## The readout (plan Task 6)
 
 `slot_record.py` is the one definition of the launcher's export: its fields and types (in its docstring) and
@@ -133,8 +239,21 @@ pytest -q -n 4 tests/experiments/test_long_horizon_passthrough.py
 record. Each start carries the class the launcher decided (`class`, with `stop_cause` for a stop from the closed
 list `LAUNCHER_STOPS`, which also says where each cause can occur, found on a row of another class) and its D5 row as
 evidence; a stop is never scored. A `contamination` result may sit on a start of any class: it excludes an
-observation, and on any other class is listed and counted for D7.7 without changing the class. The launcher writes
-that layout and the readout reads it; both load the module by its path (the kit runs under `python -I`) and neither
+observation, and on any other class is listed and counted for D7.7 without changing the class. A reward is only what
+a verifier gave: an observation with none, after any ending, is regraded (case 1), and one still with no reward file
+after its regrades is an infrastructure failure on its own row, never scored. A regrade's trial is
+`<attempt id>-regrade-<n>`, so its verifier's compose project and containers are `<attempt id>-regrade-<n>__verifier__…`
+(Harbor lower-cases them), the attempt's own; it runs in its own session with its pid in `slot.json`, and reconcile
+stops a dead launcher's regrade before running it again. A regrade whose load-gate wait was interrupted before any
+regrade ran decides nothing: the start is listed open and the next launch's reconcile regrades it. Harbor refuses
+to regrade a trial whose declared artifact was not collected (an agent that never wrote its output); the regrade's
+output is kept in `regrade/<trial>.log`, and when it ends in that `RegradeError` and in no other problem, case 2's
+reward of 0 stands, an observation flagged `artifact_absent` that the readout counts per task and effort; case 1 is
+still "no reward after regrades", and any other refusal keeps the handling above (plan D5). A null
+`minutes`, token count or `api_retry` was not recorded: the readout prints "not recorded", leaves it out of its
+means and gives how many it left out; it never reads a null as zero. The launcher writes that layout and the readout
+reads it. The export lists the attempts still open (`open`), which enter no count, and the readout says how many
+there are. Both load the module by its path (the kit runs under `python -I`) and neither
 imports the other.
 
 `readout.py` turns the export into the readout of D6 and, at the end of the tranche, into `results/family.json` (step
@@ -143,8 +262,11 @@ figure. Every figure is computed once, by `compute`, from the starts joined to t
 and pooled count with their exact intervals and labels (a count pooled over tasks gets no interval), the band effort,
 the effort test over complete triples with its verdict and the bound on the fall, the cost per effort, the lists
 (exclusions, a contaminated attempt of any label by the SHA-256 of each term found, counted over every label for D7.7,
-flags, cuts per effort, the pilot's attempts, refused connections), the graded outcome, an earlier label's counts and
-the allowance. The last three enter no rule. The pooled screen applies when every effort has at least four scored
+flags, cuts per effort, the pilot's attempts, refused connections, relay lookup timeouts apart from them, and the
+regrades refused for a declared artifact never collected, per task and effort), the graded outcome, an earlier
+label's counts and the allowance. The sidecar logs `bypass` when its lookup of `relay` times out; the launcher counts
+a `bypass` toward the relay itself (an address the sidecar resolved `relay` to in the same log) as a relay lookup
+timeout, never as a refused connection, so `egress_refused` holds only destinations outside the kit. The last three enter no rule. The pooled screen applies when every effort has at least four scored
 observations (`readout.pooled.min_per_effort`), and is printed "screened at n of 15 attempts"; with fewer at any effort
 a task is "not screened", with its counts per effort. A readout that ends in a stop places nothing and still prints the
 bound on the fall over the complete triples there are.

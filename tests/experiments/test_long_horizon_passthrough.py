@@ -171,6 +171,54 @@ def test_a_named_path_the_scanner_cannot_read_as_a_whole_fails_the_scan(short, t
     assert result.returncode == 2
 
 
+def test_a_crash_of_the_scanner_is_an_incomplete_scan_never_a_match(short):
+    """Task 8 m1: with no fingerprint file it fails; it exits 2 (incomplete), not 1 (a match)."""
+    (short / "file.txt").write_text("x\n")
+    assert _scan("scan", "--fingerprint", short / "no-fingerprint.json", short / "file.txt").returncode == 2
+
+
+def test_a_symlink_or_a_fifo_inside_a_scanned_set_is_named_as_skipped(short):
+    """Task 8 m3: they are not followed or read, and each gets a line; the exit is unchanged."""
+    (short / "set").mkdir()
+    (short / "set" / "plain.txt").write_text("x\n")
+    (short / "set" / "link").symlink_to(short / "set" / "plain.txt")
+    os.mkfifo(short / "set" / "pipe")
+    result = _scan("scan", "--fingerprint", _fingerprint_file(short, _token()), short / "set")
+    assert (result.returncode, sorted(line for line in result.stdout.splitlines() if line.startswith("skipped"))) == (
+        0, [f"skipped {short / 'set' / 'link'} symlink", f"skipped {short / 'set' / 'pipe'} special file"])
+
+
+def test_an_unreadable_directory_inside_a_scanned_set_is_reported_and_fails_the_scan(short):
+    """Task 8 m9: os.walk's errors are reported, not dropped."""
+    (short / "set" / "locked").mkdir(parents=True)
+    (short / "set" / "plain.txt").write_text("x\n")
+    (short / "set" / "locked").chmod(0o000)
+    result = _scan("scan", "--fingerprint", _fingerprint_file(short, _token()), short / "set")
+    assert (result.returncode, f"unreadable {short / 'set' / 'locked'} PermissionError" in result.stdout) == (2, True)
+
+
+def test_a_named_symlink_beside_a_real_file_fails_the_scan(short):
+    """Task 8 m9: the link would otherwise be skipped and the real file alone make the scan look whole."""
+    token = _token()
+    (short / "plain.txt").write_text("x\n")
+    (short / "target.txt").write_text(f"a {token} b\n")
+    (short / "link").symlink_to(short / "target.txt")
+    result = _scan("scan", "--fingerprint", _fingerprint_file(short, token), short / "plain.txt", short / "link")
+    assert result.returncode == 2
+
+
+def test_the_canary_check_fails_when_a_planted_copy_is_not_found(short):
+    """Task 8 m9: a fingerprint made from the canary whose other forms the scanner cannot find."""
+    canary = _token()
+    (short / "canary").write_text(canary + "\n")
+    (short / "set").mkdir()
+    fp = token_scan.fingerprint(canary)
+    fp["forms"] = [f if f["name"] == "plain" else {**f, "sha256": "0" * 64} for f in fp["forms"]]
+    (short / "fp.json").write_text(json.dumps(fp))
+    result = _scan("canary", "--fingerprint", short / "fp.json", "--canary", short / "canary", short / "set")
+    assert (result.returncode, "planted copies not found" in result.stdout) == (1, True)
+
+
 # --- the passthrough: helpers --------------------------------------------------------------------------
 
 passthrough = _load("passthrough")
@@ -789,7 +837,7 @@ def _start(short, slots, *mode, name="pt"):
 
 
 def _rehearsal(short, upstream, name="pt"):
-    return ("--rehearsal", upstream, "--canary-out", short / f"{name}.canary", "--canary-length", 108)
+    return ("--rehearsal", upstream, "--canary-out", short / f"{name}.canary")
 
 
 def _stop(proc):
@@ -829,7 +877,25 @@ def test_at_its_start_the_passthrough_reads_the_token_file_and_writes_its_finger
     _stop(proc)
     fp = json.loads((state / "fingerprint.json").read_text())
     assert (token_scan.matches(fp, real), real in out.read_text(), real.encode() in cmdline,
-            real in (state / "fingerprint.json").read_text()) == (True, False, False, False)
+            real in (state / "fingerprint.json").read_text(), fp["mode"]) == (True, False, False, False, "live")
+
+
+def test_the_rehearsal_canary_has_the_shape_and_length_of_a_setup_token_token(short, stub):
+    """Task 8 m7: 108 characters with the setup-token prefix, whatever the person who starts it passes."""
+    upstream, _ = stub("normal")
+    proc, _, state, out = _start(short, _slots(short / "slots.json", {}), *_rehearsal(short, upstream))
+    _stop(proc)
+    canary = (short / "pt.canary").read_text().strip()
+    assert (len(canary), canary.startswith("sk-ant-oat01-"), token_scan.matches(
+        json.loads((state / "fingerprint.json").read_text()), canary)) == (108, True, True)
+
+
+def test_a_rehearsal_passthrough_records_its_mode_beside_its_fingerprint(short, stub):
+    """Task 8 M3: the launcher reads the mode and refuses a passthrough in the other one."""
+    upstream, _ = stub("normal")
+    proc, _, state, out = _start(short, _slots(short / "slots.json", {}), *_rehearsal(short, upstream))
+    _stop(proc)
+    assert json.loads((state / "fingerprint.json").read_text())["mode"] == "rehearsal"
 
 
 def test_with_the_rehearsal_switch_no_token_file_is_opened(short, stub):
@@ -1610,6 +1676,96 @@ def test_connections_beyond_the_cap_are_refused_while_an_admitted_request_comple
     gate.set()
     thread.join(WAIT)
     assert (over, admitted) == ("too many connections", [200])
+
+
+# A socket per attempt (Task 5, connections): a slot marked own_socket is served on its own socket, alone.
+
+def _own(token):
+    return {**_slot(token), "own_socket": True}
+
+
+@pytest.fixture
+def sockets(short):
+    """A passthrough in this process with its main socket and its slots' own sockets (synced once at the start)."""
+    made = []
+
+    def start(upstream, slots, token="real-token-made-up-for-this-test"):
+        name = f"own{len(made)}"
+        state, relay = short / f"{name}-state", short / name
+        state.mkdir(mode=0o700)
+        relay.mkdir(mode=0o700)
+        pt = passthrough.Passthrough(state, slots, token, "live", passthrough.unix_upstream(str(upstream)))
+        main = relay / "passthrough.sock"
+        server = passthrough.serve(str(main), pt)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        own = passthrough.Sockets(pt, main)
+        made.append((server, own))
+        own.sync()
+        return main, own
+    yield start
+    for server, own in made:
+        own.close_all()
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_slot_with_its_own_socket_is_served_there_and_its_token_nowhere_else(short, stub, sockets):
+    upstream, _ = stub("normal")
+    slots = _slots(short / "slots.json", {"a": _own("lh-fake-a"), "b": _own("lh-fake-b"), "c": _slot("lh-fake-c")},
+                   total_usd=5.0)
+    main, own = sockets(upstream, slots)
+    served = [_post(own.path("a"), "lh-fake-a", _request())[0], _post(main, "lh-fake-c", _request())[0]]
+    refused = [_error(_post(sock, token, _request())[2])[1]
+               for sock, token in ((main, "lh-fake-a"), (own.path("a"), "lh-fake-b"), (own.path("a"), "lh-fake-c"))]
+    logged = [(r["slot"], r["status"], r["refused"]) for r in _rows(short / "own0-state") if "refused" in r]
+    assert (served, refused, logged, oct(own.path("a").parent.stat().st_mode & 0o777)) == (
+        [200, 200], ["lh-passthrough: unknown token"] * 3, [(None, 403, "unknown token")] * 3, "0o700")
+
+
+def test_one_slot_s_connections_never_count_against_another_slot_s_socket(short, stub, sockets, monkeypatch):
+    monkeypatch.setattr(passthrough, "MAX_CONNECTIONS", 2)
+    upstream, _ = stub("normal")
+    main, own = sockets(upstream, _slots(short / "slots.json", {"a": _own("lh-fake-a"), "b": _own("lh-fake-b")},
+                                         total_usd=5.0))
+    idle = [socket.socket(socket.AF_UNIX) for _ in range(2)]
+    for client in idle:
+        client.connect(str(own.path("a")))
+    time.sleep(0.5)  # both are accepted and wait for a request line
+    over = _reason(_exchange(own.path("a"), b"", timeout=10))
+    served = _post(own.path("b"), "lh-fake-b", _request())[0]
+    for client in idle:
+        client.close()
+    logged = [r["slot"] for r in _rows(short / "own0-state") if r.get("refused") == "too many connections"]
+    assert (over, served, logged) == ("too many connections", 200, ["a"])  # Task 8 part A m6: its own slot
+
+
+def test_a_retired_slot_s_socket_and_its_directory_are_removed(short, stub, sockets):
+    upstream, _ = stub("normal")
+    slots = _slots(short / "slots.json", {"a": _own("lh-fake-a")})
+    main, own = sockets(upstream, slots)
+    before = own.path("a").exists()
+    _slots(slots, {})
+    own.sync()
+    assert (before, own.path("a").parent.exists(), sorted(own.open)) == (True, False, [])
+
+
+@pytest.mark.parametrize("name", ["../a", ".a", "a/b", "x" * 65, ""])
+def test_a_slot_whose_name_is_not_a_plain_name_gets_no_socket(short, stub, sockets, name):
+    upstream, _ = stub("normal")
+    main, own = sockets(upstream, _slots(short / "slots.json", {name: _own("lh-fake-a")}))
+    assert (sorted(own.open), sorted(p.name for p in main.parent.iterdir())) == ([], ["passthrough.sock"])
+
+
+def test_the_process_opens_a_slot_s_socket_when_the_slots_file_names_it_and_removes_it_when_it_ends(short, stub):
+    upstream, _ = stub("normal")
+    slots = _slots(short / "slots.json", {})
+    proc, sock, state, out = _start(short, slots, *_rehearsal(short, upstream))
+    _slots(slots, {"a": _own("lh-fake-a")})
+    path = sock.parent / "a" / "passthrough.sock"
+    opened = _eventually(path.exists)
+    status = _post(path, "lh-fake-a", _request())[0]
+    _stop(proc)
+    assert (opened, status, path.parent.exists()) == (True, 200, False)
 
 
 def _descriptors():
