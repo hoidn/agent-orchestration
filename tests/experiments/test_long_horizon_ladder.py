@@ -117,6 +117,42 @@ def test_the_price_table_by_its_hash_gives_every_rate_but_the_five_minute_write_
         long_prompt["above_prompt_tokens"], {long_prompt["multiplier"]})
 
 
+def _applies(rule, status, headers):
+    return rule["header"] in headers and status != rule["applies_to"].get("status_not")
+
+
+def _stops(rule, value):
+    if "stops_unless_in" in rule:
+        return value not in rule["stops_unless_in"]
+    return value == rule.get("stops_if") or value in rule.get("stops_if_in", [])
+
+
+def _paid_stop(status, headers):
+    """Whether the criterion's paid-usage rule stops the tranche at a response of this status and these headers."""
+    rules = _ladder()["paid_usage"]["passthrough_stop"]
+    return any(_applies(rule, status, headers) and _stops(rule, headers[rule["header"]]) for rule in rules)
+
+
+def test_the_paid_usage_stop_acts_on_the_stand_in_s_responses_as_ruled():
+    overage = _load("lh_stub_api_ladder", KIT / "stub_api.py").OVERAGE
+    limit = {k: v for k, v in overage.items() if "overage" not in k}  # the usage-limit 429's headers, but its reset
+    cases = {"a 200 with the overage headers": (200, overage), "a 429 with the overage headers": (429, overage),
+             "the usage-limit 429": (429, limit), "a 200 with no rate-limit header": (200, {}),
+             "a 200 whose unified status is allowed": (200, {"anthropic-ratelimit-unified-status": "allowed"}),
+             "a 429 with overage allowed only": (429, {"anthropic-ratelimit-unified-overage-status": "allowed"})}
+    assert {name: _paid_stop(*case) for name, case in cases.items()} == {
+        "a 200 with the overage headers": True, "a 429 with the overage headers": True, "the usage-limit 429": False,
+        "a 200 with no rate-limit header": False, "a 200 whose unified status is allowed": False,
+        "a 429 with overage allowed only": True}
+
+
+def test_the_agent_setup_timeout_multiplier_is_the_one_every_task_2a_recording_ran_with():
+    index = json.loads((KIT / "recordings.json").read_text())["recordings"]
+    recorded = {tuple(re.findall(r"--agent-setup-timeout-multiplier (\S+)", r["harbor_args"]))
+                for r in index if r["name"].startswith("t2a-") and "--agent claude-code" in r["harbor_args"]}
+    assert recorded == {(str(_ladder()["harness"]["agent_setup_timeout_multiplier"]),)}
+
+
 # ---- D5: every rule rests on the fixtures it cites ----------------------------------------------------------
 
 MISSING = object()
@@ -299,6 +335,12 @@ def _kit_copy(tmp_path):
 def _run(kit, *args):
     return subprocess.run([sys.executable, "-I", str(kit / "manifest.py"), *args], capture_output=True, text=True,
                           check=False)
+
+
+def test_the_committed_manifest_is_current():
+    """A kit change merged without `manifest.py write` fails here (README: the rerun belongs in that merge)."""
+    checked = _run(KIT, "check")
+    assert (checked.returncode, checked.stderr) == (0, "")
 
 
 def _flip(path):

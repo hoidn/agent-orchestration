@@ -39,7 +39,8 @@
   "effort_argument": "--effort <effort>",
   "agent_timeout": {"is": "the task's own", "seconds_for_all_16": 28800, "multiplier": 1},
   "verifier_timeout": {"is": "the task's own", "multiplier": 1},
-  "agent_setup_timeout_multiplier": null,
+  "agent_setup_timeout_multiplier": 3,
+  "agent_setup_timeout_multiplier_source": "the value every Task 2a recording (the ladder's configuration) ran with; the earlier recordings set none (coordinator ruling, 2026-11-14)",
   "cpus_and_memory": "the task's own",
   "pids_limit": 4096,
   "rule": "Equal at every effort level: the task's own agent limit (28,800 s for all 16) and verifier limit, multiplier 1; its CPUs and memory; a process limit of 4,096; the dollar cap of D4 (D2).",
@@ -120,7 +121,8 @@
    "stream.rate_limit": "the rate_limit_info of each rate_limit_event, in order",
    "result": "the stream's last event of type result; absent when there is none",
    "result.*": "that key of the result event; absent when the result event or the key is",
-   "passthrough.requests": "the passthrough's log rows for the attempt's slot (classification.passthrough_log), each read by the keys of passthrough_row_keys"
+   "passthrough.requests": "the passthrough's log rows for the attempt's slot (classification.passthrough_log), each read by the keys of passthrough_row_keys",
+   "passthrough.tranche_requests": "the passthrough's log rows for the whole tranche, read the same way: a refusal of an unknown token names no slot (row 13; coordinator ruling, 2026-11-14)"
   },
   "tests": {
    "a literal": "the field is present and equal to it",
@@ -141,7 +143,10 @@
    "infrastructure_failure": {"starts": true, "usd": true, "k_n": false, "reward": "listed, never scored zero", "rerun": false},
    "cut": {"starts": true, "usd": true, "k_n": false, "reward": "never read", "rerun": "at the head of the queue when starts reopen; the rerun is a new counted start"},
    "pre_session_failure": {"starts": false, "usd": false, "k_n": false, "rerun": "relaunched at most twice; lost after the third failure"},
-   "stop": {"starts": null, "usd": null, "k_n": null, "tranche": "stops"},
+   "stop": {"starts": true, "usd": true, "k_n": false, "reward": "not scored", "rerun": false,
+            "tranche": "halts: no new start; nothing resumes until a coordinator row in the ledger names the cause and the decision",
+            "rule": "A stop halts the tranche: no new start. The attempt in which it occurred is not an observation and is not scored; its slot is not run again, and nothing resumes until a coordinator row in the ledger names the cause and the decision (D5; coordinator ruling, 2026-11-14).",
+            "count_source": "starts and usd: D7.6, \"starts under every label count against both\"; D5 exempts only pre-session failures"},
    "ruling": {"tranche": "the launcher pauses for a recorded ruling, which decides the count"}
   },
   "classes_rule": "An observation counts against the 240 and the USD 200 and enters k and n with the verifier's reward, 0 if the verifier gives none. An infrastructure failure counts against both and is excluded from k and n, listed, never scored zero; its slot is not run again. A pre-session failure counts against neither; the slot is relaunched at most twice and is lost after the third failure. An attempt cut by a usage limit is an infrastructure failure with one difference: its slot is run again, at the head of the queue, when starts reopen (D5).",
@@ -212,10 +217,11 @@
               {"result.api_error_status": 403, "result.result": {"contains": "lh-passthrough:"},
                "passthrough.requests": {"some": {"refused": "path not allowed"}}},
               {"result.api_error_status": 403, "result.result": {"contains": "lh-passthrough:"},
-               "passthrough.requests": {"some": {"refused": "unknown token"}}}],
+               "passthrough.tranche_requests": {"some": {"refused": "unknown token"}}}],
     "fixtures": ["passthrough-model-UnknownApiError", "passthrough-tool-UnknownApiError", "passthrough-path-UnknownApiError",
                  "passthrough-unknown-token-UnknownApiError", "passthrough-unknown-token-first-request-UnknownApiError"],
-    "class": "stop"},
+    "class": "stop",
+    "note": "model, tool and path read the slot's log entries; the unknown-token reason reads the tranche's, since that refusal names no slot (coordinator ruling, 2026-11-14)"},
    {"row": 14, "ending": "The vendor refused the credential",
     "match": [{"passthrough.requests": {"some": {"status": 401}}}],
     "recorded_form": {"result.api_error_status": 401},
@@ -301,12 +307,13 @@
   "precondition": "the owner's dated confirmation that paid extra usage is off for the account, in the ledger before the live probe, the pilot and the freeze, each time",
   "stream_stop": {"event": "rate_limit_event", "key": "isUsingOverage", "stops_unless": false},
   "passthrough_stop": [
-   {"header": "anthropic-ratelimit-unified-status", "stops_unless_in": ["allowed", "allowed_warning"]},
-   {"header": "anthropic-ratelimit-unified-overage-in-use", "stops_if": "true"},
-   {"header": "anthropic-ratelimit-unified-overage-status", "stops_if_in": ["allowed", "allowed_warning"]}
+   {"header": "anthropic-ratelimit-unified-overage-in-use", "stops_if": "true", "applies_to": {"status": "any, a 429 included"}},
+   {"header": "anthropic-ratelimit-unified-overage-status", "stops_if_in": ["allowed", "allowed_warning"], "applies_to": {"status": "any, a 429 included"}},
+   {"header": "anthropic-ratelimit-unified-status", "stops_unless_in": ["allowed", "allowed_warning"],
+    "applies_to": {"status_not": 429, "header": "present"}}
   ],
-  "passthrough_stop_scope": null,
-  "passthrough_stop_rule": "The passthrough therefore stops the tranche, before passing the response on, at any response that is not a 429 and whose `anthropic-ratelimit-unified-status` is neither `allowed` nor `allowed_warning`, or that carries `anthropic-ratelimit-unified-overage-in-use: true`, or whose `anthropic-ratelimit-unified-overage-status` is `allowed` or `allowed_warning` (D4).",
+  "passthrough_stop_scope_source": "coordinator ruling, 2026-11-14: the reading of feat/lh-passthrough, whose D4 text carries it to main; main's D4 sentence (passthrough_stop_rule) left the scope open",
+  "passthrough_stop_rule": "The passthrough therefore stops the tranche, before passing the response on, at any response that is not a 429 and whose `anthropic-ratelimit-unified-status` is neither `allowed` nor `allowed_warning`, or that carries `anthropic-ratelimit-unified-overage-in-use: true`, or whose `anthropic-ratelimit-unified-overage-status` is `allowed` or `allowed_warning` (D4, on main).",
   "acts": "one request late, unless ordinary responses carry overage-status (the live probe shows whether)"
  },
  "ceiling": {
@@ -376,6 +383,8 @@
  "schedule": {
   "source": "plan D7",
   "smoke": {"task": "gsea-proteomics", "effort": "low", "concurrency": 1, "becomes": "slot 1 of round 1, if it passes",
+            "fallback": {"order": "tasks.json", "first_of": "tasks.qualified", "not_on": "tasks.load_sensitive"},
+            "fallback_rule": "If gsea-proteomics does not qualify, the smoke task is the first qualified task in `tasks.json` order that is not on the load-sensitive list (D7.1).",
             "after": "the manifest hash is frozen and in the ledger",
             "checks": [
              {"init_event": "attempt.init_event"},
@@ -399,7 +408,8 @@
   "blocks_per_round": 16,
   "block": "one task's three efforts, started one after another",
   "order": {"inputs": ["seed", "round", "task", "effort"], "seed": null, "hash": null,
-            "rule": "The order of the blocks in a round, and of the efforts in a block, is fixed by a hash of a frozen seed, the round, the task and the effort (D7.3)."},
+            "rule": "The order of the blocks in a round, and of the efforts in a block, is fixed by a hash of a frozen seed, the round, the task and the effort (D7.3).",
+            "one_seed": "one frozen seed gives both the schedule's order and the block order (coordinator ruling, 2026-11-14)"},
   "skipped": "the four slots already run (the smoke and the pilot)",
   "rerun_after_a_cut": "at the head of the queue",
   "tail": "When the ceiling or the 240 ends the tranche, the tail of that order is dropped, fixed before the first attempt; the launcher never skips ahead, so at most one block is left partial (D7.4).",
@@ -485,16 +495,14 @@
    "why": "D3: a task that needs another host gets it by name in tasks.json"},
   {"field": "tasks.withholding", "filled_by": "feat/long-horizon-oracle-2b: `image_check.py tasks` copies the image records and withholding verdicts into tasks.json",
    "why": "D1: the withholding result is recorded in tasks.json; on main it is only in image_measure.json"},
-  {"field": "network.agent_phase.allowed_hosts", "filled_by": "feat/long-horizon-oracle-2b: oracle_check.sh drafts the list (its comment: Task 3 freezes the ladder's list); the second pass qualifies the tasks under it",
+  {"field": "network.agent_phase.allowed_hosts", "filled_by": "feat/long-horizon-oracle-2b: frozen after the oracle's second pass has run under it, as D1 says (oracle_check.sh on that branch drafts it)",
    "why": "D3 names the list by kind only; main shows only the recordings' relay, pypi.org and files.pythonhosted.org"},
   {"field": "host.cpu_set", "filled_by": "feat/long-horizon-oracle-2b: the CPU set its second pass ran on (its oracle_check.sh defaults to 8-31)",
    "why": "D2 fixes 24 CPUs but names none, and qualification runs on the ladder's CPU set"},
   {"field": "refusal.form_reasons", "filled_by": "feat/lh-passthrough: the reasons of the request-form refusals it adds to row 13 (field, header, malformed, oversized or timed-out request, too many connections, a busy slot)",
    "why": "no recording on main shows them; row 13's alternatives grow by these when it merges"},
-  {"field": "classification.passthrough_log", "filled_by": "feat/lh-passthrough: the request log's file and row format (requests.jsonl; status, refused, headers), and how a refusal of an unknown token, which names no slot, is joined to an attempt",
+  {"field": "classification.passthrough_log", "filled_by": "feat/lh-passthrough: the field names of its request log (requests.jsonl; slot, status, refused, headers)",
    "why": "the passthrough conditions of rows 2 and 10 to 14 read that log; no file on main defines it"},
-  {"field": "paid_usage.passthrough_stop_scope", "filled_by": "feat/lh-passthrough: its D4 revision applies the overage clauses to every response, a 429 included, and the unified-status clause only to a response that carries the header and is not a 429",
-   "why": "main's D4 sentence (passthrough_stop_rule) leaves open whether `that is not a 429` covers all three clauses and whether a missing header counts as neither allowed value"},
   {"field": "usage_limits.vendor_headers_confirmed", "filled_by": "Task 4, the live probe (item 2), and any coordinator row that revises the paid-usage stop from it",
    "why": "D4: the header names were read from the CLI's bundle and recorded against the stand-in only; the live probe confirms them"},
   {"field": "readout.contamination_scan.terms", "filled_by": "Task 2b: the dry run of the contamination terms over the oracle jobs and the recordings",
@@ -506,10 +514,6 @@
   {"field": "schedule.order", "filled_by": "the freeze (Task 9): the seed, and the hash function with its encoding of seed, round, task and effort",
    "why": "D7.3 fixes the order by a hash of a frozen seed but derives neither"},
   {"field": "readout.fall_bound.seed", "filled_by": "the freeze (Task 9)",
-   "why": "D6 names a fixed seed for the bootstrap but no value"},
-  {"field": "classification.classes.stop", "filled_by": "a coordinator ruling",
-   "why": "rows 2 and 13 are `A stop`, and D5 defines no count for a stop: D7.6 says starts under every label count against the 240 and the USD 200, D5 exempts only pre-session failures, and row 2's second form ends before a session"},
-  {"field": "harness.agent_setup_timeout_multiplier", "filled_by": "a coordinator ruling",
-   "why": "D2 does not name one; every t2a-* recording ran with 3, and the install takes about four minutes under load"}
+   "why": "D6 names a fixed seed for the bootstrap but no value"}
  ]
 }

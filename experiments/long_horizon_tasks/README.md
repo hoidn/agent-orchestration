@@ -65,7 +65,12 @@ pytest -q -n 4 tests/experiments/test_long_horizon_ladder.py
 **`pending`** lists each value that `ladder.json` cannot take from `main` yet. Each such field is `null`, and its
 entry says what fills it: one of the two branches in flight (`feat/long-horizon-oracle-2b`: the qualified tasks,
 overlay digests, extra hosts, withholding, the host list, the CPU set; `feat/lh-passthrough`: the refusal reasons of
-a request's form, its log format, the scope of the paid-usage stop), Task 2b's dry run of the contamination terms,
-the live probe, the freeze (the schedule's seed and hash, the bootstrap seed) or a coordinator ruling. `--freeze`
-refuses while `pending` is non-empty or any `null` is left; a test holds every `null` to a `pending` entry. Until
-the freeze, the committed `manifest.json` is unfrozen and goes stale with every kit change: run `write` again.
+a request's form and its log's field names), Task 2b's dry run of the contamination terms, the live probe, or the
+freeze (the schedule's seed and hash, the bootstrap seed). `--freeze` refuses while `pending` is non-empty or any
+`null` is left; a test holds every `null` to a `pending` entry.
+
+**Run `manifest.py write` again after every kit merge.** Until the freeze, the committed `manifest.json` is unfrozen:
+it is only a check that the command works, and it labels nothing. `test_the_committed_manifest_is_current` fails
+while it is stale, so a branch that changes the kit fails that test until it reruns `write`. The rerun belongs in the
+merge that changes the kit: the merge commit carries the rewritten `manifest.json`. A conflict in `manifest.json` is
+resolved by running `write` on the merged tree, never by hand.
