@@ -1,6 +1,6 @@
 """Differential corpus for Task 0b of the staged-workflow authoring plan: every program of
 `tests/workflow_lisp_staged_authoring_differential_cases.py` (the task's shapes, their neighbours and the probe
-programs of its review) against its build on `main` at `524ed71a`, and the programs the fixes newly build against
+programs of its review) against its build on `main` at `5d3dacb6`, and the programs the fixes newly build against
 their pinned digest and the value of their bound spelling on `main`.
 
 The three expectation files are written by the cases module's `__main__`, never by hand; its docstring gives the

@@ -17,13 +17,17 @@ and without, in a loop and outside):
   or an `if`, beside the parallel map, the loop body, the local procedure and the pure map that built;
 - `d5-`: a `bind-proc` over a parameter of a pure procedure passed on to a `ProcRef` parameter, beside a literal,
   an effectful procedure and a reference bound in the caller;
+- `d1-call-`: the D1 probe programs of the re-review of Task 0b, a pure map body in a loop that holds a command,
+  reading the binder through a call, a `bind-proc`, a local, a macro, a tag test or a `match`, in an `if`
+  condition and as the `done` value, and bodies reading the loop's names beside them;
 - `<family>-r-`: the probe programs of the review of Task 0b (`staged_authoring_review_probes.json` under
   `tests/fixtures/workflow_lisp/`, each with the id it has there and the id of its bound spelling, `~b`, where it
   has one), less those the TD1 corpus (`tests/workflow_lisp_td21_differential_cases.py`) already holds: among
   them a list in a `let-proc` local's call in a `match` subject beside an `and`, an `or` or a `cond`, and a local
   that captures a name bound to a generic call.
 For D1 the bound spelling binds the condition's map with `let*` (a `let*` in the map body reading the binder is
-written without it, since it has the defect in that spelling too); for D3 it is the call through a `let-proc` local
+written without it, since it has the defect in that spelling too), and for `d1-call-` it computes the map
+before the loop; for D3 it is the call through a `let-proc` local
 written outside every map, the spelling that built (a `let*` in the map body does not); for an empty list in an
 arm (a `let*` body supplies no item type) it passes the bound subject to a procedure that matches it; for D5
 (a refusal), the uncalled procedures and the neighbours that built there is none.
@@ -31,10 +35,10 @@ arm (a `let*` body supplies no item type) it passes the bound subject to a proce
 The three expectation files under `tests/fixtures/workflow_lisp/` are written by this module's `__main__`, never by
 hand: `staged_authoring_differential_main.json` (every case's build) and
 `staged_authoring_differential_bound_values.json` (the bound spelling's value) on an export of `main` at
-`524ed71a`; `staged_authoring_differential_pins.json` (the outcome of every case whose outcome moved) on the tip
+`5d3dacb6`; `staged_authoring_differential_pins.json` (the outcome of every case whose outcome moved) on the tip
 of `feat/authoring-0b`. With `F=TREE/tests/fixtures/workflow_lisp` and `M=staged_authoring_differential`:
 
-    git archive 524ed71a | tar -x -C EXPORT
+    git archive 5d3dacb6 | tar -x -C EXPORT
     cd EXPORT && PYTHONPATH=EXPORT python -B TREE/tests/workflow_lisp_staged_authoring_differential_cases.py \\
         outcomes $F/$M_main.json
     cd TREE && PYTHONPATH=TREE python -B tests/workflow_lisp_staged_authoring_differential_cases.py \\
@@ -333,6 +337,67 @@ def _d5():
 
 
 # ---------------------------------------------------------------------------------------------
+# The re-review's D1 probes: a pure map body in a loop that holds a command, reading the binder through a call, a
+# `bind-proc`, a local, a macro, a tag test, a nested map or a record, in an `if` condition and as the `done`
+# value; its bound spelling computes the map before the loop. The bodies that read the loop's names have none.
+
+D1_CALL_DEFINITIONS = (U, "(defrecord R (n Int))", "(defproc pp ((k Int)) -> Int (+ k 1))",
+                       "(defproc keepp :forall (T) ((x T)) -> T x)",
+                       "(defproc add ((n Int) (x Int)) -> Int (+ n x))",
+                       "(defproc apply1 ((f ProcRef[Int -> Int]) (v Int)) -> Int (f v))",
+                       "(defmacro inc1 (x) (+ x 1))", "(defun dd ((k Int)) -> Int (* k 2))",
+                       "(defmacro with-v (body) (let* ((v 9)) body))", "(defmacro twice (x) (+ x x))")
+D1_CALL_BODIES = {
+    "pure-call": "(pp v)", "generic-pure-call": "(keepp v)", "bind-proc": "(apply1 (bind-proc (proc-ref add) :n v) 1)",
+    "local-called": "(let-proc ((g ((k Int)) -> Int (+ k 1))) (g v))", "macro": "(inc1 v)", "defun": "(dd v)",
+    "nested-map": "(list/length (list/map ((w xs)) (+ w v)))", "record": "(let* ((q (record R :n v))) q.n)",
+    "let-reads-via-call": "(let* ((k (pp v))) (+ k 1))", "let-shadow": "(let* ((v 5)) (+ v 1))",
+    "let-reads-binder": "(let* ((k (+ v 1))) k)",
+    "tag": "(if (= v.variant A) 1 0)", "tag-read": "(if (= v.variant A) v.n 0)",
+    "match-body": "(match v ((A a) a.n) ((B b) 0))", "bind-proc-nov": "(apply1 (bind-proc (proc-ref add) :n 2) v)",
+}
+D1_CALL_READING_LOOP_NAMES = {
+    "reads-r": "(+ v r)", "reads-s": "(+ v s)", "reads-n": "(+ v n)", "let-reads-r": "(let* ((k r)) (+ k v))",
+    "let-reads-s": "(let* ((k (+ s 2))) (+ k v))", "match-cond-u": "(if (match u ((A a) (> a.n 1)) ((B b) false)) v 0)",
+    "match-cond-and": "(if (and (> v 3) (match u ((A a) true) ((B b) false))) 1 0)",
+    "pure-loop-v": "(loop/recur ((t 0)) :max 9 :on-exhausted 0 (if (> t v) (done t) (continue (+ t 1))))",
+    "pure-loop-nov": "(loop/recur ((t 0)) :max 3 :on-exhausted 0 (if (> t 1) (done (+ t v)) (continue (+ t 1))))",
+    "local-uncaptured": "(let-proc ((g ((k Int)) -> Int (+ k 1))) (+ (g 1) v))",
+    "inner-shadow": "(list/length (list/map ((v xs)) (+ v 1)))",
+    "inner-source-binder": "(list/length (list/map ((w (list v v))) (+ w 1)))",
+    "match-outer-u": "(match u ((A a) (+ a.n v)) ((B b) v))", "if-tag-u": "(if (= u.variant A) v 0)",
+    "record-r": "(let* ((q (record R :n r))) (+ q.n v))",
+    "let-shadow-chain": "(let* ((k 1) (v (+ k 1))) (+ v 0))", "macro-twice": "(twice v)",
+    "macro-shadow": "(with-v (+ v 1))", "cond-body": "(cond ((> v 3) 1) (else 0))",
+    "cond-outer": "(cond ((> r 0) v) (else 0))",
+}
+D1_CALL_LOOPS = {  # result type, loop; MAP is the map (the `head` loops go on while its head exceeds a bound)
+    "head": ("Int", "(loop/recur ((s 0)) :max 2 :on-exhausted 0 (let* ((r RUN)) "
+                    "(if (> (or-else (list/head MAP) 0) s) (continue (+ s r)) (done s))))"),
+    "head-apart": ("Int", "(loop/recur ((s 0)) :max 3 :on-exhausted -1 (let* ((r RUN)) "
+                          "(if (> (or-else (list/head MAP) 0) (+ s 3)) (continue (+ s r)) (done s))))"),
+    "value": ("List[Int]", "(loop/recur ((s 0)) :max 2 :on-exhausted (list 0) (let* ((r RUN)) (done MAP)))"),
+}
+
+
+def _d1_call_case(position: str, mapped: str, *, bound: bool) -> tuple[str, tuple[str, ...]]:
+    result, loop = D1_CALL_LOOPS[position]
+    loop = loop.replace("RUN", E("e"))
+    body = f"(let* ((mapped {mapped})) {loop.replace('MAP', 'mapped')})" if bound else loop.replace("MAP", mapped)
+    return f"((n Int) (xs List[Int]) (u U)) -> {result} {body}", D1_CALL_DEFINITIONS
+
+
+def _d1_calls():
+    cases = []
+    for name, body in D1_CALL_BODIES.items():
+        mapped = f"(list/map ((v {'(list u u)' if name.startswith(('tag', 'match')) else 'xs'})) {body})"
+        cases += [(f"d1-call-{position}-{name}", _d1_call_case(position, mapped, bound=False),
+                   _d1_call_case(position, mapped, bound=True)) for position in D1_CALL_LOOPS]
+    return cases + [(f"d1-call-value-{name}", _d1_call_case("value", f"(list/map ((v xs)) {body})", bound=False), None)
+                    for name, body in D1_CALL_READING_LOOP_NAMES.items()]
+
+
+# ---------------------------------------------------------------------------------------------
 # The review's probes
 
 PROBES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "staged_authoring_review_probes.json"
@@ -415,7 +480,7 @@ def _cases():
     cases: dict[str, tuple[str, tuple[str, ...]]] = {}
     bound: dict[str, str] = {}
     seen: dict[tuple[str, tuple[str, ...]], str] = {}
-    for family in (_d1, _d2, _d3, _d5, _probes):
+    for family in (_d1, _d2, _d3, _d5, _d1_calls, _probes):
         for case_id, case, bound_case in family():
             if case in seen:
                 continue

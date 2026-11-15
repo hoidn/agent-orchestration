@@ -26,6 +26,152 @@
  "d1-arm-if-match-let": [
   4
  ],
+ "d1-call-head-apart-bind-proc": [
+  0,
+  "e"
+ ],
+ "d1-call-head-apart-bind-proc-nov": [
+  0,
+  "e"
+ ],
+ "d1-call-head-apart-defun": [
+  0,
+  "e"
+ ],
+ "d1-call-head-apart-generic-pure-call": [
+  0,
+  "e"
+ ],
+ "d1-call-head-apart-let-reads-binder": [
+  0,
+  "e"
+ ],
+ "d1-call-head-apart-let-reads-via-call": [
+  0,
+  "e"
+ ],
+ "d1-call-head-apart-local-called": [
+  0,
+  "e"
+ ],
+ "d1-call-head-apart-match-body": [
+  0,
+  "e"
+ ],
+ "d1-call-head-apart-pure-call": [
+  0,
+  "e"
+ ],
+ "d1-call-head-apart-tag-read": [
+  0,
+  "e"
+ ],
+ "d1-call-head-bind-proc": [
+  0,
+  "e",
+  "e"
+ ],
+ "d1-call-head-bind-proc-nov": [
+  0,
+  "e",
+  "e"
+ ],
+ "d1-call-head-defun": [
+  0,
+  "e",
+  "e"
+ ],
+ "d1-call-head-generic-pure-call": [
+  1,
+  "e",
+  "e"
+ ],
+ "d1-call-head-let-reads-binder": [
+  0,
+  "e",
+  "e"
+ ],
+ "d1-call-head-let-reads-via-call": [
+  0,
+  "e",
+  "e"
+ ],
+ "d1-call-head-local-called": [
+  0,
+  "e",
+  "e"
+ ],
+ "d1-call-head-match-body": [
+  0,
+  "e",
+  "e"
+ ],
+ "d1-call-head-pure-call": [
+  0,
+  "e",
+  "e"
+ ],
+ "d1-call-head-tag-read": [
+  0,
+  "e",
+  "e"
+ ],
+ "d1-call-value-bind-proc": [
+  [
+   2,
+   3
+  ],
+  "e"
+ ],
+ "d1-call-value-bind-proc-nov": [
+  [
+   3,
+   4
+  ],
+  "e"
+ ],
+ "d1-call-value-defun": [
+  [
+   2,
+   4
+  ],
+  "e"
+ ],
+ "d1-call-value-generic-pure-call": [
+  [
+   1,
+   2
+  ],
+  "e"
+ ],
+ "d1-call-value-let-reads-binder": [
+  [
+   2,
+   3
+  ],
+  "e"
+ ],
+ "d1-call-value-let-reads-via-call": [
+  [
+   3,
+   4
+  ],
+  "e"
+ ],
+ "d1-call-value-local-called": [
+  [
+   2,
+   3
+  ],
+  "e"
+ ],
+ "d1-call-value-pure-call": [
+  [
+   2,
+   3
+  ],
+  "e"
+ ],
  "d1-loop-all-let-binder": [
   4
  ],

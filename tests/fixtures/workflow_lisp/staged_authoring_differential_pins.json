@@ -35,6 +35,118 @@
   "builds",
   "sha256:c48f8f76ce8d2e618d8cf91ec09cc5e467ea4e9af17641a397f6672191f3a67e"
  ],
+ "d1-call-head-apart-bind-proc": [
+  "builds",
+  "sha256:031b164c0f4f44276b669fd607fe1c2bcb8b53e2db8ab1e87b42fa19e8239978"
+ ],
+ "d1-call-head-apart-bind-proc-nov": [
+  "builds",
+  "sha256:0f988ef82f4ac6e5b37617ea36c14d0c39507cebac5ff26ea0d00c17da973068"
+ ],
+ "d1-call-head-apart-defun": [
+  "builds",
+  "sha256:553d7526a0b4730963cc176ed21dc31553fdf764b7953326287421cee34ba614"
+ ],
+ "d1-call-head-apart-generic-pure-call": [
+  "builds",
+  "sha256:4a056a5f0b58cce377958d18037a6cf6bfa21eee5f883c355161bc08ea32fe7e"
+ ],
+ "d1-call-head-apart-let-reads-binder": [
+  "builds",
+  "sha256:a8f4f64e4b946d337046a91970d3d4420f88204f764465355440e5226ee742d1"
+ ],
+ "d1-call-head-apart-let-reads-via-call": [
+  "builds",
+  "sha256:f8eacf6469bd0eb0750613d3c6cc4056d895d9d3ee2643e883d15ebea0a87b39"
+ ],
+ "d1-call-head-apart-local-called": [
+  "builds",
+  "sha256:5e92bbc0e5e6523de61e4a12f6451f34503f2e45a6c3f87c241af7cdb63593a4"
+ ],
+ "d1-call-head-apart-match-body": [
+  "builds",
+  "sha256:3a14bf2e530b52c0bf0228cba0d09495045defc390b1cdc088c3fd5806796cd2"
+ ],
+ "d1-call-head-apart-pure-call": [
+  "builds",
+  "sha256:8ac624f4c818e5d09402159f4fea07cec674c18ea86db6d0337cc05fdedf9665"
+ ],
+ "d1-call-head-apart-tag-read": [
+  "builds",
+  "sha256:4c038202479a9a57df944db42a45a0ef433bec5aac3733e4ca515df820086337"
+ ],
+ "d1-call-head-bind-proc": [
+  "builds",
+  "sha256:f3e72270fced9ad69b823b887ad592b4669ba27600a0fad074647d8f78dfa290"
+ ],
+ "d1-call-head-bind-proc-nov": [
+  "builds",
+  "sha256:c0f3474b0f3622f1eac15bdf22e31c38b8744172cbb53023f9fc1c572655ec6c"
+ ],
+ "d1-call-head-defun": [
+  "builds",
+  "sha256:fd780494b36baef200b80578d02f4ffdc73a6f698af68c6739ad70cd148bdb5e"
+ ],
+ "d1-call-head-generic-pure-call": [
+  "builds",
+  "sha256:bf821c2dd934aac791759334d96a3466fc9c7d43682907836cf1fb87f033422d"
+ ],
+ "d1-call-head-let-reads-binder": [
+  "builds",
+  "sha256:f8242cdfcfa21b3f3697a7384b635ae32f2c2999199293e1f35d9704beecff4a"
+ ],
+ "d1-call-head-let-reads-via-call": [
+  "builds",
+  "sha256:c7eb7e8ef2e9232dee5d30cb6f744037c45ba84d385693eb4deb1e743e020c73"
+ ],
+ "d1-call-head-local-called": [
+  "builds",
+  "sha256:659cf0fb4d20777f1ec814b06536a5861aefff1d5c07be69a7cee75c6a861abf"
+ ],
+ "d1-call-head-match-body": [
+  "builds",
+  "sha256:e91582eafb241ea845cad6c1d4914d4d37c06e0ac1639c0de239dab2cec4a45a"
+ ],
+ "d1-call-head-pure-call": [
+  "builds",
+  "sha256:fae002c93eca88957bdc16357a24b9e281c47b0475d8b708653f4caf39e40ba4"
+ ],
+ "d1-call-head-tag-read": [
+  "builds",
+  "sha256:6d0e70a1f812047a19111668ea7cd942435417dcf3a654fe6bf5fa234751f5d8"
+ ],
+ "d1-call-value-bind-proc": [
+  "builds",
+  "sha256:b49edf7fb99fdff129abc3f14413bc8fd5823a44eb5e675676d1f1167c7d15fe"
+ ],
+ "d1-call-value-bind-proc-nov": [
+  "builds",
+  "sha256:ce692dae9c19ec4724c80de8d821e59c932094a4d90a3d0f624a87f84f6eb518"
+ ],
+ "d1-call-value-defun": [
+  "builds",
+  "sha256:2f8d71a3b1994bf929ef372c0f318671759ca2aa14840e6d623ed29df5dbde64"
+ ],
+ "d1-call-value-generic-pure-call": [
+  "builds",
+  "sha256:45c7d0ad82c1a3ce1e1947787c318d100544b4e81bb4e38ecffed651c65d9a3c"
+ ],
+ "d1-call-value-let-reads-binder": [
+  "builds",
+  "sha256:8c62622114b5c1987c193c99d507726167ad524d56f59f9ac8a5796853734630"
+ ],
+ "d1-call-value-let-reads-via-call": [
+  "builds",
+  "sha256:5b5c431df1f868b820254f272d8962012c2f7393acdb93ec3f57115be26a947a"
+ ],
+ "d1-call-value-local-called": [
+  "builds",
+  "sha256:8b0856987babe77b98968e9fe7cc585589c249ce4f687cf16f6953bd0736b9c8"
+ ],
+ "d1-call-value-pure-call": [
+  "builds",
+  "sha256:8b0856987babe77b98968e9fe7cc585589c249ce4f687cf16f6953bd0736b9c8"
+ ],
  "d1-loop-all-let-binder": [
   "builds",
   "sha256:3a7f52b837a40cde773672597d53b789c695a87fe51881de60293e1d4b583d46"
