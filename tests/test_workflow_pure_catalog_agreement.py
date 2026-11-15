@@ -67,6 +67,11 @@ OPERAND_TYPES = {
         {"kind": "list", "item": {"kind": "primitive", "name": "Int"}},
         [3],
     ),
+    "List[Bool]": (
+        ListTypeRef(name="List[Bool]", item_type_ref=PrimitiveTypeRef(name="Bool")),
+        {"kind": "list", "item": {"kind": "primitive", "name": "Bool"}},
+        [True, False],
+    ),
 }
 # `record-update` is written as a record update, never as an operator application.
 OPERATORS = sorted(name for name in PURE_EXPR_OPERATOR_CATALOG if name != "record-update")

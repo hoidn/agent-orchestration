@@ -776,6 +776,9 @@ entry here or in a heading.
 | `list/rest` | A list without its first element | [§10.3](#103-target-218-bounded-list-traversal) |
 | `list/append` | A list with one element added at the end | [§10.3](#103-target-218-bounded-list-traversal) |
 | `list/length` | A list's length | [§10.3](#103-target-218-bounded-list-traversal) |
+| `list/take` | A list's first `n` elements | [§10.2](#102-closed-pure-expression-surface) |
+| `list/all` | Whether every element of a `List[Bool]` is true | [§10.2](#102-closed-pure-expression-surface) |
+| `list/any` | Whether some element of a `List[Bool]` is true | [§10.2](#102-closed-pure-expression-surface) |
 | `print` | Writes a value to stdout and returns it | [§10.2](#102-closed-pure-expression-surface) |
 | `list` | Constructs a `List[T]` from elements of one type | [§10.3](#103-target-218-bounded-list-traversal) |
 | `list/map` | Maps a pure body over a list | [§10.3](#103-target-218-bounded-list-traversal) |
@@ -2226,6 +2229,7 @@ Supported operators are exact and closed:
 | Option | `some?`, `or-else` | `Optional[T]` with typed fallback | Optional access still requires proof or an explicit option operator. |
 | Record | `record-update` | base record plus typed field overrides | Unknown fields remain `record_field_unknown`. |
 | List (target 2.18) | `list/empty?`, `list/head`, `list/rest`, `list/append`, `list/length` | eligible `List[T]`; `list/head` returns `Optional[T]` | All five operators are total; eligibility uses the shared whole-list transportability predicate. |
+| List, cut and reduce | `list/take`, `list/all`, `list/any` | `list/take`: eligible `List[T]` and `Int` -> `List[T]`; `list/all`, `list/any`: `List[Bool]` -> `Bool` | All three are total. `list/take` gives the whole list when the count exceeds its length and the empty list when the count is below 1; `list/all` is `true` and `list/any` is `false` on the empty list. A count that is not an `Int`, or a reduced list that is not a `List[Bool]`, is refused (`pure_expr_operand_type_mismatch`). They need no new target ([versioning](../../specs/versioning.md)); a build that predates them refuses a source that uses one, also on `resume` (`pure_expr_operator_unsupported`), and a closed program that holds one (`closed_program_invalid`, naming the operator). |
 | Observation (target 2.35) | `print` | one operand of any type `T` -> the same `T` | Writes the operand's canonical compact JSON and a newline to the process's stdout, then returns the operand unchanged. Never folded at compile time. Not an effect: it has no identity and no memo record. Only the run's own evaluation writes, so `resume` prints again what it re-evaluates; readers that replay the program (views, `report`, the REPL) evaluate `print` as the identity. |
 
 Deliberate exclusions stay enforced by typed diagnostics:
@@ -2233,7 +2237,8 @@ Deliberate exclusions stay enforced by typed diagnostics:
 - no division or modulo before target 2.34; decimal literals in expressions from
   target 2.34 only (numeric surface rule N1);
 - no path string concatenation;
-- no collection operators beyond the exact target-2.18 list surface;
+- no collection operators beyond the list rows of this table (no fold, `list/filter`,
+  `list/contains?` or `list/concat`);
 - no regex, time, randomness, workflow calls, provider calls, or command execution, and no IO beyond the stdout line `print` writes;
 - no proof creation from computed equality/comparison alone.
 
@@ -2276,20 +2281,34 @@ value that holds no effect is not concerned.
 `List[T]` where `T` is the type of the first element. Each later element has that type; nothing
 is converted, so an `Int` beside a `Float`, an `Int` beside an `Optional[Int]` and two path
 types with one root are each refused. Where the form around the list states its type, the two
-must agree. Diagnostics: `pure_expr_operand_type_mismatch`. An element may hold an effect
-under the rule above. Open defect: a `variant` with a list in a field, written directly as a
-`match` subject, ends in `compiler_defect`; bound with `let*` first, it builds.
+must agree. `(list :of T e1 ...)` writes the element type: `T` is a type name or the name of a
+type parameter in scope, each element has type `T`, and the list is a `List[T]` also when it
+has none. `:of T` comes first: `:of` written again or after an element, and any other keyword,
+are refused; so are `(list :of)` and an operand after `:of` that is not a name. A value's name
+after `:of` is not a type. Where the form around the list states `List[T]`, `(list :of T ...)`
+builds the program the list without `:of` builds. Diagnostics: `pure_expr_operand_type_mismatch`;
+`loop_recur_continue_type_mismatch` for a `continue` value of another type than the loop state
+(§13.1); `keyword_argument_invalid`; `list_item_type_invalid`; `type_unknown`. An element may
+hold an effect under the rule above. Open defect: a `variant` with a list in a field, written
+directly as a `match` subject, ends in `compiler_defect`; bound with `let*` first, it builds.
+Open defect: an argument of a `defun` function called in a workflow or procedure body is not
+checked against its parameter, so `(list :of Int)` passed to a `List[String]` parameter builds.
+Open defect: inside a macro template that binds a value named like a type, `:of` that type is
+refused with `type_unknown`.
 
-**Empty list.** `(list)` has no element to take a type from. It is accepted where the form
-around it states the list's type: the result of a workflow, a procedure or a function; an
-argument of a procedure, a `let-proc` local or a workflow `call`; a record or variant field; a
-typed `loop-state` field (§13.2), also in `:like`; an element of a list whose type is stated;
-and a branch of an `if`, `cond` or `match` that stands in one of these places. It is refused in
-these places, which state no type: a `let*` binding and the body of a `let*`; an operand of a
-list operator; a `list/map` source or body; an argument of a `defun` function; a `record-update`
-field; an `or-else` fallback; a command `:argv` item; an element of a list whose type is not
-stated; and a loop's binder-form or `:state` initial value, its `continue` value and its `done`
-value. Diagnostics: `list_empty_type_context_required`.
+**Empty list.** `(list)` has no element to take a type from; `(list :of T)` states it and is
+accepted wherever a `List[T]` is. `(list)` is accepted where the form around it states the
+list's type: the result of a workflow, a procedure or a function; an argument of a procedure, a
+`let-proc` local, a workflow `call` or a `defun` function; a record or variant field; a typed
+`loop-state` field (§13.2), also in `:like`; an element of a list whose type is stated; a loop's
+`continue` value; and a branch of an `if`, `cond` or `match` that stands in one of these places
+other than a `defun` argument or a `continue` value, where only a bare `(list)` takes the type.
+It is refused in these places, which state no type: a `let*` binding and the body of a `let*`;
+an operand of a list operator; a `list/map` source or body; a `record-update` field; an
+`or-else` fallback; a command `:argv` item; an element of a list whose type is not stated; and
+a loop's binder-form or `:state` initial value, its `done` value and its `:on-exhausted` value.
+It is refused as the result of a `let-proc` local as well. Diagnostics:
+`list_empty_type_context_required`.
 
 **Operators.** The list operators are the rows of this table. Each takes a list as its first
 operand:
@@ -2301,11 +2320,15 @@ operand:
 | `list/rest` | `List[T] -> List[T]` | the list without its first element; the empty list stays empty |
 | `list/append` | `(List[T], T) -> List[T]` | a new list with the element added at the end |
 | `list/length` | `List[T] -> Int` | the number of elements |
+| `list/take` | `(List[T], Int) -> List[T]` | the first `n` elements; the whole list when `n` exceeds its length, the empty list when `n` is below 1 |
+| `list/all` | `List[Bool] -> Bool` | whether every element is true; `true` for the empty list |
+| `list/any` | `List[Bool] -> Bool` | whether some element is true; `false` for the empty list |
 
 Each gives a value for the empty list as for any other. `list/rest` and `list/append` give a
 new list and leave their operand as it was. The value of `list/head` is read with `some?` or
-`or-else`. A first operand that is not a list, a `list/append` element of another type and a
-wrong number of operands are refused. Diagnostics: `pure_expr_operand_type_mismatch`.
+`or-else`. A first operand that is not a list, a `list/append` element of another type, a
+`list/take` count that is not an `Int`, a `list/all` or `list/any` list that is not a
+`List[Bool]` and a wrong number of operands are refused. Diagnostics: `pure_expr_operand_type_mismatch`.
 `(list/nth xs 0)` is refused with `pure_expr_operator_unsupported`: the catalog has no indexing
 operator.
 

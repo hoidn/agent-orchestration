@@ -215,3 +215,58 @@ def test_loop_budget_result_dependency_does_not_leak_into_body_effect_inputs(
     assert exhausted_effects[0][0] == "get-budget"
     assert [row[0] for row in completed_effects] == ["get-budget", "work"]
     assert completed_effects[1][1] == frozenset()
+
+
+# Recorded as tests/fixtures/map_effect_cap_before_take by the build before `list/take`; keep it byte-identical.
+PRE_TAKE_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule main) (export run)
+  (defworkflow run () -> List[Int]
+    (list/map-effect ((x (list 1 2 3 4 5 6 7 8 9))) :max 8
+      (command-result step :argv ("./step.py" x) :returns Int))))
+'''
+PRE_TAKE_FIXTURE = Path(__file__).parent / "fixtures" / "map_effect_cap_before_take"
+TAKE_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule main) (export run)
+  (defworkflow run ((xs List[Int])) -> List[Int]
+    (list/map-effect ((x (list/take xs 8))) :max 8
+      (command-result step :argv ("./step.py" x) :returns Int))))
+'''
+
+
+def _cap_workspace(path: Path, source: str) -> Path:
+    import shutil
+
+    shutil.copytree(PRE_TAKE_FIXTURE, path, ignore=shutil.ignore_patterns("runs", "README.md"))
+    (path / "main.orc").write_text(source, encoding="utf-8")
+    return path
+
+
+def test_take_keeps_a_long_list_under_the_map_cap(tmp_path: Path) -> None:
+    from tests.rebased_fixture import cli
+
+    ws = _cap_workspace(tmp_path / "ws", TAKE_SOURCE)
+
+    result = cli(ws, "run", "main.orc", "--command-boundaries-file", "commands.json",
+                 "--input", "xs=[1,2,3,4,5,6,7,8,9]")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (ws / "dispatches.log").read_text().split() == [str(n) for n in range(1, 9)]
+    assert result.stdout.splitlines()[-1] == "[10,20,30,40,50,60,70,80]"
+
+
+def test_run_that_failed_at_the_cap_before_the_change_resumes_to_the_same_code(tmp_path: Path) -> None:
+    import shutil
+
+    from tests.rebased_fixture import cli
+
+    ws = _cap_workspace(tmp_path / "ws", PRE_TAKE_SOURCE)
+    shutil.copytree(PRE_TAKE_FIXTURE / "runs", ws / ".orchestrate" / "runs")
+    (run_root,) = (ws / ".orchestrate" / "runs").iterdir()
+    memo = (run_root / "memo.jsonl").read_bytes()
+
+    result = cli(ws, "resume", run_root.name)
+
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "[list_map_effect_cap_exceeded]" in result.stderr
+    assert (run_root / "memo.jsonl").read_bytes() == memo
+    assert not (ws / "dispatches.log").exists()
