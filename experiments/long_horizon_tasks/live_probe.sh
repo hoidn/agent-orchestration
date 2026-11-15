@@ -294,8 +294,8 @@ def prompt_tokens(rows):
     return None if usage is None else sum(usage.get(k) or 0 for k in PROMPT)
 
 
-REQUEST_KEYS = ("time", "status", "refused", "limit", "error", "effort", "response_model", "message_id", "headers",
-                "usage", "usd", "worst_case", "passed_on", "credential")
+REQUEST_KEYS = ("time", "status", "refused", "limit", "error", "effort", "tools", "beta", "cache_marks", "response_model",
+                "message_id", "header_names", "headers", "usage", "usd", "worst_case", "passed_on", "credential")
 RESULT_KEYS = ("terminal_reason", "api_error", "api_error_status", "total_cost_usd", "usage", "modelUsage")
 PROMPT = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
 

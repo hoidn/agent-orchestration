@@ -48,12 +48,14 @@ a response naming another model stops it. Starts are the launcher's: `close_star
 
 State, in DIR (mode 700, this user's; the output file belongs there too):
   requests.jsonl  one row per request; a refusal: time, slot, status, reason, and for a cap the limit that acted
-                  (cap_usd, cap_requests, total_usd, total_requests); a forwarded request: also
-                  model, effort, declared tools, the logged response headers (anthropic-*, retry-after,
+                  (cap_usd, cap_requests, total_usd, total_requests); a forwarded request (it has passed the
+                  allowlist): also model, effort, declared tools, its anthropic-beta value as sent, its cache marks
+                  (`<place>:<ttl>` for each block with a cache_control; "unset" is the API's five minutes), every
+                  response header's name, the values of the logged response headers (anthropic-*, retry-after,
                   x-should-retry, request-id, content-encoding, the paid-usage names), usage, price, response
-                  model, message id, error class, worst-case flag. It is the meter: a restart sums it. A row in
-                  which a form of the token appears is written with its numbers only (`withheld`: the form), and
-                  the tranche stops.
+                  model, message id, error class, worst-case flag, whether the answer was passed on. It is the
+                  meter: a restart sums it. A row in which a form of the token appears is written with its
+                  numbers only (`withheld`: the form), and the tranche stops.
   tranche.jsonl   events: close_starts and stop (written here), stop and resume (written by the launcher or a
                   person); every request is refused while the last stop or resume is a stop.
   fingerprint.json  one salt and each form's length and salted SHA-256 (token_scan.py), written at the start.
@@ -333,10 +335,27 @@ def _leaves(value):
     return value.encode("utf-8", "surrogatepass") if isinstance(value, str) else b""
 
 
-def _row(slot, request, credential):
+def _list(value):
+    return value if isinstance(value, list) else []
+
+
+def _cache_marks(request):
+    """`<place>:<ttl>` for each tool, system block and message block that asks for caching (the API allows four)."""
+    blocks = [(f"tools.{i}", tool) for i, tool in enumerate(_list(request.get("tools")))]
+    blocks += [(f"system.{i}", block) for i, block in enumerate(_list(request.get("system")))]
+    for i, message in enumerate(_list(request.get("messages"))):
+        content = _list(message.get("content")) if isinstance(message, dict) else []
+        blocks += [(f"messages.{i}.content.{j}", block) for j, block in enumerate(content)]
+    return [f"{place}:{str(block['cache_control'].get('ttl', 'unset'))[:16]}" for place, block in blocks
+            if isinstance(block, dict) and isinstance(block.get("cache_control"), dict)][:16]
+
+
+def _row(slot, request, credential, headers):
+    """A forwarded request's row, from a request that has passed the allowlist."""
     tools = request.get("tools") or []
     return {"time": time.time(), "slot": slot, "credential": credential, "model": request.get("model"),
-            "effort": (request.get("output_config") or {}).get("effort"), "tools": [t["name"] for t in tools]}
+            "effort": (request.get("output_config") or {}).get("effort"), "tools": [t["name"] for t in tools],
+            "beta": headers.get("anthropic-beta"), "cache_marks": _cache_marks(request)}
 
 
 def _worst_case(start, request, body_size):
@@ -659,14 +678,15 @@ class Handler(BaseHTTPRequestHandler):
         return body, request
 
     def _forward(self, pt, slot, body, request, deadline):
-        row, conn = _row(slot, request, pt.credential), pt.upstream()
+        row, conn = _row(slot, request, pt.credential, self.headers), pt.upstream()
         try:
             resp = self._send(conn, pt, body)
         except (OSError, http.client.HTTPException) as exc:  # nothing came back: the client sees a dropped line
             conn.close()
             pt.settle(slot, {**row, "status": None, "error": type(exc).__name__}, Meter({}), request, len(body))
             return self._fault(exc)
-        row.update(status=resp.status, headers=pt.logged_headers(resp.headers))
+        row.update(status=resp.status, headers=pt.logged_headers(resp.headers),
+                   header_names=[name.lower() for name in resp.headers.keys()])
         meter, settled = Meter(resp.headers), []
 
         def settle():  # once: before the last bytes reach the client when the end is known, else at the end

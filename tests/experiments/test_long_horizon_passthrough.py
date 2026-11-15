@@ -369,12 +369,15 @@ class _CannedHandler(socketserver.StreamRequestHandler):
                        if line.lower().startswith(b"content-length:")), 0)
         self.server.received.append(head + self.rfile.read(length))
         response = self.server.responses.pop(0)
-        if isinstance(response, tuple):  # (head, gate, body): the body waits for the test's signal
+        if isinstance(response, tuple):  # (head, gate, body or [parts]): the body waits for the test's signal
             self.wfile.write(response[0])
             self.wfile.flush()
             response[1].wait(WAIT)
             response = response[2]
-        self.wfile.write(response)
+        for part in response if isinstance(response, list) else [response]:  # parts come 0.3 s apart
+            self.wfile.write(part)
+            self.wfile.flush()
+            time.sleep(0.3 if isinstance(response, list) else 0)
 
 
 @pytest.fixture
@@ -660,6 +663,27 @@ def test_the_log_holds_the_rate_limit_headers_and_never_the_authorization_header
     assert (_rows(state)[0]["headers"], "authorization" in text.lower(), real in text, "lh-fake-a" in text) == (
         {"anthropic-ratelimit-unified-status": "allowed", "anthropic-ratelimit-unified-5h-utilization": "0.12",
          "retry-after": "3"}, False, False, False)
+
+
+def test_the_log_row_keeps_the_requests_beta_flags_cache_marks_and_tools_and_the_answers_header_names(
+        short, canned, inproc):
+    headers = [("content-type", "application/json"), ("anthropic-ratelimit-unified-status", "allowed"),
+               ("x-vendor-other", "not logged")]
+    upstream = canned(_http(200, headers, json.dumps(_message(USAGE)).encode()))
+    sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
+    hour, five = {"type": "ephemeral", "ttl": "1h"}, {"type": "ephemeral"}
+    request = _request(stream=False, tools=[{"name": "Bash", "input_schema": SCHEMA, "cache_control": five},
+                                            {"name": "Read", "input_schema": SCHEMA}])
+    request.update(system=[{"type": "text", "text": "s", "cache_control": hour}],
+                   messages=[{"role": "user", "content": [{"type": "text", "text": "x", "cache_control": hour}]}])
+    _post(sock, "lh-fake-a", request)
+    row = _rows(state)[0]
+    assert ({k: row[k] for k in ("beta", "cache_marks", "tools", "header_names")}, row["headers"]) == (
+        {"beta": "oauth-2025-04-20,extended-cache-ttl-2025-04-11",
+         "cache_marks": ["tools.0:unset", "system.0:1h", "messages.0.content.0:1h"], "tools": ["Bash", "Read"],
+         "header_names": ["content-type", "anthropic-ratelimit-unified-status", "x-vendor-other", "content-length",
+                          "connection"]},
+        {"anthropic-ratelimit-unified-status": "allowed"})
 
 
 def test_the_log_row_names_model_effort_tools_usage_status_and_message(short, stub, inproc):
@@ -1453,8 +1477,9 @@ def test_an_answer_whose_client_went_away_is_read_and_metered_to_its_end(short, 
     stream = _sse(_message(USAGE))
     whole = _http(200, [("content-type", "text/event-stream")], stream)
     cut = 0 if left == "before the head" else len(whole) - len(stream) + 10
+    end = whole.index(b"event: message_delta")  # the usage comes in a later write than the first one after the gate
     gate = threading.Event()
-    upstream = canned((whole[:cut], gate, whole[cut:]))
+    upstream = canned((whole[:cut], gate, [whole[cut:end], whole[end:]]))
     sock, state = inproc(upstream.server_address, _slots(short / "slots.json", {"a": _slot("lh-fake-a")}))
     request = json.dumps(_request()).encode()
     with socket.socket(socket.AF_UNIX) as client:
