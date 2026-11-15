@@ -1,14 +1,144 @@
-# Long-horizon recording kit
+# Long-horizon effort ladder kit
 
-The no-spend kit behind the [long-horizon plan](../../docs/plans/2026-11-13-long-horizon-task-family-and-seed-plan.md)'s
-Tasks 1 and 2. It records how the pinned Claude Code CLI talks to a model API and how it ends a session,
-against `stub_api.py`, a local stand-in for that API. It also pins and checks the plan's 16 tasks. The
-evidence and the cut rules are in [RECORDINGS.md](RECORDINGS.md).
+The kit of the effort ladder of the
+[long-horizon plan](../../docs/plans/2026-11-13-long-horizon-task-family-and-seed-plan.md) (roadmap Phase 5b).
+The plan owns the rules (its decisions D1 to D7) and the ledger, and `ladder.json` holds the same rules as data.
+This page says how the kit is operated, then what each file does. Its commands are for this machine and are not
+copyable examples. What has run so far is in the plan's ledger, not here.
 
-**Nothing in this kit spends.** No file here makes a model or provider call, and none holds a credential.
+## What the ladder measures, and what it does not claim
 
-**The one authorised way the real CLI runs.** The CLI runs only inside a rootless Podman task container,
-started by the harness through `record.sh`. Three conditions hold:
+- **Measured:** how often a direct `claude-haiku-5-5` Claude Code session solves each task at effort `low`,
+  `medium` and `high`, five attempts each. The session is CLI 2.1.311 in the task's container, signed in with a
+  subscription token, with the tools Bash, Edit and Read (plan D2). Each task's own verifier scores it; there is
+  no judge.
+- **Tasks:** the 15 Terminal-Bench 4 tasks (packages at 4.1.0) that pass the oracle check unchanged on this
+  machine (`ladder.json`, `tasks.qualified`), so the schedule holds 225 attempts. The approval names 16 tasks and
+  caps the tranche at 240 starts and USD 200; both caps stand, and a slot run again after a usage limit counts
+  against them. `vba-userform-port` runs no attempt: only a labelled variant of it passed the check, and that
+  result stays recorded evidence, never pooled (plan D1; RECORDINGS.md, "Second oracle pass").
+- **Dollars are priced tokens:** metered tokens times the price rule. They cap and report usage. Nothing is
+  billed: every call uses the owner's subscription, and no API key exists (`AGENTS.md`, "Credential").
+- **Not claimed:** anything about a workflow; that a task's true rate lies in 10 to 30 percent; an ordering of
+  tasks; an effort effect for one task; anything about another model or a higher effort; any comparison with the
+  public leaderboard, which ran another configuration (plan, "What this size can and cannot support").
+
+## Before any call that uses the subscription
+
+Each line is a dated row in the plan's ledger before the step it gates.
+
+| What | Who | Before |
+| --- | --- | --- |
+| The token is in a mode-600 file, in a mode-700 directory outside every repository. The owner places it in a terminal outside tmux and outside any agent session (plan, "Owner preconditions and questions", question 1). The ledger records the path, the time and the lifetime the command stated (one year), never the value | Owner | The live probe |
+| Confirmation that paid extra usage is off for the account | Owner | The live probe, the pilot and the freeze, each time |
+| Confirmation that the subscription's terms allow unattended runs of this size | Owner | The live probe, and again at the freeze |
+| `\| <date> \| Live probe approved \| <the kit's commit, 40 hex characters> <the limits> \|`, exactly one such row, with the probe's rule line in `AGENTS.md` (plan Task 4) | Coordinator | The live probe |
+| The freeze: the probe's and the freeze's pending fields of `ladder.json` filled, `manifest.py write --freeze`, and `\| <date> \| Configuration label \| <manifest SHA-256> <runtime commit> \|` on `main`, with the list of the plan's Tasks 9 to 12 | Coordinator | The smoke |
+| The allowance: the shares of the weekly and the five-hour allowance kept free and the hours in which attempts may start (once), and a meter reading before every window. The coordinator enters them with `ladder.py allowance` | Owner | The smoke (shares and hours); every window, the smoke's and the pilot's included (a reading) |
+
+**The token.** No agent, test or the coordinator reads the file. Only `passthrough.py` opens it, once, at its
+start; it refuses a file that is not mode 600 in a mode-700 directory owned by its own user, and the launcher
+refuses to run with the file's path or any credential variable in its environment. To replace the token the owner
+repeats the placing procedure with nothing in flight, the passthrough is restarted, and the ledger gets a row
+(plan D4, "The token's path"). The vendor documents no way to revoke such a token (ledger, 2026-11-14), so a
+replaced token may stay valid until its year ends.
+
+**The kit's commit** is the last commit that changed this directory. A commit here after the approval row, of
+this page too, means a new row.
+
+## Running it, in order
+
+1. **The live probe** (three short sessions of a scratch task; at most 18 requests, priced USD 0.45, counted
+   inside the USD 200). It has one try per approval row:
+
+   ```
+   LH_PROBE_SPEND_AUTHORIZED=yes LH_PROBE_COMMIT=<the kit's commit> LH_TOKEN_FILE=<the token file's path> \
+     experiments/long_horizon_tasks/live_probe.sh "$LH/recordings/live-probe"
+   ```
+
+   `$LH` is the cache directory, `~/lh-cache` by default. The probe exits 0 on a pass and writes `probe.json`. The
+   plan's Task 4 says what a pass is and what each of the three ways to fail means. A stand-in run
+   (`LH_PROBE_STAND_IN=<stub scenario>`) spends nothing.
+2. **The freeze** (the table above). The oracle check that qualifies the tasks comes before it and needs no token.
+3. **The passthrough.** A person starts it with the token file; `ladder.py status` prints the command line. Its
+   output goes to a file in the launcher's state, never to a pane an agent reads.
+4. **The smoke, the pilot and the rounds** are one command, run from a detached checkout of the frozen commit:
+
+   ```
+   LH_SPEND_AUTHORIZED=yes LH_MANIFEST_SHA256=<the label> LH_RUNTIME_COMMIT=<the commit> \
+     python -I experiments/long_horizon_tasks/ladder.py launch
+   ```
+
+   `launch` returns each time the tranche waits for a person and prints why. It reads the ledger as committed on
+   `main`. After the smoke (one attempt) it waits for a `Smoke read` row: a person checks the list of plan D7.1.
+   After the pilot (three attempts, the owner reading the meters before and after) it waits for a `Pilot read`
+   row, and the pilot's figures are entered with `ladder.py allowance figures`. After round 1 it waits for a
+   `Round 1 read` row. The row forms are in "The launcher" below.
+5. **The readout:** `ladder.py status --export F`, then `readout.py F` ("The readout" below).
+
+## When it stops
+
+| What happened | What it means | How it is lifted |
+| --- | --- | --- |
+| A usage limit | The attempts in flight are cut, and starts close | By itself: five minutes after the reset the answer named, one start; the rest once that session has an answer. `resume` never lifts it. An answer that names no reset is a pause |
+| The allowance guard, or the owner's hours | Starts wait | By itself |
+| A pause (a window with no meter reading, the load wait, the passthrough down, an ending that fits no row of D5) | Starts are closed; nothing is lost | The row or the input it waits for, then `ladder.py resume`; for an unfitted ending, `ladder.py ruling` after its `Ruling` row |
+| A stop (plan D7.7: a failed smoke, another model, a sign of paid extra usage, a match of the token scan, an incomplete runtime scan, and the others listed there) | No new start. The attempt is not scored and counts against both caps | One `\| <D> \| Ruling \| resume: <its cause>: <the decision> \|` row for each distinct stop since the last resume, then `ladder.py resume --date <D>`. `status` lists the stops. After a paid-usage stop the row also records what the owner said |
+| A count threshold over its bound: `infrastructure-failures` (above 10% of starts, from 20 starts), `infrastructure-failures-at-level` (above 20% at one effort, from 20 starts at that effort), `pre-session-failures` (five in a row, or 24), `cuts` (above 5% of starts, from 20 starts), `load-refusals` (three) | The first three are stops, the last two pauses | One `\| <D> \| Ruling \| <threshold>: <the decision> \|` row and one `--clears <threshold>` for each threshold over its bound, in one `ladder.py resume ... --date <D>`. A cleared threshold counts only later endings |
+| The end: the schedule is done, the next reservation does not fit the USD 200, or 240 starts | The tranche is over | It is not: nothing is topped up |
+
+**Paid extra usage.** While a session runs, the stop for it is the passthrough's: a response whose headers show
+paid usage is withheld and the tranche stops (plan D4). The launcher's own checks of the session's stream act
+only after the session, because the stream reaches the host when the agent phase ends.
+
+## What the readout's classes mean
+
+Every start has one class (`ladder.json`, `classification.classes`; plan D5):
+
+| Class | Counts against the 240 and the USD 200 | In k of n | Its slot runs again |
+| --- | --- | --- | --- |
+| Observation: the session ended by itself or at one of its limits (flagged then), and a verifier gave a reward | Yes | Yes | No |
+| Cut by a usage limit | Yes | No; its reward is never read | Yes, as a new counted start |
+| Infrastructure failure (a provider fault, a dead host or passthrough, no reward after two regrades) | Yes | No; listed, never scored zero | No |
+| Pre-session failure (no session started, and nothing was metered) | No | No | Twice at most; the slot is lost after the third |
+| Stop | Yes | No | No |
+
+- **A reward is only what a verifier gave.** An observation with none is regraded by the verifier alone, up to
+  twice. A reward then stands; a verifier that timed out both times is reward 0; with still no reward the start is
+  an infrastructure failure, "no reward after regrades".
+- **`artifact_absent`** flags an observation whose reward of 0 stands because the harness refused its regrade: the
+  agent never wrote the output the task declares. Only a task on the load-sensitive list gets that regrade (a
+  reward of 0 given while the load was above the gate), and the list is empty in the final configuration
+  (`tasks.load_sensitive`), so the flag is not expected in this tranche. The readout counts it per task and effort.
+- **"Pass or fail only"** is printed where a task's verifier reports no usable sub-test count: lake-temp-glm and
+  wal-recovery-ordering among the 15. The other 13 also print passed and total sub-tests, which enter no rule.
+- **The contamination scan** leaves the canary term out for the tasks whose own starting files hold it
+  (`readout.contamination_scan.canary_exempt_tasks`: six of the 15, and vba-userform-port) and applies every other
+  term to them.
+
+## Accepted limits
+
+- The stop for paid extra usage comes one request late unless ordinary responses carry the overage header, which
+  the live probe shows (plan D4).
+- The launcher's stream checks (the init event, a subagent file, the stream's paid-usage sign) act after the
+  session, never during it.
+- A container that ran too briefly for a 2 s sample is scanned for the token only through its inspected
+  configuration; the pids limit does not reach the verifier containers ("The launcher").
+- The token scanner finds whole copies in the forms it knows, not parts or other encodings ("The passthrough").
+- The allowance guard sees only the owner's meter readings: use of the account after a reading is covered by the
+  shares kept free and nothing else (plan D4).
+- The size supports no claim about one task's rate or one task's effort effect (above).
+
+## The recordings and the oracle check (plan Tasks 1 and 2)
+
+The recording part of the kit records how the pinned CLI talks to a model API and how it ends a session, against
+`stub_api.py`, a local stand-in for that API, and it pins and checks the plan's 16 tasks. The evidence and the
+cut rules are in [RECORDINGS.md](RECORDINGS.md). **Nothing in this part spends:** it makes no model or provider
+call and holds no credential. The files that can use the subscription are `passthrough.py` when started with a
+token file, `live_probe.sh` and a live `ladder.py launch`, each behind the gates above.
+
+**How the real CLI runs for a recording.** The CLI runs only inside a rootless Podman task container, started by
+the harness through `record.sh`. Three conditions hold:
 
 - the container holds no credential of any kind (a dummy key or an obviously fake token, no host mount);
 - the base URL points at the stub, reached through the `relay` service;
@@ -88,12 +218,12 @@ python -I experiments/long_horizon_tasks/manifest.py write --freeze   # the free
 pytest -q -n 4 tests/experiments/test_long_horizon_ladder.py
 ```
 
-**`pending`** lists each value that `ladder.json` cannot take from `main` yet. Each such field is `null`, and its
-entry says what fills it: the branch in flight (`feat/long-horizon-oracle-2b`: the qualified tasks, the
-load-sensitive list, overlay digests, extra hosts, withholding, the host list, the CPU set), Task 2b (the disk plan,
-the contamination terms, the canary's SHA-256 and the tasks whose starting files hold the canary, which the scan
-then leaves out for them; which verifiers report sub-tests), the live probe (the vendor's
-header names, the utilisation header), or the freeze (the schedule's seed and hash, the bootstrap seed). The
+**`pending`** lists each value that `ladder.json` cannot hold yet. Each such field is `null`, and its entry says
+what fills it. Five are left: the live probe fills two (whether the vendor's header names are confirmed, and the
+header that reports utilisation, or none), and the freeze fills three (the schedule's seed and hash, the bootstrap
+seed). Task 2b's second oracle pass filled the rest: the qualified tasks, the load-sensitive list, the overlay
+digests, the extra hosts, the host list, the CPU set, the contamination terms with the canary's SHA-256 and the
+tasks exempt from it, and which verifiers report sub-tests. The
 passthrough's form refusals and its log (keys, and how a row with no slot is joined to an attempt) are filled from
 `passthrough.py`; tests read its refusal reasons, its log keys, its paid-usage check and its worst-case bound from the
 code and hold `ladder.json` to them. A filled field moves from `pending` to `filled` with
