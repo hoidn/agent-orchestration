@@ -454,6 +454,33 @@ def test_offline_judge_cut_by_a_usage_limit_rebuilds_the_pool_once_from_the_same
         study.build_pools(s, "calibration", "first", [task])
 
 
+def test_offline_a_judge_call_with_paid_extra_usage_that_ended_normally_keeps_its_judgment(world, monkeypatch):
+    """Coordinator ruling on fix round 4: the Haiku judge's call shows paid extra usage and ends normally. Its
+    judgment is kept (not cut, no rebuild); starts close until `resume-after-limit`, then the Sonnet judge runs on
+    the same pool and the pool is summarised."""
+    s, task = world.study, "a0a0a0a0a0"
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    study.candidates(s, "calibration", "direct", [task])
+    study.candidates(s, "calibration", "direct_sonnet", [task])
+    study.build_pools(s, "calibration", "first", [task])
+    plan = json.loads(Path(world.plan).read_text())
+    Path(world.plan).write_text(json.dumps(plan | {"paid_usage": {"judge": H}}))
+    with pytest.raises(SystemExit, match="paid extra usage"):  # the pause closes the Sonnet judge's start
+        study.judge(s, "calibration", "first", [task])
+    Path(world.plan).write_text(json.dumps(plan))
+    reset = time.time()
+    spend.resume_after_limit(s.ledger, reset, 2.0, 35.0, reset)
+    study.judge(s, "calibration", "first", [task])
+    study.summarize_pools(s, "first", [task])
+    results = json.loads((s.results / "pools" / f"{task}-first" / "results.json").read_text())
+    judges = [(r["model"], Path(r["unit"].partition("#")[0]).name) for r in spend.starts(spend.rows(s.ledger))
+              if r["kind"] == "judge"]
+    assert (all(set(c["ratings"]) == {H, S} for c in results["clones"].values()), sorted(judges)) == (
+        True, [(H, "first"), (S, "first")])
+
+
 def test_offline_a_smoke_with_a_program_cut_by_a_usage_limit_fails_and_opens_nothing(world, monkeypatch):
     """Review 3 X1: the Haiku `direct` smoke run is cut, the limit lifts, the other four programs run, and the pool is
     judged and summarized. The smoke check fails, nothing after it may start, and the cut run's few seconds never

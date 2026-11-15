@@ -124,8 +124,8 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   and the line it read; an older CLI's `Claude AI usage limit reached|<epoch>` gives its reset.
 - A call whose stream shows paid extra usage (a `rate_limit_event` with `isUsingOverage` or `overageInUse` true, or a
   rejected limit with overage allowed) closes every start as "paid extra usage" until `resume-after-limit`. A call
-  that ended normally stays an observation (its result is used and its slot does not run again); one that did not
-  cuts its unit as any limit does. Its calls are priced at their metered tokens like any other. The pause of the
+  that ended normally stays an observation (a candidate's result is used and its slot does not run again; a judge's
+  judgment is kept and its pool is not rebuilt); one that did not cuts its unit as any limit does. Its calls are priced at their metered tokens like any other. The pause of the
   recorded answer or of paid extra usage names `resume-after-limit` only, not `not-a-limit`.
 - When the raw result shows no usage limit, `study.py not-a-limit UNIT --reason R` records the operator's decision
   and reason in the ledger while the pause is open: the settled unit is no longer `cut` but what the rules make it

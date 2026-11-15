@@ -581,7 +581,8 @@ def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     limit = pause_on_limit(study, records / "judges" / model, f"{out}#{model}")  # before anything else (minor 1)
     facts |= {"wall_clock_sec": time.time() - start, "calls": units.physical_calls(records / "judges" / model)}
     facts["priced"] = settle_price(study, f"{out}#{model}", records / "judges" / model, tranche, model)
-    if limit:  # the pool is rebuilt once; its task is not lost
+    # the pool is rebuilt once, its task not lost; paid extra usage on normal ends only pauses (the judgment is kept)
+    if limit and (limit := units.usage_limit(records / "judges" / model, cutting=True)):
         facts["cut"] = limit
     if facts["calls"] > batches:
         raise SystemExit(f"{out}#{model}: {facts['calls']} provider calls exceed the {batches} reserved; stop")

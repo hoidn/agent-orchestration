@@ -19,7 +19,10 @@ With `"usage_limit": {"task": id, "model": m, "reset": epoch}` (an implementer c
 `{"judge": m, "reset": epoch}` (a judge call by that model), the call answers as the vendor does at a usage limit
 (the shape of experiments/long_horizon_tasks/fixtures/token-usage-limit-NonZeroAgentExitCodeError.json: a rejected
 `rate_limit_event`, a `<synthetic>` session row, a result event with `api_error: usage_limit_reached`) and exits 1.
-A test lifts the limit by rewriting the plan in place (the sandbox binds the same file). With `"sleep": seconds`
+A test lifts the limit by rewriting the plan in place (the sandbox binds the same file). With
+`"paid_usage": {"judge": m}` a judge call by that model first prints the CLI's paid-extra-usage `rate_limit_event`
+(experiments/long_horizon_tasks/fixtures/token-paid-extra-usage-normal-end.json), then answers normally. With
+`"sleep": seconds`
 every call waits that long before it answers. With `"stderr_warning": text` every call that succeeds also prints
 `text` on stderr (a CLI warning beside a successful call). With `"conftest_sleep": {"seconds": N, "pids": dir}` an
 implementer call appends to the `conftest.py` of its tree code that, whenever pytest loads it in a host-side check
@@ -93,6 +96,9 @@ limit = plan.get("usage_limit") or {{}}
 if (clones and limit.get("judge") == model) or (key is not None and (limit.get("task"), limit.get("model")) == (
         key, model)):
     usage_limited(limit)
+if clones and (plan.get("paid_usage") or {{}}).get("judge") == model:
+    emit({{"type": "rate_limit_event", "rate_limit_info": {{"status": "rejected", "rateLimitType": "five_hour",
+           "overageStatus": "allowed", "isUsingOverage": True, "overageInUse": True}}}})
 time.sleep(plan.get("sleep", 0))  # a call that is still running when a test kills its launcher
 slow = plan.get("conftest_sleep")
 if slow and entry is not None and (slow.get("task", key), slow.get("model", model)) == (key, model):
