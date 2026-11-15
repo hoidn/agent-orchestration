@@ -91,7 +91,8 @@ pytest -q -n 4 tests/experiments/test_long_horizon_ladder.py
 **`pending`** lists each value that `ladder.json` cannot take from `main` yet. Each such field is `null`, and its
 entry says what fills it: the branch in flight (`feat/long-horizon-oracle-2b`: the qualified tasks, the
 load-sensitive list, overlay digests, extra hosts, withholding, the host list, the CPU set), Task 2b (the disk plan,
-the contamination terms and the canary's SHA-256, which verifiers report sub-tests), the live probe (the vendor's
+the contamination terms, the canary's SHA-256 and the tasks whose starting files hold the canary, which the scan
+then leaves out for them; which verifiers report sub-tests), the live probe (the vendor's
 header names, the utilisation header), or the freeze (the schedule's seed and hash, the bootstrap seed). The
 passthrough's form refusals and its log (keys, and how a row with no slot is joined to an attempt) are filled from
 `passthrough.py`; tests read its refusal reasons, its log keys, its paid-usage check and its worst-case bound from the

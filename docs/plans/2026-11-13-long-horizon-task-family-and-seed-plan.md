@@ -865,7 +865,10 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
 - **Contamination scan:** over transcripts, for specific strings frozen after a dry run on the
   oracle jobs and the recordings (the benchmark repository's path, the canary's identifier, the
   reference solution's full path in that repository). The canary's identifier is read from the
-  task packages at run time and is in the criterion only as its SHA-256 (D1). A hit on an
+  task packages at run time and is in the criterion only as its SHA-256 (D1). A task whose
+  agent-visible starting files already hold the canary (wal-recovery-ordering's `/app` in the
+  rehearsal) is scanned without the canary term and with every other term; the dry run lists
+  those tasks in `canary_exempt_tasks` (coordinator ruling on Task 7). A hit on an
   observation excludes it; a hit on a start of any other class (a cut, an infrastructure
   failure, a stop, a pre-session failure) leaves its class unchanged. Every hit is listed and
   counts for D7.7's three tasks (coordinator ruling, 2026-11-14, after review M2). The launcher runs the scan at each teardown, beside the token
