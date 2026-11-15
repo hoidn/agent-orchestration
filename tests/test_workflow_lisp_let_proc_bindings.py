@@ -35,8 +35,7 @@ DECLARATIONS = """\
 (defproc increment ((value Int)) -> Int
   (+ value 1))
 """
-# The same declarations with exact effects, for a source below 2.39 (the V1 `let-proc` cases at PRE_W3_TARGET and
-# the 2.36 pin of the capture-spelling test).
+# The same declarations with exact effects, for a source below 2.39 (the V1 `let-proc` cases at PRE_W3_TARGET).
 OLD_DECLARATIONS = """\
 (defrecord HookContext (left Int) (right Int))
 (defproc apply-int
@@ -355,16 +354,12 @@ def test_inferred_capture_equivalence_and_field_proc_ref_topology(tmp_path, capt
     local, = _local_bases(typed)
     metadata = local.definition.generated_local_procedure
 
-    assert metadata.capture_names == ("ctx", "runner")
-    assert tuple(name for name, _ in typed.local_definition_keys[local.definition.name][3]) == (
-        "ctx",
-        "runner",
-    )
+    # The captured reference `runner` is bound when the local is compiled (TD6), so only `ctx` is captured.
+    assert metadata.capture_names == ("ctx",)
+    assert tuple(name for name, _ in typed.local_definition_keys[local.definition.name][3]) == ("ctx",)
 
 
 def test_explicit_capture_spellings_have_same_canonical_closed_program(tmp_path):
-    # Pinned at 2.36: at 2.40 the build crashes on backlog row D10 (a local forwarding a captured
-    # procedure reference: `command capture has no retained binder`), for every spelling.
     programs = []
     for list_spelling in (False, True):
         for index, clause in enumerate(
@@ -374,7 +369,6 @@ def test_explicit_capture_spellings_have_same_canonical_closed_program(tmp_path)
             typed = _compile_evaluated(
                 root,
                 _capture_body(clause, list_spelling=list_spelling),
-                target="2.36",
                 params="((ctx HookContext) (unused Int) (n Int))",
             )
             programs.append(build_closed_program(typed))
