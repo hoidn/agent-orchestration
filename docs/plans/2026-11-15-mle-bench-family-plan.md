@@ -910,8 +910,9 @@ the launcher reads any table row of this file whose second cell is exactly that 
 ladder when the owner approves the line (owner action 9).
 
 > - The owner-approved MLE-bench screen and placement (DATE; roadmap owner decision 17) are one
->   calibration line for a second long-horizon task family, limited to
->   [its plan](docs/plans/2026-11-15-mle-bench-family-plan.md): the 13 named MLE-bench competitions,
+>   calibration line for a second long-horizon task family, limited to its plan
+>   (`docs/plans/2026-11-15-mle-bench-family-plan.md`, written there as a link): the 13 named
+>   MLE-bench competitions,
 >   each wrapped so that the held-out answers, the grader and the medal thresholds stay out of the
 >   agent's container, run by a direct `claude-haiku-5-5` Claude Code session of at most 24 hours.
 >   The screen is three attempts each at effort `medium`, in two tranches (the three CPU-only
