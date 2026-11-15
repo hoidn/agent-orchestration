@@ -375,6 +375,15 @@ def _configuration(ladder):
             "podman_compose": harness["podman_compose"], "network": ladder["network"]["agent_phase"]}
 
 
+def _effort(triples, efforts, rules, place):
+    """The effort test; after a stop only the bound on the fall, which D6 always reports and which places nothing
+    (coordinator ruling R2, 2026-11-14), over the complete triples there are."""
+    if place:
+        return effort_test(triples, efforts, rules) | {"per_task": triples}
+    return {"tasks": len(triples), "triples": sum(task["triples"] for task in triples.values()),
+            "fall_bound": fall_bound(triples, efforts[0], efforts[-1], rules["fall_bound"]), "per_task": triples}
+
+
 def _earlier(starts, export, tasks, efforts, level):
     """Per earlier label: its ledger row, its cells (k of n, no label) and its lists; they enter no rule (D6)."""
     earlier = []
@@ -388,7 +397,7 @@ def compute(ladder, export, standins=None):
     """Every figure of the readout, from the export's starts joined by slot id; rules read from ladder.json.
 
     Every rule reads the current label's starts alone. A readout that ends in a stop places nothing: no cell or
-    pooled label, no band effort, no effort test and no dominance (D6).
+    pooled label, no band effort, no effort verdict and no dominance (D6); it keeps the bound on the fall (R2).
     """
     criterion, rehearsal = _criterion(ladder, standins)
     starts = slot_record.load(export, criterion)
@@ -398,12 +407,12 @@ def compute(ladder, export, standins=None):
     level = rules["interval"]["level"]
     current = [start for start in starts if start["label"] == export["label"]]
     triples = _triples(current, efforts)
-    # Open ruling R2: "prints no placement" is read as withholding the bound on the fall, which D6 "always" reports.
+    # D6: a readout that ends in a stop places nothing; it still reports the bound on the fall (ruling R2).
     place = export["end"] is None or export["end"]["by"] != "stop"
     return {"rehearsal": rehearsal, "configuration": _configuration(criterion), "label": export["label"],
             "end": export["end"], "stop": not place,
             "tasks": _placement(_counts(current, tasks, efforts, level), rules, place),
-            "effort": effort_test(triples, efforts, rules) | {"per_task": triples} if place else None,
+            "effort": _effort(triples, efforts, rules, place),
             "listed": _listed(current, efforts), "earlier": _earlier(starts, export, tasks, efforts, level),
             "rules": {"fall_bound": rules["fall_bound"], "interval": rules["interval"],
                       "stop_readout": rules["stop_readout"]},
@@ -461,22 +470,30 @@ def _fraction(p):
     return f"{p} ({float(p):.4f})"
 
 
+def _bound_text(result):
+    effort, rule, efforts = result["effort"], result["rules"]["fall_bound"], result["configuration"]["efforts"]
+    method = (f"one-sided {rule['one_sided']:.0%} upper bound on the pooled fall from {efforts[0]} to {efforts[-1]}, "
+              f"bootstrap over tasks, {rule['resamples']} resamples, seed {rule['seed']}")
+    bound = "none: no complete triple" if effort["fall_bound"] is None else f"{effort['fall_bound']:.1f} points"
+    return f"{bound} ({method})"
+
+
 def _effort_section(result):
     effort, rule = result["effort"], result["rules"]["fall_bound"]
-    if effort is None:
-        return ["## Effort test (complete triples of the current label)", "",
-                f"Withheld: {result['rules']['stop_readout']} (D6).", ""]
-    lines = ["## Effort test (complete triples of the current label)", "",
-             f"Complete triples: {effort['triples']} over {effort['tasks']} tasks. Pooled successes: " +
-             ", ".join(f"{e} {s} of {effort['triples']}" for e, s in effort["pooled"].items()) + ".", "",
-             "| Difference | Sum of d_i | p, sum at or below | p, sum at or above |", "| --- | --- | --- | --- |"]
+    lines = ["## Effort test (complete triples of the current label)", ""]
+    if result["stop"]:
+        if effort["triples"] == 0:
+            return lines + ["There is no complete triple, so there is no bound on the fall; no placement is made. "
+                            f"{result['rules']['stop_readout'].capitalize()} (D6).", ""]
+        return lines + [f"Bound on the fall over {effort['triples']} complete triples; no placement is made: "
+                        f"{_bound_text(result)}. {result['rules']['stop_readout'].capitalize()} (D6).", ""]
+    lines += [f"Complete triples: {effort['triples']} over {effort['tasks']} tasks. Pooled successes: " +
+              ", ".join(f"{e} {s} of {effort['triples']}" for e, s in effort["pooled"].items()) + ".", "",
+              "| Difference | Sum of d_i | p, sum at or below | p, sum at or above |", "| --- | --- | --- | --- |"]
     for name, d in effort["differences"].items():
         lines.append(f"| {name} | {d['sum']} | {_fraction(d['p_below'])} | {_fraction(d['p_above'])} |")
-    bound = "none: no complete triple" if effort["fall_bound"] is None else f"{effort['fall_bound']:.1f} points"
-    return lines + ["", f"**Verdict: {effort['verdict']}.** Bound on the fall (one-sided {rule['one_sided']:.0%} "
-                        f"upper bound on the pooled fall from {result['configuration']['efforts'][0]} to "
-                        f"{result['configuration']['efforts'][-1]}, bootstrap over tasks, {rule['resamples']} "
-                        f"resamples, seed {rule['seed']}): {bound}. {rule['rule']}", ""]
+    return lines + ["", f"**Verdict: {effort['verdict']}.** Bound on the fall: {_bound_text(result)}. {rule['rule']}",
+                    ""]
 
 
 def _excluded(entry):
@@ -582,7 +599,7 @@ def family(result, criterion_sha256, tasks_doc):
 
     Only from a complete readout (the tranche ended) that did not end in a stop. A pure function of its arguments.
     """
-    # Open ruling R1: the plan's headline has family.json name "the stop that prevented it"; the brief writes none.
+    # Ruling R1: after a stop no family.json is written; the stop readout names the stop.
     if result["end"] is None or result["stop"]:
         state = "is in progress" if result["end"] is None else f"ended in a stop ({result['end']['cause']})"
         raise ReadoutError(f"family.json is written only from a complete readout that did not end in a stop; this "

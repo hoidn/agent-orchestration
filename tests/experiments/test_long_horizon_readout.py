@@ -463,11 +463,26 @@ PLACEMENT_WORDS = ("screened in", "floor", "above", "incomplete", "noisy", "rise
                    "dominated")
 
 
-def test_a_stop_readout_computes_no_label_band_effort_verdict_bound_or_dominance():
+def test_a_stop_readout_computes_no_label_band_effort_verdict_or_dominance():
     result = _compute(_export(STOPPED, end=STOP))
     labels = [c.get("label") for t in result["tasks"].values() for c in [*t["cells"].values(), t["pooled"]]]
-    assert (set(labels), {t["band_effort"] for t in result["tasks"].values()}, result["effort"],
-            result["cost"]["dominated"]) == ({None}, {None}, None, None)
+    assert (set(labels), {t["band_effort"] for t in result["tasks"].values()}, sorted(result["effort"]),
+            result["cost"]["dominated"]) == ({None}, {None}, ["fall_bound", "per_task", "tasks", "triples"], None)
+
+
+def test_a_stop_readout_reports_the_bound_on_the_fall_over_the_complete_triples_it_has():
+    """D6 always reports the bound, which places nothing (coordinator ruling R2, 2026-11-14)."""
+    result = _compute(_export(STOPPED, end=STOP))
+    stopped, placed = result["effort"], _compute(_export(STOPPED))["effort"]
+    assert (stopped["triples"], stopped["fall_bound"] == placed["fall_bound"],
+            "over 14 complete triples; no placement is made" in _section(readout.render(result), "Effort test")) == (
+        14, True, True)
+
+
+def test_a_stop_readout_with_no_complete_triple_says_there_is_none():
+    result = _compute(_export({TASKS[0]: {"low": [1], "medium": [{"row": 13}], "high": ["-"]}}, end=STOP))
+    assert (result["effort"]["fall_bound"], "no complete triple" in _section(readout.render(result), "Effort test")) \
+        == (None, True)
 
 
 def test_a_stop_readout_prints_its_counts_and_its_cause_and_no_placement():
