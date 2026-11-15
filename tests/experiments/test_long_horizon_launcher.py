@@ -965,6 +965,8 @@ def _closed(short, fixture, rows, entry=None, reward=None):
     with open(root / "passthrough" / "requests.jsonl", "a") as fh:
         for i, row in enumerate(rows):
             fh.write(json.dumps({"time": now + 0.001 * (i + 1), "slot": attempt["id"], **row}) + "\n")
+    while time.time() <= now + 0.001 * (len(rows) + 1):  # the window ends at the close: every row is in it
+        time.sleep(0.001)
     record = ladder.close(ctx, root, attempt, CRITERION, 0.0, ended_at=now + 1)
     return root, attempt, record
 
@@ -1969,16 +1971,28 @@ def test_regrade_case_1_without_a_reward_is_exported_as_an_infrastructure_failur
 
 
 def test_a_missing_figure_is_exported_as_missing_never_as_zero(short):
-    start = _settled_start(short, minutes=None, tokens=None, api_retry=None)
-    assert (start["minutes"], start["tokens"], start["api_retry"]) == (None, None, None)
+    nothing = dict.fromkeys(SLOT_RECORD.TOKEN_KINDS)
+    start = _settled_start(short, minutes=None, tokens=nothing, api_retry=None)
+    assert (start["minutes"], start["tokens"], start["api_retry"]) == (None, nothing, None)
+
+
+def test_a_usage_the_meter_read_only_as_its_bound_is_exported_as_token_counts_not_recorded(short):
+    """Coordinator ruling (Task 5): each token count may be null, not recorded; the export loads through
+    slot_record.py with them so."""
+    _closed(short, "token-three-tools-normal-end", [{"status": 200, "usage": None, "worst_case": True, "usd": 0.5}],
+            reward=1.0)
+    ctx = _ctx(short)
+    (ctx.rehearsal / "stand_ins.json").write_text(json.dumps(STAND_INS))
+    start = ladder.export(ctx, ladder.criterion(ctx))["starts"][0]
+    assert (start["class"], start["tokens"]) == ("observation", dict.fromkeys(SLOT_RECORD.TOKEN_KINDS))
 
 
 def test_tokens_are_missing_when_the_meter_read_a_usage_only_as_its_bound_and_zero_for_an_answer_with_none():
     usage = {"input_tokens": 3, "output_tokens": 2, "cache_read_input_tokens": 1, "cache_creation_input_tokens": 0}
     assert (ladder._tokens([{"status": 200, "usage": usage}, {"status": 429, "usage": None}, {"refused": "x"}]),
             ladder._tokens([{"status": 200, "usage": usage, "worst_case": True}]), ladder._tokens([])) == (
-        {"input": 3, "output": 2, "cache_read": 1, "cache_write_5m": 0, "cache_write_1h": 0}, None,
-        dict.fromkeys(SLOT_RECORD.TOKEN_KINDS, 0))
+        {"input": 3, "output": 2, "cache_read": 1, "cache_write_5m": 0, "cache_write_1h": 0},
+        dict.fromkeys(SLOT_RECORD.TOKEN_KINDS), dict.fromkeys(SLOT_RECORD.TOKEN_KINDS, 0))
 
 
 @pytest.mark.parametrize("result,want", [

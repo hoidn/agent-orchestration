@@ -40,9 +40,11 @@ neither imports the other. Standard library only.
                                       UTF-8 bytes, or canary_sha256), never the term; [] when none. On a start of any
                                       class; an observation with a hit is excluded, any other start keeps its class
                     "usd"             the settled priced cost of the start (D4), finite and not negative
-                    "minutes"         the session's length, finite and not negative
-                    "tokens"          {"input", "output", "cache_read", "cache_write_5m", "cache_write_1h"}: integers
-                    "api_retry"       the number of api_retry events in the stream (D5: recorded per attempt)
+                    "minutes"         the session's length, finite and not negative, or null: not recorded
+                    "tokens"          {"input", "output", "cache_read", "cache_write_5m", "cache_write_1h"}: each an
+                                      integer, or null: not recorded
+                    "api_retry"       the number of api_retry events in the stream (D5: recorded per attempt), or
+                                      null: not recorded
                     "graded"          null, or {"passed", "total"} sub-tests where the verifier reports them (D6)
                     "egress_refused"  {address: count} of refused connections (D3); excludes nothing
                   }]; per slot, in start order, a start follows only a cut or a pre-session failure, and nothing
@@ -53,7 +55,9 @@ neither imports the other. Standard library only.
 
 A start's class (observation, flagged or not; cut; infrastructure failure; stop; pre-session failure) is its row's
 in ladder.json unless the launcher stopped on it or it is regrade case 1; a stop is never scored. An observation with
-"excluded" set, or with a contamination hit, is listed and enters no k or n; so is every start of another class.
+"excluded" set, or with a contamination hit, is listed and enters no k or n; so is every start of another class. A figure that is null was
+not recorded and is never read as zero: the readout leaves it out of its means and says how many it left out
+(coordinator ruling, Task 5).
 
 How the launcher's own records map to this layout (they differ from it in three places, feat/lh-launcher 0ff18eda):
 regrade case 2 is excluded "indeterminate", reward 0, not a flag `indeterminate`; a row-16 ending is not exported
@@ -93,7 +97,8 @@ EXPORT = {"label": str, "earlier_labels": list, "end": (dict, type(None)), "slot
 SLOT = {"slot": str, "task": str, "effort": str, "round": int, "pilot": bool}
 START = {"slot": str, "start": int, "label": str, "row": int, "class": str, "stop_cause": (str, type(None)),
          "reward": (int, float, type(None)), "excluded": (str, type(None)), "contamination": list, "usd": NUMBER,
-         "minutes": NUMBER, "tokens": dict, "api_retry": int, "graded": (dict, type(None)), "egress_refused": dict}
+         "minutes": (*NUMBER, type(None)), "tokens": dict, "api_retry": (int, type(None)), "graded": (dict, type(None)),
+         "egress_refused": dict}
 SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -203,11 +208,12 @@ def _slots(slots, ladder):
 
 
 def _usage(start, where):
-    fields(start["tokens"], dict.fromkeys(TOKEN_KINDS, int), f"{where}: tokens")
-    if min([*start["tokens"].values(), start["api_retry"]]) < 0:
+    fields(start["tokens"], dict.fromkeys(TOKEN_KINDS, (int, type(None))), f"{where}: tokens")
+    if min([n for n in (*start["tokens"].values(), start["api_retry"]) if n is not None], default=0) < 0:
         raise RecordError(f"{where}: a negative token or api_retry count")
     _amount(start["usd"], "usd", where)
-    _amount(start["minutes"], "minutes", where)
+    if start["minutes"] is not None:
+        _amount(start["minutes"], "minutes", where)
     graded = start["graded"]
     if graded is not None:
         fields(graded, {"passed": int, "total": int}, f"{where}: graded")

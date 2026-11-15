@@ -192,8 +192,11 @@ Task 7's rehearsal is where the real harness, Podman, relay and CLI are exercise
 record. Each start carries the class the launcher decided (`class`, with `stop_cause` for a stop from the closed
 list `LAUNCHER_STOPS`, which also says where each cause can occur, found on a row of another class) and its D5 row as
 evidence; a stop is never scored. A `contamination` result may sit on a start of any class: it excludes an
-observation, and on any other class is listed and counted for D7.7 without changing the class. The launcher writes
-that layout and the readout reads it; both load the module by its path (the kit runs under `python -I`) and neither
+observation, and on any other class is listed and counted for D7.7 without changing the class. Regrade case 1 (a
+normal ending still with no reward file after its regrades) is an infrastructure failure, never scored. A null
+`minutes`, token count or `api_retry` was not recorded: the readout prints "not recorded", leaves it out of its
+means and gives how many it left out; it never reads a null as zero. The launcher writes that layout and the readout
+reads it; both load the module by its path (the kit runs under `python -I`) and neither
 imports the other.
 
 `readout.py` turns the export into the readout of D6 and, at the end of the tranche, into `results/family.json` (step

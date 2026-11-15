@@ -2032,10 +2032,10 @@ def launch(ctx, dry_run):
 
 def _tokens(rows):
     """Tokens by kind over a slot's forwarded rows (the meter's usage; an answer with none, such as a 429, used
-    none); None when the meter could not read a 200's usage whole (its worst-case row): a missing figure."""
+    none); each kind null, not recorded, when the meter could not read a 200's usage whole (its worst-case row)."""
     forwarded = [row for row in rows if "refused" not in row]
     if any(row.get("worst_case") for row in forwarded):
-        return None
+        return dict.fromkeys(slot_record.TOKEN_KINDS)
     totals = dict.fromkeys(slot_record.TOKEN_KINDS, 0)
     for u in (row.get("usage") or {} for row in forwarded):
         five, hour = price_check._writes({"cache_creation_input_tokens": 0, **u})

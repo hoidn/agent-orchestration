@@ -346,11 +346,18 @@ def _mean(values):
     return sum(values) / len(values) if values else None
 
 
+def _recorded(values):
+    """(the mean of the recorded values, how many were not recorded): a null figure is left out, never read as 0."""
+    kept = [v for v in values if v is not None]
+    return _mean(kept), len(values) - len(kept)
+
+
 def _means(observations):
-    return {"mean_usd": _mean([s["usd"] for s in observations]),
-            "mean_minutes": _mean([s["minutes"] for s in observations]),
-            "mean_tokens": {kind: _mean([s["tokens"][kind] for s in observations])
-                            for kind in slot_record.TOKEN_KINDS}}
+    minutes = _recorded([s["minutes"] for s in observations])
+    tokens = {kind: _recorded([s["tokens"][kind] for s in observations]) for kind in slot_record.TOKEN_KINDS}
+    return {"mean_usd": _mean([s["usd"] for s in observations]), "mean_minutes": minutes[0],
+            "mean_tokens": {kind: mean for kind, (mean, _) in tokens.items()},
+            "not_recorded": {"minutes": minutes[1], "tokens": {kind: left for kind, (_, left) in tokens.items()}}}
 
 
 def _started(starts, classes):
@@ -632,18 +639,26 @@ def _money(value, unit="USD "):
     return "none" if value is None else f"{unit}{value:.2f}"
 
 
+def _recorded_text(mean, left, digits=2):
+    """A mean over the recorded figures, with how many were not recorded; "not recorded" when none was."""
+    if mean is None:
+        return "not recorded" if left else "none"
+    return f"{mean:.{digits}f}" + (f" ({left} not recorded)" if left else "")
+
+
 def _cost_section(result):
     lines = ["## Cost per effort (current label)", "",
              "| Effort | Observations | Mean priced cost | Mean minutes | Mean tokens by kind | Starts | Cost of "
              "every start | Successes | Cost per success | Dominated |", "|" + " --- |" * 10]
     for effort, c in result["cost"]["per_effort"].items():
-        tokens = ", ".join(f"{k} {'none' if v is None else round(v)}" for k, v in c["mean_tokens"].items())
+        left = c["not_recorded"]
+        tokens = ", ".join(f"{k} {_recorded_text(v, left['tokens'][k], 0)}" for k, v in c["mean_tokens"].items())
         dominated = (result["cost"]["dominated"] or {}).get(effort)
         verdict = "withheld" if dominated is None else ("" if result["end"] else "interim: ") + dominated[
             "verdict"] + (f" by {dominated['by']}" if dominated["by"] else "")
         lines.append(f"| {effort} | {c['observations']} | {_money(c['mean_usd'])} | "
-                     f"{_money(c['mean_minutes'], '')} | {tokens} | {c['starts']} | {_money(c['usd_all_starts'])} | "
-                     f"{c['successes']} | {_money(c['usd_per_success'])} | {verdict} |")
+                     f"{_recorded_text(c['mean_minutes'], left['minutes'])} | {tokens} | {c['starts']} | "
+                     f"{_money(c['usd_all_starts'])} | {c['successes']} | {_money(c['usd_per_success'])} | {verdict} |")
     return lines + [""]
 
 

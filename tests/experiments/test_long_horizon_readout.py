@@ -466,6 +466,34 @@ def test_cost_per_success_takes_every_start_at_its_level_cut_starts_included():
         (4.0, 1, 4.0), None, (2, 1.0))
 
 
+def _tokens(**counts):
+    return {kind: counts.get(kind, 10) for kind in ("input", "output", "cache_read", "cache_write_5m",
+                                                    "cache_write_1h")}
+
+
+NOT_RECORDED = {TASKS[0]: {"low": [{"reward": 1, "minutes": 30.0}, {"reward": 1, "minutes": None,
+                                                                    "tokens": _tokens(input=None)},
+                                   {"reward": 0, "minutes": 60.0, "tokens": _tokens(input=40)}],
+                           "medium": [{"reward": 1, "minutes": None, "tokens": _tokens(output=None)}], "high": [0]}}
+
+
+def test_a_figure_not_recorded_is_left_out_of_its_mean_and_counted_never_taken_as_zero():
+    """Coordinator ruling (Task 5): a null minutes or token count is not recorded; the mean is over the recorded
+    figures, and how many were left out is given beside it."""
+    low = _compute(_export(NOT_RECORDED))["cost"]["per_effort"]["low"]
+    assert (low["mean_minutes"], low["mean_tokens"]["input"], low["mean_tokens"]["output"], low["not_recorded"]) == (
+        45.0, 25.0, 10.0, {"minutes": 1, "tokens": {"input": 1, "output": 0, "cache_read": 0, "cache_write_5m": 0,
+                                                    "cache_write_1h": 0}})
+
+
+def test_the_cost_table_prints_not_recorded_and_how_many_were_left_out():
+    rows = {line.split(" | ")[0]: line for line in readout.render(_compute(_export(NOT_RECORDED))).splitlines()
+            if line.startswith(("| low ", "| medium "))}
+    assert ("45.00 (1 not recorded)" in rows["| low"], "input 25 (1 not recorded)" in rows["| low"],
+            "| not recorded |" in rows["| medium"], "output not recorded" in rows["| medium"]) == (
+        True, True, True, True)
+
+
 def test_a_level_is_dominated_only_by_one_that_beats_it_on_the_test_and_costs_less():
     beaten = _same([0, 0]) | {"high": [{"reward": 1, "usd": 0.5}, {"reward": 1, "usd": 0.5}]}
     cheap = _compute(_export({task: beaten for task in TASKS[:5]}))["cost"]["dominated"]

@@ -50,6 +50,9 @@ SESSION_STOPS = [cause for cause, seen in slot_record.LAUNCHER_STOPS.items() if 
     (lambda x: x["starts"][0].update(usd=True), "usd"),
     (lambda x: x["starts"][0]["tokens"].pop("cache_read"), "tokens"),
     (lambda x: x["starts"][0].update(api_retry=-1), "api_retry"),
+    (lambda x: x["starts"][0].update(tokens=None), "tokens"),
+    (lambda x: x["starts"][0]["tokens"].update(output=-1), "negative"),
+    (lambda x: x["starts"][0].update(minutes="30"), "minutes"),
     (lambda x: x["starts"][0].update(graded={"passed": 3, "total": 2}), "graded"),
     (lambda x: x["starts"][0].update(egress_refused={"<address>:443": 0}), "egress_refused"),
     (lambda x: x["starts"][1].update(start=1), "start"),
@@ -201,6 +204,14 @@ def test_while_the_terms_are_pending_no_contamination_result_can_be_joined():
 def test_a_figure_that_is_not_finite_or_is_negative_is_refused(change):
     with pytest.raises(slot_record.RecordError, match="finite number"):
         _load(_broken(change))
+
+
+def test_a_figure_not_recorded_is_null_and_loads_as_null_never_as_zero():
+    """Coordinator ruling (Task 5): minutes, each token count and api_retry may be null, meaning not recorded."""
+    missing = {"minutes": None, "tokens": {"input": None, "output": 7, "cache_read": None, "cache_write_5m": 0,
+                                           "cache_write_1h": None}, "api_retry": None}
+    first = _load(_one(missing | {"reward": 1}))[0]
+    assert {key: first[key] for key in missing} == missing
 
 
 @pytest.mark.parametrize("text, message", [('{"a": 1, "a": 2}', "repeats the keys"), ('{"usd": NaN}', "NaN"),
