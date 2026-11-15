@@ -194,7 +194,7 @@ are measured on the prototype or estimated from it (2026-11-12).
 | E1 | Admit effects, in a simple value (§4), in record fields, variant fields, list elements, `:on-exhausted` and a map's source; then `list/map` source and `path/join-under` child. A pure `match` is a value as an operand | The capture fix; the refused forms deleted (§12) | 5 files, about +95 −70 | 6 refusal test functions flip (13 cases); 38 matrix cells move from refused to admitted |
 | I1 | A `list/map-effect` body is any expression in a program that contains no run reference, and one call with pure arguments in a program that contains one; a serial `:max` is any `Int` expression; a serial map evaluates its source, then `:max` | — | 5 files, about +45 −15 | 2 refusal test functions flip (6 cases) |
 | C1 | A `let-proc` local with a signature is called by name; five diagnostics name the cause (§6); a recursive workflow gets a cycle diagnostic; a reference bound after being chosen at run time is refused with a code | — | 5 files, about +55 −10 | 1 flips; 6 new |
-| I2 | `loop/recur` takes the map forms' binder. I2a: accepted beside the `fn` form, building the same program, with the migration tool. I2b: `fn` and `:state` are refused and the Python frontend emits the binder | I2b: the release that removes the older targets, and the rewrite (§5) | I2a 2 files, about +50; I2b about −230 | 15 source files (15 loops), 154 test files (277 loops), 22 documents (27) rewritten by the migration tool, or by hand where it lists a loop or does not read the file (§5) |
+| I2 | `loop/recur` takes the map forms' binder. I2a: accepted beside the `fn` form, building the same program, with the migration tool. I2b: `fn` and `:state` are refused and the Python frontend emits the binder | I2b: a separate later change (not taken at the one-target cut, §5), and the rewrite (§5) | I2a 2 files, about +50; I2b about −230 | 15 source files (15 loops), 154 test files (277 loops), 22 documents (27) rewritten by the migration tool, or by hand where it lists a loop or does not read the file (§5) |
 
 Not done at all: the rows of §7. Rejected: *documenting the refusals instead*
 (eleven positions, and `(record R :a (command-result …))`, the first thing a
@@ -331,10 +331,13 @@ needs an analysis of each iteration that is sound for imported workflows
 (§12, item 6). What compiles: specification §10.3.
 
 **The binder form of `loop/recur`: contract.** Both forms build the same
-program. The `fn` form is removed in the release that removes the older
-targets, the one release that already refuses existing source. A run started
+program. Status of I2b: the removal of the `fn` form was not taken at the
+one-target cut (coordinator ruling, 2026-11-15, recorded in the ledger of the
+[one-target plan](../plans/2026-11-12-lane-d-stage-4-one-target-plan.md):
+frozen experiment seeds use the form); it is a separate later change, and both
+forms build at 2.40. A run started
 under the `fn` form resumes from the rewritten source; `resume` compiles
-source, so after that release it does not resume from unrewritten source.
+source, so once the form is removed it does not resume from unrewritten source.
 Evidence: 17 loop programs here, and in the review the 27 tracked programs
 with loops and the four packaged library modules with their importers, keep
 digest and site list when rewritten; a run of the tutorial's `grow.orc`,
@@ -491,7 +494,7 @@ move a digest in the corpus comparison of §9.
 | I1 | `typecheck_structural_values.py`: refuse at typing a body that is not one call with pure arguments when its own summary contains a run reference, and record for every other map whether it has that shape; pass a typed `:max` as the synthetic loop's budget, in the order source then `:max`. `closed/build.py`: when the assembled closed program holds a run-reference effect, refuse the first map that is not one call with pure arguments or whose iteration runs more than one effect (§5). `expressions.py` (`ListMapEffectExpr`): an optional `max_expr` child, handled as `workspace_expr` is in `expression_traversal.py`, `procedure_typecheck.py` and `closed/names.py`. `closed/command_templates.py`: a parallel map written directly in a serial map or loop body is lowered as it is behind a procedure call | Keep the synthetic loop's `list_map_effect_cap_exceeded` code, which P12 reads; report a non-`Int` `:max` as `list_map_effect_max_invalid`. The runtime changes only where no program that compiled before reaches it (`workflow/evaluated/machine.py`): a serial map whose `:max` is below 1 and whose list is empty gets the one round that finds the list empty, and the cap failure says which bound the list passed |
 | C1 | `expressions.py` (`_elaborate_list`, `_elaborate`), `compiler_session.py` and `workflows.py` (which names the module's workflows to elaboration): the local call and the second, third and fifth messages of §6. `procedure_typecheck.py`: the first. `typecheck_calls.py`: the fourth. `closed/build.py`: the cycle diagnostic. `typecheck_dispatch.py`: the refusal of a `let*` binding of a reference that is neither a literal nor forwarded | A local calling itself keeps `let_proc_recursive_unsupported`. The call by name is elaborated as the alias call under a reserved binding name, so it adds no route and no identity |
 | I2a | `expressions.py`: the binder form beside `fn`. `macros.py`: the loop state, `let-proc` parameters and `cond` clause items as bindings or expressions of a template (§5). `scripts/migrate_orc_sources.py`: the one-target plan's header and clause migration with the loop rewrite of §5, for `.orc` files and for sources in Python strings under `tests/` and `experiments/` | One pass rewrites headers and loops and lists what it leaves. The Python frontend keeps emitting the `fn` form (I2b) |
-| I2b, with the removal of the older targets | Delete the `fn` route, `LoopBodyFnExpr`, `:state`, `operand_evaluation_order` and the `fn` registry row. `orchestrator/py/emit.py`: emit the binder form | Under a recorded owner ruling (§12); the refusal names the rewrite. The emitter changes here, not in I2a, because a frozen Python build hashes the emitted text: a pin made before the change refuses (`python_frozen_changed`) until it is rebuilt, although the program digest is the same |
+| I2b, a separate later change (not taken with the removal of the older targets, §5) | Delete the `fn` route, `LoopBodyFnExpr`, `:state`, `operand_evaluation_order` and the `fn` registry row. `orchestrator/py/emit.py`: emit the binder form | Under a recorded owner ruling (§12); the refusal names the rewrite. The emitter changes here, not in I2a, because a frozen Python build hashes the emitted text: a pin made before the change refuses (`python_frozen_changed`) until it is rebuilt, although the program digest is the same |
 
 ## 11. Where The Rules Live
 
@@ -501,7 +504,7 @@ change of §10 is implemented or dropped; nothing may then cite it as authority.
 
 Three things keep it current. Rule 1 has no receiving section until E1 is
 merged. Rule 2's `fn` form, with its text in the specification's §13.1,
-stands until I2b lands in the release that removes the older targets. The
+stands until I2b lands (§5). The
 guide carries none of the three rules. Rules 2 and 3 are in the
 specification with their exception lists (§10.3 and §13.1; §7.8 and §14),
 and `specs/versioning.md` has the entries of C1, I1 and I2a; where those
@@ -533,7 +536,7 @@ run-reference exception instead of leaving.
 | 1 | The capture defect of §2.1 is fixed, with the scenario of §9, so that both constructor routes rename hoisted bindings and name a field's effects alike | E1 |
 | 2 | The forms that are registered but refuse are deleted (one-target plan). Otherwise four fixtures that put `materialize-view` or `resource-transition` in a newly admitted position stop refusing in the typechecker and refuse later as `closed_program_gap` | E1 |
 | 3 | A recorded reading of the versioning rule's "a change … to whether it compiles adds a target". E1, I1 and C1 admit source that is refused today and change no source that compiles; this design reads the rule as protecting source that compiles, so they add no target. Under the literal reading each adds one. **Ruled 2026-11-12: this reading holds;** the one-target plan's rule 2 is worded accordingly | E1, I1, C1 |
-| 4 | The owner ruling that the release removing the older targets also removes the `fn` form. Without it both forms stay and rule 2's `fn`-form exception has no end. **Coordinator default, 2026-11-12: removed in that release;** the owner may keep both forms until it lands | I2b |
+| 4 | The owner ruling that the release removing the older targets also removes the `fn` form. Without it both forms stay and rule 2's `fn`-form exception has no end. Coordinator default, 2026-11-12: removed in that release. **Coordinator ruling, 2026-11-15: not removed at the one-target cut; both forms stay until a separate later change (§5)** | I2b |
 | 5 | The `bind-proc` defect of §2.1; it belongs to pure-call composition, not to this design | Nothing; rule 3 names it until fixed |
 | 6 | A run-reference map body with several producers; owner: evaluated execution §1.2. Before it, an analysis of each map iteration that is sound for imported workflows (their effect summaries are an open defect), so that a program holding a run reference may use general bodies where no run reference is reached | Only rule 2's run-reference exception |
 
