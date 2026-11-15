@@ -79,11 +79,15 @@ def test_a_cell_over_five_is_refused():
 
 
 @pytest.mark.parametrize("K, n, label", [(0, 15, "floor"), (1, 15, "screened in"), (5, 15, "screened in"),
-                                         (6, 15, "above the band"), (15, 15, "above the band"),
-                                         (4, 12, "screened in"), (5, 12, "above the band"), (0, 9, "floor"),
-                                         (1, 2, "above the band"), (0, 0, "no observation")])
-def test_the_pooled_label_reads_k_over_n_against_1_15_and_1_3_inclusive(K, n, label):
+                                         (6, 15, "above the band"), (15, 15, "above the band")])
+def test_at_15_attempts_the_pooled_label_reads_k_over_n_against_1_15_and_1_3_inclusive(K, n, label):
     assert readout.pooled_label(K, n, RULES["pooled"]) == label
+
+
+@pytest.mark.parametrize("K, n", [(4, 14), (1, 14), (0, 14), (1, 2), (0, 0)])
+def test_with_fewer_than_15_attempts_a_task_is_not_screened(K, n):
+    """Coordinator ruling R4: the screen is applied only at the planned count; the task is neither in nor out."""
+    assert readout.pooled_label(K, n, RULES["pooled"]) == f"not screened: {n} of 15 attempts"
 
 
 ALL_TRIPLES = [dict(zip(EFFORTS, ks)) for ks in itertools.product(range(6), repeat=3)]
@@ -355,7 +359,8 @@ def test_observations_under_two_labels_are_never_pooled_in_a_cell_or_a_task():
     result = _compute(_export(LABELLED, earlier=(OLD,)))
     task = result["tasks"][TASKS[0]]
     assert ((task["cells"]["low"]["k"], task["cells"]["low"]["n"]), (task["pooled"]["K"], task["pooled"]["n"]),
-            task["pooled"]["label"], result["effort"]["triples"]) == ((0, 3), (0, 9), "floor", 6)
+            task["pooled"]["label"], result["effort"]["triples"]) == (
+        (0, 3), (0, 9), "not screened: 9 of 15 attempts", 6)
 
 
 def test_an_earlier_label_s_observations_are_counted_apart_with_its_label_and_ledger_row():
@@ -457,8 +462,9 @@ def test_a_level_is_dominated_only_by_one_that_beats_it_on_the_test_and_costs_le
 # ---- 9. A stop readout prints no placement ---------------------------------------------------------------------
 
 STOP = {"by": "stop", "cause": "a vendor 401 (D5 row 14); ledger row of 2026-11-21"}
-STOPPED = {TASKS[0]: _same([1, 0, 0, 0, 0]), TASKS[1]: _same([0, 0, 0, 0, 0]),
-           TASKS[2]: {"low": [1, 1, 1, 1, {"row": 14}], "medium": [1, 1, 1, 1, "-"], "high": [1, 1, 1, 1, "-"]}}
+STOPPED = {TASKS[0]: _same([1, 0, 0, 0, 0]), TASKS[1]: _same([0, 0, 0, 0, 0]), TASKS[2]: _same([1, 1, 1, 1, 1]),
+           TASKS[3]: {"low": [0, {"row": 14}], "medium": [0, "-"], "high": [0, "-"]}}
+FAMILY = {task: STOPPED[task] for task in TASKS[:3]}
 PLACEMENT_WORDS = ("screened in", "floor", "above", "incomplete", "noisy", "rises", "falls", "not resolved",
                    "dominated")
 
@@ -475,8 +481,8 @@ def test_a_stop_readout_reports_the_bound_on_the_fall_over_the_complete_triples_
     result = _compute(_export(STOPPED, end=STOP))
     stopped, placed = result["effort"], _compute(_export(STOPPED))["effort"]
     assert (stopped["triples"], stopped["fall_bound"] == placed["fall_bound"],
-            "over 14 complete triples; no placement is made" in _section(readout.render(result), "Effort test")) == (
-        14, True, True)
+            "over 16 complete triples; no placement is made" in _section(readout.render(result), "Effort test")) == (
+        16, True, True)
 
 
 def test_a_stop_readout_with_no_complete_triple_says_there_is_none():
@@ -509,28 +515,32 @@ def _family(export, **kwargs):
     return readout.family(_compute(export, **kwargs), CRITERION, TASKS_DOC)
 
 
+def _dropped(*tasks):
+    return [{"task": task, "reason": f"ledger row dropping {task}"} for task in tasks]
+
+
 def test_family_json_names_the_criterion_the_configuration_label_and_each_task_s_digests():
-    family = _family(_export(STOPPED))
+    family = _family(_export(FAMILY))
     listed = {t["task"]: (t["digests"]["digest_4_1_0"], t["digests"]["environment_image"],
                           t["digests"]["verifier_image"]) for group in family["tasks"].values() for t in group}
     assert (family["criterion_sha256"], family["label"], family["configuration"]["model"], listed) == (
-        CRITERION, LABEL, "claude-haiku-5-5", {task: DIGESTS[task] for task in STOPPED})
+        CRITERION, LABEL, "claude-haiku-5-5", {task: DIGESTS[task] for task in FAMILY})
 
 
 def test_family_json_lists_the_tasks_by_pooled_label_with_their_counts_and_band_effort_and_the_verdict():
-    family = _family(_export(STOPPED))
+    family = _family(_export(FAMILY))
     screened = family["tasks"]["screened in"][0]
     assert ({label: [t["task"] for t in group] for label, group in family["tasks"].items()},
             screened["band_effort"]["effort"], screened["cells"]["low"]["k"], family["effort"]["verdict"],
             isinstance(family["effort"]["fall_bound"], float)) == (
-        {"screened in": [TASKS[0]], "floor": [TASKS[1]], "above the band": [TASKS[2]], "no observation": []},
+        {"screened in": [TASKS[0]], "floor": [TASKS[1]], "above the band": [TASKS[2]], "dropped": []},
         "low", 1, "not resolved", True)
 
 
 @pytest.mark.parametrize("end", [None, STOP], ids=["in progress", "stop"])
 def test_family_json_is_written_only_from_a_complete_readout_that_did_not_end_in_a_stop(end):
     with pytest.raises(readout.ReadoutError, match="family.json"):
-        _family(_export(STOPPED, end=end))
+        _family(_export(FAMILY, end=end))
 
 
 def _bytes(export):
@@ -538,7 +548,7 @@ def _bytes(export):
 
 
 def test_family_json_is_the_same_bytes_from_the_same_records_and_holds_no_time_path_host_or_user():
-    once, again = _bytes(_export(STOPPED)), _bytes(_export(STOPPED))
+    once, again = _bytes(_export(FAMILY)), _bytes(_export(FAMILY))
     text = once.decode()
     machine = [getpass.getuser(), socket.gethostname(), str(ROOT), "/tmp", "/home"]
     assert (once == again, [m for m in machine if m in text], re.findall(r"\d{4}-\d\d-\d\dT\d\d", text)) == (
@@ -546,7 +556,7 @@ def test_family_json_is_the_same_bytes_from_the_same_records_and_holds_no_time_p
 
 
 def test_a_rehearsal_stamps_family_json_and_the_readout_and_a_final_readout_stamps_neither():
-    rehearsal, final = _compute(_export(STOPPED)), _compute(_export(STOPPED), ladder=filled(), standins=None)
+    rehearsal, final = _compute(_export(FAMILY)), _compute(_export(FAMILY), ladder=filled(), standins=None)
     stamps = [readout.family(r, CRITERION, TASKS_DOC)["rehearsal"] for r in (rehearsal, final)]
     texts = ["REHEARSAL" in readout.render(r) for r in (rehearsal, final)]
     assert (stamps, texts) == ([True, False], [True, False])
@@ -554,7 +564,7 @@ def test_a_rehearsal_stamps_family_json_and_the_readout_and_a_final_readout_stam
 
 def test_a_task_missing_from_tasks_json_is_an_error():
     with pytest.raises(readout.ReadoutError, match="tasks.json"):
-        readout.family(_compute(_export(STOPPED)), CRITERION, {"tasks": TASKS_DOC["tasks"][1:]})
+        readout.family(_compute(_export(FAMILY)), CRITERION, {"tasks": TASKS_DOC["tasks"][1:]})
 
 
 # ---- The command: python -I readout.py <export> [--rehearsal <stand-ins>] [--family <path>] ----------------------
@@ -565,7 +575,7 @@ def _write(path, value):
 
 
 def test_the_command_prints_the_readout_and_writes_family_json_in_a_rehearsal(tmp_path):
-    export, standins = _write(tmp_path / "export.json", _export(STOPPED)), _write(tmp_path / "s.json", STANDINS)
+    export, standins = _write(tmp_path / "export.json", _export(FAMILY)), _write(tmp_path / "s.json", STANDINS)
     done = subprocess.run([sys.executable, "-I", str(KIT / "readout.py"), str(export), "--rehearsal", str(standins),
                            "--family", str(tmp_path / "family.json")],
                           capture_output=True, text=True, cwd=ROOT, env={"PATH": "/nonexistent"})
@@ -611,7 +621,7 @@ def test_refused_connections_are_listed_per_attempt_and_exclude_nothing():
 
 
 def test_no_public_figure_is_read_or_printed():
-    result = _compute(_export(STOPPED))
+    result = _compute(_export(FAMILY))
     public = {str(task["public_mean_usd_at_max"]) for task in LADDER["tasks"]["list"]}
     printed = readout.render(result) + readout.family_bytes(readout.family(result, CRITERION, TASKS_DOC)).decode()
     assert ("public" in printed, sorted(p for p in public if f" {p} " in printed or f"USD {p}" in printed)) == (
@@ -634,3 +644,51 @@ def test_the_dominance_threshold_is_read_from_its_own_field_of_the_readout_group
     assert (LADDER["readout"]["cost"]["dominated_p_at_most"], strict["cost"]["dominated"]["low"]["verdict"],
             readout.compute(loose_test, _export(table), STANDINS)["cost"]["dominated"]["low"]["verdict"]) == (
         0.05, "not resolved", "dominated")
+
+
+
+# ---- Ruling R4: the screen is applied at 15 attempts only; family.json waits for every task to be screened or dropped
+
+def test_a_task_with_one_effort_short_after_a_ceiling_stop_is_not_screened_and_printed_with_its_count():
+    result = _compute(_export(PARTIAL))
+    task = result["tasks"][TASKS[3]]
+    row = next(line for line in _section(readout.render(result), "Tasks").splitlines()
+               if line.startswith(f"| {TASKS[3]} "))
+    short = "not screened: 14 of 15 attempts"
+    assert (task["pooled"]["label"], task["band_effort"], "1 of 14 (" in row, short in row) == (short, None, True, True)
+
+
+def test_a_task_at_15_attempts_is_screened():
+    assert _compute(_export(PARTIAL))["tasks"][TASKS[0]]["pooled"]["label"] == "screened in"
+
+
+def test_family_json_is_refused_while_a_task_is_neither_screened_at_15_nor_dropped():
+    with pytest.raises(readout.ReadoutError) as caught:
+        _family(_export(PARTIAL))
+    assert [task for task in TASKS[:4] if task in str(caught.value)] == [TASKS[2], TASKS[3]]
+
+
+def test_family_json_lists_a_dropped_task_with_its_reason_and_outside_the_family():
+    family = readout.family(readout.compute(LADDER, _export(PARTIAL), STANDINS, _dropped(TASKS[2], TASKS[3])),
+                            CRITERION, TASKS_DOC)
+    assert ({label: [t["task"] for t in group] for label, group in family["tasks"].items()},
+            [t["pooled"]["reason"] for t in family["tasks"]["dropped"]]) == (
+        {"screened in": [TASKS[0], TASKS[1]], "floor": [], "above the band": [], "dropped": [TASKS[2], TASKS[3]]},
+        [f"ledger row dropping {TASKS[2]}", f"ledger row dropping {TASKS[3]}"])
+
+
+@pytest.mark.parametrize("dropped, message", [
+    (_dropped("no-such-task"), "not a task"), (_dropped(TASKS[2], TASKS[2]), "twice"),
+    ([{"task": TASKS[2], "reason": ""}], "reason"), ([{"task": TASKS[2]}], "keys")])
+def test_a_drop_that_names_no_task_of_the_tranche_or_no_reason_is_refused(dropped, message):
+    with pytest.raises((readout.ReadoutError, readout.slot_record.RecordError), match=message):
+        readout.compute(LADDER, _export(PARTIAL), STANDINS, dropped)
+
+
+def test_the_command_takes_the_drops_and_writes_family_json(tmp_path):
+    paths = [_write(tmp_path / name, value) for name, value in (
+        ("e.json", _export(PARTIAL)), ("s.json", STANDINS), ("d.json", _dropped(TASKS[2], TASKS[3])))]
+    code = readout.main([str(paths[0]), "--rehearsal", str(paths[1]), "--dropped", str(paths[2]), "--family",
+                         str(tmp_path / "family.json")])
+    family = json.loads((tmp_path / "family.json").read_text())
+    assert (code, [t["task"] for t in family["tasks"]["dropped"]]) == (0, [TASKS[2], TASKS[3]])

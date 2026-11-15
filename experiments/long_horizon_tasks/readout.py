@@ -22,7 +22,8 @@ from pathlib import Path
 
 KIT = Path(__file__).resolve().parent
 LADDER_PATH = "experiments/long_horizon_tasks/ladder.json"
-POOLED_LABELS = ("screened in", "floor", "above the band", "no observation")
+POOLED_LABELS = ("screened in", "floor", "above the band")
+NOT_SCREENED = "not screened"
 DIGESTS = ("digest_4_1_0", "environment_image", "verifier_image", "overlay_digest")
 
 
@@ -86,13 +87,16 @@ def cell_label(k, n, rule):
 
 
 def pooled_label(K, n, rule):
-    """D6's pooled label of a task, K successes of its n observations, under ladder.json's readout.pooled rule."""
-    if n == 0:
-        return "no observation"
+    """D6's pooled label of a task, K successes of its n observations, under ladder.json's readout.pooled rule.
+
+    The screen is applied only at the planned count, readout.pooled.at_n (coordinator ruling R4); with fewer the task
+    is not screened, neither in nor out of the family.
+    """
+    if n != rule["at_n"]:
+        return f"{NOT_SCREENED}: {n} of {rule['at_n']} attempts"
     if K == rule["floor_K"]:
         return "floor"
     band = rule["screened_in"]
-    # Open ruling R4: the ratio rule is applied at any n; D6 states it, and its phrase, at 15 attempts.
     inside = Fraction(band["from"]) <= Fraction(K, n) <= Fraction(band["to"])
     return "screened in" if inside else "above the band"
 
@@ -238,8 +242,9 @@ def _counts(starts, tasks, efforts, level):
             for task, by in cells.items()}
 
 
-def _placement(cells, rules, place):
-    """Per task: the cells and the pooled count; when place, their labels and the band effort (D6)."""
+def _placement(cells, rules, place, drops):
+    """Per task: the cells and the pooled count; when place, their labels and the band effort (D6), or the reason a
+    dropped task was dropped (ruling R4)."""
     level = rules["interval"]["level"]
     placed = {}
     for task, by_effort in cells.items():
@@ -247,12 +252,14 @@ def _placement(cells, rules, place):
         placed[task] = {"cells": by_effort, "pooled": {"K": K, "n": n, "interval": interval(K, n, level)},
                         "band_effort": None}
         if place:
-            placed[task] = _placed(placed[task], rules)
+            placed[task] = _placed(placed[task], rules, drops.get(task))
     return placed
 
 
-def _placed(task, rules):
+def _placed(task, rules, dropped):
     pooled = task["pooled"] | {"label": pooled_label(task["pooled"]["K"], task["pooled"]["n"], rules["pooled"])}
+    if dropped:
+        pooled |= {"label": "dropped", "reason": dropped}
     cells = {e: c | {"label": cell_label(c["k"], c["n"], rules["cell"])} for e, c in task["cells"].items()}
     band = None
     if pooled["label"] == "screened in":
@@ -393,8 +400,25 @@ def _earlier(starts, export, tasks, efforts, level):
     return earlier
 
 
-def compute(ladder, export, standins=None):
+def _drops(dropped, tasks):
+    """{task: reason} from the coordinator's drops (ruling R4): each names a task of the tranche once, with a reason."""
+    reasons = {}
+    for entry in dropped or []:
+        slot_record.fields(entry, {"task": str, "reason": str}, "a dropped task")
+        if entry["task"] not in tasks:
+            raise ReadoutError(f"dropped task {entry['task']!r} is not a task of the tranche")
+        if entry["task"] in reasons:
+            raise ReadoutError(f"dropped task {entry['task']!r} is given twice")
+        if not entry["reason"].strip():
+            raise ReadoutError(f"dropped task {entry['task']!r} names no reason")
+        reasons[entry["task"]] = entry["reason"]
+    return reasons
+
+
+def compute(ladder, export, standins=None, dropped=None):
     """Every figure of the readout, from the export's starts joined by slot id; rules read from ladder.json.
+
+    dropped lists the tasks the coordinator dropped, each {"task", "reason"} with its ledger row (ruling R4).
 
     Every rule reads the current label's starts alone. A readout that ends in a stop places nothing: no cell or
     pooled label, no band effort, no effort verdict and no dominance (D6); it keeps the bound on the fall (R2).
@@ -411,7 +435,7 @@ def compute(ladder, export, standins=None):
     place = export["end"] is None or export["end"]["by"] != "stop"
     return {"rehearsal": rehearsal, "configuration": _configuration(criterion), "label": export["label"],
             "end": export["end"], "stop": not place,
-            "tasks": _placement(_counts(current, tasks, efforts, level), rules, place),
+            "tasks": _placement(_counts(current, tasks, efforts, level), rules, place, _drops(dropped, tasks)),
             "effort": _effort(triples, efforts, rules, place),
             "listed": _listed(current, efforts), "earlier": _earlier(starts, export, tasks, efforts, level),
             "rules": {"fall_bound": rules["fall_bound"], "interval": rules["interval"],
@@ -461,7 +485,8 @@ def _tasks_table(result):
         screened = f", screened at {pooled['n']} attempts" if pooled.get("label") == "screened in" else ""
         banded = "none" if band is None else f"{band['effort']}, {band['label']}" + (
             ", flagged" if band["flagged"] else "")
-        cells = [_labelled(placed["cells"][e]) for e in efforts] + [_labelled(pooled, "K") + screened]
+        reason = f" ({pooled['reason']})" if "reason" in pooled else ""
+        cells = [_labelled(placed["cells"][e]) for e in efforts] + [_labelled(pooled, "K") + screened + reason]
         lines.append(f"| {task} | " + " | ".join(cells) + f" | {'withheld' if result['stop'] else banded} |")
     return lines + [""]
 
@@ -593,19 +618,33 @@ def _plain(value):
     return str(value) if isinstance(value, Fraction) else value
 
 
-def family(result, criterion_sha256, tasks_doc):
-    """family.json's content: the criterion's SHA-256, the configuration and its label, each task with its digests,
-    counts and labels by effort and its band effort, grouped by pooled label, and the effort verdict with the bound.
-
-    Only from a complete readout (the tranche ended) that did not end in a stop. A pure function of its arguments.
-    """
+def _writable(result):
+    """Why family.json cannot be written from this readout, or None (rulings R1 and R4)."""
     # Ruling R1: after a stop no family.json is written; the stop readout names the stop.
     if result["end"] is None or result["stop"]:
         state = "is in progress" if result["end"] is None else f"ended in a stop ({result['end']['cause']})"
-        raise ReadoutError(f"family.json is written only from a complete readout that did not end in a stop; this "
-                           f"one {state}")
+        return f"family.json is written only from a complete readout that did not end in a stop; this one {state}"
+    unscreened = [task for task, placed in result["tasks"].items()
+                  if placed["pooled"]["label"].startswith(NOT_SCREENED)]
+    if unscreened:
+        return (f"family.json is written only when every task is screened at the planned count or recorded as dropped "
+                f"for a stated reason (ruling R4); not screened: {', '.join(unscreened)}")
+    return None
+
+
+def family(result, criterion_sha256, tasks_doc):
+    """family.json's content: the criterion's SHA-256, the configuration and its label, each task with its digests,
+    counts and labels by effort and its band effort, grouped by pooled label (a dropped task with its reason), and the
+    effort verdict with the bound.
+
+    Only from a complete readout (the tranche ended) that did not end in a stop, with every task screened at the
+    planned count or dropped. A pure function of its arguments.
+    """
+    refusal = _writable(result)
+    if refusal:
+        raise ReadoutError(refusal)
     digests = {t["name"].split("/", 1)[-1]: {key: t[key] for key in DIGESTS} for t in tasks_doc["tasks"]}
-    grouped = {label: [] for label in POOLED_LABELS}
+    grouped = {label: [] for label in (*POOLED_LABELS, "dropped")}
     for task, placed in result["tasks"].items():
         if task not in digests:
             raise ReadoutError(f"family.json: task {task!r} has no digests in tasks.json")
@@ -641,7 +680,8 @@ def _run(args):
     """Refuses before printing or writing anything: a pending field, a record, the label's criterion, family.json."""
     ladder_bytes, export = (KIT / "ladder.json").read_bytes(), json.loads(Path(args.export).read_text())
     standins = json.loads(Path(args.rehearsal).read_text()) if args.rehearsal else None
-    result = compute(json.loads(ladder_bytes), export, standins)
+    dropped = json.loads(Path(args.dropped).read_text()) if args.dropped else None
+    result = compute(json.loads(ladder_bytes), export, standins, dropped)
     if standins is None:
         bound(ladder_bytes, (KIT / "manifest.json").read_bytes(), result["label"])
     content = family(result, _sha256_of(ladder_bytes), json.loads((KIT / "tasks.json").read_text())) if (
@@ -657,6 +697,8 @@ def main(argv):
     parser.add_argument("export", help="the launcher's export (the record shape in this module's docstring)")
     parser.add_argument("--rehearsal", metavar="STAND_INS", help="a JSON object of stand-in values for every "
                         "pending readout field; stamps every output as a rehearsal")
+    parser.add_argument("--dropped", metavar="DROPS", help="a JSON list of the tasks the coordinator dropped, each "
+                        "{\"task\", \"reason\"} naming its ledger row (ruling R4)")
     parser.add_argument("--family", metavar="PATH", help="where to write family.json")
     args = parser.parse_args(argv)
     try:
