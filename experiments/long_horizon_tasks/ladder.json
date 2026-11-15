@@ -63,7 +63,18 @@
                     "under": "the 4.1.0 package and its two pinned images, the final network policy, the ladder's CPU set at its concurrency of four, the load below the gate of D2"},
   "dropped": "A task that fails the rule and has no host-side fix is dropped. It is not replaced and its 15 slots are not given to other tasks (D1).",
   "list": [
-   {"name": "vba-userform-port", "changed_since_4_0_0": ["tests", "environment"], "public_mean_usd_at_max": 4.73, "cap_usd": 14.19},
+   {"name": "vba-userform-port", "changed_since_4_0_0": ["tests", "environment"], "public_mean_usd_at_max": 4.73, "cap_usd": 14.19,
+    "variant": {
+     "label": "vba-userform-port-uidfix",
+     "use": "only if the owner does not run `podman system migrate` (owner question 4, the owner's decision): the unchanged task's verifier dies on this host (Errno 22, a uid above the 65,536 mapped ids), so neither half writes a reward",
+     "change": "tests/app_worker.py line 55, secrets.randbelow(1000000000) to secrets.randbelow(55000), in the package and in a verifier image derived from the pinned one; nothing else differs (file by file)",
+     "verifier_image": "lh-oracle/vba-userform-port-uidfix:verifier",
+     "verifier_image_id": "01b5f971fcee8209f835d39d267205fe17057104896a918a488c8846156467ca",
+     "base_digest": "sha256:ce013facbe7cdaf21cd60b1930282bcfc3cdb6b0543682bed253453952e82a28",
+     "label_rule": "a modified task with its own configuration label (D1: an image other than the pinned one is a different label); never pooled with vba-userform-port",
+     "record": "tasks.json, vba-userform-port, variant (built once by uidfix_variant.py; oracle_check.sh checks the image id before each launch)",
+     "source": "coordinator ruling and plan ledger row 'Task 2b fix round 1' (7b07fa7d)"
+    }},
    {"name": "vf2-speedup-networkx", "changed_since_4_0_0": [], "public_mean_usd_at_max": 5.79, "cap_usd": 17.37},
    {"name": "wal-recovery-ordering", "changed_since_4_0_0": ["tests"], "public_mean_usd_at_max": 0.90, "cap_usd": 3.00},
    {"name": "session-window-debug", "changed_since_4_0_0": ["tests", "environment"], "public_mean_usd_at_max": 0.71, "cap_usd": 3.00},
@@ -84,7 +95,27 @@
   "load_sensitive": null,
   "overlay_digests": null,
   "extra_hosts": null,
-  "withholding": null
+  "withholding": {
+   "record": "tasks.json, each task's withholding (the full result, the rulings' text with each ruled item); written by image_check.py tasks from image_measure.json",
+   "by_task": {
+    "vba-userform-port": {"verdict": "withheld", "agent_image": "sha256:104fb670ee582f21fb4bb56814e25c4e846d099c3af765aeed7a04a038a5ed28", "ruled": [], "unruled": []},
+    "vf2-speedup-networkx": {"verdict": "withheld", "agent_image": "sha256:b90a9278109552c04b9d3535690ecd3dda8f3372992df445f9d47412e85cc608", "ruled": [], "unruled": []},
+    "wal-recovery-ordering": {"verdict": "withheld", "agent_image": "sha256:71d215eab08bf95f60d828a5328d7bc1424b4a048ebf6551027267a651396657", "ruled": [], "unruled": []},
+    "session-window-debug": {"verdict": "withheld", "agent_image": "sha256:62d159cb3a81205766c5560037802d4b951c15626d86e7a8aaf0e9912cc78b2a", "ruled": [], "unruled": []},
+    "production-planning": {"verdict": "withheld", "agent_image": "sha256:51110ff01e23ca0a0c96394f0d56dbc2e32c86569b6475f3c7a0a7641cedf828", "ruled": [], "unruled": []},
+    "vpp-loss-divergence": {"verdict": "withheld", "agent_image": "sha256:81611f7fdd8d76366cd1f23145306b4fda4661d328d9eaeef81b8663c7b8dd7f", "ruled": [], "unruled": []},
+    "batched-eval-parity": {"verdict": "withheld", "agent_image": "sha256:f00c28880710dbdac7aad68507784627015429a5dcc68ff7c3ba991affad9e98", "ruled": [], "unruled": []},
+    "pretrain-shard-corruption": {"verdict": "withheld", "agent_image": "sha256:ff18338c6eeb85fc2dcc4b4d1f36d1946d8b328953318de7671943319fed8be7", "ruled": ["app/.git"], "unruled": []},
+    "gsea-proteomics": {"verdict": "withheld", "agent_image": "sha256:e400f648619756dc7a25d7e47027e191ac5e3c83d46b0329cd3e4fb0f892e4da", "ruled": [], "unruled": []},
+    "lake-temp-glm": {"verdict": "withheld", "agent_image": "sha256:8f1f182ad639a1d3a4dd445f3a0b254f2b242c4f81b32d7d24cf46f4e1b7d79b", "ruled": [], "unruled": []},
+    "sound-change-cascade": {"verdict": "withheld", "agent_image": "sha256:95bd365954dfecf3cc661853b0576473a85cf8bdf44eb01af64995e7de6cecc0", "ruled": [], "unruled": []},
+    "hof-topology-interpenetration": {"verdict": "withheld", "agent_image": "sha256:a758f32e5d39c06c65819d54622e0212c65f7a00191e32176612377cc3b97c1d", "ruled": [], "unruled": []},
+    "shadow-relay": {"verdict": "withheld", "agent_image": "sha256:584cd120342b153054ca2d87a420fe4ba987f46ed02f8f444354e75119cdb928", "ruled": ["app/.git"], "unruled": []},
+    "rs-archive-clone": {"verdict": "withheld", "agent_image": "sha256:396a2f9f0af2079eac7a61f38cec875b2002663e04c77bfee5b2252d0b8b5c1c", "ruled": [], "unruled": []},
+    "retro-console-soc": {"verdict": "withheld", "agent_image": "sha256:11b017483cf6fa17cc217940e75e121a63f17a5623fc963dc114b89c4a427ad0", "ruled": [], "unruled": []},
+    "roy-polymorph-cn": {"verdict": "withheld", "agent_image": "sha256:ec42a0858ef13b6da622e83e8e8c39610acd28d0045a3e462406a9a65fb93d0e", "ruled": [], "unruled": []}
+   }
+  }
  },
  "caps": {
   "source": "plan D4 (per-attempt cap) and the D1 table",
@@ -491,7 +522,15 @@
   "concurrency": {"smoke": 1, "pilot": 3, "rounds": 4, "fewer": "whenever the allowance guard leaves room for fewer; the ladder's own containers count toward the load gate"},
   "no_other_heavy_work": "the coordinator runs no other heavy work of this session during the tranche",
   "disk_stop_free_gb": 20,
-  "disk_plan": null,
+  "disk_plan": {
+   "keep": "all 32 pinned images for the tranche: 23.86 GB in the store (253 layers, each counted once), on /home; the same images serve every round",
+   "pull_order": "by digest, one at a time, before the smoke: vba-userform-port first, then the schedule's order",
+   "between_rounds": "nothing else: the harness deletes each attempt's containers, and a first-pass job directory is under 25 MB. If the labelled variant is used, its verifier image stays too (10.2 kB over its base, the pinned verifier image)",
+   "staging": "Podman stages each pull in /var/tmp on / (ImageCopyTmpDir); a pull needs its compressed plus unpacked size above the stop on both / and /home",
+   "room": "/home had 68.6 to 76 GB free during the first pass: about 50 GB after the pull, 30 GB above the stop. Four first-pass trials took at most 4 x 2.74 GB of free space, which leaves about 19 GB above the stop with four attempts in flight; an attempt's own writes are measured by the smoke. / is shared with other sessions: 31.0 GB at its lowest during the pass",
+   "stop": "D1's: no start under 20 GB free on /home or /, checked before every start (the oracle and image checks stop at 25 GB)",
+   "recheck": "at the freeze; owner question 6 if /home then has less than about 60 GB free (20 + 23.86 + 11 + 5 margin)"
+  },
   "disk_plan_rule": "From the sizes Task 2b states, in the ledger: the order of pulls (vba-userform-port first, then the schedule's order); what is kept between rounds; and the room left above the 20 GB stop with four attempts' output (D1)."
  },
  "schedule": {
@@ -616,18 +655,14 @@
    "why": "the qualification rule of D1 decides which of the 16 run"},
   {"field": "tasks.load_sensitive", "type": "array", "filled_by": "feat/long-horizon-oracle-2b: the oracle evidence of both passes",
    "why": "D1: a task whose reference passes five of five quiet but failed under load stays, on the load-sensitive list, frozen before spend"},
-  {"field": "tasks.overlay_digests", "type": "object", "filled_by": "feat/long-horizon-oracle-2b: oracle_check.sh writes each task's overlay digest; tasks.json overlay_digest is null on main",
+  {"field": "tasks.overlay_digests", "type": "object", "filled_by": "feat/long-horizon-oracle-2b: oracle_check.sh writes each task's overlay digest. tasks.json holds the first pass's (3f99fe3c...c4f6 for all 16), the digest of D3's draft list; filled when network.agent_phase.allowed_hosts is frozen",
    "why": "D1: the two keys' digest is recorded per task and per attempt"},
   {"field": "tasks.extra_hosts", "type": "object", "filled_by": "feat/long-horizon-oracle-2b: tasks.json extra_hosts, null on main",
    "why": "D3: a task that needs another host gets it by name in tasks.json"},
-  {"field": "tasks.withholding", "type": "object", "filled_by": "feat/long-horizon-oracle-2b: `image_check.py tasks` copies the image records and withholding verdicts into tasks.json",
-   "why": "D1: the withholding result is recorded in tasks.json; on main it is only in image_measure.json"},
   {"field": "network.agent_phase.allowed_hosts", "type": "array", "filled_by": "feat/long-horizon-oracle-2b: frozen after the oracle's second pass has run under it, as D1 says (oracle_check.sh on that branch drafts it)",
    "why": "D3 names the list by kind only; main shows only the recordings' relay, pypi.org and files.pythonhosted.org"},
-  {"field": "host.cpu_set", "type": "string", "filled_by": "feat/long-horizon-oracle-2b: the CPU set its second pass ran on (its oracle_check.sh defaults to 8-31)",
+  {"field": "host.cpu_set", "type": "string", "filled_by": "feat/long-horizon-oracle-2b: the CPU set its second pass ran on. D2 fixes 24 CPUs but names none; the first pass ran on 8-31 (oracle_check.sh's default; every container sampled there), which stays a draft until the pass that qualifies runs on it",
    "why": "D2 fixes 24 CPUs but names none, and qualification runs on the ladder's CPU set"},
-  {"field": "host.disk_plan", "type": "object", "filled_by": "Task 2b: its ledger row stating the disk plan from the measured sizes (D1)",
-   "why": "the ledger holds the measured sizes and margins, not yet the plan: the order of pulls, what is kept between rounds, the room left above the stop"},
   {"field": "usage_limits.vendor_headers_confirmed", "type": "object", "filled_by": "Task 4, the live probe (item 2), and any coordinator row that revises the paid-usage stop from it",
    "why": "D4: the header names were read from the CLI's bundle and recorded against the stand-in only; the live probe confirms them"},
   {"field": "allowance_guard.utilisation_header", "type": "string", "filled_by": "Task 4, the live probe (item 2): the header that reports utilisation on ordinary responses, or \"none\"",
@@ -646,6 +681,12 @@
    "why": "D6 names a fixed seed for the bootstrap but no value"}
  ],
  "filled": [
+  {"field": "tasks.withholding", "type": "object", "filled_by": "feat/long-horizon-oracle-2b: `image_check.py tasks` copies the image records and withholding verdicts into tasks.json",
+   "why": "D1: the withholding result is recorded in tasks.json; on main it is only in image_measure.json",
+   "source": "tasks.json on feat/long-horizon-oracle-2b at aaa7ac74 (image_check.py tasks, from image_measure.json; unchanged at 7b07fa7d) and the coordinator's rulings beside app/.git (plan ledger row 'Task 2b: disk plan, tasks.json filled, first oracle pass')"},
+  {"field": "host.disk_plan", "type": "object", "filled_by": "Task 2b: its ledger row stating the disk plan from the measured sizes (D1)",
+   "why": "the ledger holds the measured sizes and margins, not yet the plan: the order of pulls, what is kept between rounds, the room left above the stop",
+   "source": "plan ledger rows 'Task 2b: disk plan, tasks.json filled, first oracle pass' (aaa7ac74) and 'Task 2b fix round 1' (7b07fa7d, the staging on /)"},
   {"field": "refusal.form_reasons", "type": "object", "filled_by": "feat/lh-passthrough: the reasons of the request-form refusals it adds to row 13",
    "source": "passthrough.py on main at 718617bb (every reason it refuses with; the test reads them from the code)"},
   {"field": "classification.passthrough_log", "type": "object", "filled_by": "feat/lh-passthrough, once on main: its request log's keys and how a row with no slot is joined to an attempt",
