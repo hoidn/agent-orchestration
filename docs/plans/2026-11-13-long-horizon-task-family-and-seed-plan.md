@@ -18,8 +18,9 @@ readout. Its commands are for this machine and are not copyable examples. Spend 
 authorized only as the [ledger](#ledger) records.
 
 **Headline exit test (fails today):** `experiments/long_horizon_tasks/results/family.json`
-exists, names its criterion and task digests, and lists either the screened-in tasks with their
-counts by effort and the effort verdict, or the stop that prevented it.
+exists, names its criterion and task digests, and lists the screened-in tasks with their counts
+by effort and the effort verdict. After a stop no `family.json` is written; the stop readout
+names the stop.
 
 ## Scope and approval
 
@@ -800,8 +801,24 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
   1/15 ≤ K/n ≤ 1/3 is "screened in"; above is "above the band". The pooled label admits a
   task to the family; the per-effort labels are printed beside it, because a pooled count mixes
   three rates. The rule accepts a task of constant true rate 2%, 5%, 10%, 20%, 30%, 50% with
-  probability 0.26, 0.54, 0.79, 0.90, 0.72, 0.15. The label is "screened at 15 attempts", never
-  "in the 10 to 30 percent band".
+  probability 0.26, 0.54, 0.79, 0.90, 0.72, 0.15. The label is "screened at n of 15 attempts",
+  never "in the 10 to 30 percent band". The screen is applied when every effort has at least
+  four scored observations (12 to 15 of the planned 15, `readout.pooled.min_per_effort`), to the
+  pooled K/n with its exact interval; with fewer at any effort, the readout prints the pooled
+  count and interval and "not screened: n of 15 attempts" with the count per effort, and the
+  task is neither in nor out of the family. `family.json` is written only when every task is
+  screened or recorded as dropped for a reason that names a ledger row by its date (coordinator
+  ruling R4, 2026-11-14, revised after review: a screen at exactly 15 made one excluded attempt
+  drop the task).
+  - **The cost of screening below 15** (computed by the readout's reviewer, 2026-11-14). The
+    band admits pooled counts 1 to 5 at 15 attempts and 1 to 4 at 12, 13 and 14. The chance
+    that a task of constant true rate is screened in, at 15 and at 12 attempts: 2%, 0.261 and
+    0.215; 5%, 0.537 and 0.459; 20%, 0.904 and 0.859; 40%, 0.403 and 0.436; 50%, 0.151 and
+    0.194. At 14 attempts a 30% task is screened in 0.577 of the time, against 0.717 at 15. A
+    task screened on fewer attempts has a wider interval, which is printed beside its label.
+    Under the revised rule about 12 to 15 of the 16 tasks can be screened at all, against about
+    4 to 10 under a rule of exactly 15 (exclusions at 2 to 5% of starts, up to seven tail blocks
+    dropped).
 - **Band effort,** for every screened-in task: among the levels with at least one success, the
   one whose k/n is closest to 0.2, ties to the lower level. Every screened-in task has such a
   level. It is labelled "noisy, one cell of five", and flagged when that cell is 3 or more. A
@@ -809,21 +826,27 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
 - **Effort test, fixed before the data.** A (task, round) triple is complete when its three
   slots are all observations. Over complete triples, `s_i(e)` is task i's successes at effort e
   and `d_i` a difference between two levels. The test is the exact one-sided sign-flip
-  permutation test over tasks on the sum of `d_i`.
+  permutation test over tasks on the sum of `d_i`. The pooled successes by effort are printed
+  as counts with no interval, because they pool tasks of different rates (coordinator ruling
+  N1, 2026-11-14).
   - **Falls:** high against low sums below zero with p ≤ 0.05, or an adjacent pair sums below
     zero with p ≤ 0.025. **Rises:** pooled successes satisfy low ≤ medium ≤ high, and high
     against low sums above zero with p ≤ 0.05. **Not resolved:** anything else.
   - **Always reported: the bound on the fall,** the one-sided 95% upper bound on the pooled fall
     from low to high in points (bootstrap over tasks, 10,000 resamples, fixed seed). "Not
     resolved" means only that no fall above that bound was ruled out; it is never read as "does
-    not fall".
+    not fall". It places nothing, so a stop readout prints it too, over the complete triples
+    there are ("over N complete triples; no placement is made"), or says there are none
+    (coordinator ruling R2, 2026-11-14). The resampling method is frozen in `ladder.json`
+    (`readout.fall_bound`; ruling R5).
   - Sensitivity (simulated, 16 tasks with five at zero): a pooled change of 12 points is
     detected in about half of runs, 17 points in 79%, 20 points in 88%; false alarm 5%. With
     ten tasks at the floor a 17-point fall is detected in about a fifth of runs.
 - **Cost:** per effort, mean priced cost and minutes per observation, tokens by kind, and cost
   per success (the cost of every start at that level over its successes, cut starts
   included). An effort level is named dominated only when another level beats it on the same
-  sign-flip test at p ≤ 0.05 and has a lower mean cost; otherwise "not resolved". Beside it,
+  sign-flip test at p ≤ 0.05 (`readout.cost.dominated_p_at_most`; ruling R3) and has a lower
+  mean cost; otherwise "not resolved". Beside it,
   from the owner's meter readings: the share of a weekly allowance the tranche used, in all
   and per priced dollar. It is a report, tied to this account's plan, and enters no rule.
 - **Graded outcome, secondary (roadmap Phase 5b, "Making fitness cheaper to measure").** Where
@@ -837,9 +860,22 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
 - **Contamination scan:** over transcripts, for specific strings frozen after a dry run on the
   oracle jobs and the recordings (the benchmark repository's path, the canary's identifier, the
   reference solution's full path in that repository). The canary's identifier is read from the
-  task packages at run time and is in the criterion only as its SHA-256 (D1). A hit excludes
-  the attempt and is listed. The egress log adds, per attempt, the refused addresses and their count (D3); a
+  task packages at run time and is in the criterion only as its SHA-256 (D1). A hit on an
+  observation excludes it; a hit on a start of any other class (a cut, an infrastructure
+  failure, a stop, a pre-session failure) leaves its class unchanged. Every hit is listed and
+  counts for D7.7's three tasks (coordinator ruling, 2026-11-14, after review M2). The launcher runs the scan at each teardown, beside the token
+  scanner, with the frozen terms, and writes the result into the slot's record; the readout only
+  reads it and lists every contaminated attempt with the term's SHA-256, never the term
+  (coordinator ruling, 2026-11-14). Each start's record carries the class the launcher
+  decided, with its D5 row as evidence: the row's class, or a stop the launcher found (a cause
+  from the closed list in `slot_record.py`) on a row of another class; a stop is never scored
+  and is listed with its cause (after review M1). The egress log adds, per attempt, the refused addresses and their count (D3); a
   refused connection fetched nothing and excludes nothing. A readout that ends in a stop prints no placement.
+- **The final readout is bound to the frozen criterion.** Without `--rehearsal` the readout
+  runs only when the manifest is frozen, its hash is the export's configuration label, the
+  files `ladder.json`, `tasks.json`, `readout.py` and `slot_record.py` match the manifest's
+  records and no field is pending; otherwise it is refused with the reason, or run as a stamped
+  rehearsal (after review M3).
 
 ### D7. Order and stop rules
 
@@ -1291,7 +1327,9 @@ Tests, against a stand-in harness that replays the recorded fixtures on a closed
       carries model, effort, version, cap, the token-mode switch, the deny list, the
       output-token variable, the relay's base URL and zero retries; no credential is in any
       file, environment or command line; the token scanner and the runtime check run at every
-      teardown, and a match stops the tranche. The schedule is deterministic and in blocks,
+      teardown, and a match stops the tranche; beside them the contamination scan of D6 runs with
+      the frozen terms and writes the SHA-256 of each term it finds into the slot's record
+      (`slot_record.py`, the one layout of the export the readout reads). The schedule is deterministic and in blocks,
       begins with the smoke slot and then the pilot's block, and waits for the smoke read, the
       pilot's ledger row and the round-one read; cut at any start, it leaves at most one block
       partial and no task more than one block behind another.
@@ -1305,14 +1343,18 @@ then the sampled broad check.
 
 ### Task 6: the readout (impl_code; 9 h)
 
-**Files:** create `readout.py`. Tests: intervals match the report's table; cell and pooled
+**Files:** create `readout.py`, and `slot_record.py`: the export's layout and its loader, the one
+definition the launcher writes and the readout reads. Tests: intervals match the report's table; cell and pooled
 labels; the band effort is defined for every screened-in pattern; the effort verdict and the
 bound on the fall on constructed tables; a ceiling stop leaves partial rounds out of complete
 triples; exclusions are listed and never scored zero; cuts are counted per effort and the
 pilot's attempts marked; observations under two labels are never pooled, an earlier label's
 are printed apart and enter no rule, and a short cell is printed with its count; the graded outcome is printed and enters no rule; the allowance
 figures are printed and enter no rule; a stop readout prints no placement; `family.json` names
-the criterion, the configuration and the digests.
+the criterion, the configuration and the digests. After review: a launcher stop on any row is
+never scored; contamination on a start of any class; a task screened with at least four scored
+observations at each effort and "not screened" below; the final readout refused unless the
+manifest is frozen and matches.
 
 ### Task 7: zero-spend rehearsal (impl_code; 8 h)
 
@@ -1593,3 +1635,7 @@ without it.
 | 2026-11-14 | Seeds of step 8: the number of milestones is bounded (finding N3 closed; no spend; branch `feat/lh-seed-bound`) | `milestones.orc` and `roles.orc` build at most the first eight milestones of a plan: the map's source is `(list/take plan.milestones 8)` and its `:max` is the literal 8. A plan of nine or more is cut and the run goes on; stand-in plans of 9, 20 and 50 milestones make exactly the 20 provider calls of a plan of 8, and a plan of 3 is unchanged (10). Every loop and map of the four seeds now has a literal bound, and the worst case of the two milestone seeds is 6 + 8 × 8 = 70 provider calls (before: 6 + 8M with M the planner's own count; 50 milestones made 104 calls on a clean run). The planner prompt keeps "at most eight". Of the two conditions the rows above set for the freeze, `list/take` is met. `list/any` is on `main` too, but the seeds do not use it yet: the unread milestone verdicts stay open. |
 | 2026-11-14 | Seeds of step 8: the milestone verdicts are read and a cut plan is named (no spend; branch `feat/lh-seed-bound`) | `milestones.orc` and `roles.orc`: each milestone returns whether it was met and its last notes; when one was refused in both attempts the run ends `BLOCKED` ("milestone refused twice") with how every milestone ended, after the map (a serial map builds the plan's other milestones first) and before the round's check and acceptance. The gate is `(list/all (list/map ((b built)) b.met))`. A plan of more than eight milestones adds a row with the count planned and the count built to the outcome's `cut` field, in `DONE` and in `BLOCKED`; a plan of eight or fewer adds none. Both seeds end with the new type `Ending` (`Outcome` with those two fields). Sizes at no more than 120 columns: `milestones` 54 lines and `roles` 56, over the figure of step 8 and left over as ruled; `staged` 34 and `designed` 62 are unchanged. With this, both conditions the rows above set for the freeze are met (`list/any` was not needed: `list/all` reads the results). Found on the way: a `match` in the body of a `list/map` used as an `if` condition inside a loop crashes the compiler (`KeyError` in `wcc/elaborate.py:_infer_expr_type`), which is D8 of the defect backlog; the seeds avoid it by returning a record with a `met` field. |
 | 2026-11-14 | Seeds of step 8 frozen after their freeze review (no spend; branch `feat/lh-seed-bound`) | **Freeze record:** `experiments/long_horizon_seed/seeds.json`, SHA-256 `64f2bdb375d3c8f80871f4130f9a50dcb16d7e036a76b4bba1cee6803d228d16`. It holds each seed's source hash, program digest and target (2.40) and the hashes of `common.orc`, `dev_check.py`, `providers.json` and `commands.json`; a program digest does not cover the bytes of `dev_check.py`, so the seeds are frozen by the record, not by digests alone. `python -I experiments/long_horizon_seed/freeze.py check` and a test of the seed test module recompute every entry. **Program digests:** `staged` `sha256:289903d6d3e9107a073eab6f33fd3c3a031bc521d1830c02582111545283e8ca`; `designed` `sha256:4298f71042b79ba54fb81374994de952eecf225bc43a35da192493fffe7c017e`; `milestones` `sha256:fa41381174ee3051cb2ccc8226f76e919ce84b00199ab60e06163d3164763c9c`; `roles` `sha256:7d312c9dc73ccaec00581d85a49418afa0c5fdbfe1627d473a73dd1222817322`. **Sizes** (physical lines of at most 120 columns; stripped code characters; prompt characters): `staged` 34, 2,125, 3,869; `designed` 62, 3,975, 5,601; `milestones` 49, 3,080, 4,288; `roles` 50, 3,092, 4,288. **What changed before the freeze:** one `Outcome` for all four seeds (the row above's `Ending`, `cut` and per-milestone rows are withdrawn: the journal holds both, and the kit's README says where); a milestone gives `true` or `false` and the round tests `(list/all built)`; the round's check runs before that test, so a run that ends on a refused milestone still records the visible check; a milestone's check is labelled `check`, so every last label is used once in a seed. **Left for the search:** a variant that ends at the first refused milestone. The frozen seeds build the plan's other milestones first, which spends at most 28 provider calls after a first refusal with a plan of eight; stopping at once would spend 7 in all. The milestone cap is fixed by the freeze (two literals that must change together; no operator edits them). |
+| 2026-11-14 | Task 6, the readout, built on `feat/lh-readout` (impl_code; no spend, no container, no request) | `experiments/long_horizon_tasks/readout.py` reads the launcher's export (a record shape it states and checks, since the launcher is built in parallel: the current and earlier labels, how the tranche ended, the schedule's slots and every start with its D5 row, reward, exclusion, cost, minutes, tokens, sub-tests and refused connections) and computes every figure of D6 once, from the starts joined to their slots by slot id, with every rule read from `ladder.json`. A final readout is refused while a `readout.*` field is pending and unless the label is the manifest's and the manifest holds the `ladder.json` read; `--rehearsal` takes stand-ins and stamps every output. `family.json` is written only after a tranche that ended and did not stop, and is a pure function of the records. Tests (`tests/experiments/test_long_horizon_readout.py`, every record constructed): the report's interval table; labels and the band effort over the 55 screened-in patterns; the verdict and the bound on constructed tables; partial rounds out of complete triples; every excluded class listed and never scored zero; cuts per effort and the pilot marked; labels never pooled; the graded outcome and the allowance entering no rule; a stop readout with no placement; `family.json`'s content and bytes. Open for the coordinator, each marked in the code (R1 to R5): whether `family.json` also records a stop (the headline says so; it is not written after one); whether a stop readout withholds the bound on the fall (it does); the dominance threshold, in `ladder.json` as prose only (the effort test's 0.05 is used); the pooled ratio applied below 15 attempts; the bootstrap's generator and quantile, which D6 does not name. Spend: 0. |
+| 2026-11-14 | Task 6 revised on `feat/lh-readout` after the coordinator's rulings on its open points (revise_code; no spend, no container, no request) | **R1:** after a stop no `family.json` is written and the stop readout names the stop; the headline sentence says so. **R2:** a stop readout prints the bound on the fall over the complete triples there are ("over N complete triples; no placement is made"), or says there are none; D6 says so. **R3:** `readout.cost.dominated_p_at_most` (0.05) in `ladder.json`, a filled field of the new type `number` (which `manifest.py` now accepts), with the prose it encodes and the ruling; the readout reads it and no other field. **R4:** the pooled screen is applied only at 15 attempts (`readout.pooled.at_n`); with fewer a task prints its pooled count and interval and "not screened: n of 15 attempts"; `family.json` is written only when every task is screened at 15 or dropped for a stated reason, which the readout takes as `--dropped` (a list of task and reason, the reason naming the ledger row); D6 says so. **R5:** the bootstrap is frozen in `readout.fall_bound` (`random.Random(seed)`, tasks in name order, 10,000 resamples, the ceil(0.95 R)-th smallest fall; the seed stays pending), and a test pins the bound for one table and one seed. **Contamination:** the launcher runs the scan at each teardown beside the token scanner and writes the SHA-256 of each term found into the slot's record; the readout lists every contaminated attempt by that SHA-256 and never the term (D6, Task 5). **One layout:** `experiments/long_horizon_tasks/slot_record.py` holds the export's fields, types and the loader that fails fast; the readout loads it by path, and the launcher is to do the same; its tests are `tests/experiments/test_long_horizon_slot_record.py`. The manifest was rewritten (not frozen). Spend: 0. |
+| 2026-11-14 | Task 6 fix round 1 on `feat/lh-readout`, after the independent review (4 majors, 13 minors), with the coordinator's rulings; `main` (`c24fb97d`) merged (revise_code; no spend, no container, no request) | **M1:** each start's record carries the class the launcher decided (`class`, `stop_cause`); the loader accepts the row's class, or `stop` with a cause from the closed list `slot_record.LAUNCHER_STOPS` on a row of another class, and refuses anything else; a stop is never scored and is listed with its cause. **M2:** `contamination` on a start of any class; it excludes an observation, and on other classes is listed and counted for D7.7 without changing the class; `excluded: "contaminated"` is gone from the layout. **M3:** the final readout runs only on a frozen manifest whose hash is the label, with `ladder.json`, `tasks.json`, `readout.py` and `slot_record.py` equal to its records and no pending field; otherwise refused with the reason, or a stamped rehearsal. **M4 (R4 revised):** a task is screened when every effort has at least four scored observations (`readout.pooled.min_per_effort: 4`, replacing `at_n: 15` as the condition; 15 stays the planned count), printed "screened at n of 15 attempts"; below it "not screened" with counts per effort; D6 states the cost (a wider interval at 12, printed). Bootstrap: the reviewer's 16-task table at seed 20261114 pinned at 15.151515151515152. Minors m1 to m13 applied (finite figures; repeated keys, NaN and Infinity refused on reading; D5's forbidden sequences and contradicting exclusions refused; pilot marks and `end.by: "starts"` cross-checked; one USD total; decodable labels; `--family` prints the stop readout, then refuses; the Python version printed and in `family.json`; an in-progress readout labelled interim; a drop reason names a dated ledger row; the launcher's four disagreements mapped in `slot_record.py`'s docstring). The reviewer's six scripts rerun: each constructed failure now behaves as ruled. Manifest rewritten (not frozen). |
+| 2026-11-14 | Task 6 fix round 2 on `feat/lh-readout`, after the re-review at `32d6dab9` (M1 to M3 closed, 12 of 13 minors closed; one new major and three minors), with the coordinator's rulings; `main` (`5d3dacb6`) merged (revise_code; no spend, no container, no request) | **N1:** no interval beside a count pooled over tasks: the pooled successes by effort print their counts and "pooled over tasks with different rates: no interval is given; see the per-task intervals"; only a single task's counts carry an interval (test over the whole readout); D6's effort test says so. **N2:** `slot_record.LAUNCHER_STOPS` names where each cause can occur: the init-event causes, paid extra usage and a subagent file on a session's start only (refused on a pre-session failure), a `token_scan.py` match on any start, a failed smoke check on the smoke's slot only (`smoke_cell`: `schedule.smoke`, with D7.1's fallback, round 1). **N3:** a slot is lost after its third pre-session failure counted in all (D5), not in a row. **N4:** D7.7 names no label, and D7.6 confines only placement and the effort test to the current label, so the contaminated attempts are listed and their tasks counted over every label, each attempt with its label; the printed line says what is counted. D6 states the cost of screening below 15 with the reviewer's figures. The report's "what the launcher must write" points to `slot_record.py`'s docstring. Manifest rewritten (not frozen). |
