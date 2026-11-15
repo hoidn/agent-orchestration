@@ -242,3 +242,88 @@ def test_generic_helper_as_match_subject_runs_like_the_let_bound_call(
     )
 
     assert (direct, direct[1].get("outcome")) == (bound, "OK")
+
+
+# A field read on the subject of a `match` inside its arm (frontend specification §11: a match refines its
+# exact selector).
+from tests.workflow_lisp_cli_run_helpers import A_3, U, run_workflow  # noqa: E402
+
+
+@pytest.mark.parametrize(("run", "inputs", "wanted"), [
+    ("((u U)) -> Int (match u ((A a) u.n) ((B b) 0))", (f"u={A_3}",), (3, [])),
+    ('((u U)) -> String (match u ((A a) "x") ((B b) u.why))', ('u={"variant":"B","why":"no"}',), ("no", [])),
+    ("((u U)) -> Int (+ 1 (match u ((A a) u.n) ((B b) 0)))", (f"u={A_3}",), (4, [])),
+    ("((u U)) -> Int (match u ((A a) (match u ((A a2) u.n) ((B b2) 1))) ((B b) 0))", (f"u={A_3}",), (3, [])),
+    ('((u U)) -> Int (match u ((A a) (command-result c :argv ("python" "c.py" "argv" u.n) :returns Int)) ((B b) 0))',
+     (f"u={A_3}",), (3, ["argv"])),
+    ('() -> Int (let* ((u (command-result c :argv ("python" "c.py" "make" "{\\"variant\\":\\"A\\",\\"n\\":4}") '
+     ":returns U))) (match u ((A a) u.n) ((B b) 0)))", (), (4, ["make"])),
+], ids=["arm-value", "other-arm", "operand", "nested-match", "command-argv", "effect-result-subject"])
+def test_field_read_on_the_subject_inside_its_arm(tmp_path, run, inputs, wanted):
+    assert run_workflow(tmp_path, run, *inputs) == wanted
+
+
+def test_a_subject_rebound_inside_its_arm_is_read_as_the_new_binding(tmp_path):
+    run = ("((u U)) -> Int (match u ((A a) (let* ((u (variant U A :n 9))) (if (= u.variant A) u.n 0))) "
+           "((B b) 0))")
+
+    assert run_workflow(tmp_path, run, f"u={A_3}") == (9, [])
+
+
+SHAPE = "(defunion Shape (CIRCLE (r Int)) (SQUARE (side Int)))"
+MKSHAPE = "(defproc mkshape ((r Int)) -> Shape (variant Shape CIRCLE :r r))"
+E1_OR_E2 = ('(if (> n 0) (command-result c :argv ("python" "c.py" "e1" "1") :returns Int) '
+            '(command-result c :argv ("python" "c.py" "e2" "2") :returns Int))')
+SHAPE_ARMS = "((CIRCLE c) c.r) ((SQUARE s) 0)"
+
+
+@pytest.mark.parametrize(("subject", "n", "wanted"), [
+    (f"(mkshape {E1_OR_E2})", 1, (1, ["e1"])),
+    (f"(mkshape {E1_OR_E2})", 0, (2, ["e2"])),
+    (f"(let* ((r {E1_OR_E2})) (variant Shape CIRCLE :r r))", 0, (2, ["e2"])),
+], ids=["call-then", "call-else", "let-subject"])
+def test_subject_whose_binding_holds_a_conditional_effect_runs_it_once(tmp_path, subject, n, wanted):
+    """A pure procedure call with an effectful `if` argument, or a `let*` binding such an `if`, as the subject:
+    it runs as the subject bound with `let*` first does."""
+    run = f"((n Int)) -> Int (match {subject} {SHAPE_ARMS})"
+
+    assert run_workflow(tmp_path, run, f"n={n}", definitions=(SHAPE, MKSHAPE)) == wanted
+
+
+def test_subject_bound_first_with_a_conditional_effect_argument_runs_it_once(tmp_path):
+    run = f"((n Int)) -> Int (let* ((shape (mkshape {E1_OR_E2}))) (match shape {SHAPE_ARMS}))"
+
+    assert run_workflow(tmp_path, run, "n=0", definitions=(SHAPE, MKSHAPE)) == (2, ["e2"])
+
+
+E1 = '(command-result c :argv ("python" "c.py" "e1" "1") :returns Int)'
+E2 = '(command-result c :argv ("python" "c.py" "e2" "2") :returns Int)'
+SUBJECT_ARGUMENTS = {
+    "cond": f"(cond ((> n 5) {E1}) ((> n 0) {E2}) (else 0))",
+    "plus-match": f"(+ {E1} (match (variant U A :n n) ((A a) a.n) ((B b) 0)))",
+    "match-arm": f"(match (variant U A :n n) ((A a) {E1}) ((B b) 0))",
+    "loop": f"(loop/recur ((s 0)) :max 2 :on-exhausted s (if (> s 0) (done s) (continue {E1})))",
+    "let-if": f"(let* ((q (if (> n 0) {E1} 2))) q)",
+}
+
+
+@pytest.mark.parametrize("spelling", ["call", "let", "nested-let", "cond-subject"])
+@pytest.mark.parametrize("argument", SUBJECT_ARGUMENTS)
+def test_subject_with_an_effectful_argument_runs_like_its_let_bound_spelling(tmp_path, argument, spelling):
+    x = SUBJECT_ARGUMENTS[argument]
+    subject = {
+        "call": f"(mkshape {x})",
+        "let": f"(let* ((r {x})) (variant Shape CIRCLE :r r))",
+        "nested-let": f"(let* ((r (let* ((q {x})) q))) (variant Shape CIRCLE :r r))",
+        "cond-subject": f"(cond ((> n 5) (variant Shape SQUARE :side 1)) (else (mkshape {x})))",
+    }[spelling]
+    definitions = (U, SHAPE, MKSHAPE)
+    (tmp_path / "direct").mkdir()
+    (tmp_path / "bound").mkdir()
+
+    direct = run_workflow(tmp_path / "direct", f"((n Int)) -> Int (match {subject} {SHAPE_ARMS})", "n=1",
+                          definitions=definitions)
+    bound = run_workflow(tmp_path / "bound", f"((n Int)) -> Int (let* ((shape {subject})) (match shape {SHAPE_ARMS}))",
+                         "n=1", definitions=definitions)
+
+    assert direct == bound

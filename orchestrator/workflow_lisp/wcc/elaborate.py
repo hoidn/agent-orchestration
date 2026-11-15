@@ -13,12 +13,14 @@ from ..conditionals import (
     prepare_closed_condition_expr,
 )
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
-from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
+from ..effects import EMPTY_EFFECT_SUMMARY, CallsWorkflowEffect, EffectSummary
 from ..expression_traversal import (
     first_effect_place_code,
     holds_effect_in_a_value,
     is_pure_projection_expr,
+    iter_child_exprs,
     map_command_operands,
+    map_expr,
     walk_expr,
 )
 from ..expressions import (
@@ -203,6 +205,8 @@ _PRESERVE_BOUND_PROC_CAPTURES = (
 
 _COMMAND_SCOPE_CONTEXT = object()
 _CLOSED_PROCEDURE_SELECTION = object()
+# The workflows and procedures whose calls run an effect, by canonical name (`_effectful_callees`).
+_EFFECTFUL_CALLEES = object()
 
 
 def _closed_reference_actual(argument, bindings):
@@ -497,6 +501,8 @@ def elaborate_typed_workflow_body(
     initial_compile_time_bindings[
         _PRESERVE_BOUND_PROC_CAPTURES
     ] = True
+    initial_compile_time_bindings[_EFFECTFUL_CALLEES] = _effectful_callees(
+        resolved_procedures_by_name, typed_workflows_by_name)
     body = _elaborate_expr_to_body(
         typed_body.expr,
         scope=scope,
@@ -518,6 +524,16 @@ def elaborate_typed_workflow_body(
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types or {},
     )
+
+
+def _effectful_callees(procedures, workflows) -> frozenset[str]:
+    """The procedures (`defproc` and lifted `let-proc` locals) and workflows of the program whose effects,
+    transitively, are more than workflow calls."""
+
+    summaries = [(name, row.transitive_effect_summary) for name, row in (procedures or {}).items()]
+    summaries += [(name, row.effect_summary) for name, row in (workflows or {}).items()]
+    return frozenset(name for name, summary in summaries
+                     if any(not isinstance(atom, CallsWorkflowEffect) for atom in summary.transitive_effects))
 
 
 def close_wcc_provider_supervision_members(
@@ -1692,11 +1708,37 @@ def _elaborate_continue_state(expr: ContinueExpr, **inputs):
     so no program that builds is refused."""
 
     try:
-        return _elaborate_expr_to_value(expr.state_expr, **inputs)
+        prefix, value = _elaborate_expr_to_value(expr.state_expr, **inputs)
     except TypeError as exc:
         if not getattr(exc, "non_linear_value_body", False):
             raise
         raise _continue_value_needs_binding(expr) from exc
+    if _branch_is_a_select_that_runs_effect(value, inputs["compile_time_bindings"].get(_EFFECTFUL_CALLEES, frozenset())):
+        # An `if` in a branch of the top `if` with an effect in its own branches: the closed program
+        # cannot place that effect, which was a `compiler_defect`.
+        raise _continue_value_needs_binding(expr)
+    return prefix, value
+
+
+def _branch_is_a_select_that_runs_effect(value, effectful: frozenset[str]) -> bool:
+    return isinstance(value, WccSelect) and any(
+        _select_runs_effect(arm.value, effectful) for arm in (value.then_arm, value.else_arm))
+
+
+def _select_runs_effect(value, effectful: frozenset[str]) -> bool:
+    """Whether `value` is a select one of whose arms runs an effect: a command, provider or request, or a call
+    of a workflow or procedure in `effectful`. A call of a pure workflow there runs, as it did before."""
+
+    return isinstance(value, WccSelect) and any(
+        any(_runs_effect(let.bound_value, effectful) for let in arm.prefix) or _select_runs_effect(arm.value, effectful)
+        for arm in (value.then_arm, value.else_arm))
+
+
+def _runs_effect(bound, effectful: frozenset[str]) -> bool:
+    if isinstance(bound, WccPerform):
+        return bound.perform_kind != "workflow_call" or bound.target_name in effectful
+    # A `let-proc` local is called by its source name; its lifted procedure is the specialized callee.
+    return isinstance(bound, WccCall) and not effectful.isdisjoint((bound.callee_name, bound.specialized_callee_name))
 
 
 def _bound_first(consumer, attr: str, *, scope: WccIdentityFactory, value_env, compile_time_bindings, role: str) -> LetStarExpr:
@@ -2267,15 +2309,34 @@ def _command_bound_bindings(bindings, *, expr, name, type_ref, scope, metadata,
 
 def binding_type_for_elaboration(
     binding_expr, *, type_env, value_env, workflow_return_types,
-    procedure_return_types, capture_source=None,
+    procedure_return_types, capture_source=None, name: str | None = None,
 ):
-    """Resolve the reached RHS under its incoming lexical environment."""
+    """Resolve the reached RHS under its incoming lexical environment.
+
+    Raises `loop_recur_contract_invalid` for a value that only leaves the loop (frontend specification 13.1).
+    """
     if capture_source is not None:
         return capture_source[1]
-    return _infer_expr_type(
+    binding_type = _infer_expr_type(
         binding_expr, type_env=type_env, value_env=value_env,
         workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types,
     )
+    if isinstance(binding_type, LoopControlTypeRef):
+        raise _loop_exit_as_binding_value(binding_expr, name)
+    return binding_type
+
+
+def _loop_exit_as_binding_value(expr, name: str | None) -> LispFrontendCompileError:
+    """The refusal of a `done` or `continue` (or a form every branch of which is one) as a `let*` binding's value."""
+
+    form = {DoneExpr: "`done`", ContinueExpr: "`continue`"}.get(
+        type(expr), "a form every branch of which ends in `done` or `continue`")
+    binding = f"`let*` binding `{name}`" if name else "a `let*` binding"
+    return LispFrontendCompileError((LispFrontendDiagnostic(
+        code="loop_recur_contract_invalid",
+        message=(f"the value of {binding} is {form}, which leaves the loop and has no value; write the "
+                 "`done` or `continue` in tail position: as the `let*` body, or in a branch of it"),
+        span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack),))
 
 
 def _parallel_command_bindings(expr, metadata, scope, bindings, context):
@@ -2484,6 +2545,7 @@ def _elaborate_let_star(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
             capture_source=capture_sources[-1],
+            name=name,
         )
     if changed:
         expr = replace(
@@ -2563,7 +2625,7 @@ def _elaborate_let_star(
         binding_type = binding_type_for_elaboration(
             binding_expr, type_env=type_env, value_env=local_env,
             workflow_return_types=workflow_return_types, procedure_return_types=procedure_return_types,
-            capture_source=capture_source,
+            capture_source=capture_source, name=binding_name,
         )
         next_env = dict(local_env)
         next_env[binding_name] = binding_type
@@ -3233,6 +3295,20 @@ def _bind_effectful_loop_operands(
     )
 
 
+def _elaborate_loop_operand_to_value(operand, *, scope: WccIdentityFactory, **inputs):
+    """A loop's `:state` or `:max` as (prefix, value). A pure value with a `match` in it that does not elaborate
+    as a value (a `match` the value route does not take, or one that lowers to a join) is elaborated as an
+    operand is, which makes it a block value; every other value takes the value route, as it did before. An
+    effectful `match` was bound with `let*` before (`_bind_effectful_loop_operands`)."""
+
+    if any(isinstance(node, MatchExpr) for node in walk_expr(operand)) and _fails_as_a_value(
+        operand, scope=scope, **inputs, answers=("non_linear_value_body", "unsupported_match")
+    ):
+        prefix, (value,) = _elaborate_operands_to_values(((operand, scope),), **inputs)
+        return prefix, value
+    return _elaborate_expr_to_value(operand, scope=scope, **inputs)
+
+
 def _elaborate_loop_recur_to_body(
     expr: LoopRecurExpr,
     *,
@@ -3264,7 +3340,7 @@ def _elaborate_loop_recur_to_body(
     loop_name = f"__wcc_loop_{expr.binding_name}_{loop_scope.scope_id.rsplit(':', 1)[-1]}"
     state_scope = loop_scope.child_scope("loop-state", authored_binding_name=expr.binding_name)
     budget_scope = loop_scope.child_scope("loop-budget", authored_binding_name=expr.binding_name)
-    state_prefix, initial_state = _elaborate_expr_to_value(
+    state_prefix, initial_state = _elaborate_loop_operand_to_value(
         expr.initial_state_expr,
         scope=state_scope,
         type_env=type_env,
@@ -3276,7 +3352,7 @@ def _elaborate_loop_recur_to_body(
         compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope,
     )
-    budget_prefix, budget = _elaborate_expr_to_value(
+    budget_prefix, budget = _elaborate_loop_operand_to_value(
         expr.max_iterations_expr,
         scope=budget_scope,
         type_env=type_env,
@@ -4133,7 +4209,9 @@ def _elaborate_expr_to_value(
             compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope,
         )
-    raise TypeError(f"unsupported WCC elaboration node: {type(expr).__name__}")
+    error = TypeError(f"unsupported WCC elaboration node: {type(expr).__name__}")
+    error.unsupported_match = isinstance(expr, MatchExpr)
+    raise error
 
 
 def _elaborate_list_to_value(
@@ -4669,7 +4747,7 @@ def _elaborate_match_to_body(
         procedure_return_types=procedure_return_types, effect_summary=effect_summary,
         procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
         active_phase_scope=active_phase_scope)
-    if holds_effect_in_a_value(expr.subject):
+    if holds_effect_in_a_value(expr.subject) or _subject_needs_binding(expr.subject, scope=subject_scope, **inputs):
         bound_scope = scope.child_scope("match-subject-bound")
         return _elaborate_let_star(_bound_first(expr, "subject", scope=bound_scope, value_env=value_env,
             compile_time_bindings=compile_time_bindings, role="subject"), scope=bound_scope, **inputs)
@@ -4698,6 +4776,29 @@ def _elaborate_match_to_body(
         active_phase_scope=active_phase_scope,
     )
     return _wrap_prefix_lets(subject_prefix, case_body)
+
+
+def _subject_needs_binding(subject, **inputs) -> bool:
+    """Whether an effectful subject, such as a `let*` (written, or left by an inlined procedure call) or an `if`
+    choosing one, lowers to a join, which a subject value cannot hold: it lowers as its `let*`-bound spelling."""
+
+    return _contains_effect(subject) and _fails_as_a_value(subject, **inputs, answers=("non_linear_value_body",))
+
+
+def _fails_as_a_value(expr, *, compile_time_bindings, answers: tuple[str, ...], **inputs) -> bool:
+    """Whether elaborating `expr` as a value raises a `TypeError` marked with one of `answers`.
+
+    Elaborated without the command scope context, whose demands only the real elaboration may record; that is
+    side-effect free and gives the same answer in both passes of the command scope analysis. Every other
+    outcome answers no and leaves the value to the route it took before, so a program that built keeps its
+    program and one that failed otherwise fails as before."""
+
+    probe_bindings = {key: value for key, value in compile_time_bindings.items() if key is not _COMMAND_SCOPE_CONTEXT}
+    try:
+        _elaborate_expr_to_value(expr, compile_time_bindings=probe_bindings, **inputs)
+    except TypeError as exc:  # the probe's answer; the real elaboration raises any other error itself
+        return any(getattr(exc, mark, False) for mark in answers)
+    return False
 
 
 def _elaborate_match_case_with_subject(
@@ -4952,6 +5053,53 @@ def _branch_proof_narrowing(
     return tuple(triples), narrowed
 
 
+def _is_variant_read(node, name: str) -> bool:
+    """Whether `node` reads a field of `name` that is neither its tag nor a field shared by every variant."""
+    return (isinstance(node, FieldAccessExpr) and node.base.name == name and node.fields[0] != "variant"
+            and not (node.shared_field_types and node.shared_field_types[0] is not None))
+
+
+def _unnarrowed_variant_reads(expr, name: str):
+    """The variant field reads of `name` in `expr` that nothing below the arm narrows: not in a branch of an
+    `if` whose test proves the variant of `name`, nor in a nested `match` on `name`. Those already type and
+    lower on their own, so their programs stay as they were."""
+    if _is_variant_read(expr, name):
+        yield expr
+        return
+    if isinstance(expr, MatchExpr) and isinstance(expr.subject, NameExpr) and expr.subject.name == name:
+        return
+    children = iter_child_exprs(expr)
+    if isinstance(expr, IfExpr):
+        children = (expr.condition_expr, *(branch for branch, proof in (
+            (expr.then_expr, expr.true_proof_context), (expr.else_expr, expr.false_proof_context))
+            if not any(getattr(identity, "name", None) == name for identity in proof or ())))
+    for child in children:
+        yield from _unnarrowed_variant_reads(child, name)
+
+
+def _arm_body(match_expr: MatchExpr, arm):
+    """The arm's body, with each variant field read of a name subject made a read of the arm's binder: a
+    `match` refines its exact selector (frontend specification §11). Only reads that would not type
+    otherwise move (`_unnarrowed_variant_reads`), and none where a binding inside the arm hides the binder's
+    name, so a program that built before keeps its program."""
+    subject, binder = match_expr.subject, arm.binding_name
+    if not isinstance(subject, NameExpr) or subject.name == binder:
+        return arm.body
+    bases = {id(node.base) for node in _unnarrowed_variant_reads(arm.body, subject.name)}
+    moved: list[NameExpr] = []
+
+    def on_binder(node: NameExpr) -> NameExpr:
+        if id(node) not in bases:
+            return node
+        moved.append(replace(node, name=binder))
+        return moved[-1]
+
+    body = map_expr(arm.body, on_binder)
+    free: set[int] = set()
+    map_expr(body, lambda node: free.add(id(node)) or node)
+    return body if all(id(node) in free for node in moved) else arm.body
+
+
 def _elaborate_case_arm(
     match_expr: MatchExpr,
     arm,
@@ -4984,6 +5132,7 @@ def _elaborate_case_arm(
     )
     arm_env = dict(value_env)
     arm_env[arm.binding_name] = binding_type_ref
+    arm_body = _arm_body(match_expr, arm)
     command_scope = None
     command_context = compile_time_bindings.get(_COMMAND_SCOPE_CONTEXT)
     if command_context is not None:
@@ -4992,7 +5141,7 @@ def _elaborate_case_arm(
             source_span=arm.span, form_path=arm.form_path,
             binding_identity=arm.binding_identity), name=arm.binding_name)
         command_scope, child_context = command_context.arm(
-            arm.body, result_type=_infer_expr_type(match_expr, type_env=type_env,
+            arm_body, result_type=_infer_expr_type(match_expr, type_env=type_env,
                 value_env=value_env, workflow_return_types=workflow_return_types,
                 procedure_return_types=procedure_return_types),
             name=arm.binding_name, type_ref=binding_type_ref, operand=operand, value_env=arm_env)
@@ -5005,7 +5154,7 @@ def _elaborate_case_arm(
         binding_identity=arm.binding_identity,
         command_scope=command_scope,
         body=_elaborate_expr_to_body(
-            arm.body,
+            arm_body,
             scope=scope,
             type_env=type_env,
             value_env=arm_env,
@@ -6948,6 +7097,7 @@ def _infer_expr_type(
                 workflow_return_types=workflow_return_types,
                 procedure_return_types=procedure_return_types,
                 capture_source=expr.binding_capture_sources[index] if index < len(expr.binding_capture_sources) else None,
+                name=binding_name,
             )
         return _infer_expr_type(
             expr.body,
@@ -7011,7 +7161,7 @@ def _infer_expr_type(
                 expansion_stack=arm.expansion_stack,
             )
             arm_type = _infer_expr_type(
-                arm.body,
+                _arm_body(expr, arm),
                 type_env=type_env,
                 value_env=arm_env,
                 workflow_return_types=workflow_return_types,
