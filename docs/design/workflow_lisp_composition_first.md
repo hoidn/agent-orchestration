@@ -65,16 +65,16 @@ identifiers, explanation surfaces, or executor extraction.
 
 ## 3. Interface
 
-The five-argument interface below is the legacy source-graph API selected by
-entries at target 2.35. An entry at 2.36–2.39 selects the four-argument API
-in [`w3/std/improve.orc`](../../orchestrator/workflow_lisp/stdlib_modules/w3/std/improve.orc):
+The packaged API is the four-argument form in
+[`std/improve.orc`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc),
+at target 2.40:
 `improve(initial S, review ProcRef[(S) -> Decision[F B]],
 revise ProcRef[(S F) -> S], limit Int) -> Improvement[S F B]`, with
-`:forall (S F B)` and `S is-record`. Both packaged helper variants use source header 2.35;
-every source importer sees the entry-selected API. Old five-argument source
-callers must migrate on retargeting; complete snapshots retain producer
-authority. The v2.36 entry of [versioning](../../specs/versioning.md)
-owns selection and compatibility. W3 is implemented at 2.36; its
+`:forall (S F B)` and `S is-record`. The five-argument interface below, with
+explicit `inputs`, is no longer packaged: such a call refuses with
+`procedure_arity_mismatch`, whose message names the migration (remove `inputs`
+and capture it in the hooks). Complete snapshots retain producer authority;
+the v2.36 entry of [versioning](../../specs/versioning.md) owns compatibility. W3 is implemented at 2.36; its
 [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns bounded qualification evidence. Outcome/evidence pairing and exhaustion
 policy are the same for both APIs.
 
