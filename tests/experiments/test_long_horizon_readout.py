@@ -89,7 +89,8 @@ def test_at_15_attempts_the_pooled_label_reads_k_over_n_against_1_15_and_1_3_inc
     assert readout.pooled_label(_counted(ks), RULES["pooled"]) == label
 
 
-@pytest.mark.parametrize("ks, ns, label", [((1, 0, 0), (5, 5, 4), "screened in"), ((2, 2, 1), (5, 5, 4), "above the band"),
+@pytest.mark.parametrize("ks, ns, label", [((1, 0, 0), (5, 5, 4), "screened in"),
+                                           ((2, 2, 1), (5, 5, 4), "above the band"),
                                            ((2, 1, 1), (4, 4, 4), "screened in"), ((0, 0, 0), (4, 4, 4), "floor"),
                                            ((2, 2, 1), (4, 4, 4), "above the band")])
 def test_with_four_or_more_scored_observations_at_every_effort_the_task_is_screened(ks, ns, label):
@@ -685,7 +686,8 @@ def test_the_command_reads_a_frozen_criterion_unstamped_and_refuses_an_unfrozen_
                      str(tmp_path / "family.json"))
     family = json.loads((tmp_path / "family.json").read_text())
     assert ((unfrozen.returncode, "pending" in unfrozen.stderr, (tmp_path / "u-family.json").exists()),
-            (final.returncode, "REHEARSAL" in final.stdout, family["rehearsal"])) == ((2, True, False), (0, False, False))
+            (final.returncode, "REHEARSAL" in final.stdout, family["rehearsal"])) == (
+                (2, True, False), (0, False, False))
 
 
 # ---- D6's remaining lists: refused connections per attempt; no public figure -------------------------------------
@@ -731,7 +733,8 @@ SHORT = PARTIAL | {TASKS[4]: {"low": [0] * 5, "medium": [1, 0, 0, 0, 0], "high":
 
 
 def _row(result, task):
-    return next(line for line in _section(readout.render(result), "Tasks").splitlines() if line.startswith(f"| {task} "))
+    rows = _section(readout.render(result), "Tasks").splitlines()
+    return next(line for line in rows if line.startswith(f"| {task} "))
 
 
 @pytest.mark.parametrize("task, n, label", [(TASKS[0], 15, "screened in"), (TASKS[3], 14, "screened in"),
