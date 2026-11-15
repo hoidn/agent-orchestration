@@ -169,13 +169,15 @@ round-one read, a pause or a stop. It reads these ledger rows:
 
 Before every start the launcher repeats the launch's checks: the manifest hash it checked (the label every start
 records), the kit against the manifest and, when live, the ledger's current label, the runtime commit, the detached
-checkout and a clean kit. A change stops the tranche, naming it.
+checkout and a clean kit; then the harness venv's versions and the two host-side overrides, which the manifest does
+not cover. A change stops the tranche, naming it.
 
 One launcher runs per state root: `launch` (with its reconcile) and `resume` hold `<state>/launcher.lock`, and a
 second process is refused, naming the holder's pid.
 
-A launch refused before its harness runs (the task's package, the overlay's digest, its socket) stops the tranche
-but is no start: it is not exported, its token is retired, and the attempt is kept under `<state>/refused/`.
+A launch refused before its harness runs (the task's package, the overlay's digest, its socket, or any other failure
+before the harness started, named by its exception) stops the tranche but is no start: it is not exported, its
+token is retired, and the attempt is kept under `<state>/refused/`. Its index is never reused.
 
 A resume lifts a pause or a stop, never a usage limit. Starts stay closed until five minutes after the limit's reset
 and then reopen with one start, and with the rest once that session has an answer. If the single start ends with no
@@ -193,13 +195,16 @@ a stop; each read's exit code is kept in the slot's `podman.jsonl`. The process 
 while the harness runs, from running containers only: at teardown every container has exited. A failed `podman exec`
 on a running container is logged there and does not by itself make the scan incomplete. A limit of the check: a
 container that ran too briefly for any 2 s sample is scanned only through its inspected configuration, so what its
-processes held at run time is not read. The pids limit
+processes held at run time is not read. A failed `podman ps -a` is an incomplete scan too, and never confirms a
+removal. Once the containers are removed, `slot.json` says so, and a reconcile after the launcher died before the
+close skips the runtime check (its findings were stops already). The pids limit
 (`limits-compose.yaml`) reaches the agent's environment only: Harbor does not apply runtime overrides to the
 separate verifier containers.
 
 To end a pause or a stop, a person writes the ledger row that D5 asks for and then runs `ladder.py resume`. A stop
-needs `| <D> | Ruling | resume: <its cause>: <the decision> |` and `resume --date <D>` (a plain resume of a stop is
-refused, naming that row); a D7.7 threshold's stop is lifted by its `--clears` ruling. While one
+needs `| <D> | Ruling | resume: <its cause>: <the decision> |` and `resume --date <D>`, one row for each distinct stop
+since the last resume (a resume is refused naming each stop that has none; `status` lists them all); a D7.7
+threshold's stop is lifted by its `--clears` ruling. While one
 of D7.7's count thresholds is over its bound, a plain resume is refused, naming it. The thresholds are the
 infrastructure-failure share of the tranche (`infrastructure-failures`) and at one level, judged from 20 starts at
 that level (`infrastructure-failures-at-level`, cleared on its own), five or 24 pre-session failures, the 5% of cuts,
@@ -231,7 +236,11 @@ list `LAUNCHER_STOPS`, which also says where each cause can occur, found on a ro
 evidence; a stop is never scored. A `contamination` result may sit on a start of any class: it excludes an
 observation, and on any other class is listed and counted for D7.7 without changing the class. A reward is only what
 a verifier gave: an observation with none, after any ending, is regraded (case 1), and one still with no reward file
-after its regrades is an infrastructure failure on its own row, never scored. A null
+after its regrades is an infrastructure failure on its own row, never scored. A regrade's trial is
+`<attempt id>-regrade-<n>`, so its verifier's compose project and containers are `<attempt id>-regrade-<n>__verifier__…`
+(Harbor lower-cases them), the attempt's own; it runs in its own session with its pid in `slot.json`, and reconcile
+stops a dead launcher's regrade before running it again. A regrade whose load-gate wait was interrupted before any
+regrade ran decides nothing: the start is listed open and the next launch's reconcile regrades it. A null
 `minutes`, token count or `api_retry` was not recorded: the readout prints "not recorded", leaves it out of its
 means and gives how many it left out; it never reads a null as zero. The launcher writes that layout and the readout
 reads it. The export lists the attempts still open (`open`), which enter no count, and the readout says how many
