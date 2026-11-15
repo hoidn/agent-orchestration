@@ -2020,14 +2020,30 @@ procedure references also where a map would produce it. Diagnostics: `list_colle
 message names the whole list type); `proc_ref_runtime_transport_forbidden` for a
 `List[ProcRef[...]]` written as a parameter type.
 
+**Effects in an element, a path child and a map source.** A list element, a `path/join-under`
+child and the source of a `list/map` or `list/map-effect` may hold an effect, a command or a
+workflow call for example, under the two conditions of §16.3:
+
+- every part of the value is simple, as §16.3 defines it: the part with the effect and the
+  parts beside it. An `if`, a `match` and a call of a procedure are not simple, whatever they
+  hold;
+- the value is not written inside an argument of a call of a procedure, of a `let-proc` local
+  or of a function, nor in the body of a `let-proc` local. The body of a `defproc` and an
+  argument of a workflow `call` take it.
+
+Otherwise the program is refused: bind the value with `let*` first and use its name.
+Diagnostics, by the place that holds the effect: `effect_not_permitted` (an element, a path
+child), `list_map_body_effect_forbidden` (a `list/map` source),
+`list_map_effect_body_unsupported` (a `list/map-effect` source, serial or parallel). A source
+that is a list with a part that is not simple beside its effect gives the element's code. A
+value that holds no effect is not concerned.
+
 **Constructor.** `(list e1 e2 ...)` evaluates its elements in the order written and gives a
 `List[T]` where `T` is the type of the first element. Each later element has that type; nothing
 is converted, so an `Int` beside a `Float`, an `Int` beside an `Optional[Int]` and two path
 types with one root are each refused. Where the form around the list states its type, the two
-must agree. Diagnostics: `pure_expr_operand_type_mismatch`. A list whose elements hold an effect
-needs every element simple, and is not written inside an argument of a procedure, a `let-proc`
-local or a function, nor in the body of a `let-proc` local; bind it with `let*` first (§16.3).
-Diagnostics: `effect_not_permitted`. Open defect: a `variant` with a list in a field, written
+must agree. Diagnostics: `pure_expr_operand_type_mismatch`. An element may hold an effect
+under the rule above. Open defect: a `variant` with a list in a field, written
 directly as a `match` subject, ends in `compiler_defect`; bound with `let*` first, it builds.
 
 **Empty list.** `(list)` has no element to take a type from. It is accepted where the form
@@ -2066,10 +2082,8 @@ element of `source`, in the source's order; an empty source gives the empty list
 - `name` is a new name. A name already bound where the map is written (a parameter, a `let*`
   name, the binder of an enclosing map) and a name that starts with `__` are refused; two maps
   side by side may use one name. Diagnostics: `list_map_binder_invalid`.
-- `source` is a list and is evaluated once. It may hold an effect when it is simple (§16.3).
-  Diagnostics: `pure_expr_operand_type_mismatch` (not a list), `list_map_body_effect_forbidden`
-  (an effect in a source that is not simple; §16.3 gives the code when the effect sits in a
-  field or an element inside the source).
+- `source` is a list and is evaluated once. It may hold an effect under the rule above.
+  Diagnostics: `pure_expr_operand_type_mismatch` (not a list), `list_map_body_effect_forbidden`.
 - `body` reads `name` at the element type and the names in scope around the map. It is pure:
   operators, `if`, `let*`, `match`, calls of functions and of procedures without effects, another
   `list/map`. A command, a workflow call and a procedure that holds an effect are refused.
@@ -2087,8 +2101,8 @@ per element of `source`, one element after the other, and gives the list of its 
 source's order. An empty source gives the empty list and evaluates no body.
 
 - A serial map is written with exactly these parts in this order. Binder and source follow the
-  rules of `list/map`; a source that holds an effect and is not simple is refused with
-  `list_map_effect_body_unsupported`. The form is an effect form whatever its body: a `defun`
+  rules of `list/map`, with `list_map_effect_body_unsupported` as the code of a refused effect
+  in the source. The form is an effect form whatever its body: a `defun`
   body refuses it (`pure_function_has_effect`). Diagnostics: `list_map_binder_invalid`,
   `list_map_effect_max_invalid` (a part missing, added or out of order).
 - *Body.* In a program that contains no run reference the body is any expression: a pure one,
@@ -2148,8 +2162,8 @@ type's `:under` root joined with `child`.
   no path type, a first operand that is not a name, a number of operands other than two). Open
   defect (defect backlog row E24): a procedure whose body names a path type is refused with
   this code when it is called from a module that does not import that type.
-- `child` is one `String` expression, evaluated once. It may hold an effect when it is simple
-  (§16.3). Diagnostics: `pure_expr_operand_type_mismatch` (not a `String`; a path value is not
+- `child` is one `String` expression, evaluated once. It may hold an effect under the rule
+  above. Diagnostics: `pure_expr_operand_type_mismatch` (not a `String`; a path value is not
   one), `effect_not_permitted`.
 - The child is checked when the join is evaluated. An empty child, `.`, and a child with an
   empty or `.` segment (`a//b`, `a/./b`, `a/`) fail with `path_join_under_child_invalid`. An
