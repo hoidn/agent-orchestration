@@ -897,3 +897,35 @@ def test_an_interim_readout_says_its_verdict_and_dominance_are_not_the_verdict()
 def test_a_drop_whose_reason_names_no_ledger_row_by_its_date_is_refused():
     with pytest.raises(readout.ReadoutError, match="no ledger row"):
         readout.compute(LADDER, _export(SHORT), STANDINS, [{"task": TASKS[4], "reason": "it was short"}])
+
+
+# ---- Fix round 2: no interval on a count pooled over tasks (N1); D7.7's count over every label (N4) --------------
+
+INTERVAL = re.compile(r"\d+\.\d–\d+\.\d%")
+
+
+def test_only_a_single_task_s_counts_carry_an_interval():
+    """Coordinator ruling N1: a count pooled over tasks mixes their rates, so no line pooling over tasks prints an
+    interval; the rows of the per-task tables (current and earlier label) do."""
+    text = readout.render(_compute(_export(LABELLED, earlier=(OLD,))))
+    carrying = {line.split(" | ")[0] for line in text.splitlines() if INTERVAL.search(line)}
+    assert carrying == {f"| {TASKS[0]}", f"| {TASKS[1]}"}
+
+
+def test_the_pooled_successes_by_effort_say_why_they_carry_no_interval():
+    effort = _section(readout.render(_compute(_export({t: _same([1, 0, 1, 0, 0]) for t in TASKS[:4]}))),
+                      "Effort test")
+    line = next(line for line in effort.splitlines() if "Pooled successes" in line)
+    assert (readout.POOLED_OVER_TASKS in line, "8 of 20" in line, INTERVAL.search(line)) == (True, True, None)
+
+
+def test_d7_7_counts_the_contaminated_attempts_of_every_label():
+    """D7.7's stop is the tranche's: a hit under an earlier label counts toward its three tasks and is listed with
+    its label (coordinator ruling N4)."""
+    hit = {"contamination": [TERM_SHA256]}
+    table = {TASKS[0]: {"low": [_relabelled(1) | hit, 0], "medium": [0], "high": [0]},
+             TASKS[1]: {"low": [{"reward": 0} | hit], "medium": [0], "high": [0]}}
+    result = _compute(_export(table, earlier=(OLD,)))
+    contaminated, text = result["listed"]["contaminated"], _section(readout.render(result), "Listed")
+    assert (contaminated["tasks"], [e["label"] for e in contaminated["attempts"]], f"earlier label `{OLD}`" in text,
+            "On 2 task(s)" in text) == ([TASKS[0], TASKS[1]], [OLD, LABEL], True, True)

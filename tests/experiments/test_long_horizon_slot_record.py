@@ -24,9 +24,13 @@ def _broken(change):
     return record
 
 
-def _one(*outcomes, effort="low"):
+def _one(*outcomes, effort="low", task=TASKS[0]):
     """One task's export with the given starts in one slot of the given effort, and plain observations elsewhere."""
-    return export({TASKS[0]: {e: [list(outcomes)] if e == effort else [0] for e in EFFORTS}})
+    return export({task: {e: [list(outcomes)] if e == effort else [0] for e in EFFORTS}})
+
+
+SMOKE_TASK, SMOKE_EFFORT, _ = slot_record.smoke_cell(CRITERION)
+SESSION_STOPS = [cause for cause, seen in slot_record.LAUNCHER_STOPS.items() if seen == "a session"]
 
 
 @pytest.mark.parametrize("change, message", [
@@ -89,8 +93,37 @@ def test_a_cut_s_reward_is_never_read():
 
 @pytest.mark.parametrize("cause", slot_record.LAUNCHER_STOPS)
 def test_a_launcher_stop_on_a_normal_ending_is_a_stop_and_never_scored(cause):
-    first = _load(_one({"row": 5, "reward": 1, "class": "stop", "stop_cause": cause}))[0]
+    """On the smoke's slot every launcher cause can occur."""
+    record = _one({"row": 5, "reward": 1, "class": "stop", "stop_cause": cause}, effort=SMOKE_EFFORT, task=SMOKE_TASK)
+    first = _load(record)[0]
     assert (first["class"], first["stop_cause"], first["counted"], first["success"]) == ("stop", cause, False, None)
+
+
+@pytest.mark.parametrize("cause", SESSION_STOPS)
+def test_a_cause_that_needs_a_session_is_refused_on_a_pre_session_failure(cause):
+    with pytest.raises(slot_record.RecordError, match="does not fit row 1"):
+        _load(_one({"row": 1, "class": "stop", "stop_cause": cause}))
+
+
+def test_a_token_scan_match_may_stop_on_a_pre_session_failure():
+    first = _load(_one({"row": 1, "class": "stop", "stop_cause": "a match of token_scan.py"}))[0]
+    assert (first["class"], first["counted"]) == ("stop", False)
+
+
+@pytest.mark.parametrize("task, effort, rnd", [(TASKS[0], "low", 1), (SMOKE_TASK, "high", 1), (SMOKE_TASK, "low", 2)])
+def test_a_failed_smoke_check_is_refused_off_the_smoke_s_slot(task, effort, rnd):
+    stop = {"row": 5, "reward": 0, "class": "stop", "stop_cause": "a failed smoke check"}
+    cells = {e: [0] * rnd for e in EFFORTS}
+    cells[effort] = [0] * (rnd - 1) + [stop]
+    with pytest.raises(slot_record.RecordError, match="does not fit row 5"):
+        _load(export({task: cells}))
+
+
+def test_the_smoke_s_slot_falls_back_to_the_first_qualified_task_not_load_sensitive():
+    """D7.1: if gsea-proteomics does not qualify, the first qualified task in tasks.json order not load-sensitive."""
+    ladder = with_values(CRITERION, {"tasks.qualified": [TASKS[0], TASKS[1], TASKS[2]],
+                                     "tasks.load_sensitive": [TASKS[0]]})
+    assert slot_record.smoke_cell(ladder) == (TASKS[1], SMOKE_EFFORT, 1)
 
 
 @pytest.mark.parametrize("fields, why", [
@@ -163,16 +196,17 @@ PRE = {"row": 1}
 
 
 @pytest.mark.parametrize("starts, message", [
-    ([PRE, PRE, PRE, 0], "lost after the third"), ([0, {"row": 10}], "run again only after"),
+    ([PRE, PRE, PRE, 0], "lost after the third"), ([PRE, PRE, {"row": 10}, PRE, 0], "lost after the third"),
+    ([PRE, {"row": 10}, PRE, {"row": 10}, PRE, 0], "lost after the third"), ([0, {"row": 10}], "run again only after"),
     ([0, PRE], "run again only after"), ([{"row": 15}, 0], "run again only after")])
 def test_a_sequence_of_starts_the_plan_forbids_is_refused(starts, message):
     with pytest.raises(slot_record.RecordError, match=message):
         _load(_one(*starts))
 
 
-def test_two_pre_session_failures_and_a_cut_may_precede_the_slot_s_observation():
-    assert [s["class"] for s in _load(_one(PRE, PRE, {"row": 10}, PRE, 1))][:5] == [
-        "pre_session_failure", "pre_session_failure", "cut", "pre_session_failure", "observation"]
+def test_two_pre_session_failures_and_cuts_may_precede_the_slot_s_observation():
+    assert [s["class"] for s in _load(_one(PRE, {"row": 10}, PRE, {"row": 10}, 1))][:5] == [
+        "pre_session_failure", "cut", "pre_session_failure", "cut", "observation"]
 
 
 @pytest.mark.parametrize("fields", [{"excluded": "no reward after regrades", "reward": 1},

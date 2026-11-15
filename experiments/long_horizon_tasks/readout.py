@@ -26,6 +26,8 @@ KIT = Path(__file__).resolve().parent
 KIT_PATH = "experiments/long_horizon_tasks"
 POOLED_LABELS = ("screened in", "floor", "above the band")
 NOT_SCREENED = "not screened"
+# A count pooled over tasks mixes their rates, so no binomial interval is printed beside it (coordinator ruling N1).
+POOLED_OVER_TASKS = "pooled over tasks with different rates: no interval is given; see the per-task intervals"
 ENDED = {"schedule": "ended: the schedule ran out", "ceiling": "ended: the next slot's reservation did not fit the "
          "USD ceiling", "starts": "ended: the 240 starts were made", "stop": "ended by a stop"}
 CLASS_WORDS = {"observation": "observation", "cut": "cut by a usage limit", "stop": "stop",
@@ -319,8 +321,11 @@ def _d5_class(start):
 
 
 def _contaminated(starts, ladder):
-    """Every start with a contamination hit, of any class, and the tasks they are on (D6; D7.7 counts them)."""
-    hits = [_entry(s) | {"contamination": s["contamination"]} for s in starts if s["contamination"]]
+    """Every start with a contamination hit, of any class, with its label, and the tasks they are on (D6). Over the
+    tranche's starts of every label this is D7.7's count: its stop is the tranche's, and D7.6 confines only placement
+    and the effort test to the current label."""
+    hits = [_entry(s) | {"contamination": s["contamination"], "label": s["label"]} for s in starts
+            if s["contamination"]]
     stop = next(rule["on_tasks"] for rule in ladder["stops"]["stops"] if "on_tasks" in rule)
     return {"attempts": hits, "tasks": sorted({h["task"] for h in hits}), "stop_on_tasks": stop}
 
@@ -481,7 +486,7 @@ def compute(ladder, export, standins=None, dropped=None):
             "end": export["end"], "stop": not place,
             "tasks": _placement(_counts(current, tasks, efforts, level), rules, place, _drops(dropped, tasks)),
             "effort": _effort(triples, efforts, rules, place),
-            "listed": _listed(current, efforts, criterion),
+            "listed": _listed(current, efforts, criterion) | {"contaminated": _contaminated(starts, criterion)},
             "earlier": _earlier(starts, export, tasks, efforts, level, criterion),
             "rules": {"fall_bound": rules["fall_bound"], "interval": rules["interval"], "pooled": rules["pooled"],
                       "stop_readout": rules["stop_readout"]},
@@ -561,10 +566,10 @@ def _effort_section(result):
                             f"{result['rules']['stop_readout'].capitalize()} (D6).", ""]
         return lines + [f"Bound on the fall over {effort['triples']} complete triples; no placement is made: "
                         f"{_bound_text(result)}. {result['rules']['stop_readout'].capitalize()} (D6).", ""]
-    level, n = result["rules"]["interval"]["level"], effort["triples"]
-    pooled = ", ".join(_count({"k": k, "n": n, "interval": interval(k, n, level)}) for k in effort["pooled"].values())
+    n = effort["triples"]
+    pooled = ", ".join(f"{k} of {n}" for k in effort["pooled"].values())
     lines += [f"Complete triples: {n} over {effort['tasks']} tasks. Pooled successes, "
-              f"{', '.join(effort['pooled'])}: {pooled}.", "",
+              f"{', '.join(effort['pooled'])}: {pooled} ({POOLED_OVER_TASKS}).", "",
               "| Levels | Sum over tasks of successes at the first level minus the second | p, sum at or below | "
               "p, sum at or above |", "| --- | --- | --- | --- |"]
     for name, d in effort["differences"].items():
@@ -594,21 +599,26 @@ def _entries(title, entries, why=None):
     return lines + (["- none"] if not entries else []) + [""]
 
 
-def _listed_section(listed):
+def _listed_section(listed, label):
     return (["## Listed", ""] + _entries("Exclusions (enter no k or n)", listed["exclusions"], _excluded)
             + _entries("Flagged observations", listed["flags"], lambda e: e["ending"])
             + ["### Cut by a usage limit, per effort", "", ", ".join(f"{e} {n}" for e, n in listed["cuts"].items()),
                ""] + _entries("The pilot's attempts (they ran first)", listed["pilot"])
             + _entries("Refused connections (they exclude nothing)", listed["egress"], _refused)
-            + _contaminated_section(listed["contaminated"]))
+            + _contaminated_section(listed["contaminated"], label))
 
 
-def _contaminated_section(contaminated):
+def _contaminated_section(contaminated, label):
     tasks = contaminated["tasks"]
-    return (_entries("Contaminated attempts, of any class (terms by SHA-256, never the term)",
-                     contaminated["attempts"], lambda e: ", ".join(e["contamination"]))
-            + [f"On {len(tasks)} task(s){': ' + ', '.join(tasks) if tasks else ''}; D7.7 stops the tranche at "
-               f"contaminated attempts on {contaminated['stop_on_tasks']} tasks.", ""])
+
+    def why(entry):
+        return ", ".join(entry["contamination"]) + ("" if entry["label"] == label else
+                                                    f" (under the earlier label `{entry['label']}`)")
+    return (_entries("Contaminated attempts, of any class and under every label (terms by SHA-256, never the term)",
+                     contaminated["attempts"], why)
+            + [f"On {len(tasks)} task(s){': ' + ', '.join(tasks) if tasks else ''}, counted over the attempts of every "
+               f"configuration label, since the stop is the tranche's; D7.7 stops the tranche at contaminated "
+               f"attempts on {contaminated['stop_on_tasks']} tasks.", ""])
 
 
 def _earlier_section(result):
@@ -667,8 +677,8 @@ def _allowance_section(result):
 def render(result):
     """The readout as Markdown, from compute's result alone."""
     return "\n".join(_header(result) + _tasks_table(result) + _effort_section(result) + _cost_section(result)
-                     + _graded_section(result) + _listed_section(result["listed"]) + _earlier_section(result)
-                     + _allowance_section(result))
+                     + _graded_section(result) + _listed_section(result["listed"], result["label"])
+                     + _earlier_section(result) + _allowance_section(result))
 
 
 # ---- family.json (the plan's step 7): from compute's result alone -------------------------------------------------
