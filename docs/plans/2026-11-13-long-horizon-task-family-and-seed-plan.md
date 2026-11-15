@@ -18,8 +18,9 @@ readout. Its commands are for this machine and are not copyable examples. Spend 
 authorized only as the [ledger](#ledger) records.
 
 **Headline exit test (fails today):** `experiments/long_horizon_tasks/results/family.json`
-exists, names its criterion and task digests, and lists either the screened-in tasks with their
-counts by effort and the effort verdict, or the stop that prevented it.
+exists, names its criterion and task digests, and lists the screened-in tasks with their counts
+by effort and the effort verdict. After a stop no `family.json` is written; the stop readout
+names the stop.
 
 ## Scope and approval
 
@@ -796,7 +797,11 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
   task to the family; the per-effort labels are printed beside it, because a pooled count mixes
   three rates. The rule accepts a task of constant true rate 2%, 5%, 10%, 20%, 30%, 50% with
   probability 0.26, 0.54, 0.79, 0.90, 0.72, 0.15. The label is "screened at 15 attempts", never
-  "in the 10 to 30 percent band".
+  "in the 10 to 30 percent band". The screen is applied only at the planned 15 attempts, five
+  at each effort: with fewer, the readout prints the pooled count and interval and "not
+  screened: n of 15 attempts", and the task is neither in nor out of the family; `family.json`
+  is written only when every task is screened at 15 or recorded as dropped for a stated reason
+  (coordinator ruling R4, 2026-11-14).
 - **Band effort,** for every screened-in task: among the levels with at least one success, the
   one whose k/n is closest to 0.2, ties to the lower level. Every screened-in task has such a
   level. It is labelled "noisy, one cell of five", and flagged when that cell is 3 or more. A
@@ -811,14 +816,18 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
   - **Always reported: the bound on the fall,** the one-sided 95% upper bound on the pooled fall
     from low to high in points (bootstrap over tasks, 10,000 resamples, fixed seed). "Not
     resolved" means only that no fall above that bound was ruled out; it is never read as "does
-    not fall".
+    not fall". It places nothing, so a stop readout prints it too, over the complete triples
+    there are ("over N complete triples; no placement is made"), or says there are none
+    (coordinator ruling R2, 2026-11-14). The resampling method is frozen in `ladder.json`
+    (`readout.fall_bound`; ruling R5).
   - Sensitivity (simulated, 16 tasks with five at zero): a pooled change of 12 points is
     detected in about half of runs, 17 points in 79%, 20 points in 88%; false alarm 5%. With
     ten tasks at the floor a 17-point fall is detected in about a fifth of runs.
 - **Cost:** per effort, mean priced cost and minutes per observation, tokens by kind, and cost
   per success (the cost of every start at that level over its successes, cut starts
   included). An effort level is named dominated only when another level beats it on the same
-  sign-flip test at p ≤ 0.05 and has a lower mean cost; otherwise "not resolved". Beside it,
+  sign-flip test at p ≤ 0.05 (`readout.cost.dominated_p_at_most`; ruling R3) and has a lower
+  mean cost; otherwise "not resolved". Beside it,
   from the owner's meter readings: the share of a weekly allowance the tranche used, in all
   and per priced dollar. It is a report, tied to this account's plan, and enters no rule.
 - **Graded outcome, secondary (roadmap Phase 5b, "Making fitness cheaper to measure").** Where
@@ -833,7 +842,10 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
   oracle jobs and the recordings (the benchmark repository's path, the canary's identifier, the
   reference solution's full path in that repository). The canary's identifier is read from the
   task packages at run time and is in the criterion only as its SHA-256 (D1). A hit excludes
-  the attempt and is listed. The egress log adds, per attempt, the refused addresses and their count (D3); a
+  the attempt and is listed. The launcher runs the scan at each teardown, beside the token
+  scanner, with the frozen terms, and writes the result into the slot's record; the readout only
+  reads it and lists every contaminated attempt with the term's SHA-256, never the term
+  (coordinator ruling, 2026-11-14). The egress log adds, per attempt, the refused addresses and their count (D3); a
   refused connection fetched nothing and excludes nothing. A readout that ends in a stop prints no placement.
 
 ### D7. Order and stop rules
@@ -1262,7 +1274,9 @@ Tests, against a stand-in harness that replays the recorded fixtures on a closed
       carries model, effort, version, cap, the token-mode switch, the deny list, the
       output-token variable, the relay's base URL and zero retries; no credential is in any
       file, environment or command line; the token scanner and the runtime check run at every
-      teardown, and a match stops the tranche. The schedule is deterministic and in blocks,
+      teardown, and a match stops the tranche; beside them the contamination scan of D6 runs with
+      the frozen terms and writes the SHA-256 of each term it finds into the slot's record
+      (`slot_record.py`, the one layout of the export the readout reads). The schedule is deterministic and in blocks,
       begins with the smoke slot and then the pilot's block, and waits for the smoke read, the
       pilot's ledger row and the round-one read; cut at any start, it leaves at most one block
       partial and no task more than one block behind another.
@@ -1276,7 +1290,8 @@ then the sampled broad check.
 
 ### Task 6: the readout (impl_code; 9 h)
 
-**Files:** create `readout.py`. Tests: intervals match the report's table; cell and pooled
+**Files:** create `readout.py`, and `slot_record.py`: the export's layout and its loader, the one
+definition the launcher writes and the readout reads. Tests: intervals match the report's table; cell and pooled
 labels; the band effort is defined for every screened-in pattern; the effort verdict and the
 bound on the fall on constructed tables; a ceiling stop leaves partial rounds out of complete
 triples; exclusions are listed and never scored zero; cuts are counted per effort and the
@@ -1558,3 +1573,4 @@ without it.
 | 2026-11-14 | Coordinator ruling on Task 3's judgment call, applied on `feat/lh-criterion` (revise; no spend) | An attempt whose answer the passthrough withheld for paid extra usage is a **stop**, not an infrastructure failure: paid usage is the one event the owner must hear of before anything resumes. Rows keep one class each, so the alternative moved from row 12 to row 13 (a stop), with the stop's definition unchanged; the coordinator row that lets the tranche resume after it also records what the owner said (row 13, `stops`). Row 13 is now tried first (order 13, 10, 1–9, 14, 11, 12, 15, 16): a usage-limit 429 that carries an overage sign is withheld too (D4), and it must be a stop, not a cut; the pair (13, 10) is listed with a constructed session, which the natural order would put in row 10. Row 12's `tranche stopped` alternative now excludes an answer withheld from the attempt's own slot, so another slot's slot-less refusal in the window cannot make it an infrastructure failure. Row 13 reads `passthrough-stopped-…`, row 12's fixture, as a shared fixture for the withheld answer's form. The manifest was rewritten (still not frozen). |
 | 2026-11-14 | Task 3 final round on `feat/lh-criterion`, after the re-review (approve after fixes: 2 majors, 4 minors) and the coordinator's rulings N1 and N2 (revise; no spend, no container, no request) | `main` (`644870e7`, documents only) merged. **N1:** a usage limit makes the attempt a cut only when the slot's log holds signal 1 in a row timed before the session's ending (the result event's arrival; for a time-limit session, the moment the limit fired). Row 10 and row 15's exclusion now read the new field `passthrough.requests_before_ending`. A usage limit met only by the after-limit tail leaves the attempt in its own row and still closes starts. D5 row 10, the order paragraph and "Model-side endings are never excluded" state the exception. `order_resolves` now lists (10, 3), (10, 5), (10, 6), (10, 7), (10, 8), (10, 9), (10, 11), (10, 12) and (10, 14), beside (13, 10) and (14, 12). Each pair has a constructed session; a test checks that each lands in the row its pair names first and that the natural order would take the lower row. A test checks that a time-limit session with a usage limit only after its limit stays in row 3, and a provider fault in row 15. **N2:** `too many connections`, `slot busy` and `request timed out` moved from `refusal.form_reasons` to a new `refusal.load_reasons`, and from row 13 to row 15 (an infrastructure failure; each row keeps one class). Row 15's three new alternatives rest on the recorded model refusal's form. D7 gains a pause: three attempts in one tranche ended by a load refusal; they also count toward the infrastructure-failure stop. Note: the class rule says an infrastructure failure's slot is not run again; the ruling's "run again as for the other infrastructure rows" is read as that rule. **Minors:** (n1) an attempt whose own slot's rows show a stop's cause (the withheld paid-usage answer, a token in its log row, another model named) is row 13 by the new field `passthrough.own_stops`. The token in a response, a response that cannot be checked and an unreadable slots file leave no mark on a slot's rows and stay row 12. (n2) `in_flight` states the 300 s wait, the third open request and the 16-connection cap. (n3) Task 4's pass-on sentence names the withheld exception. (n4) A test holds rows 12 and 13 apart. Pending: 16. |
 | 2026-11-14 | Task 6, the readout, built on `feat/lh-readout` (impl_code; no spend, no container, no request) | `experiments/long_horizon_tasks/readout.py` reads the launcher's export (a record shape it states and checks, since the launcher is built in parallel: the current and earlier labels, how the tranche ended, the schedule's slots and every start with its D5 row, reward, exclusion, cost, minutes, tokens, sub-tests and refused connections) and computes every figure of D6 once, from the starts joined to their slots by slot id, with every rule read from `ladder.json`. A final readout is refused while a `readout.*` field is pending and unless the label is the manifest's and the manifest holds the `ladder.json` read; `--rehearsal` takes stand-ins and stamps every output. `family.json` is written only after a tranche that ended and did not stop, and is a pure function of the records. Tests (`tests/experiments/test_long_horizon_readout.py`, every record constructed): the report's interval table; labels and the band effort over the 55 screened-in patterns; the verdict and the bound on constructed tables; partial rounds out of complete triples; every excluded class listed and never scored zero; cuts per effort and the pilot marked; labels never pooled; the graded outcome and the allowance entering no rule; a stop readout with no placement; `family.json`'s content and bytes. Open for the coordinator, each marked in the code (R1 to R5): whether `family.json` also records a stop (the headline says so; it is not written after one); whether a stop readout withholds the bound on the fall (it does); the dominance threshold, in `ladder.json` as prose only (the effort test's 0.05 is used); the pooled ratio applied below 15 attempts; the bootstrap's generator and quantile, which D6 does not name. Spend: 0. |
+| 2026-11-14 | Task 6 revised on `feat/lh-readout` after the coordinator's rulings on its open points (revise_code; no spend, no container, no request) | **R1:** after a stop no `family.json` is written and the stop readout names the stop; the headline sentence says so. **R2:** a stop readout prints the bound on the fall over the complete triples there are ("over N complete triples; no placement is made"), or says there are none; D6 says so. **R3:** `readout.cost.dominated_p_at_most` (0.05) in `ladder.json`, a filled field of the new type `number` (which `manifest.py` now accepts), with the prose it encodes and the ruling; the readout reads it and no other field. **R4:** the pooled screen is applied only at 15 attempts (`readout.pooled.at_n`); with fewer a task prints its pooled count and interval and "not screened: n of 15 attempts"; `family.json` is written only when every task is screened at 15 or dropped for a stated reason, which the readout takes as `--dropped` (a list of task and reason, the reason naming the ledger row); D6 says so. **R5:** the bootstrap is frozen in `readout.fall_bound` (`random.Random(seed)`, tasks in name order, 10,000 resamples, the ceil(0.95 R)-th smallest fall; the seed stays pending), and a test pins the bound for one table and one seed. **Contamination:** the launcher runs the scan at each teardown beside the token scanner and writes the SHA-256 of each term found into the slot's record; the readout lists every contaminated attempt by that SHA-256 and never the term (D6, Task 5). **One layout:** `experiments/long_horizon_tasks/slot_record.py` holds the export's fields, types and the loader that fails fast; the readout loads it by path, and the launcher is to do the same; its tests are `tests/experiments/test_long_horizon_slot_record.py`. The manifest was rewritten (not frozen). Spend: 0. |

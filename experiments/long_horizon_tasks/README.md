@@ -107,26 +107,32 @@ pytest -q -n 4 tests/experiments/test_long_horizon_passthrough.py
 
 ## The readout (plan Task 6)
 
-`readout.py` turns the launcher's export into the readout of D6 and, at the end of the tranche, into
+`slot_record.py` is the one definition of the launcher's export: its fields and types (in its docstring) and
+`load`, which joins every start to its schedule slot and its D5 row and refuses anything that does not fit, naming the
+record. The launcher writes that layout and the readout reads it; both load the module by its path (the kit runs
+under `python -I`) and neither imports the other.
+
+`readout.py` turns the export into the readout of D6 and, at the end of the tranche, into
 `results/family.json` (step 7). It reads every rule from `ladder.json` (`readout`, `classification`, `attempt`,
-`schedule`) and prints no public figure. The record it reads (one JSON document: the current label, the earlier
-labels with the ledger row that ended each, how the tranche ended, the schedule's slots and every start) is stated in
-its docstring; a start that joins no slot, or any field that does not fit, is an error. Every figure is computed once,
-by `compute`, from the starts joined to their slots by slot id: the cells and pooled counts with their exact
-intervals and labels, the band effort, the effort test over complete triples with its verdict and the bound on the
-fall, the cost per effort, the lists (exclusions, flags, cuts per effort, the pilot's attempts, refused connections),
-the graded outcome, an earlier label's counts and the allowance. The last three enter no rule. A readout that ends
-in a stop places nothing.
+`schedule`) and prints no public figure. Every figure is computed once, by `compute`, from the starts joined to their
+slots by slot id: the cells and pooled counts with their exact intervals and labels, the band effort, the effort test
+over complete triples with its verdict and the bound on the fall, the cost per effort, the lists (exclusions, a
+contaminated attempt by the SHA-256 of each term found, flags, cuts per effort, the pilot's attempts, refused
+connections), the graded outcome, an earlier label's counts and the allowance. The last three enter no rule. The
+pooled screen applies at the planned 15 attempts only; with fewer a task is "not screened". A readout that ends in a
+stop places nothing and still prints the bound on the fall over the complete triples there are.
 
 ```
-python -I experiments/long_horizon_tasks/readout.py <export.json> [--family experiments/long_horizon_tasks/results/family.json]
-python -I experiments/long_horizon_tasks/readout.py <export.json> --rehearsal <stand-ins.json> [--family <path>]
-pytest -q -n 4 tests/experiments/test_long_horizon_readout.py
+python -I experiments/long_horizon_tasks/readout.py <export.json> [--dropped <drops.json>] [--family experiments/long_horizon_tasks/results/family.json]
+python -I experiments/long_horizon_tasks/readout.py <export.json> --rehearsal <stand-ins.json> [--dropped <drops.json>] [--family <path>]
+pytest -q -n 4 tests/experiments/test_long_horizon_slot_record.py tests/experiments/test_long_horizon_readout.py
 ```
 
 A final readout is refused while `ladder.json` marks a `readout.*` field pending, and unless the export's label is
 the SHA-256 of `manifest.json` and that manifest holds the SHA-256 of the `ladder.json` read. `--rehearsal` takes a
 JSON object with a stand-in for each pending readout field (and for nothing else) and stamps the readout and
-`family.json` as a rehearsal. `family.json` is written only from a readout whose tranche ended and did not end in a
-stop; the same records give the same bytes. `readout.py` is a kit file, so the manifest covers it and a change to it
-makes a new label; its test module is not covered.
+`family.json` as a rehearsal. `--dropped` takes the coordinator's drops, a JSON list of `{"task", "reason"}`, the
+reason naming the ledger row. `family.json` is written only from a readout whose tranche ended and did not end in a
+stop, with every task screened at 15 attempts or dropped; the same records give the same bytes. `readout.py` and
+`slot_record.py` are kit files, so the manifest covers them and a change to either makes a new label; their test
+modules are not covered.
