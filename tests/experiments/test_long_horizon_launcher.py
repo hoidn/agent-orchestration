@@ -123,6 +123,9 @@ def regrade(args):
     done = sum(1 for line in (HERE / "calls.jsonl").read_text().splitlines()
                if json.loads(line)["argv"][1:4] == ["trial", "regrade", args[2]])
     outcome = outcomes[min(done, len(outcomes)) - 1]
+    if "refused" in outcome:  # Harbor refused before any container or trial directory: its message, exit 1
+        sys.stderr.write(outcome["refused"])
+        sys.exit(1)
     out = Path(option(args, "-o")) / option(args, "--trial-name")
     out.mkdir(parents=True)
     exc = {"exception_type": outcome["exception"], "exception_message": ""} if "exception" in outcome else None
@@ -1294,6 +1297,56 @@ def test_a_cut_on_a_load_sensitive_task_is_never_regraded(short):
     after = ladder.regraded(_ctx(short, lh), criterion, attempt, {**record, "verifier_load_above_gate": True},
                             gate=lambda: True)
     assert ((record["class"], after["class"], after["reward"]), len(_calls(lh))) == (("cut", "cut", None), 0)
+
+
+# Harbor 0.25.0's refusal to regrade a trial whose declared artifact was not collected (harbor/trial/regrade.py,
+# `_raise_artifact_coverage_error`), the end of its standard error as its CLI prints it off a terminal: Typer's
+# traceback box, then the message wrapped at 80 columns; exit 1, no trial directory, no container (the rehearsal's
+# second run, hof's /app/solution/output.json).
+ABSENT_ARTIFACT = ("╰──────────────────────────────────────────────────────────────────────────────╯\n"
+                   "RegradeError: Task 'terminal-bench/wal-recovery-ordering' cannot regrade source \n"
+                   "trial 'wal-recovery-ordering__abcdefg': /app/solution/output.json: collection \n"
+                   "failed in the source trial; the record does not contain it\n")
+NO_SOURCE_RESULT = ("RegradeError: Source trial 'wal-recovery-ordering__abcdefg' has no readable result.json; \n"
+                    "nothing to regrade.\n")
+ABSENT_AND_MORE = ("RegradeError: Task 'terminal-bench/wal-recovery-ordering' cannot regrade source \n"
+                   "trial 'wal-recovery-ordering__abcdefg': /app/solution/output.json: collection \n"
+                   "failed in the source trial; the record does not contain it; /app/log: never \n"
+                   "collected (no manifest entry); the verifier would silently grade without it\n")
+
+
+@pytest.mark.parametrize("refusal,want", [(ABSENT_ARTIFACT, ("observation", 0.0, None, True)),
+                                          (NO_SOURCE_RESULT, ("observation", 0.0, "indeterminate", False)),
+                                          (ABSENT_AND_MORE, ("observation", 0.0, "indeterminate", False))])
+def test_a_case_2_regrade_refused_for_a_declared_artifact_never_collected_keeps_the_verifier_s_zero_flagged(
+        short, refusal, want):
+    """Coordinator ruling on the rehearsal's second run (D5): Harbor refuses to regrade a trial whose declared
+    artifact was not collected, and load cannot make an absent artifact present, so the verifier's 0 stands, an
+    observation flagged `artifact_absent`. Any other refusal, or one naming another problem too, keeps case 2's
+    handling of a regrade with no reward: indeterminate."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    (lh / "standin" / "regrade.json").write_text(json.dumps({"wal-recovery-ordering__abcdefg": [{"refused": refusal}]}))
+    criterion = {**CRITERION, "tasks": {**CRITERION["tasks"], "load_sensitive": ["wal-recovery-ordering"]}}
+    root, attempt, record = _closed(short, "stub-budget-stop-NonZeroAgentExitCodeError", [], reward=0.0)
+    after = ladder.regraded(_ctx(short, lh), criterion, attempt, {**record, "verifier_load_above_gate": True},
+                            gate=lambda: True)
+    exported = ladder._start_record(root, {**attempt, "settled": after}, STANDING)
+    assert ((after["regrades"], len(_calls(lh))),
+            tuple(exported[key] for key in ("class", "reward", "excluded", "artifact_absent"))) == ((1, 1), want)
+
+
+def test_a_case_1_regrade_refused_for_a_declared_artifact_never_collected_is_still_no_reward_after_regrades(short):
+    """The same ruling: with no reward from the verifier (case 1) nothing changes, since a reward is only what a
+    verifier gave: an infrastructure failure, "no reward after regrades", and no flag."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    (lh / "standin" / "regrade.json").write_text(json.dumps({"wal-recovery-ordering__abcdefg": [
+        {"refused": ABSENT_ARTIFACT}] * 2}))
+    cancelled = {**criterion_tests._fixture("stub-timeout-AgentTimeoutError"), "verifier_result": None}
+    root, attempt, record = _closed(short, cancelled, [])
+    after = ladder.regraded(_ctx(short, lh), CRITERION, attempt, record, gate=lambda: True)
+    exported = ladder._start_record(root, {**attempt, "settled": after}, STANDING)
+    assert (after["regrades"], tuple(exported[key] for key in ("class", "reward", "excluded", "artifact_absent"))) == (
+        2, ("infrastructure_failure", None, "no reward after regrades", False))
 
 
 def test_a_case_2_regrade_that_gave_no_reward_is_indeterminate_never_a_scored_zero(short):

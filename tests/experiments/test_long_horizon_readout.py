@@ -728,6 +728,18 @@ def test_refused_connections_are_listed_per_attempt_and_exclude_nothing():
         [("low", {"<address>:443": 3})], 1, True)
 
 
+def test_the_regrades_refused_for_a_declared_artifact_never_collected_are_counted_per_task_and_effort():
+    """Coordinator ruling on the rehearsal's second run: a start whose case-2 regrade Harbor refused for an absent
+    declared artifact is an observation with its verifier's 0, counted; the readout counts the flag per task and
+    effort."""
+    absent = {"reward": 0, "artifact_absent": True}
+    table = {TASKS[0]: {"low": [absent, absent], "medium": [0, 1], "high": [absent, 1]}, TASKS[1]: _same([1, 0])}
+    result = _compute(_export(table))
+    assert (result["listed"]["artifact_absent"], result["tasks"][TASKS[0]]["cells"]["low"]["n"],
+            f"- {TASKS[0]}: low 2, medium 0, high 1" in readout.render(result)) == (
+        {TASKS[0]: {"low": 2, "medium": 0, "high": 1}}, 2, True)
+
+
 def test_no_public_figure_is_read_or_printed():
     result = _compute(_export(FAMILY))
     public = {str(task["public_mean_usd_at_max"]) for task in LADDER["tasks"]["list"]}

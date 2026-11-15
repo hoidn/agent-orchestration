@@ -240,7 +240,11 @@ after its regrades is an infrastructure failure on its own row, never scored. A 
 `<attempt id>-regrade-<n>`, so its verifier's compose project and containers are `<attempt id>-regrade-<n>__verifier__…`
 (Harbor lower-cases them), the attempt's own; it runs in its own session with its pid in `slot.json`, and reconcile
 stops a dead launcher's regrade before running it again. A regrade whose load-gate wait was interrupted before any
-regrade ran decides nothing: the start is listed open and the next launch's reconcile regrades it. A null
+regrade ran decides nothing: the start is listed open and the next launch's reconcile regrades it. Harbor refuses
+to regrade a trial whose declared artifact was not collected (an agent that never wrote its output); the regrade's
+output is kept in `regrade/<trial>.log`, and when it ends in that `RegradeError` and in no other problem, case 2's
+reward of 0 stands, an observation flagged `artifact_absent` that the readout counts per task and effort; case 1 is
+still "no reward after regrades", and any other refusal keeps the handling above (plan D5). A null
 `minutes`, token count or `api_retry` was not recorded: the readout prints "not recorded", leaves it out of its
 means and gives how many it left out; it never reads a null as zero. The launcher writes that layout and the readout
 reads it. The export lists the attempts still open (`open`), which enter no count, and the readout says how many

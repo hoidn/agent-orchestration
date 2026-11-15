@@ -50,6 +50,10 @@ neither imports the other. Standard library only.
                                       null: not recorded
                     "graded"          null, or {"passed", "total"} sub-tests where the verifier reports them (D6)
                     "egress_refused"  {address: count} of refused connections (D3); excludes nothing
+                    "artifact_absent" true when the start's regrade (D5 case 2) was refused by the harness because
+                                      a declared artifact was not collected in the source trial: the verifier's 0
+                                      stands, an observation that enters k and n (coordinator ruling on the
+                                      rehearsal's second run); false otherwise
                   }]; per slot, in start order, a start follows only a cut or a pre-session failure, and nothing
                   follows the slot's third pre-session failure, counted in all (D5: relaunched at most twice, lost
                   after the third)
@@ -104,7 +108,7 @@ SLOT = {"slot": str, "task": str, "effort": str, "round": int, "pilot": bool}
 START = {"slot": str, "start": int, "label": str, "row": int, "class": str, "stop_cause": (str, type(None)),
          "reward": (int, float, type(None)), "excluded": (str, type(None)), "contamination": list, "usd": NUMBER,
          "minutes": (*NUMBER, type(None)), "tokens": dict, "api_retry": (int, type(None)), "graded": (dict, type(None)),
-         "egress_refused": dict}
+         "egress_refused": dict, "artifact_absent": bool}
 SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -305,8 +309,18 @@ def _exclusion(start, cls, observed, where):
                           f"reward 0); row {start['row']}, reward {reward!r}")
 
 
+def _artifact_absent(start, cls, where):
+    """The flag of a case-2 regrade refused for a declared artifact never collected sits on an observation whose
+    verifier's 0 stands: reward 0, not excluded (coordinator ruling on the rehearsal's second run)."""
+    if start["artifact_absent"] and not (cls == "observation" and start["reward"] == 0 and start["excluded"] is None):
+        raise RecordError(f"{where}: artifact_absent on class {cls!r}, reward {start['reward']!r}, excluded "
+                          f"{start['excluded']!r}: it marks an observation whose verifier's 0 stands (reward 0, not "
+                          "excluded)")
+
+
 def _outcome(start, cls, observed, where):
     """(counted, success): whether the start enters k and n, and whether it succeeded (None when not counted)."""
+    _artifact_absent(start, cls, where)
     reward = start["reward"]
     if reward not in (0, 1, None):
         raise RecordError(f"{where}: reward {reward!r} is not 0, 1 or null")

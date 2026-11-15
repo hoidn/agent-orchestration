@@ -328,18 +328,26 @@ def _contaminated(starts, ladder):
 def _listed(starts, efforts, ladder):
     """D6's lists: every start that enters no k or n, with its class and why; every flagged observation; the
     attempts cut by a usage limit, counted per effort; the pilot's attempts, marked (D7.2); the refused
-    connections of each attempt (D3, D6), which exclude nothing."""
+    connections of each attempt (D3, D6), which exclude nothing; the regrades refused for an absent artifact."""
     cuts = Counter(s["effort"] for s in starts if s["class"] == "cut")
     return {"exclusions": [_entry(s) | {"reason": _why(s), "contamination": s["contamination"]}
                            for s in starts if not s["counted"]],
             "contaminated": _contaminated(starts, ladder),
             "flags": [_entry(s) for s in starts if s["counted"] and s["flagged"]],
             "cuts": {e: cuts[e] for e in efforts}, "pilot": [_entry(s) for s in starts if s["pilot"]],
-            "egress": _egress(starts)}
+            "egress": _egress(starts), "artifact_absent": _absent(starts, efforts)}
 
 
 def _egress(starts):
     return [_entry(s) | {"refused": s["egress_refused"]} for s in starts if s["egress_refused"]]
+
+
+def _absent(starts, efforts):
+    """Per task that has one, per effort: the starts whose case-2 regrade the harness refused because a declared
+    artifact was not collected; each is an observation whose verifier's 0 stands (coordinator ruling on the
+    rehearsal's second run)."""
+    counts = Counter((s["task"], s["effort"]) for s in starts if s["artifact_absent"])
+    return {task: {e: counts[(task, e)] for e in efforts} for task in sorted({task for task, _ in counts})}
 
 
 def _mean(values):
@@ -608,7 +616,14 @@ def _listed_section(listed, label):
             + ["### Cut by a usage limit, per effort", "", ", ".join(f"{e} {n}" for e, n in listed["cuts"].items()),
                ""] + _entries("The pilot's attempts (they ran first)", listed["pilot"])
             + _entries("Refused connections (they exclude nothing)", listed["egress"], _refused)
+            + _absent_section(listed["artifact_absent"])
             + _contaminated_section(listed["contaminated"], label))
+
+
+def _absent_section(absent):
+    lines = [f"- {task}: " + ", ".join(f"{e} {n}" for e, n in by.items()) for task, by in absent.items()]
+    return (["### Regrades refused, a declared artifact never collected (the verifier's 0 stands), per task and "
+             "effort", ""] + (lines or ["- none"]) + [""])
 
 
 def _contaminated_section(contaminated, label):

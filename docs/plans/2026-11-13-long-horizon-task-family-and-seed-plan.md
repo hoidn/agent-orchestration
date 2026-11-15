@@ -790,7 +790,14 @@ retries meet `lh-passthrough: tranche stopped` and the attempt ends in row 12's 
   gate during verification: one regrade below the gate, and its reward stands. Only a reward of
   0 is regraded, because the known defect of such a verifier under load is a false failure. If
   the harness cannot regrade on Podman, case 1 becomes an infrastructure failure and case 2 is
-  excluded as "indeterminate".
+  excluded as "indeterminate". A regrade the harness refuses because a declared artifact was
+  not collected in the source trial (Harbor 0.25.0's `RegradeError` "<path>: collection failed
+  in the source trial; the record does not contain it") leaves case 2's reward of 0 standing:
+  load cannot make an absent artifact present, so the attempt stays an observation, flagged
+  "artifact absent", and the readout counts the flag per task and effort. Case 1 is unchanged by
+  it, since a reward is only what a verifier gave: still an infrastructure failure, "no reward
+  after regrades". Any other refusal keeps the handling above (coordinator ruling on the
+  rehearsal's second run).
 
 ### D6. The readout
 

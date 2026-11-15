@@ -962,23 +962,50 @@ def regrade_name(attempt_id, n):
     return f"{attempt_id}-regrade-{n}"
 
 
+# Harbor 0.25.0 refuses to regrade a trial whose declared artifacts were not collected (harbor/trial/regrade.py:
+# `_validate_artifact_coverage` adds "<path>: collection failed in the source trial; the record does not contain it"
+# per such artifact, `_raise_artifact_coverage_error` raises RegradeError "Task '<task>' cannot regrade source trial
+# '<trial>': " + the problems joined by "; "), uncaught: exit 1, no trial directory, no container. Its CLI wraps the
+# message (Typer's traceback, 80 columns off a terminal), so the output is read with its whitespace collapsed, from
+# its last "RegradeError: ". Only a refusal whose every problem is an uncollected artifact matches.
+ABSENT_ARTIFACT = re.compile(r"RegradeError: Task '[^']*' cannot regrade source trial '[^']*': (?:\S+: collection "
+                             r"failed in the source trial; the record does not contain it(?:; |$))+$")
+ARTIFACT_ABSENT = "RegradeError: a declared artifact not collected"  # _regrade_once's exception for that refusal
+
+
+def absent_artifact(output):
+    """Whether a regrade's output ends in Harbor's refusal for declared artifacts its source trial never collected,
+    and for no other reason (ABSENT_ARTIFACT)."""
+    text = " ".join(output.split())
+    at = text.rfind("RegradeError: ")
+    return at >= 0 and bool(ABSENT_ARTIFACT.match(text[at:]))
+
+
 def _regrade_once(ctx, ladder, attempt, n):
-    """One verifier-only run of the attempt's trial; (reward or None, exception type or None). Like the harness, it
-    runs in its own session, held until its pid is in slot.json (`regrade`), so reconcile can stop it."""
+    """One verifier-only run of the attempt's trial; (reward or None, exception type or None): ARTIFACT_ABSENT
+    when Harbor refused it, with no trial written, because a declared artifact was not collected (its output is kept
+    in regrade/<trial>.log). Like the harness, it runs in its own session, held until its pid is in slot.json
+    (`regrade`), so reconcile can stop it."""
     attempt_dir, name = ctx.root / "slots" / attempt["id"], regrade_name(attempt["id"], n)
     trial, out = trial_dir(attempt_dir), attempt_dir / "regrade"
     command = harness_command(ctx, "trial", "regrade", str(trial), "-p", str(attempt_dir / "package" / attempt["task"]), "--env",
                               "podman", "--trial-name", name, "-o", str(out))
     env = {**base_env(ctx), "CONTAINERS_CONF_OVERRIDE": str(ctx.lh / "logs" / "containers-override.conf")}
-    proc = subprocess.Popen([*HOLD, *command], env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, start_new_session=True)
+    out.mkdir(exist_ok=True)
+    with open(out / f"{name}.log", "wb") as log:
+        proc = subprocess.Popen([*HOLD, *command], env=env, stdin=subprocess.PIPE, stdout=log,
+                                stderr=subprocess.STDOUT, start_new_session=True)
     slot = attempt_dir / "slot.json"
     _write_json(slot, {**_read_json(slot), "regrade": {"pid": proc.pid, "start": process_start(proc.pid)}})
     proc.stdin.write(b"go\n")
     proc.stdin.close()
     proc.wait()
     regraded = out / name
-    return _reward(regraded), ((_result_json(regraded) or {}).get("exception_info") or {}).get("exception_type")
+    exc = ((_result_json(regraded) or {}).get("exception_info") or {}).get("exception_type")
+    if proc.returncode != 0 and _result_json(regraded) is None and absent_artifact(
+            (out / f"{name}.log").read_text(errors="replace")):
+        exc = ARTIFACT_ABSENT
+    return _reward(regraded), exc
 
 
 def _case(ladder, attempt, record):
@@ -994,9 +1021,9 @@ def _case(ladder, attempt, record):
 
 
 def _regrades(ctx, ladder, attempt, record, most, gate):
-    """Up to `most` regrades, each after the gate opens, until one gives a reward; (verifier timeouts, last reward).
-    `record` takes the count and the reward."""
-    timeouts, reward, record["regrades"] = 0, None, 0
+    """Up to `most` regrades, each after the gate opens, until one gives a reward; (verifier timeouts, last reward,
+    last exception type). `record` takes the count and the reward."""
+    timeouts, reward, exc, record["regrades"] = 0, None, None, 0
     for n in range(1, most + 1):
         if not gate():
             break
@@ -1005,26 +1032,28 @@ def _regrades(ctx, ladder, attempt, record, most, gate):
         if reward is not None:
             record["reward"] = reward
             break
-    return timeouts, reward
+    return timeouts, reward, exc
 
 
 def regraded(ctx, ladder, attempt, record, gate):
     """The record after the regrades D5 calls for, each below the load gate (`gate` waits for it and says whether it
     opened); written to settled.json. Case 1: up to two; a reward then stands, a verifier timeout twice is 0, still
-    none is an infrastructure failure. Case 2: one, whose reward stands (none: indeterminate). When the gate's wait
-    was interrupted before any regrade ran, nothing is decided: the record stays as close wrote it, still due, and
-    the next launch's reconcile regrades it (re-review R-m2)."""
+    none is an infrastructure failure. Case 2: one, whose reward stands (none: indeterminate), except that a regrade
+    Harbor refused because a declared artifact was not collected leaves the verifier's 0 standing, flagged
+    `artifact_absent`: load cannot make an absent artifact present (coordinator ruling on the rehearsal's second
+    run; case 1 is unchanged by it). When the gate's wait was interrupted before any regrade ran, nothing is decided:
+    the record stays as close wrote it, still due, and the next launch's reconcile regrades it (re-review R-m2)."""
     case, given = _case(ladder, attempt, record), record
     if case is None:
         return record
     record = {**record, "regrade_case": case}
-    timeouts, reward = _regrades(ctx, ladder, attempt, record, 2 if case == 1 else 1, gate)
+    timeouts, reward, exc = _regrades(ctx, ladder, attempt, record, 2 if case == 1 else 1, gate)
     if record["regrades"] == 0:
         return given
     if case == 1 and record["reward"] is None:
         record["reward"], record["class"] = (0.0, "observation") if timeouts == 2 else (None, "infrastructure_failure")
     if case == 2 and record["reward"] == 0 and reward is None:  # ran with no reward (Task 8 part A m8)
-        record["indeterminate"] = True
+        record["artifact_absent" if exc == ARTIFACT_ABSENT else "indeterminate"] = True
     with _Lock(ctx.root):
         _write_json(ctx.root / "slots" / attempt["id"] / "settled.json", record)
     return record
@@ -2411,7 +2440,8 @@ def _start_record(root, attempt, ladder):
             settled.get("reward"), "excluded": excluded, "contamination": sorted({h["term_sha256"] for h in hits}),
             "usd": settled["usd"], "minutes": settled.get("minutes"), "tokens": settled.get("tokens"),
             "api_retry": settled.get("api_retry"), "graded": settled.get("graded"),
-            "egress_refused": egress_refused(root / "slots" / attempt["id"])}
+            "egress_refused": egress_refused(root / "slots" / attempt["id"]),
+            "artifact_absent": bool(settled.get("artifact_absent"))}
 
 
 def earlier_labels(text, label):
