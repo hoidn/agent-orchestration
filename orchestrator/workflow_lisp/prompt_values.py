@@ -122,13 +122,15 @@ def refuse_provider_values(body: ExprNode, *, provider_names: Iterable[str], bou
     """
 
     from .expression_traversal import iter_child_exprs, map_expr, walk_expr
-    from .expressions import (CondExpr, FunctionCallExpr, IfExpr, LetStarExpr, MatchExpr, ProcedureCallExpr,
-                              RecordExpr, UnionVariantExpr)
+    from .expressions import (BindProcExpr, CondExpr, FunctionCallExpr, IfExpr, LetStarExpr, MatchExpr,
+                              ProcedureCallExpr, RecordExpr, UnionVariantExpr)
 
     names = frozenset(provider_names)
     externs: list = []
     map_expr(body, lambda name: externs.append(name) or name, bound=frozenset(bound))
-    extern_ids = {id(name) for name in externs if name.name in names}
+    bound_arguments = {id(binding.value_expr) for node in walk_expr(body) if isinstance(node, BindProcExpr)
+                       for binding in node.bindings}
+    extern_ids = {id(name) for name in externs if name.name in names} - bound_arguments
     value_parents = (LetStarExpr, RecordExpr, UnionVariantExpr, IfExpr, CondExpr, MatchExpr, ProcedureCallExpr,
                      FunctionCallExpr)
     candidates = [body] + [child for node in walk_expr(body) if isinstance(node, value_parents)
