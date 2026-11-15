@@ -228,15 +228,16 @@ with `resume`, as after a stop at the cap.
 
 **A stage is named by a full site key.** The last label of a key is not a
 name. The seed `milestones.orc` (`experiments/long_horizon_seed/`; probe K2
-compiled its revision `c93a6954` on `main`, and the keys have not changed
-since) has these eight keys:
+compiled its revision `c93a6954` on `main`; since then the round's check and
+acceptance moved under the test of the milestones' results) has these eight
+keys:
 
 ```text
 workflow:milestones::run / ready
 workflow:milestones::run / spec
 workflow:milestones::run / loop:state[*] / plan
-workflow:milestones::run / loop:state[*] / report
-workflow:milestones::run / loop:state[*] / else / acceptance
+workflow:milestones::run / loop:state[*] / else / report
+workflow:milestones::run / loop:state[*] / else / else / acceptance
 … / built / body / loop:#1[*] / else / each=workflow:milestones::milestone / loop:state[*] / change
 … / built / body / loop:#1[*] / else / each=workflow:milestones::milestone / loop:state[*] / report
 … / built / body / loop:#1[*] / else / each=workflow:milestones::milestone / loop:state[*] / verdict
