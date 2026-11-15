@@ -1,5 +1,5 @@
 {
- "source": "local recording f-rate-limit-retry-after (stub_api.py scenario rate_limit_retry_after, CLI 2.1.311, three tools, via the relay)",
+ "source": "local recording t2a-f-rate-limit-retry-after (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "ApiRateLimitError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -29,7 +29,7 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "f1dcfa00-d72c-4040-8f3d-996a36ead444",
+  "session_id": "4b0e687b-a223-482c-aa11-794de0169eee",
   "tools": [
    "Bash",
    "Edit",
@@ -50,6 +50,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -90,7 +91,7 @@
    "focus",
    "reload-plugins"
   ],
-  "apiKeySource": "ANTHROPIC_API_KEY",
+  "apiKeySource": "none",
   "claude_code_version": "2.1.311",
   "output_style": "default",
   "agents": [
@@ -112,6 +113,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -147,43 +149,45 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "5dc45b91-9095-4153-b3ba-be842c74d632",
+  "uuid": "6650f9ea-5b77-4923-a115-d27b294c2f28",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
   "original_cwd": "/app",
   "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7241.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
   "view_mode": "default"
  },
- "n_events": 15,
+ "n_events": 17,
  "n_api_retry": 10,
  "stream_tail": [
   {
    "type": "system",
    "subtype": "api_retry",
-   "attempt": 9,
-   "max_retries": 10,
-   "retry_delay_ms": 38138,
-   "error_status": 429,
-   "error": "rate_limit",
-   "session_id": "f1dcfa00-d72c-4040-8f3d-996a36ead444",
-   "uuid": "c9334635-e849-4503-be2c-c9f9b152d1b9"
-  },
-  {
-   "type": "system",
-   "subtype": "api_retry",
    "attempt": 10,
    "max_retries": 10,
-   "retry_delay_ms": 39759,
+   "retry_delay_ms": 38830,
    "error_status": 429,
    "error": "rate_limit",
-   "session_id": "f1dcfa00-d72c-4040-8f3d-996a36ead444",
-   "uuid": "adf7bda6-5024-40ad-a1ad-9af97762173a"
+   "session_id": "4b0e687b-a223-482c-aa11-794de0169eee",
+   "uuid": "2cbc3f6b-f70c-411c-bcc1-5d87a5088052"
+  },
+  {
+   "type": "rate_limit_event",
+   "rate_limit_info": {
+    "status": "rejected",
+    "isUsingOverage": false
+   },
+   "uuid": "ae679491-d3b5-4475-ba21-8b1d6d0df442",
+   "session_id": "4b0e687b-a223-482c-aa11-794de0169eee"
   },
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T02:02:57.249Z",
+   "timestamp": "2026-11-14T21:26:36.472Z",
    "error": "rate_limit",
    "is_api_error_message": true,
    "api_error_status": 429,
@@ -214,15 +218,15 @@
     "content": [
      {
       "type": "text",
-      "text": "API Error: Request rejected (429) \u00b7 stub: rate limited"
+      "text": "API Error: Server is temporarily limiting requests (not your usage limit) \u00b7 stub: rate limited"
      }
     ]
    }
   },
   {
-   "duration_api_ms": 79,
+   "duration_api_ms": 85,
    "stop_reason": "stop_sequence",
-   "session_id": "f1dcfa00-d72c-4040-8f3d-996a36ead444",
+   "session_id": "4b0e687b-a223-482c-aa11-794de0169eee",
    "total_cost_usd": 0.00015000000000000001,
    "usage": {
     "input_tokens": 1000,
@@ -297,10 +301,10 @@
    "num_turns": 2,
    "subtype": "success",
    "api_error_status": 429,
-   "result": "API Error: Request rejected (429) \u00b7 stub: rate limited",
+   "result": "API Error: Server is temporarily limiting requests (not your usage limit) \u00b7 stub: rate limited",
    "type": "result",
-   "duration_ms": 197008,
-   "uuid": "4de5663e-d34d-440d-8414-a5a872eb14a2",
+   "duration_ms": 197433,
+   "uuid": "08dfdfd5-515a-46a1-bc00-e621b2ebcbdb",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {

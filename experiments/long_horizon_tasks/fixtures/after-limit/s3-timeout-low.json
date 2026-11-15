@@ -1,0 +1,12 @@
+{
+ "source": "local recording s3-timeout-low (CLI 2.1.311, simple mode with a dummy key, via the relay; stub scenario timeout)",
+ "agent_phase_finished_at": "2026-11-14T01:54:25.577550Z",
+ "requests": 6,
+ "requests_after_the_agent_phase": 1,
+ "last_request_after_s": 7.5,
+ "statuses_after": [
+  200
+ ],
+ "bearer_matches_after": [],
+ "cli_tool_errors": []
+}

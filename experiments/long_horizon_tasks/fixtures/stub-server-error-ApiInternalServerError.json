@@ -1,5 +1,5 @@
 {
- "source": "local recording f-server-error (stub_api.py scenario server_error, CLI 2.1.311, three tools, via the relay)",
+ "source": "local recording t2a-f-server-error (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "ApiInternalServerError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -29,7 +29,7 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "2647f18c-10d8-490d-91d7-46901eca1940",
+  "session_id": "a43cc7e2-8b5a-471f-849a-d47525ece763",
   "tools": [
    "Bash",
    "Edit",
@@ -50,6 +50,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -90,7 +91,7 @@
    "focus",
    "reload-plugins"
   ],
-  "apiKeySource": "ANTHROPIC_API_KEY",
+  "apiKeySource": "none",
   "claude_code_version": "2.1.311",
   "output_style": "default",
   "agents": [
@@ -112,6 +113,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -147,9 +149,13 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "f96b4c77-91ec-4054-ad6f-5e0282d18044",
+  "uuid": "7785fa3e-e0ea-4945-a9d1-32a6dded2620",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
   "original_cwd": "/app",
   "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
@@ -163,27 +169,27 @@
    "subtype": "api_retry",
    "attempt": 9,
    "max_retries": 10,
-   "retry_delay_ms": 37065,
+   "retry_delay_ms": 38144,
    "error_status": 500,
    "error": "server_error",
-   "session_id": "2647f18c-10d8-490d-91d7-46901eca1940",
-   "uuid": "d5fc876c-114d-46fd-9ae1-4e9f933a9e69"
+   "session_id": "a43cc7e2-8b5a-471f-849a-d47525ece763",
+   "uuid": "8269959e-dd0c-4743-bb8b-d1ba9dd062a7"
   },
   {
    "type": "system",
    "subtype": "api_retry",
    "attempt": 10,
    "max_retries": 10,
-   "retry_delay_ms": 35176,
+   "retry_delay_ms": 34182,
    "error_status": 500,
    "error": "server_error",
-   "session_id": "2647f18c-10d8-490d-91d7-46901eca1940",
-   "uuid": "51bf333c-2d31-44ec-b0c3-523faaa7fa76"
+   "session_id": "a43cc7e2-8b5a-471f-849a-d47525ece763",
+   "uuid": "95321e6a-c147-4ea4-a8e3-8d21659d3575"
   },
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T02:24:45.324Z",
+   "timestamp": "2026-11-14T21:51:26.005Z",
    "error": "server_error",
    "is_api_error_message": true,
    "api_error_status": 500,
@@ -220,9 +226,9 @@
    }
   },
   {
-   "duration_api_ms": 54,
+   "duration_api_ms": 77,
    "stop_reason": "stop_sequence",
-   "session_id": "2647f18c-10d8-490d-91d7-46901eca1940",
+   "session_id": "a43cc7e2-8b5a-471f-849a-d47525ece763",
    "total_cost_usd": 0.00015000000000000001,
    "usage": {
     "input_tokens": 1000,
@@ -299,8 +305,8 @@
    "api_error_status": 500,
    "result": "API Error: 500 Internal server error. This is a server-side issue, usually temporary \u2014 try again in a moment. If it persists, check your inference gateway (relay:8080).",
    "type": "result",
-   "duration_ms": 180200,
-   "uuid": "d1179585-3368-48ba-81d2-3daa0bb7b9d6",
+   "duration_ms": 176989,
+   "uuid": "991233e0-24be-46d3-8cb2-8a4538304e33",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {

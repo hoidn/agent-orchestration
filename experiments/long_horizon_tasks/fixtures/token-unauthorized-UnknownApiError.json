@@ -1,5 +1,5 @@
 {
- "source": "local recording tok20-unauthorized (stub_api.py scenario unauthorized, CLI 2.1.311, token mode with a fake token, default tools, via the relay)",
+ "source": "local recording t2a-unauthorized-low (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "UnknownApiError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -29,29 +29,11 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "908a20dc-51a5-4685-bdff-d9f24e880145",
+  "session_id": "9008d8b4-6a06-4f76-8650-d43922d36c21",
   "tools": [
-   "Task",
    "Bash",
-   "CronCreate",
-   "CronDelete",
-   "CronList",
    "Edit",
-   "EnterWorktree",
-   "ExitWorktree",
-   "ListAgents",
-   "Monitor",
-   "NotebookEdit",
-   "Read",
-   "RemoteTrigger",
-   "ReportFindings",
-   "ScheduleWakeup",
-   "SendMessage",
-   "Skill",
-   "TaskStop",
-   "ToolSearch",
-   "Workflow",
-   "Write"
+   "Read"
   ],
   "mcp_servers": [],
   "model": "claude-haiku-5-5",
@@ -167,7 +149,7 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "426ead08-21a4-450b-b901-a6f5ad458db9",
+  "uuid": "94065ba6-4c03-4ef6-81f1-8fcd0c0fbc54",
   "memory_paths": {
    "auto": "/logs/agent/sessions/projects/-app/memory/"
   },
@@ -187,27 +169,27 @@
    "subtype": "api_retry",
    "attempt": 1,
    "max_retries": 10,
-   "retry_delay_ms": 617,
+   "retry_delay_ms": 623,
    "error_status": 401,
    "error": "authentication_failed",
-   "session_id": "908a20dc-51a5-4685-bdff-d9f24e880145",
-   "uuid": "37778701-ae01-42bb-9b75-9d0f960a03af"
+   "session_id": "9008d8b4-6a06-4f76-8650-d43922d36c21",
+   "uuid": "e3644b40-9170-4444-900e-d612019f58d3"
   },
   {
    "type": "system",
    "subtype": "api_retry",
    "attempt": 2,
    "max_retries": 10,
-   "retry_delay_ms": 1178,
+   "retry_delay_ms": 1004,
    "error_status": 401,
    "error": "authentication_failed",
-   "session_id": "908a20dc-51a5-4685-bdff-d9f24e880145",
-   "uuid": "45ce7324-599f-4fea-a02d-2ca0e8c6df73"
+   "session_id": "9008d8b4-6a06-4f76-8650-d43922d36c21",
+   "uuid": "db99e1fd-07a9-4b91-b46c-495c4f1b06a9"
   },
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T04:19:58.458Z",
+   "timestamp": "2026-11-14T21:13:29.675Z",
    "error": "authentication_failed",
    "is_api_error_message": true,
    "api_error_status": 401,
@@ -244,9 +226,9 @@
    }
   },
   {
-   "duration_api_ms": 61,
+   "duration_api_ms": 72,
    "stop_reason": "stop_sequence",
-   "session_id": "908a20dc-51a5-4685-bdff-d9f24e880145",
+   "session_id": "9008d8b4-6a06-4f76-8650-d43922d36c21",
    "total_cost_usd": 0.00015000000000000001,
    "usage": {
     "input_tokens": 1000,
@@ -323,8 +305,8 @@
    "api_error_status": 401,
    "result": "Failed to authenticate. API Error: 401 stub: OAuth token has expired",
    "type": "result",
-   "duration_ms": 2105,
-   "uuid": "8aaac7f5-262a-47c1-b6f5-f7bbfed7c95c",
+   "duration_ms": 1967,
+   "uuid": "aab6998f-fb7e-4a70-8789-3ac79d41e416",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {

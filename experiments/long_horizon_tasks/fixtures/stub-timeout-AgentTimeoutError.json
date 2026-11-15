@@ -1,18 +1,18 @@
 {
- "source": "local recording s3-timeout-low (stub_api.py scenario timeout, CLI 2.1.311, three tools, via the relay)",
+ "source": "local recording t2a-timeout-low (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "AgentTimeoutError",
  "cli_exit_code": null,
  "agent_result": {
-  "n_input_tokens": 5000,
+  "n_input_tokens": 1149000,
   "n_cache_tokens": 0,
-  "n_output_tokens": 500,
-  "cost_usd": 0.0007499999999999999,
+  "n_output_tokens": 114900,
+  "cost_usd": 0.17235000000000203,
   "model_usage": {
    "claude-haiku-5-5": {
-    "n_input_tokens": 5000,
+    "n_input_tokens": 1149000,
     "n_cache_tokens": 0,
-    "n_output_tokens": 500,
-    "cost_usd": 0.0007499999999999999
+    "n_output_tokens": 114900,
+    "cost_usd": 0.17235000000000203
    }
   },
   "rollout_details": null,
@@ -27,7 +27,7 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "2ab4e671-d158-4475-bce5-528114a050fe",
+  "session_id": "ec1989b5-d365-4e56-ab99-64182dce7b6f",
   "tools": [
    "Bash",
    "Edit",
@@ -48,6 +48,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -88,7 +89,7 @@
    "focus",
    "reload-plugins"
   ],
-  "apiKeySource": "ANTHROPIC_API_KEY",
+  "apiKeySource": "none",
   "claude_code_version": "2.1.311",
   "output_style": "default",
   "agents": [
@@ -110,6 +111,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -145,21 +147,25 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "ab18a1cb-67c5-4c2f-9922-a82bff9168e4",
+  "uuid": "49f3d40b-cdae-46b5-91c8-d9178a64e79d",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
   "original_cwd": "/app",
   "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
   "view_mode": "default"
  },
- "n_events": 14,
+ "n_events": 2302,
  "n_api_retry": 0,
  "stream_tail": [
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T01:53:32.961Z",
+   "timestamp": "2026-11-14T21:57:03.816Z",
    "message": {
     "model": "claude-haiku-5-5",
     "stop_reason": null,
@@ -176,28 +182,18 @@
      }
     ]
    }
-  },
-  {
-   "type": "tool_progress",
-   "tool_use_id": "toolu_stub0007-heartbeat-0",
-   "tool_name": "Bash",
-   "parent_tool_use_id": "toolu_stub0007",
-   "elapsed_time_seconds": 30,
-   "heartbeat": true,
-   "session_id": "2ab4e671-d158-4475-bce5-528114a050fe",
-   "uuid": "d29f5c1e-aafa-4fe9-86b6-8de8608c48c6"
   },
   {
    "type": "user",
    "parent_tool_use_id": null,
    "tool_result_is_error": [
-    false
+    true
    ]
   },
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T01:54:03.031Z",
+   "timestamp": "2026-11-14T21:57:03.978Z",
    "message": {
     "model": "claude-haiku-5-5",
     "stop_reason": null,
@@ -214,6 +210,13 @@
      }
     ]
    }
+  },
+  {
+   "type": "user",
+   "parent_tool_use_id": null,
+   "tool_result_is_error": [
+    true
+   ]
   }
  ]
 }

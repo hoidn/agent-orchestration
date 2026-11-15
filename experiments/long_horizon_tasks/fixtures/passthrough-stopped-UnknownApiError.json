@@ -1,5 +1,5 @@
 {
- "source": "local recording pt-stopped (stub_api.py scenario pt_stopped, CLI 2.1.311, three tools, via the relay)",
+ "source": "local recording t2a-pt-stopped (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "UnknownApiError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -29,7 +29,7 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "20ec8bfe-15f0-4b0b-a4fc-540c36a09e2b",
+  "session_id": "aa46d3d3-46a6-41b5-aa72-ee1dc6736c9d",
   "tools": [
    "Bash",
    "Edit",
@@ -50,6 +50,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -90,7 +91,7 @@
    "focus",
    "reload-plugins"
   ],
-  "apiKeySource": "ANTHROPIC_API_KEY",
+  "apiKeySource": "none",
   "claude_code_version": "2.1.311",
   "output_style": "default",
   "agents": [
@@ -112,6 +113,7 @@
    "fewer-permission-prompts",
    "doctor",
    "loop",
+   "schedule",
    "claude-api",
    "workflow-authoring",
    "run",
@@ -147,37 +149,29 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "952a8f93-f86d-433b-afc0-88d13187dcf7",
+  "uuid": "aa8dfc91-9047-4e5a-aecc-96627df02314",
+  "memory_paths": {
+   "auto": "/logs/agent/sessions/projects/-app/memory/"
+  },
   "original_cwd": "/app",
   "additional_directories": [],
+  "messaging_socket_path": "/tmp/cc-socks/7240.sock",
   "fast_mode_state": "off",
   "fast_mode_disabled_reason": "sdk_opt_in_required",
   "per_turn_effort_active": true,
   "view_mode": "default"
  },
- "n_events": 5,
+ "n_events": 6,
  "n_api_retry": 0,
  "stream_tail": [
   {
-   "type": "assistant",
-   "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T02:55:45.749Z",
-   "message": {
-    "model": "claude-haiku-5-5",
-    "stop_reason": null,
-    "usage": {
-     "input_tokens": 1000,
-     "output_tokens": 1,
-     "cache_creation_input_tokens": 0,
-     "cache_read_input_tokens": 0
-    },
-    "content": [
-     {
-      "type": "tool_use",
-      "name": "Bash"
-     }
-    ]
-   }
+   "type": "rate_limit_event",
+   "rate_limit_info": {
+    "status": "allowed",
+    "isUsingOverage": false
+   },
+   "uuid": "0b6f4e31-51af-4108-9651-90a30c93427a",
+   "session_id": "aa46d3d3-46a6-41b5-aa72-ee1dc6736c9d"
   },
   {
    "type": "user",
@@ -189,7 +183,7 @@
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T02:55:45.963Z",
+   "timestamp": "2026-11-14T22:30:32.065Z",
    "error": "authentication_failed",
    "is_api_error_message": true,
    "api_error_status": 403,
@@ -226,9 +220,9 @@
    }
   },
   {
-   "duration_api_ms": 68,
+   "duration_api_ms": 78,
    "stop_reason": "stop_sequence",
-   "session_id": "20ec8bfe-15f0-4b0b-a4fc-540c36a09e2b",
+   "session_id": "aa46d3d3-46a6-41b5-aa72-ee1dc6736c9d",
    "total_cost_usd": 0.00015000000000000001,
    "usage": {
     "input_tokens": 1000,
@@ -305,8 +299,8 @@
    "api_error_status": 403,
    "result": "Failed to authenticate. API Error: 403 lh-passthrough: tranche stopped",
    "type": "result",
-   "duration_ms": 328,
-   "uuid": "8a0ff65d-0005-450d-a359-4578dcba6648",
+   "duration_ms": 432,
+   "uuid": "eeedc533-5f43-43ad-b07e-053fdd620b4c",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {
