@@ -1451,7 +1451,10 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
     effectful call of a workflow, a `defproc` or a `let-proc` local is refused with
     `effect_not_permitted` (TD1, D19; §16.3);
   - a `done` or `continue` as the value of a `let*` binding is refused by the build with
-    `loop_recur_contract_invalid` (D21; §13.1).
+    `loop_recur_contract_invalid` (D21; §13.1); so is one, or a form every branch of which is one,
+    as the elements of a `list` or the body of a `list/map` or `list/map-effect`, which crashed in
+    typecheck: a program that crashed is now refused, and nothing that compiled changes (D22;
+    §13.1; `tests/test_workflow_lisp_d22_differential.py`).
 
   Every program that compiled before keeps its closed program, digest and identities, and its
   recorded runs resume; a differential corpus test over the shapes around these fixes and every
