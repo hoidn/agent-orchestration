@@ -145,11 +145,14 @@ def command_lock(study):
 
 
 def exclusive(command):
-    """A command under `command_lock` that starts by removing the credential copies no live unit holds."""
+    """A command under `command_lock` that starts by removing the credential copies no live unit holds and the
+    host-side checks' temporary directories no live command holds (fix round 3, ruling 3)."""
     @functools.wraps(command)
     def run(study, *args, **kwargs):
         with command_lock(study):
             sweep_credentials(study)
+            for path in host.sweep(study.host_temp):
+                print(f"removed a host-side check's temporary directory no live command holds: {path}")
             return command(study, *args, **kwargs)
     return run
 
@@ -315,7 +318,7 @@ def settle(study, records, task, fix, cap, model, status):
         out = {key: value for key, value in out.items() if key != "cut"} | {"incident": f"session audit: {reason}"}
     if out.get("outcome") == "completed" and "final" in collected["patches"]:
         out["final_patch"] = str(records / collected["patches"]["final"])
-        out["visible"] = host.visible_check(task, Path(out["final_patch"]), study.runtime)
+        out["visible"] = host.visible_check(task, Path(out["final_patch"]), study.runtime, study.host_temp)
     receipt = metering.receipts(records, tree=Path(record["tree"]), since=record["created_at"],
                                 home=Path(record["sandbox"]["home"]))
     dump(records / "metering.json", receipt)
@@ -375,14 +378,14 @@ def not_a_limit(study, unit, reason):
     (re-review n3). The settled unit is no longer `cut` but what the rules then make it: the incident its cut set
     aside, an incident when it failed with a provider error, else what its outcome says (a natural failure scores
     0). The decision and the reason go to the ledger, and that pause no longer closes starts; nothing runs again
-    (a unit that is not cut has no re-run). Taken only while the pause is open. A unit not yet settled refuses:
-    `settle` it (a probe run is settled by `probe` once starts reopen)."""
+    (a unit that is not cut has no re-run). Taken only while the pause is open. A unit not yet settled refuses with
+    the way out (`spend.UNSETTLED`)."""
     if not reason.strip():
         raise SystemExit("not-a-limit needs the operator's reason: what the raw result shows")
     spend.limit_pause(spend.rows(study.ledger), unit)
     path, calls_root = unit_files(unit)
     if not path.is_file() or "calls" not in load(path):
-        raise SystemExit(f"{unit} is not settled: `settle` it first (a probe run: `probe`, once starts reopen)")
+        raise SystemExit(f"{unit} is not settled ({spend.UNSETTLED})")
     if "not_a_limit" not in (facts := load(path)):  # a decision whose ledger row a crash lost is not applied twice
         dump(path, uncut(facts, calls_root) | {"not_a_limit": reason})
     row = spend.not_a_limit(study.ledger, unit, reason)
@@ -631,7 +634,7 @@ def summarize_pools(study, kind, tasks):
         try:
             if failed:
                 raise SystemExit(f"judge run failed: {failed}")
-            host.summarize(out, study.criterion)
+            host.summarize(out, study.criterion, study.host_temp)
         except SystemExit as error:
             pool_incident(study, task, kind, str(error), failed)
             shutil.copyfile(out / "records" / "mapping.json", dest / "mapping.json")

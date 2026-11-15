@@ -57,6 +57,11 @@ class Study:
     def frozen(self):
         return self.criterion.parent / "criterion.json"
 
+    @property
+    def host_temp(self):
+        """The record of the host-side checks' temporary directories (`host.temporary`, `host.sweep`)."""
+        return self.state / "host-temp.jsonl"
+
 
 def task_rows(study):
     return [json.loads(line) for line in study.tasks_file.read_text().splitlines()]

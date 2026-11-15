@@ -128,14 +128,20 @@ def refuse_closed(entries):
 
 def closed_by(pause):
     """What the operator reads while `pause` closes starts: the unit, the reset, and for a usage limit its flag, the
-    rule that fired, the line it read, and how to record that the raw result shows no limit (re-review n3)."""
+    rule that fired, the line it read, how to record that the raw result shows no limit (re-review n3), and the way
+    out for a unit a killed runner left unsettled (fix round 3, coordinator ruling 2)."""
     unit, limit = pause.get("unit"), bool(pause.get("rule"))
     fired = f"; {pause['flag']}" if pause.get("flag") else ""
     fired += f"; rule: {pause['rule']}, on {pause.get('text')!r}" if limit else ""
     return (f"starts are closed by {pause.get('reason') or 'a usage limit'} ({unit}, resets {when(pause.get('reset'))}"
             f"{fired}): read the raw result ({pause.get('raw') or unit}), then `resume-after-limit` after the reset, "
             "with the owner's meter reading" + (f"; if it shows no usage limit, `not-a-limit {unit} --reason R` "
-                                                "records that" if limit else ""))
+                                                f"records that once the unit is settled ({UNSETTLED})" if limit else ""))
+
+
+UNSETTLED = ("a run its killed runner left unsettled: `settle` it first; a probe run, which only `probe` settles and "
+             "`probe` refuses while starts are closed: `resume-after-limit` after the reset, then `probe` settles it "
+             "as a cut run")
 
 
 def limit_pause(entries, unit):

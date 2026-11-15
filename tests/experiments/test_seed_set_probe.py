@@ -399,7 +399,7 @@ def test_a_rung_with_two_usable_runs_of_four_stops_the_probe_with_no_list(s):
 
 
 def test_a_settled_but_unchecked_probe_run_gets_its_hidden_check_on_the_next_probe(s, monkeypatch, tmp_path):
-    monkeypatch.setattr(host, "hidden_check", lambda package, patch, runtime: {"passed": True, "failing": []})
+    monkeypatch.setattr(host, "hidden_check", lambda package, patch, runtime, record: {"passed": True, "failing": []})
     home = tmp_path / "home"
     home.mkdir()
     def units(task, k):
@@ -413,7 +413,7 @@ def test_a_settled_but_unchecked_probe_run_gets_its_hidden_check_on_the_next_pro
 
 def test_a_hidden_check_past_its_bound_makes_the_probe_run_an_incident_never_a_failure(s, monkeypatch, tmp_path):
     """Re-review N2: a timed-out hidden check is neither a pass nor a zero; the run is an incident, relaunched once."""
-    monkeypatch.setattr(host, "hidden_check", lambda package, patch, runtime: {
+    monkeypatch.setattr(host, "hidden_check", lambda package, patch, runtime, record: {
         "passed": None, "failing": [], "timed_out": "the hidden tests ran past 600 s"})
     home = tmp_path / "home"
     home.mkdir()

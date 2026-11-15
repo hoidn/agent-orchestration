@@ -5,9 +5,11 @@ run under it with a bound, a check past its bound recorded as timed out (major N
 
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -15,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from experiments.seed_set import host, reaper, study
+from tests.experiments.seed_set_offline_support import hanging_harness
 
 
 def running(pid):
@@ -134,10 +137,49 @@ def test_a_hidden_check_past_its_bound_is_recorded_as_timed_out_never_as_a_resul
     assert (result["passed"], result["timed_out"]) == (None, "the hidden tests ran past 0.5 s")
 
 
-def test_a_summary_past_its_bound_refuses_so_the_pool_is_an_incident(tmp_path, monkeypatch):  # N2
-    pool = tmp_path / "pool"
+def test_a_summary_whose_harness_hangs_past_its_backstop_refuses_and_the_harness_is_killed(tmp_path, monkeypatch):
+    """N2, fix round 3: the per-clone bound is the backstop for a summary harness that itself hangs."""
+    pool, pids = tmp_path / "pool", tmp_path / "pids"
     (pool / "records").mkdir(parents=True)
+    pids.mkdir()
     (pool / "records" / "mapping.json").write_text(json.dumps({"clones": {"a": {}, "b": {}}}))
-    monkeypatch.setattr(host, "CHECK_SEC", 0.25)
-    with pytest.raises(SystemExit, match="summarize of .* ran past 0.5 s"):
+    monkeypatch.setattr(host, "ROOT", hanging_harness(tmp_path / "checkout", pids))
+    monkeypatch.setattr(host, "CHECK_SEC", 1)
+    with pytest.raises(SystemExit, match="summarize of .* ran past its backstop of 2 s"):
         host.summarize(pool, tmp_path / "criterion.json")
+    assert (len(os.listdir(pids)), gone(*map(int, os.listdir(pids)))) == (1, True)
+
+
+def made_by(directory, pid, started):
+    return json.dumps({"path": str(directory), "pid": pid, "started": started}) + "\n"
+
+
+def test_the_sweep_removes_a_recorded_directory_whose_maker_is_gone_and_keeps_a_live_makers(tmp_path):  # round 3
+    me, started = os.getpid(), reaper.stat(os.getpid())[1]
+    dead, live = (Path(tempfile.mkdtemp(prefix=prefix)) for prefix in ("seed-set-host-", "seed-set-view-"))
+    record = tmp_path / "host-temp.jsonl"
+    record.write_text(made_by(dead, me, started + 1) + made_by(live, me, started))  # start time: not this process
+    try:
+        removed = host.sweep(record)
+        assert (removed, dead.exists(), live.exists(), record.read_text()) == (
+            [str(dead)], False, True, made_by(live, me, started))
+    finally:
+        shutil.rmtree(live)
+
+
+def test_the_sweep_refuses_a_record_naming_a_directory_the_kit_does_not_make(tmp_path):  # fix round 3
+    other = tmp_path / "not-the-kits"
+    other.mkdir()
+    record = tmp_path / "host-temp.jsonl"
+    record.write_text(made_by(other, 1, 1))
+    with pytest.raises(SystemExit, match="not a directory the kit makes"):
+        host.sweep(record)
+    assert other.exists()
+
+
+def test_a_host_check_records_its_temporary_directories_and_its_child_makes_its_own_inside(tmp_path):  # round 3
+    record = tmp_path / "host-temp.jsonl"
+    done, _ = host.guarded([sys.executable, "-c", "import tempfile; print(tempfile.mkdtemp())"], record=record)
+    (made,) = [Path(json.loads(line)["path"]) for line in record.read_text().splitlines()]
+    assert (made.name.startswith("seed-set-host-"), Path(done.stdout.strip()).is_relative_to(made),
+            made.exists()) == (True, True, False)

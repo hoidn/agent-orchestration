@@ -31,7 +31,7 @@ from tests.experiments.compare_harness_support import (
 )
 from tests.agent_session_shims import closed_path
 from tests.experiments.seed_set_offline_support import (
-    STUB, VERSION, stable_anchors, stand_in_terms, write_frozen_criterion,
+    STUB, VERSION, hanging_harness, stable_anchors, stand_in_terms, write_frozen_criterion,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -144,6 +144,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(rules, "loaded_elsewhere", lambda runtime: [])  # the test imports this checkout's modules
     rules.record_freeze(s)
     yield SimpleNamespace(study=s, fixes=fixes, plan=stub_plan, fakebin=fakebin)
+    host.sweep(s.host_temp)  # what a host-side check of a launcher a test killed left in the temporary directory
     open_up(outside)
     shutil.rmtree(outside)
     shutil.rmtree(runtime)
@@ -565,14 +566,12 @@ def running(pids_dir):
     return found
 
 
-def test_offline_a_killed_launcher_takes_its_settlements_visible_check_with_it(world, monkeypatch, tmp_path):
-    """Re-review N2: kill -9 of the launcher while the settlement's visible check runs the candidate's code on the
-    host (a conftest that sleeps two minutes). The check runs under the launch guard: nothing of it lives on, and
-    processes that are not the unit's (one in a session of its own, one in this test's group) are untouched."""
-    s, task, pids = world.study, "a0a0a0a0a0", tmp_path / "host-pids"
+def in_the_visible_check(world, monkeypatch, pids, task="a0a0a0a0a0"):
+    """A launcher process running `candidates` for one Sonnet run of `task`, returned once the settlement's visible
+    check runs the candidate's code on the host (a conftest that sleeps two minutes and records its pid in `pids`)."""
+    s = world.study
     pids.mkdir(mode=0o700)
-    plan = json.loads(Path(world.plan).read_text())
-    Path(world.plan).write_text(json.dumps(plan | {"conftest_sleep": {"seconds": 120, "pids": str(pids)}}))
+    hang(world, pids, seconds=120)
     monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
     choose(s, [task])
     spend.record(s.ledger, "smoke", passed=True)
@@ -585,6 +584,21 @@ def test_offline_a_killed_launcher_takes_its_settlements_visible_check_with_it(w
     deadline = time.time() + 600
     while time.time() < deadline and not running(pids) and launcher.poll() is None:
         time.sleep(0.5)
+    return launcher
+
+
+def hang(world, pids, **conftest_sleep):
+    """Have the stand-in's implementer calls leave candidate code that sleeps in host-side checks."""
+    plan = json.loads(Path(world.plan).read_text())
+    Path(world.plan).write_text(json.dumps(plan | {"conftest_sleep": {"pids": str(pids), **conftest_sleep}}))
+
+
+def test_offline_a_killed_launcher_takes_its_settlements_visible_check_with_it(world, monkeypatch, tmp_path):
+    """Re-review N2: kill -9 of the launcher while the settlement's visible check runs the candidate's code on the
+    host (a conftest that sleeps two minutes). The check runs under the launch guard: nothing of it lives on, and
+    processes that are not the unit's (one in a session of its own, one in this test's group) are untouched."""
+    pids = tmp_path / "host-pids"
+    launcher = in_the_visible_check(world, monkeypatch, pids)
     others = [subprocess.Popen(["sleep", "900"], start_new_session=True), subprocess.Popen(["sleep", "900"])]
     try:
         checked = running(pids)
@@ -632,3 +646,86 @@ def test_offline_a_criterion_edited_during_a_batch_refuses_the_batchs_later_unit
     with pytest.raises(SystemExit, match="changed since the freeze"):
         study.candidates(s, "calibration", "direct", [task])
     assert len(spend.starts(spend.rows(s.ledger))) == 1
+
+
+def test_offline_the_next_command_removes_the_temporary_directories_of_a_killed_launchers_host_check(
+        world, monkeypatch, tmp_path, capsys):  # fix round 3, ruling 3
+    """kill -9 of the launcher during the settlement's visible check leaves the check's temporary directories (the
+    launcher runs no cleanup). The next study command's sweep removes the ones the kit recorded and prints them."""
+    s, pids = world.study, tmp_path / "host-pids"
+    launcher = in_the_visible_check(world, monkeypatch, pids)
+    made = [Path(json.loads(line)["path"]) for line in s.host_temp.read_text().splitlines()]
+    launcher.kill()
+    launcher.wait()
+    gone = time.time() + 30
+    while time.time() < gone and (running(pids) or unit_processes(world)):
+        time.sleep(0.5)
+    left = [path.exists() for path in made]
+    with pytest.raises(SystemExit, match="runs"):  # refused after the sweep
+        study.candidates(s, "calibration", "no_such_arm", ["a0a0a0a0a0"])
+    printed = capsys.readouterr().out
+    assert (left, [path.exists() for path in made], [str(path) in printed for path in made]) == (
+        [True, True], [False, False], [True, True])
+
+
+HUNG = "tests/test_hidden_add.py::test_hidden_1"  # a hidden test of `add` that passes on a fixed tree; not the
+# first: the first pytest of a check compiles its bytecode cache, which may take longer than a small bound
+
+
+def test_offline_a_hidden_test_past_its_bound_fails_that_test_and_the_pool_is_summarised(world, monkeypatch, tmp_path):
+    """Fix round 3, ruling 1: one hidden test of the Sonnet clone hangs (its conftest sleeps); past the kit's bound on
+    one hidden test (240 s in the study, 10 s here) it counts as failed, and the pool is summarised."""
+    s, task, pids = world.study, "a0a0a0a0a0", tmp_path / "host-pids"
+    pids.mkdir(mode=0o700)
+    hang(world, pids, seconds=60, task=task, model=S, node=HUNG)
+    monkeypatch.setattr(host, "HIDDEN_TEST_SEC", 10)
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    study.candidates(s, "calibration", "direct", [task])
+    study.candidates(s, "calibration", "direct_sonnet", [task])
+    study.build_pools(s, "calibration", "first", [task])
+    study.judge(s, "calibration", "first", [task])
+    study.summarize_pools(s, "first", [task])
+    results = json.loads((s.results / "pools" / f"{task}-first" / "results.json").read_text())
+    failed = [clone["hidden_failed"] for clone in results["clones"].values() if clone["arm"] == "direct_sonnet"]
+    assert (failed, len(os.listdir(pids)), running(pids)) == ([[HUNG]], 1, [])
+
+
+def test_offline_a_hidden_test_past_its_bound_fails_that_test_in_a_probe_runs_hidden_check(world, monkeypatch,
+                                                                                            tmp_path):
+    """Fix round 3, ruling 1, on the probe's hidden check: the hanging test fails, the run is no incident."""
+    s, task, pids = world.study, "a0a0a0a0a0", tmp_path / "host-pids"
+    pids.mkdir(mode=0o700)
+    package = study.task_dir(s, task)
+    conftest = ["import os, sys, time", f"if {HUNG!r} in ' '.join(sys.argv):",
+                f"    open(os.path.join({str(pids)!r}, str(os.getpid())), 'w').close()", "    time.sleep(60)"]
+    patch = tmp_path / "final.diff"
+    patch.write_text((package / "anchors" / f"{task}-upstream.diff").read_text()
+                     + "diff --git a/conftest.py b/conftest.py\nnew file mode 100644\n--- /dev/null\n+++ b/conftest.py\n"
+                     + f"@@ -0,0 +1,{len(conftest)} @@\n" + "".join(f"+{line}\n" for line in conftest))
+    monkeypatch.setattr(host, "HIDDEN_TEST_SEC", 10)
+    result = host.hidden_check(package, patch, s.runtime)
+    assert (result, len(os.listdir(pids)), running(pids)) == ({"passed": False, "failing": [HUNG]}, 1, [])
+
+
+def test_offline_a_summary_whose_harness_hangs_past_the_per_clone_bound_makes_its_pool_an_incident(
+        world, monkeypatch, tmp_path):
+    """Fix round 3, ruling 1: the per-clone bound is the backstop for a harness that itself hangs (here a stand-in
+    summarize.py that sleeps): the pool is an incident, and the harness's process is killed."""
+    s, task, pids = world.study, "a0a0a0a0a0", tmp_path / "harness-pids"
+    pids.mkdir(mode=0o700)
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    study.candidates(s, "calibration", "direct", [task])
+    study.candidates(s, "calibration", "direct_sonnet", [task])
+    study.build_pools(s, "calibration", "first", [task])
+    study.judge(s, "calibration", "first", [task])
+    monkeypatch.setattr(host, "ROOT", hanging_harness(tmp_path / "checkout", pids))
+    monkeypatch.setattr(host, "CHECK_SEC", 1)
+    study.summarize_pools(s, "first", [task])
+    dest = s.results / "pools" / f"{task}-first"
+    incident = json.loads((dest / "incident.json").read_text())["reason"]
+    assert ("ran past its backstop of 7 s" in incident, (dest / "results.json").exists(), len(os.listdir(pids)),
+            running(pids)) == (True, False, 1, [])

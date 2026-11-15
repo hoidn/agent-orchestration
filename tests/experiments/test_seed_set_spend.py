@@ -472,6 +472,14 @@ def test_not_a_limit_refuses_an_unsettled_unit_and_a_missing_reason(runner):
         study.not_a_limit(runner, str(records), " ")
 
 
+def test_not_a_limit_on_an_unsettled_unit_names_the_way_out(runner):  # fix round 3, ruling 2
+    records = run_dir(runner, calls=1)
+    spend.record(runner.ledger, "pause", unit=str(records), reset=None, rule=units.WORDING)
+    with pytest.raises(SystemExit) as refused:
+        study.not_a_limit(runner, str(records), "no limit")
+    assert all(part in str(refused.value) for part in ("`settle`", "a probe run", "`resume-after-limit`"))
+
+
 def test_not_a_limit_from_the_command_line(runner, monkeypatch):
     monkeypatch.setattr(spend, "ledger_path", lambda: runner.ledger)
     records = cut_run(runner, stdout=[REJECTED, {**ERROR, "result": "AssertionError"}])
@@ -707,6 +715,14 @@ def test_the_refusal_names_the_rule_the_line_and_the_way_to_record_no_limit(ledg
     with pytest.raises(SystemExit) as refused:
         spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"), price=P)
     assert all(part in str(refused.value) for part in (units.WORDING, "You've hit your weekly limit", "not-a-limit"))
+
+
+def test_the_refusal_says_what_to_do_for_a_unit_a_killed_runner_left_unsettled(ledger, tmp_path):  # fix round 3
+    limit = units.usage_limit(call_printing(tmp_path, [{**ERROR, "result": "x"}], "You've hit your weekly limit\n"))
+    spend.record(ledger, "pause", unit=str(tmp_path), **limit)
+    with pytest.raises(SystemExit) as refused:
+        spend.reserve(ledger, "smoke", "candidate", H, 1, "/w/run-2", env("smoke"), price=P)
+    assert all(part in str(refused.value) for part in ("`settle` it first", "a probe run", "`resume-after-limit`"))
 
 
 @pytest.mark.parametrize("stdout, stderr", [([{**ERROR, "result": "Claude AI usage limit reached|1794627837"}], ""),

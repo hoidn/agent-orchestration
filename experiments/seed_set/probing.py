@@ -248,8 +248,9 @@ def probe_check(study, records, facts):
     the run an incident) and, in-tree, the self-check detector over its transcripts."""
     package = task_dir(study, facts["task"])
     final = facts.get("final_patch")
-    facts["hidden"] = (host.hidden_check(package, Path(final), study.runtime) if facts.get("outcome") == "completed"
-                       and final else {"passed": False, "failing": ["no completed final patch"]})
+    facts["hidden"] = (host.hidden_check(package, Path(final), study.runtime, study.host_temp)
+                       if facts.get("outcome") == "completed" and final
+                       else {"passed": False, "failing": ["no completed final patch"]})
     if facts["hidden"].get("timed_out"):  # neither a pass nor a failure: an incident, relaunched once (re-review N2)
         facts["incident"] = f"host check: {facts['hidden']['timed_out']}"
     home = load(records / "record.json")["sandbox"]["home"]

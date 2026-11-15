@@ -22,8 +22,10 @@ With `"usage_limit": {"task": id, "model": m, "reset": epoch}` (an implementer c
 A test lifts the limit by rewriting the plan in place (the sandbox binds the same file). With `"sleep": seconds`
 every call waits that long before it answers. With `"stderr_warning": text` every call that succeeds also prints
 `text` on stderr (a CLI warning beside a successful call). With `"conftest_sleep": {"seconds": N, "pids": dir}` an
-implementer call writes a `conftest.py` into its tree that, whenever pytest loads it in a host-side check (its HOME
-is the check's `seed-set-host-*` box), records its pid as a file in `dir` and sleeps N seconds.
+implementer call appends to the `conftest.py` of its tree code that, whenever pytest loads it in a host-side check
+(its HOME is the check's `seed-set-host-*` box), records its pid as a file in `dir` and sleeps N seconds; optional
+`"task"` and `"model"` keys limit it to that task's calls by that model, and `"node"` to a pytest run whose command
+line names that node (one hidden test that hangs, fix round 3).
 """
 
 import sys
@@ -93,10 +95,11 @@ if (clones and limit.get("judge") == model) or (key is not None and (limit.get("
     usage_limited(limit)
 time.sleep(plan.get("sleep", 0))  # a call that is still running when a test kills its launcher
 slow = plan.get("conftest_sleep")
-if slow and entry is not None:  # candidate code that sleeps in a host-side check (re-review N2)
-    Path("conftest.py").write_text("import os, time\\nif 'seed-set-host-' in os.environ.get('HOME', ''):\\n"
-                                   "    open(os.path.join(%r, str(os.getpid())), 'w').close()\\n"
-                                   "    time.sleep(%d)\\n" % (slow["pids"], slow["seconds"]))
+if slow and entry is not None and (slow.get("task", key), slow.get("model", model)) == (key, model):
+    with open("conftest.py", "a") as conftest:  # candidate code that sleeps in a host-side check (re-review N2)
+        conftest.write("\\nimport os, sys, time\\nif 'seed-set-host-' in os.environ.get('HOME', '') and "
+                       "%r in ' '.join(sys.argv):\\n    open(os.path.join(%r, str(os.getpid())), 'w').close()\\n"
+                       "    time.sleep(%d)\\n" % (slow.get("node", ""), slow["pids"], slow["seconds"]))
 if clones:
     result = [{{"clone": c, "quality": "S8" if changed(c) else "S0", "reason": "scripted"}} for c in clones]
 elif entry is None:
@@ -122,6 +125,19 @@ if plan.get("stderr_warning"):
     print(plan["stderr_warning"], file=sys.stderr, flush=True)
 ended()
 """
+
+
+def hanging_harness(root, pids):
+    """A checkout at `root` (for `host.ROOT`) whose `experiments.compare.summarize` records its pid as a file in
+    `pids` and hangs: a summary harness that itself hangs (fix round 3). Returns `root`."""
+    from pathlib import Path
+    package = Path(root) / "experiments" / "compare"
+    package.mkdir(parents=True)
+    for init in (package.parent / "__init__.py", package / "__init__.py"):
+        init.write_text("")
+    (package / "summarize.py").write_text(
+        f"import os, time\nopen(os.path.join({str(pids)!r}, str(os.getpid())), 'w').close()\ntime.sleep(300)\n")
+    return Path(root)
 
 
 def manifest_rows(sizes, smoke=True):
