@@ -971,8 +971,8 @@ own delivery status and captured evidence.
     and the separate internal run-reference target `2.35` retain their contracts.
   - W3 extends `let-proc` with several nonempty local bindings, inferred lexical
     captures and bounded expected `ProcRef` signatures; the
-    [local-hook contract](../docs/design/workflow_lisp_write_once.md#63-language-changes-to-let-proc)
-    owns grammar and preparation. An incomplete signature requires exactly one
+    [frontend specification §7.8](../docs/design/workflow_lisp_frontend_specification.md#78-procedure-references)
+    owns the grammar and its diagnostics. An incomplete signature requires exactly one
     authored direct consumer call site; complete signatures retain reuse.
     Only used lexical captures are retained, ordered by resolved name at 2.36.
     Older targets preserve authored capture order and syntax admission.
