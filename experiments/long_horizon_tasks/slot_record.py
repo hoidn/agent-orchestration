@@ -22,41 +22,63 @@ neither imports the other. Standard library only.
                     "label"           the configuration label it ran under: the current one or an earlier one
                     "row"             the row of D5 that classified its ending (classification.rows); row 16 awaits
                                       a ruling and is refused until the ruling gives the start its row
-                    "class"           the class the launcher decided: the row's class, or "stop" when the launcher
-                                      stopped the tranche on this attempt (then "stop_cause" names why)
+                    "class"           the class the launcher decided: the row's class, "stop" when the launcher
+                                      stopped the tranche on this attempt (then "stop_cause" names why), or
+                                      "infrastructure_failure" on an observation's row for regrade case 1, or on
+                                      the pre-session row with a cost above 0 (a pre-session failure has none, D5:
+                                      a "pre_session_failure" with a cost is refused)
                     "stop_cause"      null, or one of LAUNCHER_STOPS: a stop of D7.7 the launcher sees in an attempt
                                       whose row is not a stop row; required exactly then, and only where the cause
                                       can occur (LAUNCHER_STOPS: on a session's start, on the smoke's slot, or on any)
                     "reward"          the verifier's reward, 0 or 1, or null; read only for an observation, where
-                                      null is 0 (D5), except after a normal ending, which is regraded first (D5)
-                    "excluded"        null, or why an observation is excluded after all: "no reward after regrades"
-                                      (D5, regrade case 1, an infrastructure failure: a normal ending, reward null),
-                                      "indeterminate" (D5, regrade case 2: a reward of 0 that could not be regraded)
+                                      it is only what a verifier gave: a counted observation has one, and one with
+                                      none is regraded first (D5 case 1, after any ending; Task 7 ruling 3)
+                    "excluded"        null, or the D5 regrade case that takes an observation out of k and n: "no
+                                      reward after regrades" (regrade case 1: class "infrastructure_failure" on an
+                                      observation's row, reward null; ladder.json and D5: still no reward file is an
+                                      infrastructure failure) or "indeterminate" (regrade case 2: an observation
+                                      with a reward of 0 that could not be regraded)
                     "contamination"   the SHA-256 of each frozen term the launcher's scan found in the attempt's
                                       transcript at teardown (readout.contamination_scan: the SHA-256 of a term's
                                       UTF-8 bytes, or canary_sha256), never the term; [] when none. On a start of any
                                       class; an observation with a hit is excluded, any other start keeps its class
                     "usd"             the settled priced cost of the start (D4), finite and not negative
-                    "minutes"         the session's length, finite and not negative
-                    "tokens"          {"input", "output", "cache_read", "cache_write_5m", "cache_write_1h"}: integers
-                    "api_retry"       the number of api_retry events in the stream (D5: recorded per attempt)
+                    "minutes"         the session's length, finite and not negative, or null: not recorded
+                    "tokens"          {"input", "output", "cache_read", "cache_write_5m", "cache_write_1h"}: each an
+                                      integer, or null: not recorded
+                    "api_retry"       the number of api_retry events in the stream (D5: recorded per attempt), or
+                                      null: not recorded
                     "graded"          null, or {"passed", "total"} sub-tests where the verifier reports them (D6)
-                    "egress_refused"  {address: count} of refused connections (D3); excludes nothing
+                    "egress_refused"  {address: count} of refused connections toward addresses outside the kit
+                                      (D3); excludes nothing
+                    "relay_lookup_timeouts"
+                                      {address: count} of connections to the relay itself that the egress sidecar
+                                      logged as refused when its lookup of `relay` timed out: no refused egress
+                                      (coordinator ruling on the rehearsal's second run); excludes nothing
+                    "artifact_absent" true when the start's regrade (D5 case 2) was refused by the harness because
+                                      a declared artifact was not collected in the source trial: the verifier's 0
+                                      stands, an observation that enters k and n (coordinator ruling on the
+                                      rehearsal's second run); false otherwise
                   }]; per slot, in start order, a start follows only a cut or a pre-session failure, and nothing
                   follows the slot's third pre-session failure, counted in all (D5: relaunched at most twice, lost
                   after the third)
+  open            the attempts still open when the export was written: [{"slot": a slot id above, "start": its start
+                  number}]. They enter no count; the readout names how many there are (Task 8 part A m11)
   allowance       null, or {"weekly_points": meter points of a weekly allowance the tranche used, summed from the
                   owner's readings, finite and not negative, "readings": the ledger rows they come from} (D6)
 
 A start's class (observation, flagged or not; cut; infrastructure failure; stop; pre-session failure) is its row's
-in ladder.json unless the launcher stopped on it; a stop is never scored. An observation with "excluded" set, or with
-a contamination hit, is listed and enters no k or n.
+in ladder.json unless the launcher stopped on it or it is regrade case 1; a stop is never scored. An observation with
+"excluded" set, or with a contamination hit, is listed and enters no k or n; so is every start of another class. A figure that is null was
+not recorded and is never read as zero: the readout leaves it out of its means and says how many it left out
+(coordinator ruling, Task 5).
 
-How the launcher's own records map to this layout (they differ from it in four places, feat/lh-launcher 0ff18eda):
-regrade case 1 (no reward after the regrades of a normal ending) is row 5, class "observation", reward null,
-excluded "no reward after regrades", not class "infrastructure_failure"; regrade case 2 is excluded
-"indeterminate", reward 0, not a flag `indeterminate`; a row-16 ending is not exported until the ruling has given it
-a row and the class that row has (the class "ruling" is refused); the stream's api_retry count is "api_retry".
+How the launcher's own records map to this layout (they differ from it in three places, feat/lh-launcher 0ff18eda):
+regrade case 2 is excluded "indeterminate", reward 0, not a flag `indeterminate`; a row-16 ending is not exported
+until the ruling has given it a row and the class that row has (the class "ruling" is refused); the stream's
+api_retry count is "api_retry". Regrade case 1 is exported as the launcher records it, class
+"infrastructure_failure" on its observation row (row 5 after a normal ending), with excluded "no reward after
+regrades" naming the case (coordinator rulings, Task 5 and Task 7 ruling 3).
 """
 
 import hashlib
@@ -69,23 +91,29 @@ EXCLUSIONS = ("no reward after regrades", "indeterminate")
 ENDS = ("schedule", "ceiling", "starts", "stop")
 # The stops of D7.7 the launcher sees in an attempt's own files whatever its D5 row, each with where it can occur:
 # "a session" (a start that is not a pre-session failure: the init event, the stream and the subagent files come
-# from a session), "the smoke's slot" (D7.1, smoke_cell) or "any start" (token_scan.py reads every teardown's files).
-# The first five are feat/lh-launcher's words (ladder.py init_stop, stream_stop, _launcher_stop at 0ff18eda).
+# from a session), "the smoke's slot" (D7.1, smoke_cell) or "any start": token_scan.py reads every teardown's files,
+# and the runtime check reads the containers of any start that had a session or containers, which a pre-session
+# failure can have. A scan that could not finish is a stop, since it cannot show that nothing leaked (coordinator
+# ruling, Task 5). A launch refused before the harness ran is no start: it is not exported and has no cause here.
 LAUNCHER_STOPS = {"an init event with another tool list": "a session",
                   "an init event with another CLI version": "a session",
                   "an init event with another credential source": "a session",
                   "a sign of paid extra usage in the session's stream": "a session",
                   "a subagent file": "a session",
                   "a match of token_scan.py": "any start",
+                  "an incomplete scan of token_scan.py": "any start",
+                  "a match of the runtime check in the attempt's containers": "any start",
+                  "an incomplete scan of the runtime check in the attempt's containers": "any start",
                   "a failed smoke check": "the smoke's slot"}
 AGAIN_AFTER = ("cut", "pre_session_failure")  # D5: the only classes whose slot is run again
 NUMBER = (int, float)
 EXPORT = {"label": str, "earlier_labels": list, "end": (dict, type(None)), "slots": list, "starts": list,
-          "allowance": (dict, type(None))}
+          "allowance": (dict, type(None)), "open": list}
 SLOT = {"slot": str, "task": str, "effort": str, "round": int, "pilot": bool}
 START = {"slot": str, "start": int, "label": str, "row": int, "class": str, "stop_cause": (str, type(None)),
          "reward": (int, float, type(None)), "excluded": (str, type(None)), "contamination": list, "usd": NUMBER,
-         "minutes": NUMBER, "tokens": dict, "api_retry": int, "graded": (dict, type(None)), "egress_refused": dict}
+         "minutes": (*NUMBER, type(None)), "tokens": dict, "api_retry": (int, type(None)), "graded": (dict, type(None)),
+         "egress_refused": dict, "relay_lookup_timeouts": dict, "artifact_absent": bool}
 SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -195,19 +223,24 @@ def _slots(slots, ladder):
 
 
 def _usage(start, where):
-    fields(start["tokens"], dict.fromkeys(TOKEN_KINDS, int), f"{where}: tokens")
-    if min([*start["tokens"].values(), start["api_retry"]]) < 0:
+    fields(start["tokens"], dict.fromkeys(TOKEN_KINDS, (int, type(None))), f"{where}: tokens")
+    if min([n for n in (*start["tokens"].values(), start["api_retry"]) if n is not None], default=0) < 0:
         raise RecordError(f"{where}: a negative token or api_retry count")
     _amount(start["usd"], "usd", where)
-    _amount(start["minutes"], "minutes", where)
+    if start["minutes"] is not None:
+        _amount(start["minutes"], "minutes", where)
     graded = start["graded"]
     if graded is not None:
         fields(graded, {"passed": int, "total": int}, f"{where}: graded")
         if not 0 <= graded["passed"] <= graded["total"]:
             raise RecordError(f"{where}: graded {graded} does not hold 0 <= passed <= total")
-    refused = start["egress_refused"]
-    if not all(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in refused.values()):
-        raise RecordError(f"{where}: egress_refused {refused} is not address -> a positive count")
+    for key in ("egress_refused", "relay_lookup_timeouts"):
+        _by_address(start[key], key, where)
+
+
+def _by_address(counts, key, where):
+    if not all(isinstance(n, int) and not isinstance(n, bool) and n > 0 for n in counts.values()):
+        raise RecordError(f"{where}: {key} {counts} is not address -> a positive count")
 
 
 def frozen_term_digests(ladder):
@@ -243,42 +276,70 @@ def _stop_seen(cause, row, slot, ladder):
     return seen == "any start" or (seen == "a session" and row["class"] != "pre_session_failure")
 
 
+def _fits_row(start, row):
+    """Whether a start with no launcher cause fits its row: the row's class; an infrastructure failure on an
+    observation's row marked as regrade case 1 (_exclusion checks the case), or on the pre-session row with a cost
+    (so it was no pre-session failure, which has none: D5, rulings on Task 8 part A m12 and re-review R-B1). A
+    pre-session failure with a cost fits no row."""
+    cls = start["class"]
+    case_1 = cls == "infrastructure_failure" and row["class"] == "observation" and start["excluded"] == EXCLUSIONS[0]
+    metered = cls == "infrastructure_failure" and row["class"] == "pre_session_failure" and start["usd"] > 0
+    free = cls != "pre_session_failure" or start["usd"] == 0  # re-review R-B1: a pre-session failure has no cost
+    return free and (cls == row["class"] or case_1 or metered)
+
+
 def _class(start, row, slot, ladder, where):
-    """The launcher's class, checked against the row: the row's class, or a stop with a launcher cause where that
-    cause can occur (D5, D7.7)."""
+    """The launcher's class, checked against the row: one that fits it with no launcher cause (_fits_row), or a
+    stop with a launcher cause where that cause can occur (D5, D7.7)."""
     cls, cause = start["class"], start["stop_cause"]
-    if (cls == row["class"] and cause is None) or (cls == "stop" != row["class"]
-                                                   and _stop_seen(cause, row, slot, ladder)):
+    if (cause is None and _fits_row(start, row)) or (cls == "stop" != row["class"]
+                                                     and _stop_seen(cause, row, slot, ladder)):
         return cls
     raise RecordError(f"{where}: class {cls!r} with stop_cause {cause!r} does not fit row {row['row']} "
-                      f"({row['class']}) on slot {slot['slot']!r}: the class is the row's, or 'stop' with a cause of "
-                      f"LAUNCHER_STOPS where it can occur, {LAUNCHER_STOPS}")
+                      f"({row['class']}) on slot {slot['slot']!r}: the class is the row's, 'infrastructure_failure' "
+                      f"for regrade case 1 on an observation's row or with a cost on the pre-session row (a "
+                      f"pre-session failure has none), or 'stop' with a cause of LAUNCHER_STOPS where it can occur, "
+                      f"{LAUNCHER_STOPS}")
 
 
-def _exclusion(start, cls, normal, where):
-    """An exclusion is an observation's, and fits its D5 case (regrade case 1 or 2)."""
+def _exclusion(start, cls, observed, where):
+    """An exclusion fits its D5 regrade case: case 1, an observation's ending still with no reward after its
+    regrades, is an infrastructure failure (ladder.json, D5, Task 7 ruling 3); case 2, a reward of 0 that could not
+    be regraded, an observation."""
     excluded, reward = start["excluded"], start["reward"]
-    if cls != "observation" or excluded not in EXCLUSIONS:
-        raise RecordError(f"{where}: excluded {excluded!r}: only an observation is excluded, as one of {EXCLUSIONS}")
-    case_1 = excluded == EXCLUSIONS[0] and start["row"] == normal and reward is None
-    case_2 = excluded == EXCLUSIONS[1] and reward == 0
+    if excluded not in EXCLUSIONS:
+        raise RecordError(f"{where}: excluded {excluded!r} is not one of {EXCLUSIONS}")
+    case_1 = (excluded == EXCLUSIONS[0] and cls == "infrastructure_failure" and start["row"] in observed
+              and reward is None)
+    case_2 = excluded == EXCLUSIONS[1] and cls == "observation" and reward == 0
     if not (case_1 or case_2):
-        raise RecordError(f"{where}: excluded {excluded!r} does not fit its D5 case (case 1: a normal ending, "
-                          f"reward null; case 2: reward 0); row {start['row']}, reward {reward!r}")
+        raise RecordError(f"{where}: excluded {excluded!r} with class {cls!r} does not fit its D5 case (case 1: an "
+                          f"infrastructure failure on an observation's row, reward null; case 2: an observation, "
+                          f"reward 0); row {start['row']}, reward {reward!r}")
 
 
-def _outcome(start, cls, normal, where):
+def _artifact_absent(start, cls, where):
+    """The flag of a case-2 regrade refused for a declared artifact never collected sits on an observation whose
+    verifier's 0 stands: reward 0, not excluded (coordinator ruling on the rehearsal's second run)."""
+    if start["artifact_absent"] and not (cls == "observation" and start["reward"] == 0 and start["excluded"] is None):
+        raise RecordError(f"{where}: artifact_absent on class {cls!r}, reward {start['reward']!r}, excluded "
+                          f"{start['excluded']!r}: it marks an observation whose verifier's 0 stands (reward 0, not "
+                          "excluded)")
+
+
+def _outcome(start, cls, observed, where):
     """(counted, success): whether the start enters k and n, and whether it succeeded (None when not counted)."""
+    _artifact_absent(start, cls, where)
     reward = start["reward"]
     if reward not in (0, 1, None):
         raise RecordError(f"{where}: reward {reward!r} is not 0, 1 or null")
     if start["excluded"] is not None:
-        _exclusion(start, cls, normal, where)
+        _exclusion(start, cls, observed, where)
     if cls != "observation" or start["excluded"] is not None or start["contamination"]:
         return False, None
-    if reward is None and start["row"] == normal:
-        raise RecordError(f"{where}: a normal ending with no reward is regraded first (D5): record the reward, or "
-                          "exclude it as 'no reward after regrades'")
+    if reward is None:
+        raise RecordError(f"{where}: an observation with no reward is regraded first (D5, Task 7 ruling 3): record "
+                          "the reward, or exclude it as 'no reward after regrades'")
     return True, reward == 1
 
 
@@ -298,8 +359,8 @@ def _start(start, slots, labels, ladder):
     cls = _class(start, row, slot, ladder, where)
     _usage(start, where)
     _contamination(start, frozen_term_digests(ladder), where)
-    normal = next(r["row"] for r in rows.values() if r["ending"] == "Normal")
-    counted, success = _outcome(start, cls, normal, where)
+    observed = {r["row"] for r in rows.values() if r["class"] == "observation"}
+    counted, success = _outcome(start, cls, observed, where)
     return start | {key: slot[key] for key in ("task", "effort", "round", "pilot")} | {
         "flagged": bool(row.get("flagged")) and cls == "observation", "ending": row["ending"], "counted": counted,
         "success": success}
@@ -343,6 +404,10 @@ def load(export, ladder):
     slots = _slots(export["slots"], ladder)
     starts = [_start(start, slots, labels, ladder) for start in export["starts"]]
     _once(starts)
+    for entry in export["open"]:
+        fields(entry, {"slot": str, "start": int}, "an open attempt")
+        if entry["slot"] not in slots:
+            raise RecordError(f"an open attempt: slot {entry['slot']!r} joins no slot of the schedule")
     _end(export["end"], starts, ladder)
     if export["allowance"] is not None:
         fields(export["allowance"], {"weekly_points": NUMBER, "readings": str}, "allowance")

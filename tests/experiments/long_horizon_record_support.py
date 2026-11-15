@@ -27,6 +27,7 @@ TERM = "<a frozen term>"
 TERM_SHA256 = hashlib.sha256(TERM.encode()).hexdigest()
 STAND_IN_VALUES = {"readout.contamination_scan.terms": [TERM],
                    "readout.contamination_scan.canary_sha256": "c" * 64,
+                   "readout.contamination_scan.canary_exempt_tasks": [],
                    "readout.graded_outcome.verifiers": {TASKS[0]: "passed and total sub-tests"},
                    "readout.fall_bound.seed": 20261114}
 STANDINS = {p["field"]: STAND_IN_VALUES[p["field"]] for p in LADDER["pending"] if p["field"].startswith("readout.")}
@@ -62,7 +63,8 @@ def filled(ladder=LADDER):
 def start(slot, number, label, reward):
     return {"slot": slot, "start": number, "label": label, "row": 5, "class": "observation", "stop_cause": None,
             "reward": reward, "excluded": None, "contamination": [], "usd": 1.0, "minutes": 30.0,
-            "tokens": {kind: 10 for kind in TOKEN_KINDS}, "api_retry": 0, "graded": None, "egress_refused": {}}
+            "tokens": {kind: 10 for kind in TOKEN_KINDS}, "api_retry": 0, "graded": None, "egress_refused": {},
+            "relay_lookup_timeouts": {}, "artifact_absent": False}
 
 
 def _outcomes(outcome):
@@ -71,7 +73,7 @@ def _outcomes(outcome):
     return [{"reward": o} if isinstance(o, int) else o for o in (outcome if isinstance(outcome, list) else [outcome])]
 
 
-def export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot=()):
+def export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot=(), open_=()):
     """table: {task: {effort: [outcome of round 1, 2, ...]}}. An outcome is 0 or 1 (an observation ending normally),
     "-" (a slot not started), a dict of start fields, or a list of such dicts (one slot's starts, in order). A start's
     class is its row's unless the dict names one."""
@@ -84,10 +86,12 @@ def export(table, *, label=LABEL, end=CEILING, earlier=(), allowance=None, pilot
                               "pilot": (task, effort, number) in pilot})
                 for fields in _outcomes(outcome):
                     made = start(slot, len(starts) + 1, label, None) | fields
-                    starts.append(made | {"class": fields.get("class", ROW_CLASS[made["row"]])})
+                    cls = fields.get("class", ROW_CLASS[made["row"]])
+                    free = {"usd": 0.0} if cls == "pre_session_failure" and "usd" not in fields else {}  # D5: no cost
+                    starts.append(made | {"class": cls} | free)
     return {"label": label, "earlier_labels": [{"label": old, "ended_by": f"ledger row ending {old[:8]}"}
                                                for old in earlier],
-            "end": end, "slots": slots, "starts": starts, "allowance": allowance}
+            "end": end, "slots": slots, "starts": starts, "allowance": allowance, "open": list(open_)}
 
 
 def same(rewards):

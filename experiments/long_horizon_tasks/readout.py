@@ -315,11 +315,6 @@ def _why(start):
     return "; ".join(reasons) or start["ending"]
 
 
-def _d5_class(start):
-    """The class D5 gives the start: no reward after regrades is an infrastructure failure (regrade case 1)."""
-    return "infrastructure_failure" if start["excluded"] == slot_record.EXCLUSIONS[0] else start["class"]
-
-
 def _contaminated(starts, ladder):
     """Every start with a contamination hit, of any class, with its label, and the tasks they are on (D6). Over the
     tranche's starts of every label this is D7.7's count: its stop is the tranche's, and D7.6 confines only placement
@@ -333,29 +328,50 @@ def _contaminated(starts, ladder):
 def _listed(starts, efforts, ladder):
     """D6's lists: every start that enters no k or n, with its class and why; every flagged observation; the
     attempts cut by a usage limit, counted per effort; the pilot's attempts, marked (D7.2); the refused
-    connections of each attempt (D3, D6), which exclude nothing."""
+    connections of each attempt (D3, D6), which exclude nothing, and its relay lookup timeouts apart (no refused
+    egress); the regrades refused for an absent artifact."""
     cuts = Counter(s["effort"] for s in starts if s["class"] == "cut")
-    return {"exclusions": [_entry(s) | {"reason": _why(s), "class": _d5_class(s), "contamination": s["contamination"]}
+    return {"exclusions": [_entry(s) | {"reason": _why(s), "contamination": s["contamination"]}
                            for s in starts if not s["counted"]],
             "contaminated": _contaminated(starts, ladder),
             "flags": [_entry(s) for s in starts if s["counted"] and s["flagged"]],
             "cuts": {e: cuts[e] for e in efforts}, "pilot": [_entry(s) for s in starts if s["pilot"]],
-            "egress": _egress(starts)}
+            "egress": _egress(starts), "relay_timeouts": _relay_timeouts(starts),
+            "artifact_absent": _absent(starts, efforts)}
 
 
 def _egress(starts):
     return [_entry(s) | {"refused": s["egress_refused"]} for s in starts if s["egress_refused"]]
 
 
+def _relay_timeouts(starts):
+    return [_entry(s) | {"timeouts": s["relay_lookup_timeouts"]} for s in starts if s["relay_lookup_timeouts"]]
+
+
+def _absent(starts, efforts):
+    """Per task that has one, per effort: the starts whose case-2 regrade the harness refused because a declared
+    artifact was not collected; each is an observation whose verifier's 0 stands (coordinator ruling on the
+    rehearsal's second run)."""
+    counts = Counter((s["task"], s["effort"]) for s in starts if s["artifact_absent"])
+    return {task: {e: counts[(task, e)] for e in efforts} for task in sorted({task for task, _ in counts})}
+
+
 def _mean(values):
     return sum(values) / len(values) if values else None
 
 
+def _recorded(values):
+    """(the mean of the recorded values, how many were not recorded): a null figure is left out, never read as 0."""
+    kept = [v for v in values if v is not None]
+    return _mean(kept), len(values) - len(kept)
+
+
 def _means(observations):
-    return {"mean_usd": _mean([s["usd"] for s in observations]),
-            "mean_minutes": _mean([s["minutes"] for s in observations]),
-            "mean_tokens": {kind: _mean([s["tokens"][kind] for s in observations])
-                            for kind in slot_record.TOKEN_KINDS}}
+    minutes = _recorded([s["minutes"] for s in observations])
+    tokens = {kind: _recorded([s["tokens"][kind] for s in observations]) for kind in slot_record.TOKEN_KINDS}
+    return {"mean_usd": _mean([s["usd"] for s in observations]), "mean_minutes": minutes[0],
+            "mean_tokens": {kind: mean for kind, (mean, _) in tokens.items()},
+            "not_recorded": {"minutes": minutes[1], "tokens": {kind: left for kind, (_, left) in tokens.items()}}}
 
 
 def _started(starts, classes):
@@ -483,7 +499,7 @@ def compute(ladder, export, standins=None, dropped=None):
     # D6: a readout that ends in a stop places nothing; it still reports the bound on the fall (ruling R2).
     place = export["end"] is None or export["end"]["by"] != "stop"
     return {"rehearsal": rehearsal, "configuration": _configuration(criterion), "label": export["label"],
-            "end": export["end"], "stop": not place,
+            "end": export["end"], "open": len(export["open"]), "stop": not place,
             "tasks": _placement(_counts(current, tasks, efforts, level), rules, place, _drops(dropped, tasks)),
             "effort": _effort(triples, efforts, rules, place),
             "listed": _listed(current, efforts, criterion) | {"contaminated": _contaminated(starts, criterion)},
@@ -523,8 +539,9 @@ def _header(result):
               f"{configuration['cli_version']}; tools {', '.join(configuration['tools'])}; Harbor "
               f"{configuration['harbor']}, podman-compose {configuration['podman_compose']}; agent network "
               f"{network['network_mode']}, hosts {', '.join(network['allowed_hosts'] or ['(pending)'])}",
-              f"- Configuration label: `{result['label']}`", f"- Tranche: {ended}",
-              f"- Computed under Python {result['python']} (the bootstrap's draws are Python's random.Random)", ""]
+              f"- Configuration label: `{result['label']}`", f"- Tranche: {ended}"]
+    lines += [f"- {result['open']} attempt(s) still open: in no count until they close"] if result["open"] else []
+    lines += [f"- Computed under Python {result['python']} (the bootstrap's draws are Python's random.Random)", ""]
     return lines
 
 
@@ -587,8 +604,8 @@ def _excluded(entry):
     return entry["reason"] + (f" (terms by SHA-256: {', '.join(found)})" if found else "")
 
 
-def _refused(entry):
-    return ", ".join(f"{address}: {count}" for address, count in sorted(entry["refused"].items()))
+def _refused(entry, key="refused"):
+    return ", ".join(f"{address}: {count}" for address, count in sorted(entry[key].items()))
 
 
 def _entries(title, entries, why=None):
@@ -605,7 +622,16 @@ def _listed_section(listed, label):
             + ["### Cut by a usage limit, per effort", "", ", ".join(f"{e} {n}" for e, n in listed["cuts"].items()),
                ""] + _entries("The pilot's attempts (they ran first)", listed["pilot"])
             + _entries("Refused connections (they exclude nothing)", listed["egress"], _refused)
+            + _entries("Relay lookup timeouts (connections to the relay itself, no refused egress; they exclude "
+                       "nothing)", listed["relay_timeouts"], lambda e: _refused(e, "timeouts"))
+            + _absent_section(listed["artifact_absent"])
             + _contaminated_section(listed["contaminated"], label))
+
+
+def _absent_section(absent):
+    lines = [f"- {task}: " + ", ".join(f"{e} {n}" for e, n in by.items()) for task, by in absent.items()]
+    return (["### Regrades refused, a declared artifact never collected (the verifier's 0 stands), per task and "
+             "effort", ""] + (lines or ["- none"]) + [""])
 
 
 def _contaminated_section(contaminated, label):
@@ -637,18 +663,26 @@ def _money(value, unit="USD "):
     return "none" if value is None else f"{unit}{value:.2f}"
 
 
+def _recorded_text(mean, left, digits=2):
+    """A mean over the recorded figures, with how many were not recorded; "not recorded" when none was."""
+    if mean is None:
+        return "not recorded" if left else "none"
+    return f"{mean:.{digits}f}" + (f" ({left} not recorded)" if left else "")
+
+
 def _cost_section(result):
     lines = ["## Cost per effort (current label)", "",
              "| Effort | Observations | Mean priced cost | Mean minutes | Mean tokens by kind | Starts | Cost of "
              "every start | Successes | Cost per success | Dominated |", "|" + " --- |" * 10]
     for effort, c in result["cost"]["per_effort"].items():
-        tokens = ", ".join(f"{k} {'none' if v is None else round(v)}" for k, v in c["mean_tokens"].items())
+        left = c["not_recorded"]
+        tokens = ", ".join(f"{k} {_recorded_text(v, left['tokens'][k], 0)}" for k, v in c["mean_tokens"].items())
         dominated = (result["cost"]["dominated"] or {}).get(effort)
         verdict = "withheld" if dominated is None else ("" if result["end"] else "interim: ") + dominated[
             "verdict"] + (f" by {dominated['by']}" if dominated["by"] else "")
         lines.append(f"| {effort} | {c['observations']} | {_money(c['mean_usd'])} | "
-                     f"{_money(c['mean_minutes'], '')} | {tokens} | {c['starts']} | {_money(c['usd_all_starts'])} | "
-                     f"{c['successes']} | {_money(c['usd_per_success'])} | {verdict} |")
+                     f"{_recorded_text(c['mean_minutes'], left['minutes'])} | {tokens} | {c['starts']} | "
+                     f"{_money(c['usd_all_starts'])} | {c['successes']} | {_money(c['usd_per_success'])} | {verdict} |")
     return lines + [""]
 
 

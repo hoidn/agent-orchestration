@@ -12,8 +12,8 @@ client still sends, so that it reads the refusal). In order, before any body byt
   values are printable ASCII and there is one `content-length` of plain digits ("request malformed"), at most
   64 MiB, with at most 32 KiB of headers ("request too large"); the line and headers come within HEADER_TIME
   (else the connection is cut); the bearer token maps to a slot ("unknown token"); the tranche is not stopped
-  ("tranche stopped"); the slot has at most two requests open and the process at most 16 connections ("too
-  many connections").
+  ("tranche stopped"); the slot has at most two requests open and its socket at most 16 connections ("too
+  many connections"). A slot with its own socket (below) is known on that socket only ("unknown token").
 Then, holding the slot (one request in flight per slot; a second waits for the first to be metered, then
 "slot busy" after the wait): the body, read within its time ("request timed out"), is strict JSON (UTF-8, no
 duplicate key at any depth, no NaN: "request malformed"); its top-level keys are recorded ("field not
@@ -61,10 +61,15 @@ State, in DIR (mode 700, this user's; the output file belongs there too):
                   numbers only (`withheld`: the form), and the tranche stops.
   tranche.jsonl   events: close_starts and stop (written here), stop and resume (written by the launcher or a
                   person); every request is refused while the last stop or resume is a stop.
-  fingerprint.json  one salt and each form's length and salted SHA-256 (token_scan.py), written at the start.
+  fingerprint.json  one salt and each form's length and salted SHA-256 (token_scan.py), and the mode ("live" or
+                    "rehearsal"), written at the start.
 The slots file, re-read on every request (the launcher replaces it atomically):
   {"total_usd": T (at most 200), "total_requests": N or null,
-   "slots": {NAME: {"token": FAKE, "cap_usd": C, "cap_requests": M or null}}}   (no fake token twice)
+   "slots": {NAME: {"token": FAKE, "cap_usd": C, "cap_requests": M or null[, "own_socket": true]}}}
+  (no fake token twice). A slot with "own_socket" (the launcher's, one per attempt: plan Task 5, connections) is
+  served on <the --socket's directory>/NAME/passthrough.sock, opened within SOCKETS_POLL of the file naming it,
+  with its own cap of 16 connections, and closed and removed with its directory when the slot is retired; NAME
+  is then a plain name (SLOT_NAME), else the slot gets no socket. The --socket itself serves the other slots.
 A slot is retired by the launcher alone, by removing it: only a token absent from the file is "unknown token". A
 slot at a cap stays and answers "slot cap reached" (cap_requests is the live probe's; the ladder sets none).
 
@@ -75,12 +80,13 @@ exception text: errors print the exception's class and this module's own message
 process is not dumpable. It starts no child process. The vendor client is `http.client` (it reads no proxy
 variable), verifies TLS against the trust store compiled into Python (not one named by the environment) and
 connects to api.anthropic.com:443 only. --rehearsal connects to a stand-in's unix socket instead, refuses
---token-file, and holds a canary it makes itself and writes once to --canary-out (a new mode-600 file).
+--token-file, and holds a canary it makes itself, of a setup-token token's shape (its prefix, 108 characters),
+and writes once to --canary-out (a new mode-600 file).
 
 Usage: python -I passthrough.py --socket PATH --state DIR --slots FILE [--paid-usage HEADER=VALUE]...
-         [--stop-on-non-200] (--token-file FILE | --rehearsal STAND_IN_SOCKET --canary-out FILE --canary-length N)
-Prints `listening <socket>` once bound. Exit 2: refused at the start. SIGTERM: records close_starts
-("passthrough down"), removes the socket, exits 0. A crash leaves no such record: the launcher (Task 5) must
+         [--stop-on-non-200] (--token-file FILE | --rehearsal STAND_IN_SOCKET --canary-out FILE)
+Prints `listening <socket>` once bound, and again for each slot's own socket. Exit 2: refused at the start.
+SIGTERM: records close_starts ("passthrough down"), removes every socket, exits 0. A crash leaves no such record: the launcher (Task 5) must
 treat an unanswered socket as the passthrough being down.
 """
 
@@ -133,7 +139,9 @@ LOGGED = ("retry-after", "x-should-retry", "request-id", "content-encoding")
 READ = 65536
 MAX_BODY = 64 << 20  # bytes of request body
 MAX_HEADER_BYTES = 32 << 10  # bytes of request header names and values together
-MAX_CONNECTIONS = 16  # open connections from the relay, in all
+MAX_CONNECTIONS = 16  # open connections from a relay, per socket (the main one, and each slot's own)
+SLOT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")  # a slot with its own socket: a plain directory name
+SOCKETS_POLL = 0.25  # seconds between two readings of the slots file for the slots' own sockets
 MAX_PER_SLOT = 2  # requests of one slot open at once: one in flight, one waiting
 CLIENT_TIMEOUT = 60  # seconds for any one read from or write to the container's side
 HEADER_TIME = 60  # seconds from waiting for a request line to the end of its headers
@@ -194,9 +202,14 @@ def read_token(path):
     return value
 
 
-def make_canary(path, length):
-    """A canary of `length` base64url characters, written once to a new mode-600 file (the rehearsal's token)."""
-    value = "".join(secrets.choice(string.ascii_letters + string.digits + "-_") for _ in range(length))
+CANARY_PREFIX, CANARY_LENGTH = "sk-ant-oat01-", 108  # a `claude setup-token` token's shape (Task 8 m7)
+
+
+def make_canary(path):
+    """A canary of a setup-token token's shape (its prefix, then base64url characters to its length), written once
+    to a new mode-600 file (the rehearsal's token)."""
+    value = CANARY_PREFIX + "".join(secrets.choice(string.ascii_letters + string.digits + "-_")
+                                    for _ in range(CANARY_LENGTH - len(CANARY_PREFIX)))
     with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as fh:
         fh.write(value + "\n")
     return value
@@ -520,11 +533,13 @@ class Passthrough:
             return True
         return bool(marks) and marks[-1] == "stop"
 
-    def slot_for(self, authorization):
-        """The slot of a fake token, from the headers alone."""
-        _, tokens = self._slots()
+    def slot_for(self, authorization, served=None):
+        """The slot of a fake token, from the headers alone. A slot with its own socket is known on that socket
+        only (`served` names the slot whose socket the request came on; None for the main socket)."""
+        data, tokens = self._slots()
         slot = tokens.get(_bearer(authorization))
-        if slot is None:
+        home = slot if slot is not None and data["slots"][slot].get("own_socket") else None
+        if slot is None or served != home:
             raise Refusal("unknown token")
         if self.stopped():
             raise Refusal("tranche stopped")
@@ -659,7 +674,7 @@ class Handler(BaseHTTPRequestHandler):
             reason = ("path not allowed" if self.requestline != REQUEST_LINE else header_reason(self.headers))
             if reason:
                 raise Refusal(reason)
-            slot = pt.slot_for(self.headers.get("authorization"))
+            slot = pt.slot_for(self.headers.get("authorization"), getattr(self.server, "slot", None))
             with pt.holding(slot):
                 body, request = self._read_request()
                 pt.admit(slot)
@@ -838,7 +853,8 @@ class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
 
     def process_request(self, request, client_address):
         if not self.connections.acquire(blocking=False):  # over the cap: refused without a thread
-            self.pt.log({"time": time.time(), "slot": None, "status": 403, "refused": "too many connections"})
+            slot = getattr(self, "slot", None)  # a slot's own socket names its slot (Task 8 part A m6); the main none
+            self.pt.log({"time": time.time(), "slot": slot, "status": 403, "refused": "too many connections"})
             with contextlib.suppress(OSError):
                 request.settimeout(1)
                 request.sendall(_refusal("too many connections"))
@@ -860,6 +876,63 @@ def serve(socket_path, pt):
     server = _Server(socket_path, Handler)
     server.pt = pt
     return server
+
+
+class Sockets:
+    """The slots' own sockets (plan Task 5, connections). A slot whose entry has `"own_socket": true` is served on
+    `<the main socket's directory>/<slot>/passthrough.sock` (a directory of mode 700 made here, which the slot's
+    relay mounts), with a cap of MAX_CONNECTIONS of its own: a connection is counted against its own attempt
+    before any byte of it is read. Its token is "unknown token" on any other socket, and so is any other token
+    on it. `sync` opens and closes them as the slots file names them; a retired slot's socket and directory go."""
+
+    def __init__(self, pt, main_socket):
+        self.pt, self.base, self.open, self.lock = pt, Path(main_socket).parent, {}, threading.Lock()
+
+    def path(self, name):
+        return self.base / name / "passthrough.sock"
+
+    def sync(self):
+        try:
+            data, _ = self.pt.load_slots()
+        except (Refused, *SLOTS_ERRORS):  # a request then stops the tranche on it (Passthrough._slots)
+            return
+        wanted = {name for name, slot in data["slots"].items() if slot.get("own_socket") and SLOT_NAME.fullmatch(name)}
+        with self.lock:
+            for name in sorted(wanted - set(self.open)):
+                self._open(name)
+            for name in sorted(set(self.open) - wanted):
+                self._close(name)
+
+    def _open(self, name):
+        path = self.path(name)
+        path.parent.mkdir(mode=0o700, exist_ok=True)
+        try:
+            _clear_stale(str(path))
+        except Refused as refused:
+            print(f"lh-passthrough: refused: {refused}", flush=True)
+            return
+        server = serve(str(path), self.pt)
+        server.slot = name
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.open[name] = server
+        print("listening", path, flush=True)
+
+    def _close(self, name):
+        server = self.open.pop(name)
+        server.shutdown()
+        server.server_close()
+        with contextlib.suppress(OSError):
+            os.unlink(self.path(name))
+            os.rmdir(self.path(name).parent)
+
+    def close_all(self):
+        with self.lock:
+            for name in sorted(self.open):
+                self._close(name)
+
+    def run(self, done):
+        while not done.wait(SOCKETS_POLL):
+            self.sync()
 
 
 class _UnixConnection(http.client.HTTPConnection):
@@ -899,9 +972,9 @@ def _credential(args):
     if args.rehearsal:
         if args.token_file:
             raise Refused("--rehearsal never opens a token file")
-        if not (args.canary_out and args.canary_length and args.canary_length > 0):
-            raise Refused("--rehearsal needs --canary-out and a positive --canary-length")
-        return make_canary(args.canary_out, args.canary_length), "rehearsal", unix_upstream(args.rehearsal)
+        if not args.canary_out:
+            raise Refused("--rehearsal needs --canary-out")
+        return make_canary(args.canary_out), "rehearsal", unix_upstream(args.rehearsal)
     if not args.token_file:
         raise Refused("--token-file or --rehearsal is required")
     return read_token(args.token_file), "live", vendor_upstream()
@@ -935,7 +1008,6 @@ def _parse(argv):
     parser.add_argument("--token-file")
     parser.add_argument("--rehearsal", metavar="STAND_IN_SOCKET")
     parser.add_argument("--canary-out")
-    parser.add_argument("--canary-length", type=int)
     return parser.parse_args(argv)
 
 
@@ -946,7 +1018,8 @@ def _start(args):
         raise Refused("--paid-usage takes HEADER=VALUE")
     token, credential, upstream = _credential(args)
     pt = Passthrough(args.state, args.slots, token, credential, upstream, paid, args.stop_on_non_200)
-    (Path(args.state) / "fingerprint.json").write_text(json.dumps(token_scan.fingerprint(token)))
+    fingerprint = {**token_scan.fingerprint(token), "mode": credential}  # the launcher reads the mode (Task 8 M3)
+    (Path(args.state) / "fingerprint.json").write_text(json.dumps(fingerprint))
     _clear_stale(args.socket)
     return pt, serve(args.socket, pt)
 
@@ -962,10 +1035,16 @@ def main(argv=None):
         return 2
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     print("listening", args.socket, flush=True)
+    own, done = Sockets(pt, args.socket), threading.Event()
+    syncing = threading.Thread(target=own.run, args=(done,), daemon=True)
+    syncing.start()
     try:
         server.serve_forever()
     finally:
         pt.event("close_starts", reason="passthrough down", reset=None)
+        done.set()
+        syncing.join()
+        own.close_all()
         server.server_close()
         os.unlink(args.socket)
     return 0
