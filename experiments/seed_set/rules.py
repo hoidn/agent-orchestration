@@ -45,6 +45,7 @@ PRICE_TABLE = Path("orchestrator/providers/price_table.json")  # the runtime's; 
 
 
 def frozen_identity(study):
+    """The freeze's identity of the study as it is now; refuses what the freeze does not bind (module docstring)."""
     for path in (study.frozen, study.criterion):
         if not path.is_file():
             raise SystemExit(f"{path} is missing: freeze the criterion first (plan Step 1f)")
@@ -55,25 +56,42 @@ def frozen_identity(study):
         raise SystemExit(f"study or harness modules loaded from outside the runtime {runtime}: {outside[:3]}; run "
                          "with the runtime as working directory and PYTHONPATH")
     packages = study.tasks_file.resolve().parent.relative_to(runtime) / "tasks"
-    written = [f":(exclude){path.resolve().relative_to(runtime)}" for path in (study.frozen, study.criterion,
-               study.results) if path.resolve().is_relative_to(runtime)]  # written after the commit (Step 1f)
-    if untracked := git(runtime, "--no-optional-locks", "status", "--porcelain", "--untracked-files=all", "--",
-                        *CODE, str(packages), *written):
-        raise SystemExit(f"untracked files in the runtime's code or task packages:\n{untracked}")
-    named, required = load(study.frozen).get("sha256", {}), required_hashes(study)
-    if wrong := sorted(key for key, digest in required.items() if named.get(key) != digest):
-        raise SystemExit(f"{study.frozen} does not name the current sha256 of {wrong} (plan Step 1f)")
-    stability = study.tasks_file.parent / anchors.FILE
-    if lost := anchors.unstable(layout.task_rows(study), load(stability) if stability.is_file() else {},
-                                study.tasks_file.parent / "tasks"):
-        raise SystemExit(f"no stable anchors under study conditions ({stability}) for {lost[:5]} "
-                         f"({len(lost)} packages): run `python -m experiments.seed_set.anchors`, reject what fails")
+    require_tracked(study, runtime, packages)
+    require_named_hashes(study)
+    stability = require_stable_anchors(study)
     return {"criterion_sha256": sha256_file(study.frozen), "judge_criterion_sha256": sha256_file(study.criterion),
             "runtime_commit": runtime_commit(runtime), "code_tree": tree(runtime, *CODE),
             "packages": tree(runtime, f"{packages}/"),
             "tasks_sha256": sha256_file(study.tasks_file), "anchor_stability_sha256": sha256_file(stability),
             "price_table_sha256": sha256_file(runtime / PRICE_TABLE),
             "programs": {path.name: sha256_file(path) for path in sorted(study.programs.glob("*.orc"))}}
+
+
+def require_tracked(study, runtime, packages):
+    """Refuse an untracked file in the runtime's code or task packages (the criterion files and the results,
+    written after the commit, excepted)."""
+    written = [f":(exclude){path.resolve().relative_to(runtime)}" for path in (study.frozen, study.criterion,
+               study.results) if path.resolve().is_relative_to(runtime)]  # written after the commit (Step 1f)
+    if untracked := git(runtime, "--no-optional-locks", "status", "--porcelain", "--untracked-files=all", "--",
+                        *CODE, str(packages), *written):
+        raise SystemExit(f"untracked files in the runtime's code or task packages:\n{untracked}")
+
+
+def require_named_hashes(study):
+    """Refuse a criterion.json that does not name the current sha256 of every file it must (`required_hashes`)."""
+    named, required = load(study.frozen).get("sha256", {}), required_hashes(study)
+    if wrong := sorted(key for key, digest in required.items() if named.get(key) != digest):
+        raise SystemExit(f"{study.frozen} does not name the current sha256 of {wrong} (plan Step 1f)")
+
+
+def require_stable_anchors(study):
+    """The anchor stability file; refuses when a package the study can use has no stable entry at its hash."""
+    stability = study.tasks_file.parent / anchors.FILE
+    if lost := anchors.unstable(layout.task_rows(study), load(stability) if stability.is_file() else {},
+                                study.tasks_file.parent / "tasks"):
+        raise SystemExit(f"no stable anchors under study conditions ({stability}) for {lost[:5]} "
+                         f"({len(lost)} packages): run `python -m experiments.seed_set.anchors`, reject what fails")
+    return stability
 
 
 def tree(runtime, *paths):
@@ -334,30 +352,45 @@ def smoke_check(study):
     runs = [f for name, _, _, _, f in found if not name.startswith("judge")]
     results_path = study.results / "pools" / f"{task}-first" / "results.json"
     results = load(results_path) if results_path.is_file() else {"clones": {}, "excluded_judges": {"pool": "missing"}}
-    clones = results["clones"].values()
     reserved = {row["unit"]: row["calls"] for row in spend.starts(spend.rows(study.ledger)) if row["tranche"] == "smoke"}
-    settled = {unit_of(r) for _, r, _, _, f in found if "calls" in f}
-    checks = {
-        "every_program_ran_without_incident": sorted(f["arm"] for f in runs) == sorted(PLANNED["smoke"])
-        and not any("incident" in f for f in runs),
-        "no_unit_cut_by_a_usage_limit": not any("cut" in f for _, _, _, _, f in found),  # review3 X1
-        "every_reserved_unit_settled": set(reserved) <= settled,
-        "clone_count": len(results["clones"]) == sum(f.get("outcome") == "completed" for f in runs) + 2,
-        "both_judges_rated_every_clone": not results["excluded_judges"] and all(
-            set(c.get("ratings", {})) == {spend.HAIKU, spend.SONNET} for c in clones) and bool(clones),
-        "hidden_result_on_every_clone": bool(clones) and all(c.get("hidden") is not None for c in clones),
-        "ratings_bound_to_judged_patches": ratings_bound(results_path.parent, results),
-        "scans_and_session_audits_clean": all(f.get("scan_hits") == 0 and not f.get("incident") for _, _, _, _, f in found),
-        "bound_model_and_effort_on_every_call": all(bound_argv(r, m, e) for _, r, m, e, _ in found),
-        "calls_within_reserved": all(units.physical_calls(r) <= reserved.get(unit_of(r), 0) for _, r, _, _, _ in found),
-        "no_provider_errors": all(units.provider_incident(r) is None for _, r, _, _, _ in found),
-    }
+    checks = unit_checks(found, runs, reserved) | pool_checks(results_path, results, runs) | call_checks(found, reserved)
     figures = {name: {"calls": units.physical_calls(r), "tokens": tokens(r), "wall_clock_sec_per_call":
                       _per_call(f, r)} for name, r, _, _, f in found}
     passed = all(checks.values()) and len(found) == len(PLANNED["smoke"]) + 2
     direct = [(f, r) for name, r, _, _, f in found if name == "direct" and "cut" not in f]  # a cut call says nothing
     return spend.record(study.ledger, "smoke", passed=passed, checks=checks, figures=figures,
                         **bisect_from_start(direct))
+
+
+def unit_checks(found, runs, reserved):
+    """Every planned program ran without incident, no unit was cut by a usage limit, every reserved unit settled."""
+    settled = {unit_of(r) for _, r, _, _, f in found if "calls" in f}
+    return {"every_program_ran_without_incident": sorted(f["arm"] for f in runs) == sorted(PLANNED["smoke"])
+            and not any("incident" in f for f in runs),
+            "no_unit_cut_by_a_usage_limit": not any("cut" in f for _, _, _, _, f in found),  # review3 X1
+            "every_reserved_unit_settled": set(reserved) <= settled}
+
+
+def pool_checks(results_path, results, runs):
+    """The smoke pool holds every completed run and both anchors, rated by both judges, with hidden results, and
+    its ratings bound to the judged patches."""
+    clones = results["clones"].values()
+    return {"clone_count": len(results["clones"]) == sum(f.get("outcome") == "completed" for f in runs) + 2,
+            "both_judges_rated_every_clone": not results["excluded_judges"] and all(
+                set(c.get("ratings", {})) == {spend.HAIKU, spend.SONNET} for c in clones) and bool(clones),
+            "hidden_result_on_every_clone": bool(clones) and all(c.get("hidden") is not None for c in clones),
+            "ratings_bound_to_judged_patches": ratings_bound(results_path.parent, results)}
+
+
+def call_checks(found, reserved):
+    """Clean scans and session audits, the bound model and effort on every call, calls within the reservation, no
+    provider error."""
+    return {"scans_and_session_audits_clean": all(f.get("scan_hits") == 0 and not f.get("incident")
+                                                  for _, _, _, _, f in found),
+            "bound_model_and_effort_on_every_call": all(bound_argv(r, m, e) for _, r, m, e, _ in found),
+            "calls_within_reserved": all(units.physical_calls(r) <= reserved.get(unit_of(r), 0)
+                                         for _, r, _, _, _ in found),
+            "no_provider_errors": all(units.provider_incident(r) is None for _, r, _, _, _ in found)}
 
 
 def ratings_bound(directory, results):
