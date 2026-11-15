@@ -1,0 +1,474 @@
+diff --git a/orchestrator/workflow_lisp/wcc/defunctionalize.py b/orchestrator/workflow_lisp/wcc/defunctionalize.py
+index e0d3f489c161f40ef0442c15bcadad64c1ef80e2..119f85552d9719f937f722c6d09fcd66a2163b5c 100644
+--- a/orchestrator/workflow_lisp/wcc/defunctionalize.py
++++ b/orchestrator/workflow_lisp/wcc/defunctionalize.py
+@@ -61,6 +61,7 @@ from ..reader import SourceReadTrace, _read_source_file_views
+ from ..syntax import (
+     HelperExpansionFrame,
+     ProcedureExpansionFrame,
++    target_dsl_is_2_33_or_newer,
+     target_dsl_supports_list_traversal,
+     target_dsl_supports_pure_call_composition,
+     target_dsl_supports_rich_loop_values,
+@@ -2731,6 +2732,73 @@ def _loop_effect_compile_error(
+     )
+ 
+ 
++def _wcc_body_nodes(body: WccBody):
++    """Yield `body` and every body nested in it, in pre-order."""
++
++    yield body
++    if isinstance(body, WccLet):
++        yield from _wcc_body_nodes(body.body)
++    elif isinstance(body, WccCase):
++        for arm in body.arms:
++            yield from _wcc_body_nodes(arm.body)
++    elif isinstance(body, WccIf):
++        yield from _wcc_body_nodes(body.then_body)
++        yield from _wcc_body_nodes(body.else_body)
++    elif isinstance(body, WccJoin):
++        yield from _wcc_body_nodes(body.body)
++        yield from _wcc_body_nodes(body.continuation)
++    elif isinstance(body, WccRecJoin):
++        yield from _wcc_body_nodes(body.body)
++        if body.exhaustion is not None:
++            yield from _wcc_body_nodes(body.exhaustion)
++
++
++def _performs_effect(node: WccBody, *, context: _LoweringContext) -> bool:
++    value = node.bound_value if isinstance(node, WccLet) else None
++    if isinstance(value, WccCall):
++        procedure = context.typed_procedures.get(value.specialized_callee_name) or context.typed_procedures.get(
++            value.callee_name
++        )
++        summary = getattr(procedure, "transitive_effect_summary", None)
++        return summary is not None and bool(summary.direct_effects or summary.transitive_effects)
++    return isinstance(value, (WccPerform, WccProviderSupervision, WccProviderPeerGroup))
++
++
++def _refuse_effectful_control_value(body: WccBody, *, context: _LoweringContext) -> None:
++    """Refuse a loop body that binds the value of an `if` or `match` with effects.
++
++    Such a binding elaborates to a join. The loop route hands the body to the
++    older loop lowerer, which cannot lower an effectful join and would fail with
++    an internal error (pure projection of a call, an unrenderable condition).
++    The program typechecked, so the refusal is a compiler defect, located at the
++    `if` or `match` (target 2.33 and newer; older targets keep their failure).
++    """
++
++    for node in _wcc_body_nodes(body):
++        inner_nodes = tuple(_wcc_body_nodes(node.body)) if isinstance(node, WccJoin) else ()
++        # A join holding a nested loop keeps its own failure (`unsupported WCC join binding`).
++        if not any(isinstance(inner, WccRecJoin) for inner in inner_nodes) and any(
++            _performs_effect(inner, context=context) for inner in inner_nodes
++        ):
++            raise LispFrontendCompileError(
++                (
++                    LispFrontendDiagnostic(
++                        code="compiler_defect_loop_control_value",
++                        message=(
++                            "compiler defect: the value of this `if` or `match` has effects and is bound "
++                            "inside a `loop/recur` body (by `let*` or as a `loop-state` field); the loop "
++                            "lowering route cannot lower it yet. The program typechecked, so this is a "
++                            "defect of the compiler, not of the program"
++                        ),
++                        span=node.metadata.source_span,
++                        form_path=node.metadata.form_path,
++                        expansion_stack=node.metadata.expansion_stack,
++                        phase="lowering",
++                    ),
++                )
++            )
++
++
+ def _defunctionalize_rec_join(
+     body: WccRecJoin,
+     *,
+@@ -2833,6 +2901,8 @@ def _defunctionalize_rec_join(
+                 )
+             )
+ 
++    if target_dsl_is_2_33_or_newer(getattr(context.type_env, "target_dsl_version", "") or ""):
++        _refuse_effectful_control_value(body.body, context=context)
+     loop_local_values = _materialize_wcc_record_locals(local_values)
+     loop_context = (
+         replace(
+diff --git a/orchestrator/workflow_lisp/wcc/elaborate.py b/orchestrator/workflow_lisp/wcc/elaborate.py
+index c77a1c8048419a4ecc829dccb7e2dbe70cdbe288..57d8ca28e04d56c7bf4f237526d7108140e1ebd6 100644
+--- a/orchestrator/workflow_lisp/wcc/elaborate.py
++++ b/orchestrator/workflow_lisp/wcc/elaborate.py
+@@ -98,6 +98,7 @@ from ..syntax import (
+ from ..typecheck_run_ref import resolve_unique_run_ref_site_metadata
+ from ..workflows import TypedWorkflowDef
+ from ..workflow_refs import ResolvedWorkflowRef
++from .hygiene import fresh_name, generated_name_scope, hoist_without_capture, reserved_identifiers
+ from .model import (
+     WccBindingValue,
+     WccBody,
+@@ -1598,7 +1599,13 @@ def _elaborate_expr_to_body(
+         )
+     if isinstance(expr, ContinueExpr):
+         fields_scope = scope.child_scope("loop-continue-fields")
+-        bound_fields = _bind_effectful_loop_state_fields(expr, scope=fields_scope, type_env=type_env)
++        bound_fields = _bind_effectful_loop_state_fields(
++            expr,
++            scope=fields_scope,
++            type_env=type_env,
++            value_env=value_env,
++            compile_time_bindings=compile_time_bindings,
++        )
+         if bound_fields is not None:
+             return _elaborate_let_star(
+                 bound_fields,
+@@ -1778,30 +1785,40 @@ def _bind_effectful_loop_state_fields(
+     *,
+     scope: WccIdentityFactory,
+     type_env: FrontendTypeEnvironment,
++    value_env: Mapping[str, TypeRef],
++    compile_time_bindings: Mapping[str, object],
+ ) -> LetStarExpr | None:
+     """Bind each effectful `loop-state :like` field before `continue`, as `let*` would.
+ 
+     From target 2.33 this returns ``(let* ((g1 e1) ...) (continue (loop-state
+     :like base ... :f g1 ...)))`` with one generated binding per field that
+     contains an effect, in authored field order, so each effect runs once and
+-    left to right. It returns None below 2.33 or when no field has an effect;
+-    the state then stays an opaque value that the loop lowerer projects as pure.
++    left to right. Each generated name is named by its field and the `case` arms
++    around it, and differs from every identifier in scope and inside `expr`, so
++    it captures no authored reference. It returns None below 2.33 or when no
++    field has an effect; the state then stays an opaque value that the loop
++    lowerer projects as pure.
+     """
+ 
+     state = expr.state_expr
+     if not (
+         isinstance(state, LoopStateUpdateExpr)
+-        and target_dsl_is_2_33_or_newer(getattr(type_env, "target_dsl_version", "") or "")
++        and _at_2_33(type_env)
+         and any(_contains_effect(field_expr) for _, field_expr in state.overrides)
+     ):
+         return None
++    reserved = reserved_identifiers(expr, value_env=value_env, compile_time_bindings=compile_time_bindings)
++    naming_scope = generated_name_scope(scope)
+     bindings: list[tuple[str, object]] = []
+     overrides: list[tuple[str, object]] = []
+     for field_name, field_expr in state.overrides:
+         if _contains_effect(field_expr):
+-            binding_name = _generated_effect_binding_name_from_scope(
+-                scope.child_scope("field", authored_binding_name=field_name),
+-                role=field_name,
++            binding_name = fresh_name(
++                _generated_effect_binding_name_from_scope(
++                    naming_scope.child_scope("field", authored_binding_name=field_name),
++                    role=field_name,
++                ),
++                reserved,
+             )
+             bindings.append((binding_name, field_expr))
+             field_expr = NameExpr(
+@@ -2173,6 +2190,15 @@ def _elaborate_let_star(
+             )
+ 
+         prefix, value = _body_to_prefix_and_value(binding_body)
++        if _at_2_33(type_env):
++            prefix, value = hoist_without_capture(
++                prefix,
++                value,
++                over=((replace(expr, bindings=expr.bindings[index + 1 :]), frozenset({binding_name})),),
++                scope=binding_scope,
++                value_env=local_env,
++                compile_time_bindings=local_compile_time_bindings,
++            )
+         let_node = WccLet(
+             metadata=local_scope.body_metadata(
+                 role=f"let:{binding_name}",
+@@ -3303,9 +3329,10 @@ def _elaborate_match_to_body(
+             compile_time_bindings=compile_time_bindings,
+             active_phase_scope=active_phase_scope,
+         )
++    subject_scope = scope.child_scope("match-subject", authored_binding_name="subject")
+     subject_prefix, subject = _elaborate_expr_to_value(
+         expr.subject,
+-        scope=scope.child_scope("match-subject", authored_binding_name="subject"),
++        scope=subject_scope,
+         type_env=type_env,
+         value_env=value_env,
+         workflow_return_types=workflow_return_types,
+@@ -3315,9 +3342,18 @@ def _elaborate_match_to_body(
+         compile_time_bindings=compile_time_bindings,
+         active_phase_scope=active_phase_scope,
+     )
+-    # From target 2.33 the subject's bindings run before the case, as `let*` would.
+-    if subject_prefix and not target_dsl_is_2_33_or_newer(getattr(type_env, "target_dsl_version", "") or ""):
++    # From target 2.33 the subject's bindings run before the case, as `let*` would,
++    # under names the arms cannot see.
++    if subject_prefix and not _at_2_33(type_env):
+         raise TypeError(f"unsupported nested WCC M2 prefix for `{type(expr.subject).__name__}`")
++    subject_prefix, subject = hoist_without_capture(
++        subject_prefix,
++        subject,
++        over=tuple((arm.body, frozenset({arm.binding_name})) for arm in expr.arms),
++        scope=subject_scope,
++        value_env=value_env,
++        compile_time_bindings=compile_time_bindings,
++    )
+     case_body = _elaborate_match_case_with_subject(
+         expr,
+         subject=subject,
+@@ -3369,7 +3405,10 @@ def _elaborate_match_case_with_subject(
+             _elaborate_case_arm(
+                 expr,
+                 arm,
+-                scope=scope.child_scope("match-arm", authored_binding_name=arm.binding_name),
++                scope=replace(
++                    scope.child_scope("match-arm", authored_binding_name=arm.binding_name),
++                    enclosing_variants=(*scope.enclosing_variants, arm.variant_name),
++                ),
+                 type_env=type_env,
+                 value_env=value_env,
+                 workflow_return_types=workflow_return_types,
+@@ -5379,6 +5418,10 @@ def _elaborate_workflow_call_binding_value(
+     )
+ 
+ 
++def _at_2_33(type_env: FrontendTypeEnvironment) -> bool:
++    return target_dsl_is_2_33_or_newer(getattr(type_env, "target_dsl_version", "") or "")
++
++
+ def _generated_effect_binding_name_from_scope(scope: WccIdentityFactory, *, role: str) -> str:
+     safe_role = "".join(char if char.isalnum() else "_" for char in role).strip("_")
+     return f"__wcc_effect_{safe_role}_{scope.scope_id.rsplit(':', 1)[-1]}"
+diff --git a/orchestrator/workflow_lisp/wcc/hygiene.py b/orchestrator/workflow_lisp/wcc/hygiene.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..3f6703bd7f30a8713f4f1483d27df6fd1d749b0f
+--- /dev/null
++++ b/orchestrator/workflow_lisp/wcc/hygiene.py
+@@ -0,0 +1,204 @@
++"""Scope hygiene for bindings the elaborator hoists or generates (target 2.33).
++
++WCC binds by spelling (`WccLet.bound_name`); scope is the dominance of a
++`WccLet` over its body (design: workflow_lisp_core_calculus_middle_end.md
++section 9). When the elaborator places the bindings of a sub-expression around
++code that the source does not let see them (a `match` subject's bindings around
++the arms, a `let*` binding value's bindings around the rest of the `let*`), a
++binding whose name that code refers to would capture the reference. These
++helpers keep the source scope: such a binding gets a fresh name and its own
++references follow it, and a name the elaborator generates is chosen apart from
++every identifier the code in its scope can spell. Freshness is by
++construction: a name is checked against the identifiers in scope, not left to
++the improbability of a digest.
++
++Dependencies: `expression_traversal` (free names, walks) and, imported lazily
++because `elaborate` imports this module, the WCC substitution of `elaborate`.
++"""
++
++from __future__ import annotations
++
++from collections.abc import Callable, Iterable, Mapping
++from dataclasses import fields as dataclass_fields, is_dataclass, replace
++
++from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
++from ..expression_traversal import free_expr_names, walk_expr
++from ..expressions import CallExpr, NameExpr, ProcedureCallExpr
++from ..type_env import TypeRef
++from .model import WccIdentityFactory, WccLet, WccNameAtom, WccValue
++
++
++def _gather(node: object, leaf: Callable[[object], set[str] | None]) -> set[str]:
++    """Union of `leaf(x)` over every object reachable from `node` through dataclass fields and containers."""
++
++    found = leaf(node)
++    if found is not None:
++        return found
++    if isinstance(node, Mapping):
++        children: Iterable[object] = (*node.keys(), *node.values())
++    elif isinstance(node, (tuple, list, set, frozenset)):
++        children = node
++    elif is_dataclass(node) and not isinstance(node, type):
++        children = (getattr(node, field.name) for field in dataclass_fields(node))
++    else:
++        return set()
++    return set().union(*(_gather(child, leaf) for child in children))
++
++
++def _strings(node: object) -> set[str]:
++    """Every string inside `node`: a superset of the identifiers it spells or binds."""
++
++    return _gather(node, lambda item: {item} if isinstance(item, str) else None)
++
++
++def _mentioned_names(node: object) -> set[str]:
++    """Every name that a frontend `NameExpr` or a `WccNameAtom` inside `node` spells, bound or free."""
++
++    return _gather(node, lambda item: {item.name} if isinstance(item, (NameExpr, WccNameAtom)) else None)
++
++
++def _names_seen_by(
++    over: Iterable[tuple[object, frozenset[str]]],
++    *,
++    compile_time_bindings: Mapping[object, object],
++) -> set[str]:
++    """Names that code in `over`, pairs of (expression, names it binds around itself), refers to.
++
++    Besides free names this includes the names inside the value of every
++    compile-time binding the code uses as a value or a callee, because the
++    elaborator expands that value in place.
++    """
++
++    seen: set[str] = set()
++    callees: set[str] = set()
++    for expr, bound in over:
++        seen |= free_expr_names(expr, bound=bound)
++        callees |= {node.callee_name for node in walk_expr(expr) if isinstance(node, (ProcedureCallExpr, CallExpr))}
++    pending = {name for name in seen | callees if name in compile_time_bindings}
++    expanded: set[str] = set()
++    while pending:
++        name = pending.pop()
++        expanded.add(name)
++        names = _mentioned_names(compile_time_bindings[name])
++        seen |= names
++        pending |= {inner for inner in names if inner in compile_time_bindings} - expanded
++    return seen
++
++
++def _in_scope(value_env: Mapping[str, TypeRef], compile_time_bindings: Mapping[object, object]) -> set[str]:
++    return set(value_env) | {name for name in compile_time_bindings if isinstance(name, str)}
++
++
++def fresh_name(base: str, reserved: set[str]) -> str:
++    """Return `base`, or `base` with the smallest numeric suffix not in `reserved`, and reserve it."""
++
++    name, suffix = base, 0
++    while name in reserved:
++        suffix += 1
++        name = f"{base}_{suffix}"
++    reserved.add(name)
++    return name
++
++
++def reserved_identifiers(
++    expr: object,
++    *,
++    value_env: Mapping[str, TypeRef],
++    compile_time_bindings: Mapping[object, object],
++) -> set[str]:
++    """Identifiers that a binding generated around `expr` must not spell.
++
++    The names in scope, every string inside `expr`, and the names reachable
++    through the compile-time values `expr` uses.
++    """
++
++    return (
++        _in_scope(value_env, compile_time_bindings)
++        | _strings(expr)
++        | _names_seen_by(((expr, frozenset()),), compile_time_bindings=compile_time_bindings)
++    )
++
++
++def generated_name_scope(scope: WccIdentityFactory) -> WccIdentityFactory:
++    """The scope that names a generated binding: `scope` and the `case` arms that enclose it."""
++
++    return scope.child_scope("arms", authored_binding_name="/".join(scope.enclosing_variants))
++
++
++def hoist_without_capture(
++    prefix: tuple[WccLet, ...],
++    value: WccValue,
++    *,
++    over: tuple[tuple[object, frozenset[str]], ...],
++    scope: WccIdentityFactory,
++    value_env: Mapping[str, TypeRef],
++    compile_time_bindings: Mapping[object, object],
++) -> tuple[tuple[WccLet, ...], WccValue]:
++    """Rename the bindings of `prefix` that the code it is hoisted over can see.
++
++    `prefix` and `value` come from a sub-expression whose bindings the source
++    scopes to it; the caller places `prefix` around `over`, pairs of
++    (expression, names it binds around itself). A binding whose name `over`
++    refers to gets a fresh name, and its references in the rest of `prefix`
++    and in `value` follow it. The other bindings keep their names, so a program
++    without such a clash keeps its step identities.
++    """
++
++    seen = _names_seen_by(over, compile_time_bindings=compile_time_bindings) if prefix else set()
++    if seen.isdisjoint(let_node.bound_name for let_node in prefix):
++        return prefix, value
++    reserved = _in_scope(value_env, compile_time_bindings) | seen | _strings((prefix, value))
++    naming_scope = generated_name_scope(scope)
++    renamed: dict[str, WccValue] = {}
++    hoisted: list[WccLet] = []
++    for let_node in prefix:
++        bound_value = _rename(let_node.bound_value, renamed, at=let_node)
++        if let_node.bound_name in seen:
++            digest = naming_scope.child_scope("hoisted", authored_binding_name=let_node.bound_name).scope_id
++            name = fresh_name(f"{let_node.bound_name}_{digest.rsplit(':', 1)[-1]}", reserved)
++            renamed[let_node.bound_name] = WccNameAtom(
++                metadata=naming_scope.atom_metadata(
++                    role=f"name:{name}",
++                    type_ref=let_node.bound_type_ref,
++                    source_span=let_node.metadata.source_span,
++                    form_path=let_node.metadata.form_path,
++                    expansion_stack=let_node.metadata.expansion_stack,
++                ),
++                name=name,
++            )
++            let_node = replace(let_node, bound_name=name)
++        hoisted.append(replace(let_node, bound_value=bound_value))
++    return tuple(hoisted), _rename(value, renamed, at=prefix[-1])
++
++
++def _rename(value: object, renamed: Mapping[str, WccValue], *, at: WccLet) -> object:
++    """Substitute `renamed` in `value`; refuse, as a compiler defect, if a reference to a renamed name remains.
++
++    The check counts every spelling of a renamed name, so a form that rebinds
++    the name inside `value` is refused too: loud, never a captured value.
++    """
++
++    if not renamed:
++        return value
++    from .elaborate import _substitute_wcc_binding_value
++
++    result = _substitute_wcc_binding_value(value, renamed)
++    missed = _mentioned_names(result) & renamed.keys()
++    if missed:
++        raise LispFrontendCompileError(
++            (
++                LispFrontendDiagnostic(
++                    code="compiler_defect_hoisted_binding_rename",
++                    message=(
++                        "compiler defect: a binding hoisted out of its source scope was renamed, but a "
++                        f"reference to `{sorted(missed)[0]}` in this form was not; the program typechecked, "
++                        "so this is a defect of the compiler, not of the program"
++                    ),
++                    span=at.metadata.source_span,
++                    form_path=at.metadata.form_path,
++                    expansion_stack=at.metadata.expansion_stack,
++                    phase="lowering",
++                ),
++            )
++        )
++    return result
+diff --git a/orchestrator/workflow_lisp/wcc/model.py b/orchestrator/workflow_lisp/wcc/model.py
+index 59ee19ab9349e906177780a843fac630d14be6e5..bebd132df70d0ccbd64a293d5fb16c835cde396a 100644
+--- a/orchestrator/workflow_lisp/wcc/model.py
++++ b/orchestrator/workflow_lisp/wcc/model.py
+@@ -76,6 +76,10 @@ class WccIdentityFactory:
+     owner_name: str
+     lexical_owner_chain: tuple[str, ...] = ()
+     route_schema_version: str = WCC_M1_ROUTE_SCHEMA_VERSION
++    # The variants of the `case` arms that enclose this scope, outermost first.
++    # Only names generated from target 2.33 read them (`hygiene.generated_name_scope`);
++    # `scope_id` and node ids leave them out, so every earlier identity stays the same.
++    enclosing_variants: tuple[str, ...] = ()
+ 
+     @property
+     def scope_id(self) -> str:
+@@ -94,6 +98,7 @@ class WccIdentityFactory:
+             owner_name=self.owner_name,
+             lexical_owner_chain=(*self.lexical_owner_chain, segment),
+             route_schema_version=self.route_schema_version,
++            enclosing_variants=self.enclosing_variants,
+         )
+ 
+     def _metadata(

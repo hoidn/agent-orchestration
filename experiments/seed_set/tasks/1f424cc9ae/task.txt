@@ -1,0 +1,8 @@
+fix: durably create prompt evidence directories
+
+Review-Tree: 06cf3f8f1df39e593ba9bfe7b704e0415063b6c3
+Review-Patch-SHA256: d52e45a17371bd4f96eb2cbc25d286c7ee78f299d667ac454587ad95098ab388
+Spec-Review: PASS TASK8-DURABILITY-REPAIR-SPEC-PASS-20260718-06CF3F8F-02
+Quality-Review: APPROVED TASK8-DURABILITY-REPAIR-QUALITY-APPROVED-20260718-06CF3F8F-01
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_prompt_dependency_evidence.py::test_publication_retry_resyncs_chain_after_parent_fsync_left_residue` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

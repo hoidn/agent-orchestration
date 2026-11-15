@@ -1,0 +1,10 @@
+fix: build the pure-result replay runtime during --dry-run
+
+A run builds PureReplayRuntime at start and rejects a program whose pure
+bindings disagree with the result contracts they read. --dry-run returned
+before that point, so such a program passed --dry-run and was rejected only
+when a real run started. --dry-run now builds the same runtime from the
+compiled bundle and reports the same diagnostic with exit 2, without a run
+directory, state, lock or command.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_dry_run_replay_index.py::test_dry_run_rejects_a_record_building_tail_match_as_the_run_start_does` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

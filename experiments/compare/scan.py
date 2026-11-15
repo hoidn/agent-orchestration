@@ -20,14 +20,22 @@ seven characters; any mention of other sessions' transcripts or tmux sockets (.c
 their recorded private-home backing; historical callers retain their original home. Paths
 match as typed: absolute, or under ~, $HOME or ${HOME} (R23).
 
-Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna or Sol 6.1. Read actual
-Claude assistant message.model and Codex turn_context.model metadata, never printed model names.
+Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna or Sol 6.1 and an
+explicitly bound Claude run or judge Haiku (expected_claude_model). Any other answering model is a hit. Read actual
+Claude assistant message.model and Codex turn_context.model metadata, never printed model names. A Claude row
+answered by `<synthetic>` is the CLI's own message (an API error, a usage limit): no hit where a Claude model is
+allowed, a hit where none is.
 Fable and every other forbidden/unknown model are non-clearable policy hits. Standard library only.
 """
 
 import json
 import re
 from pathlib import Path
+
+try:
+    from . import sandbox  # imported as experiments.compare.scan
+except ImportError:  # run as a script
+    import sandbox
 
 ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
 FABLE = "Fable model"
@@ -143,10 +151,20 @@ def codex_sessions(tree, since, home):
             yield path
 
 
+SYNTHETIC = "<synthetic>"  # the Claude CLI's own messages (an API error, a usage limit): no model answered them
+
+
+def claude_synthetic(row):
+    """[(answering model, whether it is a Claude assistant row answered by `<synthetic>`)] of one session row."""
+    return [(model, row.get("type") == "assistant" and model == SYNTHETIC) for model in answering_model(row)]
+
+
 def model_hits(paths, allowed):
+    """Every answering model other than `allowed`; a Claude assistant row answered by `<synthetic>` is a hit only
+    where no model is allowed, and any other `<synthetic>` row is always one."""
     for path in paths:
-        for _, number, model in json_actions(path, answering_model):
-            if model != allowed:
+        for _, number, (model, synthetic) in json_actions(path, claude_synthetic):
+            if model != allowed and not (allowed and synthetic):
                 pattern = FABLE if "fable" in model.lower() else FORBIDDEN_MODEL
                 yield {"file": str(path), "line": number, "pattern": pattern, "text": f"model: {model}"}
 
@@ -163,10 +181,13 @@ def refuse_publication_errors(calls_root):
             raise SystemExit(f'{marker}: incomplete or failed sandbox result publication')
 
 
-def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="gpt-5.6-terra"):
+def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="gpt-5.6-terra",
+              expected_claude_model=sandbox.SONNET):
     refuse_publication_errors(calls_root)
     if expected_codex_model not in CODEX_MODELS:
         raise SystemExit("expected Codex model must be an exact known Codex ID")
+    if expected_claude_model not in sandbox.CLAUDE_MODELS:
+        raise SystemExit("expected Claude model must be the exact Sonnet or Haiku ID")
     hits = []
     for path, number, text in sources(Path(calls_root), Path(tree), since, Path(home)):
         for name, pattern in compiled.items():
@@ -174,6 +195,6 @@ def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="
             if found:
                 hits.append({"file": str(path), "line": number, "pattern": name,
                              "text": text[max(0, found.start() - 80):found.end() + 80]})
-    hits.extend(model_hits(claude_sessions(Path(tree), Path(home)), "claude-sonnet-5-5"))
+    hits.extend(model_hits(claude_sessions(Path(tree), Path(home)), expected_claude_model))
     hits.extend(model_hits(codex_sessions(Path(tree), since, Path(home)), expected_codex_model))
     return hits

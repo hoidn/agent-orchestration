@@ -1,0 +1,2 @@
+tests/test_workflow_lisp_pure_projection_cache.py::test_untraced_export_cache_surfaces_structured_parse_failure_after_change
+tests/test_workflow_lisp_pure_projection_cache.py

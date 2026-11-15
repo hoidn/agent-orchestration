@@ -1,0 +1,10 @@
+feat: dispatch confined run-ref leaves through a leaf runner
+
+Confined children pin command executables inside the admitted image
+(image interpreter pins), refuse clone-resolving executables, closures
+and providers at dispatch with coded refusals, compute C4 evidence from
+image pins only, bind clone files named by command tokens or doc fills
+into a content-addressed attempt snapshot through the no-follow reader
+(allowance-checked, tamper fails closed), and run commands through an
+injected LeafRunner with guest paths, a guest-only environment and the
+timeout clamped to the remaining wall budget. The host route is unchanged.

@@ -1,0 +1,5 @@
+Key pure projection source cache by content
+
+The change is in orchestrator/workflow_lisp/lowering/pure_projection.py.
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

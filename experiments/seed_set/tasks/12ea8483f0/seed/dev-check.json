@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_imported_effects.py::test_wrapper_of_an_imported_command_carries_the_command_in_its_transitive_summary"
+  ],
+  "timeout_sec": 600
+}

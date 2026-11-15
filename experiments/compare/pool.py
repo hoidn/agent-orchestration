@@ -283,12 +283,14 @@ def validate_natural_attempts(criterion, runs):
 
 def build_batches(out, task, ref, batches, rule, criterion=None, review_exclude=()):
     clones, members, references = {}, [], []
-    anchors = anchor_paths(task, criterion)
+    anchors, rng = anchor_paths(task, criterion), random.SystemRandom()
     for batch in batches:
-        made = [add_clone(out, task, ref, patch_bytes(path, rec, labels[0]),
-                          {"run": path, "arm": rec["arm"], "labels": labels}, review_exclude) for path, rec, labels in batch]
-        made += [add_clone(out, task, ref, a.read_bytes(), {"run": None, "arm": "anchor", "labels": [a.stem]}, review_exclude)
-                 for a in anchors]
+        planned = [(patch_bytes(path, rec, labels[0]), {"run": path, "arm": rec["arm"], "labels": labels})
+                   for path, rec, labels in batch]
+        planned += [(a.read_bytes(), {"run": None, "arm": "anchor", "labels": [a.stem]}) for a in anchors]
+        order = rng.sample(range(len(planned)), len(planned))  # build order shows in file timestamps: it must
+        built = {k: add_clone(out, task, ref, *planned[k], review_exclude) for k in order}  # not reveal arms
+        made = [built[k] for k in range(len(planned))]  # the mapping keeps the planned member order
         clones.update(made)
         members.append([cid for cid, _ in made])
         if rule["reference"]:
@@ -421,11 +423,13 @@ def write_score_inputs(out, mapping, intent, runtime, *, environment=None):
                          *([batch['reference']] if 'reference' in batch else [])]})
         info['sandbox'] = sandbox.prepare_unit(home, out / 'records/judges' / judge,
             homes=out / '.private-homes', clones=clones, providers=Path(info['providers']), result_root=home / 'state',
-            environment=environment)
+            environment=environment, claude_model=judge if judge in sandbox.CLAUDE_MODELS else sandbox.SONNET)
         env = {"COMPARE_ROOT": out / "records" / "judges" / judge, "COMPARE_TREE": home,
                "COMPARE_BASE": mapping["compare_base"], 'COMPARE_SANDBOX': info['sandbox']['declaration']}
         if judge in contamination.CODEX_MODELS:
             env["COMPARE_CODEX_MODELS"] = judge
+        if judge in sandbox.CLAUDE_MODELS:
+            env["COMPARE_CLAUDE_MODELS"] = judge
         command, resume = shim_commands(
             home, runtime, env,
             [str(runtime / "experiments/compare" / rule["workflow"]), "--entry-workflow", rule["entry"],
@@ -459,8 +463,9 @@ def scan_judge(out, judge, solution, home=None):
                *(("agents' trees", root) for root in agent_roots)])
     compiled["judge ran tests"] = contamination.JUDGE_TESTS
     expected = judge if judge in contamination.CODEX_MODELS else "gpt-5.6-terra"
+    claude = judge if judge in sandbox.CLAUDE_MODELS else sandbox.SONNET
     hits = contamination.find_hits(calls_root, workdir, mapping["created_at"], home, compiled,
-                                   expected_codex_model=expected)
+                                   expected_codex_model=expected, expected_claude_model=claude)
     dump(calls_root / "scan.json", {"solution": solution, "hits": hits, "verdict": None,
                                     "calls": len(list((calls_root / "calls").glob("*")))})
     for hit in hits:

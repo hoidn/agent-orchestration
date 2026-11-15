@@ -1,0 +1,6 @@
+Retire completed YAML resume compatibility
+
+The change is in orchestrator/cli/commands/resume.py.
+
+The check currently fails with:
+    E       assert 0 == 1

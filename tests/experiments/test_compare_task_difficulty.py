@@ -194,7 +194,8 @@ def test_generation_commands_and_scans_bind_the_input_codex_model(world, monkeyp
         assert f'COMPARE_CODEX_MODELS={model}' in (records / 'command.sh').read_text()
         assert f'COMPARE_CODEX_MODELS={model}' in (records / 'resume.sh').read_text()
         prepare.scan(records, 'f' * 40)
-    assert observed == [{'expected_codex_model': LUNA}, {'expected_codex_model': TERRA}]
+    assert observed == [{'expected_codex_model': LUNA, 'expected_claude_model': 'claude-sonnet-5-5'},
+                        {'expected_codex_model': TERRA, 'expected_claude_model': 'claude-sonnet-5-5'}]
 
 
 @pytest.mark.parametrize('judge', [TERRA, SOL])
@@ -211,7 +212,7 @@ def test_judge_command_and_scan_bind_the_exact_judge_model(world, monkeypatch, j
     observed = []
     monkeypatch.setattr(scan, 'find_hits', lambda *args, **kwargs: observed.append(kwargs) or [])
     pool.scan_judge(out, judge, 'f' * 40)
-    assert observed == [{'expected_codex_model': judge}]
+    assert observed == [{'expected_codex_model': judge, 'expected_claude_model': 'claude-sonnet-5-5'}]
 
 
 def test_shim_hands_off_codex_opt_in_and_nested_calls_keep_exact_policy(world, monkeypatch):

@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_pure_projection_cache.py::test_untraced_export_cache_reloads_same_path_when_exact_bytes_change"
+  ],
+  "timeout_sec": 600
+}

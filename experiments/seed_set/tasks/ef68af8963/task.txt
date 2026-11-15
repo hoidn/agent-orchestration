@@ -1,0 +1,5 @@
+fix(providers): escape isolation issue paths
+
+The change is in orchestrator/providers/isolation.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_provider_isolation_policy.py::test_nested_unknown_surrogate_property_has_ascii_safe_issue_path` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

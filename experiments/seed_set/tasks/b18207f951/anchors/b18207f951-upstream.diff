@@ -1,0 +1,293 @@
+diff --git a/orchestrator/workflow/evaluated/interpreters.py b/orchestrator/workflow/evaluated/interpreters.py
+index 8e62b5a1780b607eeb71b690a9d09572dc434d92..4cc256b00575e720d06805cae9f11ab76462a9bc 100644
+--- a/orchestrator/workflow/evaluated/interpreters.py
++++ b/orchestrator/workflow/evaluated/interpreters.py
+@@ -18,12 +18,12 @@ import stat
+ from typing import Any
+ 
+ from orchestrator._common.safe_tree import SafeTreeError, hash_regular_file, open_directory
++from orchestrator.workflow.run_ref.image_store import resolve_in_root as resolve_image_path
+ 
+ # The guest PATH the holder sets; bare tokens resolve through it inside the image.
+ GUEST_PATH = ("/usr/local/bin", "/usr/bin", "/bin")
+ # Guest roots that hold the clone or guest-writable scratch, never image bytes.
+ GUEST_MUTABLE_ROOTS = ("/workspace", "/result", "/tmp", "/dev", "/run", "/proc")
+-_SYMLINK_HOPS = 40
+ _ENVIRONMENT_UNAVAILABLE = "run_ref_environment_unavailable"
+ 
+ 
+@@ -143,33 +143,6 @@ def image_resolvable(token: str) -> bool:
+     return not any(normal == root or normal.startswith(root + "/") for root in GUEST_MUTABLE_ROOTS)
+ 
+ 
+-def resolve_image_path(root_fd: int, path: str) -> str:
+-    """Resolve absolute guest `path` as the guest would, by text, beneath the image root.
+-
+-    No host symlink is followed; absolute link targets restart at the image root.
+-    """
+-    # ponytail: same walk as run_ref.image_store._resolve_in_root (private there); share one when exposed.
+-    pending = [part for part in path.split("/") if part]
+-    resolved: list[str] = []
+-    hops = _SYMLINK_HOPS
+-    while pending:
+-        part = pending.pop(0)
+-        if part in (".", ".."):
+-            resolved = resolved[:-1] if part == ".." else resolved
+-            continue
+-        candidate = "/".join([*resolved, part])
+-        if not stat.S_ISLNK(os.stat(candidate, dir_fd=root_fd, follow_symlinks=False).st_mode):
+-            resolved.append(part)
+-            continue
+-        hops -= 1
+-        if hops < 0:
+-            raise OSError(f"image path {path} has a symlink loop")
+-        target = os.readlink(candidate, dir_fd=root_fd)
+-        resolved = [] if target.startswith("/") else resolved
+-        pending = [item for item in target.split("/") if item] + pending
+-    return "/" + "/".join(resolved)
+-
+-
+ def image_file_digest(root_fd: int, resolved: str) -> str:
+     """Hash one resolved image file, no-follow at every component."""
+     return "sha256:" + hash_regular_file(root_fd, resolved.lstrip("/"))
+diff --git a/orchestrator/workflow/run_ref/checkpoint.py b/orchestrator/workflow/run_ref/checkpoint.py
+index 2c9da24a0e81d50135f30b9bb154d44fcd36c5b3..9515db8d5dcd29650be04b402946aed1148625f0 100644
+--- a/orchestrator/workflow/run_ref/checkpoint.py
++++ b/orchestrator/workflow/run_ref/checkpoint.py
+@@ -41,11 +41,16 @@ _EXCLUSIVE_WRITE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_C
+ # Copier temporaries; a source entry with this shape refuses, so intent repair
+ # can remove every such name from the clone without touching guest data.
+ _TEMPORARY = re.compile(r"\.rr-[0-9a-f]{16}\.tmp")
+-# Bounds keep recursion and open descriptors (two per level) finite. The copy
+-# refuses before creating a directory deeper than the bound, so the clone never
++# Profile constants of `run_ref_confinement.v1` (workspace trees). The depth
++# bound keeps recursion and open descriptors (two per level) finite: the copy
++# refuses before creating a directory deeper than it, so the clone never
+ # exceeds it and repair's walk under the same bound cannot wedge. The entry
+-# bound applies to the guest tmpfs only: the clone holds at most the previous
+-# checkpoint plus one bounded partial copy, so seeding and repair stay unbounded.
++# bound applies to every checkpoint of the guest tmpfs, to seeding and to the
++# provisioned clone (`confinement.provision_confined_child`); repair stays
++# unbounded because the clone holds at most the previous checkpoint plus one
++# bounded partial copy. A refusal of the guest tmpfs is guest-caused
++# (`run_ref_environment_escape_rejected`); the same refusal of the clone, which
++# only the host writes, is host-side corruption (`run_ref_environment_changed`).
+ MAX_TREE_DEPTH = 128
+ MAX_CHECKPOINT_ENTRIES = 262_144
+ 
+@@ -83,6 +88,7 @@ class _Walk:
+     remaining_bytes: int
+     remaining_entries: int
+     repair: bool
++    source_code: str = _ESCAPE  # code of a refused source tree: escape (guest tmpfs) or changed (clone)
+     entries: list[TreeEntry] = field(default_factory=list)
+     skipped: int = 0
+     copied: int = 0
+@@ -137,12 +143,12 @@ def _source_entries(walk: _Walk, source_fd: int, prefix: str) -> dict[str, os.st
+             raise _escape(f"entry under a reserved root: {relative!r}")
+         walk.remaining_entries -= 1
+         if walk.remaining_entries < 0:
+-            raise _escape(f"workspace exceeds the entry bound at {relative!r}")
++            raise RunRefCheckpointError(walk.source_code, f"workspace exceeds the entry bound at {relative!r}")
+         _utf8(relative, "tree entry path")
+         info = os.stat(name, dir_fd=source_fd, follow_symlinks=False)
+         if _TEMPORARY.fullmatch(name):
+             if not walk.repair or stat.S_ISDIR(info.st_mode):
+-                raise _escape(f"entry uses the copier's temporary name: {relative!r}")
++                raise RunRefCheckpointError(walk.source_code, f"entry uses the copier's temporary name: {relative!r}")
+             os.unlink(name, dir_fd=source_fd)  # an interrupted copy's temporary
+             continue
+         if info.st_dev != walk.source_device:
+@@ -268,7 +274,7 @@ def _mirror(walk: _Walk, source_fd: int, destination_fd: int | None, prefix: str
+ 
+ def _copy_tree(source_fd: int, destination_fd: int | None, *, admit_hardlinks: bool,
+                max_bytes: int | None, max_entries: int | None = None,
+-               repair: bool = False) -> CopyResult:
++               repair: bool = False, source_code: str = _ESCAPE) -> CopyResult:
+     walk = _Walk(
+         source_device=os.fstat(source_fd).st_dev,
+         destination_device=None if destination_fd is None else os.fstat(destination_fd).st_dev,
+@@ -276,6 +282,7 @@ def _copy_tree(source_fd: int, destination_fd: int | None, *, admit_hardlinks: b
+         remaining_bytes=sys.maxsize if max_bytes is None else max_bytes,
+         remaining_entries=sys.maxsize if max_entries is None else max_entries,
+         repair=repair,
++        source_code=source_code,
+     )
+     try:
+         _mirror(walk, source_fd, destination_fd, "", 0)
+@@ -284,14 +291,20 @@ def _copy_tree(source_fd: int, destination_fd: int | None, *, admit_hardlinks: b
+     return CopyResult(manifest_from_entries(walk.entries), walk.skipped, walk.copied)
+ 
+ 
+-def workspace_manifest(root_fd: int) -> TreeManifest:
+-    """Freeze a tree beneath a retained descriptor, ``.git``/``.orchestrate`` excluded."""
+-    return _copy_tree(root_fd, None, admit_hardlinks=True, max_bytes=None).manifest
++def workspace_manifest(root_fd: int, *, clone: bool = False) -> TreeManifest:
++    """Freeze a tree beneath a retained descriptor, ``.git``/``.orchestrate`` excluded.
++
++    ``clone`` codes a refused tree as host-side corruption rather than guest-caused.
++    """
++    return _copy_tree(root_fd, None, admit_hardlinks=True, max_bytes=None,
++                      source_code=_CHANGED if clone else _ESCAPE).manifest
+ 
+ 
+-def seed_workspace(disk_root_fd: int, tmpfs_root_fd: int, *, max_bytes: int) -> CopyResult:
++def seed_workspace(disk_root_fd: int, tmpfs_root_fd: int, *, max_bytes: int,
++                   max_entries: int = MAX_CHECKPOINT_ENTRIES) -> CopyResult:
+     """Seed the holder tmpfs from the host clone; host-disk hard links refuse."""
+-    return _copy_tree(disk_root_fd, tmpfs_root_fd, admit_hardlinks=False, max_bytes=max_bytes)
++    return _copy_tree(disk_root_fd, tmpfs_root_fd, admit_hardlinks=False, max_bytes=max_bytes,
++                      max_entries=max_entries, source_code=_CHANGED)
+ 
+ 
+ def _publish(header_path: Path, header: CheckpointHeader) -> CheckpointHeader:
+@@ -356,7 +369,7 @@ def preflight_checkpoint(header_path: Path, disk_root_fd: int) -> CheckpointHead
+             "committed", header.effect_identity, header.ordinal,
+             result.manifest.digest, result.skipped_special,
+         ))
+-    if workspace_manifest(disk_root_fd).digest != header.manifest_digest:
++    if workspace_manifest(disk_root_fd, clone=True).digest != header.manifest_digest:
+         raise RunRefCheckpointError(_CHANGED, "clone no longer matches its committed checkpoint header")
+     return header
+ 
+diff --git a/orchestrator/workflow/run_ref/confinement.py b/orchestrator/workflow/run_ref/confinement.py
+index e6d1e753c560211e97eae0c17c81200da17d0714..767c3cc722b01b80a4bf38ee954c90ca8c57f093 100644
+--- a/orchestrator/workflow/run_ref/confinement.py
++++ b/orchestrator/workflow/run_ref/confinement.py
+@@ -34,15 +34,14 @@ from typing import Any
+ from orchestrator.contracts.closed_program.program import ClosedProgram
+ from orchestrator.workflow.evaluated.machine import site_nodes
+ 
++from .checkpoint import MAX_CHECKPOINT_ENTRIES
+ from .confined_config import RunRefConfinedStaticConfig
+ from .contracts import RUN_REF_CONFINEMENT_PROFILE, VerifiedGitTreeIdentity, canonical_json_bytes
+ from .image_store import ImageStoreError, SealedImage, open_sealed_image
+ from .ledger import RunRefVisitKey
+ from .runtime import RunRefRuntimeError, build_run_ref_accounting, run_ref_visit_workspace
+ from .confined_source import ConfinedSource, confined_revision, materialize_confined_source
+-from .source import (
+-    canonical_repository_revision_result,
+-)
++from .source import RunRefSourceRefusal, canonical_repository_revision_result
+ from .wire import validate_confined_child_request
+ from .workspace import freeze_tree
+ 
+@@ -265,14 +264,26 @@ def provision_confined_child(
+         else:
+             return _reuse_provisioned_child(admission, layout)
+     elif os.path.lexists(layout.workspace):
+-        _discard_entry(layout.workspace)  # a crash between cloning and the control root
+-    source = materialize_confined_source(admission.config.repo, admission.commit,
+-                                         run_ref_root=run_ref_root, workspace=layout.workspace)
++        # The control root, named by the child run id, is durable before any clone, so a
++        # clone without it was not made for this child: keep it and fail closed.
++        raise RunRefRuntimeError("run_ref_evidence_invalid", "orphan_clone_not_bound_to_child")
++    children = layout.child_root.parent
++    if not children.is_dir():
++        children.mkdir(parents=True, exist_ok=True)
++        _fsync_directory(children.parent)  # the run-ref-children entry in the parent run root
++    layout.child_root.mkdir(mode=0o700)
++    _fsync_directory(children)
++    try:
++        source = materialize_confined_source(admission.config.repo, admission.commit,
++                                             run_ref_root=run_ref_root, workspace=layout.workspace)
++    except RunRefSourceRefusal:
++        if not os.path.lexists(layout.workspace):
++            os.rmdir(layout.child_root)  # refused before cloning: nothing was provisioned
++        raise
+     refuse_overlapping_roots(layout, parent_run_root=parent_run_root, parent_workspace=parent_workspace)
++    if len(source.source_tree_manifest.entries) > MAX_CHECKPOINT_ENTRIES:
++        raise RunRefRuntimeError("run_ref_environment_unavailable", "clone_exceeds_entry_bound")
+     provisioned = ProvisionedChild(layout=layout, source=source, recipe=_recipe(admission, layout, source))
+-    layout.child_root.parent.mkdir(parents=True, exist_ok=True)
+-    layout.child_root.mkdir(mode=0o700)
+-    _fsync_directory(layout.child_root.parent)
+     fd = os.open(layout.child_root / RECIPE_FILENAME,
+                  os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+     try:
+diff --git a/orchestrator/workflow/run_ref/holder_scope.py b/orchestrator/workflow/run_ref/holder_scope.py
+index dc30286c2bb37626d3b6434ce70ff50469b2dafd..ad12da582e0878f1ce5e1e577cfc0b16c45d95e0 100644
+--- a/orchestrator/workflow/run_ref/holder_scope.py
++++ b/orchestrator/workflow/run_ref/holder_scope.py
+@@ -64,7 +64,9 @@ CONTAINMENT_ERRORS = (ProviderIsolationStateError, ProviderIsolationBackendUnava
+ _VANISHED = (errno.ENOENT, errno.ENODEV)  # a cgroup being removed fails its file ops with ENODEV
+ 
+ # Enter the host slot, then exec; the parent-death signal is re-checked against the parent pid
+-# so a controller that died between fork and prctl is not missed (N4, m5).
++# so a controller that died between fork and prctl is not missed (N4, m5). PR_SET_PDEATHSIG fires
++# when the *thread* that forked the helper exits, not the controller process: call
++# `run_host_helper` from a thread that outlives the helper (the evaluated runtime's own thread).
+ HELPER_TRAMPOLINE = r'''
+ import ctypes, os, signal, sys
+ procs, parent = int(sys.argv[1]), int(sys.argv[2])
+@@ -275,7 +277,11 @@ class HolderScope:
+             raise RunRefRuntimeError(UNAVAILABLE, f"holder_exited_{self.process.returncode}_before_ready:"
+                                                   f"{self._stderr()}")
+         child_pid = json.loads(info)["child-pid"]
+-        if self.line(time.monotonic() + LAUNCH_SECONDS) != "ready":  # no guest code has run yet
++        try:
++            ready = self.line(time.monotonic() + LAUNCH_SECONDS)
++        except TimeoutError:
++            ready = None  # silence is refused like EOF: no guest code has run yet
++        if ready != "ready":
+             raise RunRefRuntimeError(UNAVAILABLE, f"spawner_not_ready:{self._stderr()}")
+         holder = self.slots["holder"]
+         self.recorded = set(holder.members())
+diff --git a/orchestrator/workflow/run_ref/image_store.py b/orchestrator/workflow/run_ref/image_store.py
+index 04d4ebadd7a5d65bc59c11ff6e5b096af0650742..091d9cfd775a320cecde805be9a82649c91bddf6 100644
+--- a/orchestrator/workflow/run_ref/image_store.py
++++ b/orchestrator/workflow/run_ref/image_store.py
+@@ -21,6 +21,7 @@ installing user) and, at import, an OCI layout directory. No network.
+ from __future__ import annotations
+ 
+ from dataclasses import dataclass
++import errno
+ import gzip
+ import hashlib
+ import io
+@@ -261,8 +262,12 @@ def tree_digest(root_fd: int) -> str:
+     return "sha256:" + hashlib.sha256(json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
+ 
+ 
+-def _resolve_in_root(root_fd: int, path: str) -> str:
+-    """Resolve `path` inside the image root as the guest would, by text, beneath `root_fd`."""
++def resolve_in_root(root_fd: int, path: str) -> str:
++    """Resolve absolute guest `path` as the guest would, by text, beneath the image root `root_fd`.
++
++    No host symlink is followed; absolute link targets restart at the image root.
++    Returns the absolute guest path; `OSError` when a component is absent or loops.
++    """
+     pending = [part for part in path.split("/") if part]
+     resolved: list[str] = []
+     hops = _SYMLINK_HOPS
+@@ -280,12 +285,12 @@ def _resolve_in_root(root_fd: int, path: str) -> str:
+             continue
+         hops -= 1
+         if hops < 0:
+-            raise ImageStoreError(f"image executable {path} has a symlink loop")
++            raise OSError(errno.ELOOP, f"image path {path} has a symlink loop")
+         target = os.readlink(candidate, dir_fd=root_fd)
+         if target.startswith("/"):
+             resolved = []
+         pending = [item for item in target.split("/") if item] + pending
+-    return "/".join(resolved)
++    return "/" + "/".join(resolved)
+ 
+ 
+ def executable_pins(root_fd: int) -> dict[str, Any]:
+@@ -293,7 +298,7 @@ def executable_pins(root_fd: int) -> dict[str, Any]:
+     pins = []
+     for path in PINNED_EXECUTABLES:
+         try:
+-            resolved = _resolve_in_root(root_fd, path)
++            resolved = resolve_in_root(root_fd, path).lstrip("/")
+             fd = _open_beneath(root_fd, resolved, os.O_RDONLY | os.O_NONBLOCK)
+         except OSError as exc:
+             raise ImageStoreError(f"image executable {path} is absent") from exc
+@@ -433,5 +438,6 @@ __all__ = [
+     "executable_pins",
+     "import_oci_layout",
+     "open_sealed_image",
++    "resolve_in_root",
+     "tree_digest",
+ ]

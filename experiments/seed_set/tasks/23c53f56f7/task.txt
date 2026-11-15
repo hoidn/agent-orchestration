@@ -1,0 +1,6 @@
+fix: admit a decimal literal in a macro template
+
+A template that held one ended in an uncaught TypeError. At 2.33 the
+expanded literal is refused as a written one is.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_float_literals.py::test_target_233_refuses_a_decimal_literal_from_a_macro_template_as_it_refuses_one_written` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

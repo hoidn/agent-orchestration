@@ -1,0 +1,4 @@
+fix: admit a decimal literal in a macro template
+
+A template that held one ended in an uncaught TypeError. At 2.33 the
+expanded literal is refused as a written one is.

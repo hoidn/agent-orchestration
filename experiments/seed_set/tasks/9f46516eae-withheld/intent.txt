@@ -1,0 +1,3 @@
+Fix strict Boolean Task 2 spec-review findings
+
+The change is in orchestrator/workflow_lisp/wcc/defunctionalize.py and orchestrator/workflow_lisp/wcc/elaborate.py.

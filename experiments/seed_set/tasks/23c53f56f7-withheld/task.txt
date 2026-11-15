@@ -1,0 +1,6 @@
+fix: admit a decimal literal in a macro template
+
+A template that held one ended in an uncaught TypeError. At 2.33 the
+expanded literal is refused as a written one is.
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

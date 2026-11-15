@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_float_literals.py::test_target_233_refuses_a_decimal_literal_from_a_macro_template_as_it_refuses_one_written"
+  ],
+  "timeout_sec": 600
+}

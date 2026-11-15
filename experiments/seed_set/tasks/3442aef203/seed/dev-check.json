@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_resume_command.py::test_replay_profile_force_restart_activates_deterministic_new_root_without_mutating_source"
+  ],
+  "timeout_sec": 600
+}

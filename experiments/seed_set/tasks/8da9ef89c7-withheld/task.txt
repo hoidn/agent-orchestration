@@ -1,0 +1,11 @@
+feat: declare generic unions and apply them in type positions at target 2.33
+
+Admit `defunion Name :forall (T ...)` and applications such as
+`Outcome[Int String]` in procedure signatures, ProcRef signatures, record
+and union fields, and `variant` constructors. An applied union keeps the
+generic declaration as constructor identity plus ordered argument types,
+and compatibility checks compare those instead of rendered names. Reject
+wrong arity, unapplied generic unions, non-generic heads, unresolved
+arguments, recursive instantiation, and any of this syntax below 2.33.
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.
