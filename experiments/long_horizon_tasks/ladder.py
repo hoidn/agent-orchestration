@@ -1047,15 +1047,23 @@ def prefixes(attempt_dir):
 
 
 def container_names(ctx, prefix_list):
-    names = podman(ctx, "ps", "-a", "--format", "{{.Names}}").stdout.decode().split()
-    return [n for n in names if any(n.startswith(p) for p in prefix_list)]
+    """The containers whose names start with one of the prefixes (`podman ps -a`), or None when podman could not
+    list them: a failure, never "no containers" (re-review R-m4)."""
+    done = podman(ctx, "ps", "-a", "--format", "{{.Names}}")
+    if done.returncode != 0:
+        return None
+    return [n for n in done.stdout.decode().split() if any(n.startswith(p) for p in prefix_list)]
 
 
 def remove_containers(ctx, attempt_dir, tries=10):
-    """Remove the attempt's containers and networks by name; True once `podman ps -a` shows none of them."""
+    """Remove the attempt's containers and networks by name; True once `podman ps -a` shows none of them (a listing
+    that fails confirms nothing: re-review R-m4)."""
     found = prefixes(attempt_dir)
     for _ in range(tries):
         names = container_names(ctx, found)
+        if names is None:  # not listed: the removal cannot be confirmed (re-review R-m4)
+            time.sleep(POLL_S)
+            continue
         if not names:
             for net in podman(ctx, "network", "ls", "--format", "{{.Name}}").stdout.decode().split():
                 if any(net.startswith(p) for p in found):
@@ -1887,12 +1895,14 @@ def runtime_check(ctx, attempt_dir, export):
     the proxy writes every connection and refusal to standard error (Task 7). The finding, or None: any finding in
     any container is the attempt's. A session with no container under the trial's prefix, or an
     export due with no agent container, is an incomplete scan, never clean (Task 8 B2); so is a podman read that
-    failed (M2): every container's inspect and every exported container's export must succeed. The process
+    failed (M2): every container's inspect and every exported container's export must succeed; and so is a
+    container listing that failed (re-review R-m4). The process
     environments are what the samples taken while each container ran hold; a container never sampled is scanned
     by its inspected configuration (Task 7 ruling 1: at teardown every container has exited)."""
     (attempt_dir / "containers").mkdir(exist_ok=True)
-    names = container_names(ctx, prefixes(attempt_dir))
-    codes = [_kept(ctx, attempt_dir, name) for name in names]
+    listed = container_names(ctx, prefixes(attempt_dir))
+    names = listed or []
+    codes = [_kept(ctx, attempt_dir, name) for name in names] + ([2] if listed is None else [])  # R-m4
     sample_environ(ctx, attempt_dir, names)
     codes += [token_scan(ctx, attempt_dir / "containers")] if names else []  # no container: nothing to scan
     agents = [n for n in names if n.endswith("_main_1")]
@@ -2116,7 +2126,7 @@ class Attempt:
 
     def sample(self):
         (self.dir / "containers").mkdir(exist_ok=True)
-        sample_environ(self.ctx, self.dir, container_names(self.ctx, prefixes(self.dir)))
+        sample_environ(self.ctx, self.dir, container_names(self.ctx, prefixes(self.dir)) or [])
         with open(self.dir / "load.jsonl", "a") as fh:
             fh.write(json.dumps({"time": time.time(), "load": load_open(self.ctx, self.ladder)[1]}) + "\n")
 

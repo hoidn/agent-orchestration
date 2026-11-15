@@ -284,6 +284,8 @@ def load(name):
 
 
 cmd, rest = args[0], args[1:]
+if cmd == "ps" and (STATE / "ps_fails").exists():  # podman cannot list its containers
+    sys.exit(125)
 if cmd == "ps":
     every = "-a" in rest
     print("\n".join(n for n in names(C) if every or load(n).get("running", True)))
@@ -1560,9 +1562,9 @@ def test_in_a_rehearsal_status_prints_the_passthrough_s_rehearsal_start_and_neve
 # The runtime check (Task 8 part B): any finding in any container is the attempt's; what it cannot read is
 # an incomplete scan, never clean.
 
-def _runtime(short, containers, session=True, export=True):
+def _runtime(short, containers, session=True, export=True, ps_fails=False):
     """runtime_check on an attempt whose trial had a session (or not), with stand-in containers named
-    `<trial>__<suffix>` and the fields `containers(token)` gives; its finding."""
+    `<trial>__<suffix>` and the fields `containers(token)` gives (and `podman ps` failing); its finding."""
     lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
     ctx = _ctx(short, lh)
     ladder.ensure_state(ctx.root)
@@ -1575,6 +1577,8 @@ def _runtime(short, containers, session=True, export=True):
         (trial / "agent" / "claude-code.txt").write_text("{}\n")
     for suffix, fields in containers(token).items():
         _container(lh, f"wal__abcdefg__{suffix}", **fields)
+    if ps_fails:
+        (lh / "standin" / "podman" / "ps_fails").write_text("")
     return ladder.runtime_check(ctx, attempt_dir, export)
 
 
@@ -1601,6 +1605,16 @@ def test_a_match_in_one_container_s_file_system_is_never_replaced_by_a_later_con
 def test_a_runtime_check_that_finds_nothing_it_must_read_is_incomplete_never_clean(short, containers, session, want):
     """B2: an attempt with a session, or with containers, whose agent container is not found."""
     assert _runtime(short, containers, session=session) == want
+
+
+@pytest.mark.parametrize("session", [False, True])
+def test_a_failed_container_listing_is_an_incomplete_scan_and_never_a_confirmed_removal(short, session):
+    """Re-review R-m4: `podman ps -a` exiting non-zero lists no container; that is a failure, never "no
+    containers": the runtime check is incomplete (with or without a session) and the removal is not confirmed."""
+    found = _runtime(short, lambda t: {MAIN: {}, SIDECAR: {}}, session=session, ps_fails=True)
+    lh, ctx = short / "lh", _ctx(short, short / "lh")
+    removed = ladder.remove_containers(ctx, ctx.root / "slots" / "001", tries=2)
+    assert (found, removed, len(_containers(lh))) == (INCOMPLETE, False, 2)
 
 
 def _reads(short):
