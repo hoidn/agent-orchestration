@@ -403,6 +403,22 @@ def _filled(doc, values):
     return doc
 
 
+# The fields Task 2b's second pass filled from this machine's oracle evidence. A kit copy runs the rehearsals' three
+# stand-in tasks, so it puts them back to pending and the stand-ins (or a test's own) fill them, as before the pass.
+TASK_DEPENDENT = ("tasks.qualified", "tasks.load_sensitive", "tasks.overlay_digests", "tasks.extra_hosts",
+                  "network.agent_phase.allowed_hosts", "host.cpu_set", "readout.graded_outcome.verifiers")
+
+
+def _unfilled(doc, fields=TASK_DEPENDENT):
+    """`doc` with each of `fields` null and back on `pending` (the reverse of a fill)."""
+    back = [e for e in doc["filled"] if e["field"] in fields]
+    doc["filled"] = [e for e in doc["filled"] if e["field"] not in fields]
+    doc["pending"] = [{k: v for k, v in e.items() if k != "source"} for e in back] + doc["pending"]
+    for field in fields:
+        ladder._set(doc, field, None)
+    return doc
+
+
 class Kit:
     """A copy of the kit in a temporary git repository (branch main), with a stand-in cache whose packages are the
     ones its tasks.json names; `freeze()` makes it a live checkout: frozen, labelled in the ledger, detached."""
@@ -425,10 +441,10 @@ class Kit:
         for record in tasks["tasks"]:
             record["digest_4_1_0"] = _content_hash(self.lh / "tasks41" / record["name"].rsplit("/", 1)[-1] / "x")
         (kit / "tasks.json").write_text(json.dumps(tasks, indent=1) + "\n")
+        doc = _unfilled(json.loads((kit / "ladder.json").read_text()))
         if edit:
-            doc = json.loads((kit / "ladder.json").read_text())
             edit(doc)
-            (kit / "ladder.json").write_text(json.dumps(doc, indent=1))
+        (kit / "ladder.json").write_text(json.dumps(doc, indent=1))
         _manifest(self.repo, "write")
         for args in (("init", "-q", "-b", "main"), ("add", "-A"),
                      ("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "kit")):
@@ -2957,8 +2973,9 @@ def test_the_canary_identifier_is_read_from_the_package_by_its_sha256(short):
 
 
 def test_a_contaminated_observation_is_recorded_unscored_and_three_tasks_with_one_of_any_class_stop_the_tranche(rig):
-    r = rig(stand_ins={"readout.contamination_scan.terms": ["stand-in-term"]},
-            plan=[{"write": {"agent/note.txt": "found stand-in-term here"}}])
+    term = (CRITERION["readout"]["contamination_scan"]["terms"] or ["stand-in-term"])[0]  # stand-ins fill pending only
+    r = rig(stand_ins={"readout.contamination_scan.terms": [term]},
+            plan=[{"write": {"agent/note.txt": f"found {term} here"}}])
     r.launch()
     (attempt,) = r.attempts()
     start = _export(r)["starts"][0]
@@ -2968,7 +2985,7 @@ def test_a_contaminated_observation_is_recorded_unscored_and_three_tasks_with_on
     assert (attempt["settled"]["class"], start["excluded"], start["contamination"], loaded[0]["counted"],
             [e for e in r.events() if e["event"] == "stop"], ladder.contamination_stop(three[:2], CRITERION),
             ladder.contamination_stop(three, CRITERION)) == (
-        "observation", None, [hashlib.sha256(b"stand-in-term").hexdigest()], False, [], None,
+        "observation", None, [hashlib.sha256(term.encode()).hexdigest()], False, [], None,
         "contaminated attempts on three tasks")
 
 

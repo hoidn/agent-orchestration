@@ -87,9 +87,11 @@ Fresh preferred starting points:
   comparison with the baseline on real providers remains a separate gate.
 - For a review loop, start with
   `workflows/examples/improve_experiment_proposal.orc`, which calls
-  `std/improve`. For generate-and-select, or a review loop written by hand,
-  start with `experiments/orc_vs_single_call/workflows/best_of_n.orc` or
-  `reviewed_change.orc`.
+  `std/improve`. For a review loop written by hand, start with
+  `experiments/orc_vs_single_call/workflows/reviewed_change.orc`. For
+  generate-and-select, `best_of_n.orc` beside it is frozen at 2.35 and refused
+  by this release; start from its 2.40 copy, named in the
+  [best-of-N reference](../docs/lisp_library_reference.md#generate-candidates-and-select).
 - Do not start from `workflows/library/lisp_frontend_design_delta/drain.orc`:
   the Design Delta family and its pre-2.35 library source are retired.
   Its authored YAML family is archived; the historical promotion

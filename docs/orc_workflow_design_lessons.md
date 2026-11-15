@@ -27,8 +27,11 @@ use the [drafting guide](lisp_workflow_drafting_guide.md#2a-program-shapes-what-
 do not downgrade a new workflow to reproduce a historical workaround.
 
 Working examples:
-[`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and
-[`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc).
+[`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc)
+(2.40) and
+[`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc),
+which is frozen at 2.35 and refused by this release; its 2.40 copy is named in
+the [best-of-N reference](lisp_library_reference.md#generate-candidates-and-select).
 
 ## Before Drafting
 

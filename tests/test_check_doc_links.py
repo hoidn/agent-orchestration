@@ -1,6 +1,8 @@
 """The documentation link checker resolves heading and HTML anchors and reports the rest."""
 
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_doc_links.py"
@@ -53,3 +55,9 @@ def test_duplicate_anchor_id_is_reported(tmp_path: Path) -> None:
     source = tmp_path / "dup.md"
     source.write_text('<a id="twice"></a>\n<a name="TWICE"></a>\n', encoding="utf-8")
     assert _checker().problems(source) == [f"{source}: duplicate anchor id twice"]
+
+
+def test_no_file_arguments_prints_the_usage_and_exits_2() -> None:
+    result = subprocess.run([sys.executable, str(SCRIPT)], capture_output=True, text=True, check=False)
+    assert (result.returncode, result.stdout) == (2, "")
+    assert "Usage:" in result.stderr
