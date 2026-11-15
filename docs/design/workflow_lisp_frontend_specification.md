@@ -2485,7 +2485,7 @@ the compiler knows that:
 Rules:
 
 - The subject of `match` is a union value, and the arms name each of its variants once.
-  It may be written with a list or a `list/map` in it, as in
+  It may be written with a list, with `:of` or without, or a `list/map` in it, as in
   `(match (variant V HAS :xs (list 1)) …)` or `(match (mk (list/length (list/map ((x xs)) x))) …)`,
   and runs as the same subject bound with `let*` first; §16.3 lists the subject shapes that
   stay open defects.

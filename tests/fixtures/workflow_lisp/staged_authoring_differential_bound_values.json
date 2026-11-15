@@ -1,4 +1,13 @@
 {
+ "d1-arm-all-let-binder": [
+  4
+ ],
+ "d1-arm-all-match": [
+  4
+ ],
+ "d1-arm-all-match-let": [
+  4
+ ],
  "d1-arm-cond-let-binder": [
   4
  ],
@@ -17,6 +26,15 @@
  "d1-arm-if-match-let": [
   4
  ],
+ "d1-loop-all-let-binder": [
+  4
+ ],
+ "d1-loop-all-match": [
+  4
+ ],
+ "d1-loop-all-match-let": [
+  4
+ ],
  "d1-loop-and-let-binder": [
   4
  ],
@@ -24,6 +42,15 @@
   4
  ],
  "d1-loop-and-match-let": [
+  4
+ ],
+ "d1-loop-any-let-binder": [
+  4
+ ],
+ "d1-loop-any-match": [
+  4
+ ],
+ "d1-loop-any-match-let": [
   4
  ],
  "d1-loop-cond-let-binder": [
@@ -170,6 +197,15 @@
  "d1-loop-or-match-let": [
   4
  ],
+ "d1-loop-take-let-binder": [
+  4
+ ],
+ "d1-loop-take-match": [
+  4
+ ],
+ "d1-loop-take-match-let": [
+  4
+ ],
  "d1-parallel-and-let-binder": [
   [
    4
@@ -209,6 +245,72 @@
  "d1-proc-if-match-let": [
   4
  ],
+ "d1-r-d1-base": [
+  4
+ ],
+ "d1-r-d1-binder-named-n": [
+  4
+ ],
+ "d1-r-d1-effect-after": [
+  5,
+  "r"
+ ],
+ "d1-r-d1-inner-rebind": [
+  4
+ ],
+ "d1-r-d1-inner-rebind~b": [
+  4
+ ],
+ "d1-r-d1-later-with-plain-pre": [
+  9,
+  "r"
+ ],
+ "d1-r-d1-later-with-retry-pre": [
+  9,
+  "r"
+ ],
+ "d1-r-d1-pure-call-before": [
+  3
+ ],
+ "d1-r-d1-pure-call-before~b": [
+  3
+ ],
+ "d1-r-d1-two-maps": [
+  4
+ ],
+ "d1-r-d1b-binder-named-pp": [
+  4
+ ],
+ "d1-r-d1b-binder-named-pp~b": [
+  4
+ ],
+ "d1-r-d1b-let-outer-and-binder": [
+  4
+ ],
+ "d1-r-d1b-let-outer-and-binder~b": [
+  4
+ ],
+ "d1-r-d1b-let-star-two-reads": [
+  5
+ ],
+ "d1-r-d1b-let-star-two-reads~b": [
+  5
+ ],
+ "d1-r-d1b-local-captures-binder": [
+  4
+ ],
+ "d1-r-d1b-local-captures-binder~b": [
+  4
+ ],
+ "d1-r-d1b-loop-in-body": [
+  4
+ ],
+ "d1-r-d1b-loop-in-body~b": [
+  4
+ ],
+ "d2-empty-arm-empty-argument": [
+  []
+ ],
  "d2-empty-arm-if-branch": [
   [
    1
@@ -240,6 +342,26 @@
    2
   ]
  ],
+ "d2-empty-arm-typed-empty-argument": [
+  []
+ ],
+ "d2-empty-arm-typed-length": [
+  []
+ ],
+ "d2-empty-arm-typed-proc-arg": [
+  [
+   1
+  ]
+ ],
+ "d2-empty-arm-typed-variant-empty": [
+  []
+ ],
+ "d2-empty-arm-typed-variant-list": [
+  [
+   1,
+   2
+  ]
+ ],
  "d2-empty-arm-variant-empty": [
   []
  ],
@@ -251,6 +373,10 @@
    1,
    2
   ]
+ ],
+ "d2-loop-effect-empty-argument": [
+  1,
+  "arm"
  ],
  "d2-loop-effect-if-branch": [
   2,
@@ -282,6 +408,25 @@
   3,
   "arm"
  ],
+ "d2-loop-effect-typed-empty-argument": [
+  1,
+  "arm"
+ ],
+ "d2-loop-effect-typed-length": [
+  3
+ ],
+ "d2-loop-effect-typed-proc-arg": [
+  2,
+  "arm"
+ ],
+ "d2-loop-effect-typed-variant-empty": [
+  1,
+  "arm"
+ ],
+ "d2-loop-effect-typed-variant-list": [
+  3,
+  "arm"
+ ],
  "d2-loop-effect-variant-empty": [
   1,
   "arm"
@@ -292,6 +437,9 @@
  "d2-loop-effect-variant-list": [
   3,
   "arm"
+ ],
+ "d2-loop-plain-empty-argument": [
+  0
  ],
  "d2-loop-plain-if-branch": [
   1
@@ -317,6 +465,21 @@
  "d2-loop-plain-proc-arg": [
   2
  ],
+ "d2-loop-plain-typed-empty-argument": [
+  0
+ ],
+ "d2-loop-plain-typed-length": [
+  3
+ ],
+ "d2-loop-plain-typed-proc-arg": [
+  1
+ ],
+ "d2-loop-plain-typed-variant-empty": [
+  0
+ ],
+ "d2-loop-plain-typed-variant-list": [
+  2
+ ],
  "d2-loop-plain-variant-empty": [
   0
  ],
@@ -325,6 +488,10 @@
  ],
  "d2-loop-plain-variant-list": [
   2
+ ],
+ "d2-proc-effect-empty-argument": [
+  1,
+  "arm"
  ],
  "d2-proc-effect-if-branch": [
   2,
@@ -353,6 +520,25 @@
   3,
   "arm"
  ],
+ "d2-proc-effect-typed-empty-argument": [
+  1,
+  "arm"
+ ],
+ "d2-proc-effect-typed-length": [
+  3
+ ],
+ "d2-proc-effect-typed-proc-arg": [
+  2,
+  "arm"
+ ],
+ "d2-proc-effect-typed-variant-empty": [
+  1,
+  "arm"
+ ],
+ "d2-proc-effect-typed-variant-list": [
+  3,
+  "arm"
+ ],
  "d2-proc-effect-variant-empty": [
   1,
   "arm"
@@ -363,6 +549,9 @@
  "d2-proc-effect-variant-list": [
   3,
   "arm"
+ ],
+ "d2-proc-plain-empty-argument": [
+  0
  ],
  "d2-proc-plain-if-branch": [
   1
@@ -388,6 +577,21 @@
  "d2-proc-plain-proc-arg": [
   2
  ],
+ "d2-proc-plain-typed-empty-argument": [
+  0
+ ],
+ "d2-proc-plain-typed-length": [
+  3
+ ],
+ "d2-proc-plain-typed-proc-arg": [
+  1
+ ],
+ "d2-proc-plain-typed-variant-empty": [
+  0
+ ],
+ "d2-proc-plain-typed-variant-list": [
+  2
+ ],
  "d2-proc-plain-variant-empty": [
   0
  ],
@@ -396,6 +600,119 @@
  ],
  "d2-proc-plain-variant-list": [
   2
+ ],
+ "d2-r-d2-defun-arg": [
+  2
+ ],
+ "d2-r-d2-empty-argument": [
+  0
+ ],
+ "d2-r-d2-head": [
+  3
+ ],
+ "d2-r-d2-loop-state": [
+  1
+ ],
+ "d2-r-d2-macro": [
+  1
+ ],
+ "d2-r-d2-nested-let": [
+  1
+ ],
+ "d2-r-d2-record-field": [
+  1
+ ],
+ "d2-r-d2-serial-map": [
+  2
+ ],
+ "d2-r-d2-serial-map-effect": [
+  2,
+  "m",
+  "m"
+ ],
+ "d2-r-d2b-defun": [
+  1
+ ],
+ "d2-r-d2b-local-body-match": [
+  1
+ ],
+ "d2-r-d2b-local-body-match-map": [
+  2
+ ],
+ "d2-r-d2d-generic-list-arg": [
+  1
+ ],
+ "d2-typed-arm-empty-argument": [
+  []
+ ],
+ "d2-typed-arm-if-branch": [
+  []
+ ],
+ "d2-typed-arm-if-condition": [
+  [
+   2
+  ]
+ ],
+ "d2-typed-arm-let-map": [
+  [
+   2
+  ]
+ ],
+ "d2-typed-arm-let-subject": [
+  []
+ ],
+ "d2-typed-arm-map-field": [
+  [
+   2
+  ]
+ ],
+ "d2-typed-arm-map-literal": [
+  [
+   2
+  ]
+ ],
+ "d2-typed-arm-map-name": [
+  [
+   2
+  ]
+ ],
+ "d2-typed-arm-proc-arg": [
+  []
+ ],
+ "d2-typed-arm-typed-empty-argument": [
+  []
+ ],
+ "d2-typed-arm-typed-length": [
+  [
+   3
+  ]
+ ],
+ "d2-typed-arm-typed-proc-arg": [
+  []
+ ],
+ "d2-typed-arm-typed-variant-empty": [
+  []
+ ],
+ "d2-typed-arm-typed-variant-list": [
+  []
+ ],
+ "d2-typed-arm-variant-empty": [
+  []
+ ],
+ "d2-typed-arm-variant-length": [
+  [
+   3
+  ]
+ ],
+ "d2-typed-arm-variant-list": [
+  []
+ ],
+ "d2-uncalled-empty-argument": [
+  1
+ ],
+ "d2-workflow-effect-empty-argument": [
+  1,
+  "arm"
  ],
  "d2-workflow-effect-if-branch": [
   2,
@@ -424,6 +741,25 @@
   3,
   "arm"
  ],
+ "d2-workflow-effect-typed-empty-argument": [
+  1,
+  "arm"
+ ],
+ "d2-workflow-effect-typed-length": [
+  3
+ ],
+ "d2-workflow-effect-typed-proc-arg": [
+  2,
+  "arm"
+ ],
+ "d2-workflow-effect-typed-variant-empty": [
+  1,
+  "arm"
+ ],
+ "d2-workflow-effect-typed-variant-list": [
+  3,
+  "arm"
+ ],
  "d2-workflow-effect-variant-empty": [
   1,
   "arm"
@@ -434,6 +770,9 @@
  "d2-workflow-effect-variant-list": [
   3,
   "arm"
+ ],
+ "d2-workflow-plain-empty-argument": [
+  0
  ],
  "d2-workflow-plain-if-branch": [
   1
@@ -459,6 +798,21 @@
  "d2-workflow-plain-proc-arg": [
   2
  ],
+ "d2-workflow-plain-typed-empty-argument": [
+  0
+ ],
+ "d2-workflow-plain-typed-length": [
+  3
+ ],
+ "d2-workflow-plain-typed-proc-arg": [
+  1
+ ],
+ "d2-workflow-plain-typed-variant-empty": [
+  0
+ ],
+ "d2-workflow-plain-typed-variant-list": [
+  2
+ ],
  "d2-workflow-plain-variant-empty": [
   0
  ],
@@ -467,6 +821,74 @@
  ],
  "d2-workflow-plain-variant-list": [
   2
+ ],
+ "d3-r-d3-enclosing-request": [
+  [
+   6,
+   7
+  ],
+  "g",
+  "g",
+  "g"
+ ],
+ "d3-r-d3-if-both": [
+  [
+   11,
+   2
+  ],
+  "g",
+  "g"
+ ],
+ "d3-r-d3-in-local": [
+  [
+   2,
+   3
+  ],
+  "g",
+  "g"
+ ],
+ "d3-r-d3-in-proc-called-twice": [
+  4,
+  "g",
+  "g",
+  "g",
+  "g"
+ ],
+ "d3-r-d3-map-in-map-values": [
+  [
+   11,
+   21
+  ],
+  "g",
+  "g",
+  "g",
+  "g"
+ ],
+ "d3-r-d3-max-operand": [
+  [
+   1,
+   2
+  ],
+  "g",
+  "g"
+ ],
+ "d3-r-d3-string-arg": [
+  [
+   2,
+   3
+  ],
+  "g",
+  "g"
+ ],
+ "d3-r-d3-two-types": [
+  [
+   2,
+   3
+  ],
+  "g",
+  "g",
+  "g",
+  "g"
  ],
  "d3-serial-direct": [
   [

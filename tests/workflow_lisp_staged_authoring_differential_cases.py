@@ -8,10 +8,11 @@ itself a case (`<id>~bound`), which built before the fixes. Families, each fixed
 built before (the same form bound with `let*` first, `if` for `match`, one more level of nesting, with an effect
 and without, in a loop and outside):
 - `d1-`: a `list/map` whose body is a `match`, or a `let*` reading the binder, in a condition (`if`, `cond`, an
-  `and`, `or` or `not` operand, a nested `if`) in a loop body, a `fn` loop body, a match arm, a parallel map
+  `and`, `or` or `not` operand, a nested `if`, `list/all`, `list/any`, `list/take`) in a loop body, a `fn` loop body, a match arm, a parallel map
   body, a procedure, and outside a loop;
-- `d2-`: a `match` subject with a list or a `list/map` in it, in a workflow, a loop, a procedure and an uncalled
-  procedure, with and without an effect in an arm, with an empty list in an arm;
+- `d2-`: a `match` subject with a list (with `:of` and without) or a `list/map` in it, in a workflow, a loop, a
+  procedure and an uncalled procedure, with and without an effect in an arm, with an empty list or a typed list in
+  an arm;
 - `d3-`: a generic procedure called in a serial map body, nested, in a loop, in a procedure, through a `let*`
   or an `if`, beside the parallel map, the loop body, the local procedure and the pure map that built;
 - `d5-`: a `bind-proc` over a parameter of a pure procedure passed on to a `ProcRef` parameter, beside a literal,
@@ -30,10 +31,10 @@ arm (a `let*` body supplies no item type) it passes the bound subject to a proce
 The three expectation files under `tests/fixtures/workflow_lisp/` are written by this module's `__main__`, never by
 hand: `staged_authoring_differential_main.json` (every case's build) and
 `staged_authoring_differential_bound_values.json` (the bound spelling's value) on an export of `main` at
-`b7e2e2b5`; `staged_authoring_differential_pins.json` (the outcome of every case whose outcome moved) on the tip
+`524ed71a`; `staged_authoring_differential_pins.json` (the outcome of every case whose outcome moved) on the tip
 of `feat/authoring-0b`. With `F=TREE/tests/fixtures/workflow_lisp` and `M=staged_authoring_differential`:
 
-    git archive b7e2e2b5 | tar -x -C EXPORT
+    git archive 524ed71a | tar -x -C EXPORT
     cd EXPORT && PYTHONPATH=EXPORT python -B TREE/tests/workflow_lisp_staged_authoring_differential_cases.py \\
         outcomes $F/$M_main.json
     cd TREE && PYTHONPATH=TREE python -B tests/workflow_lisp_staged_authoring_differential_cases.py \\
@@ -76,10 +77,16 @@ D1_CONDITIONS = {
     "not": "(if (not HEAD) NEXT DONE(s))",
     "nested-if": "(if (> s 2) (if HEAD DONE(s) NEXT) NEXT)",
     "map-in-map": "(if HEAD DONE(s) NEXT)",
+    # The list operators over the map's result (Task O of the plan).
+    "all": "(if HEAD DONE(s) NEXT)",
+    "any": "(if HEAD DONE(s) NEXT)",
+    "take": "(if HEAD DONE(s) NEXT)",
 }
 D1_HEAD = "(or-else (list/head (list/map ((v vs)) BODY)) false)"
 D1_HEADS = {"map-in-map": "(or-else (list/head (list/map ((ws (list vs))) (or-else (list/head (list/map ((v ws)) BODY)) "
-                          "false))) false)"}
+                          "false))) false)",
+            "all": "(list/all (list/map ((v vs)) BODY))", "any": "(list/any (list/map ((v vs)) BODY))",
+            "take": "(or-else (list/head (list/take (list/map ((v vs)) BODY) 1)) false)"}
 LOOP = "(loop/recur ((s 0)) :max 6 :on-exhausted 99 FORM)"
 D1_CONTEXTS = {
     # context: (run with FORM, in a loop, the conditions it takes)
@@ -89,7 +96,7 @@ D1_CONTEXTS = {
     "loop-fn": ("((u U)) -> Int (let* ((vs (list u u))) (loop/recur :max 6 :state 0 :on-exhausted 99 (fn (s) FORM)))",
                 True, ("if", "and")),
     "arm": ("((u U)) -> Int (let* ((vs (list u u))) " + LOOP.replace("FORM", "(match u ((A x) FORM) ((B y) (done 0)))")
-            + ")", True, ("if", "cond")),
+            + ")", True, ("if", "cond", "all")),
     "proc": ("((u U)) -> Int (p u)", True, ("if",)),
     "outside": ("((u U)) -> Int (let* ((vs (list u u)) (s 4)) FORM)", False, ("if", "cond", "and")),
     "parallel": ('((u U)) -> List[Int] (let* ((vs (list u u)) (s 4)) (list/map-effect ((d (list "."))) :max 1 '
@@ -148,6 +155,15 @@ D2_SUBJECTS = {
     "input-name": "(mk xs)",
     # An empty list as a procedure's argument: refused `list_empty_type_context_required` before, as written.
     "empty-argument": "(mk (list))",
+    # The typed list literal (Task L of the plan).
+    "typed-variant-list": "(variant V HAS :xs (list :of Int 1 2))",
+    "typed-variant-empty": "(variant V HAS :xs (list :of Int))",
+    "typed-proc-arg": "(mk (list :of Int 1))",
+    "typed-empty-argument": "(mk (list :of Int))",
+    "typed-length": "(variant V NO :k (list/length (list :of Int 1 2 3)))",
+    "typed-local-argument": "(let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) (f (list :of Int 1)))",
+    "typed-local-and": "(if (and (> n 0) (> n -1)) (let-proc ((f ((ys List[Int])) -> V (variant V HAS :xs ys))) "
+                       "(f (list :of Int 1))) (variant V NO :k 0))",
 }
 D2_ARMS = {
     "plain": "((HAS h) (list/length h.xs)) ((NO o) o.k)",
@@ -156,6 +172,8 @@ D2_ARMS = {
 D2_PARAMS = "((n Int) (xs List[Int]))"
 D2_EMPTY_ARMS = "((HAS h) h.xs) ((NO o) (list))"
 D2_PM = f"(defproc pm ((w V)) -> List[Int] (match w {D2_EMPTY_ARMS}))"
+D2_TYPED_ARMS = "((HAS h) (list :of Int)) ((NO o) (list :of Int o.k))"
+D2_PM_TYPED = f"(defproc pm ((w V)) -> List[Int] (match w {D2_TYPED_ARMS}))"
 
 
 # The bound spelling of a subject that is itself a `match` with a list in its subject binds that subject too.
@@ -197,6 +215,11 @@ def _d2():
         cases.append((f"d2-empty-arm-{name}", (f"{D2_PARAMS} -> List[Int] (match {subject} {D2_EMPTY_ARMS})",
                                               D2_DEFINITIONS),
                       (f"{D2_PARAMS} -> List[Int] (let* {_d2_bindings(subject)} (pm w))", (*D2_DEFINITIONS, D2_PM))))
+        # A typed list in an arm, empty and not.
+        cases.append((f"d2-typed-arm-{name}", (f"{D2_PARAMS} -> List[Int] (match {subject} {D2_TYPED_ARMS})",
+                                              D2_DEFINITIONS),
+                      (f"{D2_PARAMS} -> List[Int] (let* {_d2_bindings(subject)} (pm w))",
+                       (*D2_DEFINITIONS, D2_PM_TYPED))))
     return cases
 
 
@@ -322,7 +345,9 @@ def _d1_reference(body: str, binder: str = "v", pre: str = "", done: str = "(don
 
 D1_MATCH = "(match v ((A a) (> s a.n)) ((B b) true))"
 D1_FIELD = "(match v ((A a) a.n) ((B b) 0))"
-D1_LATER = "((u U)) -> Int (+ (pre u) " + _d1_reference(D1_MATCH, done=f"(done (+ s {E('r')}))").split(" -> Int ", 1)[1] + ")"
+# `(+ (pre u) LOOP)` with a loop as an operand does not build on `main` whatever the loop holds: bound with `let*`.
+D1_LATER = ("((u U)) -> Int (let* ((p (pre u)) (vs (list u u)) (l " + _d1_reference(
+    D1_MATCH, done=f"(done (+ s {E('r')}))").split("(vs (list u u))) ", 1)[1][:-1] + ")) (+ p l))")
 D3_LOCAL = "(let-proc ((g ((x Int)) -> Int (keep x))) MAP)"
 
 

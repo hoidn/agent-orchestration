@@ -1469,8 +1469,8 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
     there by a `match` in an `if`, `cond`, `and`, `or` or `not` condition, builds and runs in a loop
     body, a parallel map body and a `match` arm there, as does a `let-proc` local in such a body
     that captures the binder (D1; frontend specification §10.3);
-  - a `match` whose subject holds a list or a `list/map` outside every `let-proc` form of the
-    subject builds and runs as its `let*`-bound spelling, wherever the `match` is written (a
+  - a `match` whose subject holds a list (with `:of` or without) or a `list/map` outside every
+    `let-proc` form of the subject builds and runs as its `let*`-bound spelling, wherever the `match` is written (a
     `defun` and a local's body included), also with an empty `(list)` in an arm whose position
     states its type; `(match (mk (list)) …)`, before `list_empty_type_context_required`, is one of
     them. A list in a `let-proc` form of the subject, the local's call included, keeps the program
