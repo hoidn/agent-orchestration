@@ -141,22 +141,32 @@ def resume_after_limit(ledger, reset, five_hour, weekly, read_at, now=None):
         if not pauses:
             raise SystemExit("no start is closed by a usage limit: nothing to resume")
         named = max([reset, *(row["reset"] for row in pauses if row.get("reset") is not None)])
-        hit = max(row["time"] for row in pauses)
-        if all(row.get("reset") is None for row in pauses) and reset < hit:  # review3 minor 10
-            raise SystemExit(f"no open pause named its reset: the reset typed ({when(reset)}) must come after the limit "
-                             f"was hit ({when(hit)})")
+        require_reset_after_hit(pauses, reset)
         if now < named:
             raise SystemExit(f"the usage limit resets {when(named)}, it is {when(now)}: nothing reopens before the "
                              "reset")
-        if not all(type(v) in (int, float) and 0 <= v < 100 for v in (five_hour, weekly)):
-            raise SystemExit(f"the owner's meter reading is two percentages below 100 (a meter at 100 percent: its "
-                             f"limit still holds), not {five_hour!r} and {weekly!r}")
-        if not named <= read_at <= now:
-            raise SystemExit(f"the owner's meter reading must be taken after the reset ({when(named)}) and not later "
-                             f"than now, not {when(read_at)}")
+        require_reading(named, five_hour, weekly, read_at, now)
         return _append(stream, entries, {"kind": "event", "event": "resume", "reset": named, "pauses": [
             row["seq"] for row in pauses], "reading": {"five_hour_pct": five_hour, "weekly_pct": weekly,
                                                       "read_at": read_at}})
+
+
+def require_reset_after_hit(pauses, reset):
+    """When no open pause named its reset, the typed one must come after the limit was hit (review3 minor 10)."""
+    hit = max(row["time"] for row in pauses)
+    if all(row.get("reset") is None for row in pauses) and reset < hit:
+        raise SystemExit(f"no open pause named its reset: the reset typed ({when(reset)}) must come after the limit "
+                         f"was hit ({when(hit)})")
+
+
+def require_reading(named, five_hour, weekly, read_at, now):
+    """The owner's meter reading: two percentages below 100, read between the reset and now."""
+    if not all(type(v) in (int, float) and 0 <= v < 100 for v in (five_hour, weekly)):
+        raise SystemExit(f"the owner's meter reading is two percentages below 100 (a meter at 100 percent: its "
+                         f"limit still holds), not {five_hour!r} and {weekly!r}")
+    if not named <= read_at <= now:
+        raise SystemExit(f"the owner's meter reading must be taken after the reset ({when(named)}) and not later "
+                         f"than now, not {when(read_at)}")
 
 
 def check(ledger, tranche, kind, model, calls, environ=None):

@@ -123,15 +123,25 @@ def limit_shape(call, events):
     a string), an error result beside a rejected `rate_limit_event`, or an error line in a limit wording that no
     other named status explains; else None. A model's or a tool's text is never read (`error_lines`)."""
     results = [e for e in events if e.get("type") == "result"]
-    if any(e.get("api_error") == "usage_limit_reached" and e.get("api_error_status") == 429 for e in results):
+    if recorded_answer(results):
         return "recorded"
     errors = [e for e in results if e.get("is_error")]
-    statuses = {str(e["api_error_status"]) for e in errors if e.get("api_error_status") is not None}
+    statuses = error_statuses(errors)
     if "429" in statuses or (errors and any(map(rejected_event, events))):
         return UNRECOGNISED
     if not statuses and next(limit_lines(call), None) is not None:  # another status: positively something else
         return UNRECOGNISED
     return None
+
+
+def recorded_answer(results):
+    """Whether a result event is the vendor's recorded usage-limit answer."""
+    return any(e.get("api_error") == "usage_limit_reached" and e.get("api_error_status") == 429 for e in results)
+
+
+def error_statuses(errors):
+    """The API statuses the error results name, as strings (a status may be printed as a number or a string)."""
+    return {str(e["api_error_status"]) for e in errors if e.get("api_error_status") is not None}
 
 
 def rejected_event(event):
