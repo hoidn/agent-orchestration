@@ -1562,19 +1562,24 @@ the [staged-workflow authoring design](../docs/design/workflow_lisp_staged_workf
 - **P1, a prompt application is a value.** `(name :slot value …)`, with `name` a visible
   `defprompt` declared `-> T`, is an application of type `Prompt[T]` wherever it is written, unless
   `name` is also a language form or an operator; `(name)` is the application only when no binding,
-  procedure or function has that name. Nothing consumes a prompt value yet: outside the `:prompt`
-  of `provider-result` and a `request-input` question, each position (a binding, a field, a list
-  element, loop state, an `if` or `match` value, a result, a call argument, a workflow input) refuses
-  with `prompt_value_escape`, after the fills are checked; before it was `procedure_call_unknown`,
-  or `keyword_argument_invalid` where a binding or procedure has the prompt's name. `(name)` with
-  slots outside `:prompt` is `prompt_slot_undischarged`, as inside it. `Prompt[T]` is the type of a
-  `defproc` parameter only: such a procedure builds when it is not called; in a record or union
-  field, inside `List`, `Optional`, `Map` or `ProcRef`, in a `defworkflow`, `defun` or `let-proc`
-  signature or as a result type it is `prompt_value_escape` (before `generic_union_not_generic`). A
-  provider extern used as a value in code the entry reaches (a binding, a field, a list element, an
-  `if`, `cond` or `match` value, a result, a call or `bind-proc` argument) is `prompt_value_escape`;
-  it was `compiler_defect`, and an unreached definition that names it or the type `Provider` keeps
-  compiling. Every program that compiled before keeps its closed program, digest and identities.
+  procedure, function or `let-proc` local has that name. Nothing consumes a prompt value yet:
+  outside the `:prompt` of `provider-result` and a `request-input` question, each position (a
+  binding, a field, a list element, loop state, an `if` or `match` value, a result, a call argument,
+  a workflow input) refuses with `prompt_value_escape`, after the fills are checked; before it was
+  `procedure_call_unknown`, or `keyword_argument_invalid` where a binding or procedure has the
+  prompt's name. `(name)` with slots outside `:prompt` is `prompt_slot_undischarged`, as inside it.
+  Where no declared or imported type is named `Prompt`, `Prompt[T]` is the type of a `defproc`
+  parameter only: such a procedure builds when it is not called; in a record or union field, inside
+  `List`, `Optional`, `Map` or `ProcRef`, in a `defworkflow`, `defun` or `let-proc` signature or as a
+  result type it is `prompt_value_escape` (before `generic_union_not_generic`). A `:prompt` that names
+  such a parameter stays `frontend_parse_error`, which the change that consumes prompt values
+  replaces. A user's own type named `Prompt` or `Provider` keeps its meaning. A provider extern
+  used as a value in code the entry reaches (a `let*` binding, a record or variant field, an `if`,
+  `cond` or `match` value, a result, a procedure or `defun` argument) is `prompt_value_escape`; it
+  was `compiler_defect`. A provider as a list element or a workflow `call` input keeps its typecheck
+  refusal, and one passed to `bind-proc` keeps its outcome (a reference that is not called builds as
+  before). An unreached definition that names a provider or the type `Provider` keeps compiling. Every
+  program that compiled before keeps its closed program, digest and identities.
 
 ### Run-time corrections without a new target
 
