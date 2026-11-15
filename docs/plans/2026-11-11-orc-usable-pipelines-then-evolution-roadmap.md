@@ -523,10 +523,14 @@ every removed test is listed with the code it covered".
    row: an item above with no "closed" mark may have been fixed since.
    The nine
    [changes assigned to the cut's release](2026-11-12-lane-d-stage-4-one-target-plan.md#changes-assigned-to-the-cuts-release-on-2026-11-13-not-yet-sized)
-   were not made at the cut (2026-11-15): the cut moved no program at 2.40
-   and their rows are still known rows of the defect record. Each now needs a
-   new target or its own declared break (versioning rules 2 and 3); no ledger
-   row sizes or schedules one.
+   were not taken at the cut, by the coordinator's
+   [ruling of 2026-11-15](2026-11-12-lane-d-stage-4-one-target-plan.md#ledger) in that
+   plan's ledger: the cut moved no program at 2.40 by design, so the frozen
+   seeds and the seed-set programs keep their digests until the paid runs are
+   done, and the changes' rows stay known rows of the defect record. Each is
+   decided after the first experiment has a result, as a separate change with
+   its own identity ruling (a new target or a declared break, versioning
+   rules 2 and 3).
 6. **Authoring revisions for staged workflows** (added 2026-11-13 from writing
    a compact long-horizon seed under the 50-line limit; owner decisions 14 and
    15). Six things the language made awkward, each reproduced by probe before
@@ -881,7 +885,7 @@ and the [progress figure](#progress-by-the-weight-table).
 - Phase 5, in preparation, nothing spent: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md). The kit is on `main` (2026-11-15, `09068ec8`) after five review rounds: 118 task packages, the candidate programs, the usage-limit pause and cut rules, the priced ceiling, the guard process and the hidden-test bounds. Owed before the first paid call, in the ledger's order: four owner decisions ([open owner decisions](#open-owner-decisions)), the freeze on the merged commit, the 20-task rehearsal on the frozen code, the tranche's spend row, then the smoke. The freeze waits on the owner's credential-route decision. The seed evaluation is not authorized.
 - Phase 5b, in preparation, nothing spent: staged in this roadmap ([Phase 5b](#phase-5b-long-horizon-task-family-and-staged-seed)); its [plan](2026-11-13-long-horizon-task-family-and-seed-plan.md) is in its third revision, accepted 2026-11-13 (`96adb33d`) for the subscription-only credential. On `main`: the recording kit and the recordings redone in the ladder's configuration; the measurement and withholding check of the pinned images; the first oracle pass (15 of 16 tasks pass both halves, `vba-userform-port` in a labelled variant); the frozen configuration as data (`ladder.json`) and the manifest; the passthrough, the token scanner and the live probe script; the readout; the launcher (`ad016fc1`, 2026-11-15) after two independent reviews, a re-review with a scoped check and two zero-spend container rehearsals with the real CLI; and the four seeds, frozen by `seeds.json` (step 8). The owner placed the subscription token on 2026-11-14 and replaced it the same day. The effort ladder is the only owner-approved spend (decision 16). The live probe of the subscription route (decision 18) is not approved: no `Live probe approved` row is written, and it waits for the owner's two confirmations ([open owner decisions](#open-owner-decisions)). In progress: the second oracle pass, started on 2026-11-15 (no ledger row yet; no result). Then, in the ledger's order: the dry run of the contamination terms, the freeze, the smoke and pilot, the ladder. Steps 10 to 12 (MLE-bench) are not started.
 - Phase 6, search readiness, in progress: the [mutant generator](2026-11-13-phase-6-mutant-generator-plan.md)'s operators, compile check, reuse report and first readout over the real seeds are on `main` (Tasks T1 to T3 and T5); the one crash the readout found (a loop exit as a `let*` binding value) returned to the fix list and is fixed. Its Task T6 (the readout over the seeds as frozen on `main`) is [parked](#parked-work). The [checkpoint controller](../design/orc_search_checkpoint_controller.md) is designed and not built (see row R1). The canonical digest (R2) is not started: the stage 4 cut it waited for is merged and did not include it. Measured so far, on stand-in runs of the long-horizon seeds: an edit to a role that runs first keeps none of a finished run under `resume`, an edit to the role that acts last keeps about half, a loop bound keeps all of it.
-- Lane D, defects: [backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md), cut by the owner to a short list. The seven tasks before the closeout are on `main`: the defect record (every known defect as a row of `tests/test_workflow_lisp_defect_backlog.py`), output slots checked before a launch, typecheck crashes reported as `compiler_defect`, a field read on a `match` subject, control forms as operands, a `let-proc` local with a loop, and a `let-proc` local that captures a reference or a role. Also on `main`, found on the way: the missing prompt file, the hash-seed dependence of a call's target, the identity of a value bound with `bind-proc` in two expansions of one macro (for values of stable kinds; the rows `B7-macro-*`, `B7-free-*`, `B7-same-written` and `B7-same-ref` stay open), a loop exit as a `let*` binding value or in another value position, and the defects the staged seeds met. Left: the closeout (Task TF), [parked](#parked-work). The nine changes assigned to the stage 4 cut's release were not made there; no ledger row sizes or schedules one.
+- Lane D, defects: [backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md), cut by the owner to a short list. The seven tasks before the closeout are on `main`: the defect record (every known defect as a row of `tests/test_workflow_lisp_defect_backlog.py`), output slots checked before a launch, typecheck crashes reported as `compiler_defect`, a field read on a `match` subject, control forms as operands, a `let-proc` local with a loop, and a `let-proc` local that captures a reference or a role. Also on `main`, found on the way: the missing prompt file, the hash-seed dependence of a call's target, the identity of a value bound with `bind-proc` in two expansions of one macro (for values of stable kinds; the rows `B7-macro-*`, `B7-free-*`, `B7-same-written` and `B7-same-ref` stay open), a loop exit as a `let*` binding value or in another value position, and the defects the staged seeds met. Left: the closeout (Task TF), [parked](#parked-work). The nine changes assigned to the stage 4 cut's release were not taken there and are decided after the first experiment has a result ([ruling of 2026-11-15](2026-11-12-lane-d-stage-4-one-target-plan.md#ledger)).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
 - Lane D, dashboard, done: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).
   `report` and the dashboard read evaluated runs only and refuse retired runs
@@ -942,11 +946,14 @@ ruling yet; this section records it.
 | Mutant generator, T6 | [mutant generator plan](2026-11-13-phase-6-mutant-generator-plan.md) | 2 hours: the readout over the seeds as frozen on `main` |
 | Defect backlog, closeout (TF) | [backlog plan](2026-11-13-compiler-and-runtime-defect-backlog-plan.md) | 2 hours: for each row, fixed, refused, dropped or the cut's |
 
-Not started and not named by that ruling (whether parked is not confirmed):
+Held by a ruling of its own: the nine changes that were assigned to the
+stage 4 cut's release, each decided after the first experiment has a result
+([ruling of 2026-11-15](2026-11-12-lane-d-stage-4-one-target-plan.md#ledger)).
+
+Not started and not named by either ruling (whether parked is not confirmed):
 the corpus plan's T6 and T7, the canonical digest (R2), the checkpoint
-controller's build (R1, which waits for two answers its row names), the
-Python emitter change of stage 5 (I2b, decided after the experiments), and
-the nine changes that were assigned to the stage 4 cut's release.
+controller's build (R1, which waits for two answers its row names), and the
+Python emitter change of stage 5 (I2b, decided after the experiments).
 
 ### Open owner decisions
 
@@ -982,7 +989,7 @@ judgment where it has none (marked).
 | Phase 2 | 4 | 0.95 | 3.8 | Every task of its plan is merged and the headline exit test passes; the live smoke's frozen verdict is a fail on a criterion defect and the plan has no closing row, so "closed" is not confirmed (judgment) |
 | Phase 3 | 6 | 0.90 | 5.4 | 3a and 3b are done and the lane stopped (decision 13); the H-G3 measurement is not done and was never sized (judgment) |
 | Phase 4 | 4 | 0 | 0 | Not started; waits for the consumer |
-| Lane D | 17 | 0.92 | 15.7 | As first scoped, 9 of 9 (stages 1 to 4, the dashboard, the test removal). Stage 5, 2.7 of 3 (all but I2b; judgment). Stage 6, 0.8 of 2 (31 of 79 hours). Documentation consolidation, 2.0 of 3 (75 of 112.5 hours). Defect backlog and the cut's changes, 1.2 of 2 (46 of the backlog's 48 hours; the nine cut changes not made and unsized; judgment) |
+| Lane D | 17 | 0.92 | 15.7 | As first scoped, 9 of 9 (stages 1 to 4, the dashboard, the test removal). Stage 5, 2.7 of 3 (all but I2b; judgment). Stage 6, 0.8 of 2 (31 of 79 hours). Documentation consolidation, 2.0 of 3 (75 of 112.5 hours). Defect backlog and the cut's changes, 1.2 of 2 (46 of the backlog's 48 hours; the nine cut changes not taken and unsized; judgment) |
 | Consumer thread | 3 | 0 | 0 | Not started; decision 3 is open |
 | Phase 5, seed set | 4 | 0.45 | 1.8 | The kit (tasks, programs, runner, guards) is built and reviewed; the freeze, the rehearsal, the calibration and the seed evaluation are not done (judgment) |
 | Phase 5b, long-horizon | 6 | 0.50 | 3.0 | The ladder and the freeze, 2.5 of 3.5 (about 95 of 133 hours: Tasks 1 to 8 less the live probe and the second oracle pass). The staged comparison, 0.45 of 1.5 (the seeds are frozen; step 9 is not requested; judgment). MLE-bench steps 10 to 12, 0 of 1 |
