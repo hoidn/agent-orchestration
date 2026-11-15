@@ -13,11 +13,12 @@ and prints the path, byte offset and form of a match, never the bytes around it.
 not a part of the token and not any other encoding (compressed, encrypted, escaped beyond JSON).
 
 Usage: python -I token_scan.py scan --fingerprint FILE PATH...
-           PATH is a file, a directory (walked; symlinks and special files inside it are skipped) or `-` (stdin).
+           PATH is a file, a directory (walked; symlinks and special files inside it are skipped, each named on
+           a `skipped <path> <kind>` line) or `-` (stdin).
            Prints `match <path> <offset> <form>` and `unreadable <path> <reason>` lines, then `scanned <n> files`.
            Exit 0: nothing found; 1: a match (a stop); 2: no match, but the scan is incomplete: a named path is
-           missing, unreadable, a symlink or not a file or directory, a file inside could not be read, or no
-           file at all was read.
+           missing, unreadable, a symlink or not a file or directory, a file inside could not be read, no file
+           at all was read, or the scanner itself failed (a crash is never read as a match).
        python -I token_scan.py canary --fingerprint FILE --canary FILE DIR [PATH...]
            The canary check: the canary must be what the fingerprint was made from (it was the passthrough's
            token); a copy of every form planted in DIR must be found there at its offset; nothing else in the
@@ -131,15 +132,17 @@ def _files(path, unreadable):
 def _scan_one(path, fp):
     if path == "-":
         return scan_stream(sys.stdin.buffer, fp)
-    if not stat.S_ISREG(os.lstat(path).st_mode):
-        return None  # a symlink or special file inside a directory is not followed
+    mode = os.lstat(path).st_mode
+    if not stat.S_ISREG(mode):  # a symlink or special file inside a directory is not followed: its kind
+        return "symlink" if stat.S_ISLNK(mode) else "special file"
     with open(path, "rb") as fh:
         return scan_stream(fh, fp)
 
 
-def scan(paths, fp):
-    """(matches as (path, offset, form), unreadable as (path, reason), files read)."""
-    found, count = [], 0
+def scan(paths, fp, skipped=None):
+    """(matches as (path, offset, form), unreadable as (path, reason), files read); each path skipped inside a
+    directory is appended to `skipped` as (path, kind)."""
+    found, count, skipped = [], 0, [] if skipped is None else skipped
     unreadable = [(path, reason) for path in paths if (reason := _named(path))]
     for top in [p for p in paths if not _named(p)]:
         for path in _files(top, unreadable):
@@ -148,17 +151,21 @@ def scan(paths, fp):
             except OSError as exc:  # an unreadable file is reported, and makes the scan incomplete
                 unreadable.append((path, type(exc).__name__))
                 continue
-            if hits is not None:
-                count += 1
-                found += [(path, offset, name) for offset, name in hits]
+            if isinstance(hits, str):
+                skipped.append((path, hits))
+                continue
+            count += 1
+            found += [(path, offset, name) for offset, name in hits]
     return found, unreadable, count
 
 
-def _report(found, unreadable, count):
+def _report(found, unreadable, count, skipped=()):
     for path, offset, name in found:
         print("match", path, offset, name)
     for path, reason in unreadable:
         print("unreadable", path, reason)
+    for path, kind in skipped:
+        print("skipped", path, kind)
     print("scanned", count, "files")
     return 1 if found else 2 if unreadable or not count else 0
 
@@ -201,8 +208,18 @@ def main(argv=None):
     fp = json.loads(Path(args.fingerprint).read_text())
     if args.command == "canary":
         return _canary(args, fp)
-    return _report(*scan(args.paths, fp))
+    skipped = []
+    return _report(*scan(args.paths, fp, skipped), skipped)
+
+
+def _main(argv):
+    """main, with any failure of the scanner itself an incomplete scan (exit 2), never a match (Task 8 m1)."""
+    try:
+        return main(argv)
+    except Exception as exc:  # the class only: never a message that could quote what was read
+        print("failed", type(exc).__name__)
+        return 2
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(_main(sys.argv[1:]))

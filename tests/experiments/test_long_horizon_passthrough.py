@@ -171,6 +171,54 @@ def test_a_named_path_the_scanner_cannot_read_as_a_whole_fails_the_scan(short, t
     assert result.returncode == 2
 
 
+def test_a_crash_of_the_scanner_is_an_incomplete_scan_never_a_match(short):
+    """Task 8 m1: with no fingerprint file it fails; it exits 2 (incomplete), not 1 (a match)."""
+    (short / "file.txt").write_text("x\n")
+    assert _scan("scan", "--fingerprint", short / "no-fingerprint.json", short / "file.txt").returncode == 2
+
+
+def test_a_symlink_or_a_fifo_inside_a_scanned_set_is_named_as_skipped(short):
+    """Task 8 m3: they are not followed or read, and each gets a line; the exit is unchanged."""
+    (short / "set").mkdir()
+    (short / "set" / "plain.txt").write_text("x\n")
+    (short / "set" / "link").symlink_to(short / "set" / "plain.txt")
+    os.mkfifo(short / "set" / "pipe")
+    result = _scan("scan", "--fingerprint", _fingerprint_file(short, _token()), short / "set")
+    assert (result.returncode, sorted(line for line in result.stdout.splitlines() if line.startswith("skipped"))) == (
+        0, [f"skipped {short / 'set' / 'link'} symlink", f"skipped {short / 'set' / 'pipe'} special file"])
+
+
+def test_an_unreadable_directory_inside_a_scanned_set_is_reported_and_fails_the_scan(short):
+    """Task 8 m9: os.walk's errors are reported, not dropped."""
+    (short / "set" / "locked").mkdir(parents=True)
+    (short / "set" / "plain.txt").write_text("x\n")
+    (short / "set" / "locked").chmod(0o000)
+    result = _scan("scan", "--fingerprint", _fingerprint_file(short, _token()), short / "set")
+    assert (result.returncode, f"unreadable {short / 'set' / 'locked'} PermissionError" in result.stdout) == (2, True)
+
+
+def test_a_named_symlink_beside_a_real_file_fails_the_scan(short):
+    """Task 8 m9: the link would otherwise be skipped and the real file alone make the scan look whole."""
+    token = _token()
+    (short / "plain.txt").write_text("x\n")
+    (short / "target.txt").write_text(f"a {token} b\n")
+    (short / "link").symlink_to(short / "target.txt")
+    result = _scan("scan", "--fingerprint", _fingerprint_file(short, token), short / "plain.txt", short / "link")
+    assert result.returncode == 2
+
+
+def test_the_canary_check_fails_when_a_planted_copy_is_not_found(short):
+    """Task 8 m9: a fingerprint made from the canary whose other forms the scanner cannot find."""
+    canary = _token()
+    (short / "canary").write_text(canary + "\n")
+    (short / "set").mkdir()
+    fp = token_scan.fingerprint(canary)
+    fp["forms"] = [f if f["name"] == "plain" else {**f, "sha256": "0" * 64} for f in fp["forms"]]
+    (short / "fp.json").write_text(json.dumps(fp))
+    result = _scan("canary", "--fingerprint", short / "fp.json", "--canary", short / "canary", short / "set")
+    assert (result.returncode, "planted copies not found" in result.stdout) == (1, True)
+
+
 # --- the passthrough: helpers --------------------------------------------------------------------------
 
 passthrough = _load("passthrough")
