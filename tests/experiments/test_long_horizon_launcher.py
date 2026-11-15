@@ -1301,6 +1301,9 @@ def test_a_failed_podman_read_is_an_incomplete_scan_never_an_empty_file_scanned_
     """M2: `podman inspect`, `logs` or `export` exits non-zero."""
     assert _runtime(short, lambda t: fields) == INCOMPLETE
 
+
+# ---- Allowance (Task 5, fourth checkbox) -----------------------------------------------------------------------
+
 def _events_file(root, *events):
     with open(root / "passthrough" / "tranche.jsonl", "a") as fh:
         for event in events:
