@@ -117,9 +117,14 @@ def test_one_answers_line_is_a_hit(wc, tmp_path):
 
 
 def test_the_answers_header_and_blank_lines_are_not_counted(wc, tmp_path):
-    header = ANSWERS.read_bytes().splitlines(keepends=True)[0]
-    result = _run(wc, _export(tmp_path / "x", {"tmp/h.csv": header + b"\n\n   \n" + header}))
-    assert result["verdict"] == "pass"
+    """Neither the header nor a blank line occurs in a public file here, so only the rule keeps them out."""
+    inputs = {"private": tmp_path / "private", "public": tmp_path / "public", "grader": tmp_path / "grader",
+              "leaderboard": tmp_path / "grader" / "leaderboard.csv"}
+    _put(inputs["private"] / "answers.csv", b"id,secret_target\n1,a\n\n   \n2,b\n")
+    _put(inputs["public"] / "test.csv", b"id\n1\n2\n")
+    _put(inputs["leaderboard"], b"team,score\nt,1\n")
+    _put(tmp_path / "x" / "tmp" / "h.csv", b"id,secret_target\n\n   \nnote\n")
+    assert _run(wc, tmp_path / "x", **inputs)["verdict"] == "pass"
 
 
 def test_a_private_line_that_also_occurs_in_a_public_file_is_never_a_hit(wc, tmp_path):
@@ -316,11 +321,14 @@ def test_a_hard_link_to_a_member_not_in_the_tar_fails(wc, tmp_path):
     assert _paths(_run(wc, tmp_path / "x.tar"), "unreadable") == ["etc/hosts"]
 
 
-def test_a_truncated_tar_export_fails(wc, tmp_path):
-    data = _as_tar(_export(tmp_path / "x", {"var/pad.bin": os.urandom(20000)}), tmp_path / "x.tar").read_bytes()
-    _put(tmp_path / "cut.tar", data[:12000])
-    result = _run(wc, tmp_path / "cut.tar")
-    assert (result["verdict"], result["findings"]["unreadable"] != []) == ("fail", True)
+def test_a_tar_member_cut_short_fails_with_its_path(wc, tmp_path):
+    _put(tmp_path / "cut.tar", _tar({"etc/a": b"x", "var/pad.bin": os.urandom(20000)})[:12000])
+    assert _paths(_run(wc, tmp_path / "cut.tar"), "unreadable") == ["var/pad.bin"]
+
+
+def test_an_export_that_is_not_a_tar_fails_with_its_path(wc, tmp_path):
+    _put(tmp_path / "x.tar", b"\x01" * 2048)
+    assert _paths(_run(wc, tmp_path / "x.tar"), "unreadable") == [str(tmp_path / "x.tar")]
 
 
 # --- the image reference and the command line ----------------------------------------------------------------------

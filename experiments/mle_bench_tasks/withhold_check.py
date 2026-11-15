@@ -125,10 +125,8 @@ def targets(private, grader, leaderboard, public):
     sources = [("private_hash", rel, path) for rel, path in _input_files(private)]
     sources += [("grader_hash", rel, path) for rel, path in _input_files(grader)]
     sources.append(("leaderboard_hash", Path(leaderboard).name, Path(leaderboard)))
-    for kind, rel, path in sources:
+    for kind, rel, path in sources:  # a source equal to a public file is never reported: content() skips public shas
         hashes.setdefault(_sha(path), []).append((kind, rel))
-    for sha in public_shas:
-        hashes.pop(sha, None)
     lines = {}
     for rel, path in _input_files(private):
         for line in _text_lines(path, skip_header=True):
