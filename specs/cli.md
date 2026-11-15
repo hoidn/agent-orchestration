@@ -7,16 +7,18 @@ contract describes the implemented cutoff candidate; [gate R and its
 closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
 own qualification and delivery, not a published package-version claim.
 
-Only evaluated entries at 2.35/2.36, bounded 2.37, bounded 2.38 (command-only
-confined run-ref and agent sessions), and target 2.39 procedure authoring and
-bounded phased provider delivery, plus target-2.40 durable host input are executable, with their existing admission
-and qualification limits
-([versioning](versioning.md#version-gating-summary)).
-`compile`, `run` and `run --dry-run` reject entry targets through 2.34 with
+Only evaluated entries at the current target, 2.40, are executable, with the
+existing admission and qualification limits of its capabilities (bounded
+parallel map, command-only confined run-ref, agent sessions, procedure
+authoring, bounded phased provider delivery and durable host input;
+[versioning](versioning.md#version-gating-summary)).
+`compile`, `run` and `run --dry-run` reject entry targets through 2.39 with
 `workflow_execution_target_retired`, exit 2, before build/run publication or
-execution locks. The captured compiled entry is checked again before
-publication. The selected source floor also rejects every pre-2.35 dependency
-header from compilation, typed import, REPL loading/type queries and LSP
+execution locks; for 2.35–2.39 the message names the guide's
+[migration section](../docs/lisp_workflow_drafting_guide.md#migrating-from-an-older-target)
+and the release tagged `v0.2.1`. The captured compiled entry is checked again before
+publication. Source admission also rejects every dependency header other than
+2.40 from compilation, typed import, REPL loading/type queries and LSP
 analysis. The syntax/import diagnostic is `target_dsl_unsupported` at the
 unsupported module header; existing public old-entry retirement refusal keeps
 its precedence and exit 2. No automatic header conversion or diagnostic-only
@@ -32,13 +34,18 @@ scaffold mode and both `prompt import` branches reject with
 effects. Native `prompt resume [--in-place]` remains an independent,
 compiler-free continuation of an existing linked session.
 
+A run recorded at target 2.35–2.39 is read-only: `report`, the dashboard and
+the monitor read it, and `resume`, `invalidate`, `input answer`/`cancel` and
+REPL attach refuse it with `run_target_retired`
+([targets and identity](versioning.md#targets-and-identity)).
+
 The target-2.25 trial CLI/compile-and-run SDK, old `WorkflowExecutor` and flat
 lowerer execution APIs, ES/research trial execution, generic workflow watchdog
 execution and flat `explain`/IR views are selected for retirement; no replacement
 port is selected. `explain` refuses with `workflow_explain_retired`, exit 2,
 before source/build/export reads or writes; `compile --diagnostics-json`
 remains available for current source validation. Parser/types, admitted closed compilation, REPL/LSP
-inspection admit only source graphs at 2.35 or newer. Shared provider/read
+inspection admit only source graphs at 2.40. Shared provider/read
 services retain their current consumers. A stale old-target LSP snapshot must
 not supply callables after floor refusal; static recovery is not legacy
 analysis. Imported typed-program/bundle objects must obey the same source-target
@@ -72,10 +79,11 @@ All three commands accept `--entry-workflow`, repeatable `--source-root`,
 `--provider-externs-file`, `--prompt-externs-file`,
 `--command-boundaries-file`, `--imported-workflow-bundles-file`, and `--frozen`.
 An explicit entry selects an exported workflow; a single exported workflow may
-be selected implicitly. There are no implicit extern bindings. Python modules
-select an admitted generated target 2.35–2.40 with `TARGET`, defaulting to 2.39.
-Python source cannot widen target-specific admission or qualification.
-Native `ask`, `HostReply[A]` and `host_input` require explicit target 2.40;
+be selected implicitly. There are no implicit extern bindings. The generated
+target is 2.40: a module's `TARGET` defaults to it, and any other value refuses
+at the generated header (`target_dsl_unsupported`).
+Python source cannot widen admission or qualification.
+For native `ask`, `HostReply[A]` and `host_input`,
 settlement uses the [host-input commands](#evaluated-host-input-target-240)
 and ordinary resume. There is no `py resume`.
 
@@ -155,7 +163,8 @@ this locking rule does not retain workflow supervision or watchdog execution.
       effects; retired targets refuse before publication.
   - `orchestrate resume <run_id>`
     - The evaluated memo/profile recovery and preflight contract below applies.
-      Retired profiles refuse before locks, source rebuild or mutation; historical
+      Retired profiles, and runs recorded at target 2.35–2.39
+      (`run_target_retired`), refuse before locks, source rebuild or mutation; historical
       session/supervision/peer/phased/adjudicated recovery is not admitted.
   - `orchestrate input get <run_id> [--state-dir <runs-root>]`
     - Prints the current root host-request record. It does not resume or
@@ -317,10 +326,10 @@ dashboard refuse a retained trial run with `workflow_execution_profile_retired`.
 
 ### Evaluated execution (target 2.35)
 
-This contract applies to evaluated entries at 2.35/2.36, the admitted
-bounded 2.37 surface, bounded 2.38 Agent Sessions and command-only confined
-run-ref children, target-2.39 procedure authoring and bounded phased provider
-delivery, and target-2.40 serial typed host input. Procedure authoring itself changes no lifecycle or transport; the
+This contract applies to evaluated entries at the current target, 2.40: the
+bounded parallel map, bounded Agent Sessions and command-only confined
+run-ref children, procedure authoring, bounded phased provider
+delivery and serial typed host input. Procedure authoring itself changes no lifecycle or transport; the
 [phased provider contract](providers.md#evaluated-phased-provider-delivery-target-239)
 and [attempt-state contract](state.md#evaluated-phased-provider-attempts-target-239)
 own the additive phased coordinator, memo commit/settlement and exact-attempt
@@ -329,7 +338,7 @@ for deterministic public checks; paid-provider qualification remains unselected.
 Neither extension changes confinement qualification. See the
 [procedure guide](../docs/lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239). The [confined-command recipe](../docs/lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
 records host/image prerequisites; public confined providers remain closed. W3 changes
-authoring, not command/provider IO or the public lifecycle; 2.37 parallel map
+authoring, not command/provider IO or the public lifecycle; parallel map
 is qualified through this command line with stand-in providers and commands,
 and has run once with a real provider ([evaluated design §11](../docs/design/workflow_lisp_evaluated_execution.md#11-parallel-effects)). For Agent Sessions,
 [PQ-1a](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records
@@ -338,7 +347,7 @@ deterministic proofs and bounded adapter smokes; the real-provider comparison
 pattern and made no quality claim ([result](../experiments/pq1c/README.md#result)).
 See [versioning](versioning.md#version-gating-summary) for qualification limits.
 
-An entry whose `:target-dsl` is `2.35` selects the evaluated route: `run`
+An entry whose `:target-dsl` is `2.40` selects the evaluated route: `run`
 builds the checked closed program, binds inputs and evaluates it on a
 memo-backed run (`result_persistence_profile: evaluated_execution.v1`, state
 schema `3.0`); `resume` and `invalidate` operate on that run; readers render
@@ -347,7 +356,7 @@ its derived view. The run contract is owned by
 command/provider requests by
 [Step IO](io.md#evaluated-command-and-provider-io-target-235); this section
 owns the public commands, their flags, the resume precedence and the exit
-codes. Availability: implemented at target 2.35; Phase 3 is complete and delivered
+codes. Availability: implemented; Phase 3 is complete and delivered
 at `06130a53` ([closeout report](../docs/reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md)). Owners: `orchestrator/cli/main.py`,
 `orchestrator/cli/commands/{run,resume,evaluated,invalidate,compile,report}.py`.
 Evidence: `tests/test_workflow_evaluated_cli.py`,
@@ -356,7 +365,7 @@ Evidence: `tests/test_workflow_evaluated_cli.py`,
 `tests/test_workflow_evaluated_invalidate.py`,
 `tests/test_workflow_evaluated_invalidate_smoke.py` and
 `tests/test_workflow_lisp_target_evaluated_execution.py`. Targets through
-2.34 are subject to the [retirement boundary](#executable-support-boundary).
+2.39 are subject to the [retirement boundary](#executable-support-boundary).
 
 ```text
 orchestrator compile WORKFLOW [--entry-workflow NAME] [--source-root DIR ...]
@@ -551,6 +560,8 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   without any evaluated authority file (`run.json`, `closed_program.json`,
   `memo.jsonl`) that holds a flat-route `state.json` refuses with
   `workflow_execution_profile_retired`, exit `2`, before locking or writing. A
+  run whose stored program's `target` is 2.35–2.39 refuses with
+  `run_target_retired`, exit `2`, before locking or writing. A
   `state.json` that carries the evaluated view hint (schema `3.0` or the
   profile) without the authority files is `memo_inconsistent`, as for
   readers. An authority file without `run.json` and a symlinked run
@@ -635,7 +646,9 @@ authority, memo, attempts or views, in this order:
    selection rejects schema-2.1 historical headers or a run without evaluated
    authority with `workflow_execution_profile_retired`, before workspace/run
    locks. An evaluated journal/program without its header, malformed header or
-   unknown profile/schema is `memo_inconsistent`. Only an admitted profile
+   unknown profile/schema is `memo_inconsistent`. A run whose stored
+   program's `target` is 2.35–2.39 refuses with `run_target_retired`, with or
+   without `--accept-changes`. Only an admitted profile at the current target
    then acquires the workspace (`workspace_run_already_active`) and run writer
    (`run_already_active`) locks.
 2. Header shape under those locks: `run.json` is present (a journal or program
@@ -775,7 +788,8 @@ the `resume` command.
 | `reserved_run_root_changed` | any writer whose locked run root no longer matches its path: publication, execution, `resume` preflight, `invalidate` | publication and execution 1; `resume` preflight and `invalidate` 2 | Nothing written into the substitute root |
 | `memo_inconsistent` | `resume` preflight (including stored authority without command transport); `invalidate`; readers; during execution when evidence is unsettled at a start or at `halt` | 2 (`report`: 1; during execution 1 without a terminal) | None; readers report no outputs |
 | `resume_request_missing` | `resume` | 2 | None |
-| `workflow_execution_target_retired` | `compile`, `run`, `run --dry-run` on an entry through 2.34; old path child before child publication; flat/staged child execution (`flat_execution_retired` / `staged_execution_retired`) | 2 at public admission; reached run-reference failure follows the evaluated parent's failure contract | No build/run/child publication at admission; a reached evaluated parent retains its own attempt evidence |
+| `workflow_execution_target_retired` | `compile`, `run`, `run --dry-run` on an entry through 2.39 (for 2.35–2.39 the message names the guide's migration section and the release tagged `v0.2.1`); old path child before child publication; flat/staged child execution (`flat_execution_retired` / `staged_execution_retired`) | 2 at public admission; reached run-reference failure follows the evaluated parent's failure contract | No build/run/child publication at admission; a reached evaluated parent retains its own attempt evidence |
+| `run_target_retired` | `resume` (with or without `--accept-changes`), `invalidate`, `input answer`/`cancel` and REPL attach on a run whose stored program's `target` is 2.35–2.39; the message names the release tagged `v0.2.1` and says that `report` still reads the run | 2 (REPL: the session continues; startup exits 2) | None; before any lock, compile or write |
 | `workflow_execution_profile_retired` | `resume` including restart/repair, `invalidate` of a retired profile; historical-profile `input answer`/`cancel`; `report` of a run with no evaluated authority (the dashboard shows the same line as a `retired` row and 404s the routes below its page) | 2 | None; before locks or writes |
 | `prompt_execution_retired` | Every `prompt run` and `prompt import` mode | 2 | None; before inputs, inference, scaffold/run/session writes or effects |
 | `workflow_explain_retired` | `explain`, independent of entry target or export flags | 2 | None; before source/build/export reads or writes |
@@ -812,7 +826,7 @@ the `resume` command.
 | `accept_changes_unreached` | `resume --accept-changes` at the end of preflight, when an unproven command attempt that replay has not reached yet (as after an `invalidate`) will be accepted without a rehash | diagnostic | Logged before execution, followed by one `  <identity>: <reason>` line per attempt (at most 20, then `  ... and N more`) |
 | `changes_accepted` | `resume --accept-changes=TOKEN`, once its record is durable | diagnostic | Logged with the token, followed by the plan |
 | `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals once the retry's `started` row is durable, so after its `run` and `start` lines; a retry whose declared files changed (accepted under step 10) ends with ` changed_files=<names>`, comma-separated |
-| `parallel_workspace_shared` | a target-2.37 parallel map whose items resolve to one working directory, before any item starts | 1 | No `started` row or dispatch; failed terminal |
+| `parallel_workspace_shared` | a parallel map whose items resolve to one working directory, before any item starts | 1 | No `started` row or dispatch; failed terminal |
 
 <a id="workflow-lisp-repl-targets-235-and-236"></a>
 
@@ -867,7 +881,9 @@ explicit command has ordinary run effects, lock ownership and evidence writes.
 ordinary memo reduction, replay commit checks and completed-terminal validation.
 It takes no writer lock, launches no effects and neither repairs/appends the
 memo nor publishes a derived view. `state.json` is not authority. Attachment
-captures a prefix, not a live subscription to a running writer.
+captures a prefix, not a live subscription to a running writer. A run whose
+stored program's `target` is 2.35–2.39 refuses with `run_target_retired`
+before the capture; `report` reads such a run.
 
 A loaded module's program digest must match the run's current program (the
 last `rebased` record's, else the header's). A mismatch reports
@@ -888,14 +904,14 @@ module, and work without running it or attaching a run:
 | `:browse` | Module name, target, selected entry, loaded/reconstructed source label and per-file snapshot revisions, imports/aliases, then visible names grouped by kind. |
 | `:info NAME` | Every matching declaration's kind, accepted spellings, declaring module and source location, followed by its known contract. |
 | `:source NAME` | Every matching exact authored declaration form, labelled with kind, module, path/location and loaded/reconstructed snapshot revision. |
-| `:type EXPR` | Two stdout lines: `type: <rendered type>`, then `effects: <rendered inferred effect set>` when complete. At 2.39 an unresolved generic call instead prints `effects: incomplete (<unresolved names>); known <rendered known effect set>`. Ordinary frontend analysis only; no authored-restriction display, lowering or evaluation. |
+| `:type EXPR` | Two stdout lines: `type: <rendered type>`, then `effects: <rendered inferred effect set>` when complete. An unresolved generic call instead prints `effects: incomplete (<unresolved names>); known <rendered known effect set>`. Ordinary frontend analysis only; no authored-restriction display, lowering or evaluation. |
 
 Coverage is named types, functions, procedures, workflows, prompts and externs.
 `:info` shows record fields; union type parameters and variants/fields; enum
 members; path kind, `under` constraint and existence requirement; builtin type identity; callable
 parameter/return types and available inferred effects; and prompt slots in
-declaration order with kind, refinement, output role and return type. At 2.39,
-procedure `:info` separates `restriction: omitted` or the authored checked
+declaration order with kind, refinement, output role and return type.
+Procedure `:info` separates `restriction: omitted` or the authored checked
 restriction from `inferred effects`, and reports `effect status: complete` or
 `effect status: incomplete (<unresolved names>)`. This is declaration inspection;
 `:type` reports expression inference without the authored restriction. Externs
@@ -1076,6 +1092,8 @@ string quotes. There is no untyped text coercion or caller-supplied reply wrappe
 Both mutations require `--by`; `--text` refuses for evaluated requests and does
 not bypass historical retirement. Success prints the API's typed reply JSON
 and exits `0`; refusal exits `2`. No continuation runs until ordinary resume.
+`answer` and `cancel` refuse a run recorded at target 2.35–2.39 before the
+lock, printing `input: [run_target_retired] <message>`.
 
 `input get` delegates evaluated authority to read-only `pending`. That API
 returns a checked mapping or `None`; the CLI treats `None` as no active request
