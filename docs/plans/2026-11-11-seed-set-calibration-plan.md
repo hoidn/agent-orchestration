@@ -58,8 +58,12 @@ ruling).** Where the text below differs, these hold:
   reads only a call that did not succeed (an error result, or no result event
   at all), never a warning beside a call that succeeded or a stream line cut
   mid-write (fix round 2). The pause and every refusal name the rule that fired
-  and the line it read, and an older CLI's `...|<epoch>` gives the reset. When
-  the raw result shows no limit, `study.py not-a-limit UNIT --reason R` records
+  and the line it read, and an older CLI's `...|<epoch>` gives the reset. A
+  call whose stream shows paid extra usage (a rate-limit event with overage in
+  use, or a rejected limit with overage allowed) cuts its unit and closes every
+  start as "paid extra usage" until `resume-after-limit`, even when the call
+  ended normally, and is priced at its metered tokens (final scoped check M1).
+  When the raw result shows no limit, `study.py not-a-limit UNIT --reason R` records
   that decision while the pause is open: the unit becomes what the rules make
   it (an incident or its outcome), the pause stops closing starts, and nothing
   runs again. A unit its killed runner left unsettled refuses, and the pause

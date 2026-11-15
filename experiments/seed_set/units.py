@@ -8,7 +8,7 @@
 - `usage_limit`: the vendor's usage-limit answer in a unit's calls, or any other shape that may be one (fail closed,
   review3 X2: flagged `UNRECOGNISED`, for the operator to read the raw result). A unit cut by a usage limit is
   neither an incident nor an observation (coordinator ruling R1, 2026-11-14): starts close, and its slot runs
-  again once.
+  again once. Paid extra usage (`PAID`) cuts and pauses the same way, even on a call that ended normally.
 - `audit_sessions`: every Claude session file anywhere in the unit's private home (each unit has its own home,
   so all of them belong to the unit). A session outside the unit tree's project store, more top-level sessions
   than physical calls, or an answer by another model fails the unit. Not seen: sessions written into the unit
@@ -42,6 +42,11 @@ RECORDED = "the recorded answer (api_error usage_limit_reached, status 429)"
 STATUS_429 = "an error result with status 429"
 REJECTED = "an error result beside a rejected rate_limit_event"
 WORDING = "a limit wording in an error line of a call that did not succeed"
+# Paid extra usage (final scoped check M1): the CLI's own rate_limit_event shows overage in use, or a rejected limit
+# with overage allowed, as the long-horizon kit reads the same signs in the API's headers (`passthrough.PAID_USAGE`).
+# The call may end normally; it is billed past the subscription's allowance, so it cuts and pauses like a limit.
+PAID = "paid extra usage: a rate_limit_event with overage in use"
+OVERAGE_ALLOWED = ("allowed", "allowed_warning")
 OLDER_RESET = re.compile(r"usage limit reached\|(\d{9,11})\b", re.I)  # an older CLI: "...|<epoch seconds>"
 PROVIDER_ERRORS = re.compile(
     r"\b(?:429|529|401|403)\b|rate.?limit|overloaded|unauthori[sz]ed|authenticat|invalid (?:api|x-api)"
@@ -110,7 +115,7 @@ def provider_incident(records):
 
 def usage_limit(records):
     """{"call", "rule", "reset", "text", "raw"} of the first call the vendor may have answered with a usage limit, or
-    None; with "flag": `UNRECOGNISED` unless `rule` is `RECORDED` (the stream-json result event's `api_error:
+    None; with "flag": `UNRECOGNISED` unless `rule` is `PAID` or `RECORDED` (the stream-json result event's `api_error:
     usage_limit_reached` with `api_error_status: 429`, experiments/long_horizon_tasks/fixtures/
     token-usage-limit-NonZeroAgentExitCodeError.json). `rule` is the rule that fired (`limit_rule`) and `text` the
     line it read (the last error result's text; for `WORDING`, the matched error line). `reset` is the `resetsAt`
@@ -130,7 +135,7 @@ def limit_facts(call, events, rule):
     errors = [e for e in events if e.get("type") == "result" and e.get("is_error")]
     text = next(limit_lines(call), "") if rule == WORDING or not errors else errors[-1].get("result")
     return {"call": call.name, "rule": rule, "reset": named if type(named) in (int, float) else older_reset(call),
-            "text": str(text)[:300], "raw": str(call)} | ({} if rule == RECORDED else {"flag": UNRECOGNISED})
+            "text": str(text)[:300], "raw": str(call)} | ({} if rule in (RECORDED, PAID) else {"flag": UNRECOGNISED})
 
 
 def older_reset(call):
@@ -139,10 +144,12 @@ def older_reset(call):
 
 
 def limit_rule(call, events):
-    """`RECORDED` for the vendor's recorded answer; else, each flagged `UNRECOGNISED` by `usage_limit`: `STATUS_429`
-    for an error result with status 429 (a number or a string), `REJECTED` for an error result beside a rejected
-    `rate_limit_event`, `WORDING` for a call that did not succeed with an error line in a limit wording that no
+    """`PAID` for paid extra usage (`paid_usage`, whether or not the call succeeded); `RECORDED` for the vendor's
+    recorded answer; else, each flagged `UNRECOGNISED` by `usage_limit`: `STATUS_429` for an error result with
+    status 429 (a number or a string), `REJECTED` for an error result beside a rejected `rate_limit_event`, `WORDING` for a call that did not succeed with an error line in a limit wording that no
     other named status explains; else None. A model's or a tool's text is never read (`error_lines`)."""
+    if any(map(paid_usage, events)):
+        return PAID
     results = [e for e in events if e.get("type") == "result"]
     if recorded_answer(results):
         return RECORDED
@@ -182,6 +189,16 @@ def error_statuses(errors):
 def rejected_event(event):
     info = event.get("rate_limit_info") if event.get("type") == "rate_limit_event" else None
     return isinstance(info, dict) and info.get("status") == "rejected"
+
+
+def paid_usage(event):
+    """Whether a rate_limit_event shows overage in use (`isUsingOverage` or `overageInUse` true), or a rejected limit
+    with overage allowed."""
+    info = event.get("rate_limit_info") if event.get("type") == "rate_limit_event" else None
+    if not isinstance(info, dict):
+        return False
+    in_use = any(info.get(key) in (True, "true") for key in ("isUsingOverage", "overageInUse"))
+    return in_use or (info.get("status") == "rejected" and info.get("overageStatus") in OVERAGE_ALLOWED)
 
 
 def limit_lines(call):

@@ -100,7 +100,8 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   check's own commands make their temporary directories inside them (`TMPDIR`). A launcher killed with SIGKILL
   during a check runs no cleanup: the sweep at the start of the next study command that takes the lock removes
   each recorded directory whose maker and check no longer run and prints its path. It never removes a directory the
-  record does not name, and refuses a record naming one the kit does not make.
+  record does not name, and touches a recorded one only when it is a direct child of the temp directory with a kit
+  prefix and its real path is the recorded one; any other record line is named on stderr and skipped.
 - A runner that dies between launch and settle leaves the agents' tree on disk until `settle` (a calibration
   run) or the next `probe` (a probe run) settles it (review2 minor 9); `settle` refuses while the unit's session
   still runs.
@@ -120,6 +121,9 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   all): a warning on stderr beside a call that succeeded is neither, and a stream line cut mid-write (a line that
   starts with `{` and is not JSON) is never read. The pause and every refusal it causes name the rule that fired
   and the line it read; an older CLI's `Claude AI usage limit reached|<epoch>` gives its reset.
+- A call whose stream shows paid extra usage (a `rate_limit_event` with `isUsingOverage` or `overageInUse` true, or a
+  rejected limit with overage allowed) cuts its unit and closes every start, even when the call ended normally, as
+  "paid extra usage" until `resume-after-limit`; its calls are priced at their metered tokens like any other.
 - When the raw result shows no usage limit, `study.py not-a-limit UNIT --reason R` records the operator's decision
   and reason in the ledger while the pause is open: the settled unit is no longer `cut` but what the rules make it
   (the incident its cut set aside, an incident when it failed with a provider error, else its outcome), its pause

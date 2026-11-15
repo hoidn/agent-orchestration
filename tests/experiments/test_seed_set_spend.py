@@ -641,6 +641,29 @@ def test_a_recorded_429_answer_is_a_possible_usage_limit(tmp_path, fixture):
     assert units.usage_limit(recorded_call(tmp_path, fixture))["flag"] == units.UNRECOGNISED
 
 
+def test_paid_extra_usage_on_a_call_that_ended_normally_is_a_usage_limit_with_its_named_cause(tmp_path):
+    """Final scoped check M1: the CLI's rate_limit_event shows overage in use, the call ends normally."""
+    limit = units.usage_limit(recorded_call(tmp_path, "token-paid-extra-usage-normal-end"))
+    assert (limit["rule"], "flag" in limit) == (units.PAID, False)
+
+
+@pytest.mark.parametrize("info", [{"status": "allowed", "isUsingOverage": True},
+                                  {"status": "allowed", "overageInUse": "true"},
+                                  {"status": "rejected", "overageStatus": "allowed"},
+                                  {"status": "rejected", "overageStatus": "allowed_warning", "resetsAt": RESET}])
+def test_any_sign_of_overage_in_use_is_paid_extra_usage(tmp_path, info):  # final scoped check M1
+    stdout = [{"type": "rate_limit_event", "rate_limit_info": info}, OK_END]
+    assert units.usage_limit(call_printing(tmp_path, stdout))["rule"] == units.PAID
+
+
+def test_paid_extra_usage_closes_every_start_naming_its_cause_until_resume_after_limit(runner):  # M1
+    records = recorded_call(run_dir(runner), "token-paid-extra-usage-normal-end")
+    study.pause_on_limit(runner, records, str(records))
+    with pytest.raises(SystemExit) as refused:
+        spend.reserve(runner.ledger, "calibration", "candidate", H, 1, "/w/next", env("calibration"), price=P)
+    assert all(part in str(refused.value) for part in (units.PAID, "resume-after-limit"))
+
+
 QUOTED = json.dumps({**ERROR, "api_error": "usage_limit_reached", "api_error_status": 429,
                      "result": "You've hit your session limit"})
 
