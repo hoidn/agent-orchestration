@@ -451,17 +451,6 @@ def test_imported_prompt_private_answer_cannot_rebind_to_caller_type(tmp_path, a
         _build_source(tmp_path, source)
 
 
-def test_specialization_result_analysis_keeps_typed_reply(tmp_path):
-    from orchestrator.workflow_lisp.procedure_specialization import _private_workflow_result_type_for_expr
-    _, path = _compile(tmp_path)
-    typed = compile_typed_program(path, entry_workflow='run', command_boundaries={}, source_roots=(tmp_path,), workspace_root=tmp_path)
-    ask = typed.procedures['host/entry::ask']
-    actual = _private_workflow_result_type_for_expr(ask.typed_body.expr,
-        local_type_bindings=dict(ask.signature.params), typed_procedures_by_name=typed.procedures,
-        type_env=typed.procedure_type_env(ask))
-    assert actual == ask.signature.return_type_ref
-
-
 def test_retained_generic_reply_hint_cannot_fall_back_to_another_nominal_type(tmp_path):
     from orchestrator.workflow_lisp.workflows import _flattened_boundary_contracts, _match_boundary_type_from_contracts
     _, path = _compile(tmp_path, declarations='''(defunion LocalReply

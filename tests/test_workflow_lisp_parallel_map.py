@@ -162,9 +162,7 @@ def test_workspace_normalization_keeps_item_bindings_inside_map():
 
 
 def inline_program(*, target="2.40", body="(child repo)", workspace="repo", impure_workspace=False):
-    serial = target == "2.36"  # below the parallel-map target; its procedures declare exact effects
-    clauses = "" if serial else f":parallel 2 :workspace {workspace}"
-    effects = ":effects () :lowering inline " if serial else ""
+    clauses = f":parallel 2 :workspace {workspace}"
     cwd_body = (
         '(let* ((output (command-result fetch :argv ("python" "probe.py") :returns Box))) value)'
         if impure_workspace else "value"
@@ -172,8 +170,8 @@ def inline_program(*, target="2.40", body="(child repo)", workspace="repo", impu
     return f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
       (defmodule inline) (export run)
       (defrecord Box (n Int))
-      (defproc child ((value String)) -> String {effects}value)
-      (defproc cwd ((value String)) -> String {effects}{cwd_body})
+      (defproc child ((value String)) -> String value)
+      (defproc cwd ((value String)) -> String {cwd_body})
       (defworkflow worker ((value String)) -> String value)
       (defworkflow run () -> List[String]
         (list/map-effect ((repo (list "a" "b"))) :max 2 {clauses} {body})))'''

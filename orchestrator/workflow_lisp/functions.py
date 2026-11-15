@@ -266,12 +266,7 @@ def typecheck_function_definitions(
             prompt_catalog=prompt_catalog,
             session_state=compiler_session.elaboration,
         )
-        _validate_pure_function_expr(
-            body_expr,
-            function_def=function_def,
-            procedure_catalog=procedure_catalog,
-            target_dsl_version=type_env.target_dsl_version,
-        )
+        _validate_pure_function_expr(body_expr, function_def=function_def)
         typed_body = typecheck_expression(
             body_expr,
             type_env=type_env,
@@ -2058,8 +2053,6 @@ def _validate_pure_function_expr(
     expr: ExprNode,
     *,
     function_def: FunctionDef,
-    procedure_catalog: "ProcedureCatalog | None" = None,
-    target_dsl_version: str | None = None,
 ) -> None:
     from .typecheck_context import raise_run_ref_placement_invalid
 
