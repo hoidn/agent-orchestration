@@ -532,9 +532,11 @@ class Builder:
         from ..procedures import ProcedureCatalog
         from .command_templates import elaborate_command_scopes
         from .frontend import workflow_catalog_for
+        from ..prompt_values import refuse_provider_values
 
         owner = callable_def.definition.name
         procedures = source_program.procedures
+        refuse_provider_values(callable_def.typed_body.expr, provider_names=_provider_extern_names(source_program))
         facts = ControlFacts(signature=callable_def.signature, type_env=type_env,
             local_type_bindings=value_env, typed_procedures=procedures,
             workflow_catalog=workflow_catalog_for(source_program, owner),
@@ -4523,6 +4525,13 @@ def _entry_context_values(builder: Builder, workflow: Any, d: Definition, body: 
             raise ValueError(f"entry hidden context {requirement.context_kind!r} has no Task 4 default")
         body = {"k": "let", "name": wire_name, "value": value, "body": body}
     return body
+
+
+def _provider_extern_names(typed: Any) -> frozenset[str]:
+    from ..workflows import ProviderExtern
+
+    bindings = [typed.externs, *typed.module_externs.values()]
+    return frozenset(name for each in bindings for name, extern in each.items() if isinstance(extern, ProviderExtern))
 
 
 def build_closed_program(typed: Any, *, builder: Builder | None = None) -> ClosedProgram:

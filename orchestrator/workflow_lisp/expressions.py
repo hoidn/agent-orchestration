@@ -46,6 +46,7 @@ from .prompts import (
     PromptCatalog,
     elaborate_prompt_application,
 )
+from .prompt_values import is_prompt_application
 from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
 from .syntax import (
@@ -1462,6 +1463,11 @@ def _elaborate_list(
                 procedure_names=procedure_names,
                 session_state=session_state,
             )
+    if is_prompt_application(datum, head, catalog=session_state.prompt_catalog, taken=available_names
+                             | procedure_names | session_state.function_names | session_state.local_proc_names):
+        return elaborate_prompt_application(datum, catalog=session_state.prompt_catalog, form_path=form_path,
+            elaborate_fill=lambda item: _elaborate(item, form_path=form_path, bound_names=bound_names,
+                                                   procedure_names=procedure_names, session_state=session_state))
     if head.resolved_name in session_state.function_names:
         _refuse_keyword_arguments(datum, "a function", form_path)
         return _elaborate_function_call(

@@ -2243,6 +2243,9 @@ def _find_purity_violation(
         if violation is not None or expr.terminal_state_expr is None:
             return violation
         return _find_purity_violation(expr.terminal_state_expr, allow_procedure_calls=allow_procedure_calls)
+    if isinstance(expr, PromptApplicationExpr):  # a prompt value is pure; typecheck refuses it outside `:prompt`
+        return next((violation for fill in expr.fills if (violation := _find_purity_violation(
+            fill.value_expr, allow_procedure_calls=allow_procedure_calls)) is not None), None)
     return f"unsupported expression container {type(expr).__name__}"
 
 

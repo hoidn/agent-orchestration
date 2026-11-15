@@ -263,6 +263,8 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return tuple(children)
     if isinstance(expr, LoopBodyFnExpr):
         return (expr.body_expr,)
+    if isinstance(expr, PromptApplicationExpr):  # a prompt value outside `:prompt`
+        return tuple(fill.value_expr for fill in expr.fills)
     raise TypeError(f"unsupported expression traversal node: {type(expr)!r}")
 
 
