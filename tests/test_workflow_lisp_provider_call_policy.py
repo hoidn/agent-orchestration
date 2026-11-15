@@ -648,7 +648,7 @@ def test_macro_hygiene_provider_call_policy_uses_keyword_roles_in_reordered_form
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (make-policy policy)",
             "  (defmacro make-policy (workflow-name)",
             "    (defworkflow workflow-name",

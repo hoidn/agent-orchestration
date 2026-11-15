@@ -1,4 +1,4 @@
-"""Public 2.35 parents whose path children return nested typed paths."""
+"""Public parents whose path children return nested typed paths."""
 
 from __future__ import annotations
 
@@ -31,16 +31,16 @@ PARENT_FILES = {"a.txt": b"parent a bytes\n", "b.txt": b"parent b bytes\n",
 INPUTS = {"payload": {"a": "artifacts/a.txt", "b": "artifacts/b.txt", "d": "artifacts/d.txt",
                       "extra": "artifacts/x.txt", "absent": None}}
 
-PATH_MODULE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
+PATH_MODULE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule common)
   (export WorkPath) (defpath WorkPath :kind relpath :under "artifacts" :must-exist true))'''
 SHAPE_TYPES = '''(defunion Pick (FILE (file WorkPath)) (NONE))
   (defrecord Inputs (a WorkPath) (b WorkPath) (d WorkPath) (extra Optional[WorkPath]) (absent Optional[WorkPath]))
   (defrecord Listed (primary WorkPath) (items List[WorkPath]))
   (defrecord Bundle (primary WorkPath) (items List[WorkPath]) (extra Optional[WorkPath])
     (absent Optional[WorkPath]) (chosen Pick) (skipped Pick))'''
-SHAPE_MODULE = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule shapes)
+SHAPE_MODULE = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule shapes)
   (import common :only (WorkPath)) (export Inputs Pick Listed Bundle) {SHAPE_TYPES})'''
-SAME_MODULE = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
+SAME_MODULE = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40") (defmodule common)
   (export WorkPath Inputs Pick Listed Bundle)
   (defpath WorkPath :kind relpath :under "artifacts" :must-exist true) {SHAPE_TYPES})'''
 
@@ -54,7 +54,7 @@ CASES = {
         parent="(let* ((child {call})) true)"),
     "legacy-union": dict(child_target="2.24", returns="Pick", inputs="(d WorkPath)", call_inputs=":d payload.d",
         child_body="(variant Pick FILE :file d)", parent=_MATCH.replace("{field}", "")),
-    "evaluated-nested": dict(child_target="2.35", returns="Bundle", inputs="(payload Inputs)" + _SEED_INPUT,
+    "evaluated-nested": dict(child_target="2.40", returns="Bundle", inputs="(payload Inputs)" + _SEED_INPUT,
         call_inputs=":payload payload", child_body=_BUNDLE, parent=_MATCH.replace("{field}", ".chosen")),
 }
 CASES["evaluated-same-module"] = dict(CASES["evaluated-nested"], modules={"common.orc": SAME_MODULE})
@@ -153,7 +153,7 @@ def assert_nested_path_envelope(case, parent, refs):
     workspace = Path(settlement["workspace_path"])
     _assert_declared_artifacts(case, parent, workspace, value, descriptor, documents["workspace-delta"])
     child_root = workspace / ".orchestrate" / "runs" / documents["child-request"]["child_run_id"]
-    assert CASES[case]["child_target"] == "2.35"
+    assert CASES[case]["child_target"] == "2.40"
     _assert_evaluated_child(child_root, settlement, documents["child-result"], manifest, value)
     ledger = load_attempt_ledger(authority.run_root / "run-ref-attempts.jsonl")
     assert ledger.rows[-1].stage == "committed"

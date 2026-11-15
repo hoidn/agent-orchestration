@@ -314,7 +314,7 @@ def test_current_l2_recovery_to_full_is_read_only(
             "kind": 12,
             "range": {
                 "start": {"line": 11, "character": 2},
-                "end": {"line": 19, "character": 39},
+                "end": {"line": 17, "character": 39},
             },
             "selectionRange": {
                 "start": {"line": 11, "character": 11},
@@ -334,7 +334,7 @@ def test_current_l2_recovery_to_full_is_read_only(
             method="textDocument/completion",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},
-                "position": {"line": 27, "character": 2},
+                "position": {"line": 25, "character": 2},
             },
         )
         completion_by_label = {
@@ -347,7 +347,8 @@ def test_current_l2_recovery_to_full_is_read_only(
             "detail": (
                 "procedure (inputs: BacklogItemInputs) "
                 "-> PlanDraftSurfaceResult "
-                "effects (uses-provider(providers.plan))"
+                "restriction: omitted; inferred effects: (uses-provider(providers.plan)); "
+                "effect status: complete"
             ),
             "sortText": "draft-plan-phase",
         }
@@ -389,7 +390,7 @@ def test_current_l2_recovery_to_full_is_read_only(
             method="textDocument/definition",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},
-                "position": {"line": 28, "character": 13},
+                "position": {"line": 26, "character": 13},
             },
         )
         assert dirty_definition["result"] is None
@@ -399,7 +400,7 @@ def test_current_l2_recovery_to_full_is_read_only(
             method="textDocument/completion",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},
-                "position": {"line": 27, "character": 2},
+                "position": {"line": 25, "character": 2},
             },
         )
         assert dirty_completion["result"] == {
@@ -430,7 +431,7 @@ def test_current_l2_recovery_to_full_is_read_only(
             method="textDocument/completion",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},
-                "position": {"line": 27, "character": 2},
+                "position": {"line": 25, "character": 2},
             },
             result_predicate=lambda result: result == completion["result"],
             timeout=30.0,
@@ -443,7 +444,7 @@ def test_current_l2_recovery_to_full_is_read_only(
             method="textDocument/definition",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},
-                "position": {"line": 28, "character": 13},
+                "position": {"line": 26, "character": 13},
             },
             result_predicate=lambda result: result is not None,
             timeout=30.0,
@@ -555,8 +556,8 @@ def test_current_l5_authored_reference_navigation_is_read_only(
     expected_workflow_definition = {
         "uri": entry_path.as_uri(),
         "range": {
-            "start": {"line": 22, "character": 2},
-            "end": {"line": 23, "character": 10},
+            "start": {"line": 20, "character": 2},
+            "end": {"line": 21, "character": 10},
         },
     }
 
@@ -655,7 +656,7 @@ def test_watcher_disabled_helper_save_recompiles_clean_importer(
     helper_text = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule helper)
   (export Shared)
   (defrecord Shared

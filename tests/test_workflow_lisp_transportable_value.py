@@ -99,11 +99,11 @@ def _diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError]) ->
 
 
 def test_value_type_is_installed_for_current_source() -> None:
-    assert "Value" in prelude_type_names_for_target("2.35")
+    assert "Value" in prelude_type_names_for_target("2.40")
 
     module = build_syntax_module(
         read_sexpr_text(
-            _module_source("2.35", "(defrecord Box (payload Value))"),
+            _module_source("2.40", "(defrecord Box (payload Value))"),
             source_path="target_219_value.orc",
         )
     )
@@ -120,7 +120,7 @@ def test_value_type_is_installed_for_current_source() -> None:
     ) == VALUE_TYPE
 
 
-@pytest.mark.parametrize("target_dsl", ("2.35", "2.36"))
+@pytest.mark.parametrize("target_dsl", ("2.40",))
 @pytest.mark.parametrize(
     "definition",
     (
@@ -150,7 +150,7 @@ def test_value_name_is_reserved_against_local_definitions_at_every_target(
     assert _diagnostic_code(excinfo) == "prelude_type_name_reserved"
 
 
-@pytest.mark.parametrize("target_dsl", ("2.35", "2.36"))
+@pytest.mark.parametrize("target_dsl", ("2.40",))
 def test_value_name_is_reserved_against_imported_definitions_at_every_target(
     target_dsl: str,
 ) -> None:
@@ -269,14 +269,14 @@ def test_value_operations_keep_the_existing_operation_owned_diagnostic(
     type_env = FrontendTypeEnvironment.from_module(compile_stage1_module(
         _write_module(
             tmp_path / "value_operation_types.orc",
-            "2.35",
+            "2.40",
             '(defpath BundlePath :kind relpath :under ".orchestrate/runs" :must-exist true)',
         )
     ))
     expression = elaborate_expression(
         _expression(source),
         bound_names=frozenset({"value"}),
-        target_dsl_version="2.35",
+        target_dsl_version="2.40",
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -412,7 +412,7 @@ def test_value_contract_nested_descriptors_cover_collections_record_and_union() 
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.35",
+                "2.40",
                 "(defrecord ValueBox (payload Value))",
                 "(defunion ValueChoice (KEEP (payload Value)) (DROP))",
             ),
@@ -506,7 +506,7 @@ def test_value_contract_fingerprint_preserves_literal_value_descriptor() -> None
 def test_value_contract_typechecks_provider_and_command_result_returns() -> None:
     syntax_module = build_syntax_module(
         read_sexpr_text(
-            _module_source("2.35"),
+            _module_source("2.40"),
             source_path="value_effect_return_typecheck.orc",
         )
     )
@@ -544,7 +544,7 @@ def test_value_contract_typechecks_provider_and_command_result_returns() -> None
         expression = elaborate_expression(
             _expression(source),
             bound_names=bound_names,
-            target_dsl_version="2.35",
+            target_dsl_version="2.40",
         )
         typed = typecheck_expression(
             expression,
@@ -562,12 +562,11 @@ def test_value_contract_compiles_inline_procedure_workflow_call_and_public_pass_
 ) -> None:
     path = _write_module(
         tmp_path / "value_pass_through.orc",
-        "2.35",
+        "2.40",
         "(defmodule value_pass_through)",
         "(export entry)",
         (
-            "(defproc pass-value ((payload Value)) -> Value "
-            ":effects () :lowering inline payload)"
+            "(defproc pass-value ((payload Value)) -> Value payload)"
         ),
         "(defworkflow child ((payload Value)) -> Value (pass-value payload))",
         (

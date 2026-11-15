@@ -1761,7 +1761,7 @@ def test_definition_reaches_imported_stdlib_defproc_authored_span(
     )
 
 
-@pytest.mark.parametrize("target", ("2.35", "2.39"))
+@pytest.mark.parametrize("target", ("2.40",))
 def test_definition_resolves_a_direct_local_procedure_call(
     tmp_path: Path,
     target: str,
@@ -1783,7 +1783,6 @@ def test_definition_resolves_a_direct_local_procedure_call(
                 "    (report WorkReport))",
                 "  (defproc identity ((report_path WorkReport)) -> ChecksResult",
                 "    :effects ()",
-                "    :lowering inline" if target == "2.35" else "",
                 "    (record ChecksResult",
                 "      :report report_path))",
                 "  (defworkflow run ((report_path WorkReport)) -> ChecksResult",
@@ -1820,7 +1819,7 @@ def test_definition_resolves_a_direct_local_procedure_call(
     assert _definition_at(
         _build_index(result),
         source_path=source_path,
-        line=17,
+        line=16,
         character=5,
         accepted_text_by_path=_accepted_texts(result),
     ) == _definition_span(
@@ -1830,20 +1829,19 @@ def test_definition_resolves_a_direct_local_procedure_call(
     )
 
 
-@pytest.mark.parametrize("target", ("2.35", "2.39"))
+@pytest.mark.parametrize("target", ("2.40",))
 def test_function_expansion_does_not_create_an_authored_procedure_call_site(
     tmp_path: Path,
     target: str,
 ) -> None:
     source_path = tmp_path / "entry.orc"
-    lowering = ":lowering inline" if target == "2.35" else ""
     source_path.write_text(
         f'''(workflow-lisp
   (:language "0.1")
   (:target-dsl "{target}")
   (defmodule entry)
   (export run)
-  (defproc identity ((x Int)) -> Int :effects () {lowering} x)
+  (defproc identity ((x Int)) -> Int :effects () x)
   (defun helper ((x Int)) -> Int (identity x))
   (defworkflow run () -> Int (helper 1))
   (defworkflow direct () -> Int (identity 2)))

@@ -26,7 +26,7 @@ from tests.workflow_lisp_improve_stdlib_sources import _PROBE_PRELUDE, _PROBE_WR
 
 MODULE = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
   (export run)
   (defpath OutPath :kind relpath :under "artifacts/work" :must-exist false)
@@ -34,12 +34,8 @@ MODULE = """(workflow-lisp
   (defunion Choice (YES (v Int)) (NO (v Int)))
   (defprompt ask (:fills (v :value Int)) -> Choice "Pick for {v}.")
   (defproc tick ((v Int)) -> Int
-    :effects ((uses-command tick))
-    :lowering inline
     (command-result tick :argv ("python" "TICK" v) :returns Int))
   (defproc choose ((v Int)) -> Choice
-    :effects ((uses-command choose))
-    :lowering inline
     (command-result choose :argv ("python" "CHOOSE" v) :returns Choice))
   (defworkflow run (PARAMS) -> RETURNS
     BODY))

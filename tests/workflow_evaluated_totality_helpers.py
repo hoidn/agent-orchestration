@@ -134,13 +134,13 @@ def prepare_union(root, imported, inputs, *, generic=False):
     type_name = "Choice[Payload]" if generic else "Choice"
     imports = ""
     if imported:
-        sources["grt/helper.orc"] = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        sources["grt/helper.orc"] = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule grt/helper) (export Choice Payload echo) {declarations} {helper})'''
         imports = '(import grt/helper :as old)'
         helper = ''
         type_name = "old.Choice[old.Payload]" if generic else "old.Choice"
         body = body.replace('(call echo ', '(call old.echo ')
-    sources["grt/entry.orc"] = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    sources["grt/entry.orc"] = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule grt/entry) {imports} (export run) {declarations} {helper}
       (defworkflow run ((choice {type_name}) (nested List[{type_name}])) -> {type_name} {body}))'''
     sources["grt/entry.orc"] = sources["grt/entry.orc"].replace(":returns Choice", ":returns " + type_name)

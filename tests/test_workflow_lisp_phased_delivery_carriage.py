@@ -128,7 +128,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
     ),
     (
         (
-            "2.35",
+            "2.40",
             ":delivery true",
             "provider_phased_delivery_policy_invalid",
             "delivery_type_invalid",
@@ -136,7 +136,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "delivery_keyword",
         ),
         (
-            "2.35",
+            "2.40",
             ":delivery :unknown",
             "provider_phased_delivery_policy_invalid",
             "delivery_enum_invalid",
@@ -144,7 +144,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "delivery_keyword",
         ),
         (
-            "2.35",
+            "2.40",
             ":materialization-attempts 2",
             "provider_phased_delivery_policy_invalid",
             "attempts_pairing_invalid",
@@ -152,7 +152,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "materialization_attempts_keyword",
         ),
         (
-            "2.35",
+            "2.40",
             ":delivery :composed :materialization-attempts 2",
             "provider_phased_delivery_policy_invalid",
             "attempts_pairing_invalid",
@@ -160,7 +160,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "materialization_attempts_keyword",
         ),
         (
-            "2.35",
+            "2.40",
             ":delivery :phased :materialization-attempts true",
             "provider_phased_delivery_policy_invalid",
             "attempts_type_invalid",
@@ -168,7 +168,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "materialization_attempts_keyword",
         ),
         (
-            "2.35",
+            "2.40",
             ":delivery :phased :materialization-attempts 0",
             "provider_phased_delivery_policy_invalid",
             "attempts_out_of_range",
@@ -176,7 +176,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "materialization_attempts_keyword",
         ),
         (
-            "2.35",
+            "2.40",
             ":delivery :phased :materialization-attempts 4",
             "provider_phased_delivery_policy_invalid",
             "attempts_out_of_range",
@@ -279,7 +279,7 @@ def test_phased_delivery_rejects_extern_prompt_without_fragment_contract(
     source.write_text(
         """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule extern-prompt)
   (export review)
   (defworkflow review ((subject String)) -> Bool

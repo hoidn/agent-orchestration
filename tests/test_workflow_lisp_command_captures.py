@@ -181,12 +181,21 @@ def test_erased_local_proc_refs_remain_available_to_command_facts(tmp_path, monk
     arm = f'({callee} flag)'
     if reset_before:
         arm = f'(if flag (match other ((A item) {arm}) ((B item) (record Result :i 0 :s "inner"))) (record Result :i 0 :s "no"))'
-    program, inputs, facts = _compile(tmp_path, '(loop/recur :max 1 :state (loop-state (i Int 0)) '
-        f':on-exhausted (record Result :i 0 :s "stop") (fn (state) (let* {bindings[:-1]} '
-        f'(answer (match choice ((A a) {arm}) ((B b) (record Result :i 0 :s b.s))))) '
-        '(done answer))))', params='(choice Choice) (other Choice) (flag Bool)', target='2.35',
-        declarations='(defproc helper ((flag Bool)) -> Result :effects ((uses-command echo)) :lowering inline '
-        '(if flag (command-result echo :argv ("python" "probe.py") :returns Result) (record Result :i 0 :s "no")))')
+    helper = ('(if flag (command-result echo :argv ("python" "probe.py") :returns Result) '
+              '(record Result :i 0 :s "no")))')
+    step = (f'(let* {bindings[:-1]} (answer (match choice ((A a) {arm}) ((B b) (record Result :i 0 :s b.s))))) '
+            '(done answer))')
+    if reset_before:
+        program, inputs, facts = _compile(tmp_path, '(loop/recur ((state (loop-state (i Int 0)))) :max 1 '
+            f':on-exhausted (record Result :i 0 :s "stop") {step})', params='(choice Choice) (other Choice) (flag Bool)',
+            declarations='(defproc helper ((flag Bool)) -> Result ' + helper)
+    else:
+        # The loop's private helper override of targets below 2.40 is this case's subject (Task 4b).
+        program, inputs, facts = _compile(tmp_path, '(loop/recur :max 1 :state (loop-state (i Int 0)) '
+            f':on-exhausted (record Result :i 0 :s "stop") (fn (state) {step}))',
+            params='(choice Choice) (other Choice) (flag Bool)', target='2.35',
+            declarations='(defproc helper ((flag Bool)) -> Result :effects ((uses-command echo)) :lowering inline '
+            + helper)
     seen = []
     original = summary._procedure_control_fact
     def observe(expr, **kwargs):

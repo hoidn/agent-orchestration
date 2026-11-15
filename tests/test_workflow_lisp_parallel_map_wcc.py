@@ -18,7 +18,7 @@ from tests.workflow_lisp_closed_program_helpers import BOUNDARIES, install
 
 
 def source(body, *, declarations="", result="List[Box]", params="", imports=""):
-    return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+    return f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule parallel) {imports} (export run) (defrecord Box (n Int))
       {declarations}
       (defworkflow run ({params}) -> {result} {body}))'''
@@ -67,9 +67,9 @@ def test_map_joins_outer_continuation_without_retargeting_items(tmp_path):
 
 
 def test_pure_inline_workspace_and_body_keep_item_scope_and_provenance(tmp_path):
-    declarations = '''(defproc cwd ((value String)) -> String :effects () :lowering inline
+    declarations = '''(defproc cwd ((value String)) -> String
         (let* ((copy value)) (string/concat copy "/work")))
-      (defproc identity ((value String)) -> String :effects () :lowering inline value)'''
+      (defproc identity ((value String)) -> String value)'''
     mapped = MAP.replace(":workspace repo", ":workspace (cwd repo)").replace(COMMAND, "(identity repo)")
     _, _, body = prepare(tmp_path, source(mapped, declarations=declarations, result="List[String]"))
     node, = parallel_nodes(body)
@@ -118,19 +118,19 @@ def test_source_let_is_evaluated_once_before_item_scope(tmp_path):
 
 @pytest.mark.parametrize("kind", ["workflow", "procedure", "imported-workflow"])
 def test_helper_bodies_use_real_wcc_preparation(tmp_path, kind):
-    loop = f'''(loop/recur :max 2 :state (loop-state (n Int 0))
-        :on-exhausted (record Box :n 0) (fn (state) (done {COMMAND})))'''
+    loop = f'''(loop/recur ((state (loop-state (n Int 0)))) :max 2
+        :on-exhausted (record Box :n 0) (done {COMMAND}))'''
     workflow = f'(defworkflow worker ((repo String)) -> Box {loop})'
     call = '(call worker :repo repo)'
     declarations = workflow
     if kind == "procedure":
-        declarations = f'(defproc worker ((repo String)) -> Box :effects ((uses-command fetch)) :lowering inline {loop})'
+        declarations = f'(defproc worker ((repo String)) -> Box {loop})'
         call = '(worker repo)'
     sources = source(MAP.replace(COMMAND, call), declarations=declarations)
     if kind == "imported-workflow":
         sources = {"parallel.orc": source(MAP.replace(COMMAND, '(call helper.worker :repo repo)'),
             imports='(import helper :as helper :only (worker Box))', result="List[helper.Box]"),
-            "helper.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+            "helper.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
               (defmodule helper) (export worker Box) (defrecord Box (n Int)) {workflow})'''}
     typed, builder, body = prepare(tmp_path, sources, entry_path="parallel.orc" if isinstance(sources, dict) else None)
     node, = parallel_nodes(body)
@@ -164,7 +164,7 @@ def test_nested_map_in_workflow_helper_remains_control(tmp_path):
 def test_inline_capture_survives_homonymous_item_binder(tmp_path):
     mapped = MAP.replace(COMMAND, '(hook repo)')
     declarations = f'''(defproc apply ((hook ProcRef[String -> String])) -> List[String]
-        :effects () :lowering inline {mapped})'''
+        {mapped})'''
     body_source = f'''(let* ((repo "creation"))
       (let-proc (remember ((value String)) -> String :captures (repo) repo)
         (apply (proc-ref remember))))'''
