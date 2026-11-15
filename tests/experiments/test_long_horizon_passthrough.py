@@ -1651,8 +1651,9 @@ def test_a_slot_with_its_own_socket_is_served_there_and_its_token_nowhere_else(s
     served = [_post(own.path("a"), "lh-fake-a", _request())[0], _post(main, "lh-fake-c", _request())[0]]
     refused = [_error(_post(sock, token, _request())[2])[1]
                for sock, token in ((main, "lh-fake-a"), (own.path("a"), "lh-fake-b"), (own.path("a"), "lh-fake-c"))]
-    assert (served, refused, oct(own.path("a").parent.stat().st_mode & 0o777)) == (
-        [200, 200], ["lh-passthrough: unknown token"] * 3, "0o700")
+    logged = [(r["slot"], r["status"], r["refused"]) for r in _rows(short / "own0-state") if "refused" in r]
+    assert (served, refused, logged, oct(own.path("a").parent.stat().st_mode & 0o777)) == (
+        [200, 200], ["lh-passthrough: unknown token"] * 3, [(None, 403, "unknown token")] * 3, "0o700")
 
 
 def test_one_slot_s_connections_never_count_against_another_slot_s_socket(short, stub, sockets, monkeypatch):
