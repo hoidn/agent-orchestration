@@ -5,20 +5,18 @@ from orchestrator.workflow_lisp.type_env import (
 )
 
 
-@pytest.mark.parametrize("target_dsl_version", ("2.35", "2.36"))
 def test_full_compiler_keeps_non_trial_value_return_signature(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
-    target_dsl_version: str,
 ) -> None:
     from orchestrator.workflow_lisp import compiler as workflow_lisp_compiler
 
     source_path = tmp_path / "value_frontend.orc"
     source_path.write_text(
-        f"""\
+        """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "{target_dsl_version}")
+  (:target-dsl "2.40")
   (defmodule value_frontend)
   (export passthrough)
   (defworkflow passthrough ((payload Value)) -> Value

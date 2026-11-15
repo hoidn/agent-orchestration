@@ -1,0 +1,227 @@
+{
+ "source": "local recording t2a-pt-stopped: stub_api.py request log (see recordings.json for its scenario and harness arguments)",
+ "shapes": [
+  {
+   "method": "POST",
+   "path": "/v1/messages?beta=true",
+   "subagent": false,
+   "headers": {
+    "accept": null,
+    "accept-encoding": null,
+    "anthropic-beta": "oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,claude-code-20250219,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,thinking-token-count-2026-05-13,effort-2025-11-24,thinking-display-updates-2026-08-18,extended-cache-ttl-2025-04-11",
+    "anthropic-dangerous-direct-browser-access": null,
+    "anthropic-version": "2023-06-01",
+    "authorization": "Bearer <dummy>",
+    "connection": null,
+    "content-length": null,
+    "content-type": "application/json",
+    "host": null,
+    "user-agent": "claude-cli/2.1.311",
+    "x-app": "cli",
+    "x-claude-code-session-id": null,
+    "x-stainless-arch": null,
+    "x-stainless-lang": null,
+    "x-stainless-os": null,
+    "x-stainless-package-version": null,
+    "x-stainless-retry-count": null,
+    "x-stainless-runtime": null,
+    "x-stainless-runtime-version": null,
+    "x-stainless-timeout": null
+   },
+   "model": "claude-haiku-5-5",
+   "effort": "low",
+   "max_tokens": 128000,
+   "stream": true,
+   "other_params": [
+    "context_management",
+    "thinking"
+   ],
+   "body_keys": [
+    "context_management",
+    "max_tokens",
+    "messages",
+    "metadata",
+    "model",
+    "output_config",
+    "stream",
+    "system",
+    "thinking",
+    "tools"
+   ],
+   "tools": [
+    "Bash",
+    "Edit",
+    "DeferredToolPlaceholder",
+    "Read"
+   ],
+   "server_tools": [],
+   "tool_chars": [
+    3788,
+    1006,
+    214,
+    1975
+   ],
+   "tool_cache": [],
+   "tool_keys": [
+    [
+     "description",
+     "input_schema",
+     "name"
+    ],
+    [
+     "description",
+     "input_schema",
+     "name"
+    ],
+    [
+     "defer_loading",
+     "description",
+     "input_schema",
+     "name"
+    ],
+    [
+     "description",
+     "input_schema",
+     "name"
+    ]
+   ],
+   "input_schema_keys": [
+    [
+     "$schema",
+     "additionalProperties",
+     "properties",
+     "required",
+     "type"
+    ],
+    [
+     "$schema",
+     "additionalProperties",
+     "properties",
+     "required",
+     "type"
+    ],
+    [
+     "properties",
+     "type"
+    ],
+    [
+     "$schema",
+     "additionalProperties",
+     "properties",
+     "required",
+     "type"
+    ]
+   ],
+   "system": [
+    {
+     "chars": 74
+    },
+    {
+     "chars": 62,
+     "cache_control": {
+      "type": "ephemeral",
+      "ttl": "1h"
+     }
+    },
+    {
+     "chars": 8830,
+     "cache_control": {
+      "type": "ephemeral",
+      "ttl": "1h"
+     }
+    }
+   ]
+  }
+ ],
+ "requests": [
+  [
+   0,
+   200,
+   2,
+   0.0,
+   null,
+   [
+    [
+     1,
+     0,
+     {
+      "type": "ephemeral",
+      "ttl": "1h"
+     }
+    ]
+   ]
+  ],
+  [
+   0,
+   403,
+   5,
+   0.2,
+   null,
+   [
+    [
+     4,
+     0,
+     {
+      "type": "ephemeral",
+      "ttl": "1h"
+     }
+    ]
+   ]
+  ]
+ ],
+ "first_request": {
+  "message_blocks": [
+   [
+    "user",
+    [
+     {
+      "type": "text",
+      "chars": 581
+     },
+     {
+      "type": "text",
+      "chars": 85
+     }
+    ]
+   ],
+   [
+    "system",
+    [
+     {
+      "type": "text",
+      "chars": 887,
+      "cache_control": {
+       "type": "ephemeral",
+       "ttl": "1h"
+      }
+     }
+    ]
+   ]
+  ]
+ },
+ "bearer_matches": [
+  true,
+  true
+ ],
+ "message_block_keys": {
+  "tool_result": [
+   [
+    "content",
+    "is_error",
+    "tool_use_id",
+    "type"
+   ]
+  ],
+  "tool_use": [
+   [
+    "id",
+    "input",
+    "name",
+    "type"
+   ]
+  ]
+ },
+ "message_block_keys_unrecorded": {
+  "text": 7
+ }
+}

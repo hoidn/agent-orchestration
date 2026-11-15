@@ -1,0 +1,20 @@
+{
+ "source": "local recording t2a-forced-empty-low (CLI 2.1.311, AUTH=forced-empty: CLAUDE_FORCE_OAUTH set with an empty token, three tools by the deny list, via the relay)",
+ "harness_exception": "RuntimeError",
+ "exception_message": "CLAUDE_FORCE_OAUTH is set but CLAUDE_CODE_OAUTH_TOKEN is not. Run `claude setup-token` to get one, or unset CLAUDE_FORCE_OAUTH.",
+ "cli_exit_code": null,
+ "agent_result": {
+  "n_input_tokens": null,
+  "n_cache_tokens": null,
+  "n_output_tokens": null,
+  "cost_usd": null,
+  "model_usage": null,
+  "rollout_details": null,
+  "metadata": null
+ },
+ "verifier_result": null,
+ "init": null,
+ "n_events": 0,
+ "n_api_retry": 0,
+ "stream_tail": []
+}

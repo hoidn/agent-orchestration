@@ -201,7 +201,7 @@ def test_same_module_generic_specializations_execute_with_distinct_types(
 
     source_path = install(
         tmp_path,
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule local_generic) (export run)
           (defrecord Payload (count Int) (flag Bool))
           (defrecord Result (number Int) (payload Payload))

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp import syntax
+from orchestrator.contracts.closed_program.targets import CURRENT_TARGET_DSL_VERSION
 from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
@@ -22,7 +22,7 @@ from orchestrator.workflow.run_ref.config import decode_run_ref_static_config
 from tests.workflow_lisp_closed_program_helpers import install
 
 
-TARGET = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+TARGET = CURRENT_TARGET_DSL_VERSION
 
 
 def _provider_nodes(body: dict) -> list[dict]:
@@ -86,7 +86,7 @@ _WREF_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
   (defworkflow helper ((input Box)) -> Box
     (provider-result providers.execute :prompt prompts.execute :inputs (input.n) :returns Box))
   (defproc invoke ((runner WorkflowRef[Box -> Box]) (input Box)) -> Box
-    :effects ((calls-workflow runner)) :lowering inline (call runner :input input))
+    (call runner :input input))
   (defworkflow run ((input Box)) -> Box (invoke (workflow-ref helper) input)))'''
 
 
@@ -259,7 +259,7 @@ def test_nested_run_ref_contract_uses_actual_producers_after_finalization(
         (LEFT (payload List[A] :description "left result guidance"))
         (RIGHT (payload List[B] :description "right result guidance")))
       (defproc produce :forall (A B) ((a A) (b B)) -> Choice[A B]
-        {effect_declaration} :lowering inline
+        {effect_declaration}
         {effect_expression})
       (defworkflow run () -> Int
         (let* ((first {run_ref})
@@ -418,11 +418,10 @@ def test_provider_input_names_do_not_expose_generated_anf_bindings(tmp_path: Pat
      (defmodule cp/provider_input_identity) (export run)
      (defrecord Box (n Int))
      (defproc worker ((fixed Box) (input Box)) -> Int
-       :effects ((uses-provider provider)) :lowering inline
        (provider-result provider :prompt prompt
          :inputs ((if (> input.n 0) input fixed)) :returns Int))
      (defproc invoke ((runner ProcRef[Box -> Int]) (input Box)) -> Int
-       :effects () :lowering inline (runner input))
+       (runner input))
      (defworkflow run ((input Box)) -> Int
        (invoke (bind-proc (proc-ref worker) :fixed (record Box :n 7)) input)))'''
     facts = []
@@ -775,7 +774,7 @@ def test_each_selected_effect_outside_the_release_is_a_located_gap(
                 "request-input",
                 "request-input",
                 "ask",
-                f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+                '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
                   (defmodule cp/request_gap) (export ask)
                   (defworkflow ask ((question String)) -> HumanReply
                     (request-input question)))''',
@@ -855,10 +854,10 @@ _COPIED_CAPTURE_SOURCE = '''(workflow-lisp
   (:target-dsl "TARGET")
   (defmodule cp/copied_capture) (export entry)
   (defproc invoke ((runner ProcRef[Int -> Int]) (n Int)) -> Int
-    :effects () :lowering inline (runner n))
+    (runner n))
   (defproc forward ((runner ProcRef[Int -> Int]) (n Int)) -> Int
-    :effects () :lowering inline (invoke runner n))
-  (defproc outer ((flag Bool) (n Int)) -> Int :effects ((runs-ref child)) :lowering inline
+    (invoke runner n))
+  (defproc outer ((flag Bool) (n Int)) -> Int
     (let* ((first
              (run-ref
                :source (:repo "file:///workspace"
@@ -978,9 +977,8 @@ _CARRIER_RUN_REF_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "TARG
       (defmodule cp/carrier_refs) (export run)
       (defunion Wrapper :forall (T) (WRAP (value Int)))
       (defproc wrap :forall (T) ((value T)) -> Wrapper[T]
-        :effects () :lowering inline (variant Wrapper[T] WRAP :value 0))
+        (variant Wrapper[T] WRAP :value 0))
       (defproc carry :forall (T) ((value T)) -> Int
-        :effects ((runs-ref child)) :lowering inline
         (let* ((state (loop-state (payload T value)))
                (check (run-ref :source (:repo "file:///workspace" :commit "0123456789abcdef0123456789abcdef01234567")
                  :program (:path "child.orc" :entry child) :inputs (:n 0) :returns Int
@@ -1163,9 +1161,9 @@ def test_public_run_ref_artifact_rejects_full_digest_and_reserved_type_tampering
 _LOCAL_RUN_REF_CAPTURE = '''(workflow-lisp
   (:language "0.1") (:target-dsl "TARGET")
   (defproc invoke ((runner ProcRef[Int -> Int]) (n Int)) -> Int
-    :effects () :lowering inline (runner n))
+    (runner n))
   (defproc forward ((runner ProcRef[Int -> Int]) (n Int)) -> Int
-    :effects () :lowering inline (invoke runner n))
+    (invoke runner n))
   (defworkflow entry () -> Int
     (let* ((first
              (run-ref
@@ -1311,7 +1309,7 @@ _PURE_LOCAL_CAPTURE_ONCE = '''(workflow-lisp
   (:language "0.1") (:target-dsl "TARGET")
   (defmodule entry) (export entry)
   BOX_RECORD
-  (defproc identity :forall (T) ((value T)) -> T :effects () :lowering inline value)
+  (defproc identity :forall (T) ((value T)) -> T value)
   (defworkflow entry ((flag Bool)) -> Int
     (let* ((first EFFECT)
            (second first)
@@ -1325,7 +1323,7 @@ _PURE_LOCAL_CAPTURE_ONCE = '''(workflow-lisp
 
 _SELECTED_RUN_REF_ALIAS = '''(workflow-lisp
   (:language "0.1") (:target-dsl "TARGET")
-  (defproc identity :forall (T) ((value T)) -> T :effects () :lowering inline value)
+  (defproc identity :forall (T) ((value T)) -> T value)
   (defworkflow entry ((flag Bool)) -> Int
     (let* ((first
              (run-ref
@@ -1528,7 +1526,7 @@ def test_preparation_run_ref_generated_names_preserve_actual_producer_wiring(tmp
     run = '(run-ref :source (:repo "file:///workspace" :commit "0123456789abcdef0123456789abcdef01234567") '
     run += ':program (:path "child.orc" :entry child) :inputs (:n VALUE) :returns Int '
     run += ':policy (:environment :deterministic-effect-free :setup ()))'
-    declaration = '(defproc helper () -> Int :effects ((runs-ref child) (uses-command echo)) :lowering inline '
+    declaration = '(defproc helper () -> Int '
     declaration += '(let* ((first ' + run.replace('VALUE', '1') + ') (second ' + run.replace('VALUE', '2')
     declaration += ') '
     if nested:
@@ -1569,10 +1567,10 @@ def test_repeated_mixed_reference_calls_keep_both_original_materialized_bindings
 
     declarations = '(defrecord Box (n Int)) (defworkflow child ((input Box)) -> Box '
     declarations += '(command-result echo :argv ("python" "probe.py" input.n) :returns Box))'
-    declarations += '(defproc mapper ((n Box)) -> Box :effects () :lowering inline (record Box :n (+ n.n 1)))'
+    declarations += '(defproc mapper ((n Box)) -> Box (record Box :n (+ n.n 1)))'
     declarations += '(defproc invoke ((runner WorkflowRef[Box -> Box]) '
     declarations += '(map ProcRef[Box -> Box]) (n Box)) -> Box '
-    declarations += ':effects ((calls-workflow runner)) :lowering inline '
+    declarations += ' '
     declarations += '(let* ((mapped (map n))) (call runner :input mapped)))'
     source = '(let* ((first (invoke (workflow-ref child) (proc-ref mapper) n))) '
     source += '(invoke (workflow-ref child) (proc-ref mapper) first))'

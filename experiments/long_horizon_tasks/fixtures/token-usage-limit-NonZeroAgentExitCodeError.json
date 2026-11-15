@@ -1,5 +1,5 @@
 {
- "source": "local recording tok20-usage-limit-60s (stub_api.py scenario usage_limit, CLI 2.1.311, token mode, default tools, fake OAuth token or dummy key as named, via the relay)",
+ "source": "local recording t2a-usage-limit-low (CLI 2.1.311, token mode with a fake token in the launcher's form, three tools by the deny list, via the relay)",
  "harness_exception": "NonZeroAgentExitCodeError",
  "cli_exit_code": 1,
  "agent_result": {
@@ -29,29 +29,11 @@
   "type": "system",
   "subtype": "init",
   "cwd": "/app",
-  "session_id": "8a2c2881-5d25-4783-ba99-95a8278dc498",
+  "session_id": "f794f35f-f267-4a37-a52c-ab7890b36c9b",
   "tools": [
-   "Task",
    "Bash",
-   "CronCreate",
-   "CronDelete",
-   "CronList",
    "Edit",
-   "EnterWorktree",
-   "ExitWorktree",
-   "ListAgents",
-   "Monitor",
-   "NotebookEdit",
-   "Read",
-   "RemoteTrigger",
-   "ReportFindings",
-   "ScheduleWakeup",
-   "SendMessage",
-   "Skill",
-   "TaskStop",
-   "ToolSearch",
-   "Workflow",
-   "Write"
+   "Read"
   ],
   "mcp_servers": [],
   "model": "claude-haiku-5-5",
@@ -167,7 +149,7 @@
   ],
   "analytics_disabled": true,
   "product_feedback_disabled": true,
-  "uuid": "6a5bf77b-619e-4404-a1b4-393a1fb40b00",
+  "uuid": "888a78d7-9140-48a9-8a9c-624e56a4d0ea",
   "memory_paths": {
    "auto": "/logs/agent/sessions/projects/-app/memory/"
   },
@@ -193,17 +175,17 @@
    "type": "rate_limit_event",
    "rate_limit_info": {
     "status": "rejected",
-    "resetsAt": 1794627837,
+    "resetsAt": 1794690332,
     "rateLimitType": "five_hour",
     "isUsingOverage": false
    },
-   "uuid": "cbdeba6c-6b67-4633-8dc1-738d419622f9",
-   "session_id": "8a2c2881-5d25-4783-ba99-95a8278dc498"
+   "uuid": "3a771e11-b908-4c26-a3ec-9dffdb384596",
+   "session_id": "f794f35f-f267-4a37-a52c-ab7890b36c9b"
   },
   {
    "type": "assistant",
    "parent_tool_use_id": null,
-   "timestamp": "2026-11-14T03:42:57.586Z",
+   "timestamp": "2026-11-14T21:04:32.120Z",
    "error": "rate_limit",
    "is_api_error_message": true,
    "api_error_status": 429,
@@ -211,7 +193,7 @@
    "api_error_params": {
     "rate_limit_info": {
      "status": "rejected",
-     "resetsAt": 1794627837,
+     "resetsAt": 1794690332,
      "rateLimitType": "five_hour",
      "isUsingOverage": false
     }
@@ -243,15 +225,15 @@
     "content": [
      {
       "type": "text",
-      "text": "You've hit your session limit \u00b7 resets 3:43am (UTC)"
+      "text": "You've hit your session limit \u00b7 resets 9:05pm (UTC)"
      }
     ]
    }
   },
   {
-   "duration_api_ms": 137,
+   "duration_api_ms": 69,
    "stop_reason": "stop_sequence",
-   "session_id": "8a2c2881-5d25-4783-ba99-95a8278dc498",
+   "session_id": "f794f35f-f267-4a37-a52c-ab7890b36c9b",
    "total_cost_usd": 0.00015000000000000001,
    "usage": {
     "input_tokens": 1000,
@@ -327,10 +309,10 @@
    "subtype": "success",
    "api_error_status": 429,
    "api_error": "usage_limit_reached",
-   "result": "You've hit your session limit \u00b7 resets 3:43am (UTC)",
+   "result": "You've hit your session limit \u00b7 resets 9:05pm (UTC)",
    "type": "result",
-   "duration_ms": 599,
-   "uuid": "b9ec63a8-e59f-443f-887c-cb4cb7209215",
+   "duration_ms": 298,
+   "uuid": "3946e4a3-410c-49b4-8757-3834e45584a2",
    "queued_turn_count": 0,
    "result_index": 0,
    "model_usage_since_last_result": {

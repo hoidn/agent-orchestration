@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.38")
+  (:target-dsl "2.40")
   (defmodule design_review_execute_agents)
   (export run DraftDocPath DesignDocPath Draft Design Feedback Execution
           draft-design review-design revise-design execute-design)

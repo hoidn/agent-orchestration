@@ -65,8 +65,8 @@ def test_raw_or_opaque_operand_refuses_before_final_emission(tmp_path, monkeypat
     if position in {'prompt', 'dependency', 'policy'}:
         program = _provider(tmp_path, dependency=position == 'dependency')
     elif position in {'capture', 'computed-capture', 'closed-argument'}:
-        declaration = '(defproc helper ((fixed Int) (n Int)) -> Int :effects ((uses-command echo)) :lowering inline ' + _command('n') + ')'
-        declaration += '(defproc invoke ((hook ProcRef[Int -> Int])) -> Int :effects () :lowering inline (hook 1))'
+        declaration = '(defproc helper ((fixed Int) (n Int)) -> Int ' + _command('n') + ')'
+        declaration += '(defproc invoke ((hook ProcRef[Int -> Int])) -> Int (hook 1))'
         operand = '(+ 2 3)' if position == 'closed-argument' else '(+ n 1)'
         program = _compile(tmp_path, '(invoke (bind-proc (proc-ref helper) :fixed ' + operand + '))',
             params='(n Int)', declarations=declaration)
@@ -153,8 +153,8 @@ def test_malformed_preparation_refuses_before_final_emission(tmp_path, monkeypat
 
 @pytest.mark.parametrize('mutation', ['unknown-kind', 'unknown-field', 'missing-child', 'nested-raw'])
 def test_malformed_capture_wire_refuses_before_final_emission(tmp_path, monkeypatch, mutation):
-    declarations = '(defproc helper ((fixed Int) (n Int)) -> Int :effects ((uses-command echo)) :lowering inline ' + _command('n') + ')'
-    declarations += '(defproc invoke ((hook ProcRef[Int -> Int])) -> Int :effects () :lowering inline (hook 1))'
+    declarations = '(defproc helper ((fixed Int) (n Int)) -> Int ' + _command('n') + ')'
+    declarations += '(defproc invoke ((hook ProcRef[Int -> Int])) -> Int (hook 1))'
     program = _compile(tmp_path, '(invoke (bind-proc (proc-ref helper) :fixed (+ n 1)))',
         params='(n Int)', declarations=declarations)
     owner = build.Builder(program)
@@ -191,8 +191,8 @@ def test_malformed_capture_wire_refuses_before_final_emission(tmp_path, monkeypa
 
 @pytest.mark.parametrize('mutation', ['entry', 'nested', 'extra'])
 def test_incomplete_child_inventory_refuses_before_final_emission(tmp_path, monkeypatch, mutation):
-    declarations = '(defproc helper ((fixed Int) (n Int)) -> Int :effects ((uses-command echo)) :lowering inline ' + _command('n') + ')'
-    declarations += '(defproc invoke ((hook ProcRef[Int -> Int])) -> Int :effects () :lowering inline (hook 1))'
+    declarations = '(defproc helper ((fixed Int) (n Int)) -> Int ' + _command('n') + ')'
+    declarations += '(defproc invoke ((hook ProcRef[Int -> Int])) -> Int (hook 1))'
     program = _compile(tmp_path, '(invoke (bind-proc (proc-ref helper) :fixed (+ n 1)))',
         params='(n Int)', declarations=declarations)
     owner = build.Builder(program)
@@ -245,7 +245,7 @@ def test_prepared_inline_effect_map_and_workflow_emit_without_source_reentry(tmp
     from orchestrator.workflow_lisp.wcc import analysis, elaborate, historical
     from orchestrator.contracts.closed_program.program import ClosedProgram
 
-    declarations = '(defproc worker ((n Int)) -> Int :effects ((uses-command echo)) :lowering inline ' + _command('n') + ')'
+    declarations = '(defproc worker ((n Int)) -> Int ' + _command('n') + ')'
     declarations += '(defworkflow child ((items List[Int])) -> List[Int] (list/map-effect ((item items)) :max 3 (worker item)))'
     expression = '(call child :items items)' if workflow else '(list/map-effect ((item items)) :max 3 (worker item))'
     program = _compile(tmp_path, expression, params='(items List[Int])',
@@ -290,12 +290,12 @@ def test_imported_pure_if_has_structured_prepared_values(tmp_path):
     from tests.workflow_lisp_closed_program_helpers import BOUNDARIES
 
     path = install(tmp_path, {
-        'entry.orc': '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        'entry.orc': '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule entry) (import older :only (choose)) (export run)
           (defworkflow run ((n Int)) -> Int (choose n)))''',
-        'older.orc': '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        'older.orc': '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule older) (export choose)
-          (defproc choose ((n Int)) -> Int :effects ((uses-command fetch)) :lowering inline
+          (defproc choose ((n Int)) -> Int
             (command-result fetch :argv ("python" "probe.py" (if (> n 0) (+ n 1) (+ n 2))) :returns Int)))''',
     }, entry_path='entry.orc')
     program = compile_typed_program(path, entry_workflow='run', source_roots=(tmp_path,),

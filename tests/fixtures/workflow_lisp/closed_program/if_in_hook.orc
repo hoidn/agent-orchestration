@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "TARGET")
+  (:target-dsl "2.35")
   (defmodule cp/if_in_hook)
   (import std/improve :only (Decision Improvement improve))
   (export run)

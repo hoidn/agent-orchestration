@@ -21,7 +21,7 @@ from tests.workflow_lisp_improve_stdlib_sources import REVIEW_PROBE, REVISE_PROB
 
 MODULE = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
   (export run)
   (defrecord Candidate (title String) (score Int))
@@ -33,20 +33,14 @@ MODULE = """(workflow-lisp
     (REVISE (feedback Feedback))
     (BLOCKED (reason Blocker)))
   (defproc review ((candidate Candidate)) -> Decision
-    :effects ((uses-command probe_review))
-    :lowering inline
     (command-result probe_review
       :argv ("python" "PROBE_REVIEW" candidate.title "tidy")
       :returns Decision))
   (defproc revise ((candidate Candidate)) -> Candidate
-    :effects ((uses-command probe_revise))
-    :lowering inline
     (command-result probe_revise
       :argv ("python" "PROBE_REVISE" candidate.title "tidy" "fb")
       :returns Candidate))
   (defproc summarize ((outcome String) (note String)) -> Summary
-    :effects ((uses-command probe_summarize))
-    :lowering inline
     (command-result probe_summarize
       :argv ("python" "PROBE_SUMMARIZE" outcome note 0)
       :returns Summary))
@@ -253,11 +247,10 @@ def test_loop_with_both_forms_exhausts_like_improve(tmp_path: Path, monkeypatch:
 # Imported current-profile definitions retain scope under an evaluated entry.
 # `refine` is LOOP_MATCH (both repaired forms) as a procedure of `grt/lib`.
 REFINE_HEADER = """(defproc refine ((seed Candidate)) -> Candidate
-    :effects ((uses-command probe_review) (uses-command probe_revise))
-    :lowering inline"""
+    """
 ENTRY = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
   (import grt/lib :only (Candidate review revise refine))
   (export run)

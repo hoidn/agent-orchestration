@@ -333,7 +333,7 @@ def test_provider_bundle_path_translates_with_its_exact_runs_descriptor(tmp_path
 
 def test_compiled_import_keeps_its_native_body_and_explicit_context_route(tmp_path: Path) -> None:
     producer_source = '''(workflow-lisp
-      (:language "0.1") (:target-dsl "2.35")
+      (:language "0.1") (:target-dsl "2.40")
       (defmodule producer) (import std/phase :only (with-phase))
       (export entry run-phase)
       (defrecord RunCtx (run-id RunId) (state-root Path.state-root) (artifact-root Path.artifact-root))
@@ -405,7 +405,7 @@ def test_compiled_import_keeps_its_native_body_and_explicit_context_route(tmp_pa
 def test_imported_capture_resolves_native_context_after_omitted_and_explicit_calls(
     tmp_path: Path,
 ) -> None:
-    base_producer = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+    base_producer = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule producer) (import std/context :only (PhaseCtx))
       (import std/phase :only (with-phase)) (export entry run-phase)
       (defworkflow entry ((payload Int)) -> Int
@@ -559,7 +559,7 @@ def test_old_native_record_path_boundary_keeps_1_to_n_views_defaults_and_order(
     producer_root.mkdir()
     producer_path = install(
         producer_root,
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule producer) (export get)
           (defpath Report :kind relpath :under "reports" :must-exist false)
           (defrecord Result (left Report) (right Report) (count Int))

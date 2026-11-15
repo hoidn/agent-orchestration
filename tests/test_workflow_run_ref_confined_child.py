@@ -36,7 +36,7 @@ from tests.test_workflow_run_ref_confinement import _oci_layout, _removable_tmp 
 HOST = HostFacts(bwrap=True, systemd_run=True, ptrace_scope=1, machine="x86_64")
 FIRST = 'echo first > out.txt; echo 3 > "$ORCHESTRATOR_OUTPUT_BUNDLE_PATH"'
 SECOND = 'test -f out.txt && echo 4 > "$ORCHESTRATOR_OUTPUT_BUNDLE_PATH"'
-PARENT = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+PARENT = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule controller) (export run)
   (defworkflow candidate-body ((seed Int)) -> Int
     (let* ((first (command-result first :argv ("FIRST_EXE" "first.sh") :returns Int))

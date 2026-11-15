@@ -81,17 +81,17 @@ def test_template_binding_means_what_it_means_inline(tmp_path: Path, case: str) 
 LOOP_CASES = {
     "loop_state_shadows_a_template_local": (
         "(let* ((s (+ x 4))) (loop/recur ((s s)) :max 5 :on-exhausted s (if (< s 7) (continue (+ s 1)) (done s))))",
-        "(let* ((s (+ x 4))) (loop/recur :max 5 :state s :on-exhausted s (fn (s) (if (< s 7) (continue (+ s 1)) (done s)))))",
+        "(let* ((s (+ x 4))) (loop/recur ((s s)) :max 5 :on-exhausted s (if (< s 7) (continue (+ s 1)) (done s))))",
         "(m 1)",
         "(let* ((s 5)) (loop/recur ((t s)) :max 5 :on-exhausted t (if (< t 7) (continue (+ t 1)) (done t))))", 7),
     "on_exhausted_reads_the_loop_state_not_the_template_local": (
         "(let* ((s 10)) (loop/recur ((s (+ x 0))) :max 1 :on-exhausted (+ s 100) (if (< s 0) (done s) (continue (+ s 1)))))",
-        "(let* ((s 10)) (loop/recur :max 1 :state (+ x 0) :on-exhausted (+ s 100) (fn (s) (if (< s 0) (done s) (continue (+ s 1))))))",
+        "(let* ((s 10)) (loop/recur ((s (+ x 0))) :max 1 :on-exhausted (+ s 100) (if (< s 0) (done s) (continue (+ s 1)))))",
         "(m 1)",
         "(loop/recur ((t 1)) :max 1 :on-exhausted (+ t 100) (if (< t 0) (done t) (continue (+ t 1))))", 102),
     "caller_argument_named_like_the_loop_state": (
         "(loop/recur ((s 0)) :max 5 :on-exhausted s (if (< s x) (continue (+ s 1)) (done s)))",
-        "(loop/recur :max 5 :state 0 :on-exhausted s (fn (s) (if (< s x) (continue (+ s 1)) (done s))))",
+        "(loop/recur ((s 0)) :max 5 :on-exhausted s (if (< s x) (continue (+ s 1)) (done s)))",
         "(let* ((s 2)) (m s))",
         "(let* ((s 2)) (loop/recur ((t 0)) :max 5 :on-exhausted t (if (< t s) (continue (+ t 1)) (done t))))", 2),
 }

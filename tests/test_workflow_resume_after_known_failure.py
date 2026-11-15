@@ -53,7 +53,6 @@ PRELUDE = """(workflow-lisp
   (export run)
   (defrecord Note (note String))
   (defproc step ((name String)) -> Note
-    :effects ((uses-command probe))
     (command-result probe :argv ("python" "PROBE" name) :returns Note))
 """
 
@@ -64,9 +63,9 @@ SEQUENCE = PRELUDE + """  (defworkflow run () -> Note
 """
 
 
-def _install(root: Path, source: str, *, target: str = "2.35", broken: tuple[str, ...] = ()) -> dict[str, Path]:
+def _install(root: Path, source: str, *, broken: tuple[str, ...] = ()) -> dict[str, Path]:
     probe = _write_probe(root, "probe", PROBE)
-    _write_sources(root, {"grt/entry.orc": source.replace("TARGET", target).replace("PROBE", probe.as_posix())})
+    _write_sources(root, {"grt/entry.orc": source.replace("TARGET", "2.40").replace("PROBE", probe.as_posix())})
     for name in broken:
         probe.with_name(f"{name}.broken").write_text("", encoding="utf-8")
     files = _public_run_files(root, {"probe": probe})

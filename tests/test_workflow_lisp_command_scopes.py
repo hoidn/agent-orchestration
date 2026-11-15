@@ -13,10 +13,10 @@ from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.model import WCC_M4_ROUTE_SCHEMA_VERSION, WccLet
 
 
-def _compile(tmp_path, body, *, params="", returns="Result", declarations="", target="2.35"):
+def _compile(tmp_path, body, *, params="", returns="Result", declarations="", prelude="", target="2.40"):
     path = tmp_path / "entry.orc"
     path.write_text(
-        f'(workflow-lisp (:language "0.1") (:target-dsl "{target}") '
+        f'(workflow-lisp (:language "0.1") (:target-dsl "{target}") {prelude}'
         '(defrecord Result (i Int) (s String)) '
         '(defunion Choice (A (i Int)) (B (s String))) '
         + declarations + f' (defworkflow run ({params}) -> {returns} {body}))'
@@ -171,10 +171,10 @@ def test_variant_frames_keep_real_continuation_demands_separate(tmp_path, monkey
     from orchestrator.workflow_lisp.expressions import LiteralExpr
 
     program, inputs, facts = _compile(tmp_path,
-        '(match choice ((A same) (let* ((x (if true "chosen" "other")) (reply (request-input x))) '
+        '(match choice ((A same) (let* ((x (if true "chosen" "other")) (reply (request-input x :returns String))) '
         '(command-result echo :argv ("python" "probe.py" x) :returns Int))) '
         '((B same) (let* ((x (if true true false))) (command-result echo :argv ("python" "probe.py" x) :returns Int))))',
-        params="(choice Choice)", returns="Int")
+        params="(choice Choice)", returns="Int", prelude="(defmodule entry) (import std/host :only (HostReply)) (export run) ")
     observed = []
     original = CommandScopeContext.bind
 
@@ -241,7 +241,6 @@ def test_selected_helper_initial_facts_preserve_erased_workflow_reference(tmp_pa
         params='(choice Choice) (flag Bool)', declarations='''
         (defworkflow leaf ((n Int)) -> Result (record Result :i n :s "leaf"))
         (defproc pick ((runner WorkflowRef[Int -> Result]) (choice Choice) (flag Bool)) -> Result
-          :effects ((calls-workflow runner)) :lowering inline
           (match choice ((A same) (if flag (call runner :n same.i) (record Result :i 1 :s "a")))
             ((B same) (record Result :i 2 :s "b"))))''')
     selected = next(item for item in program.procedures.values()
