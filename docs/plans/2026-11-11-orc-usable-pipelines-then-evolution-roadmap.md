@@ -592,7 +592,7 @@ staging.
   verifier, so the family is oracle-scored: its qualification is the oracle
   check (the reference solution passes, an untouched environment fails), not
   a judge.
-- **Seed:** `experiments/long_horizon_seed/milestones.orc` (54 lines of at most 120 columns):
+- **Seed:** `experiments/long_horizon_seed/milestones.orc` (49 lines of at most 120 columns):
   set up the project (directories, `AGENTS.md`, a document catalogue, an
   append-only log, topic notes), write spec targets, then rounds of plan,
   build each milestone (work, check, review), check and acceptance. Three

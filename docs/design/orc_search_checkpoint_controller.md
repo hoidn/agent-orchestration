@@ -227,24 +227,25 @@ with `resume`, as after a stop at the cap.
 ### 3.4 Naming a stage
 
 **A stage is named by a full site key.** The last label of a key is not a
-name. The seed `milestones.orc` (`experiments/long_horizon_seed/`; probe K2
-compiled its revision `c93a6954` on `main`; since then the round's check and
-acceptance moved under the test of the milestones' results) has these eight
-keys:
+name. The seed `milestones.orc` (`experiments/long_horizon_seed/`, frozen by
+its `seeds.json`; probe K2 compiled its revision `c93a6954` on `main`; since
+then the acceptance moved under the tests of the milestones' results and of
+the round's check, and a milestone's check is labelled `check`) has these
+eight keys:
 
 ```text
 workflow:milestones::run / ready
 workflow:milestones::run / spec
 workflow:milestones::run / loop:state[*] / plan
-workflow:milestones::run / loop:state[*] / else / report
+workflow:milestones::run / loop:state[*] / report
 workflow:milestones::run / loop:state[*] / else / else / acceptance
 … / built / body / loop:#1[*] / else / each=workflow:milestones::milestone / loop:state[*] / change
-… / built / body / loop:#1[*] / else / each=workflow:milestones::milestone / loop:state[*] / report
+… / built / body / loop:#1[*] / else / each=workflow:milestones::milestone / loop:state[*] / check
 … / built / body / loop:#1[*] / else / each=workflow:milestones::milestone / loop:state[*] / verdict
 ```
 
-Two keys end in `report`: the round's check and each milestone's check. They
-are two stages. The verdict sites carry authored labels (`acceptance`,
+The round's check and each milestone's check are two stages with their own
+last labels, `report` and `check`. The verdict sites carry authored labels (`acceptance`,
 `verdict`) and the milestone call frame is named (`each`); the model and the
 effort of each role are literals at its call forms. The seed `staged.orc` has
 the same shape of keys; `designed.orc` puts its design review and its rounds
