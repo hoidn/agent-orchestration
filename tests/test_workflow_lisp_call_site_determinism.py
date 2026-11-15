@@ -296,6 +296,38 @@ def test_bound_value_identity_only_splits_what_the_position_joins():
     assert identity[id(values[10])] == identity[id(values[11])]
 
 
+def test_nested_bound_values_split_only_when_every_node_is_stable():
+    """Two levels down: a record of records of literals splits by content at one position; a record whose inner
+    record holds a name, a field read, an `if` or a call keeps the position alone, whatever that node says."""
+    from orchestrator.workflow_lisp.expressions import (
+        FieldAccessExpr, FunctionCallExpr, IfExpr, LiteralExpr, NameExpr, RecordExpr)
+    from orchestrator.workflow_lisp.procedure_refs import _source_identity
+    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+
+    at = SourceSpan(SourcePosition("m.orc", 6, 20, 20), SourcePosition("m.orc", 6, 60, 60))
+
+    def lit(value):
+        return LiteralExpr(value=value, literal_kind="int", span=at, form_path=())
+
+    def wrap(inner):
+        return RecordExpr("Wrap", (("box", RecordExpr("Box", (("n", inner),), at, ())),), at, ())
+
+    def identity(inner):
+        return _source_identity(wrap(inner))
+
+    assert identity(lit(1)) != identity(lit(7))
+    assert identity(lit(1)) == identity(lit(1))
+    unstable = [
+        (NameExpr("a", at, ()), NameExpr("b", at, ())),
+        (FieldAccessExpr(NameExpr("r", at, ()), ("k",), at, ()), FieldAccessExpr(NameExpr("r", at, ()), ("j",), at, ())),
+        (IfExpr(lit(1), lit(1), lit(0), at, ()), IfExpr(lit(1), lit(7), lit(0), at, ())),
+        (FunctionCallExpr("dbl", (lit(1),), at, ()), FunctionCallExpr("dbl", (lit(7),), at, ())),
+    ]
+    position = identity(NameExpr("a", at, ()))
+    assert ":content:" not in position
+    assert all(identity(first) == identity(second) == position for first, second in unstable)
+
+
 def test_bound_values_of_two_expansions_split_by_content(tmp_path):
     """Two expansions binding `(+ 1 0)` and `(+ 7 0)` specialize `fwi` twice; binding `(+ 1 0)` twice, once."""
     macro = "  (defmacro mk (k v) (ap (bind-proc (proc-ref fwi) :k (+ k 0)) v))\n"

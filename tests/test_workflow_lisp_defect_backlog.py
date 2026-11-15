@@ -152,6 +152,10 @@ KNOWN: dict[str, tuple] = {
     "B7-macro-or": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"),
     "B7-macro-defun": crash("ValueError", CAPTURE_REQUESTS + "visit_reference_owner"),
     "B7-macro-if-pure": value(303),
+    "B7-macro-not-pure": value(404),
+    "B7-macro-and-pure": value(1010),
+    "B7-macro-record-call-pure": value(505),
+    "B7-macro-record-map-pure": value(2424),
     "E1-and": refused("variant_ref_unproved"), "E1-or": refused("variant_ref_unproved"),
     "E2": refused("variant_ref_unproved"),
     "E4": refused("variant_tag_union_mismatch"),
@@ -201,6 +205,10 @@ KNOWN_AT_T0: dict[str, tuple] = {
     "B7-macro-or": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>.visit_reference_owner"),
     "B7-macro-defun": ("crash", "ValueError", "workflow_lisp/closed/build.py:Builder._prepare_computed_capture_requests.<locals>.visit_reference_owner"),
     "B7-macro-if-pure": ("value", 303),
+    "B7-macro-not-pure": ("value", 404),
+    "B7-macro-and-pure": ("value", 1010),
+    "B7-macro-record-call-pure": ("value", 505),
+    "B7-macro-record-map-pure": ("value", 2424),
     "C1": ("value", 7, "libw"),
     "D1": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
     "D2": ("crash", "TypeError", "workflow_lisp/wcc/elaborate.py:_body_to_prefix_and_value"),
@@ -317,6 +325,10 @@ WANTED_AT_T0: dict[str, tuple | None] = {
     "B7-macro-or": ("value", 110103),
     "B7-macro-defun": ("value", 117105),
     "B7-macro-if-pure": ("value", 1003),
+    "B7-macro-not-pure": ("value", 1004),
+    "B7-macro-and-pure": ("value", 410),
+    "B7-macro-record-call-pure": ("value", 1705),
+    "B7-macro-record-map-pure": ("value", 3024),
     "B7-written": ("value", 204104),
     "C1": ("refused", "procedure_effect_ceiling_exceeded"),
     "C1-local": ("refused", "procedure_effect_ceiling_exceeded"),
@@ -583,6 +595,10 @@ B7_BF = "(defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (+ k 0))
 B7_FWK = "(defproc fwk ((k Int) (y Int)) -> Int (let* ((r (call c1 :input (record Box :n (+ y k))))) r.n))"
 B7_U = "(defunion U (A (n Int)) (B (n Int)))"
 B7_DBL = "(defun dbl ((x Int)) -> Int (* x 2))"
+B7_BH = "(defproc bh ((f Bool) (y Int)) -> Int (if f (+ 1 y) (+ 7 y)))"
+B7_BOXH = "(defproc boxh ((b Box) (y Int)) -> Int (+ b.n y))"
+B7_WRAPH = "(defproc wraph ((w Wrap) (y Int)) -> Int (+ w.box.n (+ (* 10 (list/length w.xs)) y)))"
+B7_PURE_TWICE = "((n Int)) -> Int (+ (bm 1 n) (* 100 (bm 7 n)))"
 B7_TWICE = "((n Int)) -> Int (+ (bv 1 n) (* 1000 (bv 7 n)))"
 B7_FWI = "(defproc fwi ((k Int) (input Box)) -> Box (call c1 :input (record Box :n (+ input.n k))))"
 B7_FREE_RUN = "((n Int)) -> Int (let* ((input (record Box :n n)) (a FIRST) (c SECOND)) (+ a.n (* 1000 c.n)))"
@@ -671,6 +687,19 @@ ROWS: dict[str, Row] = {
     "B7-macro-if-pure": row(value(1003), "((n Int)) -> Int (+ (bf 1 n) (* 100 (bf 7 n)))", B7_HELPER, B7_APPLYI,
                             "(defmacro bf (k x) (applyi (bind-proc (proc-ref helper) :fixed (if (> k 2) k 0)) x))",
                             inputs=("n=3",)),
+    # The same family, pure: a bound `not`, `and`, or a record holding a call or a `list/map` (bound-value
+    # re-review, round 2). Two expansions share one specialization and both use the first expansion's value.
+    "B7-macro-not-pure": row(value(1004), B7_PURE_TWICE, B7_BH, B7_APPLYI,
+               "(defmacro bm (k x) (applyi (bind-proc (proc-ref bh) :f (not (> k 2))) x))", inputs=("n=3",)),
+    "B7-macro-and-pure": row(value(410), B7_PURE_TWICE, B7_BH, B7_APPLYI,
+               "(defmacro bm (k x) (applyi (bind-proc (proc-ref bh) :f (and (> k 2) (> 9 1))) x))", inputs=("n=3",)),
+    "B7-macro-record-call-pure": row(value(1705), B7_PURE_TWICE, "(defrecord Box (n Int))", B7_BOXH, B7_DBL,
+               B7_APPLYI, "(defmacro bm (k x) (applyi (bind-proc (proc-ref boxh) :b (record Box :n (dbl k))) x))",
+               inputs=("n=3",)),
+    "B7-macro-record-map-pure": row(value(3024), B7_PURE_TWICE, "(defrecord Box (n Int))",
+               "(defrecord Wrap (box Box) (xs List[Int]))", B7_WRAPH, B7_APPLYI,
+               "(defmacro bm (k x) (applyi (bind-proc (proc-ref wraph) :w (record Wrap :box (record Box :n k) "
+               ":xs (list/map ((i (list 1 2))) (+ i k)))) x))", inputs=("n=3",)),
     # A bound value that reads a local keeps the position identity alone, so two expansions of a template whose
     # bound value still reads a local after substitution share one specialization: the build stops.
     "B7-free-eff": row(value(111105), B7_FREE_RUN.replace("FIRST", "(lk 1 input)").replace("SECOND", "(lk 7 input)"),
@@ -806,18 +835,18 @@ ROWS: dict[str, Row] = {
                + LOOP_LOCAL_ADDING.replace("ADDEND", "r.k") + ")", "(defrecord R (k Int))", inputs=("n=3",)),
     "D25": row(None, "((n Int)) -> Int (both n 1)", "(defproc both ((x Int) (k Int)) -> Int (let* ((kk (+ k 0))) "
                + LOOP_LOCAL_ADDING.replace("ADDEND", "kk") + "))", inputs=("n=3",)),
-    "D25-plain": row(None, "((n Int)) -> Int (pan 1 n)",
+    "D25-plain": row(value(4), "((n Int)) -> Int (pan 1 n)",
                      "(defproc pan ((k Int) (x Int)) -> Int (let-proc ((h ((v Int)) -> Int (+ v k))) (h x)))",
                      inputs=("n=3",)),
     # Found by the bound-value review; each crashes on `main` too, in a single use (D28 binds in two scopes).
-    "D26": row(None, B7_FREE_RUN.replace("(c SECOND)) (+ a.n (* 1000 c.n))", ") a.n").replace(
+    "D26": row(value(104), B7_FREE_RUN.replace("(c SECOND)) (+ a.n (* 1000 c.n))", ") a.n").replace(
                "FIRST", "(ap (bind-proc (proc-ref fw) :b (record Box :n 1)) input)"), *B7_BOX, B7_AP,
                "(defproc fw ((b Box) (input Box)) -> Box (call c1 :input (record Box :n (+ input.n b.n))))",
                inputs=("n=3",)),
-    "D28": row(None, B7_FREE_RUN.replace("FIRST", "(let* ((b 1) (hook (bind-proc (proc-ref fwi) :k b))) (ap hook input))")
+    "D28": row(value(110104), B7_FREE_RUN.replace("FIRST", "(let* ((b 1) (hook (bind-proc (proc-ref fwi) :k b))) (ap hook input))")
                .replace("SECOND", "(let* ((b 7) (hook (bind-proc (proc-ref fwi) :k b))) (ap hook input))"),
                *B7_BOX, B7_FWI, B7_AP, inputs=("n=3",)),
-    "D29": row(None, "() -> List[Int] (list/map ((b (list 1))) (let* ((hook (bind-proc (proc-ref add-leading) "
+    "D29": row(value([7]), "() -> List[Int] (list/map ((b (list 1))) (let* ((hook (bind-proc (proc-ref add-leading) "
                ":leading (+ b 1)))) (hook 5)))",
                "(defproc add-leading ((leading Int) (value Int)) -> Int (+ leading value))"),
     "D23": row(value(34), "((n Int)) -> Int (both n)", D23_BOTH, inputs=("n=3",)),
@@ -948,7 +977,7 @@ SLOTS_SHARE_A_PATH = refused_before_launch("prompt_output_position_destination_c
 ASSET_LEAVES_SOURCE_TREE = refused_before_launch("asset_file_read_failed")
 PROVIDER_ROWS: dict[str, ProviderRow] = {
     # A computed `String` bound to a provider's `:effort` through `bind-proc` (bound-value review): no refusal.
-    "D27": ProviderRow(None, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+    "D27": ProviderRow(refused("provider_result_policy_operand_not_inline_lowerable"), '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run) (defrecord Box (n Int))
   (defproc ap ((hook ProcRef[Box -> Box]) (input Box)) -> Box (hook input))
   (defproc role ((effort String) (input Box)) -> Box
