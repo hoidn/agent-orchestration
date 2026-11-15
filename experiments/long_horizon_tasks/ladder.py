@@ -1967,12 +1967,14 @@ def contamination_stop(every, ladder):
 
 def scan_terms(ctx, ladder, task):
     """The frozen terms and the task's canary identifier, read from its package by its SHA-256. A live launch
-    refuses a package that holds no such canary; a rehearsal's stand-in SHA-256 may match none."""
+    refuses a package that holds no such canary; a rehearsal's stand-in SHA-256 may match none. A task whose
+    agent-visible starting files hold the canary (canary_exempt_tasks) is scanned without it (Task 7 ruling 6)."""
     scan = ladder["readout"]["contamination_scan"]
     canary = canary_term(package(ctx, task), scan["canary_sha256"])
     if canary is None and ctx.live:
         raise Refused(f"{task}: the package holds no canary of the criterion's SHA-256")
-    return list(scan["terms"]) + ([canary] if canary else [])
+    exempt = task in (scan["canary_exempt_tasks"] or [])
+    return list(scan["terms"]) + ([canary] if canary and not exempt else [])
 
 
 # ---- the tranche: the loop, an attempt's life, teardown -------------------------------------------------------

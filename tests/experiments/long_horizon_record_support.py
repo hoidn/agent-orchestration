@@ -27,6 +27,7 @@ TERM = "<a frozen term>"
 TERM_SHA256 = hashlib.sha256(TERM.encode()).hexdigest()
 STAND_IN_VALUES = {"readout.contamination_scan.terms": [TERM],
                    "readout.contamination_scan.canary_sha256": "c" * 64,
+                   "readout.contamination_scan.canary_exempt_tasks": [],
                    "readout.graded_outcome.verifiers": {TASKS[0]: "passed and total sub-tests"},
                    "readout.fall_bound.seed": 20261114}
 STANDINS = {p["field"]: STAND_IN_VALUES[p["field"]] for p in LADDER["pending"] if p["field"].startswith("readout.")}

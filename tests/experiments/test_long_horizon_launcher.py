@@ -382,6 +382,7 @@ STAND_INS = {"tasks.qualified": list(TASKS), "tasks.load_sensitive": ["wal-recov
              "host.cpu_set": "0-23", "host.disk_plan": {"keep": "all"},
              "usage_limits.vendor_headers_confirmed": {"stand-in": True}, "allowance_guard.utilisation_header": "none",
              "readout.contamination_scan.terms": ["stand-in-term"], "readout.contamination_scan.canary_sha256": "0" * 64,
+             "readout.contamination_scan.canary_exempt_tasks": [],
              "readout.graded_outcome.verifiers": {"stand-in": True}, "schedule.order.seed": "stand-in seed",
              "schedule.order.hash": ladder.ORDER_HASH, "readout.fall_bound.seed": 1}
 
@@ -2539,6 +2540,28 @@ def test_the_contamination_scan_finds_a_term_in_the_transcript_and_in_an_exporte
             {"term_sha256": sha["secret-term-one"], "file": "agent/claude-code.txt", "offset": 13},
             {"term_sha256": sha["secret-term-two"], "file": "artifacts/out.txt", "offset": 21}], "unreadable": []},
         False)
+
+
+@pytest.mark.parametrize("exempt,canary_hit", [(["wal-recovery-ordering"], False), ([], True)])
+def test_the_canary_term_is_not_applied_to_a_task_whose_starting_files_hold_it(short, exempt, canary_hit):
+    """Task 7 ruling 6: a task listed in contamination_scan.canary_exempt_tasks (its agent-visible starting files
+    hold the canary) is scanned without the canary term and with every other term; an unlisted task with it."""
+    lh = _cache(short, json.loads((KIT / "tasks.json").read_text())["tasks"])
+    ctx = _ctx(short, lh)
+    toml = ladder.package(ctx, "wal-recovery-ordering") / "task.toml"
+    canary = "lh-test-canary-" + os.urandom(8).hex()
+    toml.write_text(toml.read_text() + f"# canary {canary}\n")
+    scan = {**CRITERION["readout"]["contamination_scan"], "terms": ["stand-in-term"],
+            "canary_sha256": hashlib.sha256(canary.encode()).hexdigest(), "canary_exempt_tasks": exempt}
+    criterion = {**CRITERION, "readout": {**CRITERION["readout"], "contamination_scan": scan}}
+    terms = ladder.scan_terms(ctx, criterion, "wal-recovery-ordering")
+    found = []
+    for text in (f"# starting file {canary}\n", "the agent wrote stand-in-term\n"):
+        trial = short / f"trial-{len(found)}"
+        (trial / "artifacts").mkdir(parents=True)
+        (trial / "artifacts" / "app.py").write_text(text)
+        found.append(ladder.contamination(trial, terms)["contaminated"])
+    assert found == [canary_hit, True]
 
 
 def test_the_contamination_scan_finds_nothing_in_a_clean_trial(short):

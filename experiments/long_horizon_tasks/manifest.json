@@ -169,8 +169,8 @@
   "experiments/long_horizon_tasks/harbor_patient.py": "c451648e6dc0fbca93b33cd93b09f64ba6ef0797bbd97d44f03a63684a268458",
   "experiments/long_horizon_tasks/image_check.py": "9199275d8eff303372c2c18b850354e09baa5fac97068d21eba9457829fee2da",
   "experiments/long_horizon_tasks/image_measure.json": "cc5423994452015aa5bca7c7d72651f6b1a71b2a15815b3f473262b91bdb5550",
-  "experiments/long_horizon_tasks/ladder.json": "b4383ff879a28b64e231cbabcf8036b436705afb101d7bd78131d39b13d92218",
-  "experiments/long_horizon_tasks/ladder.py": "dcafd5d18a928fa0b5de974ac65df575df6648dad024ed24e1a41f7970f11121",
+  "experiments/long_horizon_tasks/ladder.json": "54ff069a7e6d3df6c14f505a6ed8998dbcbe755d86aef70f03942926be0818a2",
+  "experiments/long_horizon_tasks/ladder.py": "08ff0fd7ca34ceaa6276a8fa0ceeeeee01fb4ade55639783d6cbbccfc5a2f4a5",
   "experiments/long_horizon_tasks/live_probe.sh": "f35961d3c1f235f2c0c5aee43a7ac050c53963653b72d06350da7afa195dd45b",
   "experiments/long_horizon_tasks/make_allowlist.py": "b8264e22d96d00fb22cfe3acc2b6c5fefb9c37d4be2c7c6f271b4285acff0872",
   "experiments/long_horizon_tasks/manifest.py": "f525cb1774de11f075e72e5b14ecf4b352731f6dfc88679ff92ed00913f70fed",
@@ -192,6 +192,6 @@
   "experiments/long_horizon_tasks/token_scan.py": "766b48f82dfc2bd2297875724e0794b85817954849c37f9586c0c8c975a0f99a",
   "experiments/long_horizon_tasks/uidfix_variant.py": "508e3296f223e467788dca357080c12dcc7ed3fe56fac3a73c3591a4108214df",
   "orchestrator/providers/price_table.json": "77a237c6934a5ff1663a347c2d3757e52f576ac4752d8456facfd227cf52452b",
-  "tests/experiments/test_long_horizon_ladder.py": "f34f1a77125d52c1570bb6a544651a0e922d0845c7c2550cedddcf5d95715b5a"
+  "tests/experiments/test_long_horizon_ladder.py": "66dd48394f5bef4f356932d3d54137520b59a3bd8a26eb94a603011d3f5fb6dd"
  }
 }
