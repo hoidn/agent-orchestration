@@ -79,8 +79,20 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   makes under another name, or text it writes into its output or patch, is not removed. The route is the owner's
   decision (coordinator ruling R7).
 - A unit's whole process tree, its provider calls' own sessions and sandboxes included, dies with its launcher
-  however the launcher ends (`../reaper.py`). Only one study command that starts, prepares or settles units runs
+  however the launcher ends (`../reaper.py`). The unit's command runs as the guard's child from its first instant;
+  the guard is a child subreaper, so what a root shell that died leaves behind is killed when the command ends; a
+  kill reaches a pid only while its start time matches the scan that listed it, so a reused pid is never
+  signalled. Killing the guard itself is an operator act: the launcher then kills the unit's session tree in its
+  place, and what the guard had adopted is lost. Only one study command that starts, prepares or settles units runs
   at a time on a study (`study.lock` beside the ledger).
+- The host-side checks of candidate code (`settle`'s visible check, the probe's hidden check, `summarize`'s hidden
+  tests) run under the same guard, with a bound: 600 s for a patch's hidden set (five times the plan's 120 s for a
+  hidden run on the oracle), 1,200 s for the visible check (dev-check.json's 600 s plus 600 s), 600 s per clone for a
+  pool's summary. A check past its bound is recorded as timed out, never as a pass or a failure: the visible
+  figure counts it apart (the readout's "visible check past its bound"), a probe run whose hidden check timed out is
+  an incident (relaunched once), and a summary that times out makes its pool an incident. `summarize.py` gives
+  each hidden test 1,800 s and counts a hanging one as failing, so a candidate whose code makes a hidden test hang
+  now costs its pool once the per-clone bound passes.
 - A runner that dies between launch and settle leaves the agents' tree on disk until `settle` (a calibration
   run) or the next `probe` (a probe run) settles it (review2 minor 9); `settle` refuses while the unit's session
   still runs.
@@ -95,7 +107,17 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
 - A call is recognised as a possible usage limit in any shape that may be one (an error result with status 429,
   an error result beside a rejected rate-limit event, a provider error line in a limit wording that no other named
   status explains); a shape other than the recorded one is flagged "unrecognised limit shape", and the operator
-  reads the raw result the refusal names before `resume-after-limit` (review 3 X2).
+  reads the raw result the refusal names before `resume-after-limit` (review 3 X2). The wording rule, and the
+  provider-error rule of incidents, read only a call that did not succeed (an error result, or no result event at
+  all): a warning on stderr beside a call that succeeded is neither, and a stream line cut mid-write (a line that
+  starts with `{` and is not JSON) is never read. The pause and every refusal it causes name the rule that fired
+  and the line it read; an older CLI's `Claude AI usage limit reached|<epoch>` gives its reset.
+- When the raw result shows no usage limit, `study.py not-a-limit UNIT --reason R` records the operator's decision
+  and reason in the ledger while the pause is open: the settled unit is no longer `cut` but what the rules make it
+  (the incident its cut set aside, an incident when it failed with a provider error, else its outcome), its pause
+  stops closing starts, and nothing runs again. A unit not yet settled refuses; a probe run is settled only by
+  `probe`, which refuses while starts are closed, so for it the way is `resume-after-limit` (where no pause named a
+  reset, a typed reset after the hit is accepted).
 
 **Check-withheld runs.** For a package with `withheld/`, the runner copies those test files into the run's records
 directory (outside the agents' tree and the sandbox) and names the copy in `SEED_SET_WITHHELD` for the launch;

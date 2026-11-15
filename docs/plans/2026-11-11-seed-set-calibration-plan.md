@@ -1,10 +1,10 @@
 # Seed-Set Calibration Plan
 
 **Status: Plan; zero-spend preparation on `feat/seed-set-prep`, no spend yet.** Built: the kit, the usage-limit
-pause, the priced ceiling and the CLI pin (2026-11-14), and fix round 1 after review 3 (2026-11-14). Owed before
-the first call: a re-review of fix round 1, the freeze with `criterion.json` (its priced ceilings, per-call worst
-cases, largest ordinary-rate call per model and CLI pin), the 20-task rehearsal, the owner's credential decision
-and meter reading. This page plans the scaled-down research step
+pause, the priced ceiling and the CLI pin (2026-11-14), fix round 1 after review 3 and fix round 2 after its
+re-review (2026-11-14). Owed before the first call: a scoped check of fix round 2, the freeze with `criterion.json`
+(its priced ceilings, per-call worst cases, largest ordinary-rate call per model and CLI pin), the 20-task
+rehearsal, the owner's credential decision and meter reading. This page plans the scaled-down research step
 the owner set on 2026-11-11: calibrate a small task set and a judge, then find
 two to four simple workflow programs that run reliably and do at least as well
 as one direct call at acceptable cost, and package them as seeds for a later
@@ -44,8 +44,8 @@ below differs, these hold:
 - A readout that ends in a stop prints no quality figure.
 
 **Changes since review 2 (2026-11-13 and 2026-11-14, with fix round 1 after
-review 3; the [ledger](#ledger) has each ruling).** Where the text below
-differs, these hold:
+review 3 and fix round 2 after its re-review; the [ledger](#ledger) has each
+ruling).** Where the text below differs, these hold:
 
 - *Usage limits (rulings R1 and R2).* A call the vendor answers with a usage
   limit (the result event's `api_error: usage_limit_reached`, status 429) cuts
@@ -53,7 +53,15 @@ differs, these hold:
   429 (a number or a string), an error result beside a rejected rate-limit
   event, or a provider error line in a session- or usage-limit wording that no
   other named status explains cuts the unit too, flagged "unrecognised limit
-  shape"; the model's and the tools' own text is never read. A cut unit is not
+  shape"; the model's and the tools' own text is never read. The wording rule
+  reads only a call that did not succeed (an error result, or no result event
+  at all), never a warning beside a call that succeeded or a stream line cut
+  mid-write (fix round 2). The pause and every refusal name the rule that fired
+  and the line it read, and an older CLI's `...|<epoch>` gives the reset. When
+  the raw result shows no limit, `study.py not-a-limit UNIT --reason R` records
+  that decision while the pause is open: the unit becomes what the rules make
+  it (an incident or its outcome), the pause stops closing starts, and nothing
+  runs again. A cut unit is not
   an incident and not an observation: it is recorded `cut`, never pooled or
   scored, and not counted by the 10% incident stop. The cut writes a `pause`
   event as soon as the unit's process ends, which closes every start; calls in
@@ -68,6 +76,18 @@ differs, these hold:
   again by both judges. The smoke never runs a cut slot again: a smoke with a
   unit cut, a planned program without its run or a reserved unit not settled
   fails its check, and the cut run never sets the flat-or-bisect choice.
+- *The launch guard and the host checks (fix round 2).* A unit's command runs
+  as its guard's child from its first instant; the guard is a child subreaper,
+  so what a root shell that died leaves behind is killed too, and a kill
+  reaches a pid only while its start time matches, so a reused pid is never
+  signalled. The host-side checks of candidate code (`settle`'s visible check,
+  the probe's hidden check, `summarize`'s hidden tests) run under the same
+  guard with a bound: 600 s for a patch's hidden set (five times the 120 s of
+  Step 1's hidden run), 1,200 s for the visible check, 600 s per clone for a
+  pool's summary. A check past its bound is recorded as timed out, never as a
+  pass or a failure: a probe run with one is an incident, a summary that times
+  out makes its pool an incident, and the readout counts timed-out visible
+  checks apart.
 - *Concurrency (R3):* two runs at a time, and one study command that starts,
   prepares or settles units at a time (a lock beside the ledger), so two
   commands cannot put four units in flight.
@@ -143,6 +163,12 @@ differs, these hold:
   result; its first attempt (B1) found that the rehearsal's separate
   check-withheld launch had no freeze on its own ledger, which every start now
   checks, and was rerun after the fix. A 20-task rehearsal is still owed.
+- *Rehearsals after fix round 2* (2026-11-14, on `76b967f3`, the same form).
+  A, the cut in the smoke: the smoke check failed, and nothing started after
+  the smoke event. B, the cut in the probe, with every call that succeeded
+  after the resume printing a limit warning on stderr: 19 such calls and no
+  pause after the resume; the other figures equal rehearsal 5's. A 20-task
+  rehearsal is still owed.
 - *Found while building R1:* the harness's model scan counted a session row
   answered by `<synthetic>` (the CLI's own message at an API error or a usage
   limit) as a forbidden model, which would have stopped the study at its first
@@ -717,3 +743,5 @@ case, or `record-freeze` refuses.
 | 2026-11-14 | Correction to the row "Coordinator ruling R7" (review 3 X5) | Kept as written; it says each unit's copy of the subscription login file is "removed when the unit ends". It is removed when the unit ends normally, is refused or raises. A launcher killed with SIGKILL, or a host reboot, runs no clean-up, and the copy stays on `/home` (`<work>/.private-homes/<id>/.claude/.credentials.json` for a run, `<pool>/.private-homes/<id>/...` for a judge) until the next study command that starts, prepares or settles units, which begins by removing every copy no live unit holds and prints each path. The agent under test can read its unit's copy during its call (the sandbox runs it as the same user and keeps network access); a copy it makes under another name, or text it writes into its output or its patch (which the judges see and the results keep), is not removed. Whether this route is acceptable stays the owner's decision; fix round 1 adds nothing to it beyond the clean-up and the process guard. Spend to date: 0. |
 | 2026-11-14 | Fix round 1 after review 3 (1 blocker, 5 majors, 11 minors; branch `feat/seed-set-prep`, `main` `e60b027f` merged first) | Blocker X1: a smoke with a unit cut by a usage limit, a planned program without its run, or a reserved unit not settled fails `smoke-check` (`no_unit_cut_by_a_usage_limit`, `every_reserved_unit_settled`), the cut run never sets the flat-or-bisect choice, and the smoke never runs a cut slot again. X2: usage-limit recognition fails closed (an error result with status 429 as a number or a string, an error result beside a rejected rate-limit event, or a provider error line in a limit wording no other named status explains, the wordings kept in one list in `units.py`); such a cut is flagged "unrecognised limit shape", and every pause refusal names the raw result to read before `resume-after-limit`; the model's and tools' own text is never read. X3: the runtime's `--max-cost-usd` is the unit's worst case times the table's highest tier over its ordinary rate for the model (5 for Haiku, 1 for Sonnet); `record-freeze` refuses a per-call worst case below that ratio times the criterion's `largest_call_usd` for the model, and a ceiling below two units in flight at the tranche's largest unit's worst case (correcting the R4 row's "must cover a call at Haiku's long-context rate, or a later call of a multi-call unit is refused"). X4: the correction row above. X5: a unit's whole process tree, its provider calls' own sessions and sandboxes included, dies with its launcher (`reaper.py`, the launch's guard; a kill -9 test with stand-ins), and every unit command starts by removing the copies no live unit holds; the R7 correction row above. X6: `settle` refuses a unit whose session still runs. Minors: the pause is written when the cut unit's process ends (1); one unit command at a time per study, a lock beside the ledger (2); a unit settled above its worst case is flagged and pauses starts (3); a call whose usage names no model counts at the worst case (4); the scan's `<synthetic>` exemption covers Claude assistant rows only (5); the freeze is checked before every unit, not once per command (6); a pool whose judges the caps cannot both hold, or whose first judge never settled, gets no judge and the command names it after judging the others (7); a re-run of a cut slot beyond the cap's room is left out with a message, and a probe step the redraw allowance cannot hold is a stop (8); `tiers.build` at statement-level complexity 12 (9; the radon-style count, with boolean operators and comprehensions, is not applied, and which count binds stays open); `resume-after-limit` refuses a meter at 100%, a truth value as a percentage, and, where no pause named a reset, a typed reset earlier than the limit (10); the runner's limits name a kill between reservation and launch as an incident priced at USD 0 (11). Not in this round: R6 stays unbuilt; whether re-runs may come from outside the caps is the owner's. Spend to date: 0. |
 | 2026-11-14 | Fix round 1: the two rehearsals (stand-ins only, own ledgers, four calibration tasks) | A, the cut in the smoke (on `3810d77f`, 140 s; the same on `aa26ab5c`): the stand-in answered the smoke's Haiku `direct` call with the usage-limit shape; the run was cut and a `pause` closed starts (the next program's start was refused with the raw result named); after `resume-after-limit` the other four programs completed, the pool was judged by both judges and summarized, and `smoke-check` failed (`no_unit_cut_by_a_usage_limit` and `no_provider_errors` false, the rest true; `direct_median_wall_sec` none); then the probe and the calibration both refused ("no passed smoke") and the ledger holds no start after the smoke event (smoke 10 of 10 Haiku and 1 of 1 Sonnet candidate calls reserved, 8 and 1 made; judges 1 and 1; priced USD 0.1664; calibration and redraw 0). B, the cut in the probe (on `3810d77f`, 35 minutes at load about 40 to 60; the same on `22c2ea40`): exit 0; the smoke check passed; the probe's cut on T1 task `2aaf1ecc8e` (runs: cut, completed) paused at seq 19 and resumed at seq 22 with no start between; 0 incidents; redraw 21 of 40; the probe chose T3 and drew 20 tasks; the 12-call start against the redraw ceiling of USD 3 was refused and wrote nothing; priced smoke USD 0.1664, redraw 0.0756, calibration 0.876, none open, none missing or over its reservation; no anchor failure, every identity scan 0 hits; decision `stop: no judge passed its gate` with 16 of 20 tasks missing by construction; the check-withheld run completed in 2 calls. Its first attempt (B1, `aa26ab5c`) reached the same readout and ledger, then its separate check-withheld launch refused "no freeze in the ledger": the rehearsal never froze that launch's own ledger, which every start now checks (minor 6); fixed in `1e423fc5`. Found by the kit tests between the two: `spend.rows` read the ledger without a lock, so a unit reading it while the other unit in flight appended a long row could fail on a half-written line (two e2e tests did); the ledger is now read under a shared lock (`3810d77f`). Spend to date: 0. |
+| 2026-11-14 | Fix round 2 after the re-review of fix round 1 (2 majors, 7 minors; branch `feat/seed-set-prep`, `main` `b7e2e2b5` merged first) | N1: the usage-limit wording, and the provider-error rule of incidents, read only a call that did not succeed (an error result, or no result event at all); a stdout line that starts with `{` and is not JSON (a stream event cut mid-write) is never read; every must-cut shape of the re-review stays cut. N2: the host-side checks of candidate code (`settle`'s visible check, the probe's hidden check, `summarize`'s hidden tests) run under the launch guard with a bound: 600 s for a patch's hidden set (five times the 120 s of Step 1's hidden run), 1,200 s for the visible check (dev-check.json's 600 s plus 600 s), 600 s per clone for a summary; a check past its bound is recorded as timed out, never as a pass or a zero (a probe run with one is an incident, a summary that times out makes its pool an incident, the readout counts timed-out visible checks apart). Assumption recorded for the coordinator: `summarize.py` gives each hidden test 1,800 s and counted a hanging one as failing; past the new per-clone bound such a hang now costs its pool, and a probe run with one is relaunched once. n1: a kill reaches a pid only while its start time matches the scan (a pidfd, then the start time). n2: the unit's command runs as its guard's child from its first instant; the guard is a child subreaper, so what a root shell that died leaves is killed when the command ends; a guard killed by the operator leaves the launcher to kill the command's session tree. n3: the pause and every refusal name the rule that fired and the line it read; an older CLI's `...|<epoch>` gives the reset; `study.py not-a-limit UNIT --reason R` records, while the unit's usage-limit pause is open, that its raw result shows no limit: the unit becomes what the rules make it, the pause stops closing starts, and nothing runs again. n4: the cut-unit table gains `settle`'s session audit and the redraw's planned units, each checked by a test. n7: `spend.rows` parses after releasing its lock; 120 writers beside 16 readers all finish. Minor 9: the ten functions the re-review listed are at radon 12 or below (`tiers.build` 35 to 6, `rules.smoke_check` 28 to 11, `probing.recover` 16 to 12, the others 10 or below), split with no behaviour change, and no function is new above 12. The merge of `main` renamed two long-horizon fixtures the kit tests read; the tests follow. Not in this round: R6, re-runs outside the caps, the credential route. Spend to date: 0. |
+| 2026-11-14 | Fix round 2: the two rehearsals (stand-ins only, own ledgers, four calibration tasks, on `76b967f3`) | A, the cut in the smoke (158 s at load about 55): exit 0; the smoke check failed on `no_unit_cut_by_a_usage_limit` and `no_provider_errors`, the other nine true; `direct` cut, the other four completed; the refusal named the unit, the reset, the rule that fired (the recorded answer) and its line, and `not-a-limit`; the probe and the calibration both refused ("no passed smoke") and no start follows the smoke event (smoke 10 of 10 Haiku and 1 of 1 Sonnet candidate calls reserved, 8 and 1 made; judges 1 and 1; priced USD 0.1664). B, the cut in the probe (40 minutes at load about 50 to 60): exit 0; the smoke check passed; the cut on T1 task `2aaf1ecc8e` (runs: cut, completed) paused at seq 19 and resumed at seq 22 with no start between; after the resume 19 calls that succeeded printed a limit warning on stderr and no pause followed; 0 incidents; redraw 21 of 40; the probe chose T3 and drew 20 tasks; the 12-call start against the redraw ceiling of USD 3 was refused and wrote nothing; priced smoke USD 0.1664, redraw 0.0756, calibration 0.876, none open, none missing or over its reservation; no anchor failure, every identity scan 0 hits; decision `stop: no judge passed its gate` with 16 of 20 tasks missing by construction; the check-withheld run completed in 2 calls. Spend to date: 0. |
