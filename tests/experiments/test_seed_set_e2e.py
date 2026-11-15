@@ -709,6 +709,31 @@ def test_offline_a_hidden_test_past_its_bound_fails_that_test_in_a_probe_runs_hi
     assert (result, len(os.listdir(pids)), running(pids)) == ({"passed": False, "failing": [HUNG]}, 1, [])
 
 
+def test_offline_three_hidden_tests_hanging_at_their_bound_are_three_failures_not_a_timeout(world, monkeypatch,
+                                                                                            tmp_path):
+    """Final scoped check M2: the hidden check's backstop is CHECK_SEC plus HIDDEN_TEST_SEC per hidden test, so
+    every hidden test of `add` hanging (here 3 x 5 s, past a 10 s CHECK_SEC) reads as three failing tests."""
+    s, task, pids = world.study, "a0a0a0a0a0", tmp_path / "host-pids"
+    pids.mkdir(mode=0o700)
+    package = study.task_dir(s, task)
+    with (package / "hidden" / "tests" / "test_hidden_add.py").open("a") as hidden:  # a third hidden test
+        hidden.write("def test_hidden_2():\n    assert add(1, 1) == 2\n")
+    with (package / "hidden_tests.txt").open("a") as listed:
+        listed.write("tests/test_hidden_add.py::test_hidden_2\n")
+    nodes = (package / "hidden_tests.txt").read_text().split()
+    conftest = ["import os, sys, time", "if 'test_hidden_' in ' '.join(sys.argv):",
+                f"    open(os.path.join({str(pids)!r}, str(os.getpid())), 'w').close()", "    time.sleep(60)"]
+    patch = tmp_path / "final.diff"
+    patch.write_text((package / "anchors" / f"{task}-upstream.diff").read_text()
+                     + "diff --git a/conftest.py b/conftest.py\nnew file mode 100644\n--- /dev/null\n+++ b/conftest.py\n"
+                     + f"@@ -0,0 +1,{len(conftest)} @@\n" + "".join(f"+{line}\n" for line in conftest))
+    monkeypatch.setattr(host, "HIDDEN_TEST_SEC", 5)
+    monkeypatch.setattr(host, "CHECK_SEC", 10)
+    result = host.hidden_check(package, patch, s.runtime)
+    assert (result, len(nodes), len(os.listdir(pids)), running(pids)) == (
+        {"passed": False, "failing": nodes}, 3, 3, [])
+
+
 def test_offline_a_summary_whose_harness_hangs_past_the_per_clone_bound_makes_its_pool_an_incident(
         world, monkeypatch, tmp_path):
     """Fix round 3, ruling 1: the per-clone bound is the backstop for a harness that itself hangs (here a stand-in
@@ -724,6 +749,7 @@ def test_offline_a_summary_whose_harness_hangs_past_the_per_clone_bound_makes_it
     study.judge(s, "calibration", "first", [task])
     monkeypatch.setattr(host, "ROOT", hanging_harness(tmp_path / "checkout", pids))
     monkeypatch.setattr(host, "CHECK_SEC", 1)
+    monkeypatch.setattr(host, "HIDDEN_TEST_SEC", 0)  # the backstop is CHECK_SEC per clone alone
     study.summarize_pools(s, "first", [task])
     dest = s.results / "pools" / f"{task}-first"
     incident = json.loads((dest / "incident.json").read_text())["reason"]

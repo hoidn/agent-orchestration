@@ -89,12 +89,13 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   tests) run under the same guard, with two bounds. Each hidden test has 240 s, twice the plan's 120 s for a whole
   hidden run on the oracle (the kit passes it to `summarize.py`, whose own default stays 1,800 s): a hidden test
   that hangs past it counts as that test failing, and the pool is summarised. Each check has a backstop for a
-  harness that itself hangs: 600 s for a patch's hidden set (five times the 120 s), 1,200 s for the visible check
-  (dev-check.json's 600 s plus 600 s), 600 s per clone for a pool's summary. A check past its backstop is recorded
+  harness that itself hangs: 600 s (five times the 120 s) plus 240 s per hidden test for a patch's hidden set,
+  1,200 s for the visible check (dev-check.json's 600 s plus 600 s), and for a pool's summary 600 s per clone plus
+  240 s per hidden test of each clone that runs them. A check past its backstop is recorded
   as timed out, never as a pass or a failure: the visible figure counts it apart (the readout's "visible check past
   its bound"), a probe run whose hidden check timed out is an incident (relaunched once), and a summary that times
-  out makes its pool an incident. A patch's hidden set holds two hanging tests within its backstop and a summary
-  about two and a half per clone on average; more hanging tests than that fall to the backstop.
+  out makes its pool an incident. Every hidden test can hang to its own bound and fail before the backstop, so only
+  a harness that itself hangs reaches it; the largest hidden set (33 tests) gives one clone about 2.4 h.
 - Each host-side check works in temporary directories the kit names (`seed-set-host-*`, and `seed-set-view-*` for
   the visible check) and records, with the process that made them, in `host-temp.jsonl` beside the ledger; the
   check's own commands make their temporary directories inside them (`TMPDIR`). A launcher killed with SIGKILL

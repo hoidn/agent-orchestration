@@ -12,9 +12,10 @@ run on the oracle (120 s, plan Step 1): one still running past it counts as that
 coordinator ruling 1; the kit passes it to summarize.py, whose own default stays). The check's backstop, for a
 harness that itself hangs (re-review N2): a patch's hidden set gets `CHECK_SEC`, five times the 120 s; the visible
 check gets dev-check.json's own 600 s plus `CHECK_SEC` for the clone and the setup; a pool's summary gets
-`CHECK_SEC` per clone. A check past its backstop is recorded as timed out, never as a pass or a failure:
-`timed_out` with `passed` None (the probe files the run as an incident, the readout counts it apart), and a summary
-that times out refuses, so its pool is an incident.
+`CHECK_SEC` per clone. A hidden set's backstop adds `HIDDEN_TEST_SEC` per hidden test (per clone that runs them, for
+a summary), so hanging tests fail at their own bound first (final scoped check M2). A check past its backstop is
+recorded as timed out, never as a pass or a failure: `timed_out` with `passed` None (the probe files the run as an
+incident, the readout counts it apart), and a summary that times out refuses, so its pool is an incident.
 
 A check's temporary directories (`temporary`) are named in the study's `host-temp.jsonl` with the process that made
 them, and the check's commands make theirs inside (TMPDIR), so a launcher killed with SIGKILL during a check leaves
@@ -153,17 +154,35 @@ def visible_check(task, patch, runtime, record=None):
 def hidden_check(task, patch, runtime, record=None):
     """The task's hidden set on the patch applied to a fresh base clone, behind the guard: {"passed", "failing"}.
     A provider attempt fails it."""
+    bound = backstop(task)
     done, attempts = guarded([sys.executable, "-m", "experiments.seed_set.host", str(task), str(patch), str(runtime),
-                              str(HIDDEN_TEST_SEC)], timeout=CHECK_SEC, record=record)
+                              str(HIDDEN_TEST_SEC)], timeout=bound, record=record)
     if attempts:
         print(f"PROVIDER ATTEMPT in the hidden tests of {patch}: {attempts}", file=sys.stderr)
         return {"passed": False, "failing": ["the candidate's code attempted a provider call"],
                 "provider_attempts": attempts}
     if done.returncode == "timeout":
-        return {"passed": None, "failing": [], "timed_out": f"the hidden tests ran past {CHECK_SEC:g} s"}
+        return {"passed": None, "failing": [], "timed_out": f"the hidden tests ran past {bound:g} s"}
     if done.returncode:
         raise SystemExit(f"hidden tests of {patch} failed to run: {done.stderr[-2000:]}")
     return json.loads(done.stdout)
+
+
+def backstop(task):
+    """The backstop on one clone's hidden set of `task` (final scoped check M2): `CHECK_SEC` for the clone and the
+    harness, plus `HIDDEN_TEST_SEC` per hidden test, so every hidden test can hang to its own bound and fail first."""
+    listed = Path(task) / "hidden_tests.txt"
+    return CHECK_SEC + HIDDEN_TEST_SEC * (len(listed.read_text().split()) if listed.is_file() else 0)
+
+
+def summary_backstop(pool):
+    """A pool's summary backstop: `CHECK_SEC` per clone (one at least), plus each clone's hidden tests at
+    `HIDDEN_TEST_SEC` for every clone whose hidden tests run (summarize.py runs none on a reference clone)."""
+    mapping = Path(pool) / "records" / "mapping.json"  # without one, summarize.py refuses the pool itself
+    mapping = json.loads(mapping.read_text()) if mapping.is_file() else {}
+    clones = mapping.get("clones", {})
+    tests = backstop(mapping["task"]) - CHECK_SEC if "task" in mapping else 0
+    return CHECK_SEC * max(1, len(clones)) + tests * sum(clone.get("arm") != "reference" for clone in clones.values())
 
 
 def _hidden(task, patch, runtime, test_sec):
@@ -184,17 +203,15 @@ def _hidden(task, patch, runtime, test_sec):
 def summarize(pool, criterion, record=None):
     """summarize.py (which runs the hidden tests, each bounded at `HIDDEN_TEST_SEC`) behind the guard; refuses on
     a provider attempt and past its backstop."""
-    mapping = Path(pool) / "records" / "mapping.json"  # without one, summarize.py refuses the pool itself
-    bound = CHECK_SEC * max(1, len(json.loads(mapping.read_text())["clones"]) if mapping.is_file() else 1)
+    bound = summary_backstop(pool)
     done, attempts = guarded([sys.executable, "-m", "experiments.compare.summarize", "--pool", str(pool),
                               "--criterion", str(criterion), "--hidden-test-timeout-sec", str(HIDDEN_TEST_SEC)],
                              timeout=bound, record=record)
     if attempts:
         raise SystemExit(f"PROVIDER ATTEMPT in the hidden tests of {pool}: {attempts}")
     if done.returncode == "timeout":
-        raise SystemExit(f"summarize of {pool} ran past its backstop of {bound:g} s ({CHECK_SEC:g} s a clone; each "
-                         f"hidden test fails past {HIDDEN_TEST_SEC:g} s): the harness hung, or the hanging tests "
-                         "outran it")
+        raise SystemExit(f"summarize of {pool} ran past its backstop of {bound:g} s ({CHECK_SEC:g} s a clone and "
+                         f"{HIDDEN_TEST_SEC:g} s a hidden test, past which that test fails): the harness hung")
     if done.returncode:
         raise SystemExit(f"summarize refused {pool}: {(done.stderr or done.stdout).strip()[-2000:]}")
     return json.loads((Path(pool) / "records" / "results.json").read_text())

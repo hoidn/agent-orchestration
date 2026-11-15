@@ -132,6 +132,7 @@ def test_a_visible_check_past_its_bound_is_recorded_as_timed_out_never_as_a_resu
 
 def test_a_hidden_check_past_its_bound_is_recorded_as_timed_out_never_as_a_result(tmp_path, monkeypatch):  # N2
     monkeypatch.setattr(host, "CHECK_SEC", 0.5)
+    monkeypatch.setattr(host, "HIDDEN_TEST_SEC", 0)  # the backstop is CHECK_SEC alone
     (tmp_path / "empty.diff").write_text("")
     result = host.hidden_check(REAL, tmp_path / "empty.diff", ROOT)
     assert (result["passed"], result["timed_out"]) == (None, "the hidden tests ran past 0.5 s")
@@ -148,6 +149,24 @@ def test_a_summary_whose_harness_hangs_past_its_backstop_refuses_and_the_harness
     with pytest.raises(SystemExit, match="summarize of .* ran past its backstop of 2 s"):
         host.summarize(pool, tmp_path / "criterion.json")
     assert (len(os.listdir(pids)), gone(*map(int, os.listdir(pids)))) == (1, True)
+
+
+def test_a_summarys_backstop_adds_each_hidden_test_bound_for_every_clone_whose_hidden_tests_run(tmp_path,
+                                                                                               monkeypatch):
+    """Final scoped check M2: CHECK_SEC per clone plus HIDDEN_TEST_SEC per hidden test of each clone that runs them
+    (the reference clone does not): here 2 x 1 s + 3 tests x 0.5 s x 1 clone."""
+    pool, pids, task = tmp_path / "pool", tmp_path / "pids", tmp_path / "task"
+    (pool / "records").mkdir(parents=True)
+    pids.mkdir()
+    task.mkdir()
+    (task / "hidden_tests.txt").write_text("t.py::a\nt.py::b\nt.py::c\n")
+    (pool / "records" / "mapping.json").write_text(json.dumps({"task": str(task), "clones": {
+        "a": {"arm": "direct"}, "b": {"arm": "reference"}}}))
+    monkeypatch.setattr(host, "ROOT", hanging_harness(tmp_path / "checkout", pids))
+    monkeypatch.setattr(host, "CHECK_SEC", 1)
+    monkeypatch.setattr(host, "HIDDEN_TEST_SEC", 0.5)
+    with pytest.raises(SystemExit, match="ran past its backstop of 3.5 s"):
+        host.summarize(pool, tmp_path / "criterion.json")
 
 
 def made_by(directory, pid, started):

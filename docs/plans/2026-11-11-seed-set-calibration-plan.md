@@ -95,13 +95,14 @@ ruling).** Where the text below differs, these hold:
   120 s of Step 1's whole hidden run (the kit passes it to `summarize.py`,
   whose own default of 1,800 s stays): a hidden test that hangs past it counts
   as that test failing, and the pool is summarised (fix round 3). Each check
-  has a backstop for a harness that itself hangs: 600 s for a patch's hidden
-  set (five times the 120 s), 1,200 s for the visible check, 600 s per clone
-  for a pool's summary. A check past its backstop is recorded as timed out,
+  has a backstop for a harness that itself hangs: 600 s (five times the
+  120 s) plus 240 s per hidden test for a patch's hidden set, 1,200 s for the
+  visible check, and for a pool's summary 600 s per clone plus 240 s per
+  hidden test of each clone that runs them (final scoped check M2). A check past its backstop is recorded as timed out,
   never as a pass or a failure: a probe run with one is an incident, a summary
   that times out makes its pool an incident, and the readout counts timed-out
-  visible checks apart. A patch's hidden set holds two hanging tests within its
-  backstop, a summary about two and a half per clone on average. The checks'
+  visible checks apart. Every hidden test can hang to its own bound and fail
+  before the backstop, so only a harness that itself hangs reaches it. The checks'
   temporary directories are recorded beside the ledger with the process that
   made them, the checks' own temporary directories go inside them, and the
   sweep at the start of every study command that takes the lock removes the
