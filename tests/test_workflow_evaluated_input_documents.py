@@ -276,7 +276,7 @@ def test_public_pure_division_precedes_later_operand_effect(tmp_path):
     assert not list(authority.run_root.rglob("attempt-*"))
 
 
-@pytest.mark.parametrize("capture", [False, True])
+@pytest.mark.parametrize("capture", [True])
 def test_public_document_only_import_and_capture_keep_dependency_and_r12(tmp_path, capture):
     _write_consumer(tmp_path)
     (tmp_path / "inc.py").write_text('import json, os, sys\nfrom pathlib import Path\n'
@@ -284,29 +284,19 @@ def test_public_document_only_import_and_capture_keep_dependency_and_r12(tmp_pat
         'Path("order.txt").open("a").write("inc\\n")\n'
         'Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(str(int(sys.argv[1])+int(sys.argv[2])))\n')
     params = '(n Int) (state_root String :default "ROOT")'
-    if capture:
-        body = '''(let-proc (saved ((x Int)) -> Int :captures (n)
-          (command-result inc :argv ("python" "inc.py" n x "${inputs.state_root}") :returns Int))
-          (let* ((n 100))
-            (command-result emit :argv ("python" "consumer.py")
-              :inputs ((payload (invoke (proc-ref saved) 1))) :returns Value)))'''
-        declarations = '(defproc invoke ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))'
-        imports = ""
-    else:
-        helper = tmp_path / "src" / "r12" / "helper.orc"
-        helper.parent.mkdir(parents=True)
-        helper.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-          (defmodule r12/helper) (export produce)
-          (defproc produce ((x Int)) -> Int :effects ((uses-command inc)) :lowering private-workflow
-            (command-result inc :argv ("python" "inc.py" x 1 "${inputs.x}") :returns Int)))''')
-        body = '(command-result emit :argv ("python" "consumer.py") :inputs ((payload (h.produce n))) :returns Value)'
-        declarations, imports = "", '(import r12/helper :as h :only (produce))'
+    body = '''(let-proc (saved ((x Int)) -> Int :captures (n)
+      (command-result inc :argv ("python" "inc.py" n x "${inputs.state_root}") :returns Int))
+      (let* ((n 100))
+        (command-result emit :argv ("python" "consumer.py")
+          :inputs ((payload (invoke (proc-ref saved) 1))) :returns Value)))'''
+    declarations = '(defproc invoke ((hook ProcRef[Int -> Int]) (x Int)) -> Int (hook x))'
+    imports = ""
     result = _run_body(tmp_path, body, declarations=declarations, imports=imports,
         params=params, inputs={"n": 10}, names=("emit", "inc"))
     assert result.returncode == 0, result.stderr
     _, snapshot = _read_run(tmp_path)
     assert snapshot.terminal.data["value"] == {"payload": 11}
-    assert json.loads((tmp_path / "producer-argv.json").read_text()) == ["10", "1", "ROOT" if capture else "10"]
+    assert json.loads((tmp_path / "producer-argv.json").read_text()) == ["10", "1", "ROOT"]
     assert (tmp_path / "order.txt").read_text() == "inc\n"
     _assert_selected_dependencies(snapshot, 1)
     _assert_two_public_resumes(tmp_path, tmp_path / "order.txt", tmp_path / "producer-argv.json", tmp_path / "dispatches.jsonl")

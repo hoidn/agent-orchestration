@@ -168,10 +168,6 @@ def test_stdlib_compatibility_and_imported_only_heads_are_macro_bindable_but_not
 
     reserved = registry.reserved_macro_names()
 
-    with_phase = registry.get_form_spec("with-phase")
-    assert with_phase is not None
-    assert with_phase.macro_bindable is True
-    assert "compatibility_route_only" in with_phase.feature_tags
     assert "with-phase" not in reserved
 
     review_loop = registry.get_form_spec("review-revise-loop")

@@ -491,3 +491,36 @@ def test_recorded_235_run_is_reported_and_refused_by_every_continuing_command(tm
     assert attach.value.code == "run_target_retired"
     assert tree(root) == before
     assert not (tmp_path / "requests.jsonl").exists() and not (root / "requests.jsonl").exists()
+
+
+@pytest.mark.parametrize("fixture", sorted(_RECORDED_235))
+def test_recorded_235_run_is_read_by_the_monitor_and_the_dashboard_without_a_resume_suggestion(tmp_path, fixture):
+    """The monitor and the dashboard read a run at a 2.35 label and offer `report`; in place of `resume` they say
+    what `resume` would refuse with (ruling R3). Neither changes a byte."""
+    from orchestrator.dashboard.scanner import RunScanner
+    from orchestrator.dashboard.server import DashboardApp
+    from orchestrator.monitor.classifier import classify_run
+    from orchestrator.monitor.messages import render_event_email
+    from orchestrator.monitor.scanner import scan_monitor_runs
+    from tests.test_executor_retirement_cutoff import tree
+    from tests.test_workflow_evaluated_monitor import _config
+
+    source = Path(__file__).parent / "fixtures" / fixture
+    root, run_id = tmp_path / "workspace", _RECORDED_235[fixture]
+    _pre_change_workspace(root, source)
+    shutil.copytree(source / "runs", root / ".orchestrate" / "runs")
+    before = tree(root)
+
+    (run,) = scan_monitor_runs(_config(root))
+    body = render_event_email(classify_run(run, stale_after_seconds=1), _config(root)).get_content()
+    commands = body.split("Suggested commands:\n", 1)[1]
+    assert f"orchestrator report --run-id {run_id}" in commands
+    assert "orchestrator resume" not in commands
+    assert f"resume: [run_target_retired] run {run_id} was recorded at target DSL 2.35" in commands
+
+    app = DashboardApp(RunScanner([root]))
+    listing, page = app.handle("GET", "/runs"), app.handle("GET", f"/runs/w0/{run_id}")
+    assert (listing.status, page.status) == (200, 200) and run_id in listing.body.decode()
+    text = page.body.decode()
+    assert f"report --run-id {run_id}" in text and "run_target_retired" in text and " resume " not in text
+    assert tree(root) == before

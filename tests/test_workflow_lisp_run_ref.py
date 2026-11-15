@@ -1675,32 +1675,22 @@ def test_transitive_run_ref_in_list_map_effect_body_keeps_current_carrier(tmp_pa
     _assert_current_map_run_ref(tmp_path, locality="same")
 
 
-def test_transitive_run_ref_in_pure_function_precedes_generic_purity_diagnostic() -> None:
-    from orchestrator.workflow_lisp.functions import (
-        FunctionDef,
-        _validate_pure_function_expr,
-    )
+def test_transitive_run_ref_in_pure_function_precedes_generic_purity_diagnostic(tmp_path: Path) -> None:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
 
-    run_ref = _mode_one_expr()
-    procedure_catalog, _ = _run_ref_procedure_context(run_ref)
-    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
-    function_def = FunctionDef(
-        name="pure_helper",
-        params=(),
-        body=_expression('"unused"'),
-        span=run_ref.span,
-        form_path=FORM_PATH,
-        return_type_name="String",
-    )
-
+    source = tmp_path / "run_ref_purity.orc"
+    source.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defworkflow child () -> String "child")
+      (defproc wrapper () -> String (let* ((child {_mode_one_source()})) "done"))
+      (defun pure-helper () -> String (wrapper))
+      (defworkflow run () -> String (pure-helper)))''')
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _validate_pure_function_expr(
-            call,
-            function_def=function_def,
-            procedure_catalog=procedure_catalog,
-        )
-
-    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
+        compile_stage3_module(source, workspace_root=tmp_path)
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "run_ref_placement_invalid"
+    assert Path(diagnostic.span.start.path) == source
+    assert (diagnostic.span.start.line, diagnostic.span.start.column) == (5, 37)  # the expanded call, as below
+    assert diagnostic.expansion_stack
 
 
 def test_non_run_ref_procedure_keeps_public_pure_function_diagnostic(tmp_path: Path) -> None:

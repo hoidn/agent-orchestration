@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from orchestrator.dashboard.models import RunRecord
+from orchestrator.workflow.evaluated.authority import RunTargetRetiredError, refuse_retired_run_target
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,11 @@ class CommandBuilder:
 
         report = self._command(run.workspace.root, report_argv, warnings=[])
         resume = None if mismatch else self._command(run.workspace.root, resume_argv, warnings=[])
+        try:
+            refuse_retired_run_target(run.run_root)
+        except RunTargetRetiredError as exc:  # a run at a 2.35-2.39 label: `report` reads it, nothing continues it
+            resume = None
+            warnings.append(f"[{exc.code}] {exc}")
         return CommandSet(report=report, resume=resume, tmux=[], warnings=warnings)
 
     def _runs_root_arg(
