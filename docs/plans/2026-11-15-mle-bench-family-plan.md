@@ -388,63 +388,168 @@ changes, so the ladder's configuration and manifest do not move.**
   allowance guard, the price rule.
 - **What is bound in the launcher's code** (scout report I1 to I7), and what the wrapper does about
   each. The wrapper, `experiments/mle_bench_tasks/screen.py`, loads `ladder.py` by its path as a
-  private module and replaces a closed list of that module's names before calling it:
+  private module, sets a closed list of data names in it, runs its own checks, and then calls the
+  launcher's own entry point with an environment it has built. **It replaces or wraps no function
+  of `ladder.py` or of `manifest.py`.** What it replaces is this:
 
-| Name in `ladder.py` | The ladder's value | This family's value |
-| --- | --- | --- |
-| `KIT` | The reviewed kit's directory | The tranche's directory: its own `ladder.json`, `tasks.json` and `manifest.json`, and links to the four reviewed files the launcher addresses through this name (`harbor_patient.py`, `relay-compose.yaml`, `token_scan.py`, `passthrough.py`) |
-| `PLAN` | The ladder plan | This plan, so the label, the reads and the rulings are read from this ledger |
-| `EFFORTS` | `low`, `medium`, `high` | The screen: `medium` alone. The placement: unchanged |
-| `PACKAGES` | The Terminal-Bench package directory's name | This family's |
-| `Ctx` | State under `~/.local/state/lh-ladder` | A subclass whose state root is `~/.local/state/mle-bench/<tranche>` |
-| `manifest` | The ladder's manifest module | The same file loaded again, pointed at the tranche's directory, and covering by hash every reviewed file this family runs |
+| Name | In | The ladder's value | This family's value |
+| --- | --- | --- | --- |
+| `KIT` | `ladder.py` | The reviewed kit's directory | The tranche's directory, `experiments/mle_bench_tasks/tranches/<tranche>/`: its own `ladder.json` and `tasks.json`, and links to the four reviewed files the launcher addresses through this name (`harbor_patient.py`, `relay-compose.yaml`, `token_scan.py`, `passthrough.py`) |
+| `PLAN` | `ladder.py` | The ladder plan | The tranche's own ledger file (below) |
+| `EFFORTS` | `ladder.py` | `low`, `medium`, `high` | The screen: `medium` alone. The placement: unchanged |
+| `PACKAGES` | `ladder.py` | The Terminal-Bench package directory's name | `packages`, under this line's cache |
+| `Ctx` | `ladder.py` | State under `~/.local/state/lh-ladder` | A subclass that differs only in the state root, `~/.local/state/mle-bench/<tranche>` |
+| `manifest` | `ladder.py` | The ladder's manifest module | A second private load of the reviewed `manifest.py`, with the four names of the next rows set |
+| `KIT`, `MANIFEST` | That load of `manifest.py` | The reviewed kit; its `manifest.json` | This family's kit, `experiments/mle_bench_tasks/`; `manifests/<tranche>.json` in it |
+| `NOT_COVERED` | That load of `manifest.py` | The manifest, two prose files, results, caches | The same, and `manifests/` and `tranches/` |
+| `EXTERNAL` | That load of `manifest.py` | The price table and the criterion's test module | Those two; every file the ladder's own manifest covers, listed by calling the unmodified module, so the list cannot fall behind; and every file of this tranche's directory, each link hashed through to its content |
+| `LH` | The environment given to the launcher | Unset: `~/lh-cache` | `~/mle-cache`, this line's own cache (below) |
 
+- **Each tranche has its own ledger file, and the launcher reads no other.** The launcher takes
+  every `Configuration label` row of the ledger it is given as a label of the same tranche, and
+  accepts a `Smoke read`, `Pilot read` or `Round 1 read` row that names any of them; it matches a
+  `Ruling` row by its date and cause or attempt id, and attempt ids repeat from tranche to tranche.
+  With one ledger for the line, the reads of the first tranche would release every later tranche's
+  pilot and rounds with no person reading them, and a ruling written for one tranche could lift a
+  stop in another. So:
+  1. *The file* is `docs/plans/2026-11-15-mle-bench-ledger-<tranche>.md`, one per tranche, with the
+     ladder's table layout. The wrapper sets `PLAN` to it, and the launcher reads it as committed on
+     `main`.
+  2. *It is created with its first row before the tranche's first call,* and this plan's
+     [ledger](#ledger) links it in the row that opens the tranche.
+  3. *Before the tranche's first paid start it holds,* as dated rows: the tranche's name, model,
+     efforts, competitions, slots, starts cap, cap per attempt, ceiling and attempts at once, with
+     the approval they run under; each competition's package digest, its two image digests, its
+     withholding result against those digests, and the outcomes of its six legs and four controls;
+     the review verdict and the rehearsal results the tranche rests on; the owner's two
+     confirmations, shares, days and first reading, by date and without any account detail; the
+     hand-over (the ladder's launcher is not running, its passthrough is stopped, and the previous
+     tranche's last settlement is on an earlier calendar day); free disk on `/` and on `/home`
+     against M9's launch condition; and last, at the freeze, the row
+     `Configuration label` with the manifest's SHA-256 and the runtime commit.
+  4. *During the tranche it receives* the rows the launcher waits for or reads (`Smoke read`,
+     `Pilot read`, `Round 1 read`, `Ruling`), each cut and stop, and at the end the priced usage and
+     the allowance used.
+  5. *This plan's ledger keeps the line's decisions:* approvals, reviews, owner actions, each
+     tranche's opening and result, and the links. The launcher never reads it.
+- **Images are named by digest, never by tag.** The launcher's task check compares the two image
+  references in a package's `task.toml` with `tasks.json` as strings and reads no image id. For the
+  ladder those strings are registry digests, which are content addresses. For images built here a
+  name with a tag is not: an image rebuilt under the same tag would pass every check and run a paid
+  attempt on content no withholding check has seen. So:
+  1. *`task.toml` carries each image as `<name>@sha256:<digest>`,* the digest Podman's store reports
+     for the built image, and `tasks.json` carries the same strings. The reviewed string comparison
+     is then a comparison of content, and a rebuild cannot be used without rewriting the package,
+     which changes the package's digest and the label.
+  2. *The wrapper refuses* a package or a `tasks.json` entry whose image reference does not end in
+     `@sha256:` and 64 hexadecimal digits, and a `tasks.json` entry whose withholding result names
+     another digest than its image.
+  3. *Task 7 must show on the fixture* that Harbor 0.25.0 with podman-compose 1.6.0 starts a local
+     image given by digest without a pull. This is not verified.
+  4. *If it cannot,* the images are served from a registry on the loopback address of this machine
+     and named `localhost:<port>/<name>@sha256:<digest>`, which is the form the ladder's packages
+     already use and is pulled by content. The registry is then part of the kit: its own image is
+     pinned by digest, it listens on the loopback address only, and the withholding check runs on
+     the image as pulled from it. **No paid start is made until one of the two forms has been shown
+     on the fixture,** and the tranche ledger says which.
+- **This line has its own cache directory, `~/mle-cache`.** The launcher keeps host-side files
+  under its cache: the limits compose file and the containers override, whose content it compares
+  with the criterion before every start, and the package directory. This family's limits file
+  differs from the ladder's (shared memory, the GPU device), so in a shared cache each line would
+  have to overwrite the other's file, and the ladder's next start would stop on "the configuration
+  changed". The wrapper therefore gives the launcher `LH=~/mle-cache` and refuses when that
+  resolves to the ladder's `~/lh-cache`. In it: `logs/` with this line's two host-side files,
+  `packages/<name>/` with the task packages, `prepared/` with the prepared data and the answers,
+  and `hvenv`, a link to the ladder's harness environment, whose versions the criterion pins and
+  the launcher checks. The benchmark's clone and its environment stay where the fact-finding put
+  them, under `~/lh-cache/mle`, and are only read. Each tranche's jobs and state are under its own
+  state root, as in the ladder. Nothing this line writes is under `~/lh-cache`, and Task 5 tests
+  that a launch reads nothing under `~/lh-cache/logs`.
+- **What the manifest covers, and what that gives.** A tranche's manifest is
+  `manifests/<tranche>.json`; its SHA-256 is the tranche's label. It covers by hash every file of
+  this family's kit (the wrapper, the criterion generator, the task wrapper, the verifier, the
+  withholding check and the readout included; not the prose, the results, the other manifests or
+  the other tranches' directories), every file of this tranche's directory, and every file the
+  ladder's own manifest covers. The launcher's manifest check runs at launch and again before every
+  start, so an edit to `screen.py` or to any other covered file, a new file or a missing one, stops
+  the tranche before the next start, committed or not. The launcher's own clean-tree check still
+  covers `experiments/long_horizon_tasks` and `orchestrator`, as reviewed.
+- **What the wrapper adds, around the launcher and before it is entered.** None of these replaces a
+  check of the launcher; each is a refusal of the wrapper's own, tested in Task 5:
+  1. The tranche's name is one of the kit's list.
+  2. The cache is this line's (above).
+  3. Every image reference is pinned and has its withholding result (above).
+  4. `experiments/mle_bench_tasks` has no uncommitted change, by the same `git status` test the
+     launcher applies to its own kit. This also covers the files the manifest leaves out.
+  5. For a live launch or resume: the wrapper takes the ladder's launcher lock and a lock for this
+     whole line, holds both until the launcher returns, and refuses when either is held; it refuses
+     when the ladder's passthrough, or another tranche's, answers on its socket (M5).
+  6. Free disk on `/` and on `/home` meets M9's launch condition.
+  7. For a GPU tranche: no process holds memory on the card. While the launcher runs, the wrapper
+     records once a minute which processes do, into the tranche's state, for the readout (M5).
+- **What holds per start and what holds only at launch.** Per start, by reviewed code: the manifest
+  check (and with it this kit's bytes), the label and the runtime commit against the tranche
+  ledger, the detached checkout, the harness versions and the two host-side files, the allowance
+  guard, the ceiling and the starts cap; continuously, the disk floor and the stops. At launch
+  only: the package and image check of each competition (the launcher's own task check runs once,
+  as in the ladder) and the wrapper's seven refusals. The two locks are held for the launcher's
+  whole life.
 - **What stays exactly as reviewed:** the model check, the fake token's form, the money lock with
   its reservation and settlement, the classification, the allowance guard, the usage-limit and
   paid-usage handling, the token scan and the runtime check, the teardown, the reconcile, the
-  passthrough and the relay. The wrapper replaces no function; the one class it replaces, `Ctx`,
-  differs only in the state root. One key name in `tasks.json` keeps the ladder's spelling
+  passthrough and the relay. One key name in `tasks.json` keeps the ladder's spelling
   (`digest_4_1_0` holds the digest of the package the wrapper built), and the file says so.
 - **An older ready-made dataset does not save this work.** `mlebench-lite`, made for the first
   Terminal-Bench, is in the old task format, keeps the answers and a Kaggle credential inside the
   agent's image and scores "above median" (scout report E). Two things are taken from it: how the
   instruction is assembled, and its grader call, which is the whole verifier.
 - **How a package satisfies the launcher's task check.** The wrapper writes a Harbor task package
-  per competition: `task.toml` (the agent's time limit, CPUs and memory, the artifact, the two images
-  by their local names, and a canary line of this family, which the launcher requires and scans
-  for), the instruction (the benchmark's instructions adapted to M3, then the competition's original
-  description) and nothing else. The images are referenced as local images, the form the ladder's
-  labelled variant already uses (scout report I1), with their image ids in `tasks.json`. Identity is
-  "every file of the package equals the digest recorded at qualification", with the two network keys
-  exempt as in ladder D1.
-- **The verifier's output.** It writes the reward (1 or 0), the four graded outcomes as further
-  numbers, and a five-line test report (valid, above median, bronze, silver, gold). The launcher
-  already exports the count of passed tests as its graded outcome, so the medal step reaches the
-  export with no change; the score and the percentile are read by this family's readout from each
-  attempt's kept result file.
+  per competition, under its short name: `task.toml` (the agent's time limit, CPUs and memory, the
+  artifact, the two images by digest, and a canary line of this family, which the launcher requires
+  and scans for), the instruction (the benchmark's instructions adapted to M3, then the
+  competition's original description) and nothing else. Identity is "every file of the package
+  equals the digest recorded at qualification", with the two network keys exempt as in ladder D1.
+- **The verifier's output.** It writes the reward (1 or 0) and the four graded outcomes as further
+  numbers, and a test report in the one form the launcher reads: `verifier/ctrf.json`, with
+  `results.summary.tests` at five (valid, above median, bronze, silver, gold) and
+  `results.summary.passed` at the number that hold. Each competition is mapped to `"ctrf"` in the
+  criterion's `readout.graded_outcome.verifiers`; without that entry the launcher exports no graded
+  outcome for it. The medal step then reaches the export with no change. The score and the
+  percentile are read by this family's readout from the result file that gave the attempt's
+  reward: the trial's own, or the regrade's when the reward came from a regrade.
 - **What the wrapper cannot give, and what the plan does instead.**
   1. *No "one attempt on the GPU at a time" beside other attempts.* A slot has no resource class
      (scout report I3, I7). So a tranche holds competitions of one class, and a GPU tranche runs one
      attempt at a time (M5).
-  2. *No ceiling per calendar day* (scout report I6). So no tranche's ceiling is above USD 200, and
-     a tranche starts only on a later calendar day than the one on which the previous tranche's last
-     attempt settled (M9).
+  2. *No ceiling per calendar day* (scout report I6). So no tranche's ceiling is above USD 200, one
+     tranche runs at a time, and a tranche starts only on a later calendar day than the previous
+     tranche's last settlement (M9).
   3. *No per-task compose file and no mount.* The launcher passes two fixed compose files and no
      mount setting. The GPU device and the shared-memory size therefore go into the tranche's limits
      file, which is criterion data: a device entry in an extra compose file reached a task's
      container under Harbor 0.25.0 and rootless Podman, where the task field for a GPU is refused
      (run: scout report D5). The public data and the weights go into the agent image, not into a
      mount.
-  4. *No disk limit during an attempt.* A container has no storage limit, and the launcher checks
-     free disk only before a start (scout report G). So each tranche's free-disk threshold, which is
-     criterion data, is the ladder's 20 GB plus the scratch its attempts in flight may write: 50 GB
-     (M9).
-- **What must be reviewed again, by a reviewer who wrote none of it:** the wrapper's list of replaced
-  names, with a test that no use of a replaced name is bound when the module is loaded; the
-  criterion generator, with a test that every group it does not replace equals the ladder's; the
-  task wrapper, the verifier and the two withholding checks; this family's readout. Not reviewed
-  again: `ladder.py`, `passthrough.py`, `token_scan.py`, `slot_record.py` and the relay, whose bytes
-  are bound by hash in each tranche's manifest.
+  4. *No disk limit for an attempt.* A container has no storage limit. What the launcher has is one
+     floor, checked about once a second on the least free space of `/` and `/home`, attempts in
+     flight or not; below it every running attempt is stopped and the tranche stops. M9 sets the
+     floor and, separately, the room a launch needs above it.
+  5. *No slot that depends on an earlier outcome.* The schedule is fixed by the criterion, and the
+     launcher's export refuses a start whose competition is not in the current list. So the
+     screen's second stage is a tranche of its own (M9), with its own label, state and ledger.
+- **What must be reviewed again, by a reviewer who wrote none of it** (Task 8): the wrapper whole,
+  that is, the list of replaced names in both modules with a test that no use of a replaced name is
+  bound when the modules are loaded, and each added refusal with a test that it runs before the
+  launcher is entered; the criterion generator, with a test that every group it does not replace
+  equals the ladder's; the task wrapper, the verifier and the two withholding checks; this family's
+  readout. Because every claim above is about what reviewed code reads once the names are
+  replaced, the reviewer also reads, in `ladder.py`, the functions that read them: `ledger_text`,
+  `ledger_labels`, `hold` and the ruling readers; `_manifest_refusal`, `_live_refusal` and
+  `config_refusal`; `harness_refusal` and `attempt_command`; `task_refusal`; `socket_refusal`;
+  `free_gb` and `host_stops`; `OneLauncher`; `schedule`, `queue` and `export`; `graded`. Those
+  functions are not reviewed again for their own correctness, and neither are `passthrough.py`,
+  `token_scan.py`, `slot_record.py` and the relay: their bytes are bound by hash in each tranche's
+  manifest.
 - **Cost if wrong.** A replaced name that the launcher read before the replacement would make a guard
   read the ladder's data, for example the ladder's ceiling. The guard tests of Task 5 run the
   launcher's refusals through the wrapper to catch that, and the rehearsal runs the whole path. If
@@ -461,16 +566,23 @@ changes, so the ladder's configuration and manifest do not move.**
   itself after one to four hours (report §9.1, an estimate), so the limit should rarely bind.
   **If the smoke's or the pilot's session of a tranche runs longer than eight hours, the tranche
   waits and the coordinator reports to the owner before round 1,** because the kit's timings are
-  sized for eight hours (scout report I5) and thirty GPU attempts at 24 hours are thirty days. A
-  shorter limit is then a new configuration label, never a change in place.
+  sized for eight hours (scout report I5) and the GPU's stage one alone is thirty attempts, thirty
+  days at 24 hours each. A shorter limit is then a new configuration label, never a change in
+  place.
 - **The alternative, eight hours from the start,** would triple the worst-case throughput and
   shorten the exposure to usage limits (M8). It was not chosen because it would cap the staged arm of
   a later comparison, which must run under the same limit, and so would force a second calibration.
-- **Parallelism.** The screen's first tranche runs the three CPU-only competitions at up to three
-  attempts at once (its smoke and its pilot each run alone). The second runs the ten GPU competitions
-  one attempt at a time. The roadmap's "about four at once, one of them on the GPU" is not reachable
-  without a change to the reviewed launcher (M4); what is lost is the overlap of nine short attempts,
-  under a day at the report's estimate.
+- **Parallelism.** A CPU tranche runs the three CPU-only competitions at up to three attempts at
+  once (its smoke and its pilot each run alone). A GPU tranche runs one attempt at a time. The
+  roadmap's "about four at once, one of them on the GPU" is not reachable without a change to the
+  reviewed launcher (M4); what is lost is the overlap of the short CPU attempts, under a day at the
+  report's estimate.
+- **Three at once is an upper bound, and fewer is likely.** Until the allowance guard has a
+  five-hour figure it allows at most two attempts at once, and a tranche's own pilot often gives
+  none (M8). The load gate is judged on the machine's load averages: one attempt whose libraries
+  start a thread for each of its 24 CPUs can close it alone, and other sessions have been seen to
+  hold the load near 120 (scout report G). A gate that stays closed for two hours with nothing in
+  flight pauses the tranche.
 - **Per attempt** (report §9.2, estimates): a CPU-class attempt gets 6 CPUs, 16 GB of memory and 4 GB
   of shared memory; a GPU-class attempt gets 8 CPUs, 32 GB, 8 GB of shared memory and the whole RTX
   3090. Shared memory must be set: Podman's default is 64 MB (scout report J). The verifier's
@@ -479,13 +591,31 @@ changes, so the ladder's configuration and manifest do not move.**
   file, equal for every attempt of a competition, and a later comparison uses the same.
 - **CPU set and load:** the ladder's set, CPUs 8 to 31, and its load gate (both load averages at or
   below 24), unchanged.
-- **This line and the ladder are never in flight together.** Three reasons: the token must be in one
-  host process, and each tranche has its own passthrough; each launcher's allowance guard counts only
-  its own usage since the owner's reading, so two at once would overdraw the owner's share; and both
-  use the same CPU set and load gate. A tranche of this line starts only when the ladder's launcher
-  has nothing in flight and its passthrough is stopped, and the other way round. The ladder has first
-  call on the owner's allowance (it is approved, and its effort verdict informs this line); the split
-  is owner action 7. Every hand-over is a ledger row.
+- **This line and the ladder are never in flight together, and neither are two tranches of this
+  line.** Three reasons: the token must be in one host process, and each tranche has its own
+  passthrough; each launcher's allowance guard counts only its own usage since the owner's reading,
+  so two at once would overdraw the owner's share; and both use the same CPU set and load gate. The
+  launcher's own lock is per state root, so by itself it stops none of this. What does:
+  1. *In code.* For a live launch or resume the wrapper takes the ladder's launcher lock, on the
+     ladder's state root, with the reviewed lock class, and a second lock for the whole line under
+     `~/.local/state/mle-bench/`. It holds both until the launcher returns and refuses when either
+     is held. An attempt is in flight only while its launcher runs, so no attempt of one line
+     overlaps a launcher of the other: the ladder's launcher is refused by its own reviewed lock
+     while this line's runs, with no change to it. The wrapper also refuses while the ladder's
+     passthrough, or another tranche's, answers on its socket.
+  2. *By procedure.* A paused tranche has no launcher running and holds no lock, but its
+     passthrough may still be up, and the ladder's launcher does not know this line's sockets. So
+     stopping this line's passthrough is part of every hand-over to the ladder, and the hand-over is
+     a row in the tranche ledger. A rehearsal takes neither lock (it holds no token and makes no
+     request to the vendor) and is run only when the ladder has nothing in flight.
+  3. *The allowance.* The ladder has first call on the owner's allowance (it is approved, and its
+     effort verdict informs this line); the split is owner action 7.
+- **The GPU is checked for other use.** Nothing in the launcher looks at the card, and other work
+  on it during an attempt would lower that attempt's result as an observation. The wrapper refuses
+  to launch a GPU tranche while any process holds memory on the card, and records once a minute
+  which processes do; the readout flags every attempt during which a process outside its own
+  container did. A flag excludes nothing by itself; the coordinator rules on it before the class is
+  read.
 - **Cost if wrong.** If direct sessions use most of 24 hours, the GPU tranche takes weeks and the
   eight-hour read stops it after at most two sessions. If CPU-class competitions needed a GPU for a
   medal after all, they land at the floor for a reason of ours; the report's class is an estimate.
@@ -500,16 +630,55 @@ changes, so the ladder's configuration and manifest do not move.**
 | Option | Reproducibility | Contamination | Cost |
 | --- | --- | --- | --- |
 | A. A model hub on the allowlist | The hub's content changes; an attempt next month may fetch something else | A hub also serves datasets and other users' checkpoints, some trained on competition data; the dog-breed test images come from a public labelled set (report §5.2). The egress log names only refused connections, so what an attempt fetched from an allowed host is visible only where the transcript prints it | No image work; several more hosts on the list, since a hub serves files from other names, and the egress filter sees host names only, never paths (scout report H) |
-| **B. A fixed set of weights in the agent image** | Fixed by SHA-256 in the criterion | Nothing is reachable that the image does not hold | A few GB of disk (report §5.2); engineering in Task 11; the list bounds what an attempt can build |
+| **B. A fixed set of weights in the agent image** | Fixed by SHA-256 in a committed file that the manifest covers | No model hub is reachable. The package indexes still are, and they can serve any file (M7) | About 7 GB of disk in one shared image layer (an estimate); engineering in Task 11; the list bounds what an attempt can build |
 
 - **Recommendation: B.** It keeps the one network policy for both families, and it is the only
-  option under which the readout can say what an attempt had. The list is general-purpose image and
-  text encoders, the same for every competition, chosen before the screen and named in the
-  instruction; it is fixed in Task 11 and recorded in the ledger. The image sets the libraries'
-  offline switches, so that they read the placed files (scout report H). An agent can still install
+  option under which the readout can say what an attempt had. The image sets the libraries' offline
+  switches, so that they read the placed files (scout report H). An agent can still install
   packages, PyTorch included, from the package index, which is on the list.
+- **The set is part of the task definition.** Which checkpoints are in the image decides which
+  competitions can earn a medal at all: a competition whose medal needs a model the set does not
+  hold sits at the floor for a reason of ours, and the readout cannot tell that from the model's
+  failure. The set is therefore specified as data, by a rule, before any attempt of this line is
+  seen, and it does not change after the first GPU attempt.
+- **The rule by which the set is chosen.** The benchmark gives no list to copy: its environment
+  pins the libraries (`torch` 2.2.0, `transformers` 4.44.2, `timm` 0.9.7) and names no checkpoint,
+  and the published set-ups leave the network open for them (read in the clone's `environment/` and
+  `agents/`; report §5.2). So the rule is this plan's:
+  1. *Publisher's originals only.* A checkpoint as its authors, or the library that ships it,
+     released it, fetched at a named revision.
+  2. *General-purpose only.* Pretrained on general data (ImageNet, COCO for the one detector,
+     general text). None fine-tuned for a downstream task, and none trained or fine-tuned on a
+     Kaggle competition's data or on a dataset one of the thirteen competitions was built from.
+  3. *By modality, not by competition.* For each kind of input the ten GPU candidates have, the
+     standard base architectures that the benchmark's pinned libraries load by name, in at most two
+     sizes. No checkpoint is added because a competition's public solutions used it.
+  4. *Bounded.* At most twelve checkpoints and 8 GB in all, one set, the same in every GPU agent
+     image, in one shared image layer.
+  5. *Usable.* A licence that allows research use and a local copy. A checkpoint that needs an
+     account to accept terms is in the set only if the owner accepts them.
+- **The proposed set under that rule** is below. The names are from the planner's knowledge of
+  these libraries and are not verified; the sizes are rough. Task 11 fixes the exact revisions.
+
+| Modality | Checkpoints proposed | Rough size | Candidates it is meant for |
+| --- | --- | --- | --- |
+| Image classification and regression | ResNet-50, EfficientNet-B3, ConvNeXt-Small and ViT-B/16, each with its ImageNet weights | 0.7 GB | `whale`, `petfinder`, `cassava`, and `kuzushiji`'s classifier |
+| Object detection | Faster R-CNN with a ResNet-50 FPN backbone, COCO weights | 0.2 GB | `kuzushiji` |
+| English text | BERT-base (uncased), RoBERTa-base, DeBERTa-v3-base and DeBERTa-v3-large | 2.2 GB | `patent`, `tweet`, `essay2`, `jigsaw`, `lmsys` |
+| Multilingual text | XLM-RoBERTa-base and XLM-RoBERTa-large | 3.3 GB | `chaii` |
+
+- **What the proposed set leaves out, stated before the fact.** It holds no generative language
+  model and no checkpoint already fine-tuned for question answering. If medals on `lmsys` or
+  `chaii` need those, as the planner believes of their public solutions (not verified), these two
+  will screen low for a reason of ours. The owner may add to the set under clause 5 before the
+  freeze; after it, a change is a new label and a new screen of the GPU class.
+- **The committed list.** Before the GPU tranche's freeze, `experiments/mle_bench_tasks/weights.json`
+  holds for each checkpoint its name, its source and revision, the SHA-256 of every file, its size,
+  its licence and the modality it serves. The manifest covers the file, so the set is part of the
+  label; the instruction names the set to the agent; Task 11 shows that every checkpoint loads in
+  the image with the offline switches set.
 - **What B costs if wrong.** Rates are lower than under the benchmark's usual policy and are not
-  comparable with it. A competition whose medal needs a model outside the list sits at the floor for
+  comparable with it. A competition whose medal needs a model outside the set sits at the floor for
   a reason of ours. The readout counts refused connections per attempt, which shows an agent that
   reached for a hub.
 - **The three CPU-only competitions do not depend on this decision.**
@@ -528,6 +697,18 @@ changes, so the ladder's configuration and manifest do not move.**
   of false hits (a competition's own description may name its Kaggle page, so page addresses are
   tested before they are frozen). A hit on an observation excludes it, as in ladder D6. Per attempt,
   the refused connections and their count.
+- **The allowlist is not closed to the labels.** The package indexes on it serve whatever anyone
+  has uploaded, and the held-out rows of every candidate come from the competition's original
+  training set, whose labels are public. A package that carries such a copy, or pretrained
+  weights, can be installed like any other. Whether one exists for a candidate was not searched.
+- **What the logs let the readout flag, and what they do not.** The egress log kept for each
+  attempt shows the connections that were refused, by address and count, which is how an attempt
+  that reached for a model hub or for Kaggle shows. Of an allowed host it shows at most that the
+  host was reached: the filter sees host names, never paths or content. The transcript shows every
+  command the agent ran, so the readout lists, per attempt, the packages it installed, and the
+  frozen terms are searched in the transcript as above. A package that carries labels under a
+  harmless name and is used without comment is not detected. That is an accepted limit, and it is
+  the ladder's too: both families run on the same allowlist.
 - **What cannot be detected:** a submission that reproduces a public solution from memory. The
   benchmark's own plagiarism check needs the public notebooks and its rule-breaking check calls a
   model outside this project's rules (report §6.4); neither is used.
@@ -541,6 +722,8 @@ D4, D5). The ladder's allowance guard is reused as it is; its inputs and reading
 each tranche. Its two figures (priced dollars per meter point, weekly and five-hour) are the ladder
 pilot's when that has run, entered with a ledger row; a tranche's own pilot is one cheap attempt,
 which will often move a meter by less than two points and then gives only bounds (ladder D7).
+Without a five-hour figure the guard allows at most two attempts at once, which caps a CPU
+tranche's three.
 
 - **How a tranche pauses.** When the passthrough sees the vendor's usage-limit answer, the launcher
   closes all starts and reopens them by itself five minutes after the reset the answer names, with
@@ -574,54 +757,119 @@ which will often move a meter by less than two points and then gives only bounds
 Every figure is a priced-token figure. The estimates come from report §9.1 and §10 (a direct session
 that stops by itself: USD 1 to 8, central about USD 3) and are not measured.
 
-| Tranche | Competitions | Effort | Slots | Starts at most | Cap per attempt | Ceiling | Attempts at once |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Screen, CPU | The 3 CPU-class | `medium` | 9 | 11 | USD 8 | USD 60 | 1 (smoke), 1 (pilot), then 3 |
-| Screen, GPU | The 10 GPU-class | `medium` | 30 | 34 | USD 8 | USD 140 | 1 |
-| Placement, each | At most 3 survivors of one class | `low`, `medium`, `high` | At most 45 | At most 50 | USD 8 | USD 200 | As its class |
+| Tranche | Name | Competitions | Effort | Slots | Starts at most | Cap per attempt | Ceiling | Attempts at once |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Screen, CPU, stage one | `screen-cpu` | The 3 CPU-class | `medium` | 9 | 11 | USD 8 | USD 50 | 1 (smoke), 1 (pilot), then up to 3 |
+| Screen, CPU, stage two | `screen-cpu-2` | Those of the 3 with no medal, as funded | `medium` | At most 9 | Its slots and 2 | USD 8 | What stage one left of the USD 50 | As stage one |
+| Screen, GPU, stage one | `screen-gpu` | The 10 GPU-class | `medium` | 30 | 34 | USD 8 | USD 150 | 1 |
+| Screen, GPU, stage two | `screen-gpu-2` | Those of the 10 with no medal, as funded | `medium` | At most 30 | Its slots and 4 | USD 8 | What stage one left of the USD 150 | 1 |
+| Placement, each | `place-cpu`, `place-gpu` | At most 3 survivors of one class | `low`, `medium`, `high` | At most 45 | At most 50 | USD 8 | USD 200 | As its class |
 
-- **The screen: 39 slots, at most 45 starts, USD 200.** The cap is the top of the report's range for
-  a session that stops by itself. Before each start the launcher reserves the cap plus USD 1, so a
-  tranche completes only if its attempts average under about USD 6 (CPU) or USD 4.50 (GPU). **If the
-  smoke and the pilot of a tranche average above that figure, the coordinator reports before round
-  1;** no cap or ceiling changes without a new label and a ledger row.
+- **The screen: 39 to 78 slots, at most 90 starts, USD 200** (USD 50 for the CPU class and USD 150
+  for the GPU class, which gives both the same room per attempt). The cap is the top of the
+  report's range for a session that stops by itself.
+- **Why stage two is a tranche of its own.** The launcher's schedule is fixed by the criterion, so
+  three more attempts for some competitions cannot be added inside a running tranche (M4). Stage
+  two of a class is therefore generated after stage one's export, by a rule fixed here:
+  1. *Its competitions* are those of the class with no medal among stage one's observations, in the
+     order of their rank in report §8.2.
+  2. *Its ceiling* is the class's ceiling less everything stage one's launcher committed: the
+     settled cost of every start, cuts included, and the live probe's usage it counted. The two
+     stages of a class can never pass the class's ceiling.
+  3. *Its size.* With m the mean priced cost per start of stage one, it holds the first k
+     competitions of that order, k the largest number for which (3k − 1) × m + USD 9.45 is within
+     its ceiling: the launcher reserves the cap and USD 1 before the last start and counts the
+     probe's usage, at most USD 0.45, again. A competition beyond k is reported "not screened: the
+     second stage was not funded", and no attempt is spent on a stage that cannot finish. With k at
+     zero there is no stage two.
+  4. *Everything else* in its criterion equals stage one's, which a test holds. The generator takes
+     stage one's export and gives the same criterion every time; the stage-two ledger's first row
+     states the list, m, k and the ceiling.
+  5. *It has its own smoke, pilot and reads,* as the launcher requires of every tranche. They are
+     its first slots and count as observations like any other.
+- **What USD 200 pays for.** The launcher reserves the cap and USD 1 before each start. Stage one
+  completes only if its attempts average under about USD 5.05 (CPU) or USD 4.85 (GPU). The second
+  stage of every competition, 78 attempts, fits only if attempts average under about USD 2.35. At
+  the central estimate of USD 3, the rule funds the second stage of one CPU competition and five
+  GPU competitions. Competitions at the floor nearly always need it (M1), and the report expects 8
+  to 11 of the 13 outside the band (2 to 5 in it), so at USD 3 some competitions will end "not screened". **The
+  estimates therefore do not allow USD 200 to cover the whole sequential screen at their centre.**
+  The plan keeps USD 200 as its proposed total and funds the second stage in rank order; the alternative, USD 250 (CPU 61, GPU 189), funds it for all thirteen at USD 3 and is
+  put to the owner in action 9. **If the smoke and the pilot of a stage-one tranche average above
+  its figure, the coordinator reports before round 1;** no cap or ceiling changes without a new
+  label and a ledger row.
 - **The placement: at most six competitions, 90 slots, 100 starts and USD 400,** in at most two
-  tranches. If more than six survive, the owner chooses which are placed. The placement starts only
-  after the screen's result is reported to the owner (roadmap step 12).
-- **The line in all: at most 129 slots, 145 starts and USD 600.** The ladder's live probe is counted
-  into each tranche's total by the launcher, a conservative double count of at most USD 0.45.
+  tranches. A tranche of 45 slots completes only if its attempts average under about USD 4.30, at
+  three efforts of which `high` is the dearest. If the ceiling ends it early, the last round is
+  lost first; a competition with at least four observations at each effort is still judged (M1),
+  and one with fewer is "not screened". If more than six survive, the owner chooses which are
+  placed. The placement starts only after the screen's result is reported to the owner (roadmap
+  step 12).
+- **The line in all: at most 168 slots, 190 starts and USD 600.** The ladder's live probe is counted
+  into each tranche's total by the launcher, a conservative double count of at most USD 0.45 a
+  tranche.
 - **Effort for the screen: `medium`.** The placement pools three efforts, and the middle one is the
   best single guide to that pooled rate whichever way success moves with effort, which the ladder has
   not yet measured. It is also the cheaper choice (report §6.3).
-- **The day.** No tranche's ceiling is above USD 200. A tranche makes its first start only after the
-  previous tranche has nothing in flight (M5), and on a later calendar day than the one on which
-  that tranche's last attempt settled. So no calendar day can pass USD 200 for this family, with no
-  new guard.
+- **The day.** USD 200 per calendar day holds by the ceilings and by procedure; no guard counts a
+  day.
+  1. *What holds it.* No tranche's ceiling is above USD 200. One tranche of the line runs at a
+     time, which the wrapper's lock enforces (M5). A tranche makes its first start on a later
+     calendar day than the previous tranche's last settlement, which is a person's row in the
+     tranche ledger and is checked by nobody else. Then each day holds the spend of one tranche
+     only, and a tranche spends at most its ceiling over all its days.
+  2. *An attempt that crosses midnight.* Each request is counted on the calendar day, in this
+     machine's local time, on which the passthrough priced it. An attempt of 24 hours is so split
+     between two days, and the readout prints the line's priced usage per day from the
+     passthrough's request logs.
+  3. *What would break it.* A tranche started on the day the previous one settled. Two tranches
+     could then spend up to their two ceilings on that day.
 - **Each tranche's order,** as the launcher runs it: a smoke (one attempt, then a person's read
   against the ladder's smoke checks), a pilot (one attempt at the screen, the owner reading the
-  meters before and after), then the rounds, with a read after round 1. The CPU tranche's smoke is
-  `leaf-classification` and its pilot `mlsp-2013-birds`; the GPU tranche's smoke is
-  `us-patent-phrase-to-phrase-matching`, the smallest that needs the weights and the GPU, and its
-  pilot `tweet-sentiment-extraction`. All four have small data, because the launcher exports the
-  agent's whole file system after a smoke and a pilot, within 300 seconds (scout report I5).
+  meters before and after), then the rounds, with a read after round 1. The CPU class's stage-one
+  smoke is `leaf` and its pilot `birds`; the GPU class's smoke is `patent`, the smallest that needs
+  the weights and the GPU, and its pilot `tweet`. All four have small data, because after a smoke
+  and a pilot the launcher exports each agent container's whole file system into the token scan.
+  The export has no time limit of its own; the scan around it has three hours, and the export
+  includes the image's layers, 8 to 12 GB and the weights for a GPU image (scout report I5).
+- **Disk: one floor, checked all the time, and room above it at launch.**
+  1. *What the launcher does.* About once a second, attempts in flight or not, it takes the least
+     free space of `/`, `/home`, the state root and the cache. Under the criterion's floor it stops
+     every running attempt and the tranche. It has no other disk rule.
+  2. *The floor is 20 GB,* the ladder's: the level under which the machine itself is at risk. It is
+     not raised to hold the attempts' scratch, because a floor is a stop, and a higher one would
+     stop a smoke that had only begun to write.
+  3. *The room above it is a condition of the launch,* refused by the wrapper and read again by a
+     person at each read. On `/home`: the floor and the scratch of the attempts that may be in
+     flight, which is three CPU-class attempts at 10 GB or one GPU-class attempt at 30 GB (the upper
+     figures of report §9.2), so 50 GB for either class, counted after the tranche's images are in
+     the store. On `/`: 40 GB, the floor and 20 GB for what other sessions write there; `/` has 48
+     to 50 GB free today and was seen at 31 GB during the ladder's oracle pass. A smoke launched at
+     these figures can write its whole estimated scratch and stay above the floor.
+  4. *All of these are estimates.* What an attempt writes is first measured by the smoke. An attempt
+     that writes more than its estimate, or another session that fills `/`, takes the least free
+     space under the floor, and then every attempt in flight is stopped, a 24-hour one included.
+     Images are built only while no launcher of either line runs, because a build is staged on `/`.
 - **A tranche stops** at any stop of ladder D7.7, which the criterion copies: a failed smoke, another
   model in a response, another CLI version or tool list, a passthrough refusal for model, tool, path
   or token, a vendor 401, a sign of paid extra usage, a match of the token scan, three usage-limit
-  answers in a row, contaminated attempts on three competitions, and free disk under 50 GB: the
-  ladder's 20 GB and 30 GB of scratch, which is three CPU-class attempts at 10 GB or one GPU-class
-  attempt at 30 GB (the upper figures of report §9.2, estimates). The share-of-starts thresholds are judged from fewer starts than the ladder's twenty, because the
+  answers in a row, contaminated attempts on three competitions, and free disk under the floor. The
+  share-of-starts thresholds are judged from fewer starts than the ladder's twenty, because the
   tranches are small: infrastructure failures above 10 percent from 5 starts (CPU) or 10 (GPU), and
   the ladder's pause for cuts from the same counts.
-- **The line stops for a competition** when the screen puts it at the floor or above the band (M1).
-  **The line stops altogether** when a tranche ends in a stop that the coordinator does not lift, when
-  the eight-hour read or the cost read goes to the owner and the owner ends it, or when no
-  competition survives the screen.
+- **The line stops for a competition** when the screen puts it above the band or excludes it low
+  (M1). **The line stops altogether** when a tranche ends in a stop that the coordinator does not
+  lift, when the eight-hour read or the cost read goes to the owner and the owner ends it, or when
+  no competition survives the screen.
 - **Nothing is topped up.** No slot is refilled, no threshold moved and no ceiling raised after a
-  tranche's first attempt. More attempts, another effort, another competition or another definition
-  of success is a new request.
+  tranche's first attempt. Stage two is not a top-up: its rule, its list and its ceiling follow from
+  stage one's export by the rule above. More attempts, another effort, another competition or
+  another definition of success is a new request.
 - **Cost if wrong.** A ceiling too low cuts the tail of a tranche's fixed order, and with three
-  attempts per competition one lost attempt leaves a competition "not screened". A cap too low ends
-  long sessions as flagged observations; the verifier still grades whatever submission exists.
+  attempts per competition in each stage, one lost attempt leaves a competition "not screened". A cap
+  too low ends long sessions as flagged observations; the verifier still grades whatever submission
+  exists. A floor or a launch condition set from wrong estimates stops attempts in flight, and each
+  one stopped is a start spent with no observation.
 
 ### M10. The Kaggle token (owner places it; coordinator rules the handling)
 
@@ -631,13 +879,19 @@ that stops by itself: USD 1 to 8, central about USD 3) and are not measured.
 - **It is the legacy credential,** a `kaggle.json` holding the account name and a key: the client
   version the benchmark pins reads nothing else (scout report C).
 - **Only the download command reads it,** on the host: `fetch.sh` of this kit, which is given the
-  directory's path (`KAGGLE_CONFIG_DIR`) and never the value. It always sets that variable, because
-  the client otherwise creates a configuration directory in the home directory, and it runs with no
-  terminal input, because the benchmark asks a question on standard input when rules are not
-  accepted (scout report C). Its own output is one fixed line per competition (done, rules not
+  directory's path (`KAGGLE_CONFIG_DIR`) and never the value. The script always sets that variable,
+  because the client otherwise creates a configuration directory in the home directory, and it runs
+  with no terminal input, because the benchmark asks a question on standard input when rules are
+  not accepted (scout report C). Its own output is one fixed line per competition (done, rules not
   accepted or download failed, no room); the download tool's raw output goes to a file inside the
   token's directory, never to a pane. The download request itself carries the account name to
   Kaggle, as any download must.
+- **The script is reviewed before it first runs** (Task 10a), by someone who did not write it,
+  because it is the only code of this line that touches the credential.
+- **The preparation may read it too.** The benchmark's preparation step imports the same Kaggle
+  client, which may read the credential when it is imported (scout report C). Until Task 10 has
+  shown the download and the preparation apart, the preparation runs inside `fetch.sh`, under the
+  same rules.
 - **Where it never is:** in a container or an image (the build contexts are assembled from the
   prepared data alone); in a committed file; in a log outside its own directory; in an agent's
   output. No agent, test or subagent reads the directory. The file holds the account name beside the
